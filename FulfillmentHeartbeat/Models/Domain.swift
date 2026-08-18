@@ -1354,3 +1354,16 @@ enum PickerFocus: String, CaseIterable, Identifiable {
     }
 }
 
+enum PickerSort: String, CaseIterable, Identifiable {
+    case pph, name, store
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .pph: return "PPH"
+        case .name: return "Picker"
+        case .store: return "Store"
+        }
+    }
+}
+

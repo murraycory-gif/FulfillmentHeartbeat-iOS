@@ -641,7 +641,9 @@ struct PickerShopperCard: View {
     var place: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let health = HeartbeatMath.pickerHealth(row)
+        let metrics = HeartbeatMath.pickerMetricReadout(row)
+        return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
                 Text(row.shopperName)
                     .font(.title3.weight(.semibold))
@@ -652,7 +654,7 @@ struct PickerShopperCard: View {
                     .foregroundStyle(AppTheme.textSecondary)
             }
             HStack(spacing: 8) {
-                ForEach(HeartbeatMath.pickerMetricReadout(row), id: \.name) { metric in
+                ForEach(metrics, id: \.name) { metric in
                     VStack(spacing: 3) {
                         Text(metric.name)
                             .font(.caption.weight(.semibold))
@@ -673,11 +675,11 @@ struct PickerShopperCard: View {
         .padding(14)
         .background(
             RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
-                .fill(wash(HeartbeatMath.pickerHealth(row)).opacity(0.55))
+                .fill(wash(health).opacity(0.55))
         )
         .overlay(
             RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
-                .stroke(ink(HeartbeatMath.pickerHealth(row)).opacity(0.35), lineWidth: 1.5)
+                .stroke(ink(health).opacity(0.35), lineWidth: 1.5)
         )
     }
 
@@ -702,58 +704,26 @@ struct PickerShopperCard: View {
 
 struct PickerScoreTable: View {
     @EnvironmentObject private var store: HeartbeatStore
-    let rows: [MetricRow]
     var focus: PickerFocus = .all
 
-    private enum Sort: String, CaseIterable, Identifiable {
-        case pph, name, store
-        var id: String { rawValue }
-        var title: String {
-            switch self {
-            case .pph: return "PPH"
-            case .name: return "Picker"
-            case .store: return "Store"
-            }
-        }
-    }
-
-    @State private var sort = Sort.pph
+    @State private var sort = PickerSort.pph
     @State private var ascending = true
+    @State private var limit = 150
 
-    private var filtered: [MetricRow] {
-        rows.filter { HeartbeatMath.pickerMatches($0, focus: focus) }
-    }
-
-    private var sortedRows: [MetricRow] {
-        filtered.sorted { lhs, rhs in
-            let result: ComparisonResult
-            switch sort {
-            case .name:
-                result = lhs.shopperName.localizedStandardCompare(rhs.shopperName)
-            case .store:
-                if let a = Int(lhs.storeNumber), let b = Int(rhs.storeNumber) {
-                    result = a == b ? .orderedSame : (a < b ? .orderedAscending : .orderedDescending)
-                } else {
-                    result = lhs.storeNumber.localizedStandardCompare(rhs.storeNumber)
-                }
-            case .pph:
-                let a = lhs.number("pph") ?? -9999
-                let b = rhs.number("pph") ?? -9999
-                result = a == b ? .orderedSame : (a < b ? .orderedAscending : .orderedDescending)
-            }
-            return ascending ? result == .orderedAscending : result == .orderedDescending
-        }
+    private var total: Int { store.pickerCount(for: focus) }
+    private var page: [MetricRow] {
+        store.pickerPage(focus: focus, sort: sort, ascending: ascending, limit: limit)
     }
 
     var body: some View {
         Section {
             HStack {
-                Text("Showing \(HeartbeatFormat.num(Double(filtered.count))) · \(focus.title)")
+                Text(pageCaption)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(AppTheme.textSecondary)
                 Spacer()
                 Menu {
-                    ForEach(Sort.allCases) { option in
+                    ForEach(PickerSort.allCases) { option in
                         Button {
                             if sort == option {
                                 ascending.toggle()
@@ -778,9 +748,12 @@ struct PickerScoreTable: View {
             .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 4, trailing: 20))
             .listRowSeparator(.hidden)
             .listRowBackground(AppTheme.bg)
+            .onChange(of: focus) { _, _ in
+                limit = 150
+            }
         }
 
-        if sortedRows.isEmpty {
+        if total == 0 {
             Section {
                 EmptyHint(
                     symbol: "person.2",
@@ -793,14 +766,36 @@ struct PickerScoreTable: View {
             }
         } else {
             Section {
-                ForEach(sortedRows) { row in
+                ForEach(page) { row in
                     PickerShopperCard(row: row, place: place(for: row))
                         .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.bg)
                 }
+                if page.count < total {
+                    Button {
+                        limit += 150
+                    } label: {
+                        Text("Show more · \(page.count) of \(HeartbeatFormat.num(Double(total)))")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(AppTheme.blue)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                    }
+                    .buttonStyle(.plain)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 16, trailing: 20))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(AppTheme.bg)
+                }
             }
         }
+    }
+
+    private var pageCaption: String {
+        if page.count < total {
+            return "Showing \(page.count) of \(HeartbeatFormat.num(Double(total))) · \(focus.title)"
+        }
+        return "Showing \(HeartbeatFormat.num(Double(total))) · \(focus.title)"
     }
 
     private func place(for row: MetricRow) -> String {

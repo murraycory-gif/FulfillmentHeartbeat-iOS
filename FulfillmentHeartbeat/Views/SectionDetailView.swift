@@ -79,7 +79,7 @@ struct SectionDetailView: View {
             }
 
             if section == .pickerScorecard {
-                PickerScoreTable(rows: snapshots, focus: pickerFocus)
+                PickerScoreTable(focus: pickerFocus)
             } else {
                 StoreTable(section: section, rows: snapshots)
             }
@@ -246,52 +246,45 @@ struct SectionDetailView: View {
 
     @ViewBuilder
     private var pickerStatusTiles: some View {
-        let rows = snapshots
-        let opportunity = rows.filter { HeartbeatMath.pickerHasVolume($0) && HeartbeatMath.pickerHealth($0) != .good }.count
-        let strong = rows.filter { HeartbeatMath.pickerHasVolume($0) && HeartbeatMath.pickerHealth($0) == .good }.count
-        let atRisk = rows.filter { ($0.number("pph") ?? .greatestFiniteMagnitude) < HeartbeatMath.pphRisk }.count
-        let highPresub = rows.filter { ($0.number("presub_pct") ?? 0) > 6 }.count
-        let avgPPH = HeartbeatMath.average(rows.compactMap { $0.number("pph") })
-        let pphHealth = HeartbeatMath.band(avgPPH, good: HeartbeatMath.pphGoal, watch: HeartbeatMath.pphRisk)
         KpiTile(
             label: "Shoppers",
-            value: HeartbeatFormat.num(Double(rows.count)),
+            value: HeartbeatFormat.num(Double(store.pickerCount(for: .all))),
             tone: .brand,
             selected: pickerFocus == .all,
             action: { pickerFocus = .all }
         )
         KpiTile(
             label: "Opportunity",
-            value: HeartbeatFormat.num(Double(opportunity)),
+            value: HeartbeatFormat.num(Double(store.pickerCount(for: .opportunity))),
             tone: .risk,
             selected: pickerFocus == .opportunity,
             action: { pickerFocus = .opportunity }
         )
         KpiTile(
             label: "Doing well",
-            value: HeartbeatFormat.num(Double(strong)),
+            value: HeartbeatFormat.num(Double(store.pickerCount(for: .strong))),
             tone: .good,
             selected: pickerFocus == .strong,
             action: { pickerFocus = .strong }
         )
         KpiTile(
             label: "Avg PPH",
-            value: HeartbeatFormat.num(avgPPH, digits: 1),
-            hint: pphHealth.label,
-            tone: tone(for: pphHealth),
+            value: summary.headlineText,
+            hint: summary.health.label,
+            tone: tone(for: summary.health),
             selected: pickerFocus == .avgPPH,
             action: { pickerFocus = .avgPPH }
         )
         KpiTile(
             label: "Below 74 PPH",
-            value: HeartbeatFormat.num(Double(atRisk)),
+            value: HeartbeatFormat.num(Double(store.pickerCount(for: .belowPPH))),
             tone: .risk,
             selected: pickerFocus == .belowPPH,
             action: { pickerFocus = .belowPPH }
         )
         KpiTile(
             label: "Presub risk",
-            value: HeartbeatFormat.num(Double(highPresub)),
+            value: HeartbeatFormat.num(Double(store.pickerCount(for: .presub))),
             tone: .risk,
             selected: pickerFocus == .presub,
             action: { pickerFocus = .presub }

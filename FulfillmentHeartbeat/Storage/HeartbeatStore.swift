@@ -42,6 +42,7 @@ final class HeartbeatStore: ObservableObject {
         strong: []
     )
     private var cachedChecklistGroups: [MetricSection: [ChecklistDriverGroup]] = [:]
+    private var pickerIndex: [PickerFocus: [Int]] = [:]
 
     init(rootURL: URL? = nil) {
         fileManager = .default
@@ -114,6 +115,89 @@ final class HeartbeatStore: ObservableObject {
     var summaries: [SectionSummary] { cachedSummaries }
 
     var pickerBoard: HeartbeatMath.PickerBoard { cachedPickerBoard }
+
+    func pickerCount(for focus: PickerFocus) -> Int {
+        pickerIndex[focus]?.count ?? 0
+    }
+
+    func pickerPage(focus: PickerFocus, sort: PickerSort, ascending: Bool, limit: Int) -> [MetricRow] {
+        let pickers = filteredLatest[.pickerScorecard] ?? []
+        let source = pickerIndex[focus] ?? []
+        let idxs: [Int]
+        switch sort {
+        case .pph:
+            if ascending {
+                idxs = Array(source.prefix(limit))
+            } else {
+                idxs = Array(source.suffix(limit).reversed())
+            }
+        case .name:
+            var ordered = source
+            ordered.sort {
+                let order = pickers[$0].shopperName.localizedStandardCompare(pickers[$1].shopperName)
+                return ascending ? order == .orderedAscending : order == .orderedDescending
+            }
+            idxs = Array(ordered.prefix(limit))
+        case .store:
+            var ordered = source
+            ordered.sort {
+                let order: ComparisonResult
+                if let a = Int(pickers[$0].storeNumber), let b = Int(pickers[$1].storeNumber) {
+                    order = a == b ? .orderedSame : (a < b ? .orderedAscending : .orderedDescending)
+                } else {
+                    order = pickers[$0].storeNumber.localizedStandardCompare(pickers[$1].storeNumber)
+                }
+                return ascending ? order == .orderedAscending : order == .orderedDescending
+            }
+            idxs = Array(ordered.prefix(limit))
+        }
+        return idxs.map { pickers[$0] }
+    }
+
+    private func rebuildPickerIndex(_ pickers: [MetricRow]) {
+        var all: [Int] = []
+        var opportunity: [Int] = []
+        var strong: [Int] = []
+        var avgPPH: [Int] = []
+        var belowPPH: [Int] = []
+        var presub: [Int] = []
+        all.reserveCapacity(pickers.count)
+        opportunity.reserveCapacity(pickers.count / 2)
+        for (index, row) in pickers.enumerated() {
+            guard HeartbeatMath.isRealPicker(row) else { continue }
+            all.append(index)
+            let volume = HeartbeatMath.pickerHasVolume(row)
+            let health = HeartbeatMath.pickerHealth(row)
+            if volume && health != .good { opportunity.append(index) }
+            if volume && health == .good { strong.append(index) }
+            if row.number("pph") != nil, HeartbeatMath.pphHealth(row) != .good {
+                avgPPH.append(index)
+            }
+            if (row.number("pph") ?? .greatestFiniteMagnitude) < HeartbeatMath.pphRisk {
+                belowPPH.append(index)
+            }
+            if (row.number("presub_pct") ?? 0) > 6 {
+                presub.append(index)
+            }
+        }
+        func byPPH(_ lhs: Int, _ rhs: Int) -> Bool {
+            (pickers[lhs].number("pph") ?? 9_999) < (pickers[rhs].number("pph") ?? 9_999)
+        }
+        all.sort(by: byPPH)
+        opportunity.sort(by: byPPH)
+        strong.sort(by: byPPH)
+        avgPPH.sort(by: byPPH)
+        belowPPH.sort(by: byPPH)
+        presub.sort(by: byPPH)
+        pickerIndex = [
+            .all: all,
+            .opportunity: opportunity,
+            .strong: strong,
+            .avgPPH: avgPPH,
+            .belowPPH: belowPPH,
+            .presub: presub,
+        ]
+    }
 
     func checklistItem(for item: ChecklistDriverItem, section: MetricSection) -> ChecklistItem {
         let key = checklistKey(for: item, section: section)
@@ -544,6 +628,7 @@ final class HeartbeatStore: ObservableObject {
         }
         filteredLatest = nextLatest
         cachedPickerBoard = HeartbeatMath.pickerBoard(nextLatest[.pickerScorecard] ?? [])
+        rebuildPickerIndex(nextLatest[.pickerScorecard] ?? [])
         cachedChecklistGroups = buildChecklistGroups(nextLatest)
         filteredMarket = HeartbeatMath.marketBoard(
             universe,
@@ -663,6 +748,7 @@ final class HeartbeatStore: ObservableObject {
         cachedSummaries = caches.cachedSummaries
         cachedPickerBoard = caches.cachedPickerBoard
         cachedChecklistGroups = caches.cachedChecklistGroups
+        rebuildPickerIndex(caches.filteredLatest[.pickerScorecard] ?? [])
         objectWillChange.send()
     }
 
