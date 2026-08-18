@@ -181,17 +181,21 @@ enum WorkbookParser {
         "efficiency": "schedule_efficiency_pct",
         "schedefficiency": "schedule_efficiency_pct",
         "scheduleefficicency": "schedule_efficiency_pct",
+        "scheduleefficicencyschvstgt": "schedule_efficiency_pct",
+        "scheduleefficiencyschvstgt": "schedule_efficiency_pct",
         "scheduleefficicencyvsschvstgt": "schedule_efficiency_pct",
         "scheduleefficiencyvsschvstgt": "schedule_efficiency_pct",
         "overscheduled": "over_schedule_pct",
         "oversched": "over_schedule_pct",
         "overhours": "over_schedule_pct",
         "overschedule": "over_schedule_pct",
+        "overscheduleschvstgt": "over_schedule_pct",
         "overschedulevsschvstgt": "over_schedule_pct",
         "underscheduled": "under_schedule_pct",
         "undersched": "under_schedule_pct",
         "underhours": "under_schedule_pct",
         "underschedule": "under_schedule_pct",
+        "underscheduleschvstgt": "under_schedule_pct",
         "underschedulevsschvstgt": "under_schedule_pct",
         "scheduleadherencepchvsch": "schedule_adherence_pct",
         "scheduleadherence": "schedule_adherence_pct",
@@ -383,6 +387,25 @@ enum WorkbookParser {
     private static func applyMetric(_ payload: inout [String: Double], header: String, value: Double) {
         var key = metricAliases[header] ?? header
         var number = value
+        if key.contains("underschedule") {
+            key = "under_schedule_pct"
+        } else if key.contains("overschedule") {
+            key = "over_schedule_pct"
+        } else if key.contains("scheduleeffic") {
+            key = "schedule_efficiency_pct"
+        } else if key.contains("underadherence") {
+            key = "under_adherence_pct"
+        } else if key.contains("overadherence") {
+            key = "over_adherence_pct"
+        } else if key.contains("scheduleadherence") {
+            key = "schedule_adherence_pct"
+        } else if key.contains("understaffing") {
+            key = "under_staffing_pct"
+        } else if key.contains("overstaffing") {
+            key = "over_staffing_pct"
+        } else if key.contains("staffingeffic") {
+            key = "staffing_efficiency_pct"
+        }
         if key == "compliance_pct" || key.contains("compliance") {
             key = "compliance_pct"
             if number <= 1.5 { number *= 100 }

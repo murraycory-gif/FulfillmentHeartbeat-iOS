@@ -82,5 +82,14 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(Set(parsed.map(\.storeNumber)), Set(["1", "606", "3427"]))
         XCTAssertEqual(parsed.first { $0.storeNumber == "1" }?.payload["schedule_efficiency_pct"] ?? 0, 93.1, accuracy: 0.05)
         XCTAssertEqual(parsed.first { $0.storeNumber == "606" }?.payload["under_schedule_pct"] ?? 0, 6.1, accuracy: 0.05)
+
+        let remapped = HeartbeatMath.remapSchedulePayload([
+            "scheduleefficicencyschvstgt": 0.931,
+            "underscheduleschvstgt": 0.061,
+            "overscheduleschvstgt": 0.014,
+        ])
+        XCTAssertEqual(remapped["schedule_efficiency_pct"] ?? 0, 93.1, accuracy: 0.05)
+        XCTAssertEqual(remapped["under_schedule_pct"] ?? 0, 6.1, accuracy: 0.05)
+        XCTAssertEqual(remapped["over_schedule_pct"] ?? 0, 1.4, accuracy: 0.05)
     }
 }

@@ -409,14 +409,31 @@ enum HeartbeatMath {
         return expanded
     }
 
-    static func applyRoster(_ rows: [MetricRow], roster: [String: StoreIdentity]) -> [MetricRow] {
+    static func remapSchedulePayload(_ payload: [String: Double]) -> [String: Double] {
+        var out = payload
+        func take(matching: (String) -> Bool, as key: String) {
+            if out[key] != nil { return }
+            guard let found = out.first(where: { matching($0.key) }) else { return }
+            var value = found.value
+            if value <= 1.5 { value *= 100 }
+            out[key] = value
+        }
+        take(matching: { $0.contains("underschedule") }, as: "under_schedule_pct")
+        take(matching: { $0.contains("overschedule") }, as: "over_schedule_pct")
+        take(matching: { $0.contains("scheduleeffic") }, as: "schedule_efficiency_pct")
+        take(matching: { $0.contains("scheduleadherence") }, as: "schedule_adherence_pct")
+        take(matching: { $0.contains("underadherence") }, as: "under_adherence_pct")
+        take(matching: { $0.contains("overadherence") }, as: "over_adherence_pct")
+        take(matching: { $0.contains("understaffing") }, as: "under_staffing_pct")
+        take(matching: { $0.contains("overstaffing") }, as: "over_staffing_pct")
+        take(matching: { $0.contains("staffingeffic") }, as: "staffing_efficiency_pct")
+        return out
+    }
         rows.map { row in
             let number = canonicalStore(row.storeNumber)
             let known = roster[number]
             var text = row.textPayload
-            if text["district"] == nil || text["district"]?.isEmpty == true, let district = known?.district, !district.isEmpty {
-                text["district"] = district
-            } else if let district = known?.district, !district.isEmpty, (text["district"] ?? "").count > district.count {
+            if let district = known?.district, !district.isEmpty {
                 text["district"] = district
             }
             return MetricRow(
@@ -426,7 +443,7 @@ enum HeartbeatMath {
                 storeNumber: number,
                 storeName: row.storeName ?? known?.name,
                 recordedOn: row.recordedOn,
-                payload: row.payload,
+                payload: remapSchedulePayload(row.payload),
                 textPayload: text
             )
         }
