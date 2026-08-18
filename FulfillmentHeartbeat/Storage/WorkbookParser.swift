@@ -528,7 +528,7 @@ enum SheetXML {
         if !rowChunks.isEmpty {
             return rowChunks.map { rowXML in
                 let cells = matches(in: rowXML, pattern: "<c\\b[^>]*>[\\s\\S]*?</c>|<c\\b[^>]*/>")
-                cells.map { cellValue($0, strings: strings) }
+                return cells.map { cellValue($0, strings: strings) }
             }
         }
 
