@@ -184,7 +184,10 @@ struct FilterBar: View {
         filterMenu(
             "Store number",
             selection: store.filters.store,
-            options: store.stores.map { ($0.number, $0.name.map { "\($0.number) · \($0)" } ?? $0.number) }
+            options: store.stores.map { entry in
+                let label = entry.name.map { "\(entry.number) · \($0)" } ?? entry.number
+                return (entry.number, label)
+            }
         ) {
             store.setStore($0)
         }
