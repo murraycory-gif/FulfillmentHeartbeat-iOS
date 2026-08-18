@@ -1002,7 +1002,7 @@ struct HistoryPoint: Identifiable, Hashable {
 
 enum ChecklistStatus: String, Codable, CaseIterable, Identifiable {
     case open
-    case fixed
+    case addressed
     case followUp
     case notCovered
 
@@ -1011,41 +1011,60 @@ enum ChecklistStatus: String, Codable, CaseIterable, Identifiable {
     var label: String {
         switch self {
         case .open: return "Open"
-        case .fixed: return "Fixed"
-        case .followUp: return "Follow up"
-        case .notCovered: return "Not covered"
+        case .addressed: return "Addressed"
+        case .followUp: return "Follow Up Needed"
+        case .notCovered: return "Not Covered"
         }
     }
 
     var isClosed: Bool { self != .open }
+
+    init(from decoder: Decoder) throws {
+        let raw = try decoder.singleValueContainer().decode(String.self)
+        switch raw {
+        case "fixed", "addressed": self = .addressed
+        case "followUp": self = .followUp
+        case "notCovered": self = .notCovered
+        default: self = .open
+        }
+    }
 }
 
 struct ChecklistItem: Identifiable, Codable, Hashable {
-    var sectionRaw: String
+    var id: String
     var status: ChecklistStatus
     var comment: String
     var updatedAt: Date?
 
-    var id: String { sectionRaw }
-
-    var section: MetricSection? { MetricSection(rawValue: sectionRaw) }
-
     init(
-        sectionRaw: String,
+        id: String,
         status: ChecklistStatus = .open,
         comment: String = "",
         updatedAt: Date? = nil
     ) {
-        self.sectionRaw = sectionRaw
+        self.id = id
         self.status = status
         self.comment = comment
         self.updatedAt = updatedAt
     }
 }
 
+struct ChecklistFile: Codable {
+    var items: [String: ChecklistItem]
+    var recipients: [String]
+}
+
+struct ChecklistDriverItem: Identifiable, Equatable {
+    var id: String
+    var title: String
+    var subtitle: String
+    var value: String
+    var health: Health
+}
+
 struct ChecklistDriverGroup: Identifiable, Equatable {
     var title: String
-    var lines: [String]
+    var items: [ChecklistDriverItem]
     var id: String { title }
 }
 
@@ -1132,6 +1151,14 @@ enum HeartbeatFormat {
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .full
         return formatter.localizedString(for: date, relativeTo: Date())
+    }
+
+    static func stamp(_ date: Date?) -> String {
+        guard let date else { return "No date yet" }
+        let formatter = DateFormatter()
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
     }
 }
 

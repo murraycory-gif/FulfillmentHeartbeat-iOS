@@ -21,6 +21,7 @@ final class HeartbeatStore: ObservableObject {
     private let snapshotURL: URL
     private let checklistURL: URL
     private var hydrating = false
+    @Published private(set) var checklistRecipients: [String] = []
     private var checklistByKey: [String: ChecklistItem] = [:]
     private var commentSaveTask: Task<Void, Never>?
     private var latestBySection: [MetricSection: [MetricRow]] = [:]
@@ -113,25 +114,25 @@ final class HeartbeatStore: ObservableObject {
 
     var pickerBoard: HeartbeatMath.PickerBoard { cachedPickerBoard }
 
-    func checklistItem(for section: MetricSection) -> ChecklistItem {
-        checklistByKey[checklistKey(for: section)]
-            ?? ChecklistItem(sectionRaw: section.rawValue)
+    func checklistItem(for item: ChecklistDriverItem, section: MetricSection) -> ChecklistItem {
+        let key = checklistKey(for: item, section: section)
+        return checklistByKey[key] ?? ChecklistItem(id: key)
     }
 
-    func setChecklistStatus(_ status: ChecklistStatus, for section: MetricSection) {
-        var item = checklistItem(for: section)
-        item.status = item.status == status ? .open : status
-        item.updatedAt = Date()
-        checklistByKey[checklistKey(for: section)] = item
+    func setChecklistStatus(_ status: ChecklistStatus, for item: ChecklistDriverItem, section: MetricSection) {
+        var entry = checklistItem(for: item, section: section)
+        entry.status = entry.status == status ? .open : status
+        entry.updatedAt = Date()
+        checklistByKey[entry.id] = entry
         persistChecklist()
         objectWillChange.send()
     }
 
-    func setChecklistComment(_ comment: String, for section: MetricSection) {
-        var item = checklistItem(for: section)
-        item.comment = comment
-        item.updatedAt = Date()
-        checklistByKey[checklistKey(for: section)] = item
+    func setChecklistComment(_ comment: String, for item: ChecklistDriverItem, section: MetricSection) {
+        var entry = checklistItem(for: item, section: section)
+        entry.comment = comment
+        entry.updatedAt = Date()
+        checklistByKey[entry.id] = entry
         objectWillChange.send()
         commentSaveTask?.cancel()
         commentSaveTask = Task { [weak self] in
@@ -141,43 +142,70 @@ final class HeartbeatStore: ObservableObject {
         }
     }
 
+    func addChecklistRecipient(_ raw: String) {
+        let emails = raw
+            .split(whereSeparator: { ",; ".contains($0) })
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+            .filter(Self.isEmail)
+        guard !emails.isEmpty else { return }
+        for email in emails where !checklistRecipients.contains(email) {
+            checklistRecipients.append(email)
+        }
+        persistChecklist()
+        objectWillChange.send()
+    }
+
+    func removeChecklistRecipient(_ email: String) {
+        checklistRecipients.removeAll { $0 == email }
+        persistChecklist()
+        objectWillChange.send()
+    }
+
     var checklistOpenCount: Int {
-        MetricSection.checklistSections.filter { !checklistItem(for: $0).status.isClosed }.count
+        var count = 0
+        for section in MetricSection.checklistSections {
+            for group in cachedChecklistGroups[section] ?? [] {
+                for item in group.items where !checklistItem(for: item, section: section).status.isClosed {
+                    count += 1
+                }
+            }
+        }
+        return count
     }
 
-    var checklistReadyToSend: Bool {
-        MetricSection.checklistSections.allSatisfy { checklistItem(for: $0).status.isClosed }
-    }
-
-    func checklistDrivers(for section: MetricSection, limit: Int = 10) -> [String] {
-        checklistGroups(for: section).flatMap(\.lines).prefix(limit).map { $0 }
-    }
+    var canSendChecklist: Bool { !checklistRecipients.isEmpty }
 
     func checklistGroups(for section: MetricSection) -> [ChecklistDriverGroup] {
         cachedChecklistGroups[section] ?? []
+    }
+
+    func checklistEmailSubject() -> String {
+        "Fulfillment Checklist — \(filters.summary)"
     }
 
     func checklistEmailText() -> String {
         var lines: [String] = [
             "eCommerce Fulfillment Checklist",
             filters.summary,
-            HeartbeatFormat.relative(Date()),
+            HeartbeatFormat.stamp(Date()),
             "",
         ]
         for section in MetricSection.checklistSections {
             let summary = self.summary(for: section)
-            let item = checklistItem(for: section)
-            lines.append("\(section.title) — \(summary.health.label) — \(summary.headlineText)")
-            lines.append("Status: \(item.status.label)")
-            let drivers = checklistGroups(for: section)
-            for group in drivers {
-                lines.append("\(group.title):")
-                for line in group.lines {
-                    lines.append("  • \(line)")
+            lines.append(section.title.uppercased())
+            lines.append("\(summary.health.label) · \(summary.headlineLabel) \(summary.headlineText)")
+            lines.append(summary.secondary)
+            for group in checklistGroups(for: section) {
+                lines.append("")
+                lines.append(group.title)
+                for item in group.items {
+                    let action = checklistItem(for: item, section: section)
+                    lines.append("• \(item.title) · \(item.subtitle) · \(item.value) · \(item.health.label)")
+                    lines.append("  Status: \(action.status.label) · \(HeartbeatFormat.stamp(action.updatedAt))")
+                    if !action.comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        lines.append("  Comments: \(action.comment)")
+                    }
                 }
-            }
-            if !item.comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                lines.append("Comments: \(item.comment)")
             }
             lines.append("")
         }
@@ -185,41 +213,102 @@ final class HeartbeatStore: ObservableObject {
         return lines.joined(separator: "\n")
     }
 
-    func checklistEmailSubject() -> String {
-        "Fulfillment Checklist — \(filters.summary)"
-    }
-
-    private func checklistKey(for section: MetricSection) -> String {
-        "\(filters.division)|\(filters.district)|\(filters.om)|\(filters.store)|\(section.rawValue)"
-    }
-
-    private func healthRank(_ health: Health) -> Int {
-        switch health {
-        case .risk: return 3
-        case .watch: return 2
-        case .good: return 1
-        case .none: return 0
+    func checklistEmailHTML() -> String {
+        var html = """
+        <!DOCTYPE html><html><head>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta charset="utf-8">
+        <style>
+        body{margin:0;padding:16px;background:#F5F7FC;color:#141A29;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;line-height:1.45}
+        .wrap{max-width:680px;margin:0 auto}
+        h1{font-size:22px;margin:0 0 4px}
+        .sub{color:#5C677A;font-size:14px;margin:0 0 16px}
+        .card{background:#fff;border-radius:16px;padding:14px 16px;margin:0 0 14px;border:1px solid rgba(0,0,0,.06)}
+        .kicker{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#8A93A3;font-weight:600}
+        .kpi{font-size:28px;font-weight:700;margin:4px 0}
+        .row{padding:10px 0;border-top:1px solid #EEF1F6}
+        .row:first-child{border-top:none}
+        .title{font-weight:700}
+        .meta{color:#5C677A;font-size:13px}
+        .pill{display:inline-block;padding:3px 8px;border-radius:999px;font-size:12px;font-weight:600}
+        .risk{background:#FEE2E2;color:#DC2626}
+        .watch{background:#FEF3C7;color:#D97706}
+        .good{background:#D1FAE5;color:#059669}
+        .none{background:#E8EEFF;color:#266BF2}
+        .comment{margin-top:6px;background:#F5F7FC;border-radius:10px;padding:8px 10px;font-size:14px}
+        </style></head><body><div class="wrap">
+        <h1>eCommerce Fulfillment Checklist</h1>
+        <p class="sub">\(escape(filters.summary))<br>\(escape(HeartbeatFormat.stamp(Date())))</p>
+        """
+        for section in MetricSection.checklistSections {
+            let summary = self.summary(for: section)
+            html += """
+            <div class="card">
+            <div class="kicker">\(escape(section.title))</div>
+            <div class="kpi">\(escape(summary.headlineText))</div>
+            <div class="meta">\(escape(summary.health.label)) · \(escape(summary.secondary))</div>
+            """
+            for group in checklistGroups(for: section) {
+                html += "<p class=\"kicker\" style=\"margin-top:14px\">\(escape(group.title))</p>"
+                for item in group.items {
+                    let action = checklistItem(for: item, section: section)
+                    html += """
+                    <div class="row">
+                    <div class="title">\(escape(item.title)) · \(escape(item.value))
+                    <span class="pill \(item.health.rawValue)">\(escape(item.health.label))</span></div>
+                    <div class="meta">\(escape(item.subtitle)) · \(escape(action.status.label)) · \(escape(HeartbeatFormat.stamp(action.updatedAt)))</div>
+                    """
+                    if !action.comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        html += "<div class=\"comment\">\(escape(action.comment))</div>"
+                    }
+                    html += "</div>"
+                }
+            }
+            html += "</div>"
         }
+        html += "<p class=\"sub\">Sent from Fulfillment Heartbeat</p></div></body></html>"
+        return html
+    }
+
+    private func escape(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "&", with: "&")
+            .replacingOccurrences(of: "<", with: "<")
+            .replacingOccurrences(of: ">", with: ">")
+    }
+
+    private static func isEmail(_ value: String) -> Bool {
+        value.contains("@") && value.contains(".") && !value.contains(" ")
+    }
+
+    private func checklistKey(for item: ChecklistDriverItem, section: MetricSection) -> String {
+        "\(filters.division)|\(filters.district)|\(filters.om)|\(filters.store)|\(section.rawValue)|\(item.id)"
     }
 
     private func buildChecklistGroups(_ latest: [MetricSection: [MetricRow]]) -> [MetricSection: [ChecklistDriverGroup]] {
         var groups: [MetricSection: [ChecklistDriverGroup]] = [:]
         for section in MetricSection.dashboardCards {
             let rows = HeartbeatMath.topOpportunityStores(section: section, rows: latest[section] ?? [], limit: 10)
-            let lines = rows.map { row in
+            let items = rows.map { row -> ChecklistDriverItem in
                 let cell = StoreCellViewModel.make(section: section, row: row)
                 let health = HeartbeatMath.health(for: section, row: row)
                 let division = row.division.isEmpty ? identity(forStore: row.storeNumber).division : row.division
-                return "Store \(row.storeNumber)\(division.isEmpty ? "" : " · \(division)") · \(cell.primary) · \(health.label)"
+                return ChecklistDriverItem(
+                    id: "store-\(HeartbeatMath.canonicalStore(row.storeNumber))",
+                    title: "Store \(row.storeNumber)",
+                    subtitle: division.isEmpty ? "Store" : division,
+                    value: cell.primary,
+                    health: health
+                )
             }
-            if !lines.isEmpty {
-                groups[section] = [ChecklistDriverGroup(title: "Top \(lines.count) opportunity stores", lines: lines)]
+            if !items.isEmpty {
+                groups[section] = [ChecklistDriverGroup(title: "Top \(items.count) opportunity stores", items: items)]
             }
         }
-        let pickerGroups = HeartbeatMath.topPickersByMetric(latest[.pickerScorecard] ?? [], limit: 10).map { board in
+        let pickerGroups = HeartbeatMath.topPickersByMetric(latest[.pickerScorecard] ?? [], limit: 10).map { board -> ChecklistDriverGroup in
             ChecklistDriverGroup(
                 title: "Top \(board.rows.count) \(board.metric)",
-                lines: board.rows.map { row in
+                items: board.rows.map { row in
                     let division = row.division.isEmpty ? identity(forStore: row.storeNumber).division : row.division
                     let value: String
                     switch board.metric {
@@ -229,7 +318,13 @@ final class HeartbeatStore: ObservableObject {
                     case "COE": value = HeartbeatFormat.pct(row.number("coe_pct"))
                     default: value = HeartbeatFormat.pct(row.number("ott_pct"))
                     }
-                    return "\(row.shopperName) · \(row.storeNumber)\(division.isEmpty ? "" : " · \(division)") · \(value)"
+                    return ChecklistDriverItem(
+                        id: "picker-\(board.metric)-\(row.shopperName)-\(HeartbeatMath.canonicalStore(row.storeNumber))",
+                        title: row.shopperName,
+                        subtitle: "\(row.storeNumber)\(division.isEmpty ? "" : " · \(division)")",
+                        value: value,
+                        health: HeartbeatMath.pickerHealth(row)
+                    )
                 }
             )
         }
@@ -562,18 +657,20 @@ final class HeartbeatStore: ObservableObject {
         else { return }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        guard let decoded = try? decoder.decode([String: ChecklistItem].self, from: data) else { return }
-        checklistByKey = decoded
+        if let file = try? decoder.decode(ChecklistFile.self, from: data) {
+            checklistByKey = file.items
+            checklistRecipients = file.recipients
+        }
     }
 
     private func persistChecklist() {
-        let items = checklistByKey
+        let file = ChecklistFile(items: checklistByKey, recipients: checklistRecipients)
         let url = checklistURL
         Task.detached(priority: .utility) {
             do {
                 let encoder = JSONEncoder()
                 encoder.dateEncodingStrategy = .iso8601
-                let data = try encoder.encode(items)
+                let data = try encoder.encode(file)
                 try data.write(to: url, options: [.atomic])
             } catch {}
         }

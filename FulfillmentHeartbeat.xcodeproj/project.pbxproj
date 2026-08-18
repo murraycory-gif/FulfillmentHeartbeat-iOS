@@ -20,7 +20,7 @@
 		A011 /* UploadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B011 /* UploadView.swift */; };
 		A012 /* SectionDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B012 /* SectionDetailView.swift */; };
 		A013 /* SharedViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B013 /* SharedViews.swift */; };
-		A900 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B900 /* Assets.xcassets */; };
+		A100 /* MessageUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B100 /* MessageUI.framework */; };
 		A911 /* HeartbeatMathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B911 /* HeartbeatMathTests.swift */; };
 		A912 /* WorkbookParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B912 /* WorkbookParserTests.swift */; };
 /* End PBXBuildFile section */
@@ -49,6 +49,7 @@
 		B011 /* UploadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UploadView.swift; sourceTree = "<group>"; };
 		B012 /* SectionDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SectionDetailView.swift; sourceTree = "<group>"; };
 		B013 /* SharedViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedViews.swift; sourceTree = "<group>"; };
+		B100 /* MessageUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MessageUI.framework; path = System/Library/Frameworks/MessageUI.framework; sourceTree = SDKROOT; };
 		B900 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B901 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B903 /* FulfillmentHeartbeat.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = FulfillmentHeartbeat.entitlements; sourceTree = "<group>"; };
@@ -63,6 +64,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A100 /* MessageUI.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

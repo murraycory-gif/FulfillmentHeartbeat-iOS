@@ -146,14 +146,14 @@ final class HeartbeatMathTests: XCTestCase {
     func testChecklistReadyAfterEveryKPIHasStatus() {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = HeartbeatStore(rootURL: root)
-        XCTAssertFalse(store.checklistReadyToSend)
-        store.setChecklistStatus(.fixed, for: .pph)
-        XCTAssertFalse(store.checklistReadyToSend)
-        for section in MetricSection.checklistSections {
-            store.setChecklistStatus(.followUp, for: section)
-        }
-        XCTAssertTrue(store.checklistReadyToSend)
-        XCTAssertTrue(store.checklistEmailText().contains("5 Star Metrics"))
+        XCTAssertFalse(store.canSendChecklist)
+        store.addChecklistRecipient("not-an-email")
+        XCTAssertFalse(store.canSendChecklist)
+        store.addChecklistRecipient("leader@example.com, om@example.com")
+        XCTAssertEqual(store.checklistRecipients, ["leader@example.com", "om@example.com"])
+        XCTAssertTrue(store.canSendChecklist)
+        XCTAssertTrue(store.checklistEmailText().contains("eCommerce Fulfillment Checklist"))
+        XCTAssertTrue(store.checklistEmailHTML().contains("viewport"))
         XCTAssertTrue(store.checklistEmailSubject().contains("Fulfillment Checklist"))
     }
 }

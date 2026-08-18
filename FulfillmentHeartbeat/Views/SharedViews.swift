@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import MessageUI
 
 struct HubCard<Content: View>: View {
     @ViewBuilder var content: Content
@@ -925,6 +926,9 @@ struct HideSystemSidebarToggle: UIViewRepresentable {
 struct FulfillmentChecklistCard: View {
     @EnvironmentObject private var store: HeartbeatStore
     @State private var expanded = false
+    @State private var recipientDraft = ""
+    @State private var showingMail = false
+    @State private var mailError: String?
 
     private var riskCount: Int {
         store.summaries.filter { $0.health == .risk }.count
@@ -935,12 +939,12 @@ struct FulfillmentChecklistCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 16) {
             header
             if expanded {
                 visibilityStrip
                 ForEach(MetricSection.checklistSections) { section in
-                    checklistRow(section)
+                    sectionBlock(section)
                 }
                 sendBar
             }
@@ -955,6 +959,31 @@ struct FulfillmentChecklistCard: View {
                         .stroke(borderColor, lineWidth: riskCount > 0 ? 1.5 : 1)
                 )
         )
+        .sheet(isPresented: $showingMail) {
+            MailComposeView(
+                recipients: store.checklistRecipients,
+                subject: store.checklistEmailSubject(),
+                html: store.checklistEmailHTML(),
+                plain: store.checklistEmailText()
+            ) { result in
+                showingMail = false
+                if result == .failed {
+                    mailError = "Mail didn’t send. Check that this iPad has a Mail account, or copy the recap."
+                }
+            }
+        }
+        .alert("Couldn’t send", isPresented: Binding(
+            get: { mailError != nil },
+            set: { if !$0 { mailError = nil } }
+        )) {
+            Button("Copy recap") {
+                UIPasteboard.general.string = store.checklistEmailText()
+                mailError = nil
+            }
+            Button("OK", role: .cancel) { mailError = nil }
+        } message: {
+            Text(mailError ?? "")
+        }
     }
 
     private var borderColor: Color {
@@ -1011,77 +1040,99 @@ struct FulfillmentChecklistCard: View {
 
     private var visibilityStrip: some View {
         LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 8)], spacing: 8) {
-            callout(title: "At risk", value: "\(riskCount)", tone: riskCount > 0 ? .risk : .good)
-            callout(title: "Watch", value: "\(watchCount)", tone: watchCount > 0 ? .watch : .good)
-            callout(title: "Opportunity pickers", value: "\(store.pickerBoard.opportunityCount)", tone: store.pickerBoard.opportunityCount > 0 ? .risk : .good)
-            callout(title: "Open items", value: "\(store.checklistOpenCount)", tone: store.checklistOpenCount > 0 ? .watch : .good)
+            KpiTile(label: "At risk", value: "\(riskCount)", tone: riskCount > 0 ? .risk : .good)
+            KpiTile(label: "Watch", value: "\(watchCount)", tone: watchCount > 0 ? .watch : .good)
+            KpiTile(label: "Opportunity pickers", value: "\(store.pickerBoard.opportunityCount)", tone: store.pickerBoard.opportunityCount > 0 ? .risk : .good)
+            KpiTile(label: "Open items", value: "\(store.checklistOpenCount)", tone: store.checklistOpenCount > 0 ? .watch : .good)
         }
     }
 
-    private func callout(title: String, value: String, tone: KpiTile.Tone) -> some View {
-        KpiTile(label: title, value: value, tone: tone)
+    private func sectionBlock(_ section: MetricSection) -> some View {
+        let summary = store.summary(for: section)
+        let groups = store.checklistGroups(for: section)
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(section.title)
+                    .font(.title3.weight(.semibold))
+                HealthBadge(health: summary.health)
+                Spacer()
+                Text(summary.headlineText)
+                    .font(.title3.weight(.bold).monospacedDigit())
+                    .foregroundStyle(headlineColor(summary.health))
+            }
+            Text("\(summary.headlineLabel) · \(summary.secondary)")
+                .font(.subheadline)
+                .foregroundStyle(AppTheme.textSecondary)
+            ForEach(groups) { group in
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(group.title.uppercased())
+                        .font(.caption.weight(.semibold))
+                        .tracking(0.8)
+                        .foregroundStyle(AppTheme.textTertiary)
+                    ForEach(Array(group.items.enumerated()), id: \.element.id) { index, item in
+                        opportunityCard(item, section: section, rank: index + 1)
+                    }
+                }
+            }
+        }
+        .padding(.top, 4)
+        Divider().opacity(0.35)
     }
 
-    private func checklistRow(_ section: MetricSection) -> some View {
-        let summary = store.summary(for: section)
-        let item = store.checklistItem(for: section)
-        let groups = store.checklistGroups(for: section)
+    private func opportunityCard(_ item: ChecklistDriverItem, section: MetricSection, rank: Int) -> some View {
+        let action = store.checklistItem(for: item, section: section)
         return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 10) {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 8) {
-                        Text(section.title)
-                            .font(.headline)
-                        HealthBadge(health: summary.health)
-                    }
-                    Text("\(summary.headlineLabel): \(summary.headlineText) · \(summary.secondary)")
-                        .font(.caption)
+                Text("\(rank)")
+                    .font(.caption.weight(.bold).monospacedDigit())
+                    .foregroundStyle(AppTheme.blue)
+                    .frame(width: 22, height: 22)
+                    .background(AppTheme.blueSoft, in: Circle())
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.title)
+                        .font(.headline)
+                    Text(item.subtitle)
+                        .font(.subheadline)
                         .foregroundStyle(AppTheme.textSecondary)
                 }
                 Spacer()
-            }
-            if !groups.isEmpty {
-                VStack(alignment: .leading, spacing: 10) {
-                    ForEach(groups) { group in
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(group.title)
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(AppTheme.textTertiary)
-                            ForEach(Array(group.lines.enumerated()), id: \.offset) { index, line in
-                                Text("\(index + 1). \(line)")
-                                    .font(.caption)
-                                    .foregroundStyle(AppTheme.text)
-                            }
-                        }
-                    }
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text(item.value)
+                        .font(.headline.monospacedDigit())
+                    HealthBadge(health: item.health)
                 }
-                .padding(10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(driverBackground(summary.health), in: RoundedRectangle(cornerRadius: AppTheme.radiusS, style: .continuous))
             }
             HStack(spacing: 8) {
-                ForEach([ChecklistStatus.fixed, .followUp, .notCovered]) { status in
-                    statusChip(status, selected: item.status == status) {
-                        store.setChecklistStatus(status, for: section)
+                ForEach([ChecklistStatus.addressed, .followUp, .notCovered]) { status in
+                    statusChip(status, selected: action.status == status) {
+                        store.setChecklistStatus(status, for: item, section: section)
                     }
                 }
+                Spacer()
+                Text(HeartbeatFormat.stamp(action.updatedAt))
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.textTertiary)
             }
-            TextField("Comments for follow up", text: commentBinding(section), axis: .vertical)
+            TextField("Comments for follow up", text: commentBinding(item, section: section), axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(.subheadline)
                 .lineLimit(1...4)
                 .padding(10)
                 .background(AppTheme.bg, in: RoundedRectangle(cornerRadius: AppTheme.radiusS, style: .continuous))
         }
-        .padding(.top, 8)
-        Divider().opacity(0.35)
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
+                .fill(AppTheme.bg)
+        )
     }
 
-    private func driverBackground(_ health: Health) -> Color {
+    private func headlineColor(_ health: Health) -> Color {
         switch health {
-        case .risk: return AppTheme.badSoft
-        case .watch: return AppTheme.warnSoft
-        default: return AppTheme.bg
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.text
         }
     }
 
@@ -1103,40 +1154,145 @@ struct FulfillmentChecklistCard: View {
     private func chipColor(_ status: ChecklistStatus) -> Color {
         switch status {
         case .open: return AppTheme.textTertiary
-        case .fixed: return AppTheme.ok
+        case .addressed: return AppTheme.ok
         case .followUp: return AppTheme.warn
         case .notCovered: return AppTheme.blue
         }
     }
 
-    private func commentBinding(_ section: MetricSection) -> Binding<String> {
+    private func commentBinding(_ item: ChecklistDriverItem, section: MetricSection) -> Binding<String> {
         Binding(
-            get: { store.checklistItem(for: section).comment },
-            set: { store.setChecklistComment($0, for: section) }
+            get: { store.checklistItem(for: item, section: section).comment },
+            set: { store.setChecklistComment($0, for: item, section: section) }
         )
     }
 
     private var sendBar: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if store.checklistReadyToSend {
-                ShareLink(
-                    item: store.checklistEmailText(),
-                    subject: Text(store.checklistEmailSubject()),
-                    message: Text(store.checklistEmailText())
-                ) {
-                    Label("Email leaders", systemImage: "paperplane.fill")
-                        .frame(maxWidth: .infinity)
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Email leaders")
+                .font(.headline)
+            Text("Add the leader emails this recap should go to, then send. They’ll get a phone-friendly checklist.")
+                .font(.subheadline)
+                .foregroundStyle(AppTheme.textSecondary)
+            if !store.checklistRecipients.isEmpty {
+                FlexibleEmailChips(emails: store.checklistRecipients) { email in
+                    store.removeChecklistRecipient(email)
                 }
-                .buttonStyle(PrimaryButtonStyle())
-            } else {
-                Button {} label: {
-                    Label("Set a status on every KPI to email leaders", systemImage: "paperplane")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(SecondaryButtonStyle())
-                .disabled(true)
             }
+            HStack(spacing: 8) {
+                TextField("leader@company.com", text: $recipientDraft)
+                    .textInputAutocapitalization(.never)
+                    .keyboardType(.emailAddress)
+                    .autocorrectionDisabled()
+                    .textFieldStyle(.plain)
+                    .padding(10)
+                    .background(AppTheme.bg, in: RoundedRectangle(cornerRadius: AppTheme.radiusS, style: .continuous))
+                    .onSubmit(addRecipient)
+                Button("Add", action: addRecipient)
+                    .buttonStyle(BrandButtonStyle())
+            }
+            Button(action: sendChecklist) {
+                Label("Send checklist", systemImage: "paperplane.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(PrimaryButtonStyle())
+            .opacity(store.canSendChecklist ? 1 : 0.55)
         }
         .padding(.top, 4)
+    }
+
+    private func addRecipient() {
+        store.addChecklistRecipient(recipientDraft)
+        recipientDraft = ""
+    }
+
+    private func sendChecklist() {
+        if !recipientDraft.isEmpty { addRecipient() }
+        guard store.canSendChecklist else {
+            mailError = "Add at least one leader email, then tap Send checklist."
+            return
+        }
+        if MFMailComposeViewController.canSendMail() {
+            showingMail = true
+            return
+        }
+        let subject = store.checklistEmailSubject().addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        let body = store.checklistEmailText().addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        let to = store.checklistRecipients.joined(separator: ",")
+        if let url = URL(string: "mailto:\(to)?subject=\(subject)&body=\(body)"),
+           UIApplication.shared.canOpenURL(url) {
+            UIApplication.shared.open(url)
+            return
+        }
+        UIPasteboard.general.string = store.checklistEmailText()
+        mailError = "Mail isn’t set up on this iPad. The recap was copied so you can paste it into an email."
+    }
+}
+
+struct FlexibleEmailChips: View {
+    let emails: [String]
+    let onRemove: (String) -> Void
+
+    var body: some View {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 180), spacing: 8)], alignment: .leading, spacing: 8) {
+            ForEach(emails, id: \.self) { email in
+                HStack(spacing: 6) {
+                    Text(email)
+                        .font(.caption.weight(.semibold))
+                        .lineLimit(1)
+                    Button {
+                        onRemove(email)
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                    }
+                    .buttonStyle(.plain)
+                }
+                .foregroundStyle(AppTheme.blue)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(AppTheme.blueSoft, in: Capsule(style: .continuous))
+            }
+        }
+    }
+}
+
+struct MailComposeView: UIViewControllerRepresentable {
+    let recipients: [String]
+    let subject: String
+    let html: String
+    let plain: String
+    let onFinish: (MFMailComposeResult) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(onFinish: onFinish) }
+
+    func makeUIViewController(context: Context) -> UIViewController {
+        if MFMailComposeViewController.canSendMail() {
+            let mail = MFMailComposeViewController()
+            mail.mailComposeDelegate = context.coordinator
+            mail.setToRecipients(recipients)
+            mail.setSubject(subject)
+            mail.setMessageBody(html, isHTML: true)
+            return mail
+        }
+        let fallback = UIActivityViewController(activityItems: [plain], applicationActivities: nil)
+        fallback.completionWithItemsHandler = { _, completed, _, _ in
+            onFinish(completed ? .sent : .cancelled)
+        }
+        return fallback
+    }
+
+    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {}
+
+    final class Coordinator: NSObject, MFMailComposeViewControllerDelegate {
+        let onFinish: (MFMailComposeResult) -> Void
+        init(onFinish: @escaping (MFMailComposeResult) -> Void) { self.onFinish = onFinish }
+
+        func mailComposeController(
+            _ controller: MFMailComposeViewController,
+            didFinishWith result: MFMailComposeResult,
+            error: Error?
+        ) {
+            onFinish(result)
+        }
     }
 }
