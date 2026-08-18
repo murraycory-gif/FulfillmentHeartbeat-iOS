@@ -165,7 +165,7 @@ final class HeartbeatStore: ObservableObject {
         for focus in PickerFocus.allCases {
             buckets[focus] = []
             buckets[focus]?.reserveCapacity(focus == .strong ? 512 : pickers.count / 2)
-            worst[focus] = .none
+            worst[focus] = Health.none
         }
 
         func note(_ focus: PickerFocus, _ health: Health) {
