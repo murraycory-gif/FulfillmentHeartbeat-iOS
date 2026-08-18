@@ -72,6 +72,25 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(filtered.count, 2)
     }
 
+    func testMarketBoardKeepsEverySampleDivision() {
+        let rows = SampleMarket.rows()
+        for division in Set(rows.map(\.division)) {
+            let board = HeartbeatMath.marketBoard(rows, division: division, district: "", om: "", store: "")
+            XCTAssertFalse(board.isEmpty, "Expected stores for \(division)")
+            XCTAssertTrue(board.allSatisfy { HeartbeatMath.matches($0.division, division) })
+        }
+    }
+
+    func testDivisionFilterUsesStoreDirectoryAcrossSections() {
+        let pph = MetricRow(section: .pph, division: "Jewel Osco", operationsOM: "Shelly Selof", storeNumber: "1", payload: ["pph": 64], textPayload: ["district": "J1"])
+        let path = MetricRow(section: .pickPath, division: "", operationsOM: "", storeNumber: "1", payload: ["compliance_pct": 91], textPayload: [:])
+        let other = MetricRow(section: .pickPath, division: "Portland", operationsOM: "JR Ehline", storeNumber: "4313", payload: ["compliance_pct": 88], textPayload: ["district": "73"])
+        let jewel = HeartbeatMath.filtered([pph, path, other], division: "Jewel Osco", district: "", om: "", store: "", relaxUnknown: false, universe: [pph, path, other])
+        XCTAssertEqual(Set(jewel.map(\.storeNumber)), Set(["1"]))
+        let portland = HeartbeatMath.filtered([pph, path, other], division: "Portland", district: "", om: "", store: "", relaxUnknown: false, universe: [pph, path, other])
+        XCTAssertEqual(Set(portland.map(\.storeNumber)), Set(["4313"]))
+    }
+
     func testSummarizeFiveStar() {
         let rows = [
             MetricRow(section: .fiveStar, division: "10", operationsOM: "A", storeNumber: "1", payload: ["star_rating": 5.0]),

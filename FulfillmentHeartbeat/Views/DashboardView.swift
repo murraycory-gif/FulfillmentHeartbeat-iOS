@@ -22,6 +22,7 @@ struct DashboardView: View {
                         }
                     }
                 }
+                MarketBoard()
                 PickerScoreCard {
                     if sizeClass == .regular {
                         router.open(section: .pickerScorecard)
@@ -314,6 +315,108 @@ struct PickerScoreCard: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+struct MarketBoard: View {
+    @EnvironmentObject private var store: HeartbeatStore
+
+    private var rows: [HeartbeatMath.MarketStore] { store.marketStores() }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.title2.weight(.semibold))
+                    Text("Every store in the current filter, with PPH and pick path when those files are loaded.")
+                        .font(.subheadline)
+                        .foregroundStyle(AppTheme.textSecondary)
+                }
+                Spacer()
+                Text("\(rows.count)")
+                    .font(.headline.monospacedDigit())
+                    .foregroundStyle(AppTheme.blue)
+            }
+
+            if rows.isEmpty {
+                Text(emptyCopy)
+                    .font(.subheadline)
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .padding(.vertical, 8)
+            } else {
+                LazyVStack(alignment: .leading, spacing: 0, pinnedViews: .sectionHeaders) {
+                    Section {
+                        ForEach(rows) { row in
+                            HStack(spacing: 8) {
+                                Text(row.storeNumber)
+                                    .font(.subheadline.weight(.semibold).monospacedDigit())
+                                    .frame(width: 72, alignment: .leading)
+                                Text(row.district.isEmpty ? "—" : row.district)
+                                    .font(.subheadline)
+                                    .frame(width: 72, alignment: .leading)
+                                Text(row.om.isEmpty ? "—" : row.om)
+                                    .font(.subheadline)
+                                    .lineLimit(1)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                Text(row.pph.map { HeartbeatFormat.num($0, digits: 1) } ?? "—")
+                                    .font(.subheadline.monospacedDigit())
+                                    .frame(width: 64, alignment: .trailing)
+                                Text(row.compliance.map { HeartbeatFormat.pct($0) } ?? "—")
+                                    .font(.subheadline.monospacedDigit())
+                                    .frame(width: 64, alignment: .trailing)
+                            }
+                            .padding(.vertical, 8)
+                            Divider().opacity(0.35)
+                        }
+                    } header: {
+                        HStack(spacing: 8) {
+                            headerCell("Store", width: 72)
+                            headerCell("District", width: 72)
+                            Text("OM")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            headerCell("PPH", width: 64, align: .trailing)
+                            headerCell("Path", width: 64, align: .trailing)
+                        }
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(AppTheme.textTertiary)
+                        .padding(.bottom, 8)
+                        .background(AppTheme.card)
+                    }
+                }
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                .fill(AppTheme.card)
+                .overlay(
+                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                        .stroke(AppTheme.cardBorder, lineWidth: 1)
+                )
+        )
+    }
+
+    private var title: String {
+        if store.filters.store.isEmpty == false { return "Store \(store.filters.store)" }
+        if store.filters.om.isEmpty == false { return store.filters.om }
+        if store.filters.district.isEmpty == false { return "District \(store.filters.district)" }
+        if store.filters.division.isEmpty == false { return store.filters.division }
+        return "All stores"
+    }
+
+    private var emptyCopy: String {
+        if store.filters.isActive {
+            return "No stores match \(store.filters.summary). Pick another division or clear the filter."
+        }
+        return "Upload PPH or Pick Path to list stores here."
+    }
+
+    private func headerCell(_ title: String, width: CGFloat, align: Alignment = .leading) -> some View {
+        Text(title.uppercased())
+            .tracking(0.5)
+            .frame(width: width, alignment: align)
     }
 }
 

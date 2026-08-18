@@ -242,7 +242,7 @@ enum HeartbeatMath {
     }
 
     static func filtered(_ rows: [MetricRow], division: String, district: String, om: String, store: String) -> [MetricRow] {
-        filtered(rows, division: division, district: district, om: om, store: store, relaxUnknown: false)
+        filtered(rows, division: division, district: district, om: om, store: store, relaxUnknown: false, universe: nil)
     }
 
     static func filtered(
@@ -251,21 +251,52 @@ enum HeartbeatMath {
         district: String,
         om: String,
         store: String,
-        relaxUnknown: Bool
+        relaxUnknown: Bool,
+        universe: [MetricRow]? = nil
     ) -> [MetricRow] {
-        let roster = storeRoster(rows)
-        let activeDivision = usableFilter(division, in: rows.map(\.division), relax: relaxUnknown)
-        let activeDistrict = usableFilter(district, in: rows.map(\.district), relax: relaxUnknown)
-        let activeOM = usableFilter(om, in: rows.map(\.operationsOM), relax: relaxUnknown)
-        let activeStore = usableFilter(store, in: rows.map(\.storeNumber), relax: relaxUnknown)
+        let pool = universe ?? rows
+        let roster = storeRoster(pool)
+        let divisionStores = storeSet(in: pool, roster: roster, value: division, relax: relaxUnknown) { $0.division }
+        let districtStores = storeSet(in: pool, roster: roster, value: district, relax: relaxUnknown) { $0.district }
+        let omStores = storeSet(in: pool, roster: roster, value: om, relax: relaxUnknown) { $0.om }
+        let storeFilter = usableFilter(store, in: pool.map(\.storeNumber), relax: relaxUnknown)
+
         return rows.filter { row in
-            let identity = resolvedIdentity(row, roster: roster)
-            if let activeDivision, !matches(identity.division, activeDivision) { return false }
-            if let activeDistrict, !matches(identity.district, activeDistrict) { return false }
-            if let activeOM, !matches(identity.om, activeOM) { return false }
-            if let activeStore, !matches(row.storeNumber, activeStore) { return false }
+            if let divisionStores, !belongs(row.storeNumber, to: divisionStores, identity: resolvedIdentity(row, roster: roster).division, value: division) {
+                return false
+            }
+            if let districtStores, !belongs(row.storeNumber, to: districtStores, identity: resolvedIdentity(row, roster: roster).district, value: district) {
+                return false
+            }
+            if let omStores, !belongs(row.storeNumber, to: omStores, identity: resolvedIdentity(row, roster: roster).om, value: om) {
+                return false
+            }
+            if let storeFilter, !matches(row.storeNumber, storeFilter) { return false }
             return true
         }
+    }
+
+    private static func storeSet(
+        in rows: [MetricRow],
+        roster: [String: StoreIdentity],
+        value: String,
+        relax: Bool,
+        field: (StoreIdentity) -> String
+    ) -> Set<String>? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return nil }
+        let hits = Set(rows.compactMap { row -> String? in
+            let identity = resolvedIdentity(row, roster: roster)
+            guard matches(field(identity), trimmed), !row.storeNumber.isEmpty else { return nil }
+            return row.storeNumber
+        })
+        if hits.isEmpty { return relax ? nil : [] }
+        return hits
+    }
+
+    private static func belongs(_ storeNumber: String, to stores: Set<String>, identity: String, value: String) -> Bool {
+        if !storeNumber.isEmpty { return stores.contains(storeNumber) }
+        return matches(identity, value)
     }
 
     static func usableFilter(_ value: String, in options: [String], relax: Bool) -> String? {
@@ -290,6 +321,41 @@ enum HeartbeatMath {
         var district: String
         var om: String
         var name: String?
+    }
+
+    struct MarketStore: Identifiable {
+        var storeNumber: String
+        var division: String
+        var district: String
+        var om: String
+        var pph: Double?
+        var compliance: Double?
+        var id: String { storeNumber }
+    }
+
+    static func marketBoard(_ rows: [MetricRow], division: String, district: String, om: String, store: String) -> [MarketStore] {
+        let matched = filtered(rows, division: division, district: district, om: om, store: store, relaxUnknown: false, universe: rows)
+        let roster = storeRoster(rows)
+        let pph = Dictionary(uniqueKeysWithValues: latestPerStore(matched.filter { $0.section == .pph }).compactMap { row in
+            guard !row.storeNumber.isEmpty else { return nil }
+            return (row.storeNumber, row.number("pph"))
+        })
+        let path = Dictionary(uniqueKeysWithValues: latestPerStore(matched.filter { $0.section == .pickPath }).compactMap { row in
+            guard !row.storeNumber.isEmpty else { return nil }
+            return (row.storeNumber, row.number("compliance_pct"))
+        })
+        let stores = Set(matched.map(\.storeNumber).filter { !$0.isEmpty })
+        return stores.sorted(by: HeartbeatFormat.storeOrder).map { number in
+            let identity = roster[number] ?? StoreIdentity(division: "", district: "", om: "", name: nil)
+            return MarketStore(
+                storeNumber: number,
+                division: identity.division,
+                district: identity.district,
+                om: identity.om,
+                pph: pph[number] ?? nil,
+                compliance: path[number] ?? nil
+            )
+        }
     }
 
     static func storeRoster(_ rows: [MetricRow]) -> [String: StoreIdentity] {

@@ -43,7 +43,9 @@ final class HeartbeatStore: ObservableObject {
             division: filters.division,
             district: filters.district,
             om: filters.om,
-            store: filters.store
+            store: filters.store,
+            relaxUnknown: false,
+            universe: rows
         )
     }
 
@@ -55,7 +57,18 @@ final class HeartbeatStore: ObservableObject {
             district: filters.district,
             om: filters.om,
             store: filters.store,
-            relaxUnknown: relaxUnknown
+            relaxUnknown: relaxUnknown,
+            universe: rows
+        )
+    }
+
+    func marketStores() -> [HeartbeatMath.MarketStore] {
+        HeartbeatMath.marketBoard(
+            rows,
+            division: filters.division,
+            district: filters.district,
+            om: filters.om,
+            store: filters.store
         )
     }
 
