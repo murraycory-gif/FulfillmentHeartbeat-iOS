@@ -111,6 +111,12 @@ struct SectionDetailView: View {
                 ("Over scheduled", HeartbeatFormat.num(rows.reduce(0) { $0 + ($1.number("over_scheduled") ?? 0) })),
                 ("Under scheduled", HeartbeatFormat.num(rows.reduce(0) { $0 + ($1.number("under_scheduled") ?? 0) })),
             ]
+        case .pph:
+            return [
+                ("Pure PPH", HeartbeatFormat.num(avg("pph"), digits: 1)),
+                ("Picks", HeartbeatFormat.num(rows.reduce(0) { $0 + ($1.number("picks_total") ?? 0) })),
+                ("Hours", HeartbeatFormat.num(rows.reduce(0) { $0 + ($1.number("pick_hours") ?? 0) }, digits: 1)),
+            ]
         }
     }
 }

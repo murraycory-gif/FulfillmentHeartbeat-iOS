@@ -27,7 +27,7 @@ struct DashboardView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("No files yet")
                                 .font(.headline)
-                            Text("Open Upload to drop in 5 Star, pick path, prep not ready, Dynacap, and schedule quality workbooks — or load the sample market to see the pulse.")
+                            Text("Open Upload to drop in 5 Star, pick path, prep not ready, Dynacap, schedule quality, and PPH workbooks — or load the sample market to see the pulse.")
                                 .font(.subheadline)
                                 .foregroundStyle(AppTheme.textSecondary)
                             Button("Load sample market") {

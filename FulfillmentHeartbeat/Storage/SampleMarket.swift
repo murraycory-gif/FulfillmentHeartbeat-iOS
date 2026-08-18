@@ -122,6 +122,24 @@ enum SampleMarket {
                         "under_scheduled": under,
                     ]
                 ))
+
+                let pph = clamp(58 + jitter(index + 37, 14) + Double(week) * 1.1, 38, 92)
+                let hours = clamp(28 + jitter(index + 43, 6), 18, 40)
+                let picks = (pph * hours).rounded()
+                out.append(MetricRow(
+                    section: .pph,
+                    division: store.division,
+                    operationsOM: store.om,
+                    storeNumber: store.store,
+                    storeName: store.name,
+                    recordedOn: date,
+                    payload: [
+                        "pph": pph.rounded(1),
+                        "picks_total": picks,
+                        "pick_hours": hours.rounded(1),
+                        "goal_pph": 65,
+                    ]
+                ))
             }
         }
         return out
@@ -153,6 +171,11 @@ enum SampleMarket {
             return """
             Division,Operations OM,Store Number,Store Name,Date,Schedule Efficiency %,Over Scheduled,Under Scheduled
             10,A. Brooks,1487,Chicago Pulaski,2026-08-17,94.6,4,2
+            """
+        case .pph:
+            return """
+            Division,Operations OM,Store Number,Store Name,Date,PPH,Picks Total,Pick Hours,Goal PPH
+            10,A. Brooks,1487,Chicago Pulaski,2026-08-17,68.4,1915,28.0,65
             """
         }
     }

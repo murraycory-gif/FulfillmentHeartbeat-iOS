@@ -6,6 +6,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
     case prepNotReady = "prep_not_ready"
     case dynacap = "dynacap"
     case scheduleQuality = "schedule_quality"
+    case pph = "pph"
 
     var id: String { rawValue }
 
@@ -16,6 +17,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .prepNotReady: return "Prep Not Ready"
         case .dynacap: return "Dynacap Setting"
         case .scheduleQuality: return "Schedule Quality"
+        case .pph: return "PPH Pure Picks Per Hour"
         }
     }
 
@@ -26,6 +28,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .prepNotReady: return "Prep NR"
         case .dynacap: return "Dynacap"
         case .scheduleQuality: return "Schedule"
+        case .pph: return "PPH"
         }
     }
 
@@ -36,6 +39,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .prepNotReady: return "Orders not staged by the promised ready time."
         case .dynacap: return "Pickup and delivery capacity versus recommended."
         case .scheduleQuality: return "How tightly the labor plan matches the work — efficiency, over, and under."
+        case .pph: return "Pure picks completed per labor hour."
         }
     }
 
@@ -46,6 +50,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .prepNotReady: return "PNR Count · Orders Due · PNR Rate · Avg Late Min"
         case .dynacap: return "Pickup / Delivery capacity · Rec pickup / delivery"
         case .scheduleQuality: return "Schedule Efficiency · Over Scheduled · Under Scheduled"
+        case .pph: return "PPH · Picks Total · Pick Hours · Goal PPH"
         }
     }
 
@@ -56,6 +61,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .prepNotReady: return "shippingbox"
         case .dynacap: return "slider.horizontal.3"
         case .scheduleQuality: return "calendar.badge.clock"
+        case .pph: return "speedometer"
         }
     }
 }
@@ -154,6 +160,9 @@ struct SectionSummary: Identifiable {
         if section == .fiveStar {
             return String(format: "%.2f", headline)
         }
+        if section == .pph {
+            return String(format: "%.1f", headline)
+        }
         return String(format: "%.1f%%", headline)
     }
 }
@@ -198,6 +207,8 @@ enum HeartbeatMath {
             return aligned ? .good : .risk
         case .scheduleQuality:
             return band(row.number("schedule_efficiency_pct"), good: 95, watch: 88)
+        case .pph:
+            return pphHealth(row)
         }
     }
 
@@ -298,7 +309,39 @@ enum HeartbeatMath {
                 lastFilename: upload?.filename,
                 lastUploadedAt: upload?.uploadedAt
             )
+        case .pph:
+            let headline = average(latest.compactMap { $0.number("pph") })
+            let picks = latest.reduce(0) { $0 + ($1.number("picks_total") ?? 0) }
+            let atGoal = latest.filter { row in
+                guard let pph = row.number("pph"), let goal = row.number("goal_pph") else { return false }
+                return pph >= goal
+            }.count
+            let hasGoals = latest.contains { $0.number("goal_pph") != nil }
+            return SectionSummary(
+                section: section,
+                storeCount: latest.count,
+                headline: headline,
+                headlineLabel: "Avg pure PPH",
+                secondary: latest.isEmpty
+                    ? "No stores in view"
+                    : (hasGoals
+                        ? "\(atGoal) of \(latest.count) at goal"
+                        : "\(Int(picks.rounded())) picks"),
+                health: band(headline, good: 65, watch: 50),
+                watchCount: watch,
+                riskCount: risk,
+                lastFilename: upload?.filename,
+                lastUploadedAt: upload?.uploadedAt
+            )
         }
+    }
+
+    static func pphHealth(_ row: MetricRow) -> Health {
+        let pph = row.number("pph")
+        if let pph, let goal = row.number("goal_pph"), goal > 0 {
+            return band(pph / goal * 100, good: 100, watch: 90)
+        }
+        return band(pph, good: 65, watch: 50)
     }
 
     static func band(_ value: Double?, good: Double, watch: Double, invert: Bool = false) -> Health {
@@ -340,6 +383,8 @@ enum HeartbeatMath {
                 }
             case .scheduleQuality:
                 value = row.number("schedule_efficiency_pct")
+            case .pph:
+                value = row.number("pph")
             }
             guard let value else { continue }
             buckets[date, default: []].append(value)
@@ -444,6 +489,14 @@ struct StoreCellViewModel {
             return StoreCellViewModel(
                 primary: HeartbeatFormat.pct(row.number("schedule_efficiency_pct")),
                 extra: "Over \(HeartbeatFormat.num(row.number("over_scheduled"))) · Under \(HeartbeatFormat.num(row.number("under_scheduled")))"
+            )
+        case .pph:
+            let goal = row.number("goal_pph")
+            return StoreCellViewModel(
+                primary: HeartbeatFormat.num(row.number("pph"), digits: 1),
+                extra: goal == nil
+                    ? "\(HeartbeatFormat.num(row.number("picks_total"))) picks · \(HeartbeatFormat.num(row.number("pick_hours"), digits: 1)) hrs"
+                    : "Goal \(HeartbeatFormat.num(goal, digits: 1)) · \(HeartbeatFormat.num(row.number("picks_total"))) picks"
             )
         }
     }

@@ -8,6 +8,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
     case prepNotReady
     case dynacap
     case scheduleQuality
+    case pph
 
     var id: String { rawValue }
 
@@ -20,6 +21,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         case .prepNotReady: return MetricSection.prepNotReady.title
         case .dynacap: return MetricSection.dynacap.title
         case .scheduleQuality: return MetricSection.scheduleQuality.title
+        case .pph: return MetricSection.pph.title
         }
     }
 
@@ -32,6 +34,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         case .prepNotReady: return MetricSection.prepNotReady.symbol
         case .dynacap: return MetricSection.dynacap.symbol
         case .scheduleQuality: return MetricSection.scheduleQuality.symbol
+        case .pph: return MetricSection.pph.symbol
         }
     }
 
@@ -42,6 +45,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         case .prepNotReady: return .prepNotReady
         case .dynacap: return .dynacap
         case .scheduleQuality: return .scheduleQuality
+        case .pph: return .pph
         default: return nil
         }
     }
@@ -53,11 +57,12 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         case .prepNotReady: return .prepNotReady
         case .dynacap: return .dynacap
         case .scheduleQuality: return .scheduleQuality
+        case .pph: return .pph
         }
     }
 
     static var primaryTabs: [HubDestination] { [.dashboard, .upload] }
-    static var metricItems: [HubDestination] { [.fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality] }
+    static var metricItems: [HubDestination] { [.fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pph] }
 }
 
 final class HubRouter: ObservableObject {
@@ -189,7 +194,7 @@ struct MainHubView: View {
             DashboardView().hubChrome()
         case .upload:
             UploadView().hubChrome(showBack: true)
-        case .fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality:
+        case .fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pph:
             if let section = dest.section {
                 SectionDetailView(section: section).hubChrome(showBack: true)
             }

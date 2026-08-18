@@ -162,6 +162,16 @@ enum WorkbookParser {
         "underscheduled": "under_scheduled",
         "undersched": "under_scheduled",
         "underhours": "under_scheduled",
+        "pph": "pph",
+        "purepph": "pph",
+        "purepicksperhour": "pph",
+        "picksperhour": "pph",
+        "pickhours": "pick_hours",
+        "hours": "pick_hours",
+        "laborhours": "pick_hours",
+        "goalpph": "goal_pph",
+        "pphgoal": "goal_pph",
+        "targetpph": "goal_pph",
     ]
 
     private static func rows(from matrix: [[String]]) -> [ParsedWorkbookRow] {
