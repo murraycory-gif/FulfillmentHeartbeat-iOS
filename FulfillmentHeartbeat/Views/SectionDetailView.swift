@@ -200,19 +200,26 @@ struct SectionDetailView: View {
         let atFive = rows.filter { ($0.number("star_rating") ?? 0) >= 4.95 }.count
         let pass = rows.filter { ($0.number("star_rating") ?? 0) >= HeartbeatMath.fiveStarPass }.count
         let fail = rows.filter { ($0.number("star_rating") ?? .greatestFiniteMagnitude) < HeartbeatMath.fiveStarPass }.count
-        func avg(_ key: String) -> Double? {
-            HeartbeatMath.average(rows.compactMap { $0.number(key) })
-        }
+        let flash = HeartbeatMath.average(rows.compactMap { $0.number("flash_pct") })
+        let presub = HeartbeatMath.average(rows.compactMap { $0.number("presub_pct") })
+        let coe = HeartbeatMath.average(rows.compactMap { $0.number("coe_pct") })
+        let ott = HeartbeatMath.average(rows.compactMap { $0.number("ott_pct") })
+        let oth = HeartbeatMath.average(rows.compactMap { $0.number("oth5_pct") })
+        let flashMark = HeartbeatMath.starMark(value: flash, full: 75, half: 55)
+        let presubMark = HeartbeatMath.starMark(value: presub, full: 5, half: 6, invert: true)
+        let coeMark = HeartbeatMath.starMark(value: coe, full: 20, half: 0)
+        let ottMark = HeartbeatMath.starMark(value: ott, full: 95, half: 90)
+        let othMark = HeartbeatMath.starMark(value: oth, full: 92, half: 78)
         KpiTile(label: "Avg star rating", value: summary.headlineText, hint: summary.health.label, tone: tone(for: summary.health))
         KpiTile(label: "Goal", value: "5.00", tone: .brand)
         KpiTile(label: "At 5.00", value: HeartbeatFormat.num(Double(atFive)), tone: .good)
         KpiTile(label: "Pass 4.0+", value: HeartbeatFormat.num(Double(pass)), tone: .good)
         KpiTile(label: "Fail", value: HeartbeatFormat.num(Double(fail)), tone: .risk)
-        KpiTile(label: "Flash", value: HeartbeatFormat.pct(avg("flash_pct")), hint: HeartbeatMath.starMark(value: avg("flash_pct"), full: 75, half: 55).label, tone: tone(for: HeartbeatMath.starMark(value: avg("flash_pct"), full: 75, half: 55).health))
-        KpiTile(label: "Presubs", value: HeartbeatFormat.pct(avg("presub_pct")), hint: HeartbeatMath.starMark(value: avg("presub_pct"), full: 5, half: 6, invert: true).label, tone: tone(for: HeartbeatMath.starMark(value: avg("presub_pct"), full: 5, half: 6, invert: true).health))
-        KpiTile(label: "COE", value: HeartbeatFormat.pct(avg("coe_pct")), hint: HeartbeatMath.starMark(value: avg("coe_pct"), full: 20, half: 0).label, tone: tone(for: HeartbeatMath.starMark(value: avg("coe_pct"), full: 20, half: 0).health))
-        KpiTile(label: "OTT", value: HeartbeatFormat.pct(avg("ott_pct")), hint: HeartbeatMath.starMark(value: avg("ott_pct"), full: 95, half: 90).label, tone: tone(for: HeartbeatMath.starMark(value: avg("ott_pct"), full: 95, half: 90).health))
-        KpiTile(label: "OTH 5%", value: HeartbeatFormat.pct(avg("oth5_pct")), hint: HeartbeatMath.starMark(value: avg("oth5_pct"), full: 92, half: 78).label, tone: tone(for: HeartbeatMath.starMark(value: avg("oth5_pct"), full: 92, half: 78).health))
+        KpiTile(label: "Flash", value: HeartbeatFormat.pct(flash), hint: flashMark.label, tone: tone(for: flashMark.health))
+        KpiTile(label: "Presubs", value: HeartbeatFormat.pct(presub), hint: presubMark.label, tone: tone(for: presubMark.health))
+        KpiTile(label: "COE", value: HeartbeatFormat.pct(coe), hint: coeMark.label, tone: tone(for: coeMark.health))
+        KpiTile(label: "OTT", value: HeartbeatFormat.pct(ott), hint: ottMark.label, tone: tone(for: ottMark.health))
+        KpiTile(label: "OTH 5%", value: HeartbeatFormat.pct(oth), hint: othMark.label, tone: tone(for: othMark.health))
     }
 
     private func tone(for health: Health) -> KpiTile.Tone {
