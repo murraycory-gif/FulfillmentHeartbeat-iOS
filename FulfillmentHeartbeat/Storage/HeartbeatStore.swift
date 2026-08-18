@@ -43,6 +43,7 @@ final class HeartbeatStore: ObservableObject {
     )
     private var cachedChecklistGroups: [MetricSection: [ChecklistDriverGroup]] = [:]
     private var pickerIndex: [PickerFocus: [Int]] = [:]
+    private var pickerFocusHealth: [PickerFocus: Health] = [:]
 
     init(rootURL: URL? = nil) {
         fileManager = .default
@@ -120,6 +121,10 @@ final class HeartbeatStore: ObservableObject {
         pickerIndex[focus]?.count ?? 0
     }
 
+    func pickerFocusHealth(for focus: PickerFocus) -> Health {
+        pickerFocusHealth[focus] ?? .none
+    }
+
     func pickerPage(focus: PickerFocus, sort: PickerSort, ascending: Bool, limit: Int) -> [MetricRow] {
         let pickers = filteredLatest[.pickerScorecard] ?? []
         let source = pickerIndex[focus] ?? []
@@ -155,48 +160,86 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func rebuildPickerIndex(_ pickers: [MetricRow]) {
-        var all: [Int] = []
-        var opportunity: [Int] = []
-        var strong: [Int] = []
-        var avgPPH: [Int] = []
-        var belowPPH: [Int] = []
-        var presub: [Int] = []
-        all.reserveCapacity(pickers.count)
-        opportunity.reserveCapacity(pickers.count / 2)
+        var buckets: [PickerFocus: [Int]] = [:]
+        var worst: [PickerFocus: Health] = [:]
+        for focus in PickerFocus.allCases {
+            buckets[focus] = []
+            buckets[focus]?.reserveCapacity(focus == .strong ? 512 : pickers.count / 2)
+            worst[focus] = .none
+        }
+
+        func note(_ focus: PickerFocus, _ health: Health) {
+            let ranks: [Health: Int] = [.none: 0, .good: 1, .watch: 2, .risk: 3]
+            if (ranks[health] ?? 0) > (ranks[worst[focus] ?? .none] ?? 0) {
+                worst[focus] = health
+            }
+        }
+
         for (index, row) in pickers.enumerated() {
             guard HeartbeatMath.isRealPicker(row) else { continue }
-            all.append(index)
+            buckets[.all]?.append(index)
+            note(.all, .none)
+
             let volume = HeartbeatMath.pickerHasVolume(row)
-            let health = HeartbeatMath.pickerHealth(row)
-            if volume && health != .good { opportunity.append(index) }
-            if volume && health == .good { strong.append(index) }
-            if row.number("pph") != nil, HeartbeatMath.pphHealth(row) != .good {
-                avgPPH.append(index)
+            let overall = HeartbeatMath.pickerHealth(row)
+            if volume && overall != .good {
+                buckets[.opportunity]?.append(index)
+                note(.opportunity, overall)
             }
-            if (row.number("pph") ?? .greatestFiniteMagnitude) < HeartbeatMath.pphRisk {
-                belowPPH.append(index)
+            if volume && overall == .good {
+                buckets[.strong]?.append(index)
+                note(.strong, .good)
             }
-            if (row.number("presub_pct") ?? 0) > 6 {
-                presub.append(index)
+
+            let pph = HeartbeatMath.pphHealth(row)
+            if row.number("pph") != nil, pph != .good {
+                buckets[.pph]?.append(index)
+                note(.pph, pph)
+            }
+            let presub = HeartbeatMath.presubStar(row).health
+            if row.number("presub_pct") != nil, presub != .good {
+                buckets[.presub]?.append(index)
+                note(.presub, presub)
+            }
+            let oth = HeartbeatMath.othStar(row).health
+            if row.number("oth5_pct") != nil, oth != .good {
+                buckets[.oth]?.append(index)
+                note(.oth, oth)
+            }
+            let coe = HeartbeatMath.coeStar(row).health
+            if row.number("coe_pct") != nil, coe != .good {
+                buckets[.coe]?.append(index)
+                note(.coe, coe)
+            }
+            let ott = HeartbeatMath.ottStar(row).health
+            if row.number("ott_pct") != nil, ott != .good {
+                buckets[.ott]?.append(index)
+                note(.ott, ott)
             }
         }
-        func byPPH(_ lhs: Int, _ rhs: Int) -> Bool {
-            (pickers[lhs].number("pph") ?? 9_999) < (pickers[rhs].number("pph") ?? 9_999)
+
+        func byNumber(_ key: String, invert: Bool) -> (Int, Int) -> Bool {
+            { lhs, rhs in
+                let a = pickers[lhs].number(key)
+                let b = pickers[rhs].number(key)
+                if invert {
+                    return (a ?? -9_999) > (b ?? -9_999)
+                }
+                return (a ?? 9_999) < (b ?? 9_999)
+            }
         }
-        all.sort(by: byPPH)
-        opportunity.sort(by: byPPH)
-        strong.sort(by: byPPH)
-        avgPPH.sort(by: byPPH)
-        belowPPH.sort(by: byPPH)
-        presub.sort(by: byPPH)
-        pickerIndex = [
-            .all: all,
-            .opportunity: opportunity,
-            .strong: strong,
-            .avgPPH: avgPPH,
-            .belowPPH: belowPPH,
-            .presub: presub,
-        ]
+
+        buckets[.all]?.sort(by: byNumber("pph", invert: false))
+        buckets[.opportunity]?.sort(by: byNumber("pph", invert: false))
+        buckets[.strong]?.sort(by: byNumber("pph", invert: true))
+        buckets[.pph]?.sort(by: byNumber("pph", invert: false))
+        buckets[.presub]?.sort(by: byNumber("presub_pct", invert: true))
+        buckets[.oth]?.sort(by: byNumber("oth5_pct", invert: false))
+        buckets[.coe]?.sort(by: byNumber("coe_pct", invert: false))
+        buckets[.ott]?.sort(by: byNumber("ott_pct", invert: false))
+
+        pickerIndex = buckets
+        pickerFocusHealth = worst
     }
 
     func checklistItem(for item: ChecklistDriverItem, section: MetricSection) -> ChecklistItem {

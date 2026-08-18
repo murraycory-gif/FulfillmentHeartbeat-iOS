@@ -246,49 +246,29 @@ struct SectionDetailView: View {
 
     @ViewBuilder
     private var pickerStatusTiles: some View {
+        pickerTile(.all, tone: .brand)
+        pickerTile(.opportunity, tone: store.pickerCount(for: .opportunity) == 0 ? .good : .risk)
+        pickerTile(.strong, tone: .good)
+        pickerTile(.ott, tone: tone(for: falloutHealth(.ott)))
+        pickerTile(.presub, tone: tone(for: falloutHealth(.presub)))
+        pickerTile(.oth, tone: tone(for: falloutHealth(.oth)))
+        pickerTile(.coe, tone: tone(for: falloutHealth(.coe)))
+        pickerTile(.pph, tone: tone(for: falloutHealth(.pph)))
+    }
+
+    private func pickerTile(_ focus: PickerFocus, tone: KpiTile.Tone) -> some View {
         KpiTile(
-            label: "Shoppers",
-            value: HeartbeatFormat.num(Double(store.pickerCount(for: .all))),
-            tone: .brand,
-            selected: pickerFocus == .all,
-            action: { pickerFocus = .all }
+            label: focus.title,
+            value: HeartbeatFormat.num(Double(store.pickerCount(for: focus))),
+            tone: tone,
+            selected: pickerFocus == focus,
+            action: { pickerFocus = focus }
         )
-        KpiTile(
-            label: "Opportunity",
-            value: HeartbeatFormat.num(Double(store.pickerCount(for: .opportunity))),
-            tone: .risk,
-            selected: pickerFocus == .opportunity,
-            action: { pickerFocus = .opportunity }
-        )
-        KpiTile(
-            label: "Doing well",
-            value: HeartbeatFormat.num(Double(store.pickerCount(for: .strong))),
-            tone: .good,
-            selected: pickerFocus == .strong,
-            action: { pickerFocus = .strong }
-        )
-        KpiTile(
-            label: "Avg PPH",
-            value: summary.headlineText,
-            hint: summary.health.label,
-            tone: tone(for: summary.health),
-            selected: pickerFocus == .avgPPH,
-            action: { pickerFocus = .avgPPH }
-        )
-        KpiTile(
-            label: "Below 74 PPH",
-            value: HeartbeatFormat.num(Double(store.pickerCount(for: .belowPPH))),
-            tone: .risk,
-            selected: pickerFocus == .belowPPH,
-            action: { pickerFocus = .belowPPH }
-        )
-        KpiTile(
-            label: "Presub risk",
-            value: HeartbeatFormat.num(Double(store.pickerCount(for: .presub))),
-            tone: .risk,
-            selected: pickerFocus == .presub,
-            action: { pickerFocus = .presub }
-        )
+    }
+
+    private func falloutHealth(_ focus: PickerFocus) -> Health {
+        if store.pickerCount(for: focus) == 0 { return .good }
+        return store.pickerFocusHealth(for: focus)
     }
 
     private func tone(for health: Health) -> KpiTile.Tone {

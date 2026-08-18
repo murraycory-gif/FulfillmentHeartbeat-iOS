@@ -761,12 +761,16 @@ enum HeartbeatMath {
             return pickerHasVolume(row) && pickerHealth(row) != .good
         case .strong:
             return pickerHasVolume(row) && pickerHealth(row) == .good
-        case .avgPPH:
-            return row.number("pph") != nil && pphHealth(row) != .good
-        case .belowPPH:
-            return (row.number("pph") ?? .greatestFiniteMagnitude) < pphRisk
+        case .ott:
+            return row.number("ott_pct") != nil && ottStar(row).health != .good
         case .presub:
-            return (row.number("presub_pct") ?? 0) > 6
+            return row.number("presub_pct") != nil && presubStar(row).health != .good
+        case .oth:
+            return row.number("oth5_pct") != nil && othStar(row).health != .good
+        case .coe:
+            return row.number("coe_pct") != nil && coeStar(row).health != .good
+        case .pph:
+            return row.number("pph") != nil && pphHealth(row) != .good
         }
     }
 
@@ -1336,20 +1340,24 @@ enum PickerFocus: String, CaseIterable, Identifiable {
     case all
     case opportunity
     case strong
-    case avgPPH
-    case belowPPH
+    case ott
     case presub
+    case oth
+    case coe
+    case pph
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .all: return "Shoppers"
+        case .all: return "All Shoppers"
         case .opportunity: return "Opportunity"
-        case .strong: return "Doing well"
-        case .avgPPH: return "Avg PPH"
-        case .belowPPH: return "Below 74 PPH"
-        case .presub: return "Presub risk"
+        case .strong: return "Doing Well"
+        case .ott: return "OTT"
+        case .presub: return "Presub"
+        case .oth: return "OTH"
+        case .coe: return "COE"
+        case .pph: return "PPH"
         }
     }
 }
