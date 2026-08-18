@@ -377,7 +377,6 @@ struct StoreTable: View {
         }
         .padding(.vertical, 12)
     }
-    }
 
     private func header(_ title: String) -> some View {
         Text(title.uppercased())
