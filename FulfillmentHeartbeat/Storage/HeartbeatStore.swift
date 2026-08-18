@@ -248,15 +248,19 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func rebuildIndex() {
+        roster = HeartbeatMath.storeRoster(rows)
         var latest: [MetricSection: [MetricRow]] = [:]
         for section in MetricSection.allCases {
             let sectionRows = rows.filter { $0.section == section }
-            latest[section] = section == .pickerScorecard
-                ? HeartbeatMath.latestPerShopper(sectionRows)
-                : HeartbeatMath.latestPerStore(sectionRows)
+            if section == .dynacap {
+                latest[section] = HeartbeatMath.materializeDistrictMetric(sectionRows, roster: roster)
+            } else if section == .pickerScorecard {
+                latest[section] = HeartbeatMath.latestPerShopper(sectionRows)
+            } else {
+                latest[section] = HeartbeatMath.latestPerStore(sectionRows)
+            }
         }
         latestBySection = latest
-        roster = HeartbeatMath.storeRoster(rows)
         cachedDivisions = roster.values.map(\.division).filter { !$0.isEmpty }.uniqued().sorted()
     }
 

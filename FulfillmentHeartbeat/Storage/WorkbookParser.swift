@@ -163,6 +163,19 @@ enum WorkbookParser {
         "pickuputilization": "pickup_util_pct",
         "deliveryutil": "delivery_util_pct",
         "deliveryutilization": "delivery_util_pct",
+        "totalpiecestotalhrs": "dynacap_rate",
+        "totalpiecesperhour": "dynacap_rate",
+        "piecesperhour": "dynacap_rate",
+        "piecestotalhrs": "dynacap_rate",
+        "dynacaprate": "dynacap_rate",
+        "dynacapsetting": "dynacap_rate",
+        "dpadynacap": "dpa_dynacap",
+        "eotcapacity": "eot_capacity",
+        "usedcapacity": "used_capacity",
+        "utilization": "utilization_pct",
+        "utilizationpct": "utilization_pct",
+        "change": "change_pct",
+        "pctchange": "change_pct",
         "scheduleefficiency": "schedule_efficiency_pct",
         "scheduleeff": "schedule_efficiency_pct",
         "efficiency": "schedule_efficiency_pct",
@@ -360,6 +373,9 @@ enum WorkbookParser {
             key = "compliance_pct"
             if number <= 1.5 { number *= 100 }
         }
+        if key == "utilization_pct" || key == "change_pct" {
+            if number <= 1.5 { number *= 100 }
+        }
         payload[key] = number
         if key == "orders" {
             payload["picks_total"] = number
@@ -498,13 +514,17 @@ enum WorkbookParser {
                 }
                 let mapped = metricAliases[header] ?? header
                 if let number = cellNumber(raw) {
-                    payload[mapped] = number
+                    applyMetric(&payload, header: header, value: number)
                 } else {
                     let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !trimmed.isEmpty { text[mapped] = trimmed }
                 }
             }
-            if store.isEmpty && name == nil && division.isEmpty { continue }
+            if isTotalCell(store) || isTotalCell(text["district"] ?? "") || isTotalCell(division) { continue }
+            if store.isEmpty && name == nil && division.isEmpty {
+                if (text["district"] ?? "").isEmpty { continue }
+                if payload["dynacap_rate"] == nil { continue }
+            }
             out.append(ParsedWorkbookRow(
                 division: division,
                 operationsOM: om,

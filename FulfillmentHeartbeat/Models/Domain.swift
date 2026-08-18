@@ -40,7 +40,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .fiveStar: return "Composite star rating and the four drivers behind it."
         case .pickPath: return "Share of picks that followed the system path. Upload the All Pickers WEEK_ID export."
         case .prepNotReady: return "Orders not staged by the promised ready time."
-        case .dynacap: return "Pickup and delivery capacity versus recommended."
+        case .dynacap: return "Pieces per hour we allow down to the picker. Upload the Overall Capacity Summary."
         case .scheduleQuality: return "How tightly the labor plan matches the work — efficiency, over, and under."
         case .pph: return "Pure picks completed per labor hour. Upload the WEEK_ID by Division export."
         case .pickerScorecard: return "Shopper-level PPH, path, and quality — opportunity versus strong."
@@ -52,7 +52,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .fiveStar: return "Star Rating · OTP % · Fill Rate · Quality · CX"
         case .pickPath: return "WEEK_ID · DIVISION · DISTRICT · OM · STORE_ID · EMPLOYEE · Pick Path · Orders · Pure PPH"
         case .prepNotReady: return "PNR Count · Orders Due · PNR Rate · Avg Late Min"
-        case .dynacap: return "Pickup / Delivery capacity · Rec pickup / delivery"
+        case .dynacap: return "DISTRICT · Total Pieces/Total Hrs · DPA Dynacap · Utilization %"
         case .scheduleQuality: return "Schedule Efficiency · Over Scheduled · Under Scheduled"
         case .pph: return "WEEK_ID · DIVISION · DISTRICT · OM_AREA · OM_ID · STORE · Pure PPH"
         case .pickerScorecard: return "Shopper · PPH · Pick Path % · Quality · Goal PPH"
@@ -196,7 +196,7 @@ struct SectionSummary: Identifiable {
         if section == .fiveStar {
             return String(format: "%.2f", headline)
         }
-        if section == .pph {
+        if section == .pph || section == .dynacap {
             return String(format: "%.1f", headline)
         }
         if section == .pickerScorecard {
@@ -375,6 +375,33 @@ enum HeartbeatMath {
         return map
     }
 
+    static func materializeDistrictMetric(_ rows: [MetricRow], roster: [String: StoreIdentity]) -> [MetricRow] {
+        let byDistrict = Dictionary(rows.filter { !$0.district.isEmpty }.map { (normalize($0.district), $0) }, uniquingKeysWith: { _, latest in latest })
+        var expanded: [MetricRow] = []
+        for (number, identity) in roster {
+            let key = normalize(identity.district)
+            guard let source = byDistrict[key] else { continue }
+            var text = source.textPayload
+            text["district"] = identity.district
+            expanded.append(
+                MetricRow(
+                    section: source.section,
+                    division: identity.division,
+                    operationsOM: identity.om,
+                    storeNumber: number,
+                    storeName: identity.name,
+                    recordedOn: source.recordedOn,
+                    payload: source.payload,
+                    textPayload: text
+                )
+            )
+        }
+        if expanded.isEmpty {
+            return rows.filter { $0.number("dynacap_rate", "pieces_per_hour") != nil || $0.number("pickup_capacity") != nil }
+        }
+        return expanded
+    }
+
     static func resolvedIdentity(_ row: MetricRow, roster: [String: StoreIdentity]) -> StoreIdentity {
         let known = roster[row.storeNumber]
         return StoreIdentity(
@@ -395,7 +422,10 @@ enum HeartbeatMath {
         case .prepNotReady:
             return band(row.number("pnr_rate_pct"), good: 2, watch: 5, invert: true)
         case .dynacap:
-            guard let aligned = dynacapAligned(row) else { return .watch }
+            if let rate = row.number("dynacap_rate", "pieces_per_hour") {
+                return band(rate, good: dynacapGoal, watch: dynacapRisk)
+            }
+            guard let aligned = dynacapAligned(row) else { return .none }
             return aligned ? .good : .risk
         case .scheduleQuality:
             return band(row.number("schedule_efficiency_pct"), good: 95, watch: 88)
@@ -471,17 +501,18 @@ enum HeartbeatMath {
                 lastUploadedAt: upload?.uploadedAt
             )
         case .dynacap:
-            let aligned = latest.filter { dynacapAligned($0) == true }.count
-            let headline = latest.isEmpty ? nil : (Double(aligned) / Double(latest.count)) * 100
+            let headline = average(latest.compactMap { $0.number("dynacap_rate", "pieces_per_hour") })
+            let atGoal = latest.filter { ($0.number("dynacap_rate", "pieces_per_hour") ?? 0) >= dynacapGoal }.count
+            let atRisk = latest.filter { ($0.number("dynacap_rate", "pieces_per_hour") ?? .greatestFiniteMagnitude) < dynacapRisk }.count
             return SectionSummary(
                 section: section,
                 storeCount: latest.count,
                 headline: headline,
-                headlineLabel: "Settings aligned",
+                headlineLabel: "Avg pieces / hour",
                 secondary: latest.isEmpty
-                    ? "No stores in view"
-                    : "\(aligned) of \(latest.count) within 10% of rec",
-                health: band(headline, good: 85, watch: 70),
+                    ? "No Dynacap rows in this filter"
+                    : "\(atGoal) of \(latest.count) at 65 · \(atRisk) below 60",
+                health: latest.isEmpty ? .none : band(headline, good: dynacapGoal, watch: dynacapRisk),
                 watchCount: watch,
                 riskCount: risk,
                 lastFilename: upload?.filename,
@@ -550,6 +581,8 @@ enum HeartbeatMath {
     static let pphRisk = 74.0
     static let pickPathGoal = 90.0
     static let pickPathRisk = 80.0
+    static let dynacapGoal = 65.0
+    static let dynacapRisk = 60.0
 
     static func pphHealth(_ row: MetricRow) -> Health {
         band(row.number("pph"), good: pphGoal, watch: pphRisk)
@@ -621,11 +654,7 @@ enum HeartbeatMath {
             case .pickPath: value = row.number("compliance_pct")
             case .prepNotReady: value = row.number("pnr_rate_pct")
             case .dynacap:
-                if let aligned = dynacapAligned(row) {
-                    value = aligned ? 100 : 0
-                } else {
-                    value = nil
-                }
+                value = row.number("dynacap_rate", "pieces_per_hour")
             case .scheduleQuality:
                 value = row.number("schedule_efficiency_pct")
             case .pph:
@@ -777,10 +806,27 @@ struct StoreCellViewModel {
                 extra: "\(HeartbeatFormat.num(row.number("pnr_count"))) not ready · \(HeartbeatFormat.num(row.number("avg_late_min"), digits: 1)) min late"
             )
         case .dynacap:
-            let aligned = HeartbeatMath.dynacapAligned(row)
+            let rate = row.number("dynacap_rate", "pieces_per_hour")
+            let gap = rate.map { $0 - HeartbeatMath.dynacapGoal }
+            let gapText: String
+            if let gap {
+                gapText = gap >= 0
+                    ? "+\(HeartbeatFormat.num(gap, digits: 1)) vs 65"
+                    : "\(HeartbeatFormat.num(gap, digits: 1)) vs 65"
+            } else if HeartbeatMath.dynacapAligned(row) != nil {
+                let aligned = HeartbeatMath.dynacapAligned(row)
+                return StoreCellViewModel(
+                    primary: aligned == true ? "Aligned" : "Off rec",
+                    extra: "PU \(HeartbeatFormat.num(row.number("pickup_capacity"))) / \(HeartbeatFormat.num(row.number("rec_pickup")))"
+                )
+            } else {
+                gapText = "Not in Dynacap file"
+            }
+            let util = row.number("utilization_pct")
+            let extra = util == nil ? gapText : "\(gapText) · Util \(HeartbeatFormat.pct(util))"
             return StoreCellViewModel(
-                primary: aligned == nil ? "—" : (aligned == true ? "Aligned" : "Off rec"),
-                extra: "PU \(HeartbeatFormat.num(row.number("pickup_capacity"))) / \(HeartbeatFormat.num(row.number("rec_pickup"))) · DL \(HeartbeatFormat.num(row.number("delivery_capacity"))) / \(HeartbeatFormat.num(row.number("rec_delivery")))"
+                primary: HeartbeatFormat.num(rate, digits: 1),
+                extra: extra
             )
         case .scheduleQuality:
             return StoreCellViewModel(

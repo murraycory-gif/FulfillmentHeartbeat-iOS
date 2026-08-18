@@ -87,9 +87,6 @@ enum SampleMarket {
                     ]
                 ))
 
-                let recPickup = [36, 40, 44, 48, 52][index % 5]
-                let recDelivery = [20, 24, 28, 32][index % 4]
-                let drift = (index % 5 == 0 && week == 2) ? 12 : (index % 4 == 1 ? -8 : 0)
                 out.append(MetricRow(
                     section: .dynacap,
                     division: store.division,
@@ -98,13 +95,12 @@ enum SampleMarket {
                     storeName: store.name,
                     recordedOn: date,
                     payload: [
-                        "pickup_capacity": Double(recPickup + drift),
-                        "delivery_capacity": Double(recDelivery + (index % 6 == 2 ? 6 : 0)),
-                        "rec_pickup": Double(recPickup),
-                        "rec_delivery": Double(recDelivery),
-                        "pickup_util_pct": clamp(78 + jitter(index + 5, 14), 52, 99).rounded(1),
-                        "delivery_util_pct": clamp(74 + jitter(index + 9, 16), 48, 99).rounded(1),
-                    ]
+                        "dynacap_rate": clamp(61 + jitter(index + 11, 12), 48, 88).rounded(1),
+                        "utilization_pct": clamp(42 + jitter(index + 5, 14), 18, 72).rounded(1),
+                        "dpa_dynacap": Double(240000 + index * 1200),
+                        "used_capacity": Double(110000 + index * 800),
+                    ],
+                    textPayload: ["district": store.district]
                 ))
 
                 let efficiency = clamp(91 + jitter(index + 21, 8) + Double(week) * 0.5, 78, 99.4)
@@ -207,8 +203,10 @@ enum SampleMarket {
             """
         case .dynacap:
             return """
-            Division,Operations OM,Store Number,Store Name,Date,Pickup Capacity,Delivery Capacity,Rec Pickup,Rec Delivery,Pickup Util %,Delivery Util %
-            10,A. Brooks,1487,Chicago Pulaski,2026-08-17,36,20,36,20,81.0,76.0
+            DISTRICT,DPA_DYNACAP,EOT Capacity,Total Pieces/Total Hrs,% Change,Used Capacity,Utilization%
+            J1,537898,538204,74.07,0.0005,224231,0.4168
+            J2,493735,522454,72.04,0.0582,227154,0.4352
+            39,151880,151697,83.15,-0.0012,28576,0.1884
             """
         case .scheduleQuality:
             return """

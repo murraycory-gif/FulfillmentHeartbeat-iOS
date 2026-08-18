@@ -42,6 +42,8 @@ struct SectionDetailView: View {
                             pphStatusTiles
                         } else if section == .pickPath {
                             pickPathStatusTiles
+                        } else if section == .dynacap {
+                            dynacapStatusTiles
                         } else {
                             HubCard {
                                 VStack(alignment: .leading, spacing: 8) {
@@ -158,6 +160,19 @@ struct SectionDetailView: View {
         KpiTile(label: "Below 80%", value: HeartbeatFormat.num(Double(atRisk)), tone: .risk)
         KpiTile(label: "Orders", value: HeartbeatFormat.num(orders))
         KpiTile(label: "Week", value: week)
+    }
+
+    @ViewBuilder
+    private var dynacapStatusTiles: some View {
+        let rows = snapshots
+        let atGoal = rows.filter { ($0.number("dynacap_rate", "pieces_per_hour") ?? 0) >= HeartbeatMath.dynacapGoal }.count
+        let atRisk = rows.filter { ($0.number("dynacap_rate", "pieces_per_hour") ?? .greatestFiniteMagnitude) < HeartbeatMath.dynacapRisk }.count
+        let util = HeartbeatMath.average(rows.compactMap { $0.number("utilization_pct") })
+        KpiTile(label: "Avg pieces / hour", value: summary.headlineText, hint: summary.health.label, tone: tone(for: summary.health))
+        KpiTile(label: "Goal", value: "65.0", tone: .brand)
+        KpiTile(label: "At goal", value: HeartbeatFormat.num(Double(atGoal)), tone: .good)
+        KpiTile(label: "Below 60", value: HeartbeatFormat.num(Double(atRisk)), tone: .risk)
+        KpiTile(label: "Utilization", value: HeartbeatFormat.pct(util))
     }
 
     private func tone(for health: Health) -> KpiTile.Tone {

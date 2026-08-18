@@ -462,7 +462,7 @@ struct StoreTable: View {
         case .fiveStar: return row.number("star_rating") ?? -1
         case .pickPath: return row.number("compliance_pct") ?? -1
         case .prepNotReady: return row.number("pnr_rate_pct") ?? -1
-        case .dynacap: return HeartbeatMath.dynacapAligned(row) == true ? 1 : 0
+        case .dynacap: return row.number("dynacap_rate", "pieces_per_hour") ?? (HeartbeatMath.dynacapAligned(row) == true ? 1 : 0)
         case .scheduleQuality: return row.number("schedule_efficiency_pct") ?? -1
         case .pph: return row.number("pph") ?? -1
         case .pickerScorecard: return HeartbeatMath.pickerComposite(row)
@@ -482,7 +482,11 @@ struct StoreTable: View {
                 } else {
                     Text(row.storeNumber.isEmpty ? "—" : row.storeNumber)
                         .font(.subheadline.weight(.semibold).monospacedDigit())
-                    if let name = row.storeName, !name.isEmpty {
+                    if section == .dynacap {
+                        Text(row.division.isEmpty ? "—" : row.division)
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.textSecondary)
+                    } else if let name = row.storeName, !name.isEmpty {
                         Text(name)
                             .font(.caption)
                             .foregroundStyle(AppTheme.textSecondary)

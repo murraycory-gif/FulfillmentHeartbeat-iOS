@@ -37,6 +37,27 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(HeartbeatMath.dynacapAligned(off), false)
         XCTAssertEqual(HeartbeatMath.health(for: .dynacap, row: aligned), .good)
         XCTAssertEqual(HeartbeatMath.health(for: .dynacap, row: off), .risk)
+        let rateGood = MetricRow(section: .dynacap, division: "Jewel Osco", operationsOM: "Shelly Selof", storeNumber: "1", payload: ["dynacap_rate": 74], textPayload: ["district": "J1"])
+        let rateWatch = MetricRow(section: .dynacap, division: "Jewel Osco", operationsOM: "Shelly Selof", storeNumber: "2", payload: ["dynacap_rate": 62], textPayload: ["district": "J1"])
+        let rateRisk = MetricRow(section: .dynacap, division: "Jewel Osco", operationsOM: "Shelly Selof", storeNumber: "3", payload: ["dynacap_rate": 54], textPayload: ["district": "J1"])
+        XCTAssertEqual(HeartbeatMath.health(for: .dynacap, row: rateGood), .good)
+        XCTAssertEqual(HeartbeatMath.health(for: .dynacap, row: rateWatch), .watch)
+        XCTAssertEqual(HeartbeatMath.health(for: .dynacap, row: rateRisk), .risk)
+    }
+
+    func testDynacapDistrictFileParsesAndJoinsStores() {
+        let csv = SampleMarket.templateCSV(for: .dynacap)
+        let parsed = WorkbookParser.parseCSV(csv)
+        XCTAssertEqual(Set(parsed.map(\.district)), Set(["J1", "J2", "39"]))
+        XCTAssertEqual(parsed.first { $0.district == "J1" }?.payload["dynacap_rate"] ?? 0, 74.07, accuracy: 0.02)
+        let roster = [
+            "1": HeartbeatMath.StoreIdentity(division: "Jewel Osco", district: "J1", om: "Shelly Selof", name: nil),
+            "3427": HeartbeatMath.StoreIdentity(division: "Haggen", district: "39", om: "Luke Lomas", name: nil),
+        ]
+        let rows = parsed.map { $0.asRow(section: .dynacap) }
+        let expanded = HeartbeatMath.materializeDistrictMetric(rows, roster: roster)
+        XCTAssertEqual(Set(expanded.map(\.storeNumber)), Set(["1", "3427"]))
+        XCTAssertEqual(expanded.first { $0.storeNumber == "1" }?.division, "Jewel Osco")
     }
 
     func testLatestPerStoreKeepsNewestDate() {
