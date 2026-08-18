@@ -56,6 +56,20 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(HeartbeatMath.filtered(rows, division: "", district: "", om: "J. Patel", store: "").first?.storeNumber, "1088")
         XCTAssertEqual(HeartbeatMath.filtered(rows, division: "", district: "", om: "", store: "1487").count, 1)
         XCTAssertEqual(HeartbeatMath.filtered(rows, division: "Haggen", district: "", om: "", store: "").count, 0)
+        XCTAssertEqual(HeartbeatMath.filtered(rows, division: "jewel osco", district: "", om: "", store: "").count, 2)
+    }
+
+    func testUnknownDivisionIsIgnoredOnlyWhenRelaxed() {
+        let path = MetricRow(section: .pickPath, division: "Portland", operationsOM: "JR Ehline", storeNumber: "4313", payload: ["compliance_pct": 89], textPayload: ["district": "73"])
+        XCTAssertTrue(HeartbeatMath.filtered([path], division: "Jewel Osco", district: "", om: "", store: "", relaxUnknown: false).isEmpty)
+        XCTAssertEqual(HeartbeatMath.filtered([path], division: "Jewel Osco", district: "", om: "", store: "", relaxUnknown: true).count, 1)
+    }
+
+    func testEmptyDivisionFillsFromRoster() {
+        let labeled = MetricRow(section: .pph, division: "Jewel Osco", operationsOM: "Shelly Selof", storeNumber: "1", payload: ["pph": 65], textPayload: ["district": "J1"])
+        let blank = MetricRow(section: .pph, division: "", operationsOM: "", storeNumber: "1", recordedOn: "2026-06-15", payload: ["pph": 70], textPayload: [:])
+        let filtered = HeartbeatMath.filtered([labeled, blank], division: "Jewel Osco", district: "", om: "", store: "")
+        XCTAssertEqual(filtered.count, 2)
     }
 
     func testSummarizeFiveStar() {

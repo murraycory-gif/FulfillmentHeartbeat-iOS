@@ -47,15 +47,23 @@ final class HeartbeatStore: ObservableObject {
         )
     }
 
-    func rows(for section: MetricSection) -> [MetricRow] {
-        filteredRows.filter { $0.section == section }
+    func rows(for section: MetricSection, relaxUnknown: Bool = false) -> [MetricRow] {
+        let sectionRows = rows.filter { $0.section == section }
+        return HeartbeatMath.filtered(
+            sectionRows,
+            division: filters.division,
+            district: filters.district,
+            om: filters.om,
+            store: filters.store,
+            relaxUnknown: relaxUnknown
+        )
     }
 
-    func latest(for section: MetricSection) -> [MetricRow] {
+    func latest(for section: MetricSection, relaxUnknown: Bool = false) -> [MetricRow] {
         if section == .pickerScorecard {
-            return HeartbeatMath.latestPerShopper(rows(for: section))
+            return HeartbeatMath.latestPerShopper(rows(for: section, relaxUnknown: relaxUnknown))
         }
-        return HeartbeatMath.latestPerStore(rows(for: section))
+        return HeartbeatMath.latestPerStore(rows(for: section, relaxUnknown: relaxUnknown))
     }
 
     func upload(for section: MetricSection) -> UploadRecord? {
@@ -74,23 +82,36 @@ final class HeartbeatStore: ObservableObject {
         uploads.max(by: { $0.uploadedAt < $1.uploadedAt })
     }
 
-    var divisions: [String] {
-        Array(Set(rows.map(\.division).filter { !$0.isEmpty })).sorted()
+    var divisions: [String] { distinct(rows.map(\.division)) }
+
+    var districts: [String] { districts(in: nil) }
+
+    var operationsOMs: [String] { operationsOMs(in: nil) }
+
+    var stores: [(number: String, name: String?)] { stores(in: nil) }
+
+    func divisions(in scope: MetricSection?) -> [String] {
+        distinct(source(scope).map(\.division))
     }
 
-    var districts: [String] {
-        rows
-            .filter { filters.division.isEmpty || $0.division == filters.division }
+    func districts(in scope: MetricSection?) -> [String] {
+        let sourceRows = source(scope)
+        let division = HeartbeatMath.usableFilter(filters.division, in: sourceRows.map(\.division), relax: scope != nil)
+        return sourceRows
+            .filter { division == nil || HeartbeatMath.matches($0.division, division ?? "") }
             .map(\.district)
             .filter { !$0.isEmpty }
             .uniqued()
             .sorted()
     }
 
-    var operationsOMs: [String] {
-        rows
-            .filter { filters.division.isEmpty || $0.division == filters.division }
-            .filter { filters.district.isEmpty || $0.district == filters.district }
+    func operationsOMs(in scope: MetricSection?) -> [String] {
+        let sourceRows = source(scope)
+        let division = HeartbeatMath.usableFilter(filters.division, in: sourceRows.map(\.division), relax: scope != nil)
+        let district = HeartbeatMath.usableFilter(filters.district, in: sourceRows.map(\.district), relax: scope != nil)
+        return sourceRows
+            .filter { division == nil || HeartbeatMath.matches($0.division, division ?? "") }
+            .filter { district == nil || HeartbeatMath.matches($0.district, district ?? "") }
             .map(\.operationsOM)
             .filter { value in
                 !value.isEmpty && value.rangeOfCharacter(from: .letters) != nil
@@ -99,18 +120,53 @@ final class HeartbeatStore: ObservableObject {
             .sorted()
     }
 
-    var stores: [(number: String, name: String?)] {
+    func stores(in scope: MetricSection?) -> [(number: String, name: String?)] {
+        let sourceRows = source(scope)
+        let division = HeartbeatMath.usableFilter(filters.division, in: sourceRows.map(\.division), relax: scope != nil)
+        let district = HeartbeatMath.usableFilter(filters.district, in: sourceRows.map(\.district), relax: scope != nil)
+        let om = HeartbeatMath.usableFilter(filters.om, in: sourceRows.map(\.operationsOM), relax: scope != nil)
         var seen: [String: String?] = [:]
-        for row in rows {
-            if !filters.division.isEmpty, row.division != filters.division { continue }
-            if !filters.district.isEmpty, row.district != filters.district { continue }
-            if !filters.om.isEmpty, row.operationsOM != filters.om { continue }
+        for row in sourceRows {
+            if let division, !HeartbeatMath.matches(row.division, division) { continue }
+            if let district, !HeartbeatMath.matches(row.district, district) { continue }
+            if let om, !HeartbeatMath.matches(row.operationsOM, om) { continue }
             if row.storeNumber.isEmpty { continue }
             if seen[row.storeNumber] == nil {
                 seen[row.storeNumber] = row.storeName
             }
         }
         return seen.keys.sorted(by: HeartbeatFormat.storeOrder).map { ($0, seen[$0] ?? nil) }
+    }
+
+    func ignoredFilters(for section: MetricSection) -> [String] {
+        let sectionRows = rows.filter { $0.section == section }
+        var ignored: [String] = []
+        if HeartbeatMath.usableFilter(filters.division, in: sectionRows.map(\.division), relax: true) == nil,
+           !filters.division.isEmpty {
+            ignored.append(filters.division)
+        }
+        if HeartbeatMath.usableFilter(filters.district, in: sectionRows.map(\.district), relax: true) == nil,
+           !filters.district.isEmpty {
+            ignored.append("District \(filters.district)")
+        }
+        if HeartbeatMath.usableFilter(filters.om, in: sectionRows.map(\.operationsOM), relax: true) == nil,
+           !filters.om.isEmpty {
+            ignored.append(filters.om)
+        }
+        if HeartbeatMath.usableFilter(filters.store, in: sectionRows.map(\.storeNumber), relax: true) == nil,
+           !filters.store.isEmpty {
+            ignored.append("Store \(filters.store)")
+        }
+        return ignored
+    }
+
+    private func source(_ scope: MetricSection?) -> [MetricRow] {
+        guard let scope else { return rows }
+        return rows.filter { $0.section == scope }
+    }
+
+    private func distinct(_ values: [String]) -> [String] {
+        values.filter { !$0.isEmpty }.uniqued().sorted()
     }
 
     func setDivision(_ value: String) {

@@ -242,13 +242,78 @@ enum HeartbeatMath {
     }
 
     static func filtered(_ rows: [MetricRow], division: String, district: String, om: String, store: String) -> [MetricRow] {
-        rows.filter { row in
-            if !division.isEmpty, row.division != division { return false }
-            if !district.isEmpty, row.district != district { return false }
-            if !om.isEmpty, row.operationsOM != om { return false }
-            if !store.isEmpty, row.storeNumber != store { return false }
+        filtered(rows, division: division, district: district, om: om, store: store, relaxUnknown: false)
+    }
+
+    static func filtered(
+        _ rows: [MetricRow],
+        division: String,
+        district: String,
+        om: String,
+        store: String,
+        relaxUnknown: Bool
+    ) -> [MetricRow] {
+        let roster = storeRoster(rows)
+        let activeDivision = usableFilter(division, in: rows.map(\.division), relax: relaxUnknown)
+        let activeDistrict = usableFilter(district, in: rows.map(\.district), relax: relaxUnknown)
+        let activeOM = usableFilter(om, in: rows.map(\.operationsOM), relax: relaxUnknown)
+        let activeStore = usableFilter(store, in: rows.map(\.storeNumber), relax: relaxUnknown)
+        return rows.filter { row in
+            let identity = resolvedIdentity(row, roster: roster)
+            if let activeDivision, !matches(identity.division, activeDivision) { return false }
+            if let activeDistrict, !matches(identity.district, activeDistrict) { return false }
+            if let activeOM, !matches(identity.om, activeOM) { return false }
+            if let activeStore, !matches(row.storeNumber, activeStore) { return false }
             return true
         }
+    }
+
+    static func usableFilter(_ value: String, in options: [String], relax: Bool) -> String? {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return nil }
+        if options.contains(where: { matches($0, trimmed) }) { return trimmed }
+        return relax ? nil : trimmed
+    }
+
+    static func matches(_ lhs: String, _ rhs: String) -> Bool {
+        normalize(lhs) == normalize(rhs)
+    }
+
+    static func normalize(_ raw: String) -> String {
+        raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+            .lowercased()
+    }
+
+    struct StoreIdentity {
+        var division: String
+        var district: String
+        var om: String
+        var name: String?
+    }
+
+    static func storeRoster(_ rows: [MetricRow]) -> [String: StoreIdentity] {
+        var map: [String: StoreIdentity] = [:]
+        for row in rows {
+            guard !row.storeNumber.isEmpty else { continue }
+            var current = map[row.storeNumber] ?? StoreIdentity(division: "", district: "", om: "", name: nil)
+            if current.division.isEmpty, !row.division.isEmpty { current.division = row.division }
+            if current.district.isEmpty, !row.district.isEmpty { current.district = row.district }
+            if current.om.isEmpty, !row.operationsOM.isEmpty { current.om = row.operationsOM }
+            if current.name == nil, let name = row.storeName, !name.isEmpty { current.name = name }
+            map[row.storeNumber] = current
+        }
+        return map
+    }
+
+    static func resolvedIdentity(_ row: MetricRow, roster: [String: StoreIdentity]) -> StoreIdentity {
+        let known = roster[row.storeNumber]
+        return StoreIdentity(
+            division: row.division.isEmpty ? (known?.division ?? "") : row.division,
+            district: row.district.isEmpty ? (known?.district ?? "") : row.district,
+            om: row.operationsOM.isEmpty ? (known?.om ?? "") : row.operationsOM,
+            name: row.storeName ?? known?.name
+        )
     }
 
     static func health(for section: MetricSection, row: MetricRow) -> Health {

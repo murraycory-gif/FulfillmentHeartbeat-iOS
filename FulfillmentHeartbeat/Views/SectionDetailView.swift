@@ -5,9 +5,12 @@ struct SectionDetailView: View {
     @EnvironmentObject private var store: HeartbeatStore
     let section: MetricSection
 
-    private var summary: SectionSummary { store.summary(for: section) }
-    private var snapshots: [MetricRow] { store.latest(for: section) }
-    private var history: [HistoryPoint] { HeartbeatMath.history(section, rows: store.rows(for: section)) }
+    private var summary: SectionSummary {
+        HeartbeatMath.summarize(section, rows: store.rows(for: section, relaxUnknown: true), upload: store.upload(for: section))
+    }
+    private var snapshots: [MetricRow] { store.latest(for: section, relaxUnknown: true) }
+    private var history: [HistoryPoint] { HeartbeatMath.history(section, rows: store.rows(for: section, relaxUnknown: true)) }
+    private var ignored: [String] { store.ignoredFilters(for: section) }
 
     var body: some View {
         ScrollView {
@@ -20,7 +23,20 @@ struct SectionDetailView: View {
                         .foregroundStyle(AppTheme.textSecondary)
                 }
 
-                FilterBar()
+                FilterBar(scope: section)
+
+                if !ignored.isEmpty {
+                    HStack(alignment: .top, spacing: 10) {
+                        Image(systemName: "info.circle.fill")
+                            .foregroundStyle(AppTheme.blue)
+                        Text("\(ignored.joined(separator: " · ")) isn’t in this workbook, so that filter is skipped here. Choose a \(section.short) division below or clear the filter.")
+                            .font(.subheadline)
+                            .foregroundStyle(AppTheme.textSecondary)
+                    }
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(AppTheme.blueSoft, in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous))
+                }
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 12)], spacing: 12) {
                     if section == .pph {
