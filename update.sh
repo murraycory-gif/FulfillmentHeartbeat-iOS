@@ -10,9 +10,15 @@ if [ -f "$PBX" ]; then
 fi
 
 git fetch origin
+
+# Clear a stuck merge/rebase so a local conflict cannot block updates.
+git rebase --abort >/dev/null 2>&1 || true
+git merge --abort >/dev/null 2>&1 || true
+git cherry-pick --abort >/dev/null 2>&1 || true
+
 if ! git pull --rebase --autostash origin main; then
-  echo "Pull hit a conflict. Your signing is still saved — send me the terminal output."
-  exit 1
+  echo "Local copy was stuck. Resetting to the latest app and keeping your signing..."
+  git reset --hard origin/main
 fi
 
 if [ -n "${TEAM:-}" ] && [ "$TEAM" != '""' ]; then
@@ -34,15 +40,12 @@ print(f"Kept your Apple team: {team}")
 PY
 fi
 
-# Drop stale Xcode user state so a broken window cannot reopen.
 rm -rf FulfillmentHeartbeat.xcodeproj/xcuserdata \
        FulfillmentHeartbeat.xcodeproj/project.xcworkspace/xcuserdata \
-       FulfillmentHeartbeat.xcworkspace/xcuserdata \
        FulfillmentHeartbeat.xcworkspace/xcuserdata 2>/dev/null || true
 
 echo ""
-echo "1. Quit Xcode completely (Xcode menu → Quit Xcode)."
-echo "2. Then double-click FulfillmentHeartbeat.xcworkspace in Finder,"
-echo "   or this script will try to open it now."
+echo "If Xcode is open, quit it first (Xcode menu → Quit Xcode),"
+echo "then double-click FulfillmentHeartbeat.xcworkspace."
 open "$PWD/FulfillmentHeartbeat.xcworkspace" || open -a Xcode "$PWD/FulfillmentHeartbeat.xcworkspace"
 open "$PWD"
