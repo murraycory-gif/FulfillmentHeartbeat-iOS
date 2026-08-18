@@ -115,15 +115,19 @@ struct EmptyHint: View {
 struct HubIconButton: View {
     let symbol: String
     var label: String = ""
+    var emphasized: Bool = false
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.body.weight(.semibold))
-                .foregroundStyle(AppTheme.blue)
+                .foregroundStyle(emphasized ? Color.white : AppTheme.blue)
                 .frame(width: 40, height: 36)
-                .background(AppTheme.card, in: Capsule(style: .continuous))
+                .background(
+                    (emphasized ? AppTheme.blue : AppTheme.blueSoft),
+                    in: Capsule(style: .continuous)
+                )
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label.isEmpty ? symbol : label)
@@ -139,11 +143,11 @@ struct HubNavLogo: View {
                 .resizable()
                 .interpolation(.high)
                 .scaledToFit()
-                .frame(height: pulse ? 30 : 26)
+                .frame(height: pulse ? 36 : 26)
                 .accessibilityHidden(true)
             if pulse {
                 HeartbeatTrace()
-                    .frame(width: 240, height: 22)
+                    .frame(width: 260, height: 28)
                     .accessibilityHidden(true)
             }
         }
@@ -179,24 +183,24 @@ struct HeartbeatTrace: View {
 
     static func ecgPath(in size: CGSize) -> Path {
         var path = Path()
-        let mid = size.height * 0.56
+        let mid = size.height * 0.55
         let width = max(size.width, 1)
-        let height = size.height
+        let amp = size.height * 0.36
 
         func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
-            CGPoint(x: x * width, y: mid - y * height)
+            CGPoint(x: x * width, y: mid - y * amp)
         }
 
         path.move(to: point(0, 0))
         path.addLine(to: point(0.06, 0))
-        path.addLine(to: point(0.10, 0.12))
+        path.addLine(to: point(0.10, 0.18))
         path.addLine(to: point(0.16, 0))
-        path.addLine(to: point(0.20, -0.18))
-        path.addLine(to: point(0.26, 0.82))
-        path.addLine(to: point(0.32, -0.28))
-        path.addLine(to: point(0.38, 0))
-        path.addLine(to: point(0.48, 0.22))
-        path.addLine(to: point(0.56, 0))
+        path.addLine(to: point(0.20, -0.22))
+        path.addLine(to: point(0.28, 1.0))
+        path.addLine(to: point(0.34, -0.32))
+        path.addLine(to: point(0.40, 0))
+        path.addLine(to: point(0.50, 0.28))
+        path.addLine(to: point(0.58, 0))
         path.addLine(to: point(1.0, 0))
         return path
     }
@@ -367,6 +371,7 @@ struct StoreTable: View {
 
 struct HubChromeModifier: ViewModifier {
     @EnvironmentObject private var router: HubRouter
+    @Environment(\.horizontalSizeClass) private var sizeClass
     var showBack: Bool
 
     func body(content: Content) -> some View {
@@ -376,17 +381,30 @@ struct HubChromeModifier: ViewModifier {
             .tint(AppTheme.blue)
             .toolbarBackground(AppTheme.bg, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
+            .toolbar(removing: .sidebarToggle)
             .toolbar {
-                if showBack {
-                    ToolbarItem(placement: .topBarLeading) {
-                        HubIconButton(symbol: "chevron.left", label: "Dashboard") {
-                            router.open(.dashboard)
+                ToolbarItem(placement: .topBarLeading) {
+                    HStack(spacing: 8) {
+                        if sizeClass == .regular {
+                            HubIconButton(symbol: "sidebar.left", label: "Menu", emphasized: true) {
+                                router.toggleSidebar()
+                            }
+                        }
+                        if showBack {
+                            HubIconButton(symbol: "chevron.left", label: "Dashboard") {
+                                router.open(.dashboard)
+                            }
                         }
                     }
                 }
-                ToolbarItem(placement: .principal) {
-                    HubNavLogo(pulse: true)
-                }
+            }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                HubNavLogo(pulse: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 10)
+                    .padding(.bottom, 6)
+                    .background(AppTheme.bg)
             }
     }
 }

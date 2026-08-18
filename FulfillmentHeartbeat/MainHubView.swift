@@ -62,16 +62,18 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
 
 final class HubRouter: ObservableObject {
     @Published var destination: HubDestination = .dashboard
-    @Published var columnVisibility: NavigationSplitViewVisibility = .all
+    @Published var columnVisibility: NavigationSplitViewVisibility = .detailOnly
 
     var current: HubDestination { destination }
 
     func open(_ dest: HubDestination) {
         destination = dest
+        columnVisibility = .detailOnly
     }
 
     func open(section: MetricSection) {
         destination = .from(section: section)
+        columnVisibility = .detailOnly
     }
 
     func toggleSidebar() {
@@ -95,6 +97,7 @@ struct MainHubView: View {
                 }
                 .navigationSplitViewStyle(.balanced)
                 .tint(AppTheme.blue)
+                .toolbar(removing: .sidebarToggle)
             } else {
                 TabView(selection: tabSelection) {
                     NavigationStack { DashboardView() }
@@ -137,6 +140,7 @@ struct MainHubView: View {
         .navigationTitle("")
         .toolbarBackground(AppTheme.bg, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
+        .toolbar(removing: .sidebarToggle)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 HubNavLogo()
