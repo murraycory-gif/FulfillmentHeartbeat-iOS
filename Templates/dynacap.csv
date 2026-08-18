@@ -1,0 +1,4 @@
+Division,Operations OM,Store Number,Store Name,Date,Pickup Capacity,Delivery Capacity,Rec Pickup,Rec Delivery,Pickup Util %,Delivery Util %
+10,A. Brooks,1487,Chicago Pulaski,2026-08-17,36,20,36,20,81.0,76.0
+10,A. Brooks,1597,Chicago Kedzie,2026-08-17,32,24,40,24,88.0,71.0
+14,J. Patel,1088,Joliet Larkin,2026-08-17,48,28,44,28,79.0,83.0

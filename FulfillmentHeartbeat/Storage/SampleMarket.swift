@@ -1,0 +1,153 @@
+import Foundation
+
+enum SampleMarket {
+    struct Store {
+        var division: String
+        var om: String
+        var store: String
+        var name: String
+    }
+
+    static let stores: [Store] = [
+        .init(division: "10", om: "A. Brooks", store: "1487", name: "Chicago Pulaski"),
+        .init(division: "10", om: "A. Brooks", store: "1597", name: "Chicago Kedzie"),
+        .init(division: "10", om: "A. Brooks", store: "2144", name: "Cicero Cermak"),
+        .init(division: "10", om: "A. Brooks", store: "3361", name: "Berwyn Harlem"),
+        .init(division: "10", om: "M. Chen", store: "2788", name: "Evanston Dempster"),
+        .init(division: "10", om: "M. Chen", store: "3901", name: "Skokie Old Orchard"),
+        .init(division: "10", om: "M. Chen", store: "4120", name: "Niles Golf Mill"),
+        .init(division: "10", om: "M. Chen", store: "5503", name: "Des Plaines"),
+        .init(division: "14", om: "J. Patel", store: "1088", name: "Joliet Larkin"),
+        .init(division: "14", om: "J. Patel", store: "2230", name: "Aurora Fox Valley"),
+        .init(division: "14", om: "J. Patel", store: "3677", name: "Naperville Ogden"),
+        .init(division: "14", om: "J. Patel", store: "4890", name: "Bolingbrook"),
+        .init(division: "24", om: "R. Diaz", store: "1755", name: "Orland Park"),
+        .init(division: "24", om: "R. Diaz", store: "2904", name: "Tinley Park"),
+        .init(division: "24", om: "R. Diaz", store: "3440", name: "New Lenox"),
+        .init(division: "24", om: "R. Diaz", store: "5288", name: "Frankfort"),
+    ]
+
+    static let dates = ["2026-08-03", "2026-08-10", "2026-08-17"]
+
+    static func rows() -> [MetricRow] {
+        var out: [MetricRow] = []
+        for (index, store) in stores.enumerated() {
+            for (week, date) in dates.enumerated() {
+                let trend = Double(week) * 0.04
+                out.append(MetricRow(
+                    section: .fiveStar,
+                    division: store.division,
+                    operationsOM: store.om,
+                    storeNumber: store.store,
+                    storeName: store.name,
+                    recordedOn: date,
+                    payload: [
+                        "star_rating": clamp(4.15 + jitter(index + 3, 0.7) + trend, 3.4, 5).rounded(2),
+                        "otp_pct": clamp(91 + jitter(index + 11, 7) + Double(week) * 0.6, 78, 99.4).rounded(1),
+                        "fill_rate_pct": clamp(93 + jitter(index + 19, 6) + Double(week) * 0.4, 82, 99.6).rounded(1),
+                        "quality_score": clamp(94 + jitter(index + 29, 5), 84, 99.5).rounded(1),
+                        "cx_score": clamp(88 + jitter(index + 41, 8) + Double(week) * 0.5, 72, 98).rounded(1),
+                    ]
+                ))
+
+                let compliance = clamp(90 + jitter(index + 7, 9) + Double(week) * 0.8, 74, 99.2)
+                let picks = (420 + jitter(index + 13, 80)).rounded()
+                let compliant = ((picks * compliance) / 100).rounded()
+                out.append(MetricRow(
+                    section: .pickPath,
+                    division: store.division,
+                    operationsOM: store.om,
+                    storeNumber: store.store,
+                    storeName: store.name,
+                    recordedOn: date,
+                    payload: [
+                        "compliance_pct": compliance.rounded(1),
+                        "picks_total": picks,
+                        "picks_compliant": compliant,
+                        "exception_count": max(0, picks - compliant),
+                    ]
+                ))
+
+                let pnrRate = clamp(3.8 + jitter(index + 17, 3.2) - Double(week) * 0.35, 0.4, 9.5)
+                let due = (210 + jitter(index + 23, 50)).rounded()
+                let pnr = ((due * pnrRate) / 100).rounded()
+                out.append(MetricRow(
+                    section: .prepNotReady,
+                    division: store.division,
+                    operationsOM: store.om,
+                    storeNumber: store.store,
+                    storeName: store.name,
+                    recordedOn: date,
+                    payload: [
+                        "pnr_count": pnr,
+                        "orders_due": due,
+                        "pnr_rate_pct": pnrRate.rounded(1),
+                        "avg_late_min": clamp(8 + jitter(index + 31, 10), 2, 28).rounded(1),
+                    ]
+                ))
+
+                let recPickup = [36, 40, 44, 48, 52][index % 5]
+                let recDelivery = [20, 24, 28, 32][index % 4]
+                let drift = (index % 5 == 0 && week == 2) ? 12 : (index % 4 == 1 ? -8 : 0)
+                out.append(MetricRow(
+                    section: .dynacap,
+                    division: store.division,
+                    operationsOM: store.om,
+                    storeNumber: store.store,
+                    storeName: store.name,
+                    recordedOn: date,
+                    payload: [
+                        "pickup_capacity": Double(recPickup + drift),
+                        "delivery_capacity": Double(recDelivery + (index % 6 == 2 ? 6 : 0)),
+                        "rec_pickup": Double(recPickup),
+                        "rec_delivery": Double(recDelivery),
+                        "pickup_util_pct": clamp(78 + jitter(index + 5, 14), 52, 99).rounded(1),
+                        "delivery_util_pct": clamp(74 + jitter(index + 9, 16), 48, 99).rounded(1),
+                    ]
+                ))
+            }
+        }
+        return out
+    }
+
+    static func templateCSV(for section: MetricSection) -> String {
+        switch section {
+        case .fiveStar:
+            return """
+            Division,Operations OM,Store Number,Store Name,Date,Star Rating,OTP %,Fill Rate %,Quality Score,CX Score
+            10,A. Brooks,1487,Chicago Pulaski,2026-08-17,4.72,96.1,97.4,95.2,91.0
+            """
+        case .pickPath:
+            return """
+            Division,Operations OM,Store Number,Store Name,Date,Compliance %,Picks Total,Picks Compliant,Exceptions
+            10,A. Brooks,1487,Chicago Pulaski,2026-08-17,94.2,430,405,25
+            """
+        case .prepNotReady:
+            return """
+            Division,Operations OM,Store Number,Store Name,Date,PNR Count,Orders Due,PNR Rate %,Avg Late Min
+            10,A. Brooks,1487,Chicago Pulaski,2026-08-17,6,214,2.8,7.4
+            """
+        case .dynacap:
+            return """
+            Division,Operations OM,Store Number,Store Name,Date,Pickup Capacity,Delivery Capacity,Rec Pickup,Rec Delivery,Pickup Util %,Delivery Util %
+            10,A. Brooks,1487,Chicago Pulaski,2026-08-17,36,20,36,20,81.0,76.0
+            """
+        }
+    }
+
+    private static func clamp(_ n: Double, _ minV: Double, _ maxV: Double) -> Double {
+        min(maxV, max(minV, n))
+    }
+
+    private static func jitter(_ seed: Int, _ spread: Double) -> Double {
+        let x = sin(Double(seed) * 12.9898) * 43758.5453
+        return (x - floor(x) - 0.5) * 2 * spread
+    }
+}
+
+private extension Double {
+    func rounded(_ places: Int) -> Double {
+        let factor = pow(10.0, Double(places))
+        return (self * factor).rounded() / factor
+    }
+}

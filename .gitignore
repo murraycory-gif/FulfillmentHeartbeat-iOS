@@ -1,0 +1,31 @@
+# Local Apple team — never overwrite on pull
+FulfillmentHeartbeat/Config/Team.xcconfig
+
+*.xcuserstate
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+DerivedData/
+*.playground
+
+# Fastlane / build
+build/
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots/**/*.png
+fastlane/test_output/
+*.xcresult
+.bundle/
+vendor/bundle/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Swift PM
+.build/
+.swiftpm/
