@@ -903,6 +903,8 @@ struct HideSystemSidebarToggle: UIViewRepresentable {
 struct FulfillmentChecklistCard: View {
     @EnvironmentObject private var store: HeartbeatStore
     @State private var expanded = false
+    @State private var openSection: MetricSection?
+    @State private var commentingID: String?
     @State private var recipientDraft = ""
     @State private var showingMail = false
     @State private var mailError: String?
@@ -916,17 +918,19 @@ struct FulfillmentChecklistCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 12) {
             header
             if expanded {
                 visibilityStrip
-                ForEach(MetricSection.checklistSections) { section in
-                    sectionBlock(section)
+                VStack(spacing: 8) {
+                    ForEach(MetricSection.checklistSections) { section in
+                        sectionBlock(section)
+                    }
                 }
                 sendBar
             }
         }
-        .padding(20)
+        .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
@@ -936,6 +940,12 @@ struct FulfillmentChecklistCard: View {
                         .stroke(borderColor, lineWidth: riskCount > 0 ? 1.5 : 1)
                 )
         )
+        .onChange(of: expanded) { _, isOpen in
+            if isOpen, openSection == nil {
+                openSection = MetricSection.checklistSections.first { store.summary(for: $0).health == .risk }
+                    ?? MetricSection.checklistSections.first { store.summary(for: $0).health == .watch }
+            }
+        }
         .sheet(isPresented: $showingMail) {
             MailComposeView(
                 recipients: store.checklistRecipients,
@@ -973,11 +983,11 @@ struct FulfillmentChecklistCard: View {
         Button {
             withAnimation(.easeInOut(duration: 0.2)) { expanded.toggle() }
         } label: {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 8) {
                         Text("eCommerce Fulfillment Checklist")
-                            .font(.title2.weight(.semibold))
+                            .font(.title3.weight(.semibold))
                             .foregroundStyle(AppTheme.text)
                         if store.checklistOpenCount > 0 {
                             Text("\(store.checklistOpenCount) open")
@@ -991,7 +1001,7 @@ struct FulfillmentChecklistCard: View {
                     Text(expanded ? store.filters.summary : collapsedSummary)
                         .font(.subheadline)
                         .foregroundStyle(AppTheme.textSecondary)
-                        .multilineTextAlignment(.leading)
+                        .lineLimit(2)
                 }
                 Spacer()
                 Image(systemName: expanded ? "chevron.up" : "chevron.down")
@@ -1016,92 +1026,167 @@ struct FulfillmentChecklistCard: View {
     }
 
     private var visibilityStrip: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 8)], spacing: 8) {
-            KpiTile(label: "At risk", value: "\(riskCount)", tone: riskCount > 0 ? .risk : .good)
-            KpiTile(label: "Watch", value: "\(watchCount)", tone: watchCount > 0 ? .watch : .good)
-            KpiTile(label: "Opportunity pickers", value: "\(store.pickerBoard.opportunityCount)", tone: store.pickerBoard.opportunityCount > 0 ? .risk : .good)
-            KpiTile(label: "Open items", value: "\(store.checklistOpenCount)", tone: store.checklistOpenCount > 0 ? .watch : .good)
+        HStack(spacing: 8) {
+            compactStat("At risk", "\(riskCount)", riskCount > 0 ? AppTheme.bad : AppTheme.ok, riskCount > 0 ? AppTheme.badSoft : AppTheme.okSoft)
+            compactStat("Watch", "\(watchCount)", watchCount > 0 ? AppTheme.warn : AppTheme.ok, watchCount > 0 ? AppTheme.warnSoft : AppTheme.okSoft)
+            compactStat("Open", "\(store.checklistOpenCount)", store.checklistOpenCount > 0 ? AppTheme.warn : AppTheme.ok, store.checklistOpenCount > 0 ? AppTheme.warnSoft : AppTheme.okSoft)
         }
+    }
+
+    private func compactStat(_ label: String, _ value: String, _ ink: Color, _ wash: Color) -> some View {
+        HStack(spacing: 6) {
+            Text(value)
+                .font(.headline.monospacedDigit())
+                .foregroundStyle(ink)
+            Text(label)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(AppTheme.textSecondary)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity)
+        .background(wash, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private func visibleItems(for section: MetricSection) -> [ChecklistDriverItem] {
+        var items: [ChecklistDriverItem] = []
+        var seen = Set<String>()
+        for group in store.checklistGroups(for: section) {
+            for item in group.items {
+                if seen.insert(item.title + "|" + item.subtitle).inserted {
+                    items.append(item)
+                }
+                if items.count == 5 { return items }
+            }
+        }
+        return items
+    }
+
+    private func previewLine(for items: [ChecklistDriverItem]) -> String {
+        if items.isEmpty { return "No issues in this filter" }
+        return items.prefix(3).map { "\($0.title.replacingOccurrences(of: "Store ", with: "#")) \($0.value)" }.joined(separator: "  ·  ")
     }
 
     private func sectionBlock(_ section: MetricSection) -> some View {
         let summary = store.summary(for: section)
-        let groups = store.checklistGroups(for: section)
-        return VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(section.title)
-                    .font(.title3.weight(.semibold))
-                HealthBadge(health: summary.health)
-                Spacer()
-                Text(summary.headlineText)
-                    .font(.title3.weight(.bold).monospacedDigit())
-                    .foregroundStyle(headlineColor(summary.health))
-            }
-            Text("\(summary.headlineLabel) · \(summary.secondary)")
-                .font(.subheadline)
-                .foregroundStyle(AppTheme.textSecondary)
-            ForEach(groups) { group in
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(group.title.uppercased())
-                        .font(.caption.weight(.semibold))
-                        .tracking(0.8)
-                        .foregroundStyle(AppTheme.textTertiary)
-                    ForEach(Array(group.items.enumerated()), id: \.element.id) { index, item in
-                        opportunityCard(item, section: section, rank: index + 1)
+        let items = visibleItems(for: section)
+        let isOpen = openSection == section
+        return VStack(alignment: .leading, spacing: 8) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    openSection = isOpen ? nil : section
+                    commentingID = nil
+                }
+            } label: {
+                HStack(spacing: 10) {
+                    Circle()
+                        .fill(headlineColor(summary.health))
+                        .frame(width: 8, height: 8)
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
+                            Text(section.short)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(AppTheme.text)
+                            HealthBadge(health: summary.health)
+                        }
+                        if !isOpen {
+                            Text(previewLine(for: items))
+                                .font(.caption)
+                                .foregroundStyle(AppTheme.textSecondary)
+                                .lineLimit(1)
+                        }
                     }
+                    Spacer()
+                    Text(summary.headlineText)
+                        .font(.headline.monospacedDigit())
+                        .foregroundStyle(headlineColor(summary.health))
+                    Image(systemName: isOpen ? "chevron.up" : "chevron.down")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppTheme.textTertiary)
                 }
             }
-        }
-        .padding(.top, 4)
-        Divider().opacity(0.35)
-    }
+            .buttonStyle(.plain)
 
-    private func opportunityCard(_ item: ChecklistDriverItem, section: MetricSection, rank: Int) -> some View {
-        let action = store.checklistItem(for: item, section: section)
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 10) {
-                Text("\(rank)")
-                    .font(.caption.weight(.bold).monospacedDigit())
-                    .foregroundStyle(AppTheme.blue)
-                    .frame(width: 22, height: 22)
-                    .background(AppTheme.blueSoft, in: Circle())
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(item.title)
-                        .font(.headline)
-                    Text(item.subtitle)
+            if isOpen {
+                if items.isEmpty {
+                    Text("Nothing to action in this filter.")
                         .font(.subheadline)
                         .foregroundStyle(AppTheme.textSecondary)
-                }
-                Spacer()
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text(item.value)
-                        .font(.headline.monospacedDigit())
-                    HealthBadge(health: item.health)
-                }
-            }
-            HStack(spacing: 8) {
-                ForEach([ChecklistStatus.addressed, .followUp, .notCovered]) { status in
-                    statusChip(status, selected: action.status == status) {
-                        store.setChecklistStatus(status, for: item, section: section)
+                } else {
+                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                        issueRow(item, section: section, rank: index + 1)
                     }
                 }
-                Spacer()
-                Text(HeartbeatFormat.stamp(action.updatedAt))
-                    .font(.caption)
-                    .foregroundStyle(AppTheme.textTertiary)
             }
-            TextField("Comments for follow up", text: commentBinding(item, section: section), axis: .vertical)
-                .textFieldStyle(.plain)
-                .font(.subheadline)
-                .lineLimit(1...4)
-                .padding(10)
-                .background(AppTheme.bg, in: RoundedRectangle(cornerRadius: AppTheme.radiusS, style: .continuous))
         }
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
-                .fill(AppTheme.bg)
+                .fill(sectionWash(summary.health))
         )
+        .overlay(
+            RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
+                .stroke(headlineColor(summary.health).opacity(summary.health == .none ? 0.12 : 0.28), lineWidth: 1)
+        )
+    }
+
+    private func issueRow(_ item: ChecklistDriverItem, section: MetricSection, rank: Int) -> some View {
+        let action = store.checklistItem(for: item, section: section)
+        let showComment = commentingID == item.id || !action.comment.isEmpty
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text("\(rank)")
+                    .font(.caption.weight(.bold).monospacedDigit())
+                    .foregroundStyle(AppTheme.textTertiary)
+                    .frame(width: 16)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(item.title)
+                        .font(.subheadline.weight(.semibold))
+                    Text(item.subtitle)
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.textSecondary)
+                }
+                .frame(minWidth: 110, alignment: .leading)
+                Text(item.value)
+                    .font(.subheadline.weight(.bold).monospacedDigit())
+                    .foregroundStyle(headlineColor(item.health))
+                    .frame(minWidth: 56, alignment: .trailing)
+                Spacer(minLength: 6)
+                HStack(spacing: 4) {
+                    ForEach([ChecklistStatus.addressed, .followUp, .notCovered]) { status in
+                        statusChip(status, selected: action.status == status) {
+                            store.setChecklistStatus(status, for: item, section: section)
+                        }
+                    }
+                }
+                Button {
+                    withAnimation { commentingID = showComment && commentingID == item.id ? nil : item.id }
+                } label: {
+                    Image(systemName: action.comment.isEmpty ? "text.bubble" : "text.bubble.fill")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(action.comment.isEmpty ? AppTheme.textTertiary : AppTheme.blue)
+                }
+                .buttonStyle(.plain)
+            }
+            if showComment {
+                TextField("Note for follow up", text: commentBinding(item, section: section), axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .font(.subheadline)
+                    .lineLimit(1...3)
+                    .padding(8)
+                    .background(AppTheme.card, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func sectionWash(_ health: Health) -> Color {
+        switch health {
+        case .risk: return AppTheme.badSoft.opacity(0.45)
+        case .watch: return AppTheme.warnSoft.opacity(0.45)
+        case .good: return AppTheme.okSoft.opacity(0.35)
+        case .none: return AppTheme.bg
+        }
     }
 
     private func headlineColor(_ health: Health) -> Color {
@@ -1115,10 +1200,10 @@ struct FulfillmentChecklistCard: View {
 
     private func statusChip(_ status: ChecklistStatus, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(status.label)
-                .font(.caption.weight(.semibold))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
+            Text(status.shortLabel)
+                .font(.caption2.weight(.semibold))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
                 .foregroundStyle(selected ? .white : chipColor(status))
                 .background(
                     Capsule(style: .continuous)
@@ -1145,17 +1230,7 @@ struct FulfillmentChecklistCard: View {
     }
 
     private var sendBar: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Email leaders")
-                .font(.headline)
-            Text("Add the leader emails this recap should go to, then send. They’ll get a phone-friendly checklist.")
-                .font(.subheadline)
-                .foregroundStyle(AppTheme.textSecondary)
-            if !store.checklistRecipients.isEmpty {
-                FlexibleEmailChips(emails: store.checklistRecipients) { email in
-                    store.removeChecklistRecipient(email)
-                }
-            }
+        VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 TextField("leader@company.com", text: $recipientDraft)
                     .textInputAutocapitalization(.never)
@@ -1167,13 +1242,17 @@ struct FulfillmentChecklistCard: View {
                     .onSubmit(addRecipient)
                 Button("Add", action: addRecipient)
                     .buttonStyle(BrandButtonStyle())
+                Button(action: sendChecklist) {
+                    Label("Email", systemImage: "paperplane.fill")
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .opacity(store.canSendChecklist ? 1 : 0.55)
             }
-            Button(action: sendChecklist) {
-                Label("Send checklist", systemImage: "paperplane.fill")
-                    .frame(maxWidth: .infinity)
+            if !store.checklistRecipients.isEmpty {
+                FlexibleEmailChips(emails: store.checklistRecipients) { email in
+                    store.removeChecklistRecipient(email)
+                }
             }
-            .buttonStyle(PrimaryButtonStyle())
-            .opacity(store.canSendChecklist ? 1 : 0.55)
         }
         .padding(.top, 4)
     }
@@ -1186,7 +1265,7 @@ struct FulfillmentChecklistCard: View {
     private func sendChecklist() {
         if !recipientDraft.isEmpty { addRecipient() }
         guard store.canSendChecklist else {
-            mailError = "Add at least one leader email, then tap Send checklist."
+            mailError = "Add at least one leader email, then tap Email."
             return
         }
         if MFMailComposeViewController.canSendMail() {

@@ -1039,6 +1039,15 @@ enum ChecklistStatus: String, Codable, CaseIterable, Identifiable {
 
     var isClosed: Bool { self != .open }
 
+    var shortLabel: String {
+        switch self {
+        case .open: return "Open"
+        case .addressed: return "Done"
+        case .followUp: return "Follow up"
+        case .notCovered: return "Skip"
+        }
+    }
+
     init(from decoder: Decoder) throws {
         let raw = try decoder.singleValueContainer().decode(String.self)
         switch raw {

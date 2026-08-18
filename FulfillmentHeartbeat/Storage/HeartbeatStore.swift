@@ -165,10 +165,18 @@ final class HeartbeatStore: ObservableObject {
     var checklistOpenCount: Int {
         var count = 0
         for section in MetricSection.checklistSections {
+            var seen = Set<String>()
+            var shown = 0
             for group in cachedChecklistGroups[section] ?? [] {
-                for item in group.items where !checklistItem(for: item, section: section).status.isClosed {
-                    count += 1
+                for item in group.items {
+                    guard seen.insert(item.title + "|" + item.subtitle).inserted else { continue }
+                    if !checklistItem(for: item, section: section).status.isClosed {
+                        count += 1
+                    }
+                    shown += 1
+                    if shown == 5 { break }
                 }
+                if shown == 5 { break }
             }
         }
         return count
