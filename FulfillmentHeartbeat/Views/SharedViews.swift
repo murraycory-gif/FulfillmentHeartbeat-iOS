@@ -843,6 +843,12 @@ struct HubChromeModifier: ViewModifier {
                         }
                     }
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Text(BuildStamp.label)
+                        .font(.caption2.weight(.semibold).monospaced())
+                        .foregroundStyle(AppTheme.textTertiary)
+                        .accessibilityLabel("Build \(BuildStamp.label)")
+                }
             }
     }
 }

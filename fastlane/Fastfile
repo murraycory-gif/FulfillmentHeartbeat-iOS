@@ -106,4 +106,18 @@ platform :ios do
   lane :sims do
     sh("xcrun simctl list devices available")
   end
+
+  desc "Archive and upload this build to TestFlight"
+  lane :beta do
+    build_app(
+      project: PROJECT,
+      scheme: SCHEME,
+      configuration: "Release",
+      export_method: "app-store",
+      output_directory: "build/ipa",
+      derived_data_path: "build/DerivedData"
+    )
+    upload_to_testflight(skip_waiting_for_build_processing: true)
+    UI.success("✅ Uploaded to TestFlight — add testers in App Store Connect")
+  end
 end

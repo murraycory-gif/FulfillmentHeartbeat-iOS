@@ -53,6 +53,8 @@ Workbook headers are flexible — `Division`, `Operations OM`, `Store Number`
 (and common aliases) are mapped automatically. Templates are in `Templates/`
 and also exportable from the Upload screen.
 
+See [TESTFLIGHT.md](TESTFLIGHT.md) to put the app on testers’ iPads and push updates.
+
 ## Automated testing (Fastlane)
 
 See [FASTLANE.md](FASTLANE.md).
