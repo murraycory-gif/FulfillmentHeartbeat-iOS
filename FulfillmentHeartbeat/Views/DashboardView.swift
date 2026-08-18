@@ -236,7 +236,7 @@ struct PickerScoreCard: View {
                                 .background(AppTheme.blueSoft, in: Capsule(style: .continuous))
                         }
                     }
-                    Text("Shoppers underperforming by PPH, path, and quality — versus those running strong.")
+                    Text("Shoppers underperforming on PPH, Presubs, OTH5, or COE — versus those running strong.")
                         .font(.subheadline)
                         .foregroundStyle(AppTheme.textSecondary)
                 }
@@ -323,7 +323,7 @@ struct PickerScoreCard: View {
                                 Text(row.shopperName)
                                     .font(.subheadline.weight(.semibold))
                                     .foregroundStyle(AppTheme.text)
-                                Text("\(row.storeNumber) · \(row.storeName ?? "Store")")
+                                Text("\(row.storeNumber) · \(row.division.isEmpty ? "Store" : row.division)")
                                     .font(.caption)
                                     .foregroundStyle(AppTheme.textTertiary)
                             }
@@ -332,7 +332,7 @@ struct PickerScoreCard: View {
                                 Text(HeartbeatFormat.num(row.number("pph"), digits: 1))
                                     .font(.subheadline.weight(.semibold).monospacedDigit())
                                     .foregroundStyle(AppTheme.text)
-                                Text("Path \(HeartbeatFormat.pct(row.number("compliance_pct")))")
+                                Text(HeartbeatMath.pickerOpportunityText(row))
                                     .font(.caption)
                                     .foregroundStyle(AppTheme.textTertiary)
                             }

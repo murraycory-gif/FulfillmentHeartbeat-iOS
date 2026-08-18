@@ -73,6 +73,7 @@ final class HeartbeatStore: ObservableObject {
 
     func displayRows(for section: MetricSection) -> [MetricRow] {
         let latest = filteredLatest[section] ?? []
+        if section == .pickerScorecard { return latest }
         if !latest.isEmpty { return latest }
         return filteredMarket.map { store in
             MetricRow(
@@ -258,7 +259,7 @@ final class HeartbeatStore: ObservableObject {
             } else if section == .scheduleQuality || section == .fiveStar {
                 latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(sectionRows), roster: roster)
             } else if section == .pickerScorecard {
-                latest[section] = HeartbeatMath.latestPerShopper(sectionRows)
+                latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerShopper(sectionRows), roster: roster)
             } else {
                 latest[section] = HeartbeatMath.latestPerStore(sectionRows)
             }

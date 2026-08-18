@@ -232,6 +232,21 @@ enum WorkbookParser {
         "pickhours": "pick_hours",
         "hours": "pick_hours",
         "laborhours": "pick_hours",
+        "pickerott": "ott_pct",
+        "totalorders": "orders",
+        "qtyordered": "qty_ordered",
+        "oossubstitutespresuboosct": "presub_count",
+        "presuboosct": "presub_count",
+        "oosct": "oos_count",
+        "subct": "sub_count",
+        "totalitemspicked": "items_picked",
+        "totalhandoffs": "handoffs",
+        "handoffsover5min": "handoffs_over_5",
+        "handoffcompliance": "handoff_compliance_pct",
+        "ofhandoffdefects": "handoff_defects",
+        "handoffdefects": "handoff_defects",
+        "greatperfectorderscount": "great_orders",
+        "nipoorordercount": "poor_orders",
         "goalpph": "goal_pph",
         "pphgoal": "goal_pph",
         "targetpph": "goal_pph",
@@ -422,7 +437,7 @@ enum WorkbookParser {
             key = "coe_pct"
         } else if key.contains("ott") && key.contains("star") {
             key = "ott_star"
-        } else if key == "ott" || key.contains("ottmake") {
+        } else if key.contains("ott") {
             key = "ott_pct"
         } else if (key.contains("oth5") || key.hasPrefix("oth")) && key.contains("star") {
             key = "oth5_star"
@@ -446,10 +461,10 @@ enum WorkbookParser {
             key = "under_staffing_pct"
         } else if key.contains("overstaffing") {
             key = "over_staffing_pct"
-        } else if key.contains("staffingeffic") {
-            key = "staffing_efficiency_pct"
+        } else if key.contains("handoffcompliance") {
+            key = "handoff_compliance_pct"
         }
-        if key == "compliance_pct" || key.contains("compliance") {
+        if key == "compliance_pct" || key.contains("pickpath") || key == "pathcompliance" {
             key = "compliance_pct"
             if number <= 1.5 { number *= 100 }
         }

@@ -48,6 +48,8 @@ struct SectionDetailView: View {
                             scheduleStatusTiles
                         } else if section == .fiveStar {
                             fiveStarStatusTiles
+                        } else if section == .pickerScorecard {
+                            pickerStatusTiles
                         } else {
                             HubCard {
                                 VStack(alignment: .leading, spacing: 8) {
@@ -73,7 +75,11 @@ struct SectionDetailView: View {
                 .listRowBackground(AppTheme.bg)
             }
 
-            StoreTable(section: section, rows: snapshots)
+            if section == .pickerScorecard {
+                PickerScoreTable(rows: snapshots)
+            } else {
+                StoreTable(section: section, rows: snapshots)
+            }
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
@@ -220,6 +226,23 @@ struct SectionDetailView: View {
         KpiTile(label: "COE", value: HeartbeatFormat.pct(coe), hint: coeMark.label, tone: tone(for: coeMark.health))
         KpiTile(label: "OTT", value: HeartbeatFormat.pct(ott), hint: ottMark.label, tone: tone(for: ottMark.health))
         KpiTile(label: "OTH 5%", value: HeartbeatFormat.pct(oth), hint: othMark.label, tone: tone(for: othMark.health))
+    }
+
+    @ViewBuilder
+    private var pickerStatusTiles: some View {
+        let rows = snapshots
+        let opportunity = rows.filter { HeartbeatMath.pickerHasVolume($0) && HeartbeatMath.pickerHealth($0) != .good }.count
+        let strong = rows.filter { HeartbeatMath.pickerHasVolume($0) && HeartbeatMath.pickerHealth($0) == .good }.count
+        let atRisk = rows.filter { ($0.number("pph") ?? .greatestFiniteMagnitude) < HeartbeatMath.pphRisk }.count
+        let highPresub = rows.filter { ($0.number("presub_pct") ?? 0) > 6 }.count
+        let avgPPH = HeartbeatMath.average(rows.compactMap { $0.number("pph") })
+        let pphHealth = HeartbeatMath.band(avgPPH, good: HeartbeatMath.pphGoal, watch: HeartbeatMath.pphRisk)
+        KpiTile(label: "Shoppers", value: HeartbeatFormat.num(Double(rows.count)), tone: .brand)
+        KpiTile(label: "Opportunity", value: HeartbeatFormat.num(Double(opportunity)), tone: .risk)
+        KpiTile(label: "Doing well", value: HeartbeatFormat.num(Double(strong)), tone: .good)
+        KpiTile(label: "Avg PPH", value: HeartbeatFormat.num(avgPPH, digits: 1), hint: pphHealth.label, tone: tone(for: pphHealth))
+        KpiTile(label: "Below 74 PPH", value: HeartbeatFormat.num(Double(atRisk)), tone: .risk)
+        KpiTile(label: "Presub risk", value: HeartbeatFormat.num(Double(highPresub)), tone: .risk)
     }
 
     private func tone(for health: Health) -> KpiTile.Tone {

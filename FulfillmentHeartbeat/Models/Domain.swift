@@ -43,7 +43,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .dynacap: return "Pieces per hour we allow down to the picker. Upload the Overall Capacity Summary."
         case .scheduleQuality: return "How tightly the labor plan matches the work. Upload Optimized Departments."
         case .pph: return "Pure picks completed per labor hour. Upload the WEEK_ID by Division export."
-        case .pickerScorecard: return "Shopper-level PPH, path, and quality — opportunity versus strong."
+        case .pickerScorecard: return "Shopper-level PPH, OTT, Presubs, OTH5, and COE. Upload the weekly Picker Scorecard."
         }
     }
 
@@ -55,7 +55,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .dynacap: return "DISTRICT · Total Pieces/Total Hrs · DPA Dynacap · Utilization %"
         case .scheduleQuality: return "Division · District · Store · Schedule Efficiency · Under % · Over %"
         case .pph: return "WEEK_ID · DIVISION · DISTRICT · OM_AREA · OM_ID · STORE · Pure PPH"
-        case .pickerScorecard: return "Shopper · PPH · Pick Path % · Quality · Goal PPH"
+        case .pickerScorecard: return "STORE · PICKER · PPH · OTT · Presub · OTH5 · COE · Orders"
         }
     }
 
@@ -729,24 +729,73 @@ enum HeartbeatMath {
         band(row.number("pph"), good: pphGoal, watch: pphRisk)
     }
 
+    static func pickerHasVolume(_ row: MetricRow) -> Bool {
+        (row.number("pick_hours") ?? 0) >= 1 || (row.number("orders") ?? 0) >= 5
+    }
+
+    static func pickerFlags(_ row: MetricRow) -> [(name: String, health: Health)] {
+        var flags: [(String, Health)] = []
+        if row.number("pph") != nil {
+            flags.append(("PPH", pphHealth(row)))
+        }
+        if row.number("presub_pct") != nil {
+            flags.append(("Presub", starMark(value: row.number("presub_pct"), full: 5, half: 6, invert: true).health))
+        }
+        if row.number("oth5_pct") != nil {
+            flags.append(("OTH", othStar(row).health))
+        }
+        if row.number("coe_pct") != nil {
+            flags.append(("COE", coeStar(row).health))
+        }
+        if row.number("ott_pct") != nil {
+            flags.append(("OTT", ottStar(row).health))
+        }
+        if flags.isEmpty, row.number("compliance_pct") != nil {
+            flags.append(("Path", band(row.number("compliance_pct"), good: pickPathGoal, watch: pickPathRisk)))
+        }
+        return flags
+    }
+
+    static func pickerOpportunityText(_ row: MetricRow) -> String {
+        let weak = pickerFlags(row).filter { $0.health == .risk || $0.health == .watch }.map(\.name)
+        return weak.isEmpty ? "On track" : weak.joined(separator: " · ")
+    }
+
     static func pickerComposite(_ row: MetricRow) -> Double {
         var parts: [Double] = []
         if let pph = row.number("pph") {
-            let goal = max(row.number("goal_pph") ?? 65, 1)
-            parts.append(min(pph / goal, 1.2) / 1.2)
+            parts.append(min(max(pph / pphGoal, 0), 1.15) / 1.15)
         }
-        if let compliance = row.number("compliance_pct") {
-            parts.append(min(compliance / 100, 1))
+        if let presub = row.number("presub_pct") {
+            parts.append(min(max(1 - presub / 6, 0), 1))
         }
-        if let quality = row.number("quality_score") {
-            parts.append(quality > 5 ? min(quality / 100, 1) : min(quality / 5, 1))
+        if let oth = row.number("oth5_pct") {
+            parts.append(min(max(oth / 92, 0), 1))
+        }
+        if let coe = row.number("coe_pct") {
+            parts.append(min(max((coe + 20) / 40, 0), 1))
+        }
+        if let ott = row.number("ott_pct") {
+            parts.append(min(max(ott / 95, 0), 1))
+        }
+        if parts.isEmpty {
+            if let compliance = row.number("compliance_pct") {
+                parts.append(min(compliance / 100, 1))
+            }
+            if let quality = row.number("quality_score") {
+                parts.append(quality > 5 ? min(quality / 100, 1) : min(quality / 5, 1))
+            }
         }
         guard !parts.isEmpty else { return 0 }
         return parts.reduce(0, +) / Double(parts.count)
     }
 
     static func pickerHealth(_ row: MetricRow) -> Health {
-        band(pickerComposite(row), good: 0.92, watch: 0.80)
+        let flags = pickerFlags(row)
+        if flags.contains(where: { $0.health == .risk }) { return .risk }
+        if flags.contains(where: { $0.health == .watch }) { return .watch }
+        if flags.contains(where: { $0.health == .good }) { return .good }
+        return .none
     }
 
     struct PickerBoard {
@@ -757,7 +806,8 @@ enum HeartbeatMath {
 
     static func pickerBoard(_ rows: [MetricRow], limit: Int = 6) -> PickerBoard {
         let shoppers = latestPerShopper(rows)
-        let ranked = shoppers.sorted { pickerComposite($0) < pickerComposite($1) }
+        let scored = shoppers.filter(pickerHasVolume)
+        let ranked = scored.sorted { pickerComposite($0) < pickerComposite($1) }
         let opportunity = Array(ranked.filter { pickerHealth($0) != .good }.prefix(limit))
         let strong = Array(ranked.reversed().filter { pickerHealth($0) == .good }.prefix(limit))
         return PickerBoard(shoppers: shoppers, opportunity: opportunity, strong: strong)
@@ -1002,7 +1052,7 @@ struct StoreCellViewModel {
         case .pickerScorecard:
             return StoreCellViewModel(
                 primary: HeartbeatFormat.num(row.number("pph"), digits: 1),
-                extra: "Path \(HeartbeatFormat.pct(row.number("compliance_pct"))) · Qual \(HeartbeatFormat.pct(row.number("quality_score")))"
+                extra: HeartbeatMath.pickerOpportunityText(row)
             )
         }
     }

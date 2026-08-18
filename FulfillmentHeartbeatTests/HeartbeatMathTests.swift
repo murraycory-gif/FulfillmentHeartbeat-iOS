@@ -109,4 +109,18 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(HeartbeatMath.presubStar(fail), .none)
         XCTAssertEqual(HeartbeatMath.ottStar(fail), .half)
     }
+
+    func testPickerScorecardFileParsesAndFlagsOpportunity() {
+        let parsed = WorkbookParser.parseCSV(SampleMarket.templateCSV(for: .pickerScorecard))
+        let rows = parsed.map { $0.asRow(section: .pickerScorecard) }
+        XCTAssertEqual(Set(rows.map(\.shopperName)), Set(["AWHOR08", "JCOLE02"]))
+        let strong = rows.first { $0.storeNumber == "1" }!
+        let weak = rows.first { $0.storeNumber == "606" }!
+        XCTAssertEqual(strong.payload["pph"] ?? 0, 91.4, accuracy: 0.05)
+        XCTAssertEqual(strong.payload["presub_pct"] ?? 0, 2.3, accuracy: 0.1)
+        XCTAssertEqual(weak.payload["ott_pct"] ?? 0, 0, accuracy: 0.01)
+        XCTAssertEqual(HeartbeatMath.pickerHealth(strong), .good)
+        XCTAssertEqual(HeartbeatMath.pickerHealth(weak), .risk)
+        XCTAssertTrue(HeartbeatMath.pickerOpportunityText(weak).contains("PPH"))
+    }
 }

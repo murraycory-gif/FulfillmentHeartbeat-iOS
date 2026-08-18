@@ -518,6 +518,195 @@ struct StoreTable: View {
     }
 }
 
+struct PickerScoreTable: View {
+    let rows: [MetricRow]
+
+    private enum Column: String, CaseIterable, Identifiable {
+        case picker, store, division, pph, ott, presub, oth, coe, orders, status
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .picker: return "Picker"
+            case .store: return "Store"
+            case .division: return "Division"
+            case .pph: return "PPH"
+            case .ott: return "OTT"
+            case .presub: return "Presub"
+            case .oth: return "OTH 5%"
+            case .coe: return "COE"
+            case .orders: return "Orders"
+            case .status: return "Status"
+            }
+        }
+    }
+
+    @State private var sort = Column.pph
+    @State private var ascending = true
+
+    private var sortedRows: [MetricRow] {
+        rows.sorted { lhs, rhs in
+            let result = compare(lhs, rhs, by: sort)
+            return ascending ? result == .orderedAscending : result == .orderedDescending
+        }
+    }
+
+    var body: some View {
+        if rows.isEmpty {
+            Section {
+                EmptyHint(
+                    symbol: "person.2",
+                    title: "No picker rows",
+                    detail: "Upload the weekly Picker Scorecard workbook."
+                )
+                .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 20, trailing: 20))
+                .listRowSeparator(.hidden)
+                .listRowBackground(AppTheme.bg)
+            }
+        } else {
+            Section {
+                ForEach(sortedRows) { row in
+                    pickerRow(row)
+                        .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
+                        .listRowBackground(AppTheme.card)
+                }
+            } header: {
+                HStack(spacing: 0) {
+                    ForEach(Column.allCases) { column in
+                        sortHeader(column)
+                    }
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 8)
+                .background(AppTheme.card)
+                .textCase(nil)
+                .listRowInsets(EdgeInsets())
+            }
+        }
+    }
+
+    private func sortHeader(_ column: Column) -> some View {
+        Button {
+            if sort == column {
+                ascending.toggle()
+            } else {
+                sort = column
+                ascending = column == .picker || column == .division || column == .store
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text(column.title.uppercased())
+                    .font(.caption2.weight(.semibold))
+                    .tracking(0.4)
+                    .lineLimit(1)
+                if sort == column {
+                    Image(systemName: ascending ? "chevron.up" : "chevron.down")
+                        .font(.caption2.weight(.bold))
+                }
+            }
+            .foregroundStyle(sort == column ? AppTheme.blue : AppTheme.textTertiary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func compare(_ lhs: MetricRow, _ rhs: MetricRow, by column: Column) -> ComparisonResult {
+        switch column {
+        case .picker:
+            return lhs.shopperName.localizedStandardCompare(rhs.shopperName)
+        case .store:
+            if let a = Int(lhs.storeNumber), let b = Int(rhs.storeNumber) {
+                return a == b ? .orderedSame : (a < b ? .orderedAscending : .orderedDescending)
+            }
+            return lhs.storeNumber.localizedStandardCompare(rhs.storeNumber)
+        case .division:
+            return lhs.division.localizedStandardCompare(rhs.division)
+        case .pph:
+            return numberOrder(lhs.number("pph"), rhs.number("pph"))
+        case .ott:
+            return numberOrder(lhs.number("ott_pct"), rhs.number("ott_pct"))
+        case .presub:
+            return numberOrder(lhs.number("presub_pct"), rhs.number("presub_pct"))
+        case .oth:
+            return numberOrder(lhs.number("oth5_pct"), rhs.number("oth5_pct"))
+        case .coe:
+            return numberOrder(lhs.number("coe_pct"), rhs.number("coe_pct"))
+        case .orders:
+            return numberOrder(lhs.number("orders"), rhs.number("orders"))
+        case .status:
+            let a = healthRank(HeartbeatMath.pickerHealth(lhs))
+            let b = healthRank(HeartbeatMath.pickerHealth(rhs))
+            if a == b { return numberOrder(lhs.number("pph"), rhs.number("pph")) }
+            return a < b ? .orderedAscending : .orderedDescending
+        }
+    }
+
+    private func numberOrder(_ lhs: Double?, _ rhs: Double?) -> ComparisonResult {
+        let a = lhs ?? -9999
+        let b = rhs ?? -9999
+        if a == b { return .orderedSame }
+        return a < b ? .orderedAscending : .orderedDescending
+    }
+
+    private func healthRank(_ health: Health) -> Int {
+        switch health {
+        case .good: return 0
+        case .watch: return 1
+        case .risk: return 2
+        case .none: return 3
+        }
+    }
+
+    private func pickerRow(_ row: MetricRow) -> some View {
+        HStack(alignment: .center, spacing: 0) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(row.shopperName)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                Text(HeartbeatMath.pickerOpportunityText(row))
+                    .font(.caption2)
+                    .foregroundStyle(AppTheme.textTertiary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Text(row.storeNumber.isEmpty ? "—" : row.storeNumber)
+                .font(.caption.monospacedDigit())
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text(row.division.isEmpty ? "—" : row.division)
+                .font(.caption)
+                .foregroundStyle(AppTheme.textSecondary)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            metricText(HeartbeatFormat.num(row.number("pph"), digits: 1), health: HeartbeatMath.pphHealth(row))
+            metricText(HeartbeatFormat.pct(row.number("ott_pct")), health: HeartbeatMath.ottStar(row).health)
+            metricText(HeartbeatFormat.pct(row.number("presub_pct")), health: HeartbeatMath.starMark(value: row.number("presub_pct"), full: 5, half: 6, invert: true).health)
+            metricText(HeartbeatFormat.pct(row.number("oth5_pct")), health: HeartbeatMath.othStar(row).health)
+            metricText(HeartbeatFormat.pct(row.number("coe_pct")), health: HeartbeatMath.coeStar(row).health)
+            Text(HeartbeatFormat.num(row.number("orders")))
+                .font(.caption.monospacedDigit())
+                .frame(maxWidth: .infinity, alignment: .leading)
+            HealthBadge(health: HeartbeatMath.pickerHealth(row))
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, 10)
+    }
+
+    private func metricText(_ value: String, health: Health) -> some View {
+        let color: Color = {
+            switch health {
+            case .good: return AppTheme.ok
+            case .watch: return AppTheme.warn
+            case .risk: return AppTheme.bad
+            case .none: return AppTheme.text
+            }
+        }()
+        return Text(value)
+            .font(.caption.weight(.semibold).monospacedDigit())
+            .foregroundStyle(color)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
 struct HubChromeModifier: ViewModifier {
     @EnvironmentObject private var router: HubRouter
     @Environment(\.horizontalSizeClass) private var sizeClass
