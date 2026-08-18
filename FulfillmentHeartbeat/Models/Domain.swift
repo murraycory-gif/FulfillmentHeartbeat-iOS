@@ -337,14 +337,16 @@ enum HeartbeatMath {
     static func marketBoard(_ rows: [MetricRow], division: String, district: String, om: String, store: String) -> [MarketStore] {
         let matched = filtered(rows, division: division, district: district, om: om, store: store, relaxUnknown: false, universe: rows)
         let roster = storeRoster(rows)
-        let pph = Dictionary(uniqueKeysWithValues: latestPerStore(matched.filter { $0.section == .pph }).compactMap { row in
-            guard !row.storeNumber.isEmpty else { return nil }
-            return (row.storeNumber, row.number("pph"))
-        })
-        let path = Dictionary(uniqueKeysWithValues: latestPerStore(matched.filter { $0.section == .pickPath }).compactMap { row in
-            guard !row.storeNumber.isEmpty else { return nil }
-            return (row.storeNumber, row.number("compliance_pct"))
-        })
+        var pph: [String: Double] = [:]
+        for row in latestPerStore(matched.filter { $0.section == .pph }) {
+            guard !row.storeNumber.isEmpty, let value = row.number("pph") else { continue }
+            pph[row.storeNumber] = value
+        }
+        var path: [String: Double] = [:]
+        for row in latestPerStore(matched.filter { $0.section == .pickPath }) {
+            guard !row.storeNumber.isEmpty, let value = row.number("compliance_pct") else { continue }
+            path[row.storeNumber] = value
+        }
         let stores = Set(matched.map(\.storeNumber).filter { !$0.isEmpty })
         return stores.sorted(by: HeartbeatFormat.storeOrder).map { number in
             let identity = roster[number] ?? StoreIdentity(division: "", district: "", om: "", name: nil)
@@ -353,8 +355,8 @@ enum HeartbeatMath {
                 division: identity.division,
                 district: identity.district,
                 om: identity.om,
-                pph: pph[number] ?? nil,
-                compliance: path[number] ?? nil
+                pph: pph[number],
+                compliance: path[number]
             )
         }
     }
