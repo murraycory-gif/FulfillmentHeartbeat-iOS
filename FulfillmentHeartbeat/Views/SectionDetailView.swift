@@ -23,21 +23,25 @@ struct SectionDetailView: View {
                 FilterBar()
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 12)], spacing: 12) {
-                    HubCard {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(summary.headlineLabel)
-                                .font(.caption.weight(.medium))
-                                .foregroundStyle(AppTheme.textSecondary)
-                            HStack(alignment: .bottom) {
-                                Text(summary.headlineText)
-                                    .font(.system(size: 32, weight: .semibold).monospacedDigit())
-                                Spacer()
-                                HealthBadge(health: summary.health)
+                    if section == .pph {
+                        pphStatusTiles
+                    } else {
+                        HubCard {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(summary.headlineLabel)
+                                    .font(.caption.weight(.medium))
+                                    .foregroundStyle(AppTheme.textSecondary)
+                                HStack(alignment: .bottom) {
+                                    Text(summary.headlineText)
+                                        .font(.system(size: 32, weight: .semibold).monospacedDigit())
+                                    Spacer()
+                                    HealthBadge(health: summary.health)
+                                }
                             }
                         }
-                    }
-                    ForEach(tiles, id: \.label) { tile in
-                        KpiTile(label: tile.label, value: tile.value)
+                        ForEach(tiles, id: \.label) { tile in
+                            KpiTile(label: tile.label, value: tile.value)
+                        }
                     }
                 }
 
@@ -128,6 +132,27 @@ struct SectionDetailView: View {
                 ("Opportunity", HeartbeatFormat.num(Double(board.opportunity.count))),
                 ("Doing well", HeartbeatFormat.num(Double(board.strong.count))),
             ]
+        }
+    }
+
+    @ViewBuilder
+    private var pphStatusTiles: some View {
+        let rows = snapshots
+        let atGoal = rows.filter { ($0.number("pph") ?? 0) >= HeartbeatMath.pphGoal }.count
+        let atRisk = rows.filter { ($0.number("pph") ?? .greatestFiniteMagnitude) < HeartbeatMath.pphRisk }.count
+        let week = rows.compactMap(\.recordedOn).sorted().last ?? "—"
+        KpiTile(label: "Avg pure PPH", value: summary.headlineText, hint: summary.health.label, tone: tone(for: summary.health))
+        KpiTile(label: "Goal", value: "80.0", tone: .brand)
+        KpiTile(label: "At goal", value: HeartbeatFormat.num(Double(atGoal)), tone: .good)
+        KpiTile(label: "Below 74", value: HeartbeatFormat.num(Double(atRisk)), tone: .risk)
+        KpiTile(label: "Week", value: week)
+    }
+
+    private func tone(for health: Health) -> KpiTile.Tone {
+        switch health {
+        case .good: return .good
+        case .watch: return .watch
+        case .risk: return .risk
         }
     }
 }

@@ -243,6 +243,7 @@ enum HeartbeatMath {
 
     static func filtered(_ rows: [MetricRow], division: String, district: String, om: String, store: String) -> [MetricRow] {
         rows.filter { row in
+            if !division.isEmpty, row.division != division { return false }
             if !district.isEmpty, row.district != district { return false }
             if !om.isEmpty, row.operationsOM != om { return false }
             if !store.isEmpty, row.storeNumber != store { return false }
@@ -521,6 +522,7 @@ struct DashboardFilters: Equatable, Codable {
 
     var summary: String {
         [
+            division.isEmpty ? "All divisions" : division,
             district.isEmpty ? "All districts" : "District \(district)",
             om.isEmpty ? "All OMs" : om,
             store.isEmpty ? "All stores" : store,

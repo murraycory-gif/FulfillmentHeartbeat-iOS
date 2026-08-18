@@ -62,30 +62,62 @@ struct HealthBadge: View {
 struct KpiTile: View {
     let label: String
     let value: String
-    var hint: String?
+    var hint: String? = nil
+    var tone: Tone = .plain
+
+    enum Tone {
+        case plain, brand, good, watch, risk
+
+        var fill: Color {
+            switch self {
+            case .plain: return AppTheme.card
+            case .brand: return AppTheme.blueSoft
+            case .good: return AppTheme.okSoft
+            case .watch: return AppTheme.warnSoft
+            case .risk: return AppTheme.badSoft
+            }
+        }
+
+        var ink: Color {
+            switch self {
+            case .plain: return AppTheme.text
+            case .brand: return AppTheme.blueDeep
+            case .good: return AppTheme.ok
+            case .watch: return AppTheme.warn
+            case .risk: return AppTheme.bad
+            }
+        }
+
+        var caption: Color {
+            switch self {
+            case .plain: return AppTheme.textSecondary
+            default: return ink.opacity(0.85)
+            }
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(label)
                 .font(.caption.weight(.medium))
-                .foregroundStyle(AppTheme.textSecondary)
+                .foregroundStyle(tone.caption)
             Text(value)
                 .font(.title2.weight(.semibold).monospacedDigit())
-                .foregroundStyle(AppTheme.text)
+                .foregroundStyle(tone.ink)
             if let hint {
                 Text(hint)
                     .font(.caption)
-                    .foregroundStyle(AppTheme.textTertiary)
+                    .foregroundStyle(tone.caption)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .background(
             RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
-                .fill(AppTheme.card)
+                .fill(tone.fill)
                 .overlay(
                     RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
-                        .stroke(AppTheme.cardBorder, lineWidth: 1)
+                        .stroke(tone == .plain ? AppTheme.cardBorder : tone.ink.opacity(0.18), lineWidth: 1)
                 )
         )
     }
@@ -235,14 +267,17 @@ struct FilterBar: View {
 
     @ViewBuilder
     private var fields: some View {
+        filterMenu("Division", selection: store.filters.division, options: store.divisions.map { ($0, $0) }) {
+            store.setDivision($0)
+        }
         filterMenu("District", selection: store.filters.district, options: store.districts.map { ($0, $0) }) {
             store.setDistrict($0)
         }
-        filterMenu("Operations OM", selection: store.filters.om, options: store.operationsOMs.map { ($0, $0) }) {
+        filterMenu("Operations manager", selection: store.filters.om, options: store.operationsOMs.map { ($0, $0) }) {
             store.setOM($0)
         }
         filterMenu(
-            "Store number",
+            "Store #",
             selection: store.filters.store,
             options: store.stores.map { entry in
                 let label = entry.name.map { "\(entry.number) · \($0)" } ?? entry.number
@@ -299,6 +334,135 @@ struct FilterBar: View {
 struct StoreTable: View {
     let section: MetricSection
     let rows: [MetricRow]
+
+    private enum Column: String, CaseIterable, Identifiable {
+        case store, district, om, result, status
+        var id: String { rawValue }
+
+        func title(for section: MetricSection) -> String {
+            switch self {
+            case .store: return section == .pickerScorecard ? "Shopper" : "Store"
+            case .district: return "District"
+            case .om: return "OM"
+            case .result: return section == .pph ? "PPH" : "Result"
+            case .status: return "Status"
+            }
+        }
+    }
+
+    @State private var sort = Column.store
+    @State private var ascending = true
+
+    private var sortedRows: [MetricRow] {
+        rows.sorted { lhs, rhs in
+            let result = compare(lhs, rhs, by: sort)
+            return ascending ? result == .orderedAscending : result == .orderedDescending
+        }
+    }
+
+    var body: some View {
+        if rows.isEmpty {
+            HubCard {
+                EmptyHint(
+                    symbol: "building.2",
+                    title: "No stores in this view",
+                    detail: "Adjust filters or upload a file for this section."
+                )
+            }
+        } else {
+            HubCard {
+                LazyVStack(alignment: .leading, spacing: 0, pinnedViews: .sectionHeaders) {
+                    Section {
+                        ForEach(sortedRows) { row in
+                            storeRow(row)
+                            Divider().opacity(0.35)
+                        }
+                    } header: {
+                        HStack(spacing: 0) {
+                            ForEach(Column.allCases) { column in
+                                sortHeader(column)
+                            }
+                        }
+                        .padding(.bottom, 10)
+                        .padding(.top, 2)
+                        .background(AppTheme.card)
+                    }
+                }
+            }
+        }
+    }
+
+    private func sortHeader(_ column: Column) -> some View {
+        Button {
+            if sort == column {
+                ascending.toggle()
+            } else {
+                sort = column
+                ascending = column == .result || column == .status ? false : true
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Text(column.title(for: section).uppercased())
+                    .font(.caption2.weight(.semibold))
+                    .tracking(0.6)
+                if sort == column {
+                    Image(systemName: ascending ? "chevron.up" : "chevron.down")
+                        .font(.caption2.weight(.bold))
+                }
+            }
+            .foregroundStyle(sort == column ? AppTheme.blue : AppTheme.textTertiary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func compare(_ lhs: MetricRow, _ rhs: MetricRow, by column: Column) -> ComparisonResult {
+        switch column {
+        case .store:
+            if section == .pickerScorecard {
+                return lhs.shopperName.localizedStandardCompare(rhs.shopperName)
+            }
+            if let a = Int(lhs.storeNumber), let b = Int(rhs.storeNumber) {
+                return a == b ? .orderedSame : (a < b ? .orderedAscending : .orderedDescending)
+            }
+            return lhs.storeNumber.localizedStandardCompare(rhs.storeNumber)
+        case .district:
+            return lhs.district.localizedStandardCompare(rhs.district)
+        case .om:
+            return lhs.operationsOM.localizedStandardCompare(rhs.operationsOM)
+        case .result:
+            let a = sortValue(lhs)
+            let b = sortValue(rhs)
+            if a == b { return .orderedSame }
+            return a < b ? .orderedAscending : .orderedDescending
+        case .status:
+            let a = healthRank(HeartbeatMath.health(for: section, row: lhs))
+            let b = healthRank(HeartbeatMath.health(for: section, row: rhs))
+            if a == b { return compare(lhs, rhs, by: .result) }
+            return a < b ? .orderedAscending : .orderedDescending
+        }
+    }
+
+    private func healthRank(_ health: Health) -> Int {
+        switch health {
+        case .good: return 0
+        case .watch: return 1
+        case .risk: return 2
+        }
+    }
+
+    private func sortValue(_ row: MetricRow) -> Double {
+        switch section {
+        case .fiveStar: return row.number("star_rating") ?? -1
+        case .pickPath: return row.number("compliance_pct") ?? -1
+        case .prepNotReady: return row.number("pnr_rate_pct") ?? -1
+        case .dynacap: return HeartbeatMath.dynacapAligned(row) == true ? 1 : 0
+        case .scheduleQuality: return row.number("schedule_efficiency_pct") ?? -1
+        case .pph: return row.number("pph") ?? -1
+        case .pickerScorecard: return HeartbeatMath.pickerComposite(row)
+        }
+    }
 
     var body: some View {
         if rows.isEmpty {

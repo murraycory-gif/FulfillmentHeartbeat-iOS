@@ -52,9 +52,10 @@ final class HeartbeatMathTests: XCTestCase {
             MetricRow(section: .fiveStar, division: "Jewel Osco", operationsOM: "A. Brooks", storeNumber: "1487", textPayload: ["district": "J1"]),
             MetricRow(section: .fiveStar, division: "Jewel Osco", operationsOM: "J. Patel", storeNumber: "1088", textPayload: ["district": "J3"]),
         ]
-        XCTAssertEqual(HeartbeatMath.filtered(rows, division: "", district: "J1", om: "", store: "").count, 1)
+        XCTAssertEqual(HeartbeatMath.filtered(rows, division: "Jewel Osco", district: "J1", om: "", store: "").count, 1)
         XCTAssertEqual(HeartbeatMath.filtered(rows, division: "", district: "", om: "J. Patel", store: "").first?.storeNumber, "1088")
         XCTAssertEqual(HeartbeatMath.filtered(rows, division: "", district: "", om: "", store: "1487").count, 1)
+        XCTAssertEqual(HeartbeatMath.filtered(rows, division: "Haggen", district: "", om: "", store: "").count, 0)
     }
 
     func testSummarizeFiveStar() {
