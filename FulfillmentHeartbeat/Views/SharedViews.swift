@@ -346,7 +346,10 @@ struct StoreTable: View {
             case .store: return section == .pickerScorecard ? "Shopper" : "Store"
             case .district: return "District"
             case .om: return "OM"
-            case .result: return section == .pph ? "PPH" : "Result"
+            case .result:
+                if section == .pph { return "PPH" }
+                if section == .prepNotReady { return "PNR %" }
+                return "Result"
             case .status: return "Status"
             }
         }
@@ -482,7 +485,7 @@ struct StoreTable: View {
                 } else {
                     Text(row.storeNumber.isEmpty ? "—" : row.storeNumber)
                         .font(.subheadline.weight(.semibold).monospacedDigit())
-                    if section == .dynacap || section == .scheduleQuality || section == .fiveStar {
+                    if section == .dynacap || section == .scheduleQuality || section == .fiveStar || section == .prepNotReady {
                         Text(row.division.isEmpty ? "—" : row.division)
                             .font(.caption)
                             .foregroundStyle(AppTheme.textSecondary)

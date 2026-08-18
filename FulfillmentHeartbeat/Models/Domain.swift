@@ -39,7 +39,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         switch self {
         case .fiveStar: return "Store-level star rating from Flash, Presubs, COE, OTT, and OTH5. Upload Star Ratings by Store."
         case .pickPath: return "Share of picks that followed the system path. Upload the All Pickers WEEK_ID export."
-        case .prepNotReady: return "Orders not staged by the promised ready time."
+        case .prepNotReady: return "Share of pick hours lost to prep not ready. Upload the weekly Hours % export."
         case .dynacap: return "Pieces per hour we allow down to the picker. Upload the Overall Capacity Summary."
         case .scheduleQuality: return "How tightly the labor plan matches the work. Upload Optimized Departments."
         case .pph: return "Pure picks completed per labor hour. Upload the WEEK_ID by Division export."
@@ -51,7 +51,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         switch self {
         case .fiveStar: return "Store · Division · OM · District · Total Rating · Flash · Presubs · COE · OTT · OTH5"
         case .pickPath: return "WEEK_ID · DIVISION · DISTRICT · OM · STORE_ID · EMPLOYEE · Pick Path · Orders · Pure PPH"
-        case .prepNotReady: return "PNR Count · Orders Due · PNR Rate · Avg Late Min"
+        case .prepNotReady: return "DIVISION · District · OM · Store · Net Prep Not Ready Hours %"
         case .dynacap: return "DISTRICT · Total Pieces/Total Hrs · DPA Dynacap · Utilization %"
         case .scheduleQuality: return "Division · District · Store · Schedule Efficiency · Under % · Over %"
         case .pph: return "WEEK_ID · DIVISION · DISTRICT · OM_AREA · OM_ID · STORE · Pure PPH"
@@ -469,7 +469,7 @@ enum HeartbeatMath {
             guard row.number("compliance_pct") != nil else { return .none }
             return band(row.number("compliance_pct"), good: pickPathGoal, watch: pickPathRisk)
         case .prepNotReady:
-            return band(row.number("pnr_rate_pct"), good: 2, watch: 5, invert: true)
+            return band(row.number("pnr_rate_pct"), good: pnrGoal, watch: pnrWatch, invert: true)
         case .dynacap:
             if let rate = row.number("dynacap_rate", "pieces_per_hour") {
                 return band(rate, good: dynacapGoal, watch: dynacapRisk)
@@ -540,14 +540,17 @@ enum HeartbeatMath {
             )
         case .prepNotReady:
             let headline = average(latest.compactMap { $0.number("pnr_rate_pct") })
-            let total = latest.reduce(0) { $0 + ($1.number("pnr_count") ?? 0) }
+            let atGoal = latest.filter { ($0.number("pnr_rate_pct") ?? .greatestFiniteMagnitude) <= pnrGoal }.count
+            let atRisk = latest.filter { ($0.number("pnr_rate_pct") ?? 0) > pnrWatch }.count
             return SectionSummary(
                 section: section,
                 storeCount: latest.count,
                 headline: headline,
-                headlineLabel: "Avg PNR rate",
-                secondary: latest.isEmpty ? "No stores in view" : "\(Int(total.rounded())) orders not ready",
-                health: band(headline, good: 2, watch: 5, invert: true),
+                headlineLabel: "Avg PNR hours",
+                secondary: latest.isEmpty
+                    ? "No Prep Not Ready rows in this filter"
+                    : "\(atGoal) of \(latest.count) at 2% · \(atRisk) above 5%",
+                health: latest.isEmpty ? .none : band(headline, good: pnrGoal, watch: pnrWatch, invert: true),
                 watchCount: watch,
                 riskCount: risk,
                 lastFilename: upload?.filename,
@@ -631,6 +634,8 @@ enum HeartbeatMath {
         }
     }
 
+    static let pnrGoal = 2.0
+    static let pnrWatch = 5.0
     static let pphGoal = 80.0
     static let pphRisk = 74.0
     static let pickPathGoal = 90.0
@@ -1034,9 +1039,19 @@ struct StoreCellViewModel {
                 extra: extra
             )
         case .prepNotReady:
+            let rate = row.number("pnr_rate_pct")
+            let gap = rate.map { $0 - HeartbeatMath.pnrGoal }
+            let gapText: String
+            if let gap {
+                gapText = gap <= 0
+                    ? "\(HeartbeatFormat.num(abs(gap), digits: 1)) under 2%"
+                    : "+\(HeartbeatFormat.num(gap, digits: 1)) vs 2%"
+            } else {
+                gapText = "Goal 2%"
+            }
             return StoreCellViewModel(
-                primary: HeartbeatFormat.pct(row.number("pnr_rate_pct")),
-                extra: "\(HeartbeatFormat.num(row.number("pnr_count"))) not ready · \(HeartbeatFormat.num(row.number("avg_late_min"), digits: 1)) min late"
+                primary: HeartbeatFormat.pct(rate),
+                extra: gapText
             )
         case .dynacap:
             let rate = row.number("dynacap_rate", "pieces_per_hour")

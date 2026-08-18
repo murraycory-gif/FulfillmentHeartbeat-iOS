@@ -50,6 +50,8 @@ struct SectionDetailView: View {
                             fiveStarStatusTiles
                         } else if section == .pickerScorecard {
                             pickerStatusTiles
+                        } else if section == .prepNotReady {
+                            prepStatusTiles
                         } else {
                             HubCard {
                                 VStack(alignment: .leading, spacing: 8) {
@@ -154,6 +156,19 @@ struct SectionDetailView: View {
         KpiTile(label: "Goal", value: "80.0", tone: .brand)
         KpiTile(label: "At goal", value: HeartbeatFormat.num(Double(atGoal)), tone: .good)
         KpiTile(label: "Below 74", value: HeartbeatFormat.num(Double(atRisk)), tone: .risk)
+        KpiTile(label: "Week", value: week)
+    }
+
+    @ViewBuilder
+    private var prepStatusTiles: some View {
+        let rows = snapshots
+        let atGoal = rows.filter { ($0.number("pnr_rate_pct") ?? .greatestFiniteMagnitude) <= HeartbeatMath.pnrGoal }.count
+        let atRisk = rows.filter { ($0.number("pnr_rate_pct") ?? 0) > HeartbeatMath.pnrWatch }.count
+        let week = rows.compactMap(\.recordedOn).sorted().last ?? "—"
+        KpiTile(label: "Avg PNR hours", value: summary.headlineText, hint: summary.health.label, tone: tone(for: summary.health))
+        KpiTile(label: "Goal", value: "2%", tone: .brand)
+        KpiTile(label: "At goal", value: HeartbeatFormat.num(Double(atGoal)), tone: .good)
+        KpiTile(label: "Above 5%", value: HeartbeatFormat.num(Double(atRisk)), tone: .risk)
         KpiTile(label: "Week", value: week)
     }
 

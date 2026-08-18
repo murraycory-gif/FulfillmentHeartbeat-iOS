@@ -161,12 +161,16 @@ enum WorkbookParser {
         "exceptioncount": "exception_count",
         "pnr": "pnr_count",
         "pnrcount": "pnr_count",
-        "prepnotready": "pnr_count",
-        "notready": "pnr_count",
-        "ordersdue": "orders_due",
-        "dueorders": "orders_due",
+        "prepnotready": "pnr_rate_pct",
+        "notready": "pnr_rate_pct",
+        "netprepnotreadyhours": "pnr_rate_pct",
+        "prepnotreadyhours": "pnr_rate_pct",
+        "netprepnotreadyhourspct": "pnr_rate_pct",
+        "pnrhours": "pnr_rate_pct",
         "pnrrate": "pnr_rate_pct",
         "pnrratepct": "pnr_rate_pct",
+        "ordersdue": "orders_due",
+        "dueorders": "orders_due",
         "avglatemin": "avg_late_min",
         "avglate": "avg_late_min",
         "lateavg": "avg_late_min",
@@ -296,13 +300,27 @@ enum WorkbookParser {
 
         let weekRow = headerIndex > 0 ? matrix[headerIndex - 1] : []
         var weekByColumn: [Int: String] = [:]
+        var totalColumns: [Int] = []
         for (index, cell) in weekRow.enumerated() {
             let trimmed = cell.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty || isTotalCell(trimmed) { continue }
+            if trimmed.isEmpty { continue }
+            if isTotalCell(trimmed) {
+                totalColumns.append(index)
+                continue
+            }
             let norm = normHeader(trimmed)
             if norm == "weekid" || norm == "week" || norm == "date" { continue }
             if let date = dateFromWeekID(trimmed) ?? isoDate(trimmed) {
                 weekByColumn[index] = date
+            }
+        }
+        if let lastDate = weekByColumn.values.max() {
+            for index in totalColumns {
+                weekByColumn[index] = lastDate
+            }
+        } else if !totalColumns.isEmpty {
+            for index in totalColumns {
+                weekByColumn[index] = "week"
             }
         }
 
@@ -461,6 +479,8 @@ enum WorkbookParser {
             key = "under_staffing_pct"
         } else if key.contains("overstaffing") {
             key = "over_staffing_pct"
+        } else if key.contains("prepnotready") || key.contains("pnrrate") || (key.contains("pnr") && key.contains("hour")) {
+            key = "pnr_rate_pct"
         } else if key.contains("handoffcompliance") {
             key = "handoff_compliance_pct"
         }

@@ -18,6 +18,22 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(HeartbeatMath.health(for: .prepNotReady, row: risk), .risk)
     }
 
+    func testPrepNotReadyOutlineUsesWeekTotalAndDivision() {
+        let parsed = WorkbookParser.parseCSV(SampleMarket.templateCSV(for: .prepNotReady))
+        let rows = parsed.map { $0.asRow(section: .prepNotReady) }
+        let shaws = rows.filter { $0.storeNumber == "1432" }
+        XCTAssertFalse(shaws.isEmpty)
+        XCTAssertEqual(shaws.first?.division, "Shaws")
+        XCTAssertEqual(shaws.first?.operationsOM, "Sharon Reynolds")
+        let latest = HeartbeatMath.latestPerStore(rows).first { $0.storeNumber == "1432" }
+        XCTAssertEqual(latest?.payload["pnr_rate_pct"] ?? 0, 11.03, accuracy: 0.05)
+        XCTAssertEqual(HeartbeatMath.health(for: .prepNotReady, row: latest!), .risk)
+        let jewel = HeartbeatMath.latestPerStore(rows).first { $0.storeNumber == "1" }
+        XCTAssertEqual(jewel?.payload["pnr_rate_pct"] ?? 0, 1.48, accuracy: 0.05)
+        XCTAssertEqual(HeartbeatMath.health(for: .prepNotReady, row: jewel!), .good)
+    }
+}
+
     func testDynacapAlignedWithinTenPercent() {
         let aligned = MetricRow(
             section: .dynacap,
