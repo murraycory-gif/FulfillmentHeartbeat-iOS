@@ -44,7 +44,10 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func latest(for section: MetricSection) -> [MetricRow] {
-        HeartbeatMath.latestPerStore(rows(for: section))
+        if section == .pickerScorecard {
+            return HeartbeatMath.latestPerShopper(rows(for: section))
+        }
+        return HeartbeatMath.latestPerStore(rows(for: section))
     }
 
     func upload(for section: MetricSection) -> UploadRecord? {
@@ -56,7 +59,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     var summaries: [SectionSummary] {
-        MetricSection.allCases.map { summary(for: $0) }
+        MetricSection.dashboardCards.map { summary(for: $0) }
     }
 
     var lastUpload: UploadRecord? {

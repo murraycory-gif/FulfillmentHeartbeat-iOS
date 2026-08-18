@@ -140,6 +140,37 @@ enum SampleMarket {
                         "goal_pph": 65,
                     ]
                 ))
+
+                let shoppers = [
+                    ("\(store.name.split(separator: " ").first ?? "Store") A", 0),
+                    ("\(store.name.split(separator: " ").first ?? "Store") B", 1),
+                ]
+                let firstNames = ["L. Ramirez", "J. Cole", "M. Singh", "A. Nguyen", "T. Brooks", "K. Patel", "S. Ortiz", "D. Walsh"]
+                for (slot, _) in shoppers.enumerated() {
+                    let name = firstNames[(index * 2 + slot) % firstNames.count]
+                    let shopperPPH = clamp(48 + jitter(index + slot * 9 + 51, 18) + Double(week) * 0.8, 32, 94)
+                    let path = clamp(84 + jitter(index + slot * 5 + 61, 12) + Double(week) * 0.6, 68, 99.4)
+                    let quality = clamp(90 + jitter(index + slot * 7 + 71, 8), 78, 99.5)
+                    out.append(MetricRow(
+                        section: .pickerScorecard,
+                        division: store.division,
+                        operationsOM: store.om,
+                        storeNumber: store.store,
+                        storeName: store.name,
+                        recordedOn: date,
+                        payload: [
+                            "pph": shopperPPH.rounded(1),
+                            "compliance_pct": path.rounded(1),
+                            "quality_score": quality.rounded(1),
+                            "picks_total": (shopperPPH * 7).rounded(),
+                            "goal_pph": 65,
+                        ],
+                        textPayload: [
+                            "shopper_name": name,
+                            "shopper_id": "S\(store.store)-\(slot + 1)",
+                        ]
+                    ))
+                }
             }
         }
         return out
@@ -176,6 +207,12 @@ enum SampleMarket {
             return """
             Division,Operations OM,Store Number,Store Name,Date,PPH,Picks Total,Pick Hours,Goal PPH
             10,A. Brooks,1487,Chicago Pulaski,2026-08-17,68.4,1915,28.0,65
+            """
+        case .pickerScorecard:
+            return """
+            Division,Operations OM,Store Number,Store Name,Date,Shopper,Shopper ID,PPH,Pick Path %,Quality,Picks Total,Goal PPH
+            10,A. Brooks,1487,Chicago Pulaski,2026-08-17,L. Ramirez,S1487-1,71.2,96.4,97.1,498,65
+            10,A. Brooks,1487,Chicago Pulaski,2026-08-17,J. Cole,S1487-2,52.1,81.0,88.4,365,65
             """
         }
     }

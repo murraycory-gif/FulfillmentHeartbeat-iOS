@@ -313,7 +313,7 @@ struct StoreTable: View {
             HubCard {
                 VStack(spacing: 0) {
                     HStack {
-                        header("Store")
+                        header(section == .pickerScorecard ? "Shopper" : "Store")
                         header("Division")
                         header("OM")
                         header("Result")
@@ -325,11 +325,19 @@ struct StoreTable: View {
                         let view = StoreCellViewModel.make(section: section, row: row)
                         HStack(alignment: .top) {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(row.storeNumber.isEmpty ? "—" : row.storeNumber)
-                                    .font(.subheadline.weight(.semibold).monospacedDigit())
-                                Text(row.storeName ?? "Unnamed store")
-                                    .font(.caption)
-                                    .foregroundStyle(AppTheme.textSecondary)
+                                if section == .pickerScorecard {
+                                    Text(row.shopperName)
+                                        .font(.subheadline.weight(.semibold))
+                                    Text("\(row.storeNumber.isEmpty ? "—" : row.storeNumber) · \(row.storeName ?? "Store")")
+                                        .font(.caption)
+                                        .foregroundStyle(AppTheme.textSecondary)
+                                } else {
+                                    Text(row.storeNumber.isEmpty ? "—" : row.storeNumber)
+                                        .font(.subheadline.weight(.semibold).monospacedDigit())
+                                    Text(row.storeName ?? "Unnamed store")
+                                        .font(.caption)
+                                        .foregroundStyle(AppTheme.textSecondary)
+                                }
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                             Text(row.division.isEmpty ? "—" : row.division)

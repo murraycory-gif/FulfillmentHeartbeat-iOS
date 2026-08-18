@@ -71,7 +71,7 @@ final class HeartbeatMathTests: XCTestCase {
 
     func testSampleMarketHasFiveSections() {
         let rows = SampleMarket.rows()
-        XCTAssertEqual(Set(rows.map(\.section)).count, 6)
+        XCTAssertEqual(Set(rows.map(\.section)).count, 7)
         XCTAssertEqual(rows.filter { $0.section == .fiveStar }.count, SampleMarket.stores.count * SampleMarket.dates.count)
         XCTAssertEqual(rows.filter { $0.section == .scheduleQuality }.count, SampleMarket.stores.count * SampleMarket.dates.count)
         XCTAssertEqual(rows.filter { $0.section == .pph }.count, SampleMarket.stores.count * SampleMarket.dates.count)

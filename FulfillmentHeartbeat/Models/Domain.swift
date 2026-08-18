@@ -7,6 +7,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
     case dynacap = "dynacap"
     case scheduleQuality = "schedule_quality"
     case pph = "pph"
+    case pickerScorecard = "picker_scorecard"
 
     var id: String { rawValue }
 
@@ -18,6 +19,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .dynacap: return "Dynacap Setting"
         case .scheduleQuality: return "Schedule Quality"
         case .pph: return "PPH Pure Picks Per Hour"
+        case .pickerScorecard: return "Picker Score Card"
         }
     }
 
@@ -29,6 +31,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .dynacap: return "Dynacap"
         case .scheduleQuality: return "Schedule"
         case .pph: return "PPH"
+        case .pickerScorecard: return "Pickers"
         }
     }
 
@@ -40,6 +43,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .dynacap: return "Pickup and delivery capacity versus recommended."
         case .scheduleQuality: return "How tightly the labor plan matches the work — efficiency, over, and under."
         case .pph: return "Pure picks completed per labor hour."
+        case .pickerScorecard: return "Shopper-level PPH, path, and quality — opportunity versus strong."
         }
     }
 
@@ -51,6 +55,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .dynacap: return "Pickup / Delivery capacity · Rec pickup / delivery"
         case .scheduleQuality: return "Schedule Efficiency · Over Scheduled · Under Scheduled"
         case .pph: return "PPH · Picks Total · Pick Hours · Goal PPH"
+        case .pickerScorecard: return "Shopper · PPH · Pick Path % · Quality · Goal PPH"
         }
     }
 
@@ -62,7 +67,12 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .dynacap: return "slider.horizontal.3"
         case .scheduleQuality: return "calendar.badge.clock"
         case .pph: return "speedometer"
+        case .pickerScorecard: return "person.2.fill"
         }
+    }
+
+    static var dashboardCards: [MetricSection] {
+        [.fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pph]
     }
 }
 
@@ -117,6 +127,27 @@ struct MetricRow: Identifiable, Codable, Hashable {
         }
         return nil
     }
+
+    var shopperName: String {
+        let keys = ["shopper_name", "shopper", "picker", "pickername", "associate", "associatename"]
+        for key in keys {
+            if let value = textPayload[key], !value.isEmpty { return value }
+        }
+        return "Unknown shopper"
+    }
+
+    var shopperId: String? {
+        let keys = ["shopper_id", "picker_id", "associate_id", "win"]
+        for key in keys {
+            if let value = textPayload[key], !value.isEmpty { return value }
+        }
+        return nil
+    }
+
+    var shopperKey: String {
+        if let shopperId, !shopperId.isEmpty { return shopperId.lowercased() }
+        return shopperName.lowercased()
+    }
 }
 
 struct UploadRecord: Identifiable, Codable, Hashable {
@@ -163,6 +194,9 @@ struct SectionSummary: Identifiable {
         if section == .pph {
             return String(format: "%.1f", headline)
         }
+        if section == .pickerScorecard {
+            return String(format: "%.0f", headline)
+        }
         return String(format: "%.1f%%", headline)
     }
 }
@@ -183,6 +217,24 @@ enum HeartbeatMath {
             }
         }
         return map.values.sorted { $0.storeNumber < $1.storeNumber }
+    }
+
+    static func latestPerShopper(_ rows: [MetricRow]) -> [MetricRow] {
+        var map: [String: MetricRow] = [:]
+        for row in rows {
+            let key = "\(row.storeNumber)|\(row.shopperKey)"
+            if let existing = map[key] {
+                if (row.recordedOn ?? "") > (existing.recordedOn ?? "") {
+                    map[key] = row
+                }
+            } else {
+                map[key] = row
+            }
+        }
+        return map.values.sorted {
+            if $0.storeNumber == $1.storeNumber { return $0.shopperName < $1.shopperName }
+            return $0.storeNumber < $1.storeNumber
+        }
     }
 
     static func filtered(_ rows: [MetricRow], division: String, om: String, store: String) -> [MetricRow] {
@@ -209,6 +261,8 @@ enum HeartbeatMath {
             return band(row.number("schedule_efficiency_pct"), good: 95, watch: 88)
         case .pph:
             return pphHealth(row)
+        case .pickerScorecard:
+            return pickerHealth(row)
         }
     }
 
@@ -223,7 +277,7 @@ enum HeartbeatMath {
     }
 
     static func summarize(_ section: MetricSection, rows: [MetricRow], upload: UploadRecord?) -> SectionSummary {
-        let latest = latestPerStore(rows)
+        let latest = section == .pickerScorecard ? latestPerShopper(rows) : latestPerStore(rows)
         let watch = latest.filter { health(for: section, row: $0) == .watch }.count
         let risk = latest.filter { health(for: section, row: $0) == .risk }.count
 
@@ -333,6 +387,26 @@ enum HeartbeatMath {
                 lastFilename: upload?.filename,
                 lastUploadedAt: upload?.uploadedAt
             )
+        case .pickerScorecard:
+            let board = pickerBoard(latest)
+            return SectionSummary(
+                section: section,
+                storeCount: Set(latest.map(\.storeNumber)).count,
+                headline: Double(board.opportunity.count),
+                headlineLabel: "Opportunity shoppers",
+                secondary: latest.isEmpty
+                    ? "No shoppers in view"
+                    : "\(board.strong.count) doing well · \(latest.count) shoppers",
+                health: band(
+                    latest.isEmpty ? nil : (1 - Double(board.opportunity.count) / Double(latest.count)) * 100,
+                    good: 80,
+                    watch: 65
+                ),
+                watchCount: latest.filter { pickerHealth($0) == .watch }.count,
+                riskCount: latest.filter { pickerHealth($0) == .risk }.count,
+                lastFilename: upload?.filename,
+                lastUploadedAt: upload?.uploadedAt
+            )
         }
     }
 
@@ -342,6 +416,40 @@ enum HeartbeatMath {
             return band(pph / goal * 100, good: 100, watch: 90)
         }
         return band(pph, good: 65, watch: 50)
+    }
+
+    static func pickerComposite(_ row: MetricRow) -> Double {
+        var parts: [Double] = []
+        if let pph = row.number("pph") {
+            let goal = max(row.number("goal_pph") ?? 65, 1)
+            parts.append(min(pph / goal, 1.2) / 1.2)
+        }
+        if let compliance = row.number("compliance_pct") {
+            parts.append(min(compliance / 100, 1))
+        }
+        if let quality = row.number("quality_score") {
+            parts.append(quality > 5 ? min(quality / 100, 1) : min(quality / 5, 1))
+        }
+        guard !parts.isEmpty else { return 0 }
+        return parts.reduce(0, +) / Double(parts.count)
+    }
+
+    static func pickerHealth(_ row: MetricRow) -> Health {
+        band(pickerComposite(row), good: 0.92, watch: 0.80)
+    }
+
+    struct PickerBoard {
+        var shoppers: [MetricRow]
+        var opportunity: [MetricRow]
+        var strong: [MetricRow]
+    }
+
+    static func pickerBoard(_ rows: [MetricRow], limit: Int = 6) -> PickerBoard {
+        let shoppers = latestPerShopper(rows)
+        let ranked = shoppers.sorted { pickerComposite($0) < pickerComposite($1) }
+        let opportunity = Array(ranked.filter { pickerHealth($0) != .good }.prefix(limit))
+        let strong = Array(ranked.reversed().filter { pickerHealth($0) == .good }.prefix(limit))
+        return PickerBoard(shoppers: shoppers, opportunity: opportunity, strong: strong)
     }
 
     static func band(_ value: Double?, good: Double, watch: Double, invert: Bool = false) -> Health {
@@ -385,6 +493,8 @@ enum HeartbeatMath {
                 value = row.number("schedule_efficiency_pct")
             case .pph:
                 value = row.number("pph")
+            case .pickerScorecard:
+                value = pickerComposite(row)
             }
             guard let value else { continue }
             buckets[date, default: []].append(value)
@@ -497,6 +607,11 @@ struct StoreCellViewModel {
                 extra: goal == nil
                     ? "\(HeartbeatFormat.num(row.number("picks_total"))) picks · \(HeartbeatFormat.num(row.number("pick_hours"), digits: 1)) hrs"
                     : "Goal \(HeartbeatFormat.num(goal, digits: 1)) · \(HeartbeatFormat.num(row.number("picks_total"))) picks"
+            )
+        case .pickerScorecard:
+            return StoreCellViewModel(
+                primary: HeartbeatFormat.num(row.number("pph"), digits: 1),
+                extra: "Path \(HeartbeatFormat.pct(row.number("compliance_pct"))) · Qual \(HeartbeatFormat.pct(row.number("quality_score")))"
             )
         }
     }

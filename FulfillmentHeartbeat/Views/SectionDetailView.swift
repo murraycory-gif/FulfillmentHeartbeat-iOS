@@ -117,6 +117,13 @@ struct SectionDetailView: View {
                 ("Picks", HeartbeatFormat.num(rows.reduce(0) { $0 + ($1.number("picks_total") ?? 0) })),
                 ("Hours", HeartbeatFormat.num(rows.reduce(0) { $0 + ($1.number("pick_hours") ?? 0) }, digits: 1)),
             ]
+        case .pickerScorecard:
+            let board = HeartbeatMath.pickerBoard(rows)
+            return [
+                ("Shoppers", HeartbeatFormat.num(Double(rows.count))),
+                ("Opportunity", HeartbeatFormat.num(Double(board.opportunity.count))),
+                ("Doing well", HeartbeatFormat.num(Double(board.strong.count))),
+            ]
         }
     }
 }

@@ -22,12 +22,19 @@ struct DashboardView: View {
                         }
                     }
                 }
+                PickerScoreCard {
+                    if sizeClass == .regular {
+                        router.open(section: .pickerScorecard)
+                    } else {
+                        pushedSection = .pickerScorecard
+                    }
+                }
                 if !store.seeded {
                     HubCard {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("No files yet")
                                 .font(.headline)
-                            Text("Open Upload to drop in 5 Star, pick path, prep not ready, Dynacap, schedule quality, and PPH workbooks — or load the sample market to see the pulse.")
+                            Text("Open Upload to drop in the section workbooks, including the picker score card — or load the sample market to see the pulse.")
                                 .font(.subheadline)
                                 .foregroundStyle(AppTheme.textSecondary)
                             Button("Load sample market") {
@@ -166,6 +173,147 @@ struct SectionCard: View {
             parts.append("\(summary.riskCount) at risk")
         }
         return parts.joined(separator: " · ")
+    }
+}
+
+struct PickerScoreCard: View {
+    @EnvironmentObject private var store: HeartbeatStore
+    let action: () -> Void
+
+    private var board: HeartbeatMath.PickerBoard {
+        HeartbeatMath.pickerBoard(store.rows(for: .pickerScorecard))
+    }
+
+    private var upload: UploadRecord? { store.upload(for: .pickerScorecard) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 8) {
+                        Text("Picker Score Card")
+                            .font(.title2.weight(.semibold))
+                        if let uploadedAt = upload?.uploadedAt, Date().timeIntervalSince(uploadedAt) < 180 {
+                            Text("Just updated")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(AppTheme.blue)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(AppTheme.blueSoft, in: Capsule(style: .continuous))
+                        }
+                    }
+                    Text("Shoppers underperforming by PPH, path, and quality — versus those running strong.")
+                        .font(.subheadline)
+                        .foregroundStyle(AppTheme.textSecondary)
+                }
+                Spacer()
+                Button(action: action) {
+                    HStack(spacing: 6) {
+                        Text("View all")
+                        Image(systemName: "arrow.up.right")
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(AppTheme.blue)
+                }
+                .buttonStyle(.plain)
+            }
+
+            if board.shoppers.isEmpty {
+                Text("Upload a picker score card workbook to rank opportunity and strong shoppers.")
+                    .font(.subheadline)
+                    .foregroundStyle(AppTheme.textSecondary)
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 16) {
+                        shopperColumn(
+                            title: "Top opportunity",
+                            subtitle: "Underperforming vs the metric mix",
+                            rows: board.opportunity,
+                            empty: "No opportunity shoppers in this filter."
+                        )
+                        shopperColumn(
+                            title: "Doing well",
+                            subtitle: "Hitting the metric mix",
+                            rows: board.strong,
+                            empty: "No strong shoppers in this filter."
+                        )
+                    }
+                    VStack(alignment: .leading, spacing: 16) {
+                        shopperColumn(
+                            title: "Top opportunity",
+                            subtitle: "Underperforming vs the metric mix",
+                            rows: board.opportunity,
+                            empty: "No opportunity shoppers in this filter."
+                        )
+                        shopperColumn(
+                            title: "Doing well",
+                            subtitle: "Hitting the metric mix",
+                            rows: board.strong,
+                            empty: "No strong shoppers in this filter."
+                        )
+                    }
+                }
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                .fill(AppTheme.card)
+                .overlay(
+                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                        .stroke(AppTheme.cardBorder, lineWidth: 1)
+                )
+        )
+    }
+
+    private func shopperColumn(title: String, subtitle: String, rows: [MetricRow], empty: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.headline)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.textTertiary)
+            }
+            if rows.isEmpty {
+                Text(empty)
+                    .font(.subheadline)
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .padding(.vertical, 8)
+            } else {
+                ForEach(rows) { row in
+                    Button(action: action) {
+                        HStack(alignment: .center, spacing: 10) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(row.shopperName)
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(AppTheme.text)
+                                Text("\(row.storeNumber) · \(row.storeName ?? "Store")")
+                                    .font(.caption)
+                                    .foregroundStyle(AppTheme.textTertiary)
+                            }
+                            Spacer()
+                            VStack(alignment: .trailing, spacing: 2) {
+                                Text(HeartbeatFormat.num(row.number("pph"), digits: 1))
+                                    .font(.subheadline.weight(.semibold).monospacedDigit())
+                                    .foregroundStyle(AppTheme.text)
+                                Text("Path \(HeartbeatFormat.pct(row.number("compliance_pct")))")
+                                    .font(.caption)
+                                    .foregroundStyle(AppTheme.textTertiary)
+                            }
+                            HealthBadge(health: HeartbeatMath.pickerHealth(row))
+                        }
+                        .padding(.vertical, 8)
+                    }
+                    .buttonStyle(.plain)
+                    if row.id != rows.last?.id {
+                        Divider().opacity(0.35)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

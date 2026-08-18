@@ -95,6 +95,12 @@ enum WorkbookParser {
         "storenumber", "storenbr", "store", "storeid", "unit", "storenbr",
     ]
     private static let nameKeys = ["storename", "unitname", "location", "storenm"]
+    private static let shopperNameKeys = [
+        "shopper", "shoppername", "picker", "pickername", "associate", "associatename", "teammember",
+    ]
+    private static let shopperIdKeys = [
+        "shopperid", "pickerid", "associateid", "win", "userid", "associatewin",
+    ]
     private static let dateKeys = ["date", "week", "weekending", "period", "recordedon", "asof", "reportdate"]
 
     private static let metricAliases: [String: String] = [
@@ -206,6 +212,16 @@ enum WorkbookParser {
                 if nameKeys.contains(header) {
                     let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
                     name = trimmed.isEmpty ? nil : trimmed
+                    continue
+                }
+                if shopperNameKeys.contains(header) {
+                    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty { text["shopper_name"] = trimmed }
+                    continue
+                }
+                if shopperIdKeys.contains(header) {
+                    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty { text["shopper_id"] = trimmed }
                     continue
                 }
                 if dateKeys.contains(header) {
