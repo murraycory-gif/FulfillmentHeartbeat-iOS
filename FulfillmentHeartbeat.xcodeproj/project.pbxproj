@@ -22,6 +22,7 @@
 		A013 /* SharedViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B013 /* SharedViews.swift */; };
 		A015 /* BrandMarkData.swift in Sources */ = {isa = PBXBuildFile; fileRef = B015 /* BrandMarkData.swift */; };
 		A100 /* MessageUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B100 /* MessageUI.framework */; };
+		A900 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B900 /* Assets.xcassets */; };
 		A911 /* HeartbeatMathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B911 /* HeartbeatMathTests.swift */; };
 		A912 /* WorkbookParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B912 /* WorkbookParserTests.swift */; };
 /* End PBXBuildFile section */
