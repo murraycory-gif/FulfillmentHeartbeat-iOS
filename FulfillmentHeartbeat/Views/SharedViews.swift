@@ -47,6 +47,7 @@ struct HealthBadge: View {
         case .good: return AppTheme.ok
         case .watch: return AppTheme.warn
         case .risk: return AppTheme.bad
+        case .none: return AppTheme.textTertiary
         }
     }
 
@@ -55,6 +56,7 @@ struct HealthBadge: View {
         case .good: return AppTheme.okSoft
         case .watch: return AppTheme.warnSoft
         case .risk: return AppTheme.badSoft
+        case .none: return AppTheme.blueSoft
         }
     }
 }
@@ -240,7 +242,6 @@ struct HeartbeatTrace: View {
 
 struct FilterBar: View {
     @EnvironmentObject private var store: HeartbeatStore
-    var scope: MetricSection? = nil
 
     var body: some View {
         HubCard {
@@ -268,19 +269,19 @@ struct FilterBar: View {
 
     @ViewBuilder
     private var fields: some View {
-        filterMenu("Division", selection: store.filters.division, options: store.divisions(in: scope).map { ($0, $0) }) {
+        filterMenu("Division", selection: store.filters.division, options: store.divisions.map { ($0, $0) }) {
             store.setDivision($0)
         }
-        filterMenu("District", selection: store.filters.district, options: store.districts(in: scope).map { ($0, $0) }) {
+        filterMenu("District", selection: store.filters.district, options: store.districts.map { ($0, $0) }) {
             store.setDistrict($0)
         }
-        filterMenu("Operations manager", selection: store.filters.om, options: store.operationsOMs(in: scope).map { ($0, $0) }) {
+        filterMenu("Operations manager", selection: store.filters.om, options: store.operationsOMs.map { ($0, $0) }) {
             store.setOM($0)
         }
         filterMenu(
             "Store #",
             selection: store.filters.store,
-            options: store.stores(in: scope).map { entry in
+            options: store.stores.map { entry in
                 let label = entry.name.map { "\(entry.number) · \($0)" } ?? entry.number
                 return (entry.number, label)
             }
@@ -450,6 +451,7 @@ struct StoreTable: View {
         case .good: return 0
         case .watch: return 1
         case .risk: return 2
+        case .none: return 3
         }
     }
 

@@ -91,6 +91,16 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(Set(portland.map(\.storeNumber)), Set(["4313"]))
     }
 
+    func testPickPathJewelOscoHasNoFileRowsButDirectoryStoresRemain() {
+        let pph = MetricRow(section: .pph, division: "Jewel Osco", operationsOM: "Shelly Selof", storeNumber: "1", payload: ["pph": 64], textPayload: ["district": "J1"])
+        let path = MetricRow(section: .pickPath, division: "Portland", operationsOM: "JR Ehline", storeNumber: "4313", payload: ["compliance_pct": 88], textPayload: ["district": "73"])
+        let jewelPath = HeartbeatMath.filtered([path], division: "Jewel Osco", district: "", om: "", store: "", relaxUnknown: false, universe: [pph, path])
+        XCTAssertTrue(jewelPath.isEmpty)
+        let board = HeartbeatMath.marketBoard([pph, path], division: "Jewel Osco", district: "", om: "", store: "")
+        XCTAssertEqual(board.map(\.storeNumber), ["1"])
+        XCTAssertEqual(HeartbeatMath.health(for: .pickPath, row: MetricRow(section: .pickPath, division: "Jewel Osco", operationsOM: "Shelly Selof", storeNumber: "1")), .none)
+    }
+
     func testSummarizeFiveStar() {
         let rows = [
             MetricRow(section: .fiveStar, division: "10", operationsOM: "A", storeNumber: "1", payload: ["star_rating": 5.0]),

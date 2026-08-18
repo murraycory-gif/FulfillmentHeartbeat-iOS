@@ -5,12 +5,12 @@ struct SectionDetailView: View {
     @EnvironmentObject private var store: HeartbeatStore
     let section: MetricSection
 
-    private var summary: SectionSummary {
-        HeartbeatMath.summarize(section, rows: store.rows(for: section, relaxUnknown: true), upload: store.upload(for: section))
+    private var summary: SectionSummary { store.summary(for: section) }
+    private var snapshots: [MetricRow] { store.displayRows(for: section) }
+    private var history: [HistoryPoint] { HeartbeatMath.history(section, rows: store.rows(for: section)) }
+    private var missingInFile: Bool {
+        store.rows(for: section).isEmpty && !store.marketStores().isEmpty
     }
-    private var snapshots: [MetricRow] { store.latest(for: section, relaxUnknown: true) }
-    private var history: [HistoryPoint] { HeartbeatMath.history(section, rows: store.rows(for: section, relaxUnknown: true)) }
-    private var ignored: [String] { store.ignoredFilters(for: section) }
 
     var body: some View {
         ScrollView {
@@ -23,13 +23,13 @@ struct SectionDetailView: View {
                         .foregroundStyle(AppTheme.textSecondary)
                 }
 
-                FilterBar(scope: section)
+                FilterBar()
 
-                if !ignored.isEmpty {
+                if missingInFile {
                     HStack(alignment: .top, spacing: 10) {
                         Image(systemName: "info.circle.fill")
                             .foregroundStyle(AppTheme.blue)
-                        Text("\(ignored.joined(separator: " · ")) isn’t in this workbook, so that filter is skipped here. Choose a \(section.short) division below or clear the filter.")
+                        Text("\(store.filters.division.isEmpty ? "This filter" : store.filters.division) isn’t in the \(section.short) workbook. Stores below come from PPH so the same division still shows across the app.")
                             .font(.subheadline)
                             .foregroundStyle(AppTheme.textSecondary)
                     }
@@ -186,6 +186,7 @@ struct SectionDetailView: View {
         case .good: return .good
         case .watch: return .watch
         case .risk: return .risk
+        case .none: return .plain
         }
     }
 }

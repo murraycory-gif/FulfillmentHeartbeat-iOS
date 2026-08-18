@@ -79,12 +79,35 @@ final class HeartbeatStore: ObservableObject {
         return HeartbeatMath.latestPerStore(rows(for: section, relaxUnknown: relaxUnknown))
     }
 
-    func upload(for section: MetricSection) -> UploadRecord? {
-        uploads.first { $0.section == section }
+    func displayRows(for section: MetricSection) -> [MetricRow] {
+        let latest = latest(for: section, relaxUnknown: false)
+        if !latest.isEmpty { return latest }
+        return marketStores().map { store in
+            MetricRow(
+                section: section,
+                division: store.division,
+                operationsOM: store.om,
+                storeNumber: store.storeNumber,
+                payload: [:],
+                textPayload: ["district": store.district, "placeholder": "1"]
+            )
+        }
     }
 
     func summary(for section: MetricSection) -> SectionSummary {
-        HeartbeatMath.summarize(section, rows: rows(for: section), upload: upload(for: section))
+        var summary = HeartbeatMath.summarize(section, rows: rows(for: section), upload: upload(for: section))
+        if summary.storeCount == 0 {
+            let count = marketStores().count
+            if count > 0 {
+                summary.secondary = "No \(section.short) data for \(count) stores in this filter"
+                summary.health = .none
+            }
+        }
+        return summary
+    }
+
+    func upload(for section: MetricSection) -> UploadRecord? {
+        uploads.first { $0.section == section }
     }
 
     var summaries: [SectionSummary] {

@@ -77,13 +77,14 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
 }
 
 enum Health: String, Codable {
-    case good, watch, risk
+    case good, watch, risk, none
 
     var label: String {
         switch self {
         case .good: return "Healthy"
         case .watch: return "Watch"
         case .risk: return "At risk"
+        case .none: return "No data"
         }
     }
 }
@@ -387,6 +388,7 @@ enum HeartbeatMath {
         case .fiveStar:
             return band(row.number("star_rating"), good: 4.5, watch: 4.0)
         case .pickPath:
+            guard row.number("compliance_pct") != nil else { return .none }
             return band(row.number("compliance_pct"), good: pickPathGoal, watch: pickPathRisk)
         case .prepNotReady:
             return band(row.number("pnr_rate_pct"), good: 2, watch: 5, invert: true)
@@ -443,9 +445,9 @@ enum HeartbeatMath {
                 headline: headline,
                 headlineLabel: "Avg compliance",
                 secondary: latest.isEmpty
-                    ? "No stores in view"
+                    ? "No Pick Path rows in this filter"
                     : "\(atGoal) of \(latest.count) at 90% · \(atRisk) below 80%",
-                health: band(headline, good: pickPathGoal, watch: pickPathRisk),
+                health: latest.isEmpty ? .none : band(headline, good: pickPathGoal, watch: pickPathRisk),
                 watchCount: watch,
                 riskCount: risk,
                 lastFilename: upload?.filename,
@@ -744,7 +746,7 @@ struct StoreCellViewModel {
                     ? "+\(HeartbeatFormat.num(gap, digits: 1)) vs 90"
                     : "\(HeartbeatFormat.num(gap, digits: 1)) vs 90"
             } else {
-                gapText = "Goal 90%"
+                gapText = "Not in Pick Path file"
             }
             let orders = row.number("orders") ?? row.number("picks_total")
             let pph = row.number("pph")
