@@ -34,4 +34,15 @@ print(f"Kept your Apple team: {team}")
 PY
 fi
 
-open FulfillmentHeartbeat.xcworkspace
+# Drop stale Xcode user state so a broken window cannot reopen.
+rm -rf FulfillmentHeartbeat.xcodeproj/xcuserdata \
+       FulfillmentHeartbeat.xcodeproj/project.xcworkspace/xcuserdata \
+       FulfillmentHeartbeat.xcworkspace/xcuserdata \
+       FulfillmentHeartbeat.xcworkspace/xcuserdata 2>/dev/null || true
+
+echo ""
+echo "1. Quit Xcode completely (Xcode menu → Quit Xcode)."
+echo "2. Then double-click FulfillmentHeartbeat.xcworkspace in Finder,"
+echo "   or this script will try to open it now."
+open "$PWD/FulfillmentHeartbeat.xcworkspace" || open -a Xcode "$PWD/FulfillmentHeartbeat.xcworkspace"
+open "$PWD"

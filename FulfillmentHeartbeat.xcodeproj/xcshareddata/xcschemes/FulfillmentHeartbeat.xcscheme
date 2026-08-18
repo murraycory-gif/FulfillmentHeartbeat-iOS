@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Scheme
-   LastUpgradeVersion = "1500"
+   LastUpgradeVersion = "1600"
    version = "1.7">
    <BuildAction
       parallelizeBuildables = "YES"
@@ -14,7 +14,7 @@
             buildForAnalyzing = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "E001"
+               BlueprintIdentifier = "AA0100000000000000000E01"
                BuildableName = "FulfillmentHeartbeat.app"
                BlueprintName = "FulfillmentHeartbeat"
                ReferencedContainer = "container:FulfillmentHeartbeat.xcodeproj">
@@ -34,7 +34,7 @@
             parallelizable = "YES">
             <BuildableReference
                BuildableIdentifier = "primary"
-               BlueprintIdentifier = "E002"
+               BlueprintIdentifier = "AA0100000000000000000E02"
                BuildableName = "FulfillmentHeartbeatTests.xctest"
                BlueprintName = "FulfillmentHeartbeatTests"
                ReferencedContainer = "container:FulfillmentHeartbeat.xcodeproj">
@@ -48,7 +48,7 @@
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
       launchStyle = "0"
       useCustomWorkingDirectory = "NO"
-      ignoresPersistentStateOnLaunch = "NO"
+      ignoresPersistentStateOnLaunch = "YES"
       debugDocumentVersioning = "YES"
       debugServiceExtension = "internal"
       allowLocationSimulation = "YES">
@@ -56,7 +56,7 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "E001"
+            BlueprintIdentifier = "AA0100000000000000000E01"
             BuildableName = "FulfillmentHeartbeat.app"
             BlueprintName = "FulfillmentHeartbeat"
             ReferencedContainer = "container:FulfillmentHeartbeat.xcodeproj">
@@ -73,7 +73,7 @@
          runnableDebuggingMode = "0">
          <BuildableReference
             BuildableIdentifier = "primary"
-            BlueprintIdentifier = "E001"
+            BlueprintIdentifier = "AA0100000000000000000E01"
             BuildableName = "FulfillmentHeartbeat.app"
             BlueprintName = "FulfillmentHeartbeat"
             ReferencedContainer = "container:FulfillmentHeartbeat.xcodeproj">

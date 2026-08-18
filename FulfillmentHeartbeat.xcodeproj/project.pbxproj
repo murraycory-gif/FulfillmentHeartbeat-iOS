@@ -7,71 +7,71 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		A001 /* FulfillmentHeartbeatApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B001 /* FulfillmentHeartbeatApp.swift */; };
-		A002 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B002 /* RootView.swift */; };
-		A003 /* MainHubView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B003 /* MainHubView.swift */; };
-		A004 /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = B004 /* AppTheme.swift */; };
-		A005 /* BuildStamp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B005 /* BuildStamp.swift */; };
-		A006 /* Domain.swift in Sources */ = {isa = PBXBuildFile; fileRef = B006 /* Domain.swift */; };
-		A007 /* HeartbeatStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B007 /* HeartbeatStore.swift */; };
-		A008 /* WorkbookParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = B008 /* WorkbookParser.swift */; };
-		A009 /* SampleMarket.swift in Sources */ = {isa = PBXBuildFile; fileRef = B009 /* SampleMarket.swift */; };
-		A010 /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B010 /* DashboardView.swift */; };
-		A011 /* UploadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B011 /* UploadView.swift */; };
-		A012 /* SectionDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B012 /* SectionDetailView.swift */; };
-		A013 /* SharedViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B013 /* SharedViews.swift */; };
-		A015 /* BrandMarkData.swift in Sources */ = {isa = PBXBuildFile; fileRef = B015 /* BrandMarkData.swift */; };
-		A100 /* MessageUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B100 /* MessageUI.framework */; };
-		A900 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B900 /* Assets.xcassets */; };
-		A911 /* HeartbeatMathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B911 /* HeartbeatMathTests.swift */; };
-		A912 /* WorkbookParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B912 /* WorkbookParserTests.swift */; };
+		AA0100000000000000000A01 /* FulfillmentHeartbeatApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B01 /* FulfillmentHeartbeatApp.swift */; };
+		AA0100000000000000000A02 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B02 /* RootView.swift */; };
+		AA0100000000000000000A03 /* MainHubView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B03 /* MainHubView.swift */; };
+		AA0100000000000000000A04 /* AppTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B04 /* AppTheme.swift */; };
+		AA0100000000000000000A05 /* BuildStamp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B05 /* BuildStamp.swift */; };
+		AA0100000000000000000A06 /* Domain.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B06 /* Domain.swift */; };
+		AA0100000000000000000A07 /* HeartbeatStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B07 /* HeartbeatStore.swift */; };
+		AA0100000000000000000A08 /* WorkbookParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B08 /* WorkbookParser.swift */; };
+		AA0100000000000000000A09 /* SampleMarket.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B09 /* SampleMarket.swift */; };
+		AA0100000000000000000A10 /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B10 /* DashboardView.swift */; };
+		AA0100000000000000000A11 /* UploadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B11 /* UploadView.swift */; };
+		AA0100000000000000000A12 /* SectionDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B12 /* SectionDetailView.swift */; };
+		AA0100000000000000000A13 /* SharedViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B13 /* SharedViews.swift */; };
+		AA0100000000000000000A15 /* BrandMarkData.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B15 /* BrandMarkData.swift */; };
+		AA0100000000000000000A90 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B90 /* Assets.xcassets */; };
+		AA0100000000000000000A91 /* HeartbeatMathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B91 /* HeartbeatMathTests.swift */; };
+		AA0100000000000000000A92 /* WorkbookParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B92 /* WorkbookParserTests.swift */; };
+		AA0100000000000000000AF0 /* MessageUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000BF0 /* MessageUI.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
-		P001 /* PBXContainerItemProxy */ = {
+		AA0100000000000000001301 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
-			containerPortal = F001 /* Project object */;
+			containerPortal = AA0100000000000000000F01 /* Project object */;
 			proxyType = 1;
-			remoteGlobalIDString = E001;
+			remoteGlobalIDString = AA0100000000000000000E01;
 			remoteInfo = FulfillmentHeartbeat;
 		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
-		B001 /* FulfillmentHeartbeatApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FulfillmentHeartbeatApp.swift; sourceTree = "<group>"; };
-		B002 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
-		B003 /* MainHubView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainHubView.swift; sourceTree = "<group>"; };
-		B004 /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTheme.swift; sourceTree = "<group>"; };
-		B005 /* BuildStamp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildStamp.swift; sourceTree = "<group>"; };
-		B006 /* Domain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Domain.swift; sourceTree = "<group>"; };
-		B007 /* HeartbeatStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartbeatStore.swift; sourceTree = "<group>"; };
-		B008 /* WorkbookParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkbookParser.swift; sourceTree = "<group>"; };
-		B009 /* SampleMarket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleMarket.swift; sourceTree = "<group>"; };
-		B010 /* DashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardView.swift; sourceTree = "<group>"; };
-		B011 /* UploadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UploadView.swift; sourceTree = "<group>"; };
-		B012 /* SectionDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SectionDetailView.swift; sourceTree = "<group>"; };
-		B013 /* SharedViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedViews.swift; sourceTree = "<group>"; };
-		B015 /* BrandMarkData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrandMarkData.swift; sourceTree = "<group>"; };
-		B100 /* MessageUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MessageUI.framework; path = System/Library/Frameworks/MessageUI.framework; sourceTree = SDKROOT; };
-		B900 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		B901 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		B903 /* FulfillmentHeartbeat.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = FulfillmentHeartbeat.entitlements; sourceTree = "<group>"; };
-		B902 /* FulfillmentHeartbeat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FulfillmentHeartbeat.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		B910 /* FulfillmentHeartbeatTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FulfillmentHeartbeatTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		B911 /* HeartbeatMathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartbeatMathTests.swift; sourceTree = "<group>"; };
-		B912 /* WorkbookParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkbookParserTests.swift; sourceTree = "<group>"; };
+		AA0100000000000000000B01 /* FulfillmentHeartbeatApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FulfillmentHeartbeatApp.swift; sourceTree = "<group>"; };
+		AA0100000000000000000B02 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		AA0100000000000000000B03 /* MainHubView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MainHubView.swift; sourceTree = "<group>"; };
+		AA0100000000000000000B04 /* AppTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppTheme.swift; sourceTree = "<group>"; };
+		AA0100000000000000000B05 /* BuildStamp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuildStamp.swift; sourceTree = "<group>"; };
+		AA0100000000000000000B06 /* Domain.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Domain.swift; sourceTree = "<group>"; };
+		AA0100000000000000000B07 /* HeartbeatStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartbeatStore.swift; sourceTree = "<group>"; };
+		AA0100000000000000000B08 /* WorkbookParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkbookParser.swift; sourceTree = "<group>"; };
+		AA0100000000000000000B09 /* SampleMarket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleMarket.swift; sourceTree = "<group>"; };
+		AA0100000000000000000B10 /* DashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardView.swift; sourceTree = "<group>"; };
+		AA0100000000000000000B11 /* UploadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UploadView.swift; sourceTree = "<group>"; };
+		AA0100000000000000000B12 /* SectionDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SectionDetailView.swift; sourceTree = "<group>"; };
+		AA0100000000000000000B13 /* SharedViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedViews.swift; sourceTree = "<group>"; };
+		AA0100000000000000000B15 /* BrandMarkData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrandMarkData.swift; sourceTree = "<group>"; };
+		AA0100000000000000000B90 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		AA0100000000000000000B93 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		AA0100000000000000000B94 /* FulfillmentHeartbeat.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = FulfillmentHeartbeat.entitlements; sourceTree = "<group>"; };
+		AA0100000000000000000B95 /* FulfillmentHeartbeat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FulfillmentHeartbeat.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA0100000000000000000B91 /* HeartbeatMathTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartbeatMathTests.swift; sourceTree = "<group>"; };
+		AA0100000000000000000B92 /* WorkbookParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkbookParserTests.swift; sourceTree = "<group>"; };
+		AA0100000000000000000B96 /* FulfillmentHeartbeatTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FulfillmentHeartbeatTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA0100000000000000000BF0 /* MessageUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MessageUI.framework; path = System/Library/Frameworks/MessageUI.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		C001 /* Frameworks */ = {
+		AA0100000000000000000C01 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A100 /* MessageUI.framework in Frameworks */,
+				AA0100000000000000000AF0 /* MessageUI.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		C011 /* Frameworks */ = {
+		AA0100000000000000000C11 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -81,77 +81,77 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		D001 = {
+		AA0100000000000000000D01 = {
 			isa = PBXGroup;
 			children = (
-				D002 /* FulfillmentHeartbeat */,
-				D007 /* FulfillmentHeartbeatTests */,
-				D003 /* Products */,
+				AA0100000000000000000D02 /* FulfillmentHeartbeat */,
+				AA0100000000000000000D07 /* FulfillmentHeartbeatTests */,
+				AA0100000000000000000D03 /* Products */,
 			);
 			sourceTree = "<group>";
 		};
-		D002 /* FulfillmentHeartbeat */ = {
+		AA0100000000000000000D02 /* FulfillmentHeartbeat */ = {
 			isa = PBXGroup;
 			children = (
-				B001 /* FulfillmentHeartbeatApp.swift */,
-				B002 /* RootView.swift */,
-				B003 /* MainHubView.swift */,
-				B004 /* AppTheme.swift */,
-				B005 /* BuildStamp.swift */,
-				B015 /* BrandMarkData.swift */,
-				D005 /* Models */,
-				D006 /* Storage */,
-				D004 /* Views */,
-				B900 /* Assets.xcassets */,
-				B901 /* Info.plist */,
-				B903 /* FulfillmentHeartbeat.entitlements */,
+				AA0100000000000000000B01 /* FulfillmentHeartbeatApp.swift */,
+				AA0100000000000000000B02 /* RootView.swift */,
+				AA0100000000000000000B03 /* MainHubView.swift */,
+				AA0100000000000000000B04 /* AppTheme.swift */,
+				AA0100000000000000000B05 /* BuildStamp.swift */,
+				AA0100000000000000000B15 /* BrandMarkData.swift */,
+				AA0100000000000000000D05 /* Models */,
+				AA0100000000000000000D06 /* Storage */,
+				AA0100000000000000000D04 /* Views */,
+				AA0100000000000000000B90 /* Assets.xcassets */,
+				AA0100000000000000000B93 /* Info.plist */,
+				AA0100000000000000000B94 /* FulfillmentHeartbeat.entitlements */,
 			);
 			path = FulfillmentHeartbeat;
 			sourceTree = "<group>";
 		};
-		D003 /* Products */ = {
+		AA0100000000000000000D03 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				B902 /* FulfillmentHeartbeat.app */,
-				B910 /* FulfillmentHeartbeatTests.xctest */,
+				AA0100000000000000000B95 /* FulfillmentHeartbeat.app */,
+				AA0100000000000000000B96 /* FulfillmentHeartbeatTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
 		};
-		D004 /* Views */ = {
+		AA0100000000000000000D04 /* Views */ = {
 			isa = PBXGroup;
 			children = (
-				B010 /* DashboardView.swift */,
-				B011 /* UploadView.swift */,
-				B012 /* SectionDetailView.swift */,
-				B013 /* SharedViews.swift */,
+				AA0100000000000000000B10 /* DashboardView.swift */,
+				AA0100000000000000000B11 /* UploadView.swift */,
+				AA0100000000000000000B12 /* SectionDetailView.swift */,
+				AA0100000000000000000B13 /* SharedViews.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
 		};
-		D005 /* Models */ = {
+		AA0100000000000000000D05 /* Models */ = {
 			isa = PBXGroup;
 			children = (
-				B006 /* Domain.swift */,
+				AA0100000000000000000B06 /* Domain.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
 		};
-		D006 /* Storage */ = {
+		AA0100000000000000000D06 /* Storage */ = {
 			isa = PBXGroup;
 			children = (
-				B007 /* HeartbeatStore.swift */,
-				B008 /* WorkbookParser.swift */,
-				B009 /* SampleMarket.swift */,
+				AA0100000000000000000B07 /* HeartbeatStore.swift */,
+				AA0100000000000000000B08 /* WorkbookParser.swift */,
+				AA0100000000000000000B09 /* SampleMarket.swift */,
 			);
 			path = Storage;
 			sourceTree = "<group>";
 		};
-		D007 /* FulfillmentHeartbeatTests */ = {
+		AA0100000000000000000D07 /* FulfillmentHeartbeatTests */ = {
 			isa = PBXGroup;
 			children = (
-				B911 /* HeartbeatMathTests.swift */,
-				B912 /* WorkbookParserTests.swift */,
+				AA0100000000000000000B91 /* HeartbeatMathTests.swift */,
+				AA0100000000000000000B92 /* WorkbookParserTests.swift */,
 			);
 			path = FulfillmentHeartbeatTests;
 			sourceTree = "<group>";
@@ -159,13 +159,13 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		E001 /* FulfillmentHeartbeat */ = {
+		AA0100000000000000000E01 /* FulfillmentHeartbeat */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = H002 /* Build configuration list for PBXNativeTarget "FulfillmentHeartbeat" */;
+			buildConfigurationList = AA0100000000000000001202 /* Build configuration list for PBXNativeTarget "FulfillmentHeartbeat" */;
 			buildPhases = (
-				C002 /* Sources */,
-				C001 /* Frameworks */,
-				C003 /* Resources */,
+				AA0100000000000000000C02 /* Sources */,
+				AA0100000000000000000C01 /* Frameworks */,
+				AA0100000000000000000C03 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -173,43 +173,43 @@
 			);
 			name = FulfillmentHeartbeat;
 			productName = FulfillmentHeartbeat;
-			productReference = B902 /* FulfillmentHeartbeat.app */;
+			productReference = AA0100000000000000000B95 /* FulfillmentHeartbeat.app */;
 			productType = "com.apple.product-type.application";
 		};
-		E002 /* FulfillmentHeartbeatTests */ = {
+		AA0100000000000000000E02 /* FulfillmentHeartbeatTests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = H003 /* Build configuration list for PBXNativeTarget "FulfillmentHeartbeatTests" */;
+			buildConfigurationList = AA0100000000000000001203 /* Build configuration list for PBXNativeTarget "FulfillmentHeartbeatTests" */;
 			buildPhases = (
-				C012 /* Sources */,
-				C011 /* Frameworks */,
-				C013 /* Resources */,
+				AA0100000000000000000C12 /* Sources */,
+				AA0100000000000000000C11 /* Frameworks */,
+				AA0100000000000000000C13 /* Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
-				P002 /* PBXTargetDependency */,
+				AA0100000000000000001302 /* PBXTargetDependency */,
 			);
 			name = FulfillmentHeartbeatTests;
 			productName = FulfillmentHeartbeatTests;
-			productReference = B910 /* FulfillmentHeartbeatTests.xctest */;
+			productReference = AA0100000000000000000B96 /* FulfillmentHeartbeatTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
-		F001 /* Project object */ = {
+		AA0100000000000000000F01 /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 1500;
-				LastUpgradeCheck = 1500;
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 1600;
 				TargetAttributes = {
-					E002 = {
-						TestTargetID = E001;
+					AA0100000000000000000E02 = {
+						TestTargetID = AA0100000000000000000E01;
 					};
 				};
 			};
-			buildConfigurationList = H001 /* Build configuration list for PBXProject "FulfillmentHeartbeat" */;
+			buildConfigurationList = AA0100000000000000001201 /* Build configuration list for PBXProject "FulfillmentHeartbeat" */;
 			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -217,27 +217,27 @@
 				en,
 				Base,
 			);
-			mainGroup = D001;
-			productRefGroup = D003 /* Products */;
+			mainGroup = AA0100000000000000000D01;
+			productRefGroup = AA0100000000000000000D03 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				E001 /* FulfillmentHeartbeat */,
-				E002 /* FulfillmentHeartbeatTests */,
+				AA0100000000000000000E01 /* FulfillmentHeartbeat */,
+				AA0100000000000000000E02 /* FulfillmentHeartbeatTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		C003 /* Resources */ = {
+		AA0100000000000000000C03 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A900 /* Assets.xcassets in Resources */,
+				AA0100000000000000000A90 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		C013 /* Resources */ = {
+		AA0100000000000000000C13 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -247,48 +247,48 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		C002 /* Sources */ = {
+		AA0100000000000000000C02 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A001 /* FulfillmentHeartbeatApp.swift in Sources */,
-				A002 /* RootView.swift in Sources */,
-				A003 /* MainHubView.swift in Sources */,
-				A004 /* AppTheme.swift in Sources */,
-				A005 /* BuildStamp.swift in Sources */,
-				A006 /* Domain.swift in Sources */,
-				A007 /* HeartbeatStore.swift in Sources */,
-				A008 /* WorkbookParser.swift in Sources */,
-				A009 /* SampleMarket.swift in Sources */,
-				A010 /* DashboardView.swift in Sources */,
-				A011 /* UploadView.swift in Sources */,
-				A012 /* SectionDetailView.swift in Sources */,
-				A013 /* SharedViews.swift in Sources */,
-				A015 /* BrandMarkData.swift in Sources */,
+				AA0100000000000000000A01 /* FulfillmentHeartbeatApp.swift in Sources */,
+				AA0100000000000000000A02 /* RootView.swift in Sources */,
+				AA0100000000000000000A03 /* MainHubView.swift in Sources */,
+				AA0100000000000000000A04 /* AppTheme.swift in Sources */,
+				AA0100000000000000000A05 /* BuildStamp.swift in Sources */,
+				AA0100000000000000000A06 /* Domain.swift in Sources */,
+				AA0100000000000000000A07 /* HeartbeatStore.swift in Sources */,
+				AA0100000000000000000A08 /* WorkbookParser.swift in Sources */,
+				AA0100000000000000000A09 /* SampleMarket.swift in Sources */,
+				AA0100000000000000000A10 /* DashboardView.swift in Sources */,
+				AA0100000000000000000A11 /* UploadView.swift in Sources */,
+				AA0100000000000000000A12 /* SectionDetailView.swift in Sources */,
+				AA0100000000000000000A13 /* SharedViews.swift in Sources */,
+				AA0100000000000000000A15 /* BrandMarkData.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		C012 /* Sources */ = {
+		AA0100000000000000000C12 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A911 /* HeartbeatMathTests.swift in Sources */,
-				A912 /* WorkbookParserTests.swift in Sources */,
+				AA0100000000000000000A91 /* HeartbeatMathTests.swift in Sources */,
+				AA0100000000000000000A92 /* WorkbookParserTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
-		P002 /* PBXTargetDependency */ = {
+		AA0100000000000000001302 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
-			target = E001 /* FulfillmentHeartbeat */;
-			targetProxy = P001 /* PBXContainerItemProxy */;
+			target = AA0100000000000000000E01 /* FulfillmentHeartbeat */;
+			targetProxy = AA0100000000000000001301 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
-		G001 /* Debug */ = {
+		AA0100000000000000001101 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -306,7 +306,7 @@
 			};
 			name = Debug;
 		};
-		G002 /* Release */ = {
+		AA0100000000000000001102 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
@@ -321,7 +321,7 @@
 			};
 			name = Release;
 		};
-		G003 /* Debug */ = {
+		AA0100000000000000001103 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
@@ -329,7 +329,7 @@
 				CODE_SIGN_ENTITLEMENTS = FulfillmentHeartbeat/FulfillmentHeartbeat.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = FulfillmentHeartbeat/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -347,7 +347,7 @@
 			};
 			name = Debug;
 		};
-		G004 /* Release */ = {
+		AA0100000000000000001104 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
@@ -355,7 +355,7 @@
 				CODE_SIGN_ENTITLEMENTS = FulfillmentHeartbeat/FulfillmentHeartbeat.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = FulfillmentHeartbeat/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -373,12 +373,12 @@
 			};
 			name = Release;
 		};
-		G005 /* Debug */ = {
+		AA0100000000000000001105 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MARKETING_VERSION = 1.0;
@@ -390,12 +390,12 @@
 			};
 			name = Debug;
 		};
-		G006 /* Release */ = {
+		AA0100000000000000001106 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 2;
+				CURRENT_PROJECT_VERSION = 3;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MARKETING_VERSION = 1.0;
@@ -410,34 +410,34 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		H001 /* Build configuration list for PBXProject "FulfillmentHeartbeat" */ = {
+		AA0100000000000000001201 /* Build configuration list for PBXProject "FulfillmentHeartbeat" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				G001 /* Debug */,
-				G002 /* Release */,
+				AA0100000000000000001101 /* Debug */,
+				AA0100000000000000001102 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		H002 /* Build configuration list for PBXNativeTarget "FulfillmentHeartbeat" */ = {
+		AA0100000000000000001202 /* Build configuration list for PBXNativeTarget "FulfillmentHeartbeat" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				G003 /* Debug */,
-				G004 /* Release */,
+				AA0100000000000000001103 /* Debug */,
+				AA0100000000000000001104 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		H003 /* Build configuration list for PBXNativeTarget "FulfillmentHeartbeatTests" */ = {
+		AA0100000000000000001203 /* Build configuration list for PBXNativeTarget "FulfillmentHeartbeatTests" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				G005 /* Debug */,
-				G006 /* Release */,
+				AA0100000000000000001105 /* Debug */,
+				AA0100000000000000001106 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
 	};
-	rootObject = F001 /* Project object */;
+	rootObject = AA0100000000000000000F01 /* Project object */;
 }
