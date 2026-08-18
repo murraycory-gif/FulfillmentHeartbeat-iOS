@@ -103,6 +103,8 @@ final class HeartbeatStore: ObservableObject {
         uploads.first { $0.section == section }
     }
 
+    var summaries: [SectionSummary] { cachedSummaries }
+
     var pickerBoard: HeartbeatMath.PickerBoard { cachedPickerBoard }
 
     func identity(forStore number: String) -> HeartbeatMath.StoreIdentity {
