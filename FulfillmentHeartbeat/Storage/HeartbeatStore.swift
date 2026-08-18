@@ -90,7 +90,9 @@ final class HeartbeatStore: ObservableObject {
             .filter { filters.division.isEmpty || $0.division == filters.division }
             .filter { filters.district.isEmpty || $0.district == filters.district }
             .map(\.operationsOM)
-            .filter { !$0.isEmpty }
+            .filter { value in
+                !value.isEmpty && value.rangeOfCharacter(from: .letters) != nil
+            }
             .uniqued()
             .sorted()
     }
@@ -106,7 +108,7 @@ final class HeartbeatStore: ObservableObject {
                 seen[row.storeNumber] = row.storeName
             }
         }
-        return seen.keys.sorted().map { ($0, seen[$0] ?? nil) }
+        return seen.keys.sorted(by: HeartbeatFormat.storeOrder).map { ($0, seen[$0] ?? nil) }
     }
 
     func setDivision(_ value: String) {

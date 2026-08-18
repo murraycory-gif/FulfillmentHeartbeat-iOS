@@ -235,9 +235,6 @@ struct FilterBar: View {
 
     @ViewBuilder
     private var fields: some View {
-        filterMenu("Division", selection: store.filters.division, options: store.divisions.map { ($0, HeartbeatFormat.divisionLabel($0)) }) {
-            store.setDivision($0)
-        }
         filterMenu("District", selection: store.filters.district, options: store.districts.map { ($0, $0) }) {
             store.setDistrict($0)
         }
@@ -314,66 +311,72 @@ struct StoreTable: View {
             }
         } else {
             HubCard {
-                VStack(spacing: 0) {
-                    HStack {
-                        header(section == .pickerScorecard ? "Shopper" : "Store")
-                        header("Division")
-                        header("District")
-                        header("OM")
-                        header(section == .pph ? "PPH" : "Result")
-                        header("Status")
-                    }
-                    .padding(.bottom, 10)
-                    Divider().opacity(0.5)
-                    ForEach(rows) { row in
-                        let view = StoreCellViewModel.make(section: section, row: row)
-                        HStack(alignment: .top) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                if section == .pickerScorecard {
-                                    Text(row.shopperName)
-                                        .font(.subheadline.weight(.semibold))
-                                    Text("\(row.storeNumber.isEmpty ? "—" : row.storeNumber) · \(row.storeName ?? "Store")")
-                                        .font(.caption)
-                                        .foregroundStyle(AppTheme.textSecondary)
-                                } else {
-                                    Text(row.storeNumber.isEmpty ? "—" : row.storeNumber)
-                                        .font(.subheadline.weight(.semibold).monospacedDigit())
-                                    Text(row.storeName ?? (row.omArea.isEmpty ? "Store" : row.omArea))
-                                        .font(.caption)
-                                        .foregroundStyle(AppTheme.textSecondary)
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            Text(row.division.isEmpty ? "—" : row.division)
-                                .font(.subheadline)
-                                .foregroundStyle(AppTheme.textSecondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            Text(row.district.isEmpty ? "—" : row.district)
-                                .font(.subheadline.monospacedDigit())
-                                .foregroundStyle(AppTheme.textSecondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            Text(row.operationsOM.isEmpty ? "—" : row.operationsOM)
-                                .font(.subheadline)
-                                .foregroundStyle(AppTheme.textSecondary)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(view.primary)
-                                    .font(.subheadline.weight(.semibold).monospacedDigit())
-                                Text(view.extra)
-                                    .font(.caption)
-                                    .foregroundStyle(AppTheme.textTertiary)
-                                    .lineLimit(2)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            HealthBadge(health: HeartbeatMath.health(for: section, row: row))
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                LazyVStack(alignment: .leading, spacing: 0, pinnedViews: .sectionHeaders) {
+                    Section {
+                        ForEach(rows) { row in
+                            storeRow(row)
+                            Divider().opacity(0.35)
                         }
-                        .padding(.vertical, 12)
-                        Divider().opacity(0.35)
+                    } header: {
+                        HStack {
+                            header(section == .pickerScorecard ? "Shopper" : "Store")
+                            header("District")
+                            header("OM")
+                            header(section == .pph ? "PPH" : "Result")
+                            header("Status")
+                        }
+                        .padding(.bottom, 10)
+                        .padding(.top, 2)
+                        .background(AppTheme.card)
                     }
                 }
             }
         }
+    }
+
+    private func storeRow(_ row: MetricRow) -> some View {
+        let view = StoreCellViewModel.make(section: section, row: row)
+        return HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 2) {
+                if section == .pickerScorecard {
+                    Text(row.shopperName)
+                        .font(.subheadline.weight(.semibold))
+                    Text(row.storeNumber.isEmpty ? "—" : row.storeNumber)
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.textSecondary)
+                } else {
+                    Text(row.storeNumber.isEmpty ? "—" : row.storeNumber)
+                        .font(.subheadline.weight(.semibold).monospacedDigit())
+                    if let name = row.storeName, !name.isEmpty {
+                        Text(name)
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.textSecondary)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Text(row.district.isEmpty ? "—" : row.district)
+                .font(.subheadline.monospacedDigit())
+                .foregroundStyle(AppTheme.textSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text(row.operationsOM.isEmpty ? "—" : row.operationsOM)
+                .font(.subheadline)
+                .foregroundStyle(AppTheme.textSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(view.primary)
+                    .font(.subheadline.weight(.semibold).monospacedDigit())
+                Text(view.extra)
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.textTertiary)
+                    .lineLimit(2)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            HealthBadge(health: HeartbeatMath.health(for: section, row: row))
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, 12)
+    }
     }
 
     private func header(_ title: String) -> some View {

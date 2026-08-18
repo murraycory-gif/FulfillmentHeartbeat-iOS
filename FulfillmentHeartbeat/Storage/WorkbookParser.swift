@@ -255,6 +255,7 @@ enum WorkbookParser {
             let storeRaw = cell(storeIdx).trimmingCharacters(in: .whitespacesAndNewlines)
             if storeRaw.isEmpty || isTotalCell(storeRaw) { continue }
             if storeRaw.lowercased().hasPrefix("applied") { continue }
+            guard looksLikeStoreNumber(storeRaw) else { continue }
 
             var text: [String: String] = [:]
             if !carryDist.isEmpty { text["district"] = carryDist }
@@ -306,6 +307,14 @@ enum WorkbookParser {
         }
 
         return out
+    }
+
+    static func looksLikeStoreNumber(_ raw: String) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !isTotalCell(trimmed) else { return false }
+        if trimmed.contains(".") { return false }
+        guard trimmed.range(of: #"^\d{1,6}[A-Za-z]?$"#, options: .regularExpression) != nil else { return false }
+        return true
     }
 
     static func dateFromWeekID(_ raw: String) -> String? {
@@ -527,7 +536,7 @@ enum SheetXML {
         let rowChunks = matches(in: cleaned, pattern: "<row\\b[^>]*>[\\s\\S]*?</row>")
         if !rowChunks.isEmpty {
             return rowChunks.map { rowXML in
-                let cells = matches(in: rowXML, pattern: "<c\\b[^>]*>[\\s\\S]*?</c>|<c\\b[^>]*/>")
+                let cells = matches(in: rowXML, pattern: "<c\\b[^>]*/>|<c\\b[^>]*>[\\s\\S]*?</c>")
                 return cells.map { cellValue($0, strings: strings) }
             }
         }
@@ -535,7 +544,7 @@ enum SheetXML {
         var grid: [Int: [Int: String]] = [:]
         var maxRow = 0
         var maxCol = 0
-        let cells = matches(in: cleaned, pattern: "<c\\b[^>]*>[\\s\\S]*?</c>|<c\\b[^>]*/>")
+        let cells = matches(in: cleaned, pattern: "<c\\b[^>]*/>|<c\\b[^>]*>[\\s\\S]*?</c>")
         for cell in cells {
             guard let ref = attr(cell, "r") else { continue }
             let (row, col) = cellRef(ref)

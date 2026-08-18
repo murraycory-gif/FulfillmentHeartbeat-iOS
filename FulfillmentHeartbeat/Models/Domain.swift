@@ -220,7 +220,7 @@ enum HeartbeatMath {
                 map[key] = row
             }
         }
-        return map.values.sorted { $0.storeNumber < $1.storeNumber }
+        return map.values.sorted { HeartbeatFormat.storeOrder($0.storeNumber, $1.storeNumber) }
     }
 
     static func latestPerShopper(_ rows: [MetricRow]) -> [MetricRow] {
@@ -243,7 +243,6 @@ enum HeartbeatMath {
 
     static func filtered(_ rows: [MetricRow], division: String, district: String, om: String, store: String) -> [MetricRow] {
         rows.filter { row in
-            if !division.isEmpty, row.division != division { return false }
             if !district.isEmpty, row.district != district { return false }
             if !om.isEmpty, row.operationsOM != om { return false }
             if !store.isEmpty, row.storeNumber != store { return false }
@@ -522,7 +521,6 @@ struct DashboardFilters: Equatable, Codable {
 
     var summary: String {
         [
-            division.isEmpty ? "All divisions" : HeartbeatFormat.divisionLabel(division),
             district.isEmpty ? "All districts" : "District \(district)",
             om.isEmpty ? "All OMs" : om,
             store.isEmpty ? "All stores" : store,
@@ -551,9 +549,12 @@ struct HeartbeatSnapshot: Codable {
 
 enum HeartbeatFormat {
     static func divisionLabel(_ value: String) -> String {
-        if value.isEmpty { return "All divisions" }
-        if value.allSatisfy(\.isNumber) { return "Division \(value)" }
-        return value
+        value
+    }
+
+    static func storeOrder(_ lhs: String, _ rhs: String) -> Bool {
+        if let a = Int(lhs), let b = Int(rhs) { return a < b }
+        return lhs.localizedStandardCompare(rhs) == .orderedAscending
     }
 
     static func stars(_ value: Double?) -> String {
@@ -631,7 +632,7 @@ struct StoreCellViewModel {
             }
             return StoreCellViewModel(
                 primary: HeartbeatFormat.num(pph, digits: 1),
-                extra: "\(gapText) · \(row.district.isEmpty ? "No district" : "Dist \(row.district)")"
+                extra: gapText
             )
         case .pickerScorecard:
             return StoreCellViewModel(

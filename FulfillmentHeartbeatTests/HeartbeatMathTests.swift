@@ -49,10 +49,10 @@ final class HeartbeatMathTests: XCTestCase {
 
     func testFiltersDivisionOMStore() {
         let rows = [
-            MetricRow(section: .fiveStar, division: "10", operationsOM: "A. Brooks", storeNumber: "1487"),
-            MetricRow(section: .fiveStar, division: "14", operationsOM: "J. Patel", storeNumber: "1088"),
+            MetricRow(section: .fiveStar, division: "Jewel Osco", operationsOM: "A. Brooks", storeNumber: "1487", textPayload: ["district": "J1"]),
+            MetricRow(section: .fiveStar, division: "Jewel Osco", operationsOM: "J. Patel", storeNumber: "1088", textPayload: ["district": "J3"]),
         ]
-        XCTAssertEqual(HeartbeatMath.filtered(rows, division: "10", district: "", om: "", store: "").count, 1)
+        XCTAssertEqual(HeartbeatMath.filtered(rows, division: "", district: "J1", om: "", store: "").count, 1)
         XCTAssertEqual(HeartbeatMath.filtered(rows, division: "", district: "", om: "J. Patel", store: "").first?.storeNumber, "1088")
         XCTAssertEqual(HeartbeatMath.filtered(rows, division: "", district: "", om: "", store: "1487").count, 1)
     }
@@ -105,6 +105,46 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(haggen?.operationsOM, "Luke Lomas")
         XCTAssertEqual(haggen?.payload["pph"], 87.9)
         XCTAssertEqual(WorkbookParser.dateFromWeekID("202618"), "2026-04-27")
+    }
+
+    func testEmptyCellsDoNotShiftStoreAndOM() {
+        let xml = """
+        <worksheet><sheetData>
+        <row>
+          <c t="inlineStr"><is><t>WEEK_ID</t></is></c><c /><c /><c /><c />
+          <c><v>202618</v></c><c><v>202619</v></c>
+        </row>
+        <row>
+          <c t="inlineStr"><is><t>DIVISION</t></is></c>
+          <c t="inlineStr"><is><t>DISTRICT</t></is></c>
+          <c t="inlineStr"><is><t>OM_AREA</t></is></c>
+          <c t="inlineStr"><is><t>OM_ID</t></is></c>
+          <c t="inlineStr"><is><t>STORE</t></is></c>
+          <c t="inlineStr"><is><t>Pure PPH</t></is></c>
+          <c t="inlineStr"><is><t>Pure PPH</t></is></c>
+        </row>
+        <row>
+          <c t="inlineStr"><is><t>United</t></is></c>
+          <c t="inlineStr"><is><t>U6</t></is></c>
+          <c />
+          <c t="inlineStr"><is><t>Jackie McGuffin</t></is></c>
+          <c><v>554</v></c>
+          <c><v>102.775856959399</v></c>
+          <c><v>111.162974956078</v></c>
+        </row>
+        </sheetData></worksheet>
+        """
+        let matrix = SheetXML.parse(xml, strings: [])
+        XCTAssertEqual(matrix.last, ["United", "U6", "", "Jackie McGuffin", "554", "102.775856959399", "111.162974956078"])
+        let rows = WorkbookParser.parseCSV("""
+        WEEK_ID,,,,,202618,202619
+        DIVISION,DISTRICT,OM_AREA,OM_ID,STORE,Pure PPH,Pure PPH
+        United,U6,,Jackie McGuffin,554,102.775856959399,111.162974956078
+        """)
+        XCTAssertEqual(Set(rows.map(\.storeNumber)), Set(["554"]))
+        XCTAssertEqual(rows.first?.operationsOM, "Jackie McGuffin")
+        XCTAssertEqual(rows.first?.payload["pph"], 102.775856959399)
+        XCTAssertFalse(WorkbookParser.looksLikeStoreNumber("102.775856959399"))
     }
 
     func testDistrictFilterScopesOMAndStore() {
