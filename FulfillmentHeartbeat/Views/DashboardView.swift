@@ -96,9 +96,19 @@ struct SectionCard: View {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 10) {
-                        Text(summary.section.title)
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(AppTheme.textSecondary)
+                        HStack(spacing: 8) {
+                            Text(summary.section.title)
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(AppTheme.textSecondary)
+                            if justUpdated {
+                                Text("Just updated")
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(AppTheme.blue)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 3)
+                                    .background(AppTheme.blueSoft, in: Capsule(style: .continuous))
+                            }
+                        }
                         Text(summary.headlineText)
                             .font(.system(size: 36, weight: .semibold, design: .rounded).monospacedDigit())
                             .foregroundStyle(AppTheme.text)
@@ -137,6 +147,11 @@ struct SectionCard: View {
             )
         }
         .buttonStyle(.plain)
+    }
+
+    private var justUpdated: Bool {
+        guard let uploadedAt = summary.lastUploadedAt else { return false }
+        return Date().timeIntervalSince(uploadedAt) < 180
     }
 
     private var metaLine: String {

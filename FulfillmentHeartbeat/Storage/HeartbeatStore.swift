@@ -10,6 +10,7 @@ final class HeartbeatStore: ObservableObject {
     }
     @Published var errorMessage: String?
     @Published var statusMessage: String?
+    @Published var lastImportedSection: MetricSection? = nil
 
     private let fileManager: FileManager
     private let snapshotURL: URL
@@ -118,6 +119,7 @@ final class HeartbeatStore: ObservableObject {
             )
         }
         seeded = true
+        lastImportedSection = nil
         statusMessage = "Sample market loaded — 16 Chicago-area stores."
         persist()
     }
@@ -144,7 +146,8 @@ final class HeartbeatStore: ObservableObject {
         uploads.removeAll { $0.section == section }
         uploads.insert(UploadRecord(section: section, filename: filename, rowCount: incoming.count), at: 0)
         seeded = true
-        statusMessage = "Imported \(incoming.count) rows into \(section.title)."
+        lastImportedSection = section
+        statusMessage = "Imported \(incoming.count) rows into \(section.title). The dashboard card is updated."
         persist()
     }
 

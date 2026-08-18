@@ -3,7 +3,9 @@ import UniformTypeIdentifiers
 
 struct UploadView: View {
     @EnvironmentObject private var store: HeartbeatStore
-    @State private var importing: MetricSection?
+    @EnvironmentObject private var router: HubRouter
+    @State private var showImporter = false
+    @State private var importTarget: MetricSection?
     @State private var exportItem: ExportItem?
 
     var body: some View {
@@ -13,7 +15,7 @@ struct UploadView: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Upload workbooks")
                             .font(.largeTitle.weight(.semibold))
-                        Text("One Excel or CSV file per section. A new file replaces that section.")
+                        Text("One Excel file for each section. That file replaces the matching card on the dashboard.")
                             .font(.subheadline)
                             .foregroundStyle(AppTheme.textSecondary)
                     }
@@ -26,12 +28,14 @@ struct UploadView: View {
                     .buttonStyle(SecondaryButtonStyle())
                 }
 
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 300), spacing: 16)], spacing: 16) {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 16)], spacing: 16) {
                     ForEach(MetricSection.allCases) { section in
                         UploadPanel(
                             section: section,
                             upload: store.upload(for: section),
-                            onImport: { importing = section },
+                            justUpdated: store.lastImportedSection == section,
+                            onPick: { beginImport(section) },
+                            onDropURL: { store.importWorkbook(url: $0, section: section) },
                             onTemplate: {
                                 exportItem = ExportItem(
                                     filename: "\(section.rawValue)-template.csv",
@@ -51,24 +55,11 @@ struct UploadView: View {
         }
         .background(AppTheme.bg.ignoresSafeArea())
         .fileImporter(
-            isPresented: Binding(
-                get: { importing != nil },
-                set: { if !$0 { importing = nil } }
-            ),
+            isPresented: $showImporter,
             allowedContentTypes: Self.workbookTypes,
-            allowsMultipleSelection: false
-        ) { result in
-            guard let section = importing else { return }
-            importing = nil
-            switch result {
-            case .success(let urls):
-                if let url = urls.first {
-                    store.importWorkbook(url: url, section: section)
-                }
-            case .failure(let error):
-                store.errorMessage = error.localizedDescription
-            }
-        }
+            allowsMultipleSelection: false,
+            onCompletion: handleImport
+        )
         .fileExporter(
             isPresented: Binding(
                 get: { exportItem != nil },
@@ -80,6 +71,18 @@ struct UploadView: View {
         ) { _ in
             exportItem = nil
         }
+        .alert("Dashboard updated", isPresented: Binding(
+            get: { store.statusMessage != nil },
+            set: { if !$0 { store.statusMessage = nil } }
+        )) {
+            Button("View dashboard") {
+                store.statusMessage = nil
+                router.open(.dashboard)
+            }
+            Button("OK", role: .cancel) { store.statusMessage = nil }
+        } message: {
+            Text(store.statusMessage ?? "")
+        }
         .alert("Couldn’t import", isPresented: Binding(
             get: { store.errorMessage != nil },
             set: { if !$0 { store.errorMessage = nil } }
@@ -90,14 +93,31 @@ struct UploadView: View {
         }
     }
 
+    private func beginImport(_ section: MetricSection) {
+        importTarget = section
+        showImporter = true
+    }
+
+    private func handleImport(_ result: Result<[URL], Error>) {
+        let section = importTarget
+        importTarget = nil
+        showImporter = false
+        guard let section else { return }
+        switch result {
+        case .success(let urls):
+            if let url = urls.first {
+                store.importWorkbook(url: url, section: section)
+            }
+        case .failure(let error):
+            store.errorMessage = error.localizedDescription
+        }
+    }
+
     private static var workbookTypes: [UTType] {
-        var types: [UTType] = [.commaSeparatedText, .plainText, .spreadsheet]
-        if let xlsx = UTType(filenameExtension: "xlsx") {
-            types.insert(xlsx, at: 0)
-        }
-        if let csv = UTType(filenameExtension: "csv") {
-            types.append(csv)
-        }
+        var types: [UTType] = [.commaSeparatedText, .plainText, .spreadsheet, .data]
+        if let xlsx = UTType(filenameExtension: "xlsx") { types.insert(xlsx, at: 0) }
+        if let xls = UTType(filenameExtension: "xls") { types.insert(xls, at: 1) }
+        if let csv = UTType(filenameExtension: "csv") { types.append(csv) }
         return types
     }
 }
@@ -105,48 +125,57 @@ struct UploadView: View {
 struct UploadPanel: View {
     let section: MetricSection
     let upload: UploadRecord?
-    let onImport: () -> Void
+    var justUpdated: Bool = false
+    let onPick: () -> Void
+    let onDropURL: (URL) -> Void
     let onTemplate: () -> Void
     let onClear: () -> Void
 
+    @State private var targeted = false
+
     var body: some View {
         HubCard {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .top) {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .top, spacing: 12) {
                     Image(systemName: section.symbol)
                         .font(.title3)
                         .foregroundStyle(AppTheme.blue)
-                        .frame(width: 40, height: 40)
+                        .frame(width: 44, height: 44)
                         .background(AppTheme.blueSoft, in: RoundedRectangle(cornerRadius: AppTheme.radiusS, style: .continuous))
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: 3) {
                         Text(section.title)
                             .font(.headline)
                         Text(section.blurb)
                             .font(.caption)
                             .foregroundStyle(AppTheme.textSecondary)
+                        Text("Updates the \(section.short) card on the dashboard")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(AppTheme.blue)
                     }
                 }
 
-                if let upload {
+                Text("Expects \(section.expectedMetrics)")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.textTertiary)
+
+                dropZone
+
+                HStack(alignment: .center, spacing: 10) {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(upload.filename)
-                            .font(.subheadline.weight(.medium))
-                        Text("\(upload.rowCount) rows · \(HeartbeatFormat.relative(upload.uploadedAt))")
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.textSecondary)
+                        if let upload {
+                            Text(upload.filename)
+                                .font(.subheadline.weight(.medium))
+                                .lineLimit(1)
+                            Text("\(upload.rowCount) rows · \(HeartbeatFormat.relative(upload.uploadedAt))")
+                                .font(.caption)
+                                .foregroundStyle(AppTheme.textSecondary)
+                        } else {
+                            Text("Nothing uploaded yet")
+                                .font(.subheadline)
+                                .foregroundStyle(AppTheme.textTertiary)
+                        }
                     }
-                    .padding(10)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(AppTheme.bg, in: RoundedRectangle(cornerRadius: AppTheme.radiusS, style: .continuous))
-                } else {
-                    Text("No file yet")
-                        .font(.subheadline)
-                        .foregroundStyle(AppTheme.textTertiary)
-                }
-
-                HStack(spacing: 8) {
-                    Button("Choose file", action: onImport)
-                        .buttonStyle(PrimaryButtonStyle())
                     Button("Template", action: onTemplate)
                         .buttonStyle(SecondaryButtonStyle())
                     if upload != nil {
@@ -157,6 +186,90 @@ struct UploadPanel: View {
                 }
             }
         }
+    }
+
+    private var dropZone: some View {
+        Button(action: onPick) {
+            VStack(spacing: 8) {
+                Image(systemName: targeted ? "tray.and.arrow.down.fill" : "square.and.arrow.up")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(AppTheme.blue)
+                Text(targeted ? "Drop to replace this section" : "Drop Excel here or choose a file")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(AppTheme.text)
+                Text(".xlsx or .csv · replaces current \(section.short) data")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.textTertiary)
+                Text("Choose file")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .background(AppTheme.blue, in: Capsule(style: .continuous))
+                    .padding(.top, 4)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 22)
+            .padding(.horizontal, 12)
+            .background(
+                RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
+                    .fill(targeted || justUpdated ? AppTheme.blueSoft : AppTheme.bg)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
+                    .strokeBorder(AppTheme.blue.opacity(targeted ? 0.7 : 0.22), style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
+            )
+        }
+        .buttonStyle(.plain)
+        .onDrop(of: Self.dropTypes, isTargeted: $targeted) { providers in
+            Self.takeDrop(providers, into: onDropURL)
+        }
+    }
+
+    private static let dropTypes: [UTType] = {
+        var types: [UTType] = [.fileURL, .commaSeparatedText, .spreadsheet, .data]
+        if let xlsx = UTType(filenameExtension: "xlsx") { types.insert(xlsx, at: 0) }
+        if let csv = UTType(filenameExtension: "csv") { types.append(csv) }
+        return types
+    }()
+
+    private static func takeDrop(_ providers: [NSItemProvider], into onDropURL: @escaping (URL) -> Void) -> Bool {
+        if let provider = providers.first(where: { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }) {
+            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+                let url: URL?
+                if let value = item as? URL {
+                    url = value
+                } else if let data = item as? Data {
+                    url = URL(dataRepresentation: data, relativeTo: nil)
+                } else if let text = item as? String {
+                    url = URL(string: text)
+                } else {
+                    url = nil
+                }
+                guard let url else { return }
+                DispatchQueue.main.async { onDropURL(url) }
+            }
+            return true
+        }
+
+        let fallbacks = [
+            "org.openxmlformats.spreadsheetml.sheet",
+            UTType.commaSeparatedText.identifier,
+            UTType.data.identifier,
+        ]
+        for typeId in fallbacks {
+            guard let provider = providers.first(where: { $0.hasItemConformingToTypeIdentifier(typeId) }) else { continue }
+            provider.loadDataRepresentation(forTypeIdentifier: typeId) { data, _ in
+                guard let data else { return }
+                let ext = typeId.contains("comma") ? "csv" : "xlsx"
+                let dest = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("heartbeat-drop-\(UUID().uuidString).\(ext)")
+                try? data.write(to: dest)
+                DispatchQueue.main.async { onDropURL(dest) }
+            }
+            return true
+        }
+        return false
     }
 }
 
@@ -184,4 +297,5 @@ struct ExportItem: FileDocument {
 #Preview {
     UploadView()
         .environmentObject(HeartbeatStore())
+        .environmentObject(HubRouter())
 }

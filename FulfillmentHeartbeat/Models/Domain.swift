@@ -35,6 +35,15 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         }
     }
 
+    var expectedMetrics: String {
+        switch self {
+        case .fiveStar: return "Star Rating · OTP % · Fill Rate · Quality · CX"
+        case .pickPath: return "Compliance % · Picks Total · Picks Compliant · Exceptions"
+        case .prepNotReady: return "PNR Count · Orders Due · PNR Rate · Avg Late Min"
+        case .dynacap: return "Pickup / Delivery capacity · Rec pickup / delivery"
+        }
+    }
+
     var symbol: String {
         switch self {
         case .fiveStar: return "star.fill"
