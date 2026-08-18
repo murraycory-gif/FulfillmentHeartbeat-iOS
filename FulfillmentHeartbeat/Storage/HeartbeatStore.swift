@@ -19,7 +19,10 @@ final class HeartbeatStore: ObservableObject {
 
     private let fileManager: FileManager
     private let snapshotURL: URL
+    private let checklistURL: URL
     private var hydrating = false
+    private var checklistByKey: [String: ChecklistItem] = [:]
+    private var commentSaveTask: Task<Void, Never>?
     private var latestBySection: [MetricSection: [MetricRow]] = [:]
     private var roster: [String: HeartbeatMath.StoreIdentity] = [:]
     private var filteredLatest: [MetricSection: [MetricRow]] = [:]
@@ -44,10 +47,12 @@ final class HeartbeatStore: ObservableObject {
             try? fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         }
         snapshotURL = root.appendingPathComponent("heartbeat.json")
+        checklistURL = root.appendingPathComponent("checklist.json")
         rows = []
         uploads = []
         seeded = false
         filters = DashboardFilters()
+        loadChecklist()
         load()
     }
 
@@ -106,6 +111,110 @@ final class HeartbeatStore: ObservableObject {
     var summaries: [SectionSummary] { cachedSummaries }
 
     var pickerBoard: HeartbeatMath.PickerBoard { cachedPickerBoard }
+
+    func checklistItem(for section: MetricSection) -> ChecklistItem {
+        checklistByKey[checklistKey(for: section)]
+            ?? ChecklistItem(sectionRaw: section.rawValue)
+    }
+
+    func setChecklistStatus(_ status: ChecklistStatus, for section: MetricSection) {
+        var item = checklistItem(for: section)
+        item.status = item.status == status ? .open : status
+        item.updatedAt = Date()
+        checklistByKey[checklistKey(for: section)] = item
+        persistChecklist()
+        objectWillChange.send()
+    }
+
+    func setChecklistComment(_ comment: String, for section: MetricSection) {
+        var item = checklistItem(for: section)
+        item.comment = comment
+        item.updatedAt = Date()
+        checklistByKey[checklistKey(for: section)] = item
+        objectWillChange.send()
+        commentSaveTask?.cancel()
+        commentSaveTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            guard !Task.isCancelled else { return }
+            await self?.persistChecklist()
+        }
+    }
+
+    var checklistOpenCount: Int {
+        MetricSection.checklistSections.filter { !checklistItem(for: $0).status.isClosed }.count
+    }
+
+    var checklistReadyToSend: Bool {
+        MetricSection.checklistSections.allSatisfy { checklistItem(for: $0).status.isClosed }
+    }
+
+    func checklistDrivers(for section: MetricSection, limit: Int = 3) -> [String] {
+        if section == .pickerScorecard {
+            return cachedPickerBoard.opportunity.prefix(limit).map { row in
+                let division = row.division.isEmpty ? identity(forStore: row.storeNumber).division : row.division
+                return "\(row.shopperName) · \(row.storeNumber)\(division.isEmpty ? "" : " · \(division)") · \(HeartbeatMath.pickerOpportunityText(row))"
+            }
+        }
+        let ranked = (filteredLatest[section] ?? [])
+            .map { ($0, HeartbeatMath.health(for: section, row: $0)) }
+            .filter { $0.1 == .risk || $0.1 == .watch }
+            .sorted { healthRank($0.1) > healthRank($1.1) }
+            .prefix(limit)
+        return ranked.map { row, health in
+            let cell = StoreCellViewModel.make(section: section, row: row)
+            let division = row.division.isEmpty ? identity(forStore: row.storeNumber).division : row.division
+            return "Store \(row.storeNumber)\(division.isEmpty ? "" : " · \(division)") · \(cell.primary) · \(health.label)"
+        }
+    }
+
+    func checklistEmailText() -> String {
+        var lines: [String] = [
+            "eCommerce Fulfillment Checklist",
+            filters.summary,
+            HeartbeatFormat.relative(Date()),
+            "",
+        ]
+        for section in MetricSection.checklistSections {
+            let summary = self.summary(for: section)
+            let item = checklistItem(for: section)
+            lines.append("\(section.title) — \(summary.health.label) — \(summary.headlineText)")
+            lines.append("Status: \(item.status.label)")
+            let drivers = checklistDrivers(for: section, limit: 5)
+            if !drivers.isEmpty {
+                lines.append("Callouts: \(drivers.joined(separator: "; "))")
+            }
+            if !item.comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                lines.append("Comments: \(item.comment)")
+            }
+            lines.append("")
+        }
+        if !cachedPickerBoard.opportunity.isEmpty {
+            lines.append("Opportunity pickers")
+            for row in cachedPickerBoard.opportunity {
+                lines.append("• \(row.shopperName) · \(row.storeNumber) · \(HeartbeatMath.pickerOpportunityText(row))")
+            }
+            lines.append("")
+        }
+        lines.append("Sent from Fulfillment Heartbeat")
+        return lines.joined(separator: "\n")
+    }
+
+    func checklistEmailSubject() -> String {
+        "Fulfillment Checklist — \(filters.summary)"
+    }
+
+    private func checklistKey(for section: MetricSection) -> String {
+        "\(filters.division)|\(filters.district)|\(filters.om)|\(filters.store)|\(section.rawValue)"
+    }
+
+    private func healthRank(_ health: Health) -> Int {
+        switch health {
+        case .risk: return 3
+        case .watch: return 2
+        case .good: return 1
+        case .none: return 0
+        }
+    }
 
     func identity(forStore number: String) -> HeartbeatMath.StoreIdentity {
         roster[HeartbeatMath.canonicalStore(number)]
@@ -420,6 +529,29 @@ final class HeartbeatStore: ObservableObject {
             } catch {
                 // Keep the in-memory pulse; the next successful save will replace this file.
             }
+        }
+    }
+
+    private func loadChecklist() {
+        guard fileManager.fileExists(atPath: checklistURL.path),
+              let data = try? Data(contentsOf: checklistURL)
+        else { return }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let decoded = try? decoder.decode([String: ChecklistItem].self, from: data) else { return }
+        checklistByKey = decoded
+    }
+
+    private func persistChecklist() {
+        let items = checklistByKey
+        let url = checklistURL
+        Task.detached(priority: .utility) {
+            do {
+                let encoder = JSONEncoder()
+                encoder.dateEncodingStrategy = .iso8601
+                let data = try encoder.encode(items)
+                try data.write(to: url, options: [.atomic])
+            } catch {}
         }
     }
 }

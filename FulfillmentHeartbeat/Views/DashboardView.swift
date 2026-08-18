@@ -23,6 +23,7 @@ struct DashboardView: View {
                             }
                         }
                     }
+                    FulfillmentChecklistCard()
                     PickerScoreCard {
                         if sizeClass == .regular {
                             router.open(section: .pickerScorecard)

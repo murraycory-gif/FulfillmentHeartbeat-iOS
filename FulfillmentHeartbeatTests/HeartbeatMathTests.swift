@@ -13,14 +13,14 @@ final class HeartbeatMathTests: XCTestCase {
 
     func testPrepNotReadyInverts() {
         let good = MetricRow(section: .prepNotReady, division: "10", operationsOM: "A", storeNumber: "1", payload: ["pnr_rate_pct": 1.2])
+        let watch = MetricRow(section: .prepNotReady, division: "10", operationsOM: "A", storeNumber: "3", payload: ["pnr_rate_pct": 2.2])
         let risk = MetricRow(section: .prepNotReady, division: "10", operationsOM: "A", storeNumber: "2", payload: ["pnr_rate_pct": 8.0])
         XCTAssertEqual(HeartbeatMath.health(for: .prepNotReady, row: good), .good)
-        XCTAssertEqual(HeartbeatMath.health(for: .prepNotReady, row: risk), .risk)
-        let watch = MetricRow(section: .prepNotReady, division: "10", operationsOM: "A", storeNumber: "3", payload: ["pnr_rate_pct": 2.2])
         XCTAssertEqual(HeartbeatMath.health(for: .prepNotReady, row: watch), .watch)
+        XCTAssertEqual(HeartbeatMath.health(for: .prepNotReady, row: risk), .risk)
     }
 
-    func testPrepNotReadyOutlineUsesWeekTotalAndDivision() {
+    func testPrepNotReadyOutlineUsesStoreHoursFile() {
         let parsed = WorkbookParser.parseCSV(SampleMarket.templateCSV(for: .prepNotReady))
         let rows = parsed.map { $0.asRow(section: .prepNotReady) }
         XCTAssertEqual(Set(rows.map(\.storeNumber)), Set(["3427", "1", "2219", "1432"]))
@@ -29,11 +29,10 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(haggen.operationsOM, "Luke Lomas")
         XCTAssertEqual(haggen.payload["pnr_rate_pct"] ?? 0, 1.6979, accuracy: 0.02)
         XCTAssertEqual(HeartbeatMath.health(for: .prepNotReady, row: haggen), .good)
-        let risk = rows.first { $0.storeNumber == "2219" }!
-        XCTAssertEqual(risk.payload["pnr_rate_pct"] ?? 0, 7.455, accuracy: 0.05)
-        XCTAssertEqual(HeartbeatMath.health(for: .prepNotReady, row: risk), .risk)
+        let hotspot = rows.first { $0.storeNumber == "2219" }!
+        XCTAssertEqual(hotspot.payload["pnr_rate_pct"] ?? 0, 7.455, accuracy: 0.05)
+        XCTAssertEqual(HeartbeatMath.health(for: .prepNotReady, row: hotspot), .risk)
     }
-}
 
     func testDynacapAlignedWithinTenPercent() {
         let aligned = MetricRow(
@@ -139,5 +138,20 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(HeartbeatMath.pickerHealth(strong), .good)
         XCTAssertEqual(HeartbeatMath.pickerHealth(weak), .risk)
         XCTAssertTrue(HeartbeatMath.pickerOpportunityText(weak).contains("PPH"))
+    }
+
+    @MainActor
+    func testChecklistReadyAfterEveryKPIHasStatus() {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = HeartbeatStore(rootURL: root)
+        XCTAssertFalse(store.checklistReadyToSend)
+        store.setChecklistStatus(.fixed, for: .pph)
+        XCTAssertFalse(store.checklistReadyToSend)
+        for section in MetricSection.checklistSections {
+            store.setChecklistStatus(.followUp, for: section)
+        }
+        XCTAssertTrue(store.checklistReadyToSend)
+        XCTAssertTrue(store.checklistEmailText().contains("5 Star Metrics"))
+        XCTAssertTrue(store.checklistEmailSubject().contains("Fulfillment Checklist"))
     }
 }

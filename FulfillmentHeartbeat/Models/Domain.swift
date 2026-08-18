@@ -74,6 +74,10 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
     static var dashboardCards: [MetricSection] {
         [.fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pph]
     }
+
+    static var checklistSections: [MetricSection] {
+        dashboardCards + [.pickerScorecard]
+    }
 }
 
 enum Health: String, Codable {
@@ -907,6 +911,49 @@ struct HistoryPoint: Identifiable, Hashable {
     var date: String
     var value: Double
     var id: String { date }
+}
+
+enum ChecklistStatus: String, Codable, CaseIterable, Identifiable {
+    case open
+    case fixed
+    case followUp
+    case notCovered
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .open: return "Open"
+        case .fixed: return "Fixed"
+        case .followUp: return "Follow up"
+        case .notCovered: return "Not covered"
+        }
+    }
+
+    var isClosed: Bool { self != .open }
+}
+
+struct ChecklistItem: Identifiable, Codable, Hashable {
+    var sectionRaw: String
+    var status: ChecklistStatus
+    var comment: String
+    var updatedAt: Date?
+
+    var id: String { sectionRaw }
+
+    var section: MetricSection? { MetricSection(rawValue: sectionRaw) }
+
+    init(
+        sectionRaw: String,
+        status: ChecklistStatus = .open,
+        comment: String = "",
+        updatedAt: Date? = nil
+    ) {
+        self.sectionRaw = sectionRaw
+        self.status = status
+        self.comment = comment
+        self.updatedAt = updatedAt
+    }
 }
 
 struct DashboardFilters: Equatable, Codable {
