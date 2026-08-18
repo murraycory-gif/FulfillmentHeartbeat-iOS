@@ -19,7 +19,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .dynacap: return "Dynacap Setting"
         case .scheduleQuality: return "Schedule Quality"
         case .pph: return "PPH Pure Picks Per Hour"
-        case .pickerScorecard: return "Picker Score Card"
+        case .pickerScorecard: return "Picker ScoreCard"
         }
     }
 

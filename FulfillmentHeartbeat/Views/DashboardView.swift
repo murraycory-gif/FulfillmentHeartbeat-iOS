@@ -240,8 +240,7 @@ struct PickerScoreCard: View {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
-                        Text("Picker Score Card")
-                            .font(.title2.weight(.semibold))
+                        PickerScoreCardTitle(font: .title2.weight(.semibold))
                         if let uploadedAt = upload?.uploadedAt, Date().timeIntervalSince(uploadedAt) < 180 {
                             Text("Just updated")
                                 .font(.caption2.weight(.semibold))

@@ -20,6 +20,15 @@ struct HubCard<Content: View>: View {
     }
 }
 
+struct PickerScoreCardTitle: View {
+    var font: Font = .title2.weight(.semibold)
+
+    var body: some View {
+        (Text("Picker ") + Text("ScoreCard").foregroundStyle(AppTheme.blue))
+            .font(font)
+    }
+}
+
 struct SectionLabel: View {
     let title: String
 

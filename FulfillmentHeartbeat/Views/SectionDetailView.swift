@@ -16,8 +16,12 @@ struct SectionDetailView: View {
             Section {
                 VStack(alignment: .leading, spacing: 18) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(section.title)
-                            .font(.largeTitle.weight(.semibold))
+                        if section == .pickerScorecard {
+                            PickerScoreCardTitle(font: .largeTitle.weight(.semibold))
+                        } else {
+                            Text(section.title)
+                                .font(.largeTitle.weight(.semibold))
+                        }
                         Text(section.blurb)
                             .font(.subheadline)
                             .foregroundStyle(AppTheme.textSecondary)
