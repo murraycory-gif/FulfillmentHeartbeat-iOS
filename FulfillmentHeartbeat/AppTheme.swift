@@ -77,3 +77,20 @@ struct SecondaryButtonStyle: ButtonStyle {
             .opacity(configuration.isPressed ? 0.85 : 1)
     }
 }
+
+struct BrandButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(AppTheme.blue)
+                    .opacity(configuration.isPressed ? 0.88 : 1)
+            )
+            .scaleEffect(configuration.isPressed ? 0.98 : 1)
+            .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
+    }
+}

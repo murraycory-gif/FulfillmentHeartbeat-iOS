@@ -242,124 +242,115 @@ struct HeartbeatTrace: View {
 
 struct FilterBar: View {
     @EnvironmentObject private var store: HeartbeatStore
+    @State private var showingFilters = false
 
     var body: some View {
         HubCard {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Image(systemName: "slider.horizontal.3")
-                        .foregroundStyle(AppTheme.blue)
-                    Text(store.filters.summary)
-                        .font(.subheadline.weight(.medium))
+            HStack(alignment: .center, spacing: 12) {
+                Image(systemName: "slider.horizontal.3")
+                    .foregroundStyle(AppTheme.blue)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Filters")
+                        .font(.subheadline.weight(.semibold))
                         .foregroundStyle(AppTheme.text)
-                    Spacer()
-                    if store.filters.isActive {
-                        Button("Clear") { store.clearFilters() }
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(AppTheme.blue)
-                    }
+                    Text(store.filters.summary)
+                        .font(.caption)
+                        .foregroundStyle(AppTheme.textSecondary)
+                        .lineLimit(2)
                 }
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .bottom, spacing: 12) { fields }
-                    VStack(alignment: .leading, spacing: 10) { fields }
+                Spacer(minLength: 8)
+                if store.filters.isActive {
+                    Button("Clear") { store.clearFilters() }
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(AppTheme.blue)
                 }
+                Button {
+                    showingFilters = true
+                } label: {
+                    Label("Filters", systemImage: "line.3.horizontal.decrease.circle.fill")
+                }
+                .buttonStyle(BrandButtonStyle())
             }
         }
-    }
-
-    @ViewBuilder
-    private var fields: some View {
-        SearchableFilter(
-            title: "Division",
-            selection: store.filters.division,
-            options: store.divisions.map { ($0, $0) },
-            onChange: store.setDivision
-        )
-        SearchableFilter(
-            title: "District",
-            selection: store.filters.district,
-            options: store.districts.map { ($0, $0) },
-            onChange: store.setDistrict
-        )
-        SearchableFilter(
-            title: "Operations manager",
-            selection: store.filters.om,
-            options: store.operationsOMs.map { ($0, $0) },
-            onChange: store.setOM
-        )
-        SearchableFilter(
-            title: "Store #",
-            selection: store.filters.store,
-            options: store.stores.map { entry in
-                let label = entry.name.map { "\(entry.number) · \($0)" } ?? entry.number
-                return (entry.number, label)
-            },
-            onChange: store.setStore
-        )
+        .sheet(isPresented: $showingFilters) {
+            FilterSheet()
+                .environmentObject(store)
+        }
     }
 }
 
-struct SearchableFilter: View {
-    let title: String
-    let selection: String
-    let options: [(id: String, label: String)]
-    let onChange: (String) -> Void
-    @State private var showing = false
+struct FilterSheet: View {
+    @EnvironmentObject private var store: HeartbeatStore
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(AppTheme.textSecondary)
-            Button { showing = true } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "magnifyingglass")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(AppTheme.blue)
-                    Text(selection.isEmpty ? "All · Search" : currentLabel)
-                        .foregroundStyle(AppTheme.text)
-                        .lineLimit(1)
-                    Spacer()
-                    Image(systemName: "chevron.down")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(AppTheme.textTertiary)
-                }
-                .padding(.horizontal, 12)
-                .frame(height: 44)
-                .frame(maxWidth: .infinity)
-                .background(
-                    RoundedRectangle(cornerRadius: AppTheme.radiusS, style: .continuous)
-                        .stroke(AppTheme.cardBorder, lineWidth: 1)
+        NavigationStack {
+            List {
+                FilterSearchSection(
+                    title: "Division",
+                    prompt: "Search divisions",
+                    allLabel: "All divisions",
+                    selection: store.filters.division,
+                    options: store.divisions.map { ($0, $0) },
+                    onChange: store.setDivision
+                )
+                FilterSearchSection(
+                    title: "District",
+                    prompt: "Search districts",
+                    allLabel: "All districts",
+                    selection: store.filters.district,
+                    options: store.districts.map { ($0, $0) },
+                    onChange: store.setDistrict
+                )
+                FilterSearchSection(
+                    title: "Operations manager",
+                    prompt: "Search operations managers",
+                    allLabel: "All operations managers",
+                    selection: store.filters.om,
+                    options: store.operationsOMs.map { ($0, $0) },
+                    onChange: store.setOM
+                )
+                FilterSearchSection(
+                    title: "Store #",
+                    prompt: "Search store number",
+                    allLabel: "All stores",
+                    selection: store.filters.store,
+                    options: store.stores.map { entry in
+                        let label = entry.name.map { "\(entry.number) · \($0)" } ?? entry.number
+                        return (entry.number, label)
+                    },
+                    onChange: store.setStore
                 )
             }
-            .buttonStyle(.plain)
-            .popover(isPresented: $showing, arrowEdge: .bottom) {
-                SearchableFilterSheet(
-                    title: title,
-                    selection: selection,
-                    options: options,
-                    onChange: { value in
-                        onChange(value)
-                        showing = false
+            .listStyle(.insetGrouped)
+            .navigationTitle("Filters")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    if store.filters.isActive {
+                        Button("Clear all") { store.clearFilters() }
                     }
-                )
-                .frame(width: 340, height: 420)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                        .fontWeight(.semibold)
+                }
             }
         }
-        .frame(minWidth: 160)
-    }
-
-    private var currentLabel: String {
-        options.first(where: { $0.id == selection })?.label ?? selection
+        .presentationDetents([.medium, .large])
+        .presentationDragIndicator(.visible)
     }
 }
 
-struct SearchableFilterSheet: View {
+struct FilterSearchSection: View {
     let title: String
+    let prompt: String
+    let allLabel: String
     let selection: String
     let options: [(id: String, label: String)]
     let onChange: (String) -> Void
     @State private var query = ""
+    @FocusState private var focused: Bool
 
     private var filtered: [(id: String, label: String)] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -371,14 +362,14 @@ struct SearchableFilterSheet: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
+        Section {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
-                    .foregroundStyle(AppTheme.textTertiary)
-                TextField("Search \(title.lowercased())", text: $query)
-                    .textFieldStyle(.plain)
-                    .autocorrectionDisabled()
+                    .foregroundStyle(AppTheme.blue)
+                TextField(prompt, text: $query)
                     .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .focused($focused)
                     .onSubmit(applyExactOrFirst)
                 if !query.isEmpty {
                     Button {
@@ -390,45 +381,52 @@ struct SearchableFilterSheet: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(14)
-            Divider()
-            List {
+            Button {
+                onChange("")
+                query = ""
+            } label: {
+                HStack {
+                    Text(allLabel)
+                    Spacer()
+                    if selection.isEmpty {
+                        Image(systemName: "checkmark")
+                            .foregroundStyle(AppTheme.blue)
+                    }
+                }
+            }
+            ForEach(filtered, id: \.id) { item in
                 Button {
-                    onChange("")
+                    onChange(item.id)
+                    query = ""
+                    focused = false
                 } label: {
                     HStack {
-                        Text("All")
+                        Text(item.label)
+                            .foregroundStyle(AppTheme.text)
                         Spacer()
-                        if selection.isEmpty {
+                        if item.id == selection {
                             Image(systemName: "checkmark")
                                 .foregroundStyle(AppTheme.blue)
                         }
                     }
                 }
-                ForEach(filtered, id: \.id) { item in
-                    Button {
-                        onChange(item.id)
-                    } label: {
-                        HStack {
-                            Text(item.label)
-                                .foregroundStyle(AppTheme.text)
-                            Spacer()
-                            if item.id == selection {
-                                Image(systemName: "checkmark")
-                                    .foregroundStyle(AppTheme.blue)
-                            }
-                        }
-                    }
+            }
+        } header: {
+            HStack {
+                Text(title)
+                Spacer()
+                if !selection.isEmpty {
+                    Text(currentLabel)
+                        .foregroundStyle(AppTheme.blue)
                 }
             }
-            .listStyle(.plain)
-            Text("\(filtered.count) of \(options.count)")
-                .font(.caption)
-                .foregroundStyle(AppTheme.textTertiary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
+        } footer: {
+            Text(query.isEmpty ? "\(options.count) options" : "\(filtered.count) of \(options.count) match")
         }
+    }
+
+    private var currentLabel: String {
+        options.first(where: { $0.id == selection })?.label ?? selection
     }
 
     private func applyExactOrFirst() {
@@ -439,10 +437,14 @@ struct SearchableFilterSheet: View {
         }
         if let exact = options.first(where: { $0.id.compare(trimmed, options: [.caseInsensitive, .numeric]) == .orderedSame }) {
             onChange(exact.id)
+            query = ""
+            focused = false
             return
         }
         if filtered.count == 1 {
             onChange(filtered[0].id)
+            query = ""
+            focused = false
         }
     }
 }
