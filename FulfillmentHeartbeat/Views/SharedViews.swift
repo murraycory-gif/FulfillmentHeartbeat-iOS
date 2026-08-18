@@ -131,39 +131,22 @@ struct HubIconButton: View {
 }
 
 struct HubNavLogo: View {
+    var pulse: Bool = false
+
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             Image("HeartbeatMark")
                 .resizable()
                 .interpolation(.high)
                 .scaledToFit()
-                .frame(height: 26)
-            Text("Heartbeat")
-                .font(.headline.weight(.semibold))
-                .foregroundStyle(AppTheme.text)
-        }
-        .accessibilityLabel("Fulfillment Heartbeat")
-    }
-}
-
-struct BrandPulseLockup: View {
-    var height: CGFloat = 78
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 6) {
-            Image("HeartbeatMark")
-                .resizable()
-                .interpolation(.high)
-                .scaledToFit()
-                .frame(height: height)
+                .frame(height: pulse ? 30 : 26)
                 .accessibilityHidden(true)
-
-            HeartbeatTrace()
-                .frame(maxWidth: .infinity)
-                .frame(height: height * 0.58)
-                .accessibilityHidden(true)
+            if pulse {
+                HeartbeatTrace()
+                    .frame(width: 240, height: 22)
+                    .accessibilityHidden(true)
+            }
         }
-        .accessibilityElement(children: .ignore)
         .accessibilityLabel("Fulfillment Heartbeat")
     }
 }
@@ -205,21 +188,16 @@ struct HeartbeatTrace: View {
         }
 
         path.move(to: point(0, 0))
-        let beats = 2
-        for index in 0..<beats {
-            let origin = CGFloat(index) / CGFloat(beats)
-            let span = 1 / CGFloat(beats)
-            path.addLine(to: point(origin + span * 0.16, 0))
-            path.addLine(to: point(origin + span * 0.20, 0.10))
-            path.addLine(to: point(origin + span * 0.26, 0))
-            path.addLine(to: point(origin + span * 0.32, -0.16))
-            path.addLine(to: point(origin + span * 0.38, 0.78))
-            path.addLine(to: point(origin + span * 0.44, -0.26))
-            path.addLine(to: point(origin + span * 0.50, 0))
-            path.addLine(to: point(origin + span * 0.60, 0.20))
-            path.addLine(to: point(origin + span * 0.70, 0))
-            path.addLine(to: point(origin + span * 1.00, 0))
-        }
+        path.addLine(to: point(0.06, 0))
+        path.addLine(to: point(0.10, 0.12))
+        path.addLine(to: point(0.16, 0))
+        path.addLine(to: point(0.20, -0.18))
+        path.addLine(to: point(0.26, 0.82))
+        path.addLine(to: point(0.32, -0.28))
+        path.addLine(to: point(0.38, 0))
+        path.addLine(to: point(0.48, 0.22))
+        path.addLine(to: point(0.56, 0))
+        path.addLine(to: point(1.0, 0))
         return path
     }
 }
@@ -407,7 +385,7 @@ struct HubChromeModifier: ViewModifier {
                     }
                 }
                 ToolbarItem(placement: .principal) {
-                    HubNavLogo()
+                    HubNavLogo(pulse: true)
                 }
             }
     }
