@@ -446,4 +446,6 @@ struct StoreCellViewModel {
                 extra: "Over \(HeartbeatFormat.num(row.number("over_scheduled"))) · Under \(HeartbeatFormat.num(row.number("under_scheduled")))"
             )
         }
+    }
+}
 
