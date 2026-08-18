@@ -102,6 +102,7 @@ enum WorkbookParser {
     ]
     private static let shopperIdKeys = [
         "shopperid", "pickerid", "associateid", "win", "userid", "associatewin",
+        "employeealternateid", "employeeid", "employee", "empid", "associate",
     ]
     private static let dateKeys = ["date", "week", "weekending", "period", "recordedon", "asof", "reportdate"]
 
@@ -129,6 +130,11 @@ enum WorkbookParser {
         "pickpath": "compliance_pct",
         "pickpathcompliance": "compliance_pct",
         "pathcompliance": "compliance_pct",
+        "orders": "orders",
+        "ordercount": "orders",
+        "order": "orders",
+        "purepphexcludingreshop": "pph",
+        "pphexcludingreshop": "pph",
         "pickstotal": "picks_total",
         "totalpicks": "picks_total",
         "pickscompliant": "picks_compliant",
@@ -205,7 +211,7 @@ enum WorkbookParser {
     private static func parseOutline(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {
         guard let headerIndex = matrix.firstIndex(where: { row in
             let names = Set(row.map(normHeader))
-            return names.contains("division") && (names.contains("store") || names.contains("storenumber"))
+            return names.contains("division") && names.contains(where: { storeKeys.contains($0) || $0 == "store" })
         }) else { return nil }
 
         let header = matrix[headerIndex].map(normHeader)
@@ -221,6 +227,7 @@ enum WorkbookParser {
         let areaIdx = firstIndex(omAreaKeys)
         let omIdx = firstIndex(omKeys)
         let storeIdx = firstIndex(storeKeys) ?? firstIndex(["store"])
+        let empIdx = firstIndex(shopperIdKeys)
         guard let storeIdx else { return nil }
 
         let weekRow = headerIndex > 0 ? matrix[headerIndex - 1] : []
@@ -239,7 +246,8 @@ enum WorkbookParser {
         var carryDist = ""
         var carryArea = ""
         var carryOM = ""
-        var out: [ParsedWorkbookRow] = []
+        var storeRows: [ParsedWorkbookRow] = []
+        var pickerRows: [ParsedWorkbookRow] = []
 
         for line in matrix.dropFirst(headerIndex + 1) {
             func cell(_ index: Int?) -> String {
@@ -253,60 +261,159 @@ enum WorkbookParser {
             if let value = usableValue(cell(omIdx)) { carryOM = value }
 
             let storeRaw = cell(storeIdx).trimmingCharacters(in: .whitespacesAndNewlines)
-            if storeRaw.isEmpty || isTotalCell(storeRaw) { continue }
             if storeRaw.lowercased().hasPrefix("applied") { continue }
             guard looksLikeStoreNumber(storeRaw) else { continue }
+
+            let employee = usableValue(cell(empIdx))
+            let isPicker = employee != nil
 
             var text: [String: String] = [:]
             if !carryDist.isEmpty { text["district"] = carryDist }
             if !carryArea.isEmpty { text["om_area"] = carryArea }
+            if let employee { text["shopper_id"] = employee }
 
             let metricColumns = header.indices.filter { index in
-                index != divIdx && index != distIdx && index != areaIdx && index != omIdx && index != storeIdx
+                index != divIdx && index != distIdx && index != areaIdx && index != omIdx && index != storeIdx && index != empIdx
             }
 
+            let emitted: [ParsedWorkbookRow]
             if !weekByColumn.isEmpty {
-                for index in metricColumns {
-                    guard let date = weekByColumn[index] else { continue }
-                    let raw = index < line.count ? line[index] : ""
-                    guard let value = cellNumber(raw) else { continue }
-                    out.append(ParsedWorkbookRow(
-                        division: carryDiv,
-                        operationsOM: carryOM,
-                        storeNumber: storeRaw,
-                        storeName: nil,
-                        recordedOn: date,
-                        payload: ["pph": value],
-                        textPayload: text
-                    ))
-                }
+                emitted = unpivotWeeks(
+                    line: line,
+                    metricColumns: metricColumns,
+                    header: header,
+                    weekByColumn: weekByColumn,
+                    division: carryDiv,
+                    operationsOM: carryOM,
+                    storeNumber: storeRaw,
+                    text: text
+                )
             } else {
                 var payload: [String: Double] = [:]
                 var extraText = text
                 for index in metricColumns {
                     guard index < header.count else { continue }
-                    let mapped = metricAliases[header[index]] ?? header[index]
                     let raw = index < line.count ? line[index] : ""
                     if let value = cellNumber(raw) {
-                        payload[mapped] = value
+                        applyMetric(&payload, header: header[index], value: value)
                     } else if let value = usableValue(raw) {
-                        extraText[mapped] = value
+                        extraText[metricAliases[header[index]] ?? header[index]] = value
                     }
                 }
-                if payload.isEmpty { continue }
-                out.append(ParsedWorkbookRow(
-                    division: carryDiv,
-                    operationsOM: carryOM,
-                    storeNumber: storeRaw,
-                    storeName: nil,
-                    recordedOn: nil,
-                    payload: payload,
-                    textPayload: extraText
-                ))
+                emitted = payload.isEmpty ? [] : [
+                    ParsedWorkbookRow(
+                        division: carryDiv,
+                        operationsOM: carryOM,
+                        storeNumber: storeRaw,
+                        storeName: nil,
+                        recordedOn: nil,
+                        payload: payload,
+                        textPayload: extraText
+                    )
+                ]
+            }
+
+            if isPicker {
+                pickerRows.append(contentsOf: emitted)
+            } else {
+                storeRows.append(contentsOf: emitted)
             }
         }
 
-        return out
+        if !storeRows.isEmpty { return storeRows }
+        if !pickerRows.isEmpty { return rollupPickers(pickerRows) }
+        return []
+    }
+
+    private static func unpivotWeeks(
+        line: [String],
+        metricColumns: [Int],
+        header: [String],
+        weekByColumn: [Int: String],
+        division: String,
+        operationsOM: String,
+        storeNumber: String,
+        text: [String: String]
+    ) -> [ParsedWorkbookRow] {
+        var byDate: [String: [String: Double]] = [:]
+        for index in metricColumns {
+            guard let date = weekByColumn[index] else { continue }
+            let raw = index < line.count ? line[index] : ""
+            guard let value = cellNumber(raw) else { continue }
+            applyMetric(&byDate[date, default: [:]], header: index < header.count ? header[index] : "", value: value)
+        }
+        return byDate.keys.sorted().compactMap { date in
+            guard let payload = byDate[date], !payload.isEmpty else { return nil }
+            return ParsedWorkbookRow(
+                division: division,
+                operationsOM: operationsOM,
+                storeNumber: storeNumber,
+                storeName: nil,
+                recordedOn: date,
+                payload: payload,
+                textPayload: text
+            )
+        }
+    }
+
+    private static func applyMetric(_ payload: inout [String: Double], header: String, value: Double) {
+        var key = metricAliases[header] ?? header
+        var number = value
+        if key == "compliance_pct" || key.contains("compliance") {
+            key = "compliance_pct"
+            if number <= 1.5 { number *= 100 }
+        }
+        payload[key] = number
+        if key == "orders" {
+            payload["picks_total"] = number
+            if let compliance = payload["compliance_pct"] {
+                payload["picks_compliant"] = (compliance / 100) * number
+            }
+        }
+        if key == "compliance_pct", let orders = payload["orders"] {
+            payload["picks_compliant"] = (number / 100) * orders
+        }
+    }
+
+    private static func rollupPickers(_ rows: [ParsedWorkbookRow]) -> [ParsedWorkbookRow] {
+        struct Key: Hashable { let store: String; let date: String }
+        var groups: [Key: [ParsedWorkbookRow]] = [:]
+        for row in rows {
+            groups[Key(store: row.storeNumber, date: row.recordedOn ?? ""), default: []].append(row)
+        }
+        return groups.keys.sorted { $0.store == $1.store ? $0.date < $1.date : $0.store < $1.store }.compactMap { key in
+            guard let bucket = groups[key], let first = bucket.first else { return nil }
+            var payload: [String: Double] = [:]
+            let orders = bucket.compactMap { $0.payload["orders"] }
+            let compliance = bucket.compactMap { $0.payload["compliance_pct"] }
+            let pph = bucket.compactMap { $0.payload["pph"] }
+            if !orders.isEmpty {
+                let total = orders.reduce(0, +)
+                payload["orders"] = total
+                payload["picks_total"] = total
+                if compliance.count == orders.count, total > 0 {
+                    let weighted = zip(compliance, orders).reduce(0) { $0 + $1.0 * $1.1 } / total
+                    payload["compliance_pct"] = weighted
+                    payload["picks_compliant"] = (weighted / 100) * total
+                }
+            }
+            if payload["compliance_pct"] == nil, !compliance.isEmpty {
+                payload["compliance_pct"] = compliance.reduce(0, +) / Double(compliance.count)
+            }
+            if !pph.isEmpty {
+                payload["pph"] = pph.reduce(0, +) / Double(pph.count)
+            }
+            guard !payload.isEmpty else { return nil }
+            return ParsedWorkbookRow(
+                division: first.division,
+                operationsOM: first.operationsOM,
+                storeNumber: first.storeNumber,
+                storeName: first.storeName,
+                recordedOn: first.recordedOn,
+                payload: payload,
+                textPayload: first.textPayload.filter { $0.key != "shopper_id" }
+            )
+        }
     }
 
     static func looksLikeStoreNumber(_ raw: String) -> Bool {

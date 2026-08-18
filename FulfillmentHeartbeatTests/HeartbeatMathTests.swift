@@ -108,6 +108,30 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(WorkbookParser.dateFromWeekID("202618"), "2026-04-27")
     }
 
+    func testPickPathOutlineUsesStoreTotalsAndConvertsShare() {
+        let csv = SampleMarket.templateCSV(for: .pickPath)
+        let rows = WorkbookParser.parseCSV(csv)
+        XCTAssertEqual(Set(rows.map(\.storeNumber)), Set(["4313", "1762", "3427"]))
+        XCTAssertFalse(rows.contains { $0.textPayload["shopper_id"] != nil })
+        let portland = rows.first { $0.storeNumber == "4313" && $0.recordedOn == WorkbookParser.dateFromWeekID("202620") }
+        XCTAssertEqual(portland?.division, "Portland")
+        XCTAssertEqual(portland?.operationsOM, "JR Ehline")
+        XCTAssertEqual(portland?.textPayload["district"], "73")
+        XCTAssertEqual(portland?.payload["compliance_pct"] ?? 0, 89.07, accuracy: 0.02)
+        XCTAssertEqual(portland?.payload["orders"], 411)
+        XCTAssertEqual(portland?.payload["pph"] ?? 0, 91.9, accuracy: 0.05)
+        XCTAssertEqual(rows.filter { $0.storeNumber == "4313" }.count, 2)
+    }
+
+    func testPickPathHealthBands() {
+        let good = MetricRow(section: .pickPath, division: "Portland", operationsOM: "A", storeNumber: "1", payload: ["compliance_pct": 96])
+        let watch = MetricRow(section: .pickPath, division: "Portland", operationsOM: "A", storeNumber: "2", payload: ["compliance_pct": 90])
+        let risk = MetricRow(section: .pickPath, division: "Portland", operationsOM: "A", storeNumber: "3", payload: ["compliance_pct": 80])
+        XCTAssertEqual(HeartbeatMath.health(for: .pickPath, row: good), .good)
+        XCTAssertEqual(HeartbeatMath.health(for: .pickPath, row: watch), .watch)
+        XCTAssertEqual(HeartbeatMath.health(for: .pickPath, row: risk), .risk)
+    }
+
     func testEmptyCellsDoNotShiftStoreAndOM() {
         let xml = """
         <worksheet><sheetData>

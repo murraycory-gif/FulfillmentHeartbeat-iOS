@@ -25,6 +25,8 @@ struct SectionDetailView: View {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 12)], spacing: 12) {
                     if section == .pph {
                         pphStatusTiles
+                    } else if section == .pickPath {
+                        pickPathStatusTiles
                     } else {
                         HubCard {
                             VStack(alignment: .leading, spacing: 8) {
@@ -145,6 +147,21 @@ struct SectionDetailView: View {
         KpiTile(label: "Goal", value: "80.0", tone: .brand)
         KpiTile(label: "At goal", value: HeartbeatFormat.num(Double(atGoal)), tone: .good)
         KpiTile(label: "Below 74", value: HeartbeatFormat.num(Double(atRisk)), tone: .risk)
+        KpiTile(label: "Week", value: week)
+    }
+
+    @ViewBuilder
+    private var pickPathStatusTiles: some View {
+        let rows = snapshots
+        let atGoal = rows.filter { ($0.number("compliance_pct") ?? 0) >= HeartbeatMath.pickPathGoal }.count
+        let atRisk = rows.filter { ($0.number("compliance_pct") ?? .greatestFiniteMagnitude) < HeartbeatMath.pickPathRisk }.count
+        let orders = rows.reduce(0) { $0 + ($1.number("orders") ?? $1.number("picks_total") ?? 0) }
+        let week = rows.compactMap(\.recordedOn).sorted().last ?? "—"
+        KpiTile(label: "Avg compliance", value: summary.headlineText, hint: summary.health.label, tone: tone(for: summary.health))
+        KpiTile(label: "Goal", value: "95%", tone: .brand)
+        KpiTile(label: "At goal", value: HeartbeatFormat.num(Double(atGoal)), tone: .good)
+        KpiTile(label: "Below 88%", value: HeartbeatFormat.num(Double(atRisk)), tone: .risk)
+        KpiTile(label: "Orders", value: HeartbeatFormat.num(orders))
         KpiTile(label: "Week", value: week)
     }
 

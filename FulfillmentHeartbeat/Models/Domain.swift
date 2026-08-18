@@ -38,7 +38,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
     var blurb: String {
         switch self {
         case .fiveStar: return "Composite star rating and the four drivers behind it."
-        case .pickPath: return "Share of picks that followed the system path."
+        case .pickPath: return "Share of picks that followed the system path. Upload the All Pickers WEEK_ID export."
         case .prepNotReady: return "Orders not staged by the promised ready time."
         case .dynacap: return "Pickup and delivery capacity versus recommended."
         case .scheduleQuality: return "How tightly the labor plan matches the work — efficiency, over, and under."
@@ -50,7 +50,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
     var expectedMetrics: String {
         switch self {
         case .fiveStar: return "Star Rating · OTP % · Fill Rate · Quality · CX"
-        case .pickPath: return "Compliance % · Picks Total · Picks Compliant · Exceptions"
+        case .pickPath: return "WEEK_ID · DIVISION · DISTRICT · OM · STORE_ID · EMPLOYEE · Pick Path · Orders · Pure PPH"
         case .prepNotReady: return "PNR Count · Orders Due · PNR Rate · Avg Late Min"
         case .dynacap: return "Pickup / Delivery capacity · Rec pickup / delivery"
         case .scheduleQuality: return "Schedule Efficiency · Over Scheduled · Under Scheduled"
@@ -256,7 +256,7 @@ enum HeartbeatMath {
         case .fiveStar:
             return band(row.number("star_rating"), good: 4.5, watch: 4.0)
         case .pickPath:
-            return band(row.number("compliance_pct"), good: 95, watch: 88)
+            return band(row.number("compliance_pct"), good: pickPathGoal, watch: pickPathRisk)
         case .prepNotReady:
             return band(row.number("pnr_rate_pct"), good: 2, watch: 5, invert: true)
         case .dynacap:
@@ -304,15 +304,17 @@ enum HeartbeatMath {
             )
         case .pickPath:
             let headline = average(latest.compactMap { $0.number("compliance_pct") })
+            let atGoal = latest.filter { ($0.number("compliance_pct") ?? 0) >= pickPathGoal }.count
+            let atRisk = latest.filter { ($0.number("compliance_pct") ?? .greatestFiniteMagnitude) < pickPathRisk }.count
             return SectionSummary(
                 section: section,
                 storeCount: latest.count,
                 headline: headline,
                 headlineLabel: "Avg compliance",
-                secondary: risk > 0
-                    ? "\(risk) store\(risk == 1 ? "" : "s") below 88%"
-                    : (latest.isEmpty ? "No stores in view" : "All stores at or above 88%"),
-                health: band(headline, good: 95, watch: 88),
+                secondary: latest.isEmpty
+                    ? "No stores in view"
+                    : "\(atGoal) of \(latest.count) at 95% · \(atRisk) below 88%",
+                health: band(headline, good: pickPathGoal, watch: pickPathRisk),
                 watchCount: watch,
                 riskCount: risk,
                 lastFilename: upload?.filename,
@@ -411,6 +413,8 @@ enum HeartbeatMath {
 
     static let pphGoal = 80.0
     static let pphRisk = 74.0
+    static let pickPathGoal = 95.0
+    static let pickPathRisk = 88.0
 
     static func pphHealth(_ row: MetricRow) -> Health {
         band(row.number("pph"), good: pphGoal, watch: pphRisk)
@@ -601,9 +605,29 @@ struct StoreCellViewModel {
                 extra: "OTP \(HeartbeatFormat.pct(row.number("otp_pct"))) · Fill \(HeartbeatFormat.pct(row.number("fill_rate_pct")))"
             )
         case .pickPath:
+            let compliance = row.number("compliance_pct")
+            let gap = compliance.map { $0 - HeartbeatMath.pickPathGoal }
+            let gapText: String
+            if let gap {
+                gapText = gap >= 0
+                    ? "+\(HeartbeatFormat.num(gap, digits: 1)) vs 95"
+                    : "\(HeartbeatFormat.num(gap, digits: 1)) vs 95"
+            } else {
+                gapText = "Goal 95%"
+            }
+            let orders = row.number("orders") ?? row.number("picks_total")
+            let pph = row.number("pph")
+            let extra: String
+            if let orders, let pph {
+                extra = "\(gapText) · \(HeartbeatFormat.num(orders)) orders · PPH \(HeartbeatFormat.num(pph, digits: 1))"
+            } else if let orders {
+                extra = "\(gapText) · \(HeartbeatFormat.num(orders)) orders"
+            } else {
+                extra = gapText
+            }
             return StoreCellViewModel(
-                primary: HeartbeatFormat.pct(row.number("compliance_pct")),
-                extra: "\(HeartbeatFormat.num(row.number("picks_compliant"))) / \(HeartbeatFormat.num(row.number("picks_total"))) picks"
+                primary: HeartbeatFormat.pct(compliance),
+                extra: extra
             )
         case .prepNotReady:
             return StoreCellViewModel(

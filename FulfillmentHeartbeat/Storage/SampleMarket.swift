@@ -193,8 +193,12 @@ enum SampleMarket {
             """
         case .pickPath:
             return """
-            Division,Operations OM,Store Number,Store Name,Date,Compliance %,Picks Total,Picks Compliant,Exceptions
-            10,A. Brooks,1487,Chicago Pulaski,2026-08-17,94.2,430,405,25
+            WEEK_ID,,,,,,202620,202620,202620,202621,202621,202621
+            DIVISION,DISTRICT,OM_AREA,OM_ID,STORE_ID,EMPLOYEE_ALTERNATE_ID,Pick Path Compliance,Orders,Pure PPH (excluding Reshop),Pick Path Compliance,Orders,Pure PPH (excluding Reshop)
+            Portland,73,Portland 2,JR Ehline,4313,Total,0.8907,411,91.9,0.8889,462,93.8
+            Portland,73,Portland 2,JR Ehline,4313,RPAL114,0.9885,23,106.5,0.9474,22,113.3
+            Portland,73,Portland 2,JR Ehline,1762,Total,0.8979,517,97.2,0.8906,602,94.8
+            Haggen,39,Haggen 1,Luke Lomas,3427,Total,0.9610,288,88.4,0.9540,301,87.1
             """
         case .prepNotReady:
             return """
