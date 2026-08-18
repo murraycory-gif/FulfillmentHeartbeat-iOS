@@ -16,6 +16,7 @@ final class HeartbeatStore: ObservableObject {
     @Published var lastImportedSection: MetricSection? = nil
     @Published var isImporting = false
     @Published var importLabel: String?
+    @Published private(set) var isReady = false
 
     private let fileManager: FileManager
     private let snapshotURL: URL
@@ -600,6 +601,7 @@ final class HeartbeatStore: ObservableObject {
         guard fileManager.fileExists(atPath: snapshotURL.path) else {
             rebuildIndex()
             applyFilters()
+            isReady = true
             return
         }
         let url = snapshotURL
@@ -609,12 +611,21 @@ final class HeartbeatStore: ObservableObject {
                 let decoder = JSONDecoder()
                 decoder.dateDecodingStrategy = .iso8601
                 let decoded = try decoder.decode(HeartbeatSnapshot.self, from: data)
+                let caches = PulseCaches.build(rows: decoded.rows, filters: decoded.filters, uploads: decoded.uploads)
                 await MainActor.run {
-                    self.hydrate(decoded)
+                    self.hydrating = true
+                    self.rows = decoded.rows
+                    self.uploads = decoded.uploads.sorted { $0.uploadedAt > $1.uploadedAt }
+                    self.seeded = decoded.seeded
+                    self.filters = decoded.filters
+                    self.install(caches)
+                    self.hydrating = false
+                    self.isReady = true
                 }
             } catch {
                 await MainActor.run {
                     self.errorMessage = "Could not load saved pulse: \(error.localizedDescription)"
+                    self.isReady = true
                 }
             }
         }
@@ -629,6 +640,22 @@ final class HeartbeatStore: ObservableObject {
         hydrating = false
         rebuildIndex()
         applyFilters()
+        isReady = true
+    }
+
+    private func install(_ caches: PulseCaches) {
+        latestBySection = caches.latestBySection
+        roster = caches.roster
+        filteredLatest = caches.filteredLatest
+        filteredMarket = caches.filteredMarket
+        cachedDivisions = caches.cachedDivisions
+        cachedDistricts = caches.cachedDistricts
+        cachedOMs = caches.cachedOMs
+        cachedStores = caches.cachedStores
+        cachedSummaries = caches.cachedSummaries
+        cachedPickerBoard = caches.cachedPickerBoard
+        cachedChecklistGroups = caches.cachedChecklistGroups
+        objectWillChange.send()
     }
 
     private func persist() {
@@ -674,6 +701,204 @@ final class HeartbeatStore: ObservableObject {
                 try data.write(to: url, options: [.atomic])
             } catch {}
         }
+    }
+}
+
+private struct PulseCaches {
+    var latestBySection: [MetricSection: [MetricRow]]
+    var roster: [String: HeartbeatMath.StoreIdentity]
+    var filteredLatest: [MetricSection: [MetricRow]]
+    var filteredMarket: [HeartbeatMath.MarketStore]
+    var cachedDivisions: [String]
+    var cachedDistricts: [String]
+    var cachedOMs: [String]
+    var cachedStores: [(number: String, name: String?)]
+    var cachedSummaries: [SectionSummary]
+    var cachedPickerBoard: HeartbeatMath.PickerBoard
+    var cachedChecklistGroups: [MetricSection: [ChecklistDriverGroup]]
+
+    static func build(rows: [MetricRow], filters: DashboardFilters, uploads: [UploadRecord]) -> PulseCaches {
+        let identitySource = rows.filter {
+            $0.section != .scheduleQuality && $0.section != .dynacap && $0.section != .pickerScorecard
+        }
+        let roster = HeartbeatMath.storeRoster(
+            identitySource.isEmpty ? rows.filter { $0.section != .pickerScorecard } : identitySource
+        )
+        var latest: [MetricSection: [MetricRow]] = [:]
+        for section in MetricSection.allCases {
+            let sectionRows = rows.filter { $0.section == section }
+            if section == .dynacap {
+                latest[section] = HeartbeatMath.materializeDistrictMetric(sectionRows, roster: roster)
+            } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady {
+                latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(sectionRows), roster: roster)
+            } else if section == .pickerScorecard {
+                latest[section] = HeartbeatMath.latestPerShopper(sectionRows)
+            } else {
+                latest[section] = HeartbeatMath.latestPerStore(sectionRows)
+            }
+        }
+        return refilter(latest: latest, roster: roster, filters: filters, uploads: uploads)
+    }
+
+    static func refilter(
+        latest: [MetricSection: [MetricRow]],
+        roster: [String: HeartbeatMath.StoreIdentity],
+        filters: DashboardFilters,
+        uploads: [UploadRecord]
+    ) -> PulseCaches {
+        let universe = MetricSection.allCases
+            .filter { $0 != .pickerScorecard }
+            .flatMap { latest[$0] ?? [] }
+        var nextLatest: [MetricSection: [MetricRow]] = [:]
+        for section in MetricSection.allCases where section != .pickerScorecard {
+            nextLatest[section] = HeartbeatMath.filtered(
+                latest[section] ?? [],
+                division: filters.division,
+                district: filters.district,
+                om: filters.om,
+                store: filters.store,
+                relaxUnknown: false,
+                universe: universe
+            )
+        }
+        let pickers = latest[.pickerScorecard] ?? []
+        if let allowed = pickerStoreSet(roster: roster, filters: filters) {
+            nextLatest[.pickerScorecard] = pickers.filter { allowed.contains(HeartbeatMath.canonicalStore($0.storeNumber)) }
+        } else {
+            nextLatest[.pickerScorecard] = pickers
+        }
+        let pickerBoard = HeartbeatMath.pickerBoard(nextLatest[.pickerScorecard] ?? [])
+        let market = HeartbeatMath.marketBoard(
+            universe,
+            division: filters.division,
+            district: filters.district,
+            om: filters.om,
+            store: filters.store
+        )
+        let districts = roster.values
+            .filter { filters.division.isEmpty || HeartbeatMath.matches($0.division, filters.division) }
+            .map(\.district)
+            .filter { !$0.isEmpty }
+            .uniqued()
+            .sorted()
+        let oms = roster.values
+            .filter { filters.division.isEmpty || HeartbeatMath.matches($0.division, filters.division) }
+            .filter { filters.district.isEmpty || HeartbeatMath.matches($0.district, filters.district) }
+            .map(\.om)
+            .filter { value in !value.isEmpty && value.rangeOfCharacter(from: .letters) != nil }
+            .uniqued()
+            .sorted()
+        var seen: [String: String?] = [:]
+        for (number, identity) in roster {
+            if !filters.division.isEmpty, !HeartbeatMath.matches(identity.division, filters.division) { continue }
+            if !filters.district.isEmpty, !HeartbeatMath.matches(identity.district, filters.district) { continue }
+            if !filters.om.isEmpty, !HeartbeatMath.matches(identity.om, filters.om) { continue }
+            if seen[number] == nil { seen[number] = identity.name }
+        }
+        let stores = seen.keys.sorted(by: HeartbeatFormat.storeOrder).map { ($0, seen[$0] ?? nil) }
+        let summaries = MetricSection.dashboardCards.map { section -> SectionSummary in
+            var summary = HeartbeatMath.summarize(
+                section,
+                rows: nextLatest[section] ?? [],
+                upload: uploads.first { $0.section == section }
+            )
+            if summary.storeCount == 0, !market.isEmpty {
+                summary.secondary = "No \(section.short) data for \(market.count) stores in this filter"
+                summary.health = .none
+            }
+            return summary
+        }
+        return PulseCaches(
+            latestBySection: latest,
+            roster: roster,
+            filteredLatest: nextLatest,
+            filteredMarket: market,
+            cachedDivisions: roster.values.map(\.division).filter { !$0.isEmpty }.uniqued().sorted(),
+            cachedDistricts: districts,
+            cachedOMs: oms,
+            cachedStores: stores,
+            cachedSummaries: summaries,
+            cachedPickerBoard: pickerBoard,
+            cachedChecklistGroups: checklistGroups(from: nextLatest, roster: roster)
+        )
+    }
+
+    private static func pickerStoreSet(
+        roster: [String: HeartbeatMath.StoreIdentity],
+        filters: DashboardFilters
+    ) -> Set<String>? {
+        if filters.division.isEmpty, filters.district.isEmpty, filters.om.isEmpty, filters.store.isEmpty {
+            return nil
+        }
+        var allowed: Set<String> = []
+        for (number, identity) in roster {
+            if !filters.division.isEmpty, !HeartbeatMath.matches(identity.division, filters.division) { continue }
+            if !filters.district.isEmpty, !HeartbeatMath.matches(identity.district, filters.district) { continue }
+            if !filters.om.isEmpty, !HeartbeatMath.matches(identity.om, filters.om) { continue }
+            if !filters.store.isEmpty, !HeartbeatMath.matches(number, filters.store) { continue }
+            allowed.insert(number)
+        }
+        return allowed
+    }
+
+    private static func identity(
+        _ roster: [String: HeartbeatMath.StoreIdentity],
+        store: String
+    ) -> HeartbeatMath.StoreIdentity {
+        roster[HeartbeatMath.canonicalStore(store)]
+            ?? HeartbeatMath.StoreIdentity(division: "", district: "", om: "", name: nil)
+    }
+
+    private static func checklistGroups(
+        from latest: [MetricSection: [MetricRow]],
+        roster: [String: HeartbeatMath.StoreIdentity]
+    ) -> [MetricSection: [ChecklistDriverGroup]] {
+        var groups: [MetricSection: [ChecklistDriverGroup]] = [:]
+        for section in MetricSection.dashboardCards {
+            let rows = HeartbeatMath.topOpportunityStores(section: section, rows: latest[section] ?? [], limit: 10)
+            let items = rows.map { row -> ChecklistDriverItem in
+                let cell = StoreCellViewModel.make(section: section, row: row)
+                let health = HeartbeatMath.health(for: section, row: row)
+                let division = row.division.isEmpty ? identity(roster, store: row.storeNumber).division : row.division
+                return ChecklistDriverItem(
+                    id: "store-\(HeartbeatMath.canonicalStore(row.storeNumber))",
+                    title: "Store \(row.storeNumber)",
+                    subtitle: division.isEmpty ? "Store" : division,
+                    value: cell.primary,
+                    health: health
+                )
+            }
+            if !items.isEmpty {
+                groups[section] = [ChecklistDriverGroup(title: "Top \(items.count) opportunity stores", items: items)]
+            }
+        }
+        let pickerGroups = HeartbeatMath.topPickersByMetric(latest[.pickerScorecard] ?? [], limit: 10).map { board -> ChecklistDriverGroup in
+            ChecklistDriverGroup(
+                title: "Top \(board.rows.count) \(board.metric)",
+                items: board.rows.map { row in
+                    let division = row.division.isEmpty ? identity(roster, store: row.storeNumber).division : row.division
+                    let value: String
+                    switch board.metric {
+                    case "PPH": value = HeartbeatFormat.num(row.number("pph"), digits: 1)
+                    case "Presub": value = HeartbeatFormat.pct(row.number("presub_pct"))
+                    case "OTH": value = HeartbeatFormat.pct(row.number("oth5_pct"))
+                    case "COE": value = HeartbeatFormat.pct(row.number("coe_pct"))
+                    default: value = HeartbeatFormat.pct(row.number("ott_pct"))
+                    }
+                    return ChecklistDriverItem(
+                        id: "picker-\(board.metric)-\(row.shopperName)-\(HeartbeatMath.canonicalStore(row.storeNumber))",
+                        title: row.shopperName,
+                        subtitle: "\(row.storeNumber)\(division.isEmpty ? "" : " · \(division)")",
+                        value: value,
+                        health: HeartbeatMath.pickerHealth(row)
+                    )
+                }
+            )
+        }
+        if !pickerGroups.isEmpty {
+            groups[.pickerScorecard] = pickerGroups
+        }
+        return groups
     }
 }
 

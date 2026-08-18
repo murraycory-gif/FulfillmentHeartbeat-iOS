@@ -9,48 +9,71 @@ struct DashboardView: View {
     var body: some View {
         List {
             Section {
-                VStack(alignment: .leading, spacing: 18) {
-                    header
-                    FilterBar()
-                    LazyVGrid(columns: columns, spacing: 16) {
-                        ForEach(store.summaries) { summary in
-                            SectionCard(summary: summary) {
-                                if sizeClass == .regular {
-                                    router.open(section: summary.section)
-                                } else {
-                                    pushedSection = summary.section
-                                }
-                            }
-                        }
-                    }
-                    FulfillmentChecklistCard()
-                    PickerScoreCard {
-                        if sizeClass == .regular {
-                            router.open(section: .pickerScorecard)
-                        } else {
-                            pushedSection = .pickerScorecard
-                        }
-                    }
-                    if !store.seeded {
-                        HubCard {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("No files yet")
-                                    .font(.headline)
-                                Text("Open Upload to drop in the section workbooks, including the picker score card — or load the sample market to see the pulse.")
-                                    .font(.subheadline)
-                                    .foregroundStyle(AppTheme.textSecondary)
-                                Button("Load sample market") {
-                                    store.loadSampleMarket()
-                                }
-                                .buttonStyle(SecondaryButtonStyle())
-                                .padding(.top, 4)
+                header
+                    .listRowInsets(EdgeInsets(top: 16, leading: 20, bottom: 8, trailing: 20))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(AppTheme.bg)
+            }
+            Section {
+                FilterBar()
+                    .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 8, trailing: 20))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(AppTheme.bg)
+            }
+            Section {
+                LazyVGrid(columns: columns, spacing: 16) {
+                    ForEach(store.summaries) { summary in
+                        SectionCard(summary: summary) {
+                            if sizeClass == .regular {
+                                router.open(section: summary.section)
+                            } else {
+                                pushedSection = summary.section
                             }
                         }
                     }
                 }
-                .listRowInsets(EdgeInsets(top: 20, leading: 20, bottom: 8, trailing: 20))
+                .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
                 .listRowSeparator(.hidden)
                 .listRowBackground(AppTheme.bg)
+            }
+            Section {
+                FulfillmentChecklistCard()
+                    .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(AppTheme.bg)
+            }
+            Section {
+                PickerScoreCard {
+                    if sizeClass == .regular {
+                        router.open(section: .pickerScorecard)
+                    } else {
+                        pushedSection = .pickerScorecard
+                    }
+                }
+                .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 16, trailing: 20))
+                .listRowSeparator(.hidden)
+                .listRowBackground(AppTheme.bg)
+            }
+            if !store.seeded {
+                Section {
+                    HubCard {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("No files yet")
+                                .font(.headline)
+                            Text("Open Upload to drop in the section workbooks, including the picker score card — or load the sample market to see the pulse.")
+                                .font(.subheadline)
+                                .foregroundStyle(AppTheme.textSecondary)
+                            Button("Load sample market") {
+                                store.loadSampleMarket()
+                            }
+                            .buttonStyle(SecondaryButtonStyle())
+                            .padding(.top, 4)
+                        }
+                    }
+                    .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 20, trailing: 20))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(AppTheme.bg)
+                }
             }
         }
         .listStyle(.plain)
@@ -81,7 +104,8 @@ struct DashboardView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .top) {
+        HStack(alignment: .center, spacing: 16) {
+            HubNavLogo(pulse: true, height: 56)
             VStack(alignment: .leading, spacing: 4) {
                 Text("Market pulse")
                     .font(.largeTitle.weight(.semibold))

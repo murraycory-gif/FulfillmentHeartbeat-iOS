@@ -171,18 +171,19 @@ struct HubIconButton: View {
 
 struct HubNavLogo: View {
     var pulse: Bool = false
+    var height: CGFloat = 40
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 8) {
             Image("HeartbeatMark")
                 .resizable()
                 .interpolation(.high)
                 .scaledToFit()
-                .frame(height: pulse ? 36 : 26)
+                .frame(height: height)
                 .accessibilityHidden(true)
             if pulse {
                 HeartbeatTrace()
-                    .frame(width: 260, height: 28)
+                    .frame(width: 220, height: max(28, height - 8))
                     .accessibilityHidden(true)
             }
         }
@@ -191,29 +192,31 @@ struct HubNavLogo: View {
 }
 
 struct HeartbeatTrace: View {
+    @Environment(\.scenePhase) private var scenePhase
+
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
+        TimelineView(.periodic(from: .now, by: scenePhase == .active ? 0.12 : 60)) { timeline in
             Canvas { context, size in
                 let path = Self.ecgPath(in: size)
                 context.stroke(
                     path,
-                    with: .color(AppTheme.blue.opacity(0.2)),
+                    with: .color(AppTheme.blue.opacity(0.18)),
                     style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
                 )
-
-                let cycle = 2.1
+                let cycle = 2.2
                 let t = CGFloat(timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: cycle) / cycle)
                 let head = t
-                let tail = max(0, t - 0.16)
+                let tail = max(0, t - 0.18)
                 if head > tail {
                     context.stroke(
                         path.trimmedPath(from: tail, to: head),
                         with: .color(AppTheme.blue),
-                        style: StrokeStyle(lineWidth: 3.2, lineCap: .round, lineJoin: .round)
+                        style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round)
                     )
                 }
             }
         }
+        .allowsHitTesting(false)
     }
 
     static func ecgPath(in size: CGSize) -> Path {
@@ -864,11 +867,11 @@ struct HubChromeModifier: ViewModifier {
                 }
             }
             .safeAreaInset(edge: .top, spacing: 0) {
-                HubNavLogo(pulse: true)
+                HubNavLogo(pulse: false, height: 44)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 20)
-                    .padding(.top, 10)
-                    .padding(.bottom, 6)
+                    .padding(.top, 14)
+                    .padding(.bottom, 10)
                     .background(AppTheme.bg)
             }
     }

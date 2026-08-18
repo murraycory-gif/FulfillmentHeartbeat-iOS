@@ -35,6 +35,8 @@
 	<dict>
 		<key>UIColorName</key>
 		<string>LaunchBackground</string>
+		<key>UIImageName</key>
+		<string>HeartbeatMark</string>
 	</dict>
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
