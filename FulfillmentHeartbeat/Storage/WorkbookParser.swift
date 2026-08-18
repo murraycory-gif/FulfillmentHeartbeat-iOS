@@ -1032,14 +1032,14 @@ final class ZipArchive {
             guard sig == 0x04034b50 else { return nil }
             let flags = u16(bytes, offset + 6)
             let method = u16(bytes, offset + 8)
-            var compSize = Int(u32(bytes, offset + 18))
-            var uncompSize = Int(u32(bytes, offset + 22))
+            let compSize = Int(u32(bytes, offset + 18))
+            let uncompSize = Int(u32(bytes, offset + 22))
             let nameLen = Int(u16(bytes, offset + 26))
             let extraLen = Int(u16(bytes, offset + 28))
             let nameStart = offset + 30
             guard nameStart + nameLen <= bytes.count else { return nil }
             let name = String(bytes: bytes[nameStart..<(nameStart + nameLen)], encoding: .utf8) ?? ""
-            var dataStart = nameStart + nameLen + extraLen
+            let dataStart = nameStart + nameLen + extraLen
             if flags & 0x08 != 0, compSize == 0 {
                 // Data descriptor — scan for next signature after payload (best effort).
                 if let next = nextLocalOrCentral(bytes, from: dataStart) {

@@ -122,7 +122,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func pickerFocusHealth(for focus: PickerFocus) -> Health {
-        pickerFocusHealth[focus] ?? .none
+        pickerFocusHealth[focus] ?? Health.none
     }
 
     func pickerPage(focus: PickerFocus, sort: PickerSort, ascending: Bool, limit: Int) -> [MetricRow] {
@@ -169,8 +169,8 @@ final class HeartbeatStore: ObservableObject {
         }
 
         func note(_ focus: PickerFocus, _ health: Health) {
-            let ranks: [Health: Int] = [.none: 0, .good: 1, .watch: 2, .risk: 3]
-            if (ranks[health] ?? 0) > (ranks[worst[focus] ?? .none] ?? 0) {
+            let ranks: [Health: Int] = [Health.none: 0, .good: 1, .watch: 2, .risk: 3]
+            if (ranks[health] ?? 0) > (ranks[worst[focus] ?? Health.none] ?? 0) {
                 worst[focus] = health
             }
         }
@@ -178,7 +178,7 @@ final class HeartbeatStore: ObservableObject {
         for (index, row) in pickers.enumerated() {
             guard HeartbeatMath.isRealPicker(row) else { continue }
             buckets[.all]?.append(index)
-            note(.all, .none)
+            note(.all, Health.none)
 
             let volume = HeartbeatMath.pickerHasVolume(row)
             let overall = HeartbeatMath.pickerHealth(row)
@@ -266,7 +266,7 @@ final class HeartbeatStore: ObservableObject {
         commentSaveTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 400_000_000)
             guard !Task.isCancelled else { return }
-            await self?.persistChecklist()
+            self?.persistChecklist()
         }
     }
 

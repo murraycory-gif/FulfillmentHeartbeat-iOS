@@ -72,22 +72,20 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
 
 final class HubRouter: ObservableObject {
     @Published var destination: HubDestination = .dashboard
-    @Published var columnVisibility: NavigationSplitViewVisibility = .detailOnly
+    @Published private(set) var sidebarNonce = 0
 
     var current: HubDestination { destination }
 
     func open(_ dest: HubDestination) {
         destination = dest
-        columnVisibility = .detailOnly
     }
 
     func open(section: MetricSection) {
         destination = .from(section: section)
-        columnVisibility = .detailOnly
     }
 
     func toggleSidebar() {
-        columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
+        sidebarNonce += 1
     }
 }
 
@@ -95,11 +93,12 @@ struct MainHubView: View {
     @EnvironmentObject private var store: HeartbeatStore
     @Environment(\.horizontalSizeClass) private var sizeClass
     @StateObject private var router = HubRouter()
+    @State private var columnVisibility: NavigationSplitViewVisibility = .detailOnly
 
     var body: some View {
         Group {
             if sizeClass == .regular {
-                NavigationSplitView(columnVisibility: $router.columnVisibility) {
+                NavigationSplitView(columnVisibility: $columnVisibility) {
                     sidebar
                         .navigationSplitViewColumnWidth(min: 240, ideal: 272, max: 320)
                 } detail: {
@@ -120,6 +119,12 @@ struct MainHubView: View {
             }
         }
         .environmentObject(router)
+        .onChange(of: router.destination) { _, _ in
+            columnVisibility = .detailOnly
+        }
+        .onChange(of: router.sidebarNonce) { _, _ in
+            columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
+        }
         .background(AppTheme.bg.ignoresSafeArea())
         .overlay {
             if store.isImporting {
