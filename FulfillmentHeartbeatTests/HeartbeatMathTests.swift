@@ -69,9 +69,17 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(summary.secondary.contains("1 of 2"))
     }
 
-    func testSampleMarketHasFourSections() {
+    func testSampleMarketHasFiveSections() {
         let rows = SampleMarket.rows()
-        XCTAssertEqual(Set(rows.map(\.section)).count, 4)
+        XCTAssertEqual(Set(rows.map(\.section)).count, 5)
         XCTAssertEqual(rows.filter { $0.section == .fiveStar }.count, SampleMarket.stores.count * SampleMarket.dates.count)
+        XCTAssertEqual(rows.filter { $0.section == .scheduleQuality }.count, SampleMarket.stores.count * SampleMarket.dates.count)
+    }
+
+    func testScheduleQualityBand() {
+        let good = MetricRow(section: .scheduleQuality, division: "10", operationsOM: "A", storeNumber: "1", payload: ["schedule_efficiency_pct": 96.2])
+        let risk = MetricRow(section: .scheduleQuality, division: "10", operationsOM: "A", storeNumber: "2", payload: ["schedule_efficiency_pct": 81.0])
+        XCTAssertEqual(HeartbeatMath.health(for: .scheduleQuality, row: good), .good)
+        XCTAssertEqual(HeartbeatMath.health(for: .scheduleQuality, row: risk), .risk)
     }
 }

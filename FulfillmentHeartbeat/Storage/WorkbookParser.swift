@@ -152,6 +152,16 @@ enum WorkbookParser {
         "pickuputilization": "pickup_util_pct",
         "deliveryutil": "delivery_util_pct",
         "deliveryutilization": "delivery_util_pct",
+        "scheduleefficiency": "schedule_efficiency_pct",
+        "scheduleeff": "schedule_efficiency_pct",
+        "efficiency": "schedule_efficiency_pct",
+        "schedefficiency": "schedule_efficiency_pct",
+        "overscheduled": "over_scheduled",
+        "oversched": "over_scheduled",
+        "overhours": "over_scheduled",
+        "underscheduled": "under_scheduled",
+        "undersched": "under_scheduled",
+        "underhours": "under_scheduled",
     ]
 
     private static func rows(from matrix: [[String]]) -> [ParsedWorkbookRow] {

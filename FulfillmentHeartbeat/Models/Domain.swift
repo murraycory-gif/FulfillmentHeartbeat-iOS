@@ -5,6 +5,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
     case pickPath = "pick_path"
     case prepNotReady = "prep_not_ready"
     case dynacap = "dynacap"
+    case scheduleQuality = "schedule_quality"
 
     var id: String { rawValue }
 
@@ -14,6 +15,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .pickPath: return "Pick Path Compliance"
         case .prepNotReady: return "Prep Not Ready"
         case .dynacap: return "Dynacap Setting"
+        case .scheduleQuality: return "Schedule Quality"
         }
     }
 
@@ -23,6 +25,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .pickPath: return "Pick Path"
         case .prepNotReady: return "Prep NR"
         case .dynacap: return "Dynacap"
+        case .scheduleQuality: return "Schedule"
         }
     }
 
@@ -32,6 +35,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .pickPath: return "Share of picks that followed the system path."
         case .prepNotReady: return "Orders not staged by the promised ready time."
         case .dynacap: return "Pickup and delivery capacity versus recommended."
+        case .scheduleQuality: return "How tightly the labor plan matches the work — efficiency, over, and under."
         }
     }
 
@@ -41,6 +45,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .pickPath: return "Compliance % · Picks Total · Picks Compliant · Exceptions"
         case .prepNotReady: return "PNR Count · Orders Due · PNR Rate · Avg Late Min"
         case .dynacap: return "Pickup / Delivery capacity · Rec pickup / delivery"
+        case .scheduleQuality: return "Schedule Efficiency · Over Scheduled · Under Scheduled"
         }
     }
 
@@ -50,6 +55,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .pickPath: return "point.topleft.down.to.point.bottomright.curvepath"
         case .prepNotReady: return "shippingbox"
         case .dynacap: return "slider.horizontal.3"
+        case .scheduleQuality: return "calendar.badge.clock"
         }
     }
 }
@@ -190,6 +196,8 @@ enum HeartbeatMath {
         case .dynacap:
             guard let aligned = dynacapAligned(row) else { return .watch }
             return aligned ? .good : .risk
+        case .scheduleQuality:
+            return band(row.number("schedule_efficiency_pct"), good: 95, watch: 88)
         }
     }
 
@@ -272,6 +280,24 @@ enum HeartbeatMath {
                 lastFilename: upload?.filename,
                 lastUploadedAt: upload?.uploadedAt
             )
+        case .scheduleQuality:
+            let headline = average(latest.compactMap { $0.number("schedule_efficiency_pct") })
+            let over = latest.reduce(0) { $0 + ($1.number("over_scheduled") ?? 0) }
+            let under = latest.reduce(0) { $0 + ($1.number("under_scheduled") ?? 0) }
+            return SectionSummary(
+                section: section,
+                storeCount: latest.count,
+                headline: headline,
+                headlineLabel: "Avg schedule efficiency",
+                secondary: latest.isEmpty
+                    ? "No stores in view"
+                    : "\(Int(over.rounded())) over · \(Int(under.rounded())) under",
+                health: band(headline, good: 95, watch: 88),
+                watchCount: watch,
+                riskCount: risk,
+                lastFilename: upload?.filename,
+                lastUploadedAt: upload?.uploadedAt
+            )
         }
     }
 
@@ -312,6 +338,8 @@ enum HeartbeatMath {
                 } else {
                     value = nil
                 }
+            case .scheduleQuality:
+                value = row.number("schedule_efficiency_pct")
             }
             guard let value else { continue }
             buckets[date, default: []].append(value)
@@ -412,7 +440,10 @@ struct StoreCellViewModel {
                 primary: aligned == nil ? "—" : (aligned == true ? "Aligned" : "Off rec"),
                 extra: "PU \(HeartbeatFormat.num(row.number("pickup_capacity"))) / \(HeartbeatFormat.num(row.number("rec_pickup"))) · DL \(HeartbeatFormat.num(row.number("delivery_capacity"))) / \(HeartbeatFormat.num(row.number("rec_delivery")))"
             )
+        case .scheduleQuality:
+            return StoreCellViewModel(
+                primary: HeartbeatFormat.pct(row.number("schedule_efficiency_pct")),
+                extra: "Over \(HeartbeatFormat.num(row.number("over_scheduled"))) · Under \(HeartbeatFormat.num(row.number("under_scheduled")))"
+            )
         }
-    }
-}
 

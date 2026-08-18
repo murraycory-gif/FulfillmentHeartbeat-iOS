@@ -311,28 +311,20 @@ struct StoreTable: View {
 
 struct HubChromeModifier: ViewModifier {
     @EnvironmentObject private var router: HubRouter
-    @Environment(\.horizontalSizeClass) private var sizeClass
     var showBack: Bool
 
     func body(content: Content) -> some View {
         content
             .navigationBarTitleDisplayMode(.inline)
             .navigationTitle("")
+            .tint(AppTheme.blue)
             .toolbarBackground(AppTheme.bg, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
-            .toolbar(removing: .sidebarToggle)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    HStack(spacing: 8) {
-                        if sizeClass == .regular {
-                            HubIconButton(symbol: "sidebar.left", label: "Menu") {
-                                router.toggleSidebar()
-                            }
-                        }
-                        if showBack {
-                            HubIconButton(symbol: "chevron.left", label: "Dashboard") {
-                                router.open(.dashboard)
-                            }
+                if showBack {
+                    ToolbarItem(placement: .topBarLeading) {
+                        HubIconButton(symbol: "chevron.left", label: "Dashboard") {
+                            router.open(.dashboard)
                         }
                     }
                 }

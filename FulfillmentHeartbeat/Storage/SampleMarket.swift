@@ -105,6 +105,23 @@ enum SampleMarket {
                         "delivery_util_pct": clamp(74 + jitter(index + 9, 16), 48, 99).rounded(1),
                     ]
                 ))
+
+                let efficiency = clamp(91 + jitter(index + 21, 8) + Double(week) * 0.5, 78, 99.4)
+                let over = max(0, (6 + jitter(index + 27, 8)).rounded())
+                let under = max(0, (4 + jitter(index + 33, 6)).rounded())
+                out.append(MetricRow(
+                    section: .scheduleQuality,
+                    division: store.division,
+                    operationsOM: store.om,
+                    storeNumber: store.store,
+                    storeName: store.name,
+                    recordedOn: date,
+                    payload: [
+                        "schedule_efficiency_pct": efficiency.rounded(1),
+                        "over_scheduled": over,
+                        "under_scheduled": under,
+                    ]
+                ))
             }
         }
         return out
@@ -131,6 +148,11 @@ enum SampleMarket {
             return """
             Division,Operations OM,Store Number,Store Name,Date,Pickup Capacity,Delivery Capacity,Rec Pickup,Rec Delivery,Pickup Util %,Delivery Util %
             10,A. Brooks,1487,Chicago Pulaski,2026-08-17,36,20,36,20,81.0,76.0
+            """
+        case .scheduleQuality:
+            return """
+            Division,Operations OM,Store Number,Store Name,Date,Schedule Efficiency %,Over Scheduled,Under Scheduled
+            10,A. Brooks,1487,Chicago Pulaski,2026-08-17,94.6,4,2
             """
         }
     }

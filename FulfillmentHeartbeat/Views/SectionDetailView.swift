@@ -105,6 +105,12 @@ struct SectionDetailView: View {
                 ("Pickup util", HeartbeatFormat.pct(avg("pickup_util_pct"))),
                 ("Delivery util", HeartbeatFormat.pct(avg("delivery_util_pct"))),
             ]
+        case .scheduleQuality:
+            return [
+                ("Efficiency", HeartbeatFormat.pct(avg("schedule_efficiency_pct"))),
+                ("Over scheduled", HeartbeatFormat.num(rows.reduce(0) { $0 + ($1.number("over_scheduled") ?? 0) })),
+                ("Under scheduled", HeartbeatFormat.num(rows.reduce(0) { $0 + ($1.number("under_scheduled") ?? 0) })),
+            ]
         }
     }
 }

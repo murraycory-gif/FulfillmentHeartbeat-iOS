@@ -7,6 +7,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
     case pickPath
     case prepNotReady
     case dynacap
+    case scheduleQuality
 
     var id: String { rawValue }
 
@@ -18,6 +19,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         case .pickPath: return MetricSection.pickPath.title
         case .prepNotReady: return MetricSection.prepNotReady.title
         case .dynacap: return MetricSection.dynacap.title
+        case .scheduleQuality: return MetricSection.scheduleQuality.title
         }
     }
 
@@ -29,6 +31,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         case .pickPath: return MetricSection.pickPath.symbol
         case .prepNotReady: return MetricSection.prepNotReady.symbol
         case .dynacap: return MetricSection.dynacap.symbol
+        case .scheduleQuality: return MetricSection.scheduleQuality.symbol
         }
     }
 
@@ -38,6 +41,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         case .pickPath: return .pickPath
         case .prepNotReady: return .prepNotReady
         case .dynacap: return .dynacap
+        case .scheduleQuality: return .scheduleQuality
         default: return nil
         }
     }
@@ -48,11 +52,12 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         case .pickPath: return .pickPath
         case .prepNotReady: return .prepNotReady
         case .dynacap: return .dynacap
+        case .scheduleQuality: return .scheduleQuality
         }
     }
 
     static var primaryTabs: [HubDestination] { [.dashboard, .upload] }
-    static var metricItems: [HubDestination] { [.fiveStar, .pickPath, .prepNotReady, .dynacap] }
+    static var metricItems: [HubDestination] { [.fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality] }
 }
 
 final class HubRouter: ObservableObject {
@@ -89,6 +94,7 @@ struct MainHubView: View {
                     detail
                 }
                 .navigationSplitViewStyle(.balanced)
+                .tint(AppTheme.blue)
             } else {
                 TabView(selection: tabSelection) {
                     NavigationStack { DashboardView() }
@@ -135,11 +141,6 @@ struct MainHubView: View {
             ToolbarItem(placement: .principal) {
                 HubNavLogo()
             }
-            ToolbarItem(placement: .topBarTrailing) {
-                HubIconButton(symbol: "sidebar.left", label: "Menu") {
-                    router.toggleSidebar()
-                }
-            }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             Text("MARKET OPERATIONS")
@@ -184,7 +185,7 @@ struct MainHubView: View {
             DashboardView().hubChrome()
         case .upload:
             UploadView().hubChrome(showBack: true)
-        case .fiveStar, .pickPath, .prepNotReady, .dynacap:
+        case .fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality:
             if let section = dest.section {
                 SectionDetailView(section: section).hubChrome(showBack: true)
             }
