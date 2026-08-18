@@ -1082,27 +1082,28 @@ struct FulfillmentChecklistCard: View {
                     Circle()
                         .fill(headlineColor(summary.health))
                         .frame(width: 8, height: 8)
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 6) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack(spacing: 8) {
                             Text(section.short)
-                                .font(.subheadline.weight(.semibold))
+                                .font(.headline)
                                 .foregroundStyle(AppTheme.text)
                             HealthBadge(health: summary.health)
                         }
                         if !isOpen {
                             Text(previewLine(for: items))
-                                .font(.caption)
+                                .font(.subheadline)
                                 .foregroundStyle(AppTheme.textSecondary)
                                 .lineLimit(1)
                         }
                     }
                     Spacer()
                     Text(summary.headlineText)
-                        .font(.headline.monospacedDigit())
+                        .font(.title2.weight(.bold).monospacedDigit())
                         .foregroundStyle(headlineColor(summary.health))
                     Image(systemName: isOpen ? "chevron.up" : "chevron.down")
-                        .font(.caption.weight(.semibold))
+                        .font(.subheadline.weight(.semibold))
                         .foregroundStyle(AppTheme.textTertiary)
+                        .frame(width: 28, height: 28)
                 }
             }
             .buttonStyle(.plain)
@@ -1119,7 +1120,7 @@ struct FulfillmentChecklistCard: View {
                 }
             }
         }
-        .padding(12)
+        .padding(14)
         .background(
             RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
                 .fill(sectionWash(summary.health))
@@ -1133,26 +1134,28 @@ struct FulfillmentChecklistCard: View {
     private func issueRow(_ item: ChecklistDriverItem, section: MetricSection, rank: Int) -> some View {
         let action = store.checklistItem(for: item, section: section)
         let showComment = commentingID == item.id || !action.comment.isEmpty
-        return VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
+        return VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .center, spacing: 12) {
                 Text("\(rank)")
-                    .font(.caption.weight(.bold).monospacedDigit())
-                    .foregroundStyle(AppTheme.textTertiary)
-                    .frame(width: 16)
-                VStack(alignment: .leading, spacing: 1) {
+                    .font(.subheadline.weight(.bold).monospacedDigit())
+                    .foregroundStyle(AppTheme.blue)
+                    .frame(width: 32, height: 32)
+                    .background(AppTheme.blueSoft, in: Circle())
+                VStack(alignment: .leading, spacing: 2) {
                     Text(item.title)
-                        .font(.subheadline.weight(.semibold))
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(AppTheme.text)
                     Text(item.subtitle)
-                        .font(.caption)
+                        .font(.subheadline)
                         .foregroundStyle(AppTheme.textSecondary)
                 }
-                .frame(minWidth: 110, alignment: .leading)
+                .frame(minWidth: 140, alignment: .leading)
                 Text(item.value)
-                    .font(.subheadline.weight(.bold).monospacedDigit())
+                    .font(.title2.weight(.bold).monospacedDigit())
                     .foregroundStyle(headlineColor(item.health))
-                    .frame(minWidth: 56, alignment: .trailing)
-                Spacer(minLength: 6)
-                HStack(spacing: 4) {
+                    .frame(minWidth: 72, alignment: .trailing)
+                Spacer(minLength: 8)
+                HStack(spacing: 8) {
                     ForEach([ChecklistStatus.addressed, .followUp, .notCovered]) { status in
                         statusChip(status, selected: action.status == status) {
                             store.setChecklistStatus(status, for: item, section: section)
@@ -1163,21 +1166,24 @@ struct FulfillmentChecklistCard: View {
                     withAnimation { commentingID = showComment && commentingID == item.id ? nil : item.id }
                 } label: {
                     Image(systemName: action.comment.isEmpty ? "text.bubble" : "text.bubble.fill")
-                        .font(.caption.weight(.semibold))
+                        .font(.body.weight(.semibold))
                         .foregroundStyle(action.comment.isEmpty ? AppTheme.textTertiary : AppTheme.blue)
+                        .frame(width: 44, height: 44)
+                        .background(AppTheme.blueSoft.opacity(action.comment.isEmpty ? 0.45 : 1), in: Circle())
                 }
                 .buttonStyle(.plain)
             }
             if showComment {
                 TextField("Note for follow up", text: commentBinding(item, section: section), axis: .vertical)
                     .textFieldStyle(.plain)
-                    .font(.subheadline)
-                    .lineLimit(1...3)
-                    .padding(8)
-                    .background(AppTheme.card, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .font(.body)
+                    .lineLimit(1...4)
+                    .padding(12)
+                    .background(AppTheme.bg, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
         }
-        .padding(.vertical, 4)
+        .padding(14)
+        .background(AppTheme.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private func sectionWash(_ health: Health) -> Color {
@@ -1201,9 +1207,9 @@ struct FulfillmentChecklistCard: View {
     private func statusChip(_ status: ChecklistStatus, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(status.shortLabel)
-                .font(.caption2.weight(.semibold))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
+                .font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 14)
+                .frame(minHeight: 44)
                 .foregroundStyle(selected ? .white : chipColor(status))
                 .background(
                     Capsule(style: .continuous)
