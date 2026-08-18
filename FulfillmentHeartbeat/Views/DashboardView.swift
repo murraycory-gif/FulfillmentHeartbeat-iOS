@@ -131,7 +131,7 @@ struct SectionCard: View {
                         }
                         Text(summary.headlineText)
                             .font(.system(size: 36, weight: .semibold, design: .rounded).monospacedDigit())
-                            .foregroundStyle(AppTheme.text)
+                            .foregroundStyle(ink)
                         Text(summary.headlineLabel)
                             .font(.subheadline)
                             .foregroundStyle(AppTheme.textSecondary)
@@ -151,22 +151,49 @@ struct SectionCard: View {
                     Spacer()
                     Image(systemName: "arrow.up.right")
                         .font(.body.weight(.semibold))
-                        .foregroundStyle(AppTheme.blue)
+                        .foregroundStyle(ink)
                         .frame(width: 40, height: 40)
-                        .background(AppTheme.blueSoft, in: RoundedRectangle(cornerRadius: AppTheme.radiusS, style: .continuous))
+                        .background(Color.white.opacity(0.65), in: RoundedRectangle(cornerRadius: AppTheme.radiusS, style: .continuous))
                 }
             }
             .padding(20)
             .background(
                 RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                    .fill(AppTheme.card)
+                    .fill(fill)
                     .overlay(
                         RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                            .stroke(AppTheme.cardBorder, lineWidth: 1)
+                            .stroke(stroke, lineWidth: 1)
                     )
             )
         }
         .buttonStyle(.plain)
+    }
+
+    private var fill: Color {
+        switch summary.health {
+        case .good: return AppTheme.okSoft
+        case .watch: return AppTheme.warnSoft
+        case .risk: return AppTheme.badSoft
+        case .none: return AppTheme.card
+        }
+    }
+
+    private var stroke: Color {
+        switch summary.health {
+        case .good: return AppTheme.ok.opacity(0.28)
+        case .watch: return AppTheme.warn.opacity(0.28)
+        case .risk: return AppTheme.bad.opacity(0.28)
+        case .none: return AppTheme.cardBorder
+        }
+    }
+
+    private var ink: Color {
+        switch summary.health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.blue
+        }
     }
 
     private var justUpdated: Bool {
