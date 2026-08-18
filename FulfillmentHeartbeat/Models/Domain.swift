@@ -37,7 +37,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
 
     var blurb: String {
         switch self {
-        case .fiveStar: return "Composite star rating and the four drivers behind it."
+        case .fiveStar: return "Store-level star rating from Flash, Presubs, COE, OTT, and OTH5. Upload Star Ratings by Store."
         case .pickPath: return "Share of picks that followed the system path. Upload the All Pickers WEEK_ID export."
         case .prepNotReady: return "Orders not staged by the promised ready time."
         case .dynacap: return "Pieces per hour we allow down to the picker. Upload the Overall Capacity Summary."
@@ -49,7 +49,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
 
     var expectedMetrics: String {
         switch self {
-        case .fiveStar: return "Star Rating · OTP % · Fill Rate · Quality · CX"
+        case .fiveStar: return "Store · Division · OM · District · Total Rating · Flash · Presubs · COE · OTT · OTH5"
         case .pickPath: return "WEEK_ID · DIVISION · DISTRICT · OM · STORE_ID · EMPLOYEE · Pick Path · Orders · Pure PPH"
         case .prepNotReady: return "PNR Count · Orders Due · PNR Rate · Avg Late Min"
         case .dynacap: return "DISTRICT · Total Pieces/Total Hrs · DPA Dynacap · Utilization %"
@@ -464,7 +464,7 @@ enum HeartbeatMath {
     static func health(for section: MetricSection, row: MetricRow) -> Health {
         switch section {
         case .fiveStar:
-            return band(row.number("star_rating"), good: 4.5, watch: 4.0)
+            return fiveStarHealth(row)
         case .pickPath:
             guard row.number("compliance_pct") != nil else { return .none }
             return band(row.number("compliance_pct"), good: pickPathGoal, watch: pickPathRisk)
@@ -504,13 +504,17 @@ enum HeartbeatMath {
         case .fiveStar:
             let headline = average(latest.compactMap { $0.number("star_rating") })
             let five = latest.filter { ($0.number("star_rating") ?? 0) >= 4.95 }.count
+            let pass = latest.filter { ($0.number("star_rating") ?? 0) >= fiveStarPass }.count
+            let fail = latest.filter { ($0.number("star_rating") ?? .greatestFiniteMagnitude) < fiveStarPass }.count
             return SectionSummary(
                 section: section,
                 storeCount: latest.count,
                 headline: headline,
                 headlineLabel: "Avg star rating",
-                secondary: latest.isEmpty ? "No stores in view" : "\(five) of \(latest.count) at 5.00",
-                health: band(headline, good: 4.5, watch: 4.0),
+                secondary: latest.isEmpty
+                    ? "No 5 Star rows in this filter"
+                    : "\(five) of \(latest.count) at 5.00 · \(pass) pass · \(fail) fail",
+                health: latest.isEmpty ? .none : band(headline, good: 4.5, watch: fiveStarPass),
                 watchCount: watch,
                 riskCount: risk,
                 lastFilename: upload?.filename,
@@ -636,6 +640,75 @@ enum HeartbeatMath {
     static let scheduleGoal = 90.0
     static let scheduleWatch = 85.0
     static let scheduleVarianceWatch = 5.0
+    static let fiveStarGoal = 5.0
+    static let fiveStarPass = 4.0
+
+    enum StarMark: Double {
+        case none = 0
+        case half = 0.5
+        case full = 1
+
+        var health: Health {
+            switch self {
+            case .full: return .good
+            case .half: return .watch
+            case .none: return .risk
+            }
+        }
+
+        var label: String {
+            switch self {
+            case .full: return "Full"
+            case .half: return "½"
+            case .none: return "None"
+            }
+        }
+    }
+
+    static func fiveStarHealth(_ row: MetricRow) -> Health {
+        band(row.number("star_rating"), good: 4.5, watch: fiveStarPass)
+    }
+
+    static func starMark(value: Double?, full: Double, half: Double, invert: Bool = false) -> StarMark {
+        guard let value else { return .none }
+        if invert {
+            if value < full { return .full }
+            if value <= half { return .half }
+            return .none
+        }
+        if value >= full { return .full }
+        if value >= half { return .half }
+        return .none
+    }
+
+    static func componentStar(_ row: MetricRow, starKey: String, pctKey: String, full: Double, half: Double, invert: Bool = false) -> StarMark {
+        if let star = row.number(starKey) {
+            if star >= 0.75 { return .full }
+            if star >= 0.25 { return .half }
+            return .none
+        }
+        return starMark(value: row.number(pctKey), full: full, half: half, invert: invert)
+    }
+
+    static func flashStar(_ row: MetricRow) -> StarMark {
+        componentStar(row, starKey: "flash_star", pctKey: "flash_pct", full: 75, half: 55)
+    }
+
+    static func presubStar(_ row: MetricRow) -> StarMark {
+        componentStar(row, starKey: "presub_star", pctKey: "presub_pct", full: 5, half: 6, invert: true)
+    }
+
+    static func coeStar(_ row: MetricRow) -> StarMark {
+        componentStar(row, starKey: "coe_star", pctKey: "coe_pct", full: 20, half: 0)
+    }
+
+    static func ottStar(_ row: MetricRow) -> StarMark {
+        componentStar(row, starKey: "ott_star", pctKey: "ott_pct", full: 95, half: 90)
+    }
+
+    static func othStar(_ row: MetricRow) -> StarMark {
+        componentStar(row, starKey: "oth5_star", pctKey: "oth5_pct", full: 92, half: 78)
+    }
 
     static func varianceHealth(_ pct: Double?) -> Health {
         guard let pct else { return .none }
@@ -839,9 +912,16 @@ struct StoreCellViewModel {
     static func make(section: MetricSection, row: MetricRow) -> StoreCellViewModel {
         switch section {
         case .fiveStar:
+            let parts = [
+                "Flash \(HeartbeatMath.flashStar(row).label)",
+                "Presub \(HeartbeatMath.presubStar(row).label)",
+                "COE \(HeartbeatMath.coeStar(row).label)",
+                "OTT \(HeartbeatMath.ottStar(row).label)",
+                "OTH \(HeartbeatMath.othStar(row).label)",
+            ]
             return StoreCellViewModel(
                 primary: HeartbeatFormat.stars(row.number("star_rating")),
-                extra: "OTP \(HeartbeatFormat.pct(row.number("otp_pct"))) · Fill \(HeartbeatFormat.pct(row.number("fill_rate_pct")))"
+                extra: parts.joined(separator: " · ")
             )
         case .pickPath:
             let compliance = row.number("compliance_pct")

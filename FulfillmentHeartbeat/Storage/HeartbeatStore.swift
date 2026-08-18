@@ -255,7 +255,7 @@ final class HeartbeatStore: ObservableObject {
             let sectionRows = rows.filter { $0.section == section }
             if section == .dynacap {
                 latest[section] = HeartbeatMath.materializeDistrictMetric(sectionRows, roster: roster)
-            } else if section == .scheduleQuality {
+            } else if section == .scheduleQuality || section == .fiveStar {
                 latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(sectionRows), roster: roster)
             } else if section == .pickerScorecard {
                 latest[section] = HeartbeatMath.latestPerShopper(sectionRows)

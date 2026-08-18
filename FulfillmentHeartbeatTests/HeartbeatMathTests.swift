@@ -92,4 +92,21 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(remapped["under_schedule_pct"] ?? 0, 6.1, accuracy: 0.05)
         XCTAssertEqual(remapped["over_schedule_pct"] ?? 0, 1.4, accuracy: 0.05)
     }
+
+    func testFiveStarFileParsesAndUsesPosterBands() {
+        let parsed = WorkbookParser.parseCSV(SampleMarket.templateCSV(for: .fiveStar))
+        XCTAssertEqual(Set(parsed.map(\.storeNumber)), Set(["1", "606"]))
+        let five = parsed.first { $0.storeNumber == "1" }!.asRow(section: .fiveStar)
+        let fail = parsed.first { $0.storeNumber == "606" }!.asRow(section: .fiveStar)
+        XCTAssertEqual(five.payload["star_rating"] ?? 0, 5, accuracy: 0.01)
+        XCTAssertEqual(five.payload["flash_pct"] ?? 0, 91, accuracy: 0.5)
+        XCTAssertEqual(five.payload["presub_pct"] ?? 0, 2.3, accuracy: 0.1)
+        XCTAssertEqual(HeartbeatMath.health(for: .fiveStar, row: five), .good)
+        XCTAssertEqual(HeartbeatMath.health(for: .fiveStar, row: fail), .risk)
+        XCTAssertEqual(HeartbeatMath.flashStar(five), .full)
+        XCTAssertEqual(HeartbeatMath.flashStar(fail), .none)
+        XCTAssertEqual(HeartbeatMath.presubStar(five), .full)
+        XCTAssertEqual(HeartbeatMath.presubStar(fail), .none)
+        XCTAssertEqual(HeartbeatMath.ottStar(fail), .half)
+    }
 }

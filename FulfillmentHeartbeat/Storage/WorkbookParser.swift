@@ -109,6 +109,27 @@ enum WorkbookParser {
         "fivestar": "star_rating",
         "fivestars": "star_rating",
         "rating": "star_rating",
+        "totalrating": "star_rating",
+        "flashavailabilitymakeitconvenient": "flash_pct",
+        "flashavailability": "flash_pct",
+        "flash": "flash_pct",
+        "flashavailabilitystar": "flash_star",
+        "ottmakeitconvenient": "ott_pct",
+        "ott": "ott_pct",
+        "ottstar": "ott_star",
+        "presuboosgivemewhatiordered": "presub_pct",
+        "presuboos": "presub_pct",
+        "presub": "presub_pct",
+        "presuboosstar": "presub_star",
+        "coegivemewhatiordered": "coe_pct",
+        "coe": "coe_pct",
+        "coestar": "coe_star",
+        "oth5pleasanthandoff": "oth5_pct",
+        "oth5": "oth5_pct",
+        "oth": "oth5_pct",
+        "oth5star": "oth5_star",
+        "passrate40": "pass",
+        "passrate": "pass",
         "otp": "otp_pct",
         "otpct": "otp_pct",
         "ontime": "otp_pct",
@@ -387,7 +408,29 @@ enum WorkbookParser {
     private static func applyMetric(_ payload: inout [String: Double], header: String, value: Double) {
         var key = metricAliases[header] ?? header
         var number = value
-        if key.contains("underschedule") {
+        if key.contains("flash") && key.contains("star") {
+            key = "flash_star"
+        } else if key.contains("flash") {
+            key = "flash_pct"
+        } else if (key.contains("presub") || key.contains("presuboos")) && key.contains("star") {
+            key = "presub_star"
+        } else if key.contains("presub") || key.contains("presuboos") {
+            key = "presub_pct"
+        } else if key.contains("coe") && key.contains("star") {
+            key = "coe_star"
+        } else if key == "coe" || key.contains("coegiveme") {
+            key = "coe_pct"
+        } else if key.contains("ott") && key.contains("star") {
+            key = "ott_star"
+        } else if key == "ott" || key.contains("ottmake") {
+            key = "ott_pct"
+        } else if (key.contains("oth5") || key.hasPrefix("oth")) && key.contains("star") {
+            key = "oth5_star"
+        } else if key.contains("oth5") || key == "oth" {
+            key = "oth5_pct"
+        } else if key.contains("totalrating") {
+            key = "star_rating"
+        } else if key.contains("underschedule") {
             key = "under_schedule_pct"
         } else if key.contains("overschedule") {
             key = "over_schedule_pct"

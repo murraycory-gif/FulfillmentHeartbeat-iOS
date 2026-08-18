@@ -44,10 +44,11 @@ enum SampleMarket {
                     recordedOn: date,
                     payload: [
                         "star_rating": clamp(4.15 + jitter(index + 3, 0.7) + trend, 3.4, 5).rounded(2),
-                        "otp_pct": clamp(91 + jitter(index + 11, 7) + Double(week) * 0.6, 78, 99.4).rounded(1),
-                        "fill_rate_pct": clamp(93 + jitter(index + 19, 6) + Double(week) * 0.4, 82, 99.6).rounded(1),
-                        "quality_score": clamp(94 + jitter(index + 29, 5), 84, 99.5).rounded(1),
-                        "cx_score": clamp(88 + jitter(index + 41, 8) + Double(week) * 0.5, 72, 98).rounded(1),
+                        "flash_pct": clamp(78 + jitter(index + 11, 18), 40, 99).rounded(1),
+                        "ott_pct": clamp(93 + jitter(index + 17, 8), 82, 100).rounded(1),
+                        "presub_pct": clamp(3.4 + jitter(index + 21, 3.2), 0.8, 9.5).rounded(1),
+                        "coe_pct": clamp(28 + jitter(index + 27, 22), -8, 72).rounded(1),
+                        "oth5_pct": clamp(90 + jitter(index + 33, 10), 70, 100).rounded(1),
                     ]
                 ))
 
@@ -182,8 +183,9 @@ enum SampleMarket {
         switch section {
         case .fiveStar:
             return """
-            Division,Operations OM,Store Number,Store Name,Date,Star Rating,OTP %,Fill Rate %,Quality Score,CX Score
-            10,A. Brooks,1487,Chicago Pulaski,2026-08-17,4.72,96.1,97.4,95.2,91.0
+            Store,Division,OM,District,Total Rating,Pass Rate (4.0+),Flash Availability % (Make it Convenient),OTT % (Make it Convenient),Pre-Sub OOS % (Give Me What I Ordered),COE % (Give Me What I Ordered),OTH5 % (Pleasant Handoff),Flash Availability % (Star),OTT % (Star),Pre-Sub OOS % (Star),COE % (Star),OTH5 % (Star)
+            1,Jewel Osco,Shelly Selof,J1,5,Pass,0.91,0.98,0.023,0.66,0.96,1,1,1,1,1
+            606,Jewel Osco,Shelly Selof,J1,3.5,Fail,0.52,0.88,0.071,0.05,0.80,0,0.5,0,0.5,0.5
             """
         case .pickPath:
             return """

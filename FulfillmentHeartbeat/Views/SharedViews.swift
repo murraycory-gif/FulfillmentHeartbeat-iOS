@@ -482,7 +482,7 @@ struct StoreTable: View {
                 } else {
                     Text(row.storeNumber.isEmpty ? "—" : row.storeNumber)
                         .font(.subheadline.weight(.semibold).monospacedDigit())
-                    if section == .dynacap || section == .scheduleQuality {
+                    if section == .dynacap || section == .scheduleQuality || section == .fiveStar {
                         Text(row.division.isEmpty ? "—" : row.division)
                             .font(.caption)
                             .foregroundStyle(AppTheme.textSecondary)
