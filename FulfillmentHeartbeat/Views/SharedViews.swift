@@ -235,8 +235,11 @@ struct FilterBar: View {
 
     @ViewBuilder
     private var fields: some View {
-        filterMenu("Division", selection: store.filters.division, options: store.divisions.map { ($0, "Division \($0)") }) {
+        filterMenu("Division", selection: store.filters.division, options: store.divisions.map { ($0, HeartbeatFormat.divisionLabel($0)) }) {
             store.setDivision($0)
+        }
+        filterMenu("District", selection: store.filters.district, options: store.districts.map { ($0, $0) }) {
+            store.setDistrict($0)
         }
         filterMenu("Operations OM", selection: store.filters.om, options: store.operationsOMs.map { ($0, $0) }) {
             store.setOM($0)

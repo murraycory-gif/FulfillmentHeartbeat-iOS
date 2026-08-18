@@ -1,2 +1,5 @@
-Division,Operations OM,Store Number,Store Name,Date,PPH,Picks Total,Pick Hours,Goal PPH
-10,A. Brooks,1487,Chicago Pulaski,2026-08-17,68.4,1915,28.0,65
+WEEK_ID,,,,,202618,202619,202620,202621,202622,202623,202624,202625,Total
+DIVISION,DISTRICT,OM_AREA,OM_ID,STORE,Pure PPH,Pure PPH,Pure PPH,Pure PPH,Pure PPH,Pure PPH,Pure PPH,Pure PPH,Pure PPH
+Jewel Osco,J1,Chicago 1,Shelly Selof,1,62.1,59.6,59.6,67.5,64.8,64.9,70.2,65.0,63.9
+Jewel Osco,J1,Chicago 1,Shelly Selof,606,64.8,61.1,62.9,64.2,67.1,66.3,60.9,63.0,63.9
+Haggen,39,Haggen 1,Luke Lomas,3427,87.9,88.8,85.8,84.8,83.2,85.7,82.4,87.0,85.5

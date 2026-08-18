@@ -42,7 +42,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .prepNotReady: return "Orders not staged by the promised ready time."
         case .dynacap: return "Pickup and delivery capacity versus recommended."
         case .scheduleQuality: return "How tightly the labor plan matches the work — efficiency, over, and under."
-        case .pph: return "Pure picks completed per labor hour."
+        case .pph: return "Pure picks completed per labor hour. Upload the WEEK_ID by Division export."
         case .pickerScorecard: return "Shopper-level PPH, path, and quality — opportunity versus strong."
         }
     }
@@ -54,7 +54,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .prepNotReady: return "PNR Count · Orders Due · PNR Rate · Avg Late Min"
         case .dynacap: return "Pickup / Delivery capacity · Rec pickup / delivery"
         case .scheduleQuality: return "Schedule Efficiency · Over Scheduled · Under Scheduled"
-        case .pph: return "PPH · Picks Total · Pick Hours · Goal PPH"
+        case .pph: return "WEEK_ID · DIVISION · DISTRICT · OM_AREA · OM_ID · STORE · Pure PPH"
         case .pickerScorecard: return "Shopper · PPH · Pick Path % · Quality · Goal PPH"
         }
     }
@@ -148,6 +148,10 @@ struct MetricRow: Identifiable, Codable, Hashable {
         if let shopperId, !shopperId.isEmpty { return shopperId.lowercased() }
         return shopperName.lowercased()
     }
+
+    var district: String { textPayload["district"] ?? "" }
+
+    var omArea: String { textPayload["om_area"] ?? "" }
 }
 
 struct UploadRecord: Identifiable, Codable, Hashable {
@@ -237,9 +241,10 @@ enum HeartbeatMath {
         }
     }
 
-    static func filtered(_ rows: [MetricRow], division: String, om: String, store: String) -> [MetricRow] {
+    static func filtered(_ rows: [MetricRow], division: String, district: String, om: String, store: String) -> [MetricRow] {
         rows.filter { row in
             if !division.isEmpty, row.division != division { return false }
+            if !district.isEmpty, row.district != district { return false }
             if !om.isEmpty, row.operationsOM != om { return false }
             if !store.isEmpty, row.storeNumber != store { return false }
             return true
@@ -514,19 +519,33 @@ struct HistoryPoint: Identifiable, Hashable {
 
 struct DashboardFilters: Equatable, Codable {
     var division = ""
+    var district = ""
     var om = ""
     var store = ""
 
     var isActive: Bool {
-        !division.isEmpty || !om.isEmpty || !store.isEmpty
+        !division.isEmpty || !district.isEmpty || !om.isEmpty || !store.isEmpty
     }
 
     var summary: String {
         [
-            division.isEmpty ? "All divisions" : "Div \(division)",
+            division.isEmpty ? "All divisions" : HeartbeatFormat.divisionLabel(division),
+            district.isEmpty ? "All districts" : "District \(district)",
             om.isEmpty ? "All OMs" : om,
             store.isEmpty ? "All stores" : store,
         ].joined(separator: " · ")
+    }
+
+    enum CodingKeys: String, CodingKey { case division, district, om, store }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        division = try c.decodeIfPresent(String.self, forKey: .division) ?? ""
+        district = try c.decodeIfPresent(String.self, forKey: .district) ?? ""
+        om = try c.decodeIfPresent(String.self, forKey: .om) ?? ""
+        store = try c.decodeIfPresent(String.self, forKey: .store) ?? ""
     }
 }
 
@@ -538,6 +557,12 @@ struct HeartbeatSnapshot: Codable {
 }
 
 enum HeartbeatFormat {
+    static func divisionLabel(_ value: String) -> String {
+        if value.isEmpty { return "All divisions" }
+        if value.allSatisfy(\.isNumber) { return "Division \(value)" }
+        return value
+    }
+
     static func stars(_ value: Double?) -> String {
         guard let value else { return "—" }
         return String(format: "%.2f", value)

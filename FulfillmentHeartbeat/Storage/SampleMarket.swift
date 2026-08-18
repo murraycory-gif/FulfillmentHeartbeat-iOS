@@ -3,28 +3,29 @@ import Foundation
 enum SampleMarket {
     struct Store {
         var division: String
+        var district: String
         var om: String
         var store: String
         var name: String
     }
 
     static let stores: [Store] = [
-        .init(division: "10", om: "A. Brooks", store: "1487", name: "Chicago Pulaski"),
-        .init(division: "10", om: "A. Brooks", store: "1597", name: "Chicago Kedzie"),
-        .init(division: "10", om: "A. Brooks", store: "2144", name: "Cicero Cermak"),
-        .init(division: "10", om: "A. Brooks", store: "3361", name: "Berwyn Harlem"),
-        .init(division: "10", om: "M. Chen", store: "2788", name: "Evanston Dempster"),
-        .init(division: "10", om: "M. Chen", store: "3901", name: "Skokie Old Orchard"),
-        .init(division: "10", om: "M. Chen", store: "4120", name: "Niles Golf Mill"),
-        .init(division: "10", om: "M. Chen", store: "5503", name: "Des Plaines"),
-        .init(division: "14", om: "J. Patel", store: "1088", name: "Joliet Larkin"),
-        .init(division: "14", om: "J. Patel", store: "2230", name: "Aurora Fox Valley"),
-        .init(division: "14", om: "J. Patel", store: "3677", name: "Naperville Ogden"),
-        .init(division: "14", om: "J. Patel", store: "4890", name: "Bolingbrook"),
-        .init(division: "24", om: "R. Diaz", store: "1755", name: "Orland Park"),
-        .init(division: "24", om: "R. Diaz", store: "2904", name: "Tinley Park"),
-        .init(division: "24", om: "R. Diaz", store: "3440", name: "New Lenox"),
-        .init(division: "24", om: "R. Diaz", store: "5288", name: "Frankfort"),
+        .init(division: "Jewel Osco", district: "J1", om: "Shelly Selof", store: "1487", name: "Chicago Pulaski"),
+        .init(division: "Jewel Osco", district: "J1", om: "Shelly Selof", store: "1597", name: "Chicago Kedzie"),
+        .init(division: "Jewel Osco", district: "J1", om: "Shelly Selof", store: "2144", name: "Cicero Cermak"),
+        .init(division: "Jewel Osco", district: "J1", om: "Shelly Selof", store: "3361", name: "Berwyn Harlem"),
+        .init(division: "Jewel Osco", district: "J2", om: "Shelly Selof", store: "2788", name: "Evanston Dempster"),
+        .init(division: "Jewel Osco", district: "J2", om: "Shelly Selof", store: "3901", name: "Skokie Old Orchard"),
+        .init(division: "Jewel Osco", district: "J2", om: "Shelly Selof", store: "4120", name: "Niles Golf Mill"),
+        .init(division: "Jewel Osco", district: "J2", om: "Shelly Selof", store: "5503", name: "Des Plaines"),
+        .init(division: "Jewel Osco", district: "J3", om: "Andrew Quinn", store: "1088", name: "Joliet Larkin"),
+        .init(division: "Jewel Osco", district: "J3", om: "Andrew Quinn", store: "2230", name: "Aurora Fox Valley"),
+        .init(division: "Jewel Osco", district: "J3", om: "Andrew Quinn", store: "3677", name: "Naperville Ogden"),
+        .init(division: "Jewel Osco", district: "J3", om: "Andrew Quinn", store: "4890", name: "Bolingbrook"),
+        .init(division: "Haggen", district: "39", om: "Luke Lomas", store: "1755", name: "Orland Park"),
+        .init(division: "Haggen", district: "39", om: "Luke Lomas", store: "2904", name: "Tinley Park"),
+        .init(division: "Haggen", district: "39", om: "Luke Lomas", store: "3440", name: "New Lenox"),
+        .init(division: "Haggen", district: "39", om: "Luke Lomas", store: "5288", name: "Frankfort"),
     ]
 
     static let dates = ["2026-08-03", "2026-08-10", "2026-08-17"]
@@ -173,7 +174,14 @@ enum SampleMarket {
                 }
             }
         }
-        return out
+        return out.map { row in
+            var copy = row
+            if let store = stores.first(where: { $0.store == row.storeNumber }) {
+                copy.textPayload["district"] = store.district
+                copy.textPayload["om_area"] = store.division == "Haggen" ? "Haggen 1" : "Chicago 1"
+            }
+            return copy
+        }
     }
 
     static func templateCSV(for section: MetricSection) -> String {
@@ -205,8 +213,11 @@ enum SampleMarket {
             """
         case .pph:
             return """
-            Division,Operations OM,Store Number,Store Name,Date,PPH,Picks Total,Pick Hours,Goal PPH
-            10,A. Brooks,1487,Chicago Pulaski,2026-08-17,68.4,1915,28.0,65
+            WEEK_ID,,,,,202618,202619,202620,202621,202622,202623,202624,202625,Total
+            DIVISION,DISTRICT,OM_AREA,OM_ID,STORE,Pure PPH,Pure PPH,Pure PPH,Pure PPH,Pure PPH,Pure PPH,Pure PPH,Pure PPH,Pure PPH
+            Jewel Osco,J1,Chicago 1,Shelly Selof,1,62.1,59.6,59.6,67.5,64.8,64.9,70.2,65.0,63.9
+            Jewel Osco,J1,Chicago 1,Shelly Selof,606,64.8,61.1,62.9,64.2,67.1,66.3,60.9,63.0,63.9
+            Haggen,39,Haggen 1,Luke Lomas,3427,87.9,88.8,85.8,84.8,83.2,85.7,82.4,87.0,85.5
             """
         case .pickerScorecard:
             return """

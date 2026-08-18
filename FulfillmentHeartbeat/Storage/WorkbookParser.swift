@@ -88,9 +88,11 @@ enum WorkbookParser {
 
     private static let divisionKeys = ["division", "div", "divn", "divnbr", "divisionnumber"]
     private static let omKeys = [
-        "operationsom", "operations_om", "opsom", "om", "marketmanager", "mm",
+        "operationsom", "operations_om", "opsom", "om", "omid", "marketmanager", "mm",
         "operationsmanager", "opsmgr",
     ]
+    private static let districtKeys = ["district", "dist", "distid", "districtnbr", "districtnumber"]
+    private static let omAreaKeys = ["omarea", "om_area", "area", "market"]
     private static let storeKeys = [
         "storenumber", "storenbr", "store", "storeid", "unit", "storenbr",
     ]
@@ -181,6 +183,149 @@ enum WorkbookParser {
     ]
 
     private static func rows(from matrix: [[String]]) -> [ParsedWorkbookRow] {
+        if let outline = parseOutline(matrix), !outline.isEmpty {
+            return outline
+        }
+        return parseFlat(matrix)
+    }
+
+    private static func isTotalCell(_ raw: String) -> Bool {
+        raw.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("total") == .orderedSame
+    }
+
+    private static func usableValue(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty || isTotalCell(trimmed) { return nil }
+        if trimmed.lowercased().hasPrefix("applied filters") { return nil }
+        return trimmed
+    }
+
+    /// Outline / pivot exports: DIVISION, DISTRICT, OM_AREA, OM_ID, STORE
+    /// with WEEK_ID across the top and Pure PPH values under each week.
+    private static func parseOutline(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {
+        guard let headerIndex = matrix.firstIndex(where: { row in
+            let names = Set(row.map(normHeader))
+            return names.contains("division") && (names.contains("store") || names.contains("storenumber"))
+        }) else { return nil }
+
+        let header = matrix[headerIndex].map(normHeader)
+        let looksOutline = header.contains(where: { districtKeys.contains($0) || $0 == "omid" || omAreaKeys.contains($0) })
+        guard looksOutline else { return nil }
+
+        func firstIndex(_ keys: [String]) -> Int? {
+            header.firstIndex { keys.contains($0) }
+        }
+
+        let divIdx = firstIndex(divisionKeys)
+        let distIdx = firstIndex(districtKeys)
+        let areaIdx = firstIndex(omAreaKeys)
+        let omIdx = firstIndex(omKeys)
+        let storeIdx = firstIndex(storeKeys) ?? firstIndex(["store"])
+        guard let storeIdx else { return nil }
+
+        let weekRow = headerIndex > 0 ? matrix[headerIndex - 1] : []
+        var weekByColumn: [Int: String] = [:]
+        for (index, cell) in weekRow.enumerated() {
+            let trimmed = cell.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty || isTotalCell(trimmed) { continue }
+            let norm = normHeader(trimmed)
+            if norm == "weekid" || norm == "week" || norm == "date" { continue }
+            if let date = dateFromWeekID(trimmed) ?? isoDate(trimmed) {
+                weekByColumn[index] = date
+            }
+        }
+
+        var carryDiv = ""
+        var carryDist = ""
+        var carryArea = ""
+        var carryOM = ""
+        var out: [ParsedWorkbookRow] = []
+
+        for line in matrix.dropFirst(headerIndex + 1) {
+            func cell(_ index: Int?) -> String {
+                guard let index, index < line.count else { return "" }
+                return line[index]
+            }
+
+            if let value = usableValue(cell(divIdx)) { carryDiv = value }
+            if let value = usableValue(cell(distIdx)) { carryDist = value }
+            if let value = usableValue(cell(areaIdx)) { carryArea = value }
+            if let value = usableValue(cell(omIdx)) { carryOM = value }
+
+            let storeRaw = cell(storeIdx).trimmingCharacters(in: .whitespacesAndNewlines)
+            if storeRaw.isEmpty || isTotalCell(storeRaw) { continue }
+            if storeRaw.lowercased().hasPrefix("applied") { continue }
+
+            var text: [String: String] = [:]
+            if !carryDist.isEmpty { text["district"] = carryDist }
+            if !carryArea.isEmpty { text["om_area"] = carryArea }
+
+            let metricColumns = header.indices.filter { index in
+                index != divIdx && index != distIdx && index != areaIdx && index != omIdx && index != storeIdx
+            }
+
+            if !weekByColumn.isEmpty {
+                for index in metricColumns {
+                    guard let date = weekByColumn[index] else { continue }
+                    let raw = index < line.count ? line[index] : ""
+                    guard let value = cellNumber(raw) else { continue }
+                    out.append(ParsedWorkbookRow(
+                        division: carryDiv,
+                        operationsOM: carryOM,
+                        storeNumber: storeRaw,
+                        storeName: nil,
+                        recordedOn: date,
+                        payload: ["pph": value],
+                        textPayload: text
+                    ))
+                }
+            } else {
+                var payload: [String: Double] = [:]
+                var extraText = text
+                for index in metricColumns {
+                    guard index < header.count else { continue }
+                    let mapped = metricAliases[header[index]] ?? header[index]
+                    let raw = index < line.count ? line[index] : ""
+                    if let value = cellNumber(raw) {
+                        payload[mapped] = value
+                    } else if let value = usableValue(raw) {
+                        extraText[mapped] = value
+                    }
+                }
+                if payload.isEmpty { continue }
+                out.append(ParsedWorkbookRow(
+                    division: carryDiv,
+                    operationsOM: carryOM,
+                    storeNumber: storeRaw,
+                    storeName: nil,
+                    recordedOn: nil,
+                    payload: payload,
+                    textPayload: extraText
+                ))
+            }
+        }
+
+        return out
+    }
+
+    static func dateFromWeekID(_ raw: String) -> String? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count == 6, trimmed.allSatisfy(\.isNumber),
+              let year = Int(trimmed.prefix(4)),
+              let week = Int(trimmed.suffix(2)),
+              week >= 1, week <= 53
+        else { return nil }
+        var calendar = Calendar(identifier: .iso8601)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? TimeZone.current
+        var comps = DateComponents()
+        comps.weekOfYear = week
+        comps.yearForWeekOfYear = year
+        comps.weekday = 2
+        guard let date = calendar.date(from: comps) else { return nil }
+        return iso(date)
+    }
+
+    private static func parseFlat(_ matrix: [[String]]) -> [ParsedWorkbookRow] {
         guard matrix.count >= 2 else { return [] }
         let headers = matrix[0].map(normHeader)
         var out: [ParsedWorkbookRow] = []
@@ -199,6 +344,16 @@ enum WorkbookParser {
                 let raw = index < line.count ? line[index] : ""
                 if divisionKeys.contains(header) {
                     division = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                    continue
+                }
+                if districtKeys.contains(header) {
+                    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty { text["district"] = trimmed }
+                    continue
+                }
+                if omAreaKeys.contains(header) {
+                    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty { text["om_area"] = trimmed }
                     continue
                 }
                 if omKeys.contains(header) {
@@ -366,7 +521,17 @@ enum SharedStrings {
 
 enum SheetXML {
     static func parse(_ xml: String, strings: [String]) -> [[String]] {
-        let cleaned = stripNS(xml)
+        var source = xml
+        if source.hasPrefix("\u{FEFF}") { source.removeFirst() }
+        let cleaned = stripNS(source)
+        let rowChunks = matches(in: cleaned, pattern: "<row\\b[^>]*>[\\s\\S]*?</row>")
+        if !rowChunks.isEmpty {
+            return rowChunks.map { rowXML in
+                let cells = matches(in: rowXML, pattern: "<c\\b[^>]*>[\\s\\S]*?</c>|<c\\b[^>]*/>")
+                cells.map { cellValue($0, strings: strings) }
+            }
+        }
+
         var grid: [Int: [Int: String]] = [:]
         var maxRow = 0
         var maxCol = 0
@@ -376,23 +541,26 @@ enum SheetXML {
             let (row, col) = cellRef(ref)
             maxRow = max(maxRow, row)
             maxCol = max(maxCol, col)
-            let type = attr(cell, "t") ?? ""
-            let raw: String
-            if type == "inlineStr" {
-                raw = firstGroup(in: cell, pattern: "<t(?:\\s[^>]*)?>([\\s\\S]*?)</t>") ?? ""
-            } else {
-                raw = firstGroup(in: cell, pattern: "<v>([\\s\\S]*?)</v>") ?? ""
-            }
-            if type == "s", let index = Int(raw), strings.indices.contains(index) {
-                grid[row, default: [:]][col] = strings[index]
-            } else {
-                grid[row, default: [:]][col] = unescape(raw)
-            }
+            grid[row, default: [:]][col] = cellValue(cell, strings: strings)
         }
         guard maxRow > 0 else { return [] }
         return (1...maxRow).map { row in
             (1...max(maxCol, 1)).map { col in grid[row]?[col] ?? "" }
         }
+    }
+
+    private static func cellValue(_ cell: String, strings: [String]) -> String {
+        let type = attr(cell, "t") ?? ""
+        let raw: String
+        if type == "inlineStr" {
+            raw = firstGroup(in: cell, pattern: "<t(?:\\s[^>]*)?>([\\s\\S]*?)</t>") ?? ""
+        } else {
+            raw = firstGroup(in: cell, pattern: "<v>([\\s\\S]*?)</v>") ?? ""
+        }
+        if type == "s", let index = Int(raw), strings.indices.contains(index) {
+            return strings[index]
+        }
+        return unescape(raw)
     }
 
     private static func cellRef(_ ref: String) -> (Int, Int) {

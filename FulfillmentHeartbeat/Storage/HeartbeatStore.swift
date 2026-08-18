@@ -36,7 +36,13 @@ final class HeartbeatStore: ObservableObject {
     }
 
     var filteredRows: [MetricRow] {
-        HeartbeatMath.filtered(rows, division: filters.division, om: filters.om, store: filters.store)
+        HeartbeatMath.filtered(
+            rows,
+            division: filters.division,
+            district: filters.district,
+            om: filters.om,
+            store: filters.store
+        )
     }
 
     func rows(for section: MetricSection) -> [MetricRow] {
@@ -70,9 +76,19 @@ final class HeartbeatStore: ObservableObject {
         Array(Set(rows.map(\.division).filter { !$0.isEmpty })).sorted()
     }
 
+    var districts: [String] {
+        rows
+            .filter { filters.division.isEmpty || $0.division == filters.division }
+            .map(\.district)
+            .filter { !$0.isEmpty }
+            .uniqued()
+            .sorted()
+    }
+
     var operationsOMs: [String] {
         rows
             .filter { filters.division.isEmpty || $0.division == filters.division }
+            .filter { filters.district.isEmpty || $0.district == filters.district }
             .map(\.operationsOM)
             .filter { !$0.isEmpty }
             .uniqued()
@@ -83,6 +99,7 @@ final class HeartbeatStore: ObservableObject {
         var seen: [String: String?] = [:]
         for row in rows {
             if !filters.division.isEmpty, row.division != filters.division { continue }
+            if !filters.district.isEmpty, row.district != filters.district { continue }
             if !filters.om.isEmpty, row.operationsOM != filters.om { continue }
             if row.storeNumber.isEmpty { continue }
             if seen[row.storeNumber] == nil {
@@ -94,6 +111,13 @@ final class HeartbeatStore: ObservableObject {
 
     func setDivision(_ value: String) {
         filters.division = value
+        filters.district = ""
+        filters.om = ""
+        filters.store = ""
+    }
+
+    func setDistrict(_ value: String) {
+        filters.district = value
         filters.om = ""
         filters.store = ""
     }
