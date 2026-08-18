@@ -29,6 +29,13 @@ final class HeartbeatStore: ObservableObject {
     private var cachedOMs: [String] = []
     private var cachedStores: [(number: String, name: String?)] = []
     private var cachedSummaries: [SectionSummary] = []
+    private var cachedPickerBoard = HeartbeatMath.PickerBoard(
+        shopperCount: 0,
+        opportunityCount: 0,
+        strongCount: 0,
+        opportunity: [],
+        strong: []
+    )
 
     init(rootURL: URL? = nil) {
         fileManager = .default
@@ -96,7 +103,12 @@ final class HeartbeatStore: ObservableObject {
         uploads.first { $0.section == section }
     }
 
-    var summaries: [SectionSummary] { cachedSummaries }
+    var pickerBoard: HeartbeatMath.PickerBoard { cachedPickerBoard }
+
+    func identity(forStore number: String) -> HeartbeatMath.StoreIdentity {
+        roster[HeartbeatMath.canonicalStore(number)]
+            ?? HeartbeatMath.StoreIdentity(division: "", district: "", om: "", name: nil)
+    }
 
     var lastUpload: UploadRecord? {
         uploads.max(by: { $0.uploadedAt < $1.uploadedAt })
@@ -237,7 +249,9 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private var latestUniverse: [MetricRow] {
-        MetricSection.allCases.flatMap { latestBySection[$0] ?? [] }
+        MetricSection.allCases
+            .filter { $0 != .pickerScorecard }
+            .flatMap { latestBySection[$0] ?? [] }
     }
 
     private func replaceFilters(_ next: DashboardFilters) {
@@ -249,8 +263,10 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func rebuildIndex() {
-        let identitySource = rows.filter { $0.section != .scheduleQuality && $0.section != .dynacap }
-        roster = HeartbeatMath.storeRoster(identitySource.isEmpty ? rows : identitySource)
+        let identitySource = rows.filter {
+            $0.section != .scheduleQuality && $0.section != .dynacap && $0.section != .pickerScorecard
+        }
+        roster = HeartbeatMath.storeRoster(identitySource.isEmpty ? rows.filter { $0.section != .pickerScorecard } : identitySource)
         var latest: [MetricSection: [MetricRow]] = [:]
         for section in MetricSection.allCases {
             let sectionRows = rows.filter { $0.section == section }
@@ -259,7 +275,7 @@ final class HeartbeatStore: ObservableObject {
             } else if section == .scheduleQuality || section == .fiveStar {
                 latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(sectionRows), roster: roster)
             } else if section == .pickerScorecard {
-                latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerShopper(sectionRows), roster: roster)
+                latest[section] = HeartbeatMath.latestPerShopper(sectionRows)
             } else {
                 latest[section] = HeartbeatMath.latestPerStore(sectionRows)
             }
@@ -271,7 +287,7 @@ final class HeartbeatStore: ObservableObject {
     private func applyFilters() {
         let universe = latestUniverse
         var nextLatest: [MetricSection: [MetricRow]] = [:]
-        for section in MetricSection.allCases {
+        for section in MetricSection.allCases where section != .pickerScorecard {
             nextLatest[section] = HeartbeatMath.filtered(
                 latestBySection[section] ?? [],
                 division: filters.division,
@@ -282,7 +298,14 @@ final class HeartbeatStore: ObservableObject {
                 universe: universe
             )
         }
+        let pickers = latestBySection[.pickerScorecard] ?? []
+        if let allowed = pickerStoreSet() {
+            nextLatest[.pickerScorecard] = pickers.filter { allowed.contains(HeartbeatMath.canonicalStore($0.storeNumber)) }
+        } else {
+            nextLatest[.pickerScorecard] = pickers
+        }
         filteredLatest = nextLatest
+        cachedPickerBoard = HeartbeatMath.pickerBoard(nextLatest[.pickerScorecard] ?? [])
         filteredMarket = HeartbeatMath.marketBoard(
             universe,
             division: filters.division,
@@ -328,28 +351,54 @@ final class HeartbeatStore: ObservableObject {
         cachedStores = seen.keys.sorted(by: HeartbeatFormat.storeOrder).map { ($0, seen[$0] ?? nil) }
     }
 
+    private func pickerStoreSet() -> Set<String>? {
+        if filters.division.isEmpty, filters.district.isEmpty, filters.om.isEmpty, filters.store.isEmpty {
+            return nil
+        }
+        var allowed: Set<String> = []
+        for (number, identity) in roster {
+            if !filters.division.isEmpty, !HeartbeatMath.matches(identity.division, filters.division) { continue }
+            if !filters.district.isEmpty, !HeartbeatMath.matches(identity.district, filters.district) { continue }
+            if !filters.om.isEmpty, !HeartbeatMath.matches(identity.om, filters.om) { continue }
+            if !filters.store.isEmpty, !HeartbeatMath.matches(number, filters.store) { continue }
+            allowed.insert(number)
+        }
+        return allowed
+    }
+
     private func load() {
         guard fileManager.fileExists(atPath: snapshotURL.path) else {
             rebuildIndex()
             applyFilters()
             return
         }
-        do {
-            let data = try Data(contentsOf: snapshotURL)
-            let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
-            let decoded = try decoder.decode(HeartbeatSnapshot.self, from: data)
-            hydrating = true
-            rows = decoded.rows
-            uploads = decoded.uploads.sorted { $0.uploadedAt > $1.uploadedAt }
-            seeded = decoded.seeded
-            filters = decoded.filters
-            hydrating = false
-            rebuildIndex()
-            applyFilters()
-        } catch {
-            errorMessage = "Could not load saved pulse: \(error.localizedDescription)"
+        let url = snapshotURL
+        Task.detached(priority: .userInitiated) {
+            do {
+                let data = try Data(contentsOf: url)
+                let decoder = JSONDecoder()
+                decoder.dateDecodingStrategy = .iso8601
+                let decoded = try decoder.decode(HeartbeatSnapshot.self, from: data)
+                await MainActor.run {
+                    self.hydrate(decoded)
+                }
+            } catch {
+                await MainActor.run {
+                    self.errorMessage = "Could not load saved pulse: \(error.localizedDescription)"
+                }
+            }
         }
+    }
+
+    private func hydrate(_ decoded: HeartbeatSnapshot) {
+        hydrating = true
+        rows = decoded.rows
+        uploads = decoded.uploads.sorted { $0.uploadedAt > $1.uploadedAt }
+        seeded = decoded.seeded
+        filters = decoded.filters
+        hydrating = false
+        rebuildIndex()
+        applyFilters()
     }
 
     private func persist() {

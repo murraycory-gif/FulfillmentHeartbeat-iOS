@@ -613,18 +613,18 @@ enum HeartbeatMath {
             return SectionSummary(
                 section: section,
                 storeCount: Set(latest.map(\.storeNumber)).count,
-                headline: Double(board.opportunity.count),
+                headline: Double(board.opportunityCount),
                 headlineLabel: "Opportunity shoppers",
                 secondary: latest.isEmpty
                     ? "No shoppers in view"
-                    : "\(board.strong.count) doing well · \(latest.count) shoppers",
+                    : "\(board.strongCount) doing well · \(board.shopperCount) shoppers",
                 health: band(
-                    latest.isEmpty ? nil : (1 - Double(board.opportunity.count) / Double(latest.count)) * 100,
+                    latest.isEmpty ? nil : (1 - Double(board.opportunityCount) / Double(max(board.shopperCount, 1))) * 100,
                     good: 80,
                     watch: 65
                 ),
-                watchCount: latest.filter { pickerHealth($0) == .watch }.count,
-                riskCount: latest.filter { pickerHealth($0) == .risk }.count,
+                watchCount: 0,
+                riskCount: board.opportunityCount,
                 lastFilename: upload?.filename,
                 lastUploadedAt: upload?.uploadedAt
             )
@@ -799,18 +799,53 @@ enum HeartbeatMath {
     }
 
     struct PickerBoard {
-        var shoppers: [MetricRow]
+        var shopperCount: Int
+        var opportunityCount: Int
+        var strongCount: Int
         var opportunity: [MetricRow]
         var strong: [MetricRow]
     }
 
     static func pickerBoard(_ rows: [MetricRow], limit: Int = 6) -> PickerBoard {
-        let shoppers = latestPerShopper(rows)
-        let scored = shoppers.filter(pickerHasVolume)
-        let ranked = scored.sorted { pickerComposite($0) < pickerComposite($1) }
-        let opportunity = Array(ranked.filter { pickerHealth($0) != .good }.prefix(limit))
-        let strong = Array(ranked.reversed().filter { pickerHealth($0) == .good }.prefix(limit))
-        return PickerBoard(shoppers: shoppers, opportunity: opportunity, strong: strong)
+        var opportunity: [(score: Double, row: MetricRow)] = []
+        var strong: [(score: Double, row: MetricRow)] = []
+        var opportunityCount = 0
+        var strongCount = 0
+        for row in rows {
+            guard pickerHasVolume(row) else { continue }
+            let health = pickerHealth(row)
+            guard health != .none else { continue }
+            let score = pickerComposite(row)
+            if health == .good {
+                strongCount += 1
+                keepTop(&strong, score: score, row: row, limit: limit, lowest: false)
+            } else {
+                opportunityCount += 1
+                keepTop(&opportunity, score: score, row: row, limit: limit, lowest: true)
+            }
+        }
+        return PickerBoard(
+            shopperCount: rows.count,
+            opportunityCount: opportunityCount,
+            strongCount: strongCount,
+            opportunity: opportunity.map(\.row),
+            strong: strong.map(\.row)
+        )
+    }
+
+    private static func keepTop(_ bucket: inout [(score: Double, row: MetricRow)], score: Double, row: MetricRow, limit: Int, lowest: Bool) {
+        if bucket.count < limit {
+            bucket.append((score, row))
+            if bucket.count == limit {
+                bucket.sort { lowest ? $0.score < $1.score : $0.score > $1.score }
+            }
+            return
+        }
+        let edge = bucket[limit - 1].score
+        let better = lowest ? score < edge : score > edge
+        guard better else { return }
+        bucket[limit - 1] = (score, row)
+        bucket.sort { lowest ? $0.score < $1.score : $0.score > $1.score }
     }
 
     static func band(_ value: Double?, good: Double, watch: Double, invert: Bool = false) -> Health {

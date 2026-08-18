@@ -215,7 +215,7 @@ struct PickerScoreCard: View {
     let action: () -> Void
 
     private var board: HeartbeatMath.PickerBoard {
-        HeartbeatMath.pickerBoard(store.rows(for: .pickerScorecard))
+        store.pickerBoard
     }
 
     private var upload: UploadRecord? { store.upload(for: .pickerScorecard) }
@@ -252,40 +252,24 @@ struct PickerScoreCard: View {
                 .buttonStyle(.plain)
             }
 
-            if board.shoppers.isEmpty {
+            if board.shopperCount == 0 {
                 Text("Upload a picker score card workbook to rank opportunity and strong shoppers.")
                     .font(.subheadline)
                     .foregroundStyle(AppTheme.textSecondary)
             } else {
-                ViewThatFits(in: .horizontal) {
-                    HStack(alignment: .top, spacing: 16) {
-                        shopperColumn(
-                            title: "Top opportunity",
-                            subtitle: "Underperforming vs the metric mix",
-                            rows: board.opportunity,
-                            empty: "No opportunity shoppers in this filter."
-                        )
-                        shopperColumn(
-                            title: "Doing well",
-                            subtitle: "Hitting the metric mix",
-                            rows: board.strong,
-                            empty: "No strong shoppers in this filter."
-                        )
-                    }
-                    VStack(alignment: .leading, spacing: 16) {
-                        shopperColumn(
-                            title: "Top opportunity",
-                            subtitle: "Underperforming vs the metric mix",
-                            rows: board.opportunity,
-                            empty: "No opportunity shoppers in this filter."
-                        )
-                        shopperColumn(
-                            title: "Doing well",
-                            subtitle: "Hitting the metric mix",
-                            rows: board.strong,
-                            empty: "No strong shoppers in this filter."
-                        )
-                    }
+                HStack(alignment: .top, spacing: 16) {
+                    shopperColumn(
+                        title: "Top opportunity",
+                        subtitle: "Underperforming vs the metric mix",
+                        rows: board.opportunity,
+                        empty: "No opportunity shoppers in this filter."
+                    )
+                    shopperColumn(
+                        title: "Doing well",
+                        subtitle: "Hitting the metric mix",
+                        rows: board.strong,
+                        empty: "No strong shoppers in this filter."
+                    )
                 }
             }
         }
@@ -323,7 +307,7 @@ struct PickerScoreCard: View {
                                 Text(row.shopperName)
                                     .font(.subheadline.weight(.semibold))
                                     .foregroundStyle(AppTheme.text)
-                                Text("\(row.storeNumber) · \(row.division.isEmpty ? "Store" : row.division)")
+                                Text("\(row.storeNumber) · \(divisionLabel(for: row))")
                                     .font(.caption)
                                     .foregroundStyle(AppTheme.textTertiary)
                             }
@@ -348,6 +332,12 @@ struct PickerScoreCard: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func divisionLabel(for row: MetricRow) -> String {
+        if !row.division.isEmpty { return row.division }
+        let division = store.identity(forStore: row.storeNumber).division
+        return division.isEmpty ? "Store" : division
     }
 }
 

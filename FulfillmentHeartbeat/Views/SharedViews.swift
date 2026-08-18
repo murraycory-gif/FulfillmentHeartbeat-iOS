@@ -519,6 +519,7 @@ struct StoreTable: View {
 }
 
 struct PickerScoreTable: View {
+    @EnvironmentObject private var store: HeartbeatStore
     let rows: [MetricRow]
 
     private enum Column: String, CaseIterable, Identifiable {
@@ -672,7 +673,7 @@ struct PickerScoreTable: View {
             Text(row.storeNumber.isEmpty ? "—" : row.storeNumber)
                 .font(.caption.monospacedDigit())
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Text(row.division.isEmpty ? "—" : row.division)
+            Text(divisionLabel(for: row))
                 .font(.caption)
                 .foregroundStyle(AppTheme.textSecondary)
                 .lineLimit(1)
@@ -704,6 +705,12 @@ struct PickerScoreTable: View {
             .font(.caption.weight(.semibold).monospacedDigit())
             .foregroundStyle(color)
             .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func divisionLabel(for row: MetricRow) -> String {
+        if !row.division.isEmpty { return row.division }
+        let division = store.identity(forStore: row.storeNumber).division
+        return division.isEmpty ? "—" : division
     }
 }
 
