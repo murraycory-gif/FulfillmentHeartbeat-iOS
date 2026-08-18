@@ -174,7 +174,7 @@ struct HubNavLogo: View {
     var height: CGFloat = 32
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: pulse ? -4 : 6) {
             Image("HeartbeatMark")
                 .resizable()
                 .interpolation(.high)
@@ -183,7 +183,8 @@ struct HubNavLogo: View {
                 .accessibilityHidden(true)
             if pulse {
                 HeartbeatTrace()
-                    .frame(width: 160, height: max(22, height - 8))
+                    .frame(width: 168, height: max(22, height - 10))
+                    .offset(x: -2)
                     .accessibilityHidden(true)
             }
         }
@@ -249,32 +250,18 @@ struct FilterBar: View {
     @State private var showingFilters = false
 
     var body: some View {
-        HubCard {
-            HStack(alignment: .center, spacing: 12) {
-                Image(systemName: "slider.horizontal.3")
+        HStack(spacing: 8) {
+            if store.filters.isActive {
+                Button("Clear") { store.clearFilters() }
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(AppTheme.blue)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Filters")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(AppTheme.text)
-                    Text(store.filters.summary)
-                        .font(.caption)
-                        .foregroundStyle(AppTheme.textSecondary)
-                        .lineLimit(2)
-                }
-                Spacer(minLength: 8)
-                if store.filters.isActive {
-                    Button("Clear") { store.clearFilters() }
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(AppTheme.blue)
-                }
-                Button {
-                    showingFilters = true
-                } label: {
-                    Label("Filters", systemImage: "line.3.horizontal.decrease.circle.fill")
-                }
-                .buttonStyle(BrandButtonStyle())
             }
+            Button {
+                showingFilters = true
+            } label: {
+                Label("Filters", systemImage: "line.3.horizontal.decrease.circle.fill")
+            }
+            .buttonStyle(BrandButtonStyle())
         }
         .sheet(isPresented: $showingFilters) {
             FilterSheet()
@@ -863,7 +850,6 @@ struct HubChromeModifier: ViewModifier {
                                 router.open(.dashboard)
                             }
                         }
-                        HubNavLogo(pulse: !showBack, height: 28)
                     }
                 }
             }

@@ -10,13 +10,7 @@ struct DashboardView: View {
         List {
             Section {
                 header
-                    .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 4, trailing: 20))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(AppTheme.bg)
-            }
-            Section {
-                FilterBar()
-                    .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 6, trailing: 20))
+                    .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
                     .listRowSeparator(.hidden)
                     .listRowBackground(AppTheme.bg)
             }
@@ -104,30 +98,27 @@ struct DashboardView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .center, spacing: 10) {
+        HStack(alignment: .center, spacing: 12) {
+            HubNavLogo(pulse: true, height: 52)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Market pulse")
+                Text("Fulfillment Heartbeat")
                     .font(.title.weight(.semibold))
                     .foregroundStyle(AppTheme.text)
                 Text(subtitle)
                     .font(.caption)
                     .foregroundStyle(AppTheme.textSecondary)
+                    .lineLimit(1)
             }
-            Spacer()
-            Button {
-                store.loadSampleMarket()
-            } label: {
-                Label(store.seeded ? "Reload sample" : "Load sample", systemImage: "sparkles")
-            }
-            .buttonStyle(SecondaryButtonStyle())
+            Spacer(minLength: 8)
+            FilterBar()
         }
     }
 
     private var subtitle: String {
         if let last = store.lastUpload {
-            return "Updated \(HeartbeatFormat.relative(last.uploadedAt))"
+            return "\(store.filters.summary) · Updated \(HeartbeatFormat.relative(last.uploadedAt))"
         }
-        return "Upload Excel or load a sample market"
+        return store.filters.summary
     }
 }
 
@@ -286,13 +277,15 @@ struct PickerScoreCard: View {
                         title: "Top opportunity",
                         subtitle: "Underperforming vs the metric mix",
                         rows: board.opportunity,
-                        empty: "No opportunity shoppers in this filter."
+                        empty: "No opportunity shoppers in this filter.",
+                        tone: .risk
                     )
                     shopperColumn(
                         title: "Doing well",
                         subtitle: "Hitting the metric mix",
                         rows: board.strong,
-                        empty: "No strong shoppers in this filter."
+                        empty: "No strong shoppers in this filter.",
+                        tone: .good
                     )
                 }
             }
@@ -309,14 +302,21 @@ struct PickerScoreCard: View {
         )
     }
 
-    private func shopperColumn(title: String, subtitle: String, rows: [MetricRow], empty: String) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+    private func shopperColumn(
+        title: String,
+        subtitle: String,
+        rows: [MetricRow],
+        empty: String,
+        tone: Health
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.headline)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(tone == .risk ? AppTheme.bad : AppTheme.ok)
                 Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(AppTheme.textTertiary)
+                    .font(.subheadline)
+                    .foregroundStyle(AppTheme.textSecondary)
             }
             if rows.isEmpty {
                 Text(empty)
@@ -326,36 +326,76 @@ struct PickerScoreCard: View {
             } else {
                 ForEach(rows) { row in
                     Button(action: action) {
-                        HStack(alignment: .center, spacing: 10) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(row.shopperName)
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(AppTheme.text)
-                                Text("\(row.storeNumber) · \(divisionLabel(for: row))")
-                                    .font(.caption)
-                                    .foregroundStyle(AppTheme.textTertiary)
-                            }
-                            Spacer()
-                            VStack(alignment: .trailing, spacing: 2) {
-                                Text(HeartbeatFormat.num(row.number("pph"), digits: 1))
-                                    .font(.subheadline.weight(.semibold).monospacedDigit())
-                                    .foregroundStyle(AppTheme.text)
-                                Text(HeartbeatMath.pickerOpportunityText(row))
-                                    .font(.caption)
-                                    .foregroundStyle(AppTheme.textTertiary)
-                            }
-                            HealthBadge(health: HeartbeatMath.pickerHealth(row))
-                        }
-                        .padding(.vertical, 8)
+                        shopperRow(row)
                     }
                     .buttonStyle(.plain)
                     if row.id != rows.last?.id {
-                        Divider().opacity(0.35)
+                        Divider().opacity(0.28)
                     }
                 }
             }
         }
+        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
+                .fill(tone == .risk ? AppTheme.badSoft.opacity(0.55) : AppTheme.okSoft.opacity(0.55))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
+                .stroke(tone == .risk ? AppTheme.bad : AppTheme.ok, lineWidth: 2)
+        )
+    }
+
+    private func shopperRow(_ row: MetricRow) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(row.shopperName)
+                    .font(.headline)
+                    .foregroundStyle(AppTheme.text)
+                Spacer()
+                Text("\(row.storeNumber) · \(divisionLabel(for: row))")
+                    .font(.subheadline)
+                    .foregroundStyle(AppTheme.textSecondary)
+            }
+            HStack(spacing: 8) {
+                ForEach(HeartbeatMath.pickerMetricReadout(row), id: \.name) { metric in
+                    VStack(spacing: 2) {
+                        Text(metric.name)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(AppTheme.textTertiary)
+                        Text(metric.value)
+                            .font(.title3.weight(.bold).monospacedDigit())
+                            .foregroundStyle(metricColor(metric.health))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .fill(metricWash(metric.health))
+                    )
+                }
+            }
+        }
+        .padding(.vertical, 6)
+    }
+
+    private func metricColor(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.text
+        }
+    }
+
+    private func metricWash(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.okSoft
+        case .watch: return AppTheme.warnSoft
+        case .risk: return AppTheme.badSoft
+        case .none: return AppTheme.card
+        }
     }
 
     private func divisionLabel(for row: MetricRow) -> String {

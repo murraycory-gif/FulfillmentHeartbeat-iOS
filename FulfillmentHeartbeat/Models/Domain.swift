@@ -770,6 +770,26 @@ enum HeartbeatMath {
         return weak.isEmpty ? "On track" : weak.joined(separator: " · ")
     }
 
+    static func pickerMetricReadout(_ row: MetricRow) -> [(name: String, value: String, health: Health)] {
+        var items: [(String, String, Health)] = []
+        if row.number("pph") != nil {
+            items.append(("PPH", HeartbeatFormat.num(row.number("pph"), digits: 1), pphHealth(row)))
+        }
+        if row.number("presub_pct") != nil {
+            items.append(("Presub", HeartbeatFormat.pct(row.number("presub_pct")), starMark(value: row.number("presub_pct"), full: 5, half: 6, invert: true).health))
+        }
+        if row.number("oth5_pct") != nil {
+            items.append(("OTH", HeartbeatFormat.pct(row.number("oth5_pct")), othStar(row).health))
+        }
+        if row.number("coe_pct") != nil {
+            items.append(("COE", HeartbeatFormat.pct(row.number("coe_pct")), coeStar(row).health))
+        }
+        if row.number("ott_pct") != nil {
+            items.append(("OTT", HeartbeatFormat.pct(row.number("ott_pct")), ottStar(row).health))
+        }
+        return items
+    }
+
     static func pickerComposite(_ row: MetricRow) -> Double {
         var parts: [Double] = []
         if let pph = row.number("pph") {
