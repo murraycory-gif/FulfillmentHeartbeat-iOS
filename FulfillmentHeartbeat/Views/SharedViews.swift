@@ -808,7 +808,7 @@ struct HideSystemSidebarToggle: UIViewRepresentable {
 
 struct FulfillmentChecklistCard: View {
     @EnvironmentObject private var store: HeartbeatStore
-    @State private var expanded = true
+    @State private var expanded = false
 
     private var riskCount: Int {
         store.summaries.filter { $0.health == .risk }.count
