@@ -46,7 +46,7 @@ struct LaunchSplashView: View {
                     .resizable()
                     .interpolation(.high)
                     .scaledToFit()
-                    .frame(width: 280)
+                    .frame(width: 120, height: 120)
                     .shadow(color: AppTheme.blue.opacity(0.18), radius: 16, y: 6)
                     .scaleEffect(appear ? 1 : 0.94)
                     .opacity(appear ? 1 : 0)

@@ -10,13 +10,13 @@ struct DashboardView: View {
         List {
             Section {
                 header
-                    .listRowInsets(EdgeInsets(top: 16, leading: 20, bottom: 8, trailing: 20))
+                    .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 4, trailing: 20))
                     .listRowSeparator(.hidden)
                     .listRowBackground(AppTheme.bg)
             }
             Section {
                 FilterBar()
-                    .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 8, trailing: 20))
+                    .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 6, trailing: 20))
                     .listRowSeparator(.hidden)
                     .listRowBackground(AppTheme.bg)
             }
@@ -104,21 +104,20 @@ struct DashboardView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .center, spacing: 16) {
-            HubNavLogo(pulse: true, height: 56)
-            VStack(alignment: .leading, spacing: 4) {
+        HStack(alignment: .center, spacing: 10) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text("Market pulse")
-                    .font(.largeTitle.weight(.semibold))
+                    .font(.title.weight(.semibold))
                     .foregroundStyle(AppTheme.text)
                 Text(subtitle)
-                    .font(.subheadline)
+                    .font(.caption)
                     .foregroundStyle(AppTheme.textSecondary)
             }
             Spacer()
             Button {
                 store.loadSampleMarket()
             } label: {
-                Label(store.seeded ? "Reload sample" : "Load sample market", systemImage: "sparkles")
+                Label(store.seeded ? "Reload sample" : "Load sample", systemImage: "sparkles")
             }
             .buttonStyle(SecondaryButtonStyle())
         }

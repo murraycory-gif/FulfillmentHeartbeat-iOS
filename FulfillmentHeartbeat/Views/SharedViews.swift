@@ -171,19 +171,19 @@ struct HubIconButton: View {
 
 struct HubNavLogo: View {
     var pulse: Bool = false
-    var height: CGFloat = 40
+    var height: CGFloat = 32
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             Image("HeartbeatMark")
                 .resizable()
                 .interpolation(.high)
                 .scaledToFit()
-                .frame(height: height)
+                .frame(width: height, height: height)
                 .accessibilityHidden(true)
             if pulse {
                 HeartbeatTrace()
-                    .frame(width: 220, height: max(28, height - 8))
+                    .frame(width: 160, height: max(22, height - 8))
                     .accessibilityHidden(true)
             }
         }
@@ -852,7 +852,7 @@ struct HubChromeModifier: ViewModifier {
             .toolbar(removing: .sidebarToggle)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    HStack(spacing: 8) {
+                    HStack(spacing: 10) {
                         if sizeClass == .regular {
                             HubIconButton(symbol: "sidebar.left", label: "Menu", emphasized: true) {
                                 router.toggleSidebar()
@@ -863,16 +863,9 @@ struct HubChromeModifier: ViewModifier {
                                 router.open(.dashboard)
                             }
                         }
+                        HubNavLogo(pulse: !showBack, height: 28)
                     }
                 }
-            }
-            .safeAreaInset(edge: .top, spacing: 0) {
-                HubNavLogo(pulse: false, height: 44)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 20)
-                    .padding(.top, 14)
-                    .padding(.bottom, 10)
-                    .background(AppTheme.bg)
             }
     }
 }
