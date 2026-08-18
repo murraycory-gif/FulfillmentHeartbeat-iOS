@@ -26,6 +26,7 @@ struct UploadView: View {
                         Label("Load sample market", systemImage: "sparkles")
                     }
                     .buttonStyle(SecondaryButtonStyle())
+                    .disabled(store.isImporting)
                 }
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 16)], spacing: 16) {
@@ -34,6 +35,7 @@ struct UploadView: View {
                             section: section,
                             upload: store.upload(for: section),
                             justUpdated: store.lastImportedSection == section,
+                            enabled: !store.isImporting,
                             onPick: { beginImport(section) },
                             onDropURL: { store.importWorkbook(url: $0, section: section) },
                             onTemplate: {
@@ -126,6 +128,7 @@ struct UploadPanel: View {
     let section: MetricSection
     let upload: UploadRecord?
     var justUpdated: Bool = false
+    var enabled: Bool = true
     let onPick: () -> Void
     let onDropURL: (URL) -> Void
     let onTemplate: () -> Void
@@ -221,8 +224,10 @@ struct UploadPanel: View {
             )
         }
         .buttonStyle(.plain)
+        .disabled(!enabled)
         .onDrop(of: Self.dropTypes, isTargeted: $targeted) { providers in
-            Self.takeDrop(providers, into: onDropURL)
+            guard enabled else { return false }
+            return Self.takeDrop(providers, into: onDropURL)
         }
     }
 

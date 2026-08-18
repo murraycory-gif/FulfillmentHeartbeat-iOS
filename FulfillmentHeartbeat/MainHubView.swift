@@ -121,6 +121,33 @@ struct MainHubView: View {
         }
         .environmentObject(router)
         .background(AppTheme.bg.ignoresSafeArea())
+        .overlay {
+            if store.isImporting {
+                ZStack {
+                    Color.black.opacity(0.22).ignoresSafeArea()
+                    VStack(spacing: 14) {
+                        ProgressView()
+                            .scaleEffect(1.2)
+                            .tint(AppTheme.blue)
+                        Text(store.importLabel ?? "Reading workbook…")
+                            .font(.headline)
+                            .multilineTextAlignment(.center)
+                        Text("The dashboard stays responsive while the file is read.")
+                            .font(.subheadline)
+                            .foregroundStyle(AppTheme.textSecondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(28)
+                    .frame(maxWidth: 360)
+                    .background(
+                        RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                            .fill(AppTheme.card)
+                    )
+                    .shadow(color: .black.opacity(0.12), radius: 24, y: 10)
+                }
+                .allowsHitTesting(true)
+            }
+        }
     }
 
     private var tabSelection: Binding<HubDestination> {

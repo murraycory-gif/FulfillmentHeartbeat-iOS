@@ -69,16 +69,13 @@ enum WorkbookParser {
             "xl/worksheets/sheet1.xml",
             "xl/worksheets/sheet2.xml",
         ]
-        var xml: String?
         for name in sheetNames {
-            if let data = zip.file(named: name), let text = String(data: data, encoding: .utf8) {
-                xml = text
-                break
+            if let sheet = zip.file(named: name) {
+                let matrix = SheetXML.parse(data: sheet, strings: strings)
+                return rows(from: matrix)
             }
         }
-        guard let xml else { throw ParseError.unreadable }
-        let matrix = SheetXML.parse(xml, strings: strings)
-        return rows(from: matrix)
+        throw ParseError.unreadable
     }
 
     private static func looksLikeCSV(_ data: Data) -> Bool {
@@ -637,59 +634,213 @@ enum SharedStrings {
 
 enum SheetXML {
     static func parse(_ xml: String, strings: [String]) -> [[String]] {
-        var source = xml
-        if source.hasPrefix("\u{FEFF}") { source.removeFirst() }
-        let cleaned = stripNS(source)
-        let rowChunks = matches(in: cleaned, pattern: "<row\\b[^>]*>[\\s\\S]*?</row>")
-        if !rowChunks.isEmpty {
-            return rowChunks.map { rowXML in
-                let cells = matches(in: rowXML, pattern: "<c\\b[^>]*/>|<c\\b[^>]*>[\\s\\S]*?</c>")
-                return cells.map { cellValue($0, strings: strings) }
-            }
-        }
+        parse(data: Data(xml.utf8), strings: strings)
+    }
 
-        var grid: [Int: [Int: String]] = [:]
-        var maxRow = 0
-        var maxCol = 0
-        let cells = matches(in: cleaned, pattern: "<c\\b[^>]*/>|<c\\b[^>]*>[\\s\\S]*?</c>")
-        for cell in cells {
-            guard let ref = attr(cell, "r") else { continue }
-            let (row, col) = cellRef(ref)
-            maxRow = max(maxRow, row)
-            maxCol = max(maxCol, col)
-            grid[row, default: [:]][col] = cellValue(cell, strings: strings)
-        }
-        guard maxRow > 0 else { return [] }
-        return (1...maxRow).map { row in
-            (1...max(maxCol, 1)).map { col in grid[row]?[col] ?? "" }
+    static func parse(data: Data, strings: [String]) -> [[String]] {
+        data.withUnsafeBytes { raw -> [[String]] in
+            guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return [] }
+            return scan(base, count: raw.count, strings: strings)
         }
     }
 
-    private static func cellValue(_ cell: String, strings: [String]) -> String {
-        let type = attr(cell, "t") ?? ""
-        let raw: String
-        if type == "inlineStr" {
-            raw = firstGroup(in: cell, pattern: "<t(?:\\s[^>]*)?>([\\s\\S]*?)</t>") ?? ""
-        } else {
-            raw = firstGroup(in: cell, pattern: "<v>([\\s\\S]*?)</v>") ?? ""
+    private static func scan(_ base: UnsafePointer<UInt8>, count: Int, strings: [String]) -> [[String]] {
+        var i = 0
+        if count >= 3, base[0] == 0xEF, base[1] == 0xBB, base[2] == 0xBF { i = 3 }
+
+        var rows: [[String]] = []
+        var cells: [String] = []
+        var inRow = false
+
+        while i < count {
+            if base[i] != 60 { // <
+                i += 1
+                continue
+            }
+            i += 1
+            if i >= count { break }
+            let closing = base[i] == 47 // /
+            if closing { i += 1 }
+            let name = readName(base, count, &i)
+            if name.isEmpty {
+                skipToTagEnd(base, count, &i)
+                continue
+            }
+
+            if nameEquals(name, "row") {
+                if closing {
+                    if inRow {
+                        rows.append(cells)
+                        cells = []
+                        inRow = false
+                    }
+                } else {
+                    if inRow { rows.append(cells) }
+                    cells = []
+                    inRow = true
+                    skipToTagEnd(base, count, &i)
+                }
+                continue
+            }
+
+            if inRow, !closing, nameEquals(name, "c") {
+                cells.append(readCell(base, count, &i, strings: strings))
+                continue
+            }
+
+            skipToTagEnd(base, count, &i)
         }
+
+        if inRow { rows.append(cells) }
+        return rows
+    }
+
+    private static func readCell(_ base: UnsafePointer<UInt8>, _ count: Int, _ i: inout Int, strings: [String]) -> String {
+        let attrStart = i
+        let selfClosing = skipToTagEnd(base, count, &i)
+        let type = attribute(base, from: attrStart, to: i, name: "t")
+        if selfClosing { return "" }
+
+        let contentStart = i
+        guard let closeAt = findClosingTag(base, count, from: i, name: "c") else {
+            return ""
+        }
+        i = closeAt.end
+        if type == "inlineStr" {
+            return firstInnerText(base, from: contentStart, to: closeAt.start, tag: "t")
+        }
+        let raw = firstInnerText(base, from: contentStart, to: closeAt.start, tag: "v")
         if type == "s", let index = Int(raw), strings.indices.contains(index) {
             return strings[index]
         }
-        return unescape(raw)
+        return raw
     }
 
-    private static func cellRef(_ ref: String) -> (Int, Int) {
-        var letters = ""
-        var digits = ""
-        for ch in ref.uppercased() {
-            if ch.isLetter { letters.append(ch) } else if ch.isNumber { digits.append(ch) }
+    @discardableResult
+    private static func skipToTagEnd(_ base: UnsafePointer<UInt8>, _ count: Int, _ i: inout Int) -> Bool {
+        var selfClosing = false
+        while i < count {
+            let ch = base[i]
+            if ch == 47, i + 1 < count, base[i + 1] == 62 {
+                selfClosing = true
+                i += 2
+                return true
+            }
+            if ch == 62 {
+                i += 1
+                return false
+            }
+            i += 1
         }
-        var col = 0
-        for ch in letters {
-            col = col * 26 + Int(ch.asciiValue! - 64)
+        return selfClosing
+    }
+
+    private static func readName(_ base: UnsafePointer<UInt8>, _ count: Int, _ i: inout Int) -> [UInt8] {
+        let start = i
+        while i < count, isNameChar(base[i]) { i += 1 }
+        if i < count, base[i] == 58, i > start { // namespace prefix
+            i += 1
+            let real = i
+            while i < count, isNameChar(base[i]) { i += 1 }
+            return Array(UnsafeBufferPointer(start: base + real, count: i - real))
         }
-        return (Int(digits) ?? 1, col)
+        return Array(UnsafeBufferPointer(start: base + start, count: i - start))
+    }
+
+    private static func findClosingTag(_ base: UnsafePointer<UInt8>, _ count: Int, from: Int, name: String) -> (start: Int, end: Int)? {
+        var j = from
+        let expected = Array(name.utf8)
+        while j < count {
+            if base[j] == 60, j + 1 < count, base[j + 1] == 47 {
+                var k = j + 2
+                let tag = readName(base, count, &k)
+                if nameEquals(tag, expected) {
+                    while k < count, base[k] != 62 { k += 1 }
+                    if k < count { k += 1 }
+                    return (j, k)
+                }
+            }
+            j += 1
+        }
+        return nil
+    }
+
+    private static func firstInnerText(_ base: UnsafePointer<UInt8>, from: Int, to: Int, tag: String) -> String {
+        var j = from
+        let expected = Array(tag.utf8)
+        while j < to {
+            if base[j] == 60 {
+                var k = j + 1
+                if k < to, base[k] == 47 {
+                    j += 1
+                    continue
+                }
+                let name = readName(base, to, &k)
+                if nameEquals(name, expected) {
+                    let selfClose = skipToTagEnd(base, to, &k)
+                    if selfClose { return "" }
+                    if let close = findClosingTag(base, to, from: k, name: tag) {
+                        return decode(base, k, close.start)
+                    }
+                    return decode(base, k, to)
+                }
+            }
+            j += 1
+        }
+        return ""
+    }
+
+    private static func attribute(_ base: UnsafePointer<UInt8>, from: Int, to: Int, name: String) -> String {
+        let key = Array(name.utf8)
+        var j = from
+        while j + key.count + 2 < to {
+            var match = true
+            for (offset, byte) in key.enumerated() where base[j + offset] != byte {
+                match = false
+                break
+            }
+            if match {
+                let prev = j == from ? 32 : base[j - 1]
+                let next = base[j + key.count]
+                if isNameChar(prev) == false, next == 61 {
+                    var k = j + key.count + 1
+                    if k < to, base[k] == 34 || base[k] == 39 {
+                        let quote = base[k]
+                        k += 1
+                        let start = k
+                        while k < to, base[k] != quote { k += 1 }
+                        return decode(base, start, k)
+                    }
+                }
+            }
+            j += 1
+        }
+        return ""
+    }
+
+    private static func decode(_ base: UnsafePointer<UInt8>, _ start: Int, _ end: Int) -> String {
+        guard end > start else { return "" }
+        let raw = String(decoding: UnsafeBufferPointer(start: base + start, count: end - start), as: UTF8.self)
+        if raw.contains("&") { return unescape(raw) }
+        return raw
+    }
+
+    private static func isNameChar(_ byte: UInt8) -> Bool {
+        (byte >= 65 && byte <= 90) || (byte >= 97 && byte <= 122) || (byte >= 48 && byte <= 57)
+    }
+
+    private static func nameEquals(_ name: [UInt8], _ expected: String) -> Bool {
+        nameEquals(name, Array(expected.utf8))
+    }
+
+    private static func nameEquals(_ name: [UInt8], _ expected: [UInt8]) -> Bool {
+        guard name.count == expected.count else { return false }
+        for index in name.indices {
+            let a = name[index] | 0x20
+            let b = expected[index] | 0x20
+            if a != b { return false }
+        }
+        return true
     }
 }
 

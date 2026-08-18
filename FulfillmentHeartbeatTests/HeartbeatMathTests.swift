@@ -172,6 +172,18 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(WorkbookParser.looksLikeStoreNumber("102.775856959399"))
     }
 
+    func testPrefixedSheetXMLDoesNotNeedRegex() {
+        let xml = """
+        <x:worksheet xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><x:sheetData>
+        <x:row><x:c t="inlineStr"><x:is><x:t>DIVISION</x:t></x:is></x:c><x:c /><x:c t="inlineStr"><x:is><x:t>STORE_ID</x:t></x:is></x:c></x:row>
+        <x:row><x:c t="inlineStr"><x:is><x:t>Portland</x:t></x:is></x:c><x:c /><x:c s="8"><x:v>4313</x:v></x:c></x:row>
+        </x:sheetData></x:worksheet>
+        """
+        let matrix = SheetXML.parse(xml, strings: [])
+        XCTAssertEqual(matrix.first, ["DIVISION", "", "STORE_ID"])
+        XCTAssertEqual(matrix.last, ["Portland", "", "4313"])
+    }
+
     func testDistrictFilterScopesOMAndStore() {
         let rows = SampleMarket.rows()
         let j1 = HeartbeatMath.filtered(rows, division: "Jewel Osco", district: "J1", om: "", store: "")

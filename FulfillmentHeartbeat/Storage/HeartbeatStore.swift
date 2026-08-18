@@ -11,6 +11,8 @@ final class HeartbeatStore: ObservableObject {
     @Published var errorMessage: String?
     @Published var statusMessage: String?
     @Published var lastImportedSection: MetricSection? = nil
+    @Published var isImporting = false
+    @Published var importLabel: String?
 
     private let fileManager: FileManager
     private let snapshotURL: URL
@@ -159,18 +161,36 @@ final class HeartbeatStore: ObservableObject {
         defer { if accessed { url.stopAccessingSecurityScopedResource() } }
         do {
             let data = try Data(contentsOf: url)
-            try importWorkbook(data: data, filename: url.lastPathComponent, section: section)
+            Task { await runImport(data: data, filename: url.lastPathComponent, section: section) }
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
-    func importWorkbook(data: Data, filename: String, section: MetricSection) throws {
-        let parsed = try WorkbookParser.parse(data: data, filename: filename)
-        guard !parsed.isEmpty else {
-            throw WorkbookParser.ParseError.empty
+    func importWorkbook(data: Data, filename: String, section: MetricSection) {
+        Task { await runImport(data: data, filename: filename, section: section) }
+    }
+
+    private func runImport(data: Data, filename: String, section: MetricSection) async {
+        guard !isImporting else { return }
+        isImporting = true
+        importLabel = "Reading \(filename)…"
+        errorMessage = nil
+        do {
+            let incoming = try await Task.detached(priority: .userInitiated) {
+                let parsed = try WorkbookParser.parse(data: data, filename: filename)
+                if parsed.isEmpty { throw WorkbookParser.ParseError.empty }
+                return parsed.map { $0.asRow(section: section) }
+            }.value
+            applyImport(incoming, filename: filename, section: section)
+        } catch {
+            errorMessage = error.localizedDescription
         }
-        let incoming = parsed.map { $0.asRow(section: section) }
+        isImporting = false
+        importLabel = nil
+    }
+
+    private func applyImport(_ incoming: [MetricRow], filename: String, section: MetricSection) {
         rows.removeAll { $0.section == section }
         rows.append(contentsOf: incoming)
         uploads.removeAll { $0.section == section }
@@ -220,14 +240,16 @@ final class HeartbeatStore: ObservableObject {
             seeded: seeded,
             filters: filters
         )
-        do {
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-            encoder.dateEncodingStrategy = .iso8601
-            let data = try encoder.encode(snapshot)
-            try data.write(to: snapshotURL, options: [.atomic])
-        } catch {
-            errorMessage = "Could not save: \(error.localizedDescription)"
+        let url = snapshotURL
+        Task.detached(priority: .utility) {
+            do {
+                let encoder = JSONEncoder()
+                encoder.dateEncodingStrategy = .iso8601
+                let data = try encoder.encode(snapshot)
+                try data.write(to: url, options: [.atomic])
+            } catch {
+                // Keep the in-memory pulse; the next successful save will replace this file.
+            }
         }
     }
 }
