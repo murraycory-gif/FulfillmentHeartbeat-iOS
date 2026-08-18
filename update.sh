@@ -34,4 +34,4 @@ print(f"Kept your Apple team: {team}")
 PY
 fi
 
-open FulfillmentHeartbeat.xcodeproj
+open FulfillmentHeartbeat.xcworkspace
