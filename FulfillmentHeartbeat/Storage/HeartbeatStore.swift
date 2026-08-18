@@ -39,6 +39,7 @@ final class HeartbeatStore: ObservableObject {
         opportunity: [],
         strong: []
     )
+    private var cachedChecklistGroups: [MetricSection: [ChecklistDriverGroup]] = [:]
 
     init(rootURL: URL? = nil) {
         fileManager = .default
@@ -148,23 +149,12 @@ final class HeartbeatStore: ObservableObject {
         MetricSection.checklistSections.allSatisfy { checklistItem(for: $0).status.isClosed }
     }
 
-    func checklistDrivers(for section: MetricSection, limit: Int = 3) -> [String] {
-        if section == .pickerScorecard {
-            return cachedPickerBoard.opportunity.prefix(limit).map { row in
-                let division = row.division.isEmpty ? identity(forStore: row.storeNumber).division : row.division
-                return "\(row.shopperName) · \(row.storeNumber)\(division.isEmpty ? "" : " · \(division)") · \(HeartbeatMath.pickerOpportunityText(row))"
-            }
-        }
-        let ranked = (filteredLatest[section] ?? [])
-            .map { ($0, HeartbeatMath.health(for: section, row: $0)) }
-            .filter { $0.1 == .risk || $0.1 == .watch }
-            .sorted { healthRank($0.1) > healthRank($1.1) }
-            .prefix(limit)
-        return ranked.map { row, health in
-            let cell = StoreCellViewModel.make(section: section, row: row)
-            let division = row.division.isEmpty ? identity(forStore: row.storeNumber).division : row.division
-            return "Store \(row.storeNumber)\(division.isEmpty ? "" : " · \(division)") · \(cell.primary) · \(health.label)"
-        }
+    func checklistDrivers(for section: MetricSection, limit: Int = 10) -> [String] {
+        checklistGroups(for: section).flatMap(\.lines).prefix(limit).map { $0 }
+    }
+
+    func checklistGroups(for section: MetricSection) -> [ChecklistDriverGroup] {
+        cachedChecklistGroups[section] ?? []
     }
 
     func checklistEmailText() -> String {
@@ -179,19 +169,15 @@ final class HeartbeatStore: ObservableObject {
             let item = checklistItem(for: section)
             lines.append("\(section.title) — \(summary.health.label) — \(summary.headlineText)")
             lines.append("Status: \(item.status.label)")
-            let drivers = checklistDrivers(for: section, limit: 5)
-            if !drivers.isEmpty {
-                lines.append("Callouts: \(drivers.joined(separator: "; "))")
+            let drivers = checklistGroups(for: section)
+            for group in drivers {
+                lines.append("\(group.title):")
+                for line in group.lines {
+                    lines.append("  • \(line)")
+                }
             }
             if !item.comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 lines.append("Comments: \(item.comment)")
-            }
-            lines.append("")
-        }
-        if !cachedPickerBoard.opportunity.isEmpty {
-            lines.append("Opportunity pickers")
-            for row in cachedPickerBoard.opportunity {
-                lines.append("• \(row.shopperName) · \(row.storeNumber) · \(HeartbeatMath.pickerOpportunityText(row))")
             }
             lines.append("")
         }
@@ -214,6 +200,43 @@ final class HeartbeatStore: ObservableObject {
         case .good: return 1
         case .none: return 0
         }
+    }
+
+    private func buildChecklistGroups(_ latest: [MetricSection: [MetricRow]]) -> [MetricSection: [ChecklistDriverGroup]] {
+        var groups: [MetricSection: [ChecklistDriverGroup]] = [:]
+        for section in MetricSection.dashboardCards {
+            let rows = HeartbeatMath.topOpportunityStores(section: section, rows: latest[section] ?? [], limit: 10)
+            let lines = rows.map { row in
+                let cell = StoreCellViewModel.make(section: section, row: row)
+                let health = HeartbeatMath.health(for: section, row: row)
+                let division = row.division.isEmpty ? identity(forStore: row.storeNumber).division : row.division
+                return "Store \(row.storeNumber)\(division.isEmpty ? "" : " · \(division)") · \(cell.primary) · \(health.label)"
+            }
+            if !lines.isEmpty {
+                groups[section] = [ChecklistDriverGroup(title: "Top \(lines.count) opportunity stores", lines: lines)]
+            }
+        }
+        let pickerGroups = HeartbeatMath.topPickersByMetric(latest[.pickerScorecard] ?? [], limit: 10).map { board in
+            ChecklistDriverGroup(
+                title: "Top \(board.rows.count) \(board.metric)",
+                lines: board.rows.map { row in
+                    let division = row.division.isEmpty ? identity(forStore: row.storeNumber).division : row.division
+                    let value: String
+                    switch board.metric {
+                    case "PPH": value = HeartbeatFormat.num(row.number("pph"), digits: 1)
+                    case "Presub": value = HeartbeatFormat.pct(row.number("presub_pct"))
+                    case "OTH": value = HeartbeatFormat.pct(row.number("oth5_pct"))
+                    case "COE": value = HeartbeatFormat.pct(row.number("coe_pct"))
+                    default: value = HeartbeatFormat.pct(row.number("ott_pct"))
+                    }
+                    return "\(row.shopperName) · \(row.storeNumber)\(division.isEmpty ? "" : " · \(division)") · \(value)"
+                }
+            )
+        }
+        if !pickerGroups.isEmpty {
+            groups[.pickerScorecard] = pickerGroups
+        }
+        return groups
     }
 
     func identity(forStore number: String) -> HeartbeatMath.StoreIdentity {
@@ -417,6 +440,7 @@ final class HeartbeatStore: ObservableObject {
         }
         filteredLatest = nextLatest
         cachedPickerBoard = HeartbeatMath.pickerBoard(nextLatest[.pickerScorecard] ?? [])
+        cachedChecklistGroups = buildChecklistGroups(nextLatest)
         filteredMarket = HeartbeatMath.marketBoard(
             universe,
             division: filters.division,

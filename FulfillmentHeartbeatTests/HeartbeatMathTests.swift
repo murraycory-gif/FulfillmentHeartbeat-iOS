@@ -138,6 +138,8 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(HeartbeatMath.pickerHealth(strong), .good)
         XCTAssertEqual(HeartbeatMath.pickerHealth(weak), .risk)
         XCTAssertTrue(HeartbeatMath.pickerOpportunityText(weak).contains("PPH"))
+        let boards = HeartbeatMath.topPickersByMetric(rows, limit: 10)
+        XCTAssertTrue(boards.contains { $0.metric == "PPH" && $0.rows.contains(where: { $0.storeNumber == "606" }) })
     }
 
     @MainActor

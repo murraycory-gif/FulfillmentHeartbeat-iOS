@@ -269,45 +269,54 @@ struct FilterBar: View {
 
     @ViewBuilder
     private var fields: some View {
-        filterMenu("Division", selection: store.filters.division, options: store.divisions.map { ($0, $0) }) {
-            store.setDivision($0)
-        }
-        filterMenu("District", selection: store.filters.district, options: store.districts.map { ($0, $0) }) {
-            store.setDistrict($0)
-        }
-        filterMenu("Operations manager", selection: store.filters.om, options: store.operationsOMs.map { ($0, $0) }) {
-            store.setOM($0)
-        }
-        filterMenu(
-            "Store #",
+        SearchableFilter(
+            title: "Division",
+            selection: store.filters.division,
+            options: store.divisions.map { ($0, $0) },
+            onChange: store.setDivision
+        )
+        SearchableFilter(
+            title: "District",
+            selection: store.filters.district,
+            options: store.districts.map { ($0, $0) },
+            onChange: store.setDistrict
+        )
+        SearchableFilter(
+            title: "Operations manager",
+            selection: store.filters.om,
+            options: store.operationsOMs.map { ($0, $0) },
+            onChange: store.setOM
+        )
+        SearchableFilter(
+            title: "Store #",
             selection: store.filters.store,
             options: store.stores.map { entry in
                 let label = entry.name.map { "\(entry.number) · \($0)" } ?? entry.number
                 return (entry.number, label)
-            }
-        ) {
-            store.setStore($0)
-        }
+            },
+            onChange: store.setStore
+        )
     }
+}
 
-    private func filterMenu(
-        _ title: String,
-        selection: String,
-        options: [(String, String)],
-        onChange: @escaping (String) -> Void
-    ) -> some View {
+struct SearchableFilter: View {
+    let title: String
+    let selection: String
+    let options: [(id: String, label: String)]
+    let onChange: (String) -> Void
+    @State private var showing = false
+
+    var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(.caption.weight(.medium))
                 .foregroundStyle(AppTheme.textSecondary)
-            Menu {
-                Button("All") { onChange("") }
-                ForEach(options, id: \.0) { item in
-                    Button(item.1) { onChange(item.0) }
-                }
-            } label: {
-                HStack {
-                    Text(label(for: selection, options: options))
+            Button { showing = true } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppTheme.blue)
+                    Text(selection.isEmpty ? "All · Search" : currentLabel)
                         .foregroundStyle(AppTheme.text)
                         .lineLimit(1)
                     Spacer()
@@ -323,13 +332,118 @@ struct FilterBar: View {
                         .stroke(AppTheme.cardBorder, lineWidth: 1)
                 )
             }
+            .buttonStyle(.plain)
+            .popover(isPresented: $showing, arrowEdge: .bottom) {
+                SearchableFilterSheet(
+                    title: title,
+                    selection: selection,
+                    options: options,
+                    onChange: { value in
+                        onChange(value)
+                        showing = false
+                    }
+                )
+                .frame(width: 340, height: 420)
+            }
         }
         .frame(minWidth: 160)
     }
 
-    private func label(for selection: String, options: [(String, String)]) -> String {
-        if selection.isEmpty { return "All" }
-        return options.first(where: { $0.0 == selection })?.1 ?? selection
+    private var currentLabel: String {
+        options.first(where: { $0.id == selection })?.label ?? selection
+    }
+}
+
+struct SearchableFilterSheet: View {
+    let title: String
+    let selection: String
+    let options: [(id: String, label: String)]
+    let onChange: (String) -> Void
+    @State private var query = ""
+
+    private var filtered: [(id: String, label: String)] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return options }
+        return options.filter {
+            $0.label.localizedCaseInsensitiveContains(trimmed)
+                || $0.id.localizedCaseInsensitiveContains(trimmed)
+        }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(AppTheme.textTertiary)
+                TextField("Search \(title.lowercased())", text: $query)
+                    .textFieldStyle(.plain)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .onSubmit(applyExactOrFirst)
+                if !query.isEmpty {
+                    Button {
+                        query = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundStyle(AppTheme.textTertiary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(14)
+            Divider()
+            List {
+                Button {
+                    onChange("")
+                } label: {
+                    HStack {
+                        Text("All")
+                        Spacer()
+                        if selection.isEmpty {
+                            Image(systemName: "checkmark")
+                                .foregroundStyle(AppTheme.blue)
+                        }
+                    }
+                }
+                ForEach(filtered, id: \.id) { item in
+                    Button {
+                        onChange(item.id)
+                    } label: {
+                        HStack {
+                            Text(item.label)
+                                .foregroundStyle(AppTheme.text)
+                            Spacer()
+                            if item.id == selection {
+                                Image(systemName: "checkmark")
+                                    .foregroundStyle(AppTheme.blue)
+                            }
+                        }
+                    }
+                }
+            }
+            .listStyle(.plain)
+            Text("\(filtered.count) of \(options.count)")
+                .font(.caption)
+                .foregroundStyle(AppTheme.textTertiary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+        }
+    }
+
+    private func applyExactOrFirst() {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty {
+            onChange("")
+            return
+        }
+        if let exact = options.first(where: { $0.id.compare(trimmed, options: [.caseInsensitive, .numeric]) == .orderedSame }) {
+            onChange(exact.id)
+            return
+        }
+        if filtered.count == 1 {
+            onChange(filtered[0].id)
+        }
     }
 }
 
@@ -909,7 +1023,7 @@ struct FulfillmentChecklistCard: View {
     private func checklistRow(_ section: MetricSection) -> some View {
         let summary = store.summary(for: section)
         let item = store.checklistItem(for: section)
-        let drivers = store.checklistDrivers(for: section)
+        let groups = store.checklistGroups(for: section)
         return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 10) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -924,15 +1038,19 @@ struct FulfillmentChecklistCard: View {
                 }
                 Spacer()
             }
-            if !drivers.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(section == .pickerScorecard ? "Pickers causing it" : "Stores causing it")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(AppTheme.textTertiary)
-                    ForEach(drivers, id: \.self) { line in
-                        Text(line)
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.text)
+            if !groups.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(groups) { group in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(group.title)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(AppTheme.textTertiary)
+                            ForEach(Array(group.lines.enumerated()), id: \.offset) { index, line in
+                                Text("\(index + 1). \(line)")
+                                    .font(.caption)
+                                    .foregroundStyle(AppTheme.text)
+                            }
+                        }
                     }
                 }
                 .padding(10)

@@ -815,6 +815,12 @@ enum HeartbeatMath {
         var strong: [MetricRow]
     }
 
+    struct PickerMetricBoard: Identifiable, Equatable {
+        var metric: String
+        var rows: [MetricRow]
+        var id: String { metric }
+    }
+
     static func pickerBoard(_ rows: [MetricRow], limit: Int = 6) -> PickerBoard {
         var opportunity: [(score: Double, row: MetricRow)] = []
         var strong: [(score: Double, row: MetricRow)] = []
@@ -855,6 +861,87 @@ enum HeartbeatMath {
         guard better else { return }
         bucket[limit - 1] = (score, row)
         bucket.sort { lowest ? $0.score < $1.score : $0.score > $1.score }
+    }
+
+    static func opportunitySortValue(section: MetricSection, row: MetricRow) -> Double {
+        switch section {
+        case .fiveStar:
+            return -(row.number("star_rating") ?? 99)
+        case .pickPath:
+            return -(row.number("compliance_pct") ?? 999)
+        case .prepNotReady:
+            return row.number("pnr_rate_pct") ?? 0
+        case .dynacap:
+            return -(row.number("dynacap_rate") ?? 999)
+        case .scheduleQuality:
+            let under = row.number("under_schedule_pct") ?? 0
+            let over = row.number("over_schedule_pct") ?? 0
+            let miss = max(0, scheduleGoal - (row.number("schedule_efficiency_pct") ?? scheduleGoal))
+            return max(under, over) + miss
+        case .pph:
+            return -(row.number("pph") ?? 999)
+        case .pickerScorecard:
+            return -pickerComposite(row)
+        }
+    }
+
+    static func topOpportunityStores(section: MetricSection, rows: [MetricRow], limit: Int = 10) -> [MetricRow] {
+        rows
+            .filter {
+                let health = health(for: section, row: $0)
+                return health == .risk || health == .watch
+            }
+            .sorted { opportunitySortValue(section: section, row: $0) > opportunitySortValue(section: section, row: $1) }
+            .prefix(limit)
+            .map { $0 }
+    }
+
+    static func topPickersByMetric(_ rows: [MetricRow], limit: Int = 10) -> [PickerMetricBoard] {
+        var pph: [(score: Double, row: MetricRow)] = []
+        var presub: [(score: Double, row: MetricRow)] = []
+        var oth: [(score: Double, row: MetricRow)] = []
+        var coe: [(score: Double, row: MetricRow)] = []
+        var ott: [(score: Double, row: MetricRow)] = []
+        for row in rows {
+            guard pickerHasVolume(row) else { continue }
+            if let value = row.number("pph") {
+                let health = pphHealth(row)
+                if health == .risk || health == .watch {
+                    keepTop(&pph, score: value, row: row, limit: limit, lowest: true)
+                }
+            }
+            if let value = row.number("presub_pct") {
+                let health = starMark(value: value, full: 5, half: 6, invert: true).health
+                if health == .risk || health == .watch {
+                    keepTop(&presub, score: value, row: row, limit: limit, lowest: false)
+                }
+            }
+            if let value = row.number("oth5_pct") {
+                let health = othStar(row).health
+                if health == .risk || health == .watch {
+                    keepTop(&oth, score: value, row: row, limit: limit, lowest: true)
+                }
+            }
+            if let value = row.number("coe_pct") {
+                let health = coeStar(row).health
+                if health == .risk || health == .watch {
+                    keepTop(&coe, score: value, row: row, limit: limit, lowest: true)
+                }
+            }
+            if let value = row.number("ott_pct") {
+                let health = ottStar(row).health
+                if health == .risk || health == .watch {
+                    keepTop(&ott, score: value, row: row, limit: limit, lowest: true)
+                }
+            }
+        }
+        return [
+            PickerMetricBoard(metric: "PPH", rows: pph.map(\.row)),
+            PickerMetricBoard(metric: "Presub", rows: presub.map(\.row)),
+            PickerMetricBoard(metric: "OTH", rows: oth.map(\.row)),
+            PickerMetricBoard(metric: "COE", rows: coe.map(\.row)),
+            PickerMetricBoard(metric: "OTT", rows: ott.map(\.row)),
+        ].filter { !$0.rows.isEmpty }
     }
 
     static func band(_ value: Double?, good: Double, watch: Double, invert: Bool = false) -> Health {
@@ -954,6 +1041,12 @@ struct ChecklistItem: Identifiable, Codable, Hashable {
         self.comment = comment
         self.updatedAt = updatedAt
     }
+}
+
+struct ChecklistDriverGroup: Identifiable, Equatable {
+    var title: String
+    var lines: [String]
+    var id: String { title }
 }
 
 struct DashboardFilters: Equatable, Codable {
