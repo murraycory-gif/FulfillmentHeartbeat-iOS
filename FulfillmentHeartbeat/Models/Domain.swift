@@ -41,7 +41,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .pickPath: return "Share of picks that followed the system path. Upload the All Pickers WEEK_ID export."
         case .prepNotReady: return "Orders not staged by the promised ready time."
         case .dynacap: return "Pieces per hour we allow down to the picker. Upload the Overall Capacity Summary."
-        case .scheduleQuality: return "How tightly the labor plan matches the work — efficiency, over, and under."
+        case .scheduleQuality: return "How tightly the labor plan matches the work. Upload Optimized Departments."
         case .pph: return "Pure picks completed per labor hour. Upload the WEEK_ID by Division export."
         case .pickerScorecard: return "Shopper-level PPH, path, and quality — opportunity versus strong."
         }
@@ -53,7 +53,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .pickPath: return "WEEK_ID · DIVISION · DISTRICT · OM · STORE_ID · EMPLOYEE · Pick Path · Orders · Pure PPH"
         case .prepNotReady: return "PNR Count · Orders Due · PNR Rate · Avg Late Min"
         case .dynacap: return "DISTRICT · Total Pieces/Total Hrs · DPA Dynacap · Utilization %"
-        case .scheduleQuality: return "Schedule Efficiency · Over Scheduled · Under Scheduled"
+        case .scheduleQuality: return "Division · District · Store · Schedule Efficiency · Under % · Over %"
         case .pph: return "WEEK_ID · DIVISION · DISTRICT · OM_AREA · OM_ID · STORE · Pure PPH"
         case .pickerScorecard: return "Shopper · PPH · Pick Path % · Quality · Goal PPH"
         }
@@ -361,16 +361,23 @@ enum HeartbeatMath {
         }
     }
 
+    static func canonicalStore(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let number = Int(trimmed) { return String(number) }
+        return trimmed
+    }
+
     static func storeRoster(_ rows: [MetricRow]) -> [String: StoreIdentity] {
         var map: [String: StoreIdentity] = [:]
         for row in rows {
             guard !row.storeNumber.isEmpty else { continue }
-            var current = map[row.storeNumber] ?? StoreIdentity(division: "", district: "", om: "", name: nil)
+            let number = canonicalStore(row.storeNumber)
+            var current = map[number] ?? StoreIdentity(division: "", district: "", om: "", name: nil)
             if current.division.isEmpty, !row.division.isEmpty { current.division = row.division }
             if current.district.isEmpty, !row.district.isEmpty { current.district = row.district }
             if current.om.isEmpty, !row.operationsOM.isEmpty { current.om = row.operationsOM }
             if current.name == nil, let name = row.storeName, !name.isEmpty { current.name = name }
-            map[row.storeNumber] = current
+            map[number] = current
         }
         return map
     }
@@ -402,8 +409,31 @@ enum HeartbeatMath {
         return expanded
     }
 
+    static func applyRoster(_ rows: [MetricRow], roster: [String: StoreIdentity]) -> [MetricRow] {
+        rows.map { row in
+            let number = canonicalStore(row.storeNumber)
+            let known = roster[number]
+            var text = row.textPayload
+            if text["district"] == nil || text["district"]?.isEmpty == true, let district = known?.district, !district.isEmpty {
+                text["district"] = district
+            } else if let district = known?.district, !district.isEmpty, (text["district"] ?? "").count > district.count {
+                text["district"] = district
+            }
+            return MetricRow(
+                section: row.section,
+                division: known?.division.isEmpty == false ? known!.division : row.division,
+                operationsOM: known?.om.isEmpty == false ? known!.om : row.operationsOM,
+                storeNumber: number,
+                storeName: row.storeName ?? known?.name,
+                recordedOn: row.recordedOn,
+                payload: row.payload,
+                textPayload: text
+            )
+        }
+    }
+
     static func resolvedIdentity(_ row: MetricRow, roster: [String: StoreIdentity]) -> StoreIdentity {
-        let known = roster[row.storeNumber]
+        let known = roster[canonicalStore(row.storeNumber)]
         return StoreIdentity(
             division: row.division.isEmpty ? (known?.division ?? "") : row.division,
             district: row.district.isEmpty ? (known?.district ?? "") : row.district,
@@ -428,7 +458,7 @@ enum HeartbeatMath {
             guard let aligned = dynacapAligned(row) else { return .none }
             return aligned ? .good : .risk
         case .scheduleQuality:
-            return band(row.number("schedule_efficiency_pct"), good: 95, watch: 88)
+            return scheduleHealth(row)
         case .pph:
             return pphHealth(row)
         case .pickerScorecard:
@@ -520,17 +550,18 @@ enum HeartbeatMath {
             )
         case .scheduleQuality:
             let headline = average(latest.compactMap { $0.number("schedule_efficiency_pct") })
-            let over = latest.reduce(0) { $0 + ($1.number("over_scheduled") ?? 0) }
-            let under = latest.reduce(0) { $0 + ($1.number("under_scheduled") ?? 0) }
+            let atGoal = latest.filter { ($0.number("schedule_efficiency_pct") ?? 0) >= scheduleGoal }.count
+            let underRisk = latest.filter { ($0.number("under_schedule_pct", "under_scheduled") ?? 0) > scheduleVarianceWatch }.count
+            let overRisk = latest.filter { ($0.number("over_schedule_pct", "over_scheduled") ?? 0) > scheduleVarianceWatch }.count
             return SectionSummary(
                 section: section,
                 storeCount: latest.count,
                 headline: headline,
                 headlineLabel: "Avg schedule efficiency",
                 secondary: latest.isEmpty
-                    ? "No stores in view"
-                    : "\(Int(over.rounded())) over · \(Int(under.rounded())) under",
-                health: band(headline, good: 95, watch: 88),
+                    ? "No Schedule rows in this filter"
+                    : "\(atGoal) of \(latest.count) at 90% · \(underRisk) under risk · \(overRisk) over risk",
+                health: latest.isEmpty ? .none : band(headline, good: scheduleGoal, watch: scheduleWatch),
                 watchCount: watch,
                 riskCount: risk,
                 lastFilename: upload?.filename,
@@ -583,6 +614,24 @@ enum HeartbeatMath {
     static let pickPathRisk = 80.0
     static let dynacapGoal = 65.0
     static let dynacapRisk = 60.0
+    static let scheduleGoal = 90.0
+    static let scheduleWatch = 85.0
+    static let scheduleVarianceWatch = 5.0
+
+    static func varianceHealth(_ pct: Double?) -> Health {
+        guard let pct else { return .none }
+        if pct <= 0.05 { return .good }
+        if pct <= scheduleVarianceWatch { return .watch }
+        return .risk
+    }
+
+    static func scheduleHealth(_ row: MetricRow) -> Health {
+        let under = varianceHealth(row.number("under_schedule_pct", "under_scheduled"))
+        let over = varianceHealth(row.number("over_schedule_pct", "over_scheduled"))
+        let efficiency = band(row.number("schedule_efficiency_pct"), good: scheduleGoal, watch: scheduleWatch)
+        let ranks: [Health: Int] = [.none: 0, .good: 1, .watch: 2, .risk: 3]
+        return [under, over, efficiency].max { (ranks[$0] ?? 0) < (ranks[$1] ?? 0) } ?? .watch
+    }
 
     static func pphHealth(_ row: MetricRow) -> Health {
         band(row.number("pph"), good: pphGoal, watch: pphRisk)
@@ -829,9 +878,12 @@ struct StoreCellViewModel {
                 extra: extra
             )
         case .scheduleQuality:
+            let efficiency = row.number("schedule_efficiency_pct")
+            let under = row.number("under_schedule_pct", "under_scheduled")
+            let over = row.number("over_schedule_pct", "over_scheduled")
             return StoreCellViewModel(
-                primary: HeartbeatFormat.pct(row.number("schedule_efficiency_pct")),
-                extra: "Over \(HeartbeatFormat.num(row.number("over_scheduled"))) · Under \(HeartbeatFormat.num(row.number("under_scheduled")))"
+                primary: HeartbeatFormat.pct(efficiency),
+                extra: "Under \(HeartbeatFormat.pct(under)) · Over \(HeartbeatFormat.pct(over))"
             )
         case .pph:
             let pph = row.number("pph")

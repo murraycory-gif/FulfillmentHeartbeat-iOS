@@ -180,12 +180,26 @@ enum WorkbookParser {
         "scheduleeff": "schedule_efficiency_pct",
         "efficiency": "schedule_efficiency_pct",
         "schedefficiency": "schedule_efficiency_pct",
-        "overscheduled": "over_scheduled",
-        "oversched": "over_scheduled",
-        "overhours": "over_scheduled",
-        "underscheduled": "under_scheduled",
-        "undersched": "under_scheduled",
-        "underhours": "under_scheduled",
+        "scheduleefficicency": "schedule_efficiency_pct",
+        "scheduleefficicencyvsschvstgt": "schedule_efficiency_pct",
+        "scheduleefficiencyvsschvstgt": "schedule_efficiency_pct",
+        "overscheduled": "over_schedule_pct",
+        "oversched": "over_schedule_pct",
+        "overhours": "over_schedule_pct",
+        "overschedule": "over_schedule_pct",
+        "overschedulevsschvstgt": "over_schedule_pct",
+        "underscheduled": "under_schedule_pct",
+        "undersched": "under_schedule_pct",
+        "underhours": "under_schedule_pct",
+        "underschedule": "under_schedule_pct",
+        "underschedulevsschvstgt": "under_schedule_pct",
+        "scheduleadherencepchvsch": "schedule_adherence_pct",
+        "scheduleadherence": "schedule_adherence_pct",
+        "underadherencepchvsch": "under_adherence_pct",
+        "overadherencepchvsch": "over_adherence_pct",
+        "staffingefficiencypchvstgt": "staffing_efficiency_pct",
+        "understaffingpchvstgt": "under_staffing_pct",
+        "overstaffingpchvstgt": "over_staffing_pct",
         "pph": "pph",
         "purepph": "pph",
         "purepicksperhour": "pph",
@@ -314,7 +328,7 @@ enum WorkbookParser {
                     ParsedWorkbookRow(
                         division: carryDiv,
                         operationsOM: carryOM,
-                        storeNumber: storeRaw,
+                        storeNumber: HeartbeatMath.canonicalStore(storeRaw),
                         storeName: nil,
                         recordedOn: nil,
                         payload: payload,
@@ -357,7 +371,7 @@ enum WorkbookParser {
             return ParsedWorkbookRow(
                 division: division,
                 operationsOM: operationsOM,
-                storeNumber: storeNumber,
+                storeNumber: HeartbeatMath.canonicalStore(storeNumber),
                 storeName: nil,
                 recordedOn: date,
                 payload: payload,
@@ -376,6 +390,11 @@ enum WorkbookParser {
         if key == "utilization_pct" || key == "change_pct" {
             if number <= 1.5 { number *= 100 }
         }
+        if key.hasSuffix("_pct"), number <= 1.5 {
+            number *= 100
+        }
+        if key == "over_scheduled" { key = "over_schedule_pct" }
+        if key == "under_scheduled" { key = "under_schedule_pct" }
         payload[key] = number
         if key == "orders" {
             payload["picks_total"] = number
@@ -490,7 +509,7 @@ enum WorkbookParser {
                     continue
                 }
                 if storeKeys.contains(header) {
-                    store = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                    store = HeartbeatMath.canonicalStore(raw)
                     continue
                 }
                 if nameKeys.contains(header) {

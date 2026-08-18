@@ -44,6 +44,8 @@ struct SectionDetailView: View {
                             pickPathStatusTiles
                         } else if section == .dynacap {
                             dynacapStatusTiles
+                        } else if section == .scheduleQuality {
+                            scheduleStatusTiles
                         } else {
                             HubCard {
                                 VStack(alignment: .leading, spacing: 8) {
@@ -173,6 +175,21 @@ struct SectionDetailView: View {
         KpiTile(label: "At goal", value: HeartbeatFormat.num(Double(atGoal)), tone: .good)
         KpiTile(label: "Below 60", value: HeartbeatFormat.num(Double(atRisk)), tone: .risk)
         KpiTile(label: "Utilization", value: HeartbeatFormat.pct(util))
+    }
+
+    @ViewBuilder
+    private var scheduleStatusTiles: some View {
+        let rows = snapshots
+        let atGoal = rows.filter { ($0.number("schedule_efficiency_pct") ?? 0) >= HeartbeatMath.scheduleGoal }.count
+        let underRisk = rows.filter { ($0.number("under_schedule_pct", "under_scheduled") ?? 0) > HeartbeatMath.scheduleVarianceWatch }.count
+        let overRisk = rows.filter { ($0.number("over_schedule_pct", "over_scheduled") ?? 0) > HeartbeatMath.scheduleVarianceWatch }.count
+        let zeroUnder = rows.filter { ($0.number("under_schedule_pct", "under_scheduled") ?? 0) <= 0.05 }.count
+        KpiTile(label: "Avg efficiency", value: summary.headlineText, hint: summary.health.label, tone: tone(for: summary.health))
+        KpiTile(label: "Goal", value: "90%", tone: .brand)
+        KpiTile(label: "At goal", value: HeartbeatFormat.num(Double(atGoal)), tone: .good)
+        KpiTile(label: "Under risk", value: HeartbeatFormat.num(Double(underRisk)), tone: .risk)
+        KpiTile(label: "Over risk", value: HeartbeatFormat.num(Double(overRisk)), tone: .risk)
+        KpiTile(label: "Zero under", value: HeartbeatFormat.num(Double(zeroUnder)), tone: .good)
     }
 
     private func tone(for health: Health) -> KpiTile.Tone {

@@ -248,12 +248,15 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func rebuildIndex() {
-        roster = HeartbeatMath.storeRoster(rows)
+        let identitySource = rows.filter { $0.section != .scheduleQuality && $0.section != .dynacap }
+        roster = HeartbeatMath.storeRoster(identitySource.isEmpty ? rows : identitySource)
         var latest: [MetricSection: [MetricRow]] = [:]
         for section in MetricSection.allCases {
             let sectionRows = rows.filter { $0.section == section }
             if section == .dynacap {
                 latest[section] = HeartbeatMath.materializeDistrictMetric(sectionRows, roster: roster)
+            } else if section == .scheduleQuality {
+                latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(sectionRows), roster: roster)
             } else if section == .pickerScorecard {
                 latest[section] = HeartbeatMath.latestPerShopper(sectionRows)
             } else {

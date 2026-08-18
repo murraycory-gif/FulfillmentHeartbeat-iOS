@@ -104,8 +104,6 @@ enum SampleMarket {
                 ))
 
                 let efficiency = clamp(91 + jitter(index + 21, 8) + Double(week) * 0.5, 78, 99.4)
-                let over = max(0, (6 + jitter(index + 27, 8)).rounded())
-                let under = max(0, (4 + jitter(index + 33, 6)).rounded())
                 out.append(MetricRow(
                     section: .scheduleQuality,
                     division: store.division,
@@ -115,8 +113,8 @@ enum SampleMarket {
                     recordedOn: date,
                     payload: [
                         "schedule_efficiency_pct": efficiency.rounded(1),
-                        "over_scheduled": over,
-                        "under_scheduled": under,
+                        "over_schedule_pct": max(0, (2 + jitter(index + 27, 6))).rounded(1),
+                        "under_schedule_pct": max(0, (1.5 + jitter(index + 33, 5))).rounded(1),
                     ]
                 ))
 
@@ -210,8 +208,10 @@ enum SampleMarket {
             """
         case .scheduleQuality:
             return """
-            Division,Operations OM,Store Number,Store Name,Date,Schedule Efficiency %,Over Scheduled,Under Scheduled
-            10,A. Brooks,1487,Chicago Pulaski,2026-08-17,94.6,4,2
+            Division,District,Store,Schedule Efficicency % (Sch vs Tgt),Under Schedule % (Sch vs Tgt),Over Schedule % (Sch vs Tgt)
+            JEWEL,J1,0001,0.931,0.012,0.008
+            JEWEL,J1,0606,0.884,0.061,0.014
+            HAGGEN,39,3427,0.952,0.000,0.000
             """
         case .pph:
             return """
