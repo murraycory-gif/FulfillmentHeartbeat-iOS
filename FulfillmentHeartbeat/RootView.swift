@@ -40,12 +40,14 @@ struct LaunchSplashView: View {
             VStack(spacing: 18) {
                 Image("HeartbeatMark")
                     .resizable()
+                    .interpolation(.high)
                     .scaledToFit()
-                    .frame(width: 148, height: 148)
-                    .clipShape(RoundedRectangle(cornerRadius: 34, style: .continuous))
-                    .shadow(color: AppTheme.blue.opacity(0.22), radius: 18, y: 8)
+                    .frame(width: 220)
                     .scaleEffect(appear ? 1 : 0.92)
                     .opacity(appear ? 1 : 0.85)
+
+                HeartbeatTrace()
+                    .frame(width: 220, height: 36)
 
                 VStack(spacing: 4) {
                     Text("Fulfillment")

@@ -66,22 +66,25 @@ struct DashboardView: View {
     }
 
     private var header: some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Market pulse")
-                    .font(.largeTitle.weight(.semibold))
-                    .foregroundStyle(AppTheme.text)
-                Text(subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(AppTheme.textSecondary)
+        VStack(alignment: .leading, spacing: 14) {
+            BrandPulseLockup(height: sizeClass == .regular ? 88 : 68)
+            HStack(alignment: .top) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Market pulse")
+                        .font(.largeTitle.weight(.semibold))
+                        .foregroundStyle(AppTheme.text)
+                    Text(subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(AppTheme.textSecondary)
+                }
+                Spacer()
+                Button {
+                    store.loadSampleMarket()
+                } label: {
+                    Label(store.seeded ? "Reload sample" : "Load sample market", systemImage: "sparkles")
+                }
+                .buttonStyle(SecondaryButtonStyle())
             }
-            Spacer()
-            Button {
-                store.loadSampleMarket()
-            } label: {
-                Label(store.seeded ? "Reload sample" : "Load sample market", systemImage: "sparkles")
-            }
-            .buttonStyle(SecondaryButtonStyle())
         }
     }
 

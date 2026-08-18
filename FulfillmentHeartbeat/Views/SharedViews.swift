@@ -135,14 +135,92 @@ struct HubNavLogo: View {
         HStack(spacing: 8) {
             Image("HeartbeatMark")
                 .resizable()
+                .interpolation(.high)
                 .scaledToFit()
-                .frame(width: 28, height: 28)
-                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .frame(height: 26)
             Text("Heartbeat")
                 .font(.headline.weight(.semibold))
                 .foregroundStyle(AppTheme.text)
         }
         .accessibilityLabel("Fulfillment Heartbeat")
+    }
+}
+
+struct BrandPulseLockup: View {
+    var height: CGFloat = 78
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 6) {
+            Image("HeartbeatMark")
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .frame(height: height)
+                .accessibilityHidden(true)
+
+            HeartbeatTrace()
+                .frame(maxWidth: .infinity)
+                .frame(height: height * 0.58)
+                .accessibilityHidden(true)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Fulfillment Heartbeat")
+    }
+}
+
+struct HeartbeatTrace: View {
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { timeline in
+            Canvas { context, size in
+                let path = Self.ecgPath(in: size)
+                context.stroke(
+                    path,
+                    with: .color(AppTheme.blue.opacity(0.2)),
+                    style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
+                )
+
+                let cycle = 2.1
+                let t = CGFloat(timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: cycle) / cycle)
+                let head = t
+                let tail = max(0, t - 0.16)
+                if head > tail {
+                    context.stroke(
+                        path.trimmedPath(from: tail, to: head),
+                        with: .color(AppTheme.blue),
+                        style: StrokeStyle(lineWidth: 3.2, lineCap: .round, lineJoin: .round)
+                    )
+                }
+            }
+        }
+    }
+
+    static func ecgPath(in size: CGSize) -> Path {
+        var path = Path()
+        let mid = size.height * 0.56
+        let width = max(size.width, 1)
+        let height = size.height
+
+        func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: x * width, y: mid - y * height)
+        }
+
+        path.move(to: point(0, 0))
+        let beats = 2
+        for index in 0..<beats {
+            let origin = CGFloat(index) / CGFloat(beats)
+            let span = 1 / CGFloat(beats)
+            path.addLine(to: point(origin + span * 0.16, 0))
+            path.addLine(to: point(origin + span * 0.20, 0.10))
+            path.addLine(to: point(origin + span * 0.26, 0))
+            path.addLine(to: point(origin + span * 0.32, -0.16))
+            path.addLine(to: point(origin + span * 0.38, 0.78))
+            path.addLine(to: point(origin + span * 0.44, -0.26))
+            path.addLine(to: point(origin + span * 0.50, 0))
+            path.addLine(to: point(origin + span * 0.60, 0.20))
+            path.addLine(to: point(origin + span * 0.70, 0))
+            path.addLine(to: point(origin + span * 1.00, 0))
+        }
+        return path
     }
 }
 
