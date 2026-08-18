@@ -78,9 +78,11 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testPPHUsesGoalWhenPresent() {
-        let good = MetricRow(section: .pph, division: "10", operationsOM: "A", storeNumber: "1", payload: ["pph": 70, "goal_pph": 65])
-        let risk = MetricRow(section: .pph, division: "10", operationsOM: "A", storeNumber: "2", payload: ["pph": 40, "goal_pph": 65])
+        let good = MetricRow(section: .pph, division: "Jewel Osco", operationsOM: "A", storeNumber: "1", payload: ["pph": 82])
+        let watch = MetricRow(section: .pph, division: "Jewel Osco", operationsOM: "A", storeNumber: "2", payload: ["pph": 76])
+        let risk = MetricRow(section: .pph, division: "Jewel Osco", operationsOM: "A", storeNumber: "3", payload: ["pph": 70])
         XCTAssertEqual(HeartbeatMath.health(for: .pph, row: good), .good)
+        XCTAssertEqual(HeartbeatMath.health(for: .pph, row: watch), .watch)
         XCTAssertEqual(HeartbeatMath.health(for: .pph, row: risk), .risk)
     }
 

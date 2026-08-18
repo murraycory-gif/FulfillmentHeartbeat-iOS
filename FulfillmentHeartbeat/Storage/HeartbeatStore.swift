@@ -147,6 +147,7 @@ final class HeartbeatStore: ObservableObject {
         }
         seeded = true
         lastImportedSection = nil
+        clearFilters()
         statusMessage = "Sample market loaded — 16 Chicago-area stores."
         persist()
     }
@@ -174,7 +175,9 @@ final class HeartbeatStore: ObservableObject {
         uploads.insert(UploadRecord(section: section, filename: filename, rowCount: incoming.count), at: 0)
         seeded = true
         lastImportedSection = section
-        statusMessage = "Imported \(incoming.count) rows into \(section.title). The dashboard card is updated."
+        clearFilters()
+        let stores = Set(incoming.map(\.storeNumber).filter { !$0.isEmpty }).count
+        statusMessage = "Imported \(incoming.count) rows · \(stores) stores into \(section.title). Filters cleared so the new file is in view."
         persist()
     }
 

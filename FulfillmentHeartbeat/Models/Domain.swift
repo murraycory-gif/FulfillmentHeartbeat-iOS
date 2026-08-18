@@ -370,12 +370,8 @@ enum HeartbeatMath {
             )
         case .pph:
             let headline = average(latest.compactMap { $0.number("pph") })
-            let picks = latest.reduce(0) { $0 + ($1.number("picks_total") ?? 0) }
-            let atGoal = latest.filter { row in
-                guard let pph = row.number("pph"), let goal = row.number("goal_pph") else { return false }
-                return pph >= goal
-            }.count
-            let hasGoals = latest.contains { $0.number("goal_pph") != nil }
+            let atGoal = latest.filter { ($0.number("pph") ?? 0) >= pphGoal }.count
+            let atRisk = latest.filter { ($0.number("pph") ?? .greatestFiniteMagnitude) < pphRisk }.count
             return SectionSummary(
                 section: section,
                 storeCount: latest.count,
@@ -383,10 +379,8 @@ enum HeartbeatMath {
                 headlineLabel: "Avg pure PPH",
                 secondary: latest.isEmpty
                     ? "No stores in view"
-                    : (hasGoals
-                        ? "\(atGoal) of \(latest.count) at goal"
-                        : "\(Int(picks.rounded())) picks"),
-                health: band(headline, good: 65, watch: 50),
+                    : "\(atGoal) of \(latest.count) at 80 · \(atRisk) below 74",
+                health: band(headline, good: pphGoal, watch: pphRisk),
                 watchCount: watch,
                 riskCount: risk,
                 lastFilename: upload?.filename,
@@ -415,12 +409,11 @@ enum HeartbeatMath {
         }
     }
 
+    static let pphGoal = 80.0
+    static let pphRisk = 74.0
+
     static func pphHealth(_ row: MetricRow) -> Health {
-        let pph = row.number("pph")
-        if let pph, let goal = row.number("goal_pph"), goal > 0 {
-            return band(pph / goal * 100, good: 100, watch: 90)
-        }
-        return band(pph, good: 65, watch: 50)
+        band(row.number("pph"), good: pphGoal, watch: pphRisk)
     }
 
     static func pickerComposite(_ row: MetricRow) -> Double {
@@ -626,12 +619,19 @@ struct StoreCellViewModel {
                 extra: "Over \(HeartbeatFormat.num(row.number("over_scheduled"))) · Under \(HeartbeatFormat.num(row.number("under_scheduled")))"
             )
         case .pph:
-            let goal = row.number("goal_pph")
+            let pph = row.number("pph")
+            let gap = pph.map { $0 - HeartbeatMath.pphGoal }
+            let gapText: String
+            if let gap {
+                gapText = gap >= 0
+                    ? "+\(HeartbeatFormat.num(gap, digits: 1)) vs 80"
+                    : "\(HeartbeatFormat.num(gap, digits: 1)) vs 80"
+            } else {
+                gapText = "Goal 80"
+            }
             return StoreCellViewModel(
-                primary: HeartbeatFormat.num(row.number("pph"), digits: 1),
-                extra: goal == nil
-                    ? "\(HeartbeatFormat.num(row.number("picks_total"))) picks · \(HeartbeatFormat.num(row.number("pick_hours"), digits: 1)) hrs"
-                    : "Goal \(HeartbeatFormat.num(goal, digits: 1)) · \(HeartbeatFormat.num(row.number("picks_total"))) picks"
+                primary: HeartbeatFormat.num(pph, digits: 1),
+                extra: "\(gapText) · \(row.district.isEmpty ? "No district" : "Dist \(row.district)")"
             )
         case .pickerScorecard:
             return StoreCellViewModel(

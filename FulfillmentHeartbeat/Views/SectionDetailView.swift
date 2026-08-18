@@ -112,10 +112,14 @@ struct SectionDetailView: View {
                 ("Under scheduled", HeartbeatFormat.num(rows.reduce(0) { $0 + ($1.number("under_scheduled") ?? 0) })),
             ]
         case .pph:
+            let atGoal = rows.filter { ($0.number("pph") ?? 0) >= HeartbeatMath.pphGoal }.count
+            let atRisk = rows.filter { ($0.number("pph") ?? .greatestFiniteMagnitude) < HeartbeatMath.pphRisk }.count
+            let week = rows.compactMap(\.recordedOn).sorted().last
             return [
-                ("Pure PPH", HeartbeatFormat.num(avg("pph"), digits: 1)),
-                ("Picks", HeartbeatFormat.num(rows.reduce(0) { $0 + ($1.number("picks_total") ?? 0) })),
-                ("Hours", HeartbeatFormat.num(rows.reduce(0) { $0 + ($1.number("pick_hours") ?? 0) }, digits: 1)),
+                ("Goal", "80.0"),
+                ("At goal", HeartbeatFormat.num(Double(atGoal))),
+                ("Below 74", HeartbeatFormat.num(Double(atRisk))),
+                ("Week", week ?? "—"),
             ]
         case .pickerScorecard:
             let board = HeartbeatMath.pickerBoard(rows)

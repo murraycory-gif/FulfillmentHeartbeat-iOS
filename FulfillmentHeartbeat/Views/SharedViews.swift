@@ -318,8 +318,9 @@ struct StoreTable: View {
                     HStack {
                         header(section == .pickerScorecard ? "Shopper" : "Store")
                         header("Division")
+                        header("District")
                         header("OM")
-                        header("Result")
+                        header(section == .pph ? "PPH" : "Result")
                         header("Status")
                     }
                     .padding(.bottom, 10)
@@ -337,13 +338,17 @@ struct StoreTable: View {
                                 } else {
                                     Text(row.storeNumber.isEmpty ? "—" : row.storeNumber)
                                         .font(.subheadline.weight(.semibold).monospacedDigit())
-                                    Text(row.storeName ?? "Unnamed store")
+                                    Text(row.storeName ?? (row.omArea.isEmpty ? "Store" : row.omArea))
                                         .font(.caption)
                                         .foregroundStyle(AppTheme.textSecondary)
                                 }
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                             Text(row.division.isEmpty ? "—" : row.division)
+                                .font(.subheadline)
+                                .foregroundStyle(AppTheme.textSecondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Text(row.district.isEmpty ? "—" : row.district)
                                 .font(.subheadline.monospacedDigit())
                                 .foregroundStyle(AppTheme.textSecondary)
                                 .frame(maxWidth: .infinity, alignment: .leading)
