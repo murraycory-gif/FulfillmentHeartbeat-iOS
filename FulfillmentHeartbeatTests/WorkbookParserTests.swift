@@ -42,6 +42,17 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertThrowsError(try WorkbookParser.parse(data: Data("Division,Store\n".utf8), filename: "empty.csv"))
     }
 
+    func testUnescapesXMLEntities() {
+        func entity(_ name: String) -> String { "&" + name + ";" }
+        func numeric(_ code: Int) -> String { "&#" + String(code) + ";" }
+        XCTAssertEqual(WorkbookParser.unescapeXML("A " + entity("amp") + " B"), "A & B")
+        XCTAssertEqual(WorkbookParser.unescapeXML(entity("lt") + "store" + entity("gt")), "<store>")
+        XCTAssertEqual(WorkbookParser.unescapeXML(entity("quot") + "Chicago" + entity("quot")), "\"Chicago\"")
+        XCTAssertEqual(WorkbookParser.unescapeXML("O" + entity("apos") + "Hare"), "O'Hare")
+        XCTAssertEqual(WorkbookParser.unescapeXML(numeric(34) + "quoted" + numeric(34)), "\"quoted\"")
+        XCTAssertEqual(WorkbookParser.unescapeXML(numeric(39) + "ok" + numeric(39)), "'ok'")
+    }
+
     func testExcelSerialDate() {
         XCTAssertEqual(WorkbookParser.excelSerialDate(45921), "2025-09-21")
     }

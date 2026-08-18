@@ -39,6 +39,10 @@ enum WorkbookParser {
         }
     }
 
+    static func unescapeXML(_ raw: String) -> String {
+        unescape(raw)
+    }
+
     static func parse(data: Data, filename: String) throws -> [ParsedWorkbookRow] {
         let ext = (filename as NSString).pathExtension.lowercased()
         let rows: [ParsedWorkbookRow]
@@ -374,12 +378,18 @@ private func stripNS(_ xml: String) -> String {
 }
 
 private func unescape(_ raw: String) -> String {
-    raw
-        .replacingOccurrences(of: "&", with: "&")
-        .replacingOccurrences(of: "<", with: "<")
-        .replacingOccurrences(of: ">", with: ">")
-        .replacingOccurrences(of: """, with: "\"")
-        .replacingOccurrences(of: "'", with: "'")
+    // Build XML entity names in parts so they cannot be HTML-decoded
+    // back into broken Swift string literals.
+    func entity(_ name: String) -> String { "&" + name + ";" }
+    func numeric(_ code: Int) -> String { "&#" + String(code) + ";" }
+    return raw
+        .replacingOccurrences(of: entity("quot"), with: "\"")
+        .replacingOccurrences(of: entity("apos"), with: "'")
+        .replacingOccurrences(of: numeric(34), with: "\"")
+        .replacingOccurrences(of: numeric(39), with: "'")
+        .replacingOccurrences(of: entity("lt"), with: "<")
+        .replacingOccurrences(of: entity("gt"), with: ">")
+        .replacingOccurrences(of: entity("amp"), with: "&")
 }
 
 private func matches(in text: String, pattern: String) -> [String] {
