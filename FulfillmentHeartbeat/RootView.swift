@@ -42,11 +42,7 @@ struct LaunchSplashView: View {
             AppTheme.bg.ignoresSafeArea()
 
             VStack(spacing: 22) {
-                Image("HeartbeatMark")
-                    .resizable()
-                    .interpolation(.high)
-                    .scaledToFit()
-                    .frame(width: 120, height: 120)
+                BrandMarkImage(height: 120)
                     .shadow(color: AppTheme.blue.opacity(0.18), radius: 16, y: 6)
                     .scaleEffect(appear ? 1 : 0.94)
                     .opacity(appear ? 1 : 0)

@@ -20,6 +20,7 @@
 		A011 /* UploadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B011 /* UploadView.swift */; };
 		A012 /* SectionDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B012 /* SectionDetailView.swift */; };
 		A013 /* SharedViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = B013 /* SharedViews.swift */; };
+		A015 /* BrandMarkData.swift in Sources */ = {isa = PBXBuildFile; fileRef = B015 /* BrandMarkData.swift */; };
 		A100 /* MessageUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B100 /* MessageUI.framework */; };
 		A911 /* HeartbeatMathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B911 /* HeartbeatMathTests.swift */; };
 		A912 /* WorkbookParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B912 /* WorkbookParserTests.swift */; };
@@ -49,6 +50,7 @@
 		B011 /* UploadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UploadView.swift; sourceTree = "<group>"; };
 		B012 /* SectionDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SectionDetailView.swift; sourceTree = "<group>"; };
 		B013 /* SharedViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedViews.swift; sourceTree = "<group>"; };
+		B015 /* BrandMarkData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrandMarkData.swift; sourceTree = "<group>"; };
 		B100 /* MessageUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MessageUI.framework; path = System/Library/Frameworks/MessageUI.framework; sourceTree = SDKROOT; };
 		B900 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		B901 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -95,6 +97,7 @@
 				B003 /* MainHubView.swift */,
 				B004 /* AppTheme.swift */,
 				B005 /* BuildStamp.swift */,
+				B015 /* BrandMarkData.swift */,
 				D005 /* Models */,
 				D006 /* Storage */,
 				D004 /* Views */,
@@ -260,6 +263,7 @@
 				A011 /* UploadView.swift in Sources */,
 				A012 /* SectionDetailView.swift in Sources */,
 				A013 /* SharedViews.swift in Sources */,
+				A015 /* BrandMarkData.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -175,12 +175,7 @@ struct HubNavLogo: View {
 
     var body: some View {
         HStack(spacing: pulse ? -4 : 6) {
-            Image("HeartbeatMark")
-                .resizable()
-                .interpolation(.high)
-                .scaledToFit()
-                .frame(width: height, height: height)
-                .accessibilityHidden(true)
+            BrandMarkImage(height: height)
             if pulse {
                 HeartbeatTrace()
                     .frame(width: 168, height: max(22, height - 10))
