@@ -326,7 +326,7 @@ struct PickerScoreCard: View {
             } else {
                 ForEach(rows) { row in
                     Button(action: action) {
-                        shopperRow(row)
+                        PickerShopperCard(row: row, place: "\(row.storeNumber) · \(divisionLabel(for: row))")
                     }
                     .buttonStyle(.plain)
                     if row.id != rows.last?.id {
@@ -345,57 +345,6 @@ struct PickerScoreCard: View {
             RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
                 .stroke(tone == .risk ? AppTheme.bad : AppTheme.ok, lineWidth: 2)
         )
-    }
-
-    private func shopperRow(_ row: MetricRow) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(row.shopperName)
-                    .font(.headline)
-                    .foregroundStyle(AppTheme.text)
-                Spacer()
-                Text("\(row.storeNumber) · \(divisionLabel(for: row))")
-                    .font(.subheadline)
-                    .foregroundStyle(AppTheme.textSecondary)
-            }
-            HStack(spacing: 8) {
-                ForEach(HeartbeatMath.pickerMetricReadout(row), id: \.name) { metric in
-                    VStack(spacing: 2) {
-                        Text(metric.name)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(AppTheme.textTertiary)
-                        Text(metric.value)
-                            .font(.title3.weight(.bold).monospacedDigit())
-                            .foregroundStyle(metricColor(metric.health))
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 6)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .fill(metricWash(metric.health))
-                    )
-                }
-            }
-        }
-        .padding(.vertical, 6)
-    }
-
-    private func metricColor(_ health: Health) -> Color {
-        switch health {
-        case .good: return AppTheme.ok
-        case .watch: return AppTheme.warn
-        case .risk: return AppTheme.bad
-        case .none: return AppTheme.text
-        }
-    }
-
-    private func metricWash(_ health: Health) -> Color {
-        switch health {
-        case .good: return AppTheme.okSoft
-        case .watch: return AppTheme.warnSoft
-        case .risk: return AppTheme.badSoft
-        case .none: return AppTheme.card
-        }
     }
 
     private func divisionLabel(for row: MetricRow) -> String {

@@ -742,6 +742,34 @@ enum HeartbeatMath {
         (row.number("pick_hours") ?? 0) >= 1 || (row.number("orders") ?? 0) >= 5
     }
 
+    static func isRealPicker(_ row: MetricRow) -> Bool {
+        let name = row.shopperName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if name.isEmpty { return false }
+        if name.localizedCaseInsensitiveContains("unknown") { return false }
+        let store = row.storeNumber
+        if store.localizedCaseInsensitiveContains("filter") { return false }
+        if store.localizedCaseInsensitiveContains("WEEK") { return false }
+        return true
+    }
+
+    static func pickerMatches(_ row: MetricRow, focus: PickerFocus) -> Bool {
+        guard isRealPicker(row) else { return false }
+        switch focus {
+        case .all:
+            return true
+        case .opportunity:
+            return pickerHasVolume(row) && pickerHealth(row) != .good
+        case .strong:
+            return pickerHasVolume(row) && pickerHealth(row) == .good
+        case .avgPPH:
+            return row.number("pph") != nil && pphHealth(row) != .good
+        case .belowPPH:
+            return (row.number("pph") ?? .greatestFiniteMagnitude) < pphRisk
+        case .presub:
+            return (row.number("presub_pct") ?? 0) > 6
+        }
+    }
+
     static func pickerFlags(_ row: MetricRow) -> [(name: String, health: Health)] {
         var flags: [(String, Health)] = []
         if row.number("pph") != nil {
@@ -1300,6 +1328,28 @@ struct StoreCellViewModel {
                 primary: HeartbeatFormat.num(row.number("pph"), digits: 1),
                 extra: HeartbeatMath.pickerOpportunityText(row)
             )
+        }
+    }
+}
+
+enum PickerFocus: String, CaseIterable, Identifiable {
+    case all
+    case opportunity
+    case strong
+    case avgPPH
+    case belowPPH
+    case presub
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .all: return "Shoppers"
+        case .opportunity: return "Opportunity"
+        case .strong: return "Doing well"
+        case .avgPPH: return "Avg PPH"
+        case .belowPPH: return "Below 74 PPH"
+        case .presub: return "Presub risk"
         }
     }
 }
