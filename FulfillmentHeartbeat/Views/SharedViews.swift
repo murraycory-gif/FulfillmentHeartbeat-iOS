@@ -464,40 +464,6 @@ struct StoreTable: View {
         }
     }
 
-    var body: some View {
-        if rows.isEmpty {
-            HubCard {
-                EmptyHint(
-                    symbol: "building.2",
-                    title: "No stores in this view",
-                    detail: "Adjust filters or upload a file for this section."
-                )
-            }
-        } else {
-            HubCard {
-                LazyVStack(alignment: .leading, spacing: 0, pinnedViews: .sectionHeaders) {
-                    Section {
-                        ForEach(rows) { row in
-                            storeRow(row)
-                            Divider().opacity(0.35)
-                        }
-                    } header: {
-                        HStack {
-                            header(section == .pickerScorecard ? "Shopper" : "Store")
-                            header("District")
-                            header("OM")
-                            header(section == .pph ? "PPH" : "Result")
-                            header("Status")
-                        }
-                        .padding(.bottom, 10)
-                        .padding(.top, 2)
-                        .background(AppTheme.card)
-                    }
-                }
-            }
-        }
-    }
-
     private func storeRow(_ row: MetricRow) -> some View {
         let view = StoreCellViewModel.make(section: section, row: row)
         return HStack(alignment: .top) {
@@ -540,14 +506,6 @@ struct StoreTable: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, 12)
-    }
-
-    private func header(_ title: String) -> some View {
-        Text(title.uppercased())
-            .font(.caption2.weight(.semibold))
-            .tracking(0.6)
-            .foregroundStyle(AppTheme.textTertiary)
-            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
