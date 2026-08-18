@@ -158,9 +158,9 @@ struct SectionDetailView: View {
         let orders = rows.reduce(0) { $0 + ($1.number("orders") ?? $1.number("picks_total") ?? 0) }
         let week = rows.compactMap(\.recordedOn).sorted().last ?? "—"
         KpiTile(label: "Avg compliance", value: summary.headlineText, hint: summary.health.label, tone: tone(for: summary.health))
-        KpiTile(label: "Goal", value: "95%", tone: .brand)
+        KpiTile(label: "Goal", value: "90%", tone: .brand)
         KpiTile(label: "At goal", value: HeartbeatFormat.num(Double(atGoal)), tone: .good)
-        KpiTile(label: "Below 88%", value: HeartbeatFormat.num(Double(atRisk)), tone: .risk)
+        KpiTile(label: "Below 80%", value: HeartbeatFormat.num(Double(atRisk)), tone: .risk)
         KpiTile(label: "Orders", value: HeartbeatFormat.num(orders))
         KpiTile(label: "Week", value: week)
     }

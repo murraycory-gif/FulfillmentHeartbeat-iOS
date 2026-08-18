@@ -124,9 +124,9 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testPickPathHealthBands() {
-        let good = MetricRow(section: .pickPath, division: "Portland", operationsOM: "A", storeNumber: "1", payload: ["compliance_pct": 96])
-        let watch = MetricRow(section: .pickPath, division: "Portland", operationsOM: "A", storeNumber: "2", payload: ["compliance_pct": 90])
-        let risk = MetricRow(section: .pickPath, division: "Portland", operationsOM: "A", storeNumber: "3", payload: ["compliance_pct": 80])
+        let good = MetricRow(section: .pickPath, division: "Portland", operationsOM: "A", storeNumber: "1", payload: ["compliance_pct": 91])
+        let watch = MetricRow(section: .pickPath, division: "Portland", operationsOM: "A", storeNumber: "2", payload: ["compliance_pct": 84])
+        let risk = MetricRow(section: .pickPath, division: "Portland", operationsOM: "A", storeNumber: "3", payload: ["compliance_pct": 72])
         XCTAssertEqual(HeartbeatMath.health(for: .pickPath, row: good), .good)
         XCTAssertEqual(HeartbeatMath.health(for: .pickPath, row: watch), .watch)
         XCTAssertEqual(HeartbeatMath.health(for: .pickPath, row: risk), .risk)

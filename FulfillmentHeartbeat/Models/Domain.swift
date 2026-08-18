@@ -313,7 +313,7 @@ enum HeartbeatMath {
                 headlineLabel: "Avg compliance",
                 secondary: latest.isEmpty
                     ? "No stores in view"
-                    : "\(atGoal) of \(latest.count) at 95% · \(atRisk) below 88%",
+                    : "\(atGoal) of \(latest.count) at 90% · \(atRisk) below 80%",
                 health: band(headline, good: pickPathGoal, watch: pickPathRisk),
                 watchCount: watch,
                 riskCount: risk,
@@ -413,8 +413,8 @@ enum HeartbeatMath {
 
     static let pphGoal = 80.0
     static let pphRisk = 74.0
-    static let pickPathGoal = 95.0
-    static let pickPathRisk = 88.0
+    static let pickPathGoal = 90.0
+    static let pickPathRisk = 80.0
 
     static func pphHealth(_ row: MetricRow) -> Health {
         band(row.number("pph"), good: pphGoal, watch: pphRisk)
@@ -610,10 +610,10 @@ struct StoreCellViewModel {
             let gapText: String
             if let gap {
                 gapText = gap >= 0
-                    ? "+\(HeartbeatFormat.num(gap, digits: 1)) vs 95"
-                    : "\(HeartbeatFormat.num(gap, digits: 1)) vs 95"
+                    ? "+\(HeartbeatFormat.num(gap, digits: 1)) vs 90"
+                    : "\(HeartbeatFormat.num(gap, digits: 1)) vs 90"
             } else {
-                gapText = "Goal 95%"
+                gapText = "Goal 90%"
             }
             let orders = row.number("orders") ?? row.number("picks_total")
             let pph = row.number("pph")
