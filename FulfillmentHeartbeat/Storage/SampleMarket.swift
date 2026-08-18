@@ -125,7 +125,7 @@ enum SampleMarket {
 
                 let pph = clamp(58 + jitter(index + 37, 14) + Double(week) * 1.1, 38, 92)
                 let hours = clamp(28 + jitter(index + 43, 6), 18, 40)
-                let picks = (pph * hours).rounded()
+                let pphPicks = (pph * hours).rounded()
                 out.append(MetricRow(
                     section: .pph,
                     division: store.division,
@@ -135,7 +135,7 @@ enum SampleMarket {
                     recordedOn: date,
                     payload: [
                         "pph": pph.rounded(1),
-                        "picks_total": picks,
+                        "picks_total": pphPicks,
                         "pick_hours": hours.rounded(1),
                         "goal_pph": 65,
                     ]
