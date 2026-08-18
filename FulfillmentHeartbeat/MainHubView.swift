@@ -56,10 +56,10 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
 }
 
 final class HubRouter: ObservableObject {
-    @Published var destination: HubDestination? = .dashboard
+    @Published var destination: HubDestination = .dashboard
     @Published var columnVisibility: NavigationSplitViewVisibility = .all
 
-    var current: HubDestination { destination ?? .dashboard }
+    var current: HubDestination { destination }
 
     func open(_ dest: HubDestination) {
         destination = dest
@@ -84,12 +84,11 @@ struct MainHubView: View {
             if sizeClass == .regular {
                 NavigationSplitView(columnVisibility: $router.columnVisibility) {
                     sidebar
+                        .navigationSplitViewColumnWidth(min: 240, ideal: 272, max: 320)
                 } detail: {
                     detail
                 }
-                .navigationSplitViewStyle(.prominentDetail)
-                .toolbar(removing: .sidebarToggle)
-                .background(HideSystemSidebarToggle())
+                .navigationSplitViewStyle(.balanced)
             } else {
                 TabView(selection: tabSelection) {
                     NavigationStack { DashboardView() }
@@ -113,24 +112,23 @@ struct MainHubView: View {
     }
 
     private var sidebar: some View {
-        List(selection: $router.destination) {
+        List {
             Section {
                 ForEach(HubDestination.primaryTabs) { item in
-                    Label(item.title, systemImage: item.symbol)
-                        .tag(Optional(item))
+                    sidebarRow(item)
                 }
             }
             Section("Sections") {
                 ForEach(HubDestination.metricItems) { item in
-                    Label(item.title, systemImage: item.symbol)
-                        .tag(Optional(item))
+                    sidebarRow(item)
                 }
             }
         }
         .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
+        .background(AppTheme.bg)
         .navigationBarTitleDisplayMode(.inline)
         .navigationTitle("")
-        .toolbar(removing: .sidebarToggle)
         .toolbarBackground(AppTheme.bg, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
         .toolbar {
@@ -152,7 +150,24 @@ struct MainHubView: View {
                 .padding(.horizontal, 20)
                 .padding(.bottom, 8)
         }
-        .background(HideSystemSidebarToggle())
+    }
+
+    private func sidebarRow(_ item: HubDestination) -> some View {
+        Button {
+            router.open(item)
+        } label: {
+            Label(item.title, systemImage: item.symbol)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(router.destination == item ? AppTheme.blueDeep : AppTheme.text)
+        .listRowBackground(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(router.destination == item ? AppTheme.blueSoft : Color.clear)
+        )
+        .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
     }
 
     @ViewBuilder
@@ -160,8 +175,6 @@ struct MainHubView: View {
         NavigationStack {
             view(for: router.current)
         }
-        .toolbar(removing: .sidebarToggle)
-        .background(HideSystemSidebarToggle())
     }
 
     @ViewBuilder

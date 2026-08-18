@@ -56,7 +56,13 @@ struct DashboardView: View {
     }
 
     private var columns: [GridItem] {
-        [GridItem(.adaptive(minimum: 280), spacing: 16)]
+        if sizeClass == .regular {
+            return [
+                GridItem(.flexible(), spacing: 16),
+                GridItem(.flexible(), spacing: 16),
+            ]
+        }
+        return [GridItem(.flexible())]
     }
 
     private var header: some View {
