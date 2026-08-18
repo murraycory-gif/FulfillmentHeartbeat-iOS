@@ -198,11 +198,11 @@ enum SampleMarket {
             """
         case .prepNotReady:
             return """
-            Date,,,,2026-08-09,2026-08-10,2026-08-15,Total
-            DIVISION,District,OM,Store,Net Prep Not Ready Hours %,Net Prep Not Ready Hours %,Net Prep Not Ready Hours %,Net Prep Not Ready Hours %
-            Shaws,B2,Sharon Reynolds,1432,0.1684,0.0765,0.0867,0.1103
-            Jewel Osco,J1,Shelly Selof,1,0.0180,0.0120,0.0150,0.0148
-            Haggen,39,Luke Lomas,3427,0.0421,0.0000,0.0029,0.0169
+            DIVISION,District,OM,Store,Prep Not Ready Hours %,Store #
+            Haggen,39,Luke Lomas,3427,0.016979,1
+            Jewel Osco,J1,Shelly Selof,1,0.0148,1
+            Jewel Osco,J1,Shelly Selof,2219,0.07455,1
+            Shaws,B2,Sharon Reynolds,1432,0.1103,1
             """
         case .dynacap:
             return """

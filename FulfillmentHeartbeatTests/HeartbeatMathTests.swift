@@ -16,21 +16,22 @@ final class HeartbeatMathTests: XCTestCase {
         let risk = MetricRow(section: .prepNotReady, division: "10", operationsOM: "A", storeNumber: "2", payload: ["pnr_rate_pct": 8.0])
         XCTAssertEqual(HeartbeatMath.health(for: .prepNotReady, row: good), .good)
         XCTAssertEqual(HeartbeatMath.health(for: .prepNotReady, row: risk), .risk)
+        let watch = MetricRow(section: .prepNotReady, division: "10", operationsOM: "A", storeNumber: "3", payload: ["pnr_rate_pct": 2.2])
+        XCTAssertEqual(HeartbeatMath.health(for: .prepNotReady, row: watch), .watch)
     }
 
     func testPrepNotReadyOutlineUsesWeekTotalAndDivision() {
         let parsed = WorkbookParser.parseCSV(SampleMarket.templateCSV(for: .prepNotReady))
         let rows = parsed.map { $0.asRow(section: .prepNotReady) }
-        let shaws = rows.filter { $0.storeNumber == "1432" }
-        XCTAssertFalse(shaws.isEmpty)
-        XCTAssertEqual(shaws.first?.division, "Shaws")
-        XCTAssertEqual(shaws.first?.operationsOM, "Sharon Reynolds")
-        let latest = HeartbeatMath.latestPerStore(rows).first { $0.storeNumber == "1432" }
-        XCTAssertEqual(latest?.payload["pnr_rate_pct"] ?? 0, 11.03, accuracy: 0.05)
-        XCTAssertEqual(HeartbeatMath.health(for: .prepNotReady, row: latest!), .risk)
-        let jewel = HeartbeatMath.latestPerStore(rows).first { $0.storeNumber == "1" }
-        XCTAssertEqual(jewel?.payload["pnr_rate_pct"] ?? 0, 1.48, accuracy: 0.05)
-        XCTAssertEqual(HeartbeatMath.health(for: .prepNotReady, row: jewel!), .good)
+        XCTAssertEqual(Set(rows.map(\.storeNumber)), Set(["3427", "1", "2219", "1432"]))
+        let haggen = rows.first { $0.storeNumber == "3427" }!
+        XCTAssertEqual(haggen.division, "Haggen")
+        XCTAssertEqual(haggen.operationsOM, "Luke Lomas")
+        XCTAssertEqual(haggen.payload["pnr_rate_pct"] ?? 0, 1.6979, accuracy: 0.02)
+        XCTAssertEqual(HeartbeatMath.health(for: .prepNotReady, row: haggen), .good)
+        let risk = rows.first { $0.storeNumber == "2219" }!
+        XCTAssertEqual(risk.payload["pnr_rate_pct"] ?? 0, 7.455, accuracy: 0.05)
+        XCTAssertEqual(HeartbeatMath.health(for: .prepNotReady, row: risk), .risk)
     }
 }
 

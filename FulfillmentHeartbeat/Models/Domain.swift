@@ -51,7 +51,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         switch self {
         case .fiveStar: return "Store · Division · OM · District · Total Rating · Flash · Presubs · COE · OTT · OTH5"
         case .pickPath: return "WEEK_ID · DIVISION · DISTRICT · OM · STORE_ID · EMPLOYEE · Pick Path · Orders · Pure PPH"
-        case .prepNotReady: return "DIVISION · District · OM · Store · Net Prep Not Ready Hours %"
+        case .prepNotReady: return "DIVISION · District · OM · Store · Prep Not Ready Hours %"
         case .dynacap: return "DISTRICT · Total Pieces/Total Hrs · DPA Dynacap · Utilization %"
         case .scheduleQuality: return "Division · District · Store · Schedule Efficiency · Under % · Over %"
         case .pph: return "WEEK_ID · DIVISION · DISTRICT · OM_AREA · OM_ID · STORE · Pure PPH"
@@ -549,7 +549,7 @@ enum HeartbeatMath {
                 headlineLabel: "Avg PNR hours",
                 secondary: latest.isEmpty
                     ? "No Prep Not Ready rows in this filter"
-                    : "\(atGoal) of \(latest.count) at 2% · \(atRisk) above 5%",
+                    : "\(atGoal) of \(latest.count) at 1.9% · \(atRisk) above 2.5%",
                 health: latest.isEmpty ? .none : band(headline, good: pnrGoal, watch: pnrWatch, invert: true),
                 watchCount: watch,
                 riskCount: risk,
@@ -634,8 +634,8 @@ enum HeartbeatMath {
         }
     }
 
-    static let pnrGoal = 2.0
-    static let pnrWatch = 5.0
+    static let pnrGoal = 1.9
+    static let pnrWatch = 2.5
     static let pphGoal = 80.0
     static let pphRisk = 74.0
     static let pickPathGoal = 90.0
@@ -1044,10 +1044,10 @@ struct StoreCellViewModel {
             let gapText: String
             if let gap {
                 gapText = gap <= 0
-                    ? "\(HeartbeatFormat.num(abs(gap), digits: 1)) under 2%"
-                    : "+\(HeartbeatFormat.num(gap, digits: 1)) vs 2%"
+                    ? "\(HeartbeatFormat.num(abs(gap), digits: 1)) under 1.9%"
+                    : "+\(HeartbeatFormat.num(gap, digits: 1)) vs 1.9%"
             } else {
-                gapText = "Goal 2%"
+                gapText = "Goal 1.9%"
             }
             return StoreCellViewModel(
                 primary: HeartbeatFormat.pct(rate),
