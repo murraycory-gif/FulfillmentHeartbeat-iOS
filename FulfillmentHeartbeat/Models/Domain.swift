@@ -429,6 +429,8 @@ enum HeartbeatMath {
         take(matching: { $0.contains("staffingeffic") }, as: "staffing_efficiency_pct")
         return out
     }
+
+    static func applyRoster(_ rows: [MetricRow], roster: [String: StoreIdentity]) -> [MetricRow] {
         rows.map { row in
             let number = canonicalStore(row.storeNumber)
             let known = roster[number]
