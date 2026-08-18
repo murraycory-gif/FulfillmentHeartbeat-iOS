@@ -6,7 +6,10 @@ final class HeartbeatStore: ObservableObject {
     @Published private(set) var uploads: [UploadRecord]
     @Published private(set) var seeded: Bool
     @Published var filters: DashboardFilters {
-        didSet { persist() }
+        didSet {
+            guard !hydrating, oldValue != filters else { return }
+            applyFilters()
+        }
     }
     @Published var errorMessage: String?
     @Published var statusMessage: String?
@@ -16,6 +19,16 @@ final class HeartbeatStore: ObservableObject {
 
     private let fileManager: FileManager
     private let snapshotURL: URL
+    private var hydrating = false
+    private var latestBySection: [MetricSection: [MetricRow]] = [:]
+    private var roster: [String: HeartbeatMath.StoreIdentity] = [:]
+    private var filteredLatest: [MetricSection: [MetricRow]] = [:]
+    private var filteredMarket: [HeartbeatMath.MarketStore] = []
+    private var cachedDivisions: [String] = []
+    private var cachedDistricts: [String] = []
+    private var cachedOMs: [String] = []
+    private var cachedStores: [(number: String, name: String?)] = []
+    private var cachedSummaries: [SectionSummary] = []
 
     init(rootURL: URL? = nil) {
         fileManager = .default
@@ -37,52 +50,31 @@ final class HeartbeatStore: ObservableObject {
         return base.appendingPathComponent("FulfillmentHeartbeat", isDirectory: true)
     }
 
-    var filteredRows: [MetricRow] {
-        HeartbeatMath.filtered(
-            rows,
-            division: filters.division,
-            district: filters.district,
-            om: filters.om,
-            store: filters.store,
-            relaxUnknown: false,
-            universe: rows
-        )
-    }
-
     func rows(for section: MetricSection, relaxUnknown: Bool = false) -> [MetricRow] {
-        let sectionRows = rows.filter { $0.section == section }
-        return HeartbeatMath.filtered(
-            sectionRows,
-            division: filters.division,
-            district: filters.district,
-            om: filters.om,
-            store: filters.store,
-            relaxUnknown: relaxUnknown,
-            universe: rows
-        )
+        if relaxUnknown {
+            return HeartbeatMath.filtered(
+                latestBySection[section] ?? [],
+                division: filters.division,
+                district: filters.district,
+                om: filters.om,
+                store: filters.store,
+                relaxUnknown: true,
+                universe: latestUniverse
+            )
+        }
+        return filteredLatest[section] ?? []
     }
 
-    func marketStores() -> [HeartbeatMath.MarketStore] {
-        HeartbeatMath.marketBoard(
-            rows,
-            division: filters.division,
-            district: filters.district,
-            om: filters.om,
-            store: filters.store
-        )
-    }
+    func marketStores() -> [HeartbeatMath.MarketStore] { filteredMarket }
 
     func latest(for section: MetricSection, relaxUnknown: Bool = false) -> [MetricRow] {
-        if section == .pickerScorecard {
-            return HeartbeatMath.latestPerShopper(rows(for: section, relaxUnknown: relaxUnknown))
-        }
-        return HeartbeatMath.latestPerStore(rows(for: section, relaxUnknown: relaxUnknown))
+        rows(for: section, relaxUnknown: relaxUnknown)
     }
 
     func displayRows(for section: MetricSection) -> [MetricRow] {
-        let latest = latest(for: section, relaxUnknown: false)
+        let latest = filteredLatest[section] ?? []
         if !latest.isEmpty { return latest }
-        return marketStores().map { store in
+        return filteredMarket.map { store in
             MetricRow(
                 section: section,
                 division: store.division,
@@ -95,140 +87,68 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func summary(for section: MetricSection) -> SectionSummary {
-        var summary = HeartbeatMath.summarize(section, rows: rows(for: section), upload: upload(for: section))
-        if summary.storeCount == 0 {
-            let count = marketStores().count
-            if count > 0 {
-                summary.secondary = "No \(section.short) data for \(count) stores in this filter"
-                summary.health = .none
-            }
-        }
-        return summary
+        cachedSummaries.first { $0.section == section }
+            ?? HeartbeatMath.summarize(section, rows: [], upload: upload(for: section))
     }
 
     func upload(for section: MetricSection) -> UploadRecord? {
         uploads.first { $0.section == section }
     }
 
-    var summaries: [SectionSummary] {
-        MetricSection.dashboardCards.map { summary(for: $0) }
-    }
+    var summaries: [SectionSummary] { cachedSummaries }
 
     var lastUpload: UploadRecord? {
         uploads.max(by: { $0.uploadedAt < $1.uploadedAt })
     }
 
-    var divisions: [String] { distinct(rows.map(\.division)) }
+    var divisions: [String] { cachedDivisions }
+    var districts: [String] { cachedDistricts }
+    var operationsOMs: [String] { cachedOMs }
+    var stores: [(number: String, name: String?)] { cachedStores }
 
-    var districts: [String] { districts(in: nil) }
-
-    var operationsOMs: [String] { operationsOMs(in: nil) }
-
-    var stores: [(number: String, name: String?)] { stores(in: nil) }
-
-    func divisions(in scope: MetricSection?) -> [String] {
-        distinct(source(scope).map(\.division))
-    }
-
-    func districts(in scope: MetricSection?) -> [String] {
-        let sourceRows = source(scope)
-        let division = HeartbeatMath.usableFilter(filters.division, in: sourceRows.map(\.division), relax: scope != nil)
-        return sourceRows
-            .filter { division == nil || HeartbeatMath.matches($0.division, division ?? "") }
-            .map(\.district)
-            .filter { !$0.isEmpty }
-            .uniqued()
-            .sorted()
-    }
-
-    func operationsOMs(in scope: MetricSection?) -> [String] {
-        let sourceRows = source(scope)
-        let division = HeartbeatMath.usableFilter(filters.division, in: sourceRows.map(\.division), relax: scope != nil)
-        let district = HeartbeatMath.usableFilter(filters.district, in: sourceRows.map(\.district), relax: scope != nil)
-        return sourceRows
-            .filter { division == nil || HeartbeatMath.matches($0.division, division ?? "") }
-            .filter { district == nil || HeartbeatMath.matches($0.district, district ?? "") }
-            .map(\.operationsOM)
-            .filter { value in
-                !value.isEmpty && value.rangeOfCharacter(from: .letters) != nil
-            }
-            .uniqued()
-            .sorted()
-    }
-
-    func stores(in scope: MetricSection?) -> [(number: String, name: String?)] {
-        let sourceRows = source(scope)
-        let division = HeartbeatMath.usableFilter(filters.division, in: sourceRows.map(\.division), relax: scope != nil)
-        let district = HeartbeatMath.usableFilter(filters.district, in: sourceRows.map(\.district), relax: scope != nil)
-        let om = HeartbeatMath.usableFilter(filters.om, in: sourceRows.map(\.operationsOM), relax: scope != nil)
-        var seen: [String: String?] = [:]
-        for row in sourceRows {
-            if let division, !HeartbeatMath.matches(row.division, division) { continue }
-            if let district, !HeartbeatMath.matches(row.district, district) { continue }
-            if let om, !HeartbeatMath.matches(row.operationsOM, om) { continue }
-            if row.storeNumber.isEmpty { continue }
-            if seen[row.storeNumber] == nil {
-                seen[row.storeNumber] = row.storeName
-            }
-        }
-        return seen.keys.sorted(by: HeartbeatFormat.storeOrder).map { ($0, seen[$0] ?? nil) }
-    }
-
-    func ignoredFilters(for section: MetricSection) -> [String] {
+    func history(for section: MetricSection) -> [HistoryPoint] {
         let sectionRows = rows.filter { $0.section == section }
-        var ignored: [String] = []
-        if HeartbeatMath.usableFilter(filters.division, in: sectionRows.map(\.division), relax: true) == nil,
-           !filters.division.isEmpty {
-            ignored.append(filters.division)
-        }
-        if HeartbeatMath.usableFilter(filters.district, in: sectionRows.map(\.district), relax: true) == nil,
-           !filters.district.isEmpty {
-            ignored.append("District \(filters.district)")
-        }
-        if HeartbeatMath.usableFilter(filters.om, in: sectionRows.map(\.operationsOM), relax: true) == nil,
-           !filters.om.isEmpty {
-            ignored.append(filters.om)
-        }
-        if HeartbeatMath.usableFilter(filters.store, in: sectionRows.map(\.storeNumber), relax: true) == nil,
-           !filters.store.isEmpty {
-            ignored.append("Store \(filters.store)")
-        }
-        return ignored
-    }
-
-    private func source(_ scope: MetricSection?) -> [MetricRow] {
-        guard let scope else { return rows }
-        return rows.filter { $0.section == scope }
-    }
-
-    private func distinct(_ values: [String]) -> [String] {
-        values.filter { !$0.isEmpty }.uniqued().sorted()
+        return HeartbeatMath.history(
+            section,
+            rows: HeartbeatMath.filtered(
+                sectionRows,
+                division: filters.division,
+                district: filters.district,
+                om: filters.om,
+                store: filters.store,
+                relaxUnknown: false,
+                universe: sectionRows + latestUniverse
+            )
+        )
     }
 
     func setDivision(_ value: String) {
-        filters.division = value
-        filters.district = ""
-        filters.om = ""
-        filters.store = ""
+        replaceFilters(DashboardFilters(division: value, district: "", om: "", store: ""))
     }
 
     func setDistrict(_ value: String) {
-        filters.district = value
-        filters.om = ""
-        filters.store = ""
+        var next = filters
+        next.district = value
+        next.om = ""
+        next.store = ""
+        replaceFilters(next)
     }
 
     func setOM(_ value: String) {
-        filters.om = value
-        filters.store = ""
+        var next = filters
+        next.om = value
+        next.store = ""
+        replaceFilters(next)
     }
 
     func setStore(_ value: String) {
-        filters.store = value
+        var next = filters
+        next.store = value
+        replaceFilters(next)
     }
 
     func clearFilters() {
-        filters = DashboardFilters()
+        replaceFilters(DashboardFilters())
     }
 
     func loadSampleMarket() {
@@ -243,7 +163,8 @@ final class HeartbeatStore: ObservableObject {
         }
         seeded = true
         lastImportedSection = nil
-        clearFilters()
+        rebuildIndex()
+        replaceFilters(DashboardFilters())
         statusMessage = "Sample market loaded — 16 Chicago-area stores."
         persist()
     }
@@ -289,7 +210,8 @@ final class HeartbeatStore: ObservableObject {
         uploads.insert(UploadRecord(section: section, filename: filename, rowCount: incoming.count), at: 0)
         seeded = true
         lastImportedSection = section
-        clearFilters()
+        rebuildIndex()
+        replaceFilters(DashboardFilters())
         let stores = Set(incoming.map(\.storeNumber).filter { !$0.isEmpty }).count
         statusMessage = "Imported \(incoming.count) rows · \(stores) stores into \(section.title). Filters cleared so the new file is in view."
         persist()
@@ -299,6 +221,8 @@ final class HeartbeatStore: ObservableObject {
         rows.removeAll { $0.section == section }
         uploads.removeAll { $0.section == section }
         if rows.isEmpty { seeded = false }
+        rebuildIndex()
+        applyFilters()
         persist()
     }
 
@@ -306,20 +230,115 @@ final class HeartbeatStore: ObservableObject {
         rows = []
         uploads = []
         seeded = false
+        rebuildIndex()
+        applyFilters()
         persist()
     }
 
+    private var latestUniverse: [MetricRow] {
+        MetricSection.allCases.flatMap { latestBySection[$0] ?? [] }
+    }
+
+    private func replaceFilters(_ next: DashboardFilters) {
+        if filters == next {
+            applyFilters()
+            return
+        }
+        filters = next
+    }
+
+    private func rebuildIndex() {
+        var latest: [MetricSection: [MetricRow]] = [:]
+        for section in MetricSection.allCases {
+            let sectionRows = rows.filter { $0.section == section }
+            latest[section] = section == .pickerScorecard
+                ? HeartbeatMath.latestPerShopper(sectionRows)
+                : HeartbeatMath.latestPerStore(sectionRows)
+        }
+        latestBySection = latest
+        roster = HeartbeatMath.storeRoster(rows)
+        cachedDivisions = roster.values.map(\.division).filter { !$0.isEmpty }.uniqued().sorted()
+    }
+
+    private func applyFilters() {
+        let universe = latestUniverse
+        var nextLatest: [MetricSection: [MetricRow]] = [:]
+        for section in MetricSection.allCases {
+            nextLatest[section] = HeartbeatMath.filtered(
+                latestBySection[section] ?? [],
+                division: filters.division,
+                district: filters.district,
+                om: filters.om,
+                store: filters.store,
+                relaxUnknown: false,
+                universe: universe
+            )
+        }
+        filteredLatest = nextLatest
+        filteredMarket = HeartbeatMath.marketBoard(
+            universe,
+            division: filters.division,
+            district: filters.district,
+            om: filters.om,
+            store: filters.store
+        )
+        refreshFilterOptions()
+        cachedSummaries = MetricSection.dashboardCards.map { section in
+            var summary = HeartbeatMath.summarize(section, rows: nextLatest[section] ?? [], upload: upload(for: section))
+            if summary.storeCount == 0, !filteredMarket.isEmpty {
+                summary.secondary = "No \(section.short) data for \(filteredMarket.count) stores in this filter"
+                summary.health = .none
+            }
+            return summary
+        }
+        objectWillChange.send()
+    }
+
+    private func refreshFilterOptions() {
+        cachedDistricts = roster.values
+            .filter { filters.division.isEmpty || HeartbeatMath.matches($0.division, filters.division) }
+            .map(\.district)
+            .filter { !$0.isEmpty }
+            .uniqued()
+            .sorted()
+        cachedOMs = roster.values
+            .filter { filters.division.isEmpty || HeartbeatMath.matches($0.division, filters.division) }
+            .filter { filters.district.isEmpty || HeartbeatMath.matches($0.district, filters.district) }
+            .map(\.om)
+            .filter { value in
+                !value.isEmpty && value.rangeOfCharacter(from: .letters) != nil
+            }
+            .uniqued()
+            .sorted()
+        var seen: [String: String?] = [:]
+        for (number, identity) in roster {
+            if !filters.division.isEmpty, !HeartbeatMath.matches(identity.division, filters.division) { continue }
+            if !filters.district.isEmpty, !HeartbeatMath.matches(identity.district, filters.district) { continue }
+            if !filters.om.isEmpty, !HeartbeatMath.matches(identity.om, filters.om) { continue }
+            if seen[number] == nil { seen[number] = identity.name }
+        }
+        cachedStores = seen.keys.sorted(by: HeartbeatFormat.storeOrder).map { ($0, seen[$0] ?? nil) }
+    }
+
     private func load() {
-        guard fileManager.fileExists(atPath: snapshotURL.path) else { return }
+        guard fileManager.fileExists(atPath: snapshotURL.path) else {
+            rebuildIndex()
+            applyFilters()
+            return
+        }
         do {
             let data = try Data(contentsOf: snapshotURL)
             let decoder = JSONDecoder()
             decoder.dateDecodingStrategy = .iso8601
             let decoded = try decoder.decode(HeartbeatSnapshot.self, from: data)
+            hydrating = true
             rows = decoded.rows
             uploads = decoded.uploads.sorted { $0.uploadedAt > $1.uploadedAt }
             seeded = decoded.seeded
             filters = decoded.filters
+            hydrating = false
+            rebuildIndex()
+            applyFilters()
         } catch {
             errorMessage = "Could not load saved pulse: \(error.localizedDescription)"
         }

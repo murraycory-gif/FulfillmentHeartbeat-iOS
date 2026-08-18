@@ -1,4 +1,3 @@
-import Charts
 import SwiftUI
 
 struct SectionDetailView: View {
@@ -7,93 +6,73 @@ struct SectionDetailView: View {
 
     private var summary: SectionSummary { store.summary(for: section) }
     private var snapshots: [MetricRow] { store.displayRows(for: section) }
-    private var history: [HistoryPoint] { HeartbeatMath.history(section, rows: store.rows(for: section)) }
     private var missingInFile: Bool {
-        store.rows(for: section).isEmpty && !store.marketStores().isEmpty
+        store.latest(for: section).isEmpty && !store.marketStores().isEmpty
     }
 
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 18) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(section.title)
-                        .font(.largeTitle.weight(.semibold))
-                    Text(section.blurb)
-                        .font(.subheadline)
-                        .foregroundStyle(AppTheme.textSecondary)
-                }
-
-                FilterBar()
-
-                if missingInFile {
-                    HStack(alignment: .top, spacing: 10) {
-                        Image(systemName: "info.circle.fill")
-                            .foregroundStyle(AppTheme.blue)
-                        Text("\(store.filters.division.isEmpty ? "This filter" : store.filters.division) isn’t in the \(section.short) workbook. Stores below come from PPH so the same division still shows across the app.")
+        List {
+            Section {
+                VStack(alignment: .leading, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(section.title)
+                            .font(.largeTitle.weight(.semibold))
+                        Text(section.blurb)
                             .font(.subheadline)
                             .foregroundStyle(AppTheme.textSecondary)
                     }
-                    .padding(12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(AppTheme.blueSoft, in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous))
-                }
 
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 12)], spacing: 12) {
-                    if section == .pph {
-                        pphStatusTiles
-                    } else if section == .pickPath {
-                        pickPathStatusTiles
-                    } else {
-                        HubCard {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text(summary.headlineLabel)
-                                    .font(.caption.weight(.medium))
-                                    .foregroundStyle(AppTheme.textSecondary)
-                                HStack(alignment: .bottom) {
-                                    Text(summary.headlineText)
-                                        .font(.system(size: 32, weight: .semibold).monospacedDigit())
-                                    Spacer()
-                                    HealthBadge(health: summary.health)
+                    FilterBar()
+
+                    if missingInFile {
+                        HStack(alignment: .top, spacing: 10) {
+                            Image(systemName: "info.circle.fill")
+                                .foregroundStyle(AppTheme.blue)
+                            Text("\(store.filters.division.isEmpty ? "This filter" : store.filters.division) isn’t in the \(section.short) workbook. Stores below come from PPH so the same division still shows across the app.")
+                                .font(.subheadline)
+                                .foregroundStyle(AppTheme.textSecondary)
+                        }
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(AppTheme.blueSoft, in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous))
+                    }
+
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 12)], spacing: 12) {
+                        if section == .pph {
+                            pphStatusTiles
+                        } else if section == .pickPath {
+                            pickPathStatusTiles
+                        } else {
+                            HubCard {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text(summary.headlineLabel)
+                                        .font(.caption.weight(.medium))
+                                        .foregroundStyle(AppTheme.textSecondary)
+                                    HStack(alignment: .bottom) {
+                                        Text(summary.headlineText)
+                                            .font(.system(size: 32, weight: .semibold).monospacedDigit())
+                                        Spacer()
+                                        HealthBadge(health: summary.health)
+                                    }
                                 }
                             }
-                        }
-                        ForEach(tiles, id: \.label) { tile in
-                            KpiTile(label: tile.label, value: tile.value)
-                        }
-                    }
-                }
-
-                StoreTable(section: section, rows: snapshots)
-
-                if history.count > 1 {
-                    HubCard {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("Trend")
-                                .font(.caption.weight(.medium))
-                                .foregroundStyle(AppTheme.textSecondary)
-                            Chart(history) { point in
-                                AreaMark(
-                                    x: .value("Date", point.date),
-                                    y: .value("Value", point.value)
-                                )
-                                .foregroundStyle(AppTheme.blueSoft)
-                                LineMark(
-                                    x: .value("Date", point.date),
-                                    y: .value("Value", point.value)
-                                )
-                                .foregroundStyle(AppTheme.blue)
-                                .lineStyle(StrokeStyle(lineWidth: 2))
+                            ForEach(tiles, id: \.label) { tile in
+                                KpiTile(label: tile.label, value: tile.value)
                             }
-                            .frame(height: 120)
-                            .chartXAxis(.hidden)
-                            .chartYAxis(.hidden)
                         }
                     }
                 }
+                .listRowInsets(EdgeInsets(top: 20, leading: 20, bottom: 8, trailing: 20))
+                .listRowSeparator(.hidden)
+                .listRowBackground(AppTheme.bg)
             }
-            .padding(20)
+
+            StoreTable(section: section, rows: snapshots)
         }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
         .background(AppTheme.bg.ignoresSafeArea())
+        .environment(\.defaultMinListRowHeight, 1)
     }
 
     private var tiles: [(label: String, value: String)] {

@@ -364,32 +364,34 @@ struct StoreTable: View {
 
     var body: some View {
         if rows.isEmpty {
-            HubCard {
+            Section {
                 EmptyHint(
                     symbol: "building.2",
                     title: "No stores in this view",
                     detail: "Adjust filters or upload a file for this section."
                 )
+                .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 20, trailing: 20))
+                .listRowSeparator(.hidden)
+                .listRowBackground(AppTheme.bg)
             }
         } else {
-            HubCard {
-                LazyVStack(alignment: .leading, spacing: 0, pinnedViews: .sectionHeaders) {
-                    Section {
-                        ForEach(sortedRows) { row in
-                            storeRow(row)
-                            Divider().opacity(0.35)
-                        }
-                    } header: {
-                        HStack(spacing: 0) {
-                            ForEach(Column.allCases) { column in
-                                sortHeader(column)
-                            }
-                        }
-                        .padding(.bottom, 10)
-                        .padding(.top, 2)
-                        .background(AppTheme.card)
+            Section {
+                ForEach(sortedRows) { row in
+                    storeRow(row)
+                        .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
+                        .listRowBackground(AppTheme.card)
+                }
+            } header: {
+                HStack(spacing: 0) {
+                    ForEach(Column.allCases) { column in
+                        sortHeader(column)
                     }
                 }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 8)
+                .background(AppTheme.card)
+                .textCase(nil)
+                .listRowInsets(EdgeInsets())
             }
         }
     }

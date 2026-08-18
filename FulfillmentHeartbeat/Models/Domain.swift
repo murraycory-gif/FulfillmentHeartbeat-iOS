@@ -672,6 +672,13 @@ struct DashboardFilters: Equatable, Codable {
 
     init() {}
 
+    init(division: String, district: String, om: String, store: String) {
+        self.division = division
+        self.district = district
+        self.om = om
+        self.store = store
+    }
+
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         division = try c.decodeIfPresent(String.self, forKey: .division) ?? ""

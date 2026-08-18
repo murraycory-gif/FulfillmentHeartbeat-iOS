@@ -7,49 +7,57 @@ struct DashboardView: View {
     @State private var pushedSection: MetricSection?
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                header
-                FilterBar()
-                LazyVGrid(columns: columns, spacing: 16) {
-                    ForEach(store.summaries) { summary in
-                        SectionCard(summary: summary) {
-                            if sizeClass == .regular {
-                                router.open(section: summary.section)
-                            } else {
-                                pushedSection = summary.section
+        List {
+            Section {
+                VStack(alignment: .leading, spacing: 18) {
+                    header
+                    FilterBar()
+                    LazyVGrid(columns: columns, spacing: 16) {
+                        ForEach(store.summaries) { summary in
+                            SectionCard(summary: summary) {
+                                if sizeClass == .regular {
+                                    router.open(section: summary.section)
+                                } else {
+                                    pushedSection = summary.section
+                                }
+                            }
+                        }
+                    }
+                    PickerScoreCard {
+                        if sizeClass == .regular {
+                            router.open(section: .pickerScorecard)
+                        } else {
+                            pushedSection = .pickerScorecard
+                        }
+                    }
+                    if !store.seeded {
+                        HubCard {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("No files yet")
+                                    .font(.headline)
+                                Text("Open Upload to drop in the section workbooks, including the picker score card — or load the sample market to see the pulse.")
+                                    .font(.subheadline)
+                                    .foregroundStyle(AppTheme.textSecondary)
+                                Button("Load sample market") {
+                                    store.loadSampleMarket()
+                                }
+                                .buttonStyle(SecondaryButtonStyle())
+                                .padding(.top, 4)
                             }
                         }
                     }
                 }
-                MarketBoard()
-                PickerScoreCard {
-                    if sizeClass == .regular {
-                        router.open(section: .pickerScorecard)
-                    } else {
-                        pushedSection = .pickerScorecard
-                    }
-                }
-                if !store.seeded {
-                    HubCard {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("No files yet")
-                                .font(.headline)
-                            Text("Open Upload to drop in the section workbooks, including the picker score card — or load the sample market to see the pulse.")
-                                .font(.subheadline)
-                                .foregroundStyle(AppTheme.textSecondary)
-                            Button("Load sample market") {
-                                store.loadSampleMarket()
-                            }
-                            .buttonStyle(SecondaryButtonStyle())
-                            .padding(.top, 4)
-                        }
-                    }
-                }
+                .listRowInsets(EdgeInsets(top: 20, leading: 20, bottom: 8, trailing: 20))
+                .listRowSeparator(.hidden)
+                .listRowBackground(AppTheme.bg)
             }
-            .padding(20)
+
+            MarketBoard()
         }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
         .background(AppTheme.bg.ignoresSafeArea())
+        .environment(\.defaultMinListRowHeight, 1)
         .navigationDestination(item: $pushedSection) { section in
             SectionDetailView(section: section)
         }
@@ -324,12 +332,13 @@ struct MarketBoard: View {
     private var rows: [HeartbeatMath.MarketStore] { store.marketStores() }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        let rows = store.marketStores()
+        Section {
             HStack(alignment: .firstTextBaseline) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
                         .font(.title2.weight(.semibold))
-                    Text("Every store in the current filter, with PPH and pick path when those files are loaded.")
+                    Text("Stores in the current filter, with PPH and pick path when those files are loaded.")
                         .font(.subheadline)
                         .foregroundStyle(AppTheme.textSecondary)
                 }
@@ -338,64 +347,60 @@ struct MarketBoard: View {
                     .font(.headline.monospacedDigit())
                     .foregroundStyle(AppTheme.blue)
             }
+            .listRowInsets(EdgeInsets(top: 12, leading: 20, bottom: 4, trailing: 20))
+            .listRowSeparator(.hidden)
+            .listRowBackground(AppTheme.bg)
 
             if rows.isEmpty {
                 Text(emptyCopy)
                     .font(.subheadline)
                     .foregroundStyle(AppTheme.textSecondary)
-                    .padding(.vertical, 8)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 20, trailing: 20))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(AppTheme.bg)
             } else {
-                LazyVStack(alignment: .leading, spacing: 0, pinnedViews: .sectionHeaders) {
-                    Section {
-                        ForEach(rows) { row in
-                            HStack(spacing: 8) {
-                                Text(row.storeNumber)
-                                    .font(.subheadline.weight(.semibold).monospacedDigit())
-                                    .frame(width: 72, alignment: .leading)
-                                Text(row.district.isEmpty ? "—" : row.district)
-                                    .font(.subheadline)
-                                    .frame(width: 72, alignment: .leading)
-                                Text(row.om.isEmpty ? "—" : row.om)
-                                    .font(.subheadline)
-                                    .lineLimit(1)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                Text(row.pph.map { HeartbeatFormat.num($0, digits: 1) } ?? "—")
-                                    .font(.subheadline.monospacedDigit())
-                                    .frame(width: 64, alignment: .trailing)
-                                Text(row.compliance.map { HeartbeatFormat.pct($0) } ?? "—")
-                                    .font(.subheadline.monospacedDigit())
-                                    .frame(width: 64, alignment: .trailing)
-                            }
-                            .padding(.vertical, 8)
-                            Divider().opacity(0.35)
-                        }
-                    } header: {
-                        HStack(spacing: 8) {
-                            headerCell("Store", width: 72)
-                            headerCell("District", width: 72)
-                            Text("OM")
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            headerCell("PPH", width: 64, align: .trailing)
-                            headerCell("Path", width: 64, align: .trailing)
-                        }
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(AppTheme.textTertiary)
-                        .padding(.bottom, 8)
-                        .background(AppTheme.card)
+                HStack(spacing: 8) {
+                    headerCell("Store", width: 72)
+                    headerCell("District", width: 72)
+                    Text("OM")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    headerCell("PPH", width: 64, align: .trailing)
+                    headerCell("Path", width: 64, align: .trailing)
+                }
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(AppTheme.textTertiary)
+                .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 4, trailing: 20))
+                .listRowSeparator(.hidden)
+                .listRowBackground(AppTheme.card)
+            }
+        }
+
+        if !rows.isEmpty {
+            Section {
+                ForEach(rows) { row in
+                    HStack(spacing: 8) {
+                        Text(row.storeNumber)
+                            .font(.subheadline.weight(.semibold).monospacedDigit())
+                            .frame(width: 72, alignment: .leading)
+                        Text(row.district.isEmpty ? "—" : row.district)
+                            .font(.subheadline)
+                            .frame(width: 72, alignment: .leading)
+                        Text(row.om.isEmpty ? "—" : row.om)
+                            .font(.subheadline)
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Text(row.pph.map { HeartbeatFormat.num($0, digits: 1) } ?? "—")
+                            .font(.subheadline.monospacedDigit())
+                            .frame(width: 64, alignment: .trailing)
+                        Text(row.compliance.map { HeartbeatFormat.pct($0) } ?? "—")
+                            .font(.subheadline.monospacedDigit())
+                            .frame(width: 64, alignment: .trailing)
                     }
+                    .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
+                    .listRowBackground(AppTheme.card)
                 }
             }
         }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                .fill(AppTheme.card)
-                .overlay(
-                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                        .stroke(AppTheme.cardBorder, lineWidth: 1)
-                )
-        )
     }
 
     private var title: String {
