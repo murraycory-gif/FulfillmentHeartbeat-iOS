@@ -71,6 +71,15 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         }
     }
 
+    var sourceLink: URL? {
+        switch self {
+        case .pickerScorecard:
+            return URL(string: "https://app.powerbi.com/groups/me/apps/d973ff03-651f-4e52-9e7a-8e5bff14b5e6/reports/7c59791f-78af-4257-8dde-c4f16b2017f0/9c54590ee447c7f3310b?experience=power-bi")
+        default:
+            return nil
+        }
+    }
+
     static var dashboardCards: [MetricSection] {
         [.fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pph]
     }

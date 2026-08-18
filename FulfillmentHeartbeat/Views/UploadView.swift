@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import UIKit
 
 struct UploadView: View {
     @EnvironmentObject private var store: HeartbeatStore
@@ -49,7 +50,7 @@ struct UploadView: View {
                     }
                 }
 
-                Text("Headers can be flexible — Division, Operations OM, and Store Number are picked up automatically. Download a template if you want a clean start.")
+                Text("Headers can be flexible — Division, Operations OM, and Store Number are picked up automatically. Use Link to pull the raw Power BI export, or Template for a clean file.")
                     .font(.subheadline)
                     .foregroundStyle(AppTheme.textSecondary)
             }
@@ -179,8 +180,15 @@ struct UploadPanel: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    Button("Template", action: onTemplate)
+                    if let source = section.sourceLink {
+                        Button("Link") {
+                            UIApplication.shared.open(source)
+                        }
                         .buttonStyle(SecondaryButtonStyle())
+                    } else {
+                        Button("Template", action: onTemplate)
+                            .buttonStyle(SecondaryButtonStyle())
+                    }
                     if upload != nil {
                         Button("Clear", action: onClear)
                             .font(.subheadline.weight(.semibold))
