@@ -156,8 +156,7 @@ struct UploadPanel: View {
                             .font(.caption.weight(.medium))
                             .foregroundStyle(AppTheme.blue)
                     }
-                    Spacer(minLength: 8)
-                    UpdatedStamp(date: upload?.uploadedAt)
+                    Spacer(minLength: 0)
                 }
 
                 Text("Expects \(section.expectedMetrics)")
@@ -167,21 +166,19 @@ struct UploadPanel: View {
                 dropZone
 
                 HStack(alignment: .center, spacing: 10) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        if let upload {
+                    if let upload {
+                        VStack(alignment: .leading, spacing: 2) {
                             Text(upload.filename)
                                 .font(.subheadline.weight(.medium))
                                 .lineLimit(1)
-                            Text("\(upload.rowCount) rows · \(HeartbeatFormat.stamp(upload.uploadedAt))")
+                            Text("\(upload.rowCount) rows")
                                 .font(.caption)
                                 .foregroundStyle(AppTheme.textSecondary)
-                        } else {
-                            Text("No data")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(AppTheme.text)
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    } else {
+                        Spacer(minLength: 0)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
                     if let source = section.sourceLink {
                         Button("Link") {
                             UIApplication.shared.open(source)
@@ -197,6 +194,8 @@ struct UploadPanel: View {
                             .foregroundStyle(AppTheme.bad)
                     }
                 }
+
+                UpdatedStamp(date: upload?.uploadedAt, wide: true)
             }
         }
     }

@@ -85,6 +85,7 @@ struct HealthBadge: View {
 
 struct UpdatedStamp: View {
     let date: Date?
+    var wide: Bool = false
 
     private var empty: Bool { date == nil }
 
@@ -92,8 +93,10 @@ struct UpdatedStamp: View {
         Text(empty ? "NO DATA" : HeartbeatFormat.updated(date))
             .font(.subheadline.weight(.heavy))
             .tracking(empty ? 0.3 : 0)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: wide ? .infinity : nil)
+            .padding(.horizontal, wide ? 16 : 12)
+            .padding(.vertical, wide ? 10 : 7)
             .foregroundStyle(empty ? AppTheme.text : AppTheme.blue)
             .background(
                 empty ? AppTheme.warnSoft : AppTheme.blueSoft,
