@@ -43,7 +43,7 @@ final class HeartbeatStore: ObservableObject {
     )
     private var cachedChecklistGroups: [MetricSection: [ChecklistDriverGroup]] = [:]
     private var pickerIndex: [PickerFocus: [Int]] = [:]
-    private var pickerFocusHealth: [PickerFocus: Health] = [:]
+    private var pickPathPickersByStore: [String: [MetricRow]] = [:]
 
     init(rootURL: URL? = nil) {
         fileManager = .default
@@ -116,6 +116,10 @@ final class HeartbeatStore: ObservableObject {
     var summaries: [SectionSummary] { cachedSummaries }
 
     var pickerBoard: HeartbeatMath.PickerBoard { cachedPickerBoard }
+
+    func pickPathPickers(forStore store: String) -> [MetricRow] {
+        pickPathPickersByStore[HeartbeatMath.canonicalStore(store)] ?? []
+    }
 
     func pickerCount(for focus: PickerFocus) -> Int {
         pickerIndex[focus]?.count ?? 0
@@ -262,6 +266,26 @@ final class HeartbeatStore: ObservableObject {
 
         pickerIndex = buckets
         pickerFocusHealth = worst
+    }
+
+    private func rebuildPickPathPickerIndex(scorecard: [MetricRow]) {
+        var shopperStore: [String: String] = [:]
+        for row in scorecard {
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            guard !store.isEmpty else { continue }
+            shopperStore[row.shopperKey] = store
+        }
+        var buckets: [String: [MetricRow]] = [:]
+        for row in latestBySection[.pickPathPicker] ?? [] {
+            guard let store = shopperStore[row.shopperKey] else { continue }
+            buckets[store, default: []].append(row)
+        }
+        for store in buckets.keys {
+            buckets[store]?.sort {
+                ($0.number("compliance_pct") ?? 999) < ($1.number("compliance_pct") ?? 999)
+            }
+        }
+        pickPathPickersByStore = buckets
     }
 
     func checklistItem(for item: ChecklistDriverItem, section: MetricSection) -> ChecklistItem {
@@ -613,7 +637,11 @@ final class HeartbeatStore: ObservableObject {
         rebuildIndex()
         replaceFilters(DashboardFilters())
         let stores = Set(incoming.map(\.storeNumber).filter { !$0.isEmpty }).count
-        statusMessage = "Imported \(incoming.count) rows · \(stores) stores into \(section.title). Filters cleared so the new file is in view."
+        if section == .pickPathPicker {
+            statusMessage = "Imported \(incoming.count) pickers into Pick Path Compliance Picker. Open a store on Pick Path to see them."
+        } else {
+            statusMessage = "Imported \(incoming.count) rows · \(stores) stores into \(section.title). Filters cleared so the new file is in view."
+        }
         persist()
     }
 
@@ -637,7 +665,7 @@ final class HeartbeatStore: ObservableObject {
 
     private var latestUniverse: [MetricRow] {
         MetricSection.allCases
-            .filter { $0 != .pickerScorecard }
+            .filter { $0 != .pickerScorecard && $0 != .pickPathPicker }
             .flatMap { latestBySection[$0] ?? [] }
     }
 
@@ -651,9 +679,9 @@ final class HeartbeatStore: ObservableObject {
 
     private func rebuildIndex() {
         let identitySource = rows.filter {
-            $0.section != .scheduleQuality && $0.section != .dynacap && $0.section != .pickerScorecard
+            $0.section != .scheduleQuality && $0.section != .dynacap && $0.section != .pickerScorecard && $0.section != .pickPathPicker
         }
-        roster = HeartbeatMath.storeRoster(identitySource.isEmpty ? rows.filter { $0.section != .pickerScorecard } : identitySource)
+        roster = HeartbeatMath.storeRoster(identitySource.isEmpty ? rows.filter { $0.section != .pickerScorecard && $0.section != .pickPathPicker } : identitySource)
         var latest: [MetricSection: [MetricRow]] = [:]
         for section in MetricSection.allCases {
             let sectionRows = rows.filter { $0.section == section }
@@ -663,7 +691,7 @@ final class HeartbeatStore: ObservableObject {
                 latest[section] = HeartbeatMath.materializePickPath(sectionRows, roster: roster)
             } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady || section == .pph {
                 latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(sectionRows), roster: roster)
-            } else if section == .pickerScorecard {
+            } else if section == .pickerScorecard || section == .pickPathPicker {
                 latest[section] = HeartbeatMath.latestPerShopper(sectionRows)
             } else {
                 latest[section] = HeartbeatMath.latestPerStore(sectionRows)
@@ -676,7 +704,7 @@ final class HeartbeatStore: ObservableObject {
     private func applyFilters() {
         let universe = latestUniverse
         var nextLatest: [MetricSection: [MetricRow]] = [:]
-        for section in MetricSection.allCases where section != .pickerScorecard {
+        for section in MetricSection.allCases where section != .pickerScorecard && section != .pickPathPicker {
             nextLatest[section] = HeartbeatMath.filtered(
                 latestBySection[section] ?? [],
                 division: filters.division,
@@ -696,6 +724,7 @@ final class HeartbeatStore: ObservableObject {
         filteredLatest = nextLatest
         cachedPickerBoard = HeartbeatMath.pickerBoard(nextLatest[.pickerScorecard] ?? [])
         rebuildPickerIndex(nextLatest[.pickerScorecard] ?? [])
+        rebuildPickPathPickerIndex(scorecard: nextLatest[.pickerScorecard] ?? [])
         cachedChecklistGroups = buildChecklistGroups(nextLatest)
         filteredMarket = HeartbeatMath.marketBoard(
             universe,
@@ -881,10 +910,10 @@ private struct PulseCaches {
 
     static func build(rows: [MetricRow], filters: DashboardFilters, uploads: [UploadRecord]) -> PulseCaches {
         let identitySource = rows.filter {
-            $0.section != .scheduleQuality && $0.section != .dynacap && $0.section != .pickerScorecard
+            $0.section != .scheduleQuality && $0.section != .dynacap && $0.section != .pickerScorecard && $0.section != .pickPathPicker
         }
         let roster = HeartbeatMath.storeRoster(
-            identitySource.isEmpty ? rows.filter { $0.section != .pickerScorecard } : identitySource
+            identitySource.isEmpty ? rows.filter { $0.section != .pickerScorecard && $0.section != .pickPathPicker } : identitySource
         )
         var latest: [MetricSection: [MetricRow]] = [:]
         for section in MetricSection.allCases {
@@ -895,7 +924,7 @@ private struct PulseCaches {
                 latest[section] = HeartbeatMath.materializePickPath(sectionRows, roster: roster)
             } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady || section == .pph {
                 latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(sectionRows), roster: roster)
-            } else if section == .pickerScorecard {
+            } else if section == .pickerScorecard || section == .pickPathPicker {
                 latest[section] = HeartbeatMath.latestPerShopper(sectionRows)
             } else {
                 latest[section] = HeartbeatMath.latestPerStore(sectionRows)
@@ -911,10 +940,10 @@ private struct PulseCaches {
         uploads: [UploadRecord]
     ) -> PulseCaches {
         let universe = MetricSection.allCases
-            .filter { $0 != .pickerScorecard }
+            .filter { $0 != .pickerScorecard && $0 != .pickPathPicker }
             .flatMap { latest[$0] ?? [] }
         var nextLatest: [MetricSection: [MetricRow]] = [:]
-        for section in MetricSection.allCases where section != .pickerScorecard {
+        for section in MetricSection.allCases where section != .pickerScorecard && section != .pickPathPicker {
             nextLatest[section] = HeartbeatMath.filtered(
                 latest[section] ?? [],
                 division: filters.division,

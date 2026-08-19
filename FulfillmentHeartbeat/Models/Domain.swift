@@ -3,6 +3,7 @@ import Foundation
 enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
     case fiveStar = "five_star"
     case pickPath = "pick_path"
+    case pickPathPicker = "pick_path_picker"
     case prepNotReady = "prep_not_ready"
     case dynacap = "dynacap"
     case scheduleQuality = "schedule_quality"
@@ -14,7 +15,8 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
     var title: String {
         switch self {
         case .fiveStar: return "5 Star Metrics"
-        case .pickPath: return "Pick Path Compliance"
+        case .pickPath: return "Pick Path Compliance Store"
+        case .pickPathPicker: return "Pick Path Compliance Picker"
         case .prepNotReady: return "Prep Not Ready"
         case .dynacap: return "Dynacap Setting"
         case .scheduleQuality: return "Schedule Quality"
@@ -26,7 +28,8 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
     var short: String {
         switch self {
         case .fiveStar: return "5 Star"
-        case .pickPath: return "Pick Path"
+        case .pickPath: return "Path Store"
+        case .pickPathPicker: return "Path Picker"
         case .prepNotReady: return "Prep NR"
         case .dynacap: return "Dynacap"
         case .scheduleQuality: return "Schedule"
@@ -38,7 +41,8 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
     var blurb: String {
         switch self {
         case .fiveStar: return "Store-level star rating from Flash, Presubs, COE, OTT, and OTH5. Upload Star Ratings by Store."
-        case .pickPath: return "Share of picks that followed the system path. Upload the All Pickers WEEK_ID export."
+        case .pickPath: return "Store-level path compliance. Upload the STORE_ID WEEK_ID export."
+        case .pickPathPicker: return "Picker-level path compliance. Upload the EMPLOYEE_ALTERNATE_ID WEEK_ID export. Pickers show under each store on Pick Path."
         case .prepNotReady: return "Share of pick hours lost to prep not ready. Upload the weekly Hours % export."
         case .dynacap: return "Pieces per hour we allow down to the picker. Upload the Overall Capacity Summary."
         case .scheduleQuality: return "How tightly the labor plan matches the work. Upload Optimized Departments."
@@ -51,6 +55,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         switch self {
         case .fiveStar: return "Store · Division · OM · District · Total Rating · Flash · Presubs · COE · OTT · OTH5"
         case .pickPath: return "WEEK_ID · STORE_ID · Pick Path Compliance · Orders · Pure PPH (Total columns)"
+        case .pickPathPicker: return "WEEK_ID · EMPLOYEE_ALTERNATE_ID · Pick Path Compliance · Orders · Pure PPH (Total columns)"
         case .prepNotReady: return "DIVISION · District · OM · Store · Prep Not Ready Hours %"
         case .dynacap: return "DISTRICT · Total Pieces/Total Hrs · DPA Dynacap · Utilization %"
         case .scheduleQuality: return "Division · District · Store · Schedule Efficiency · Under % · Over %"
@@ -63,6 +68,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         switch self {
         case .fiveStar: return "star.fill"
         case .pickPath: return "point.topleft.down.to.point.bottomright.curvepath"
+        case .pickPathPicker: return "person.crop.circle.badge.checkmark"
         case .prepNotReady: return "shippingbox"
         case .dynacap: return "slider.horizontal.3"
         case .scheduleQuality: return "calendar.badge.clock"
@@ -77,7 +83,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
             return URL(string: "https://app.powerbi.com/groups/me/apps/d973ff03-651f-4e52-9e7a-8e5bff14b5e6/reports/73aafb1b-7a54-4c96-af93-4736442edc42/ReportSection5f4b54422e8bd962800c?experience=power-bi")
         case .pickerScorecard:
             return URL(string: "https://app.powerbi.com/groups/b49dfeed-3984-42bf-82ef-d591fb235e2a/reports/06359e3e-e6c3-40e3-9576-de9f22b6aff1/ReportSectioncbfdeb0d3f0df83d6a16?experience=power-bi")
-        case .pickPath:
+        case .pickPath, .pickPathPicker:
             return URL(string: "https://app.powerbi.com/groups/b49dfeed-3984-42bf-82ef-d591fb235e2a/reports/b6400525-ba91-4f3d-bfba-3338a0b52fa7/ReportSection73f793f7ab37dd823bd7?experience=power-bi")
         case .pph:
             return URL(string: "https://app.powerbi.com/groups/me/apps/d973ff03-651f-4e52-9e7a-8e5bff14b5e6/reports/efe509e3-0bb6-4f54-9528-feb8fa1dc5fe/ReportSectionb4ac0532033cd00ce85a?experience=power-bi")
@@ -88,6 +94,10 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
 
     static var dashboardCards: [MetricSection] {
         [.fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pph, .pickerScorecard]
+    }
+
+    static var uploadOrder: [MetricSection] {
+        [.fiveStar, .pickPath, .pickPathPicker, .prepNotReady, .dynacap, .scheduleQuality, .pph, .pickerScorecard]
     }
 
     static var checklistSections: [MetricSection] {
@@ -526,7 +536,7 @@ enum HeartbeatMath {
         switch section {
         case .fiveStar:
             return fiveStarHealth(row)
-        case .pickPath:
+        case .pickPath, .pickPathPicker:
             guard row.number("compliance_pct") != nil else { return .none }
             return band(row.number("compliance_pct"), good: pickPathGoal, watch: pickPathRisk)
         case .prepNotReady:
@@ -581,7 +591,7 @@ enum HeartbeatMath {
                 lastFilename: upload?.filename,
                 lastUploadedAt: upload?.uploadedAt
             )
-        case .pickPath:
+        case .pickPath, .pickPathPicker:
             let headline = average(latest.compactMap { $0.number("compliance_pct") })
             let atGoal = latest.filter { ($0.number("compliance_pct") ?? 0) >= pickPathGoal }.count
             let atRisk = latest.filter { ($0.number("compliance_pct") ?? .greatestFiniteMagnitude) < pickPathRisk }.count
@@ -1028,7 +1038,7 @@ enum HeartbeatMath {
         switch section {
         case .fiveStar:
             return -(row.number("star_rating") ?? 99)
-        case .pickPath:
+        case .pickPath, .pickPathPicker:
             return -(row.number("compliance_pct") ?? 999)
         case .prepNotReady:
             return row.number("pnr_rate_pct") ?? 0
@@ -1134,7 +1144,7 @@ enum HeartbeatMath {
             let value: Double?
             switch section {
             case .fiveStar: value = row.number("star_rating")
-            case .pickPath: value = row.number("compliance_pct")
+            case .pickPath, .pickPathPicker: value = row.number("compliance_pct")
             case .prepNotReady: value = row.number("pnr_rate_pct")
             case .dynacap:
                 value = row.number("dynacap_rate", "pieces_per_hour")
@@ -1366,7 +1376,7 @@ struct StoreCellViewModel {
                 primary: HeartbeatFormat.stars(row.number("star_rating")),
                 extra: parts.joined(separator: " · ")
             )
-        case .pickPath:
+        case .pickPath, .pickPathPicker:
             let compliance = row.number("compliance_pct")
             let gap = compliance.map { $0 - HeartbeatMath.pickPathGoal }
             let gapText: String

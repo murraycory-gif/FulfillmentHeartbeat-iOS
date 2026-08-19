@@ -96,7 +96,7 @@ struct SectionCard: View {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack(spacing: 8) {
-                            Text(summary.section.title)
+                            Text(summary.section == .pickPath ? "Pick Path Compliance" : summary.section.title)
                                 .font(.title3.weight(.bold))
                                 .foregroundStyle(AppTheme.text)
                             UpdatedStamp(date: summary.lastUploadedAt)

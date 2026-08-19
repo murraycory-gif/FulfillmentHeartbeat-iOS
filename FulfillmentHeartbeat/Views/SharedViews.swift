@@ -834,7 +834,7 @@ struct StoreTable: View {
     private func sortValue(_ row: MetricRow) -> Double {
         switch section {
         case .fiveStar: return row.number("star_rating") ?? -1
-        case .pickPath: return row.number("compliance_pct") ?? -1
+        case .pickPath, .pickPathPicker: return row.number("compliance_pct") ?? -1
         case .prepNotReady: return row.number("pnr_rate_pct") ?? -1
         case .dynacap: return row.number("dynacap_rate", "pieces_per_hour") ?? (HeartbeatMath.dynacapAligned(row) == true ? 1 : 0)
         case .scheduleQuality: return row.number("schedule_efficiency_pct") ?? -1
@@ -893,6 +893,7 @@ struct StoreTable: View {
 }
 
 struct PickPathTable: View {
+    @EnvironmentObject private var store: HeartbeatStore
     let rows: [MetricRow]
 
     private enum Column: String, CaseIterable, Identifiable {
@@ -975,7 +976,7 @@ struct PickPathTable: View {
                 .listRowBackground(AppTheme.bg)
 
                 ForEach(sortedRows) { row in
-                    PickPathStoreCard(row: row)
+                    PickPathStoreCard(row: row, pickers: store.pickPathPickers(forStore: row.storeNumber))
                         .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.bg)
@@ -1024,6 +1025,8 @@ struct PickPathTable: View {
 
 struct PickPathStoreCard: View {
     let row: MetricRow
+    var pickers: [MetricRow] = []
+    @State private var expanded = false
 
     var body: some View {
         let health = HeartbeatMath.health(for: .pickPath, row: row)
@@ -1032,21 +1035,32 @@ struct PickPathStoreCard: View {
         let pph = row.number("pph")
         let orders = row.number("orders") ?? row.number("picks_total")
         return VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(row.storeNumber.isEmpty ? "—" : row.storeNumber)
-                    .font(.title3.weight(.semibold).monospacedDigit())
-                if !row.division.isEmpty {
-                    Text("|")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(AppTheme.textTertiary)
-                    Text(row.division)
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(AppTheme.textSecondary)
-                        .lineLimit(1)
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { expanded.toggle() }
+            } label: {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(row.storeNumber.isEmpty ? "—" : row.storeNumber)
+                        .font(.title3.weight(.semibold).monospacedDigit())
+                        .foregroundStyle(AppTheme.text)
+                    if !row.division.isEmpty {
+                        Text("|")
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(AppTheme.textTertiary)
+                        Text(row.division)
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(AppTheme.textSecondary)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                    HealthBadge(health: health, prominent: true)
+                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(AppTheme.blue)
+                        .frame(width: 36, height: 36)
+                        .background(AppTheme.blueSoft, in: Circle())
                 }
-                Spacer()
-                HealthBadge(health: health, prominent: true)
             }
+            .buttonStyle(.plain)
             Text(metaLine)
                 .font(.subheadline)
                 .foregroundStyle(AppTheme.textSecondary)
@@ -1054,6 +1068,9 @@ struct PickPathStoreCard: View {
                 metric("Pick Path", HeartbeatFormat.pct(path), health)
                 metric("Avg PPH", HeartbeatFormat.num(pph, digits: 1), pphHealth)
                 metric("Orders", HeartbeatFormat.num(orders), .none)
+            }
+            if expanded {
+                pickerBlock
             }
         }
         .padding(16)
@@ -1070,7 +1087,57 @@ struct PickPathStoreCard: View {
     private var metaLine: String {
         let district = row.district.isEmpty ? "—" : row.district
         let om = row.operationsOM.isEmpty ? "—" : row.operationsOM
-        return "District \(district)  ·  \(om)"
+        let pickerLabel = pickers.isEmpty ? "Tap to view pickers" : "\(pickers.count) picker\(pickers.count == 1 ? "" : "s") · tap to \(expanded ? "hide" : "view")"
+        return "District \(district)  ·  \(om)  ·  \(pickerLabel)"
+    }
+
+    @ViewBuilder
+    private var pickerBlock: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Pickers")
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(AppTheme.text)
+            if pickers.isEmpty {
+                Text("Upload Pick Path Compliance Picker and Picker ScoreCard to see shoppers for this store.")
+                    .font(.subheadline)
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .padding(.vertical, 6)
+            } else {
+                ForEach(pickers) { picker in
+                    pickerRow(picker)
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(AppTheme.card.opacity(0.9))
+        )
+    }
+
+    private func pickerRow(_ picker: MetricRow) -> some View {
+        let health = HeartbeatMath.health(for: .pickPathPicker, row: picker)
+        let pphHealth = picker.number("pph") == nil ? Health.none : HeartbeatMath.pphHealth(picker)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(picker.shopperName)
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(AppTheme.text)
+                Spacer()
+                HealthBadge(health: health, prominent: true)
+            }
+            HStack(spacing: 8) {
+                metric("Pick Path", HeartbeatFormat.pct(picker.number("compliance_pct")), health)
+                metric("Avg PPH", HeartbeatFormat.num(picker.number("pph"), digits: 1), pphHealth)
+                metric("Orders", HeartbeatFormat.num(picker.number("orders") ?? picker.number("picks_total")), .none)
+            }
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(wash(health).opacity(0.7))
+        )
     }
 
     private func metric(_ name: String, _ value: String, _ health: Health) -> some View {

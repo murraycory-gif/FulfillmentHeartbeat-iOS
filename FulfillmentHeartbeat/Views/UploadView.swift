@@ -23,7 +23,7 @@ struct UploadView: View {
                 }
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 16)], spacing: 16) {
-                    ForEach(MetricSection.allCases) { section in
+                    ForEach(MetricSection.uploadOrder) { section in
                         UploadPanel(
                             section: section,
                             upload: store.upload(for: section),
@@ -154,7 +154,9 @@ struct UploadPanel: View {
                         Text(section.blurb)
                             .font(.caption)
                             .foregroundStyle(AppTheme.textSecondary)
-                        Text("Updates the \(section.short) card on the dashboard")
+                        Text(section == .pickPathPicker
+                             ? "Shows pickers under each store on Pick Path"
+                             : "Updates the \(section.short) card on the dashboard")
                             .font(.caption.weight(.medium))
                             .foregroundStyle(AppTheme.blue)
                     }

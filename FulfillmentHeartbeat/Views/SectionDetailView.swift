@@ -20,7 +20,7 @@ struct SectionDetailView: View {
                         if section == .pickerScorecard {
                             PickerScoreCardTitle(font: .largeTitle.weight(.semibold))
                         } else {
-                            Text(section.title)
+                            Text(section == .pickPath ? "Pick Path Compliance" : section.title)
                                 .font(.largeTitle.weight(.semibold))
                         }
                         Text(section.blurb)
@@ -119,7 +119,7 @@ struct SectionDetailView: View {
                 ("Fill rate", HeartbeatFormat.pct(avg("fill_rate_pct"))),
                 ("Quality", HeartbeatFormat.pct(avg("quality_score"))),
             ]
-        case .pickPath:
+        case .pickPath, .pickPathPicker:
             return [
                 ("Compliant picks", HeartbeatFormat.num(rows.reduce(0) { $0 + ($1.number("picks_compliant") ?? 0) })),
                 ("Total picks", HeartbeatFormat.num(rows.reduce(0) { $0 + ($1.number("picks_total") ?? 0) })),

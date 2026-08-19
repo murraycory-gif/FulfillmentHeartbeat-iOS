@@ -279,6 +279,9 @@ enum WorkbookParser {
         if let stores = parseStoreWeek(matrix), !stores.isEmpty {
             return stores
         }
+        if let pickers = parseEmployeeWeek(matrix), !pickers.isEmpty {
+            return pickers
+        }
         return parseFlat(matrix)
     }
 
@@ -438,6 +441,58 @@ enum WorkbookParser {
                     recordedOn: week,
                     payload: payload,
                     textPayload: text
+                )
+            )
+        }
+        return out.isEmpty ? nil : out
+    }
+
+    /// WEEK_ID across the top, EMPLOYEE_ALTERNATE_ID down the side, Total block last.
+    private static func parseEmployeeWeek(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {
+        guard let headerIndex = matrix.firstIndex(where: { row in
+            let names = Set(row.map(normHeader))
+            let hasPicker = names.contains(where: { shopperIdKeys.contains($0) || shopperNameKeys.contains($0) })
+            let hasStore = names.contains(where: { storeKeys.contains($0) || $0 == "store" })
+            let hasMetric = names.contains(where: {
+                $0.contains("pickpath") || $0.contains("compliance") || $0.contains("purepph") || $0 == "pph"
+            })
+            return hasPicker && !hasStore && hasMetric
+        }) else { return nil }
+
+        let header = matrix[headerIndex].map(normHeader)
+        let empIdx = header.firstIndex { shopperIdKeys.contains($0) || shopperNameKeys.contains($0) }
+        guard let empIdx else { return nil }
+
+        var lastMetricColumn: [String: Int] = [:]
+        for (index, name) in header.enumerated() {
+            if index == empIdx || name.isEmpty { continue }
+            lastMetricColumn[name] = index
+        }
+        guard !lastMetricColumn.isEmpty else { return nil }
+
+        let week = matrix.prefix(headerIndex + 1).flatMap { $0 }.compactMap(dateFromWeekID).first
+        var out: [ParsedWorkbookRow] = []
+        for line in matrix.dropFirst(headerIndex + 1) {
+            let picker = empIdx < line.count ? line[empIdx].trimmingCharacters(in: .whitespacesAndNewlines) : ""
+            if picker.lowercased().hasPrefix("applied") { continue }
+            if picker.isEmpty || isTotalCell(picker) { continue }
+
+            var payload: [String: Double] = [:]
+            for (name, index) in lastMetricColumn {
+                let raw = index < line.count ? line[index] : ""
+                guard let value = cellNumber(raw) else { continue }
+                applyMetric(&payload, header: name, value: value)
+            }
+            guard payload["compliance_pct"] != nil || payload["pph"] != nil else { continue }
+            out.append(
+                ParsedWorkbookRow(
+                    division: "",
+                    operationsOM: "",
+                    storeNumber: "",
+                    storeName: nil,
+                    recordedOn: week,
+                    payload: payload,
+                    textPayload: ["shopper_id": picker, "shopper_name": picker]
                 )
             )
         }

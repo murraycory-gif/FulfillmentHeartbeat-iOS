@@ -196,6 +196,13 @@ enum SampleMarket {
             Portland,73,Portland 2,JR Ehline,1762,Total,0.8979,517,97.2,0.8906,602,94.8
             Haggen,39,Haggen 1,Luke Lomas,3427,Total,0.9610,288,88.4,0.9540,301,87.1
             """
+        case .pickPathPicker:
+            return """
+            WEEK_ID,202625,202625,202625,Total,Total,Total
+            EMPLOYEE_ALTERNATE_ID,Pick Path Compliance,Orders,Pure PPH (excluding Reshop),Pick Path Compliance,Orders,Pure PPH (excluding Reshop)
+            RPAL114,0.9474,22,113.3,0.9885,23,106.5
+            AABRA77,1,1,105.88,1,17,129.9
+            """
         case .prepNotReady:
             return """
             DIVISION,District,OM,Store,Prep Not Ready Hours %,Store #
