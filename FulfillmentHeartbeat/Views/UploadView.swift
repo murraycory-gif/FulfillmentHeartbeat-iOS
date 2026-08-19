@@ -49,12 +49,12 @@ struct UploadView: View {
             .padding(20)
         }
         .background(AppTheme.bg.ignoresSafeArea())
-        .fileImporter(
-            isPresented: $showImporter,
-            allowedContentTypes: Self.workbookTypes,
-            allowsMultipleSelection: false,
-            onCompletion: handleImport
-        )
+        .sheet(isPresented: $showImporter) {
+            DocumentCopyPicker(types: Self.workbookTypes) { url in
+                guard let section = importTarget else { return }
+                consumeCopiedFile(url, section: section)
+            }
+        }
         .fileExporter(
             isPresented: Binding(
                 get: { exportItem != nil },
@@ -103,53 +103,20 @@ struct UploadView: View {
         showImporter = true
     }
 
-    private func handleImport(_ result: Result<[URL], Error>) {
-        let section = importTarget
-        importTarget = nil
+    private func consumeCopiedFile(_ url: URL, section: MetricSection) {
         showImporter = false
-        switch result {
-        case .success(let urls):
-            guard let section, let url = urls.first else { return }
-            Task { await importPickedFile(url, section: section) }
-        case .failure(let error):
-            store.errorMessage = error.localizedDescription
-        }
-    }
-
-    @MainActor
-    private func importPickedFile(_ url: URL, section: MetricSection) async {
+        importTarget = nil
         do {
-            let (data, filename) = try await Self.readPickedFile(url)
-            store.importWorkbook(data: data, filename: filename, section: section)
-        } catch {
-            store.errorMessage = error.localizedDescription
-        }
-    }
-
-    nonisolated private static func readPickedFile(_ url: URL) async throws -> (Data, String) {
-        try await Task.detached {
-            let accessed = url.startAccessingSecurityScopedResource()
-            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-            var coordError: NSError?
-            var data: Data?
-            var readError: Error?
-            NSFileCoordinator().coordinate(readingItemAt: url, options: .withoutChanges, error: &coordError) { fresh in
-                do {
-                    data = try Data(contentsOf: fresh)
-                } catch {
-                    readError = error
-                }
-            }
-            if let coordError { throw coordError }
-            if let readError { throw readError }
-            guard let data, !data.isEmpty else {
-                throw NSError(domain: "HeartbeatImport", code: 1, userInfo: [NSLocalizedDescriptionKey: "Could not read that file."])
-            }
+            let data = try Data(contentsOf: url)
             let filename = url.lastPathComponent
                 .replacingOccurrences(of: "%", with: "pct")
                 .replacingOccurrences(of: "/", with: "-")
-            return (data, filename)
-        }.value
+            try? FileManager.default.removeItem(at: url)
+            store.importWorkbook(data: data, filename: filename, section: section)
+        } catch {
+            try? FileManager.default.removeItem(at: url)
+            store.errorMessage = error.localizedDescription
+        }
     }
 
     private static var workbookTypes: [UTType] {
@@ -343,6 +310,46 @@ struct ExportItem: FileDocument {
 
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
         FileWrapper(regularFileWithContents: data)
+    }
+}
+
+struct DocumentCopyPicker: UIViewControllerRepresentable {
+    let types: [UTType]
+    var onPick: (URL) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(onPick: onPick) }
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: true)
+        picker.delegate = context.coordinator
+        picker.allowsMultipleSelection = false
+        picker.shouldShowFileExtensions = true
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {
+        context.coordinator.onPick = onPick
+    }
+
+    final class Coordinator: NSObject, UIDocumentPickerDelegate {
+        var onPick: (URL) -> Void
+        init(onPick: @escaping (URL) -> Void) { self.onPick = onPick }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            guard let source = urls.first else { return }
+            let safe = FileManager.default.temporaryDirectory
+                .appendingPathComponent("heartbeat-\(UUID().uuidString).xlsx")
+            do {
+                if FileManager.default.fileExists(atPath: safe.path) {
+                    try FileManager.default.removeItem(at: safe)
+                }
+                try FileManager.default.copyItem(at: source, to: safe)
+                try? FileManager.default.removeItem(at: source)
+                onPick(safe)
+            } catch {
+                onPick(source)
+            }
+        }
     }
 }
 
