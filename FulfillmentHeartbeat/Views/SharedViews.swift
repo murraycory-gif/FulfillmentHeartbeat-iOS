@@ -430,6 +430,7 @@ struct FilterSheet: View {
     }
 }
 
+@MainActor
 private enum FilterFocus: String, CaseIterable, Identifiable {
     case division, district, om, store
     var id: String { rawValue }
