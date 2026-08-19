@@ -606,6 +606,11 @@ enum WorkbookParser {
                     guard let value = cellNumber(raw) else { continue }
                     applyMetric(&payload, header: index < header.count ? header[index] : "", value: value)
                 }
+                if payload["pnr_rate_pct"] == nil, header.contains(where: { $0.contains("prepnotready") || $0.contains("pnr") }) {
+                    if let index = totalColumns.last, let value = cellNumber(index < line.count ? line[index] : "") {
+                        applyMetric(&payload, header: "pnr_rate_pct", value: value)
+                    }
+                }
                 emitted = payload.isEmpty ? [] : [
                     ParsedWorkbookRow(
                         division: carryDiv,
@@ -1007,13 +1012,14 @@ enum WorkbookParser {
         let formats = ["M/d/yyyy", "MM/dd/yyyy", "M/d/yy", "yyyy-MM-dd", "MMM d, yyyy"]
         let parser = DateFormatter()
         parser.locale = Locale(identifier: "en_US_POSIX")
+        parser.timeZone = TimeZone(secondsFromGMT: 0)
         for format in formats {
             parser.dateFormat = format
             if let date = parser.date(from: trimmed) {
                 return iso(date)
             }
         }
-        return trimmed
+        return nil
     }
 
     static func excelSerialDate(_ value: Double) -> String {

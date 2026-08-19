@@ -1466,7 +1466,7 @@ struct PrepTable: View {
                 .listRowSeparator(.hidden)
                 .listRowBackground(AppTheme.bg)
 
-                ForEach(ordered, id: \.storeNumber) { row in
+                ForEach(ordered) { row in
                     PrepStoreCard(row: row)
                         .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
                         .listRowSeparator(.hidden)
