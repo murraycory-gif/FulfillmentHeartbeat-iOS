@@ -131,4 +131,44 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertEqual(sample?.payload["presub_pct"] ?? 0, 1.4, accuracy: 0.001)
         XCTAssertEqual(sample?.payload["oos_pct"] ?? 0, 0, accuracy: 0.001)
     }
+
+    func testPickerTotalsMatchEveryShopperInSparseExport() throws {
+        let csv = """
+        DATE,,46250,46250,46250,46250,46250,46250,46250,46250,46250,46250,46250,46250,46250,46251,46251,46251,46251,46251,46251,46251,46251,46251,46251,46251,46251,46251,Total,Total,Total,Total,Total,Total,Total,Total,Total,Total,Total,Total,Total
+        STORE,PICKER,Pure_PPH,Pre_SUB_OOS_%,OOS_%,PICK_HOURS,PPH Picks,SUBS,ORDERS,Ttl DUG ORDERS,OTH  Eligible  Orders,OTH_ELIG,OTH5%,OTT %,Refund_AMT,Pure_PPH,Pre_SUB_OOS_%,OOS_%,PICK_HOURS,PPH Picks,SUBS,ORDERS,Ttl DUG ORDERS,OTH  Eligible  Orders,OTH_ELIG,OTH5%,OTT %,Refund_AMT,Pure_PPH,Pre_SUB_OOS_%,OOS_%,PICK_HOURS,PPH Picks,SUBS,ORDERS,Ttl DUG ORDERS,OTH  Eligible  Orders,OTH_ELIG,OTH5%,OTT %,Refund_AMT
+        76,Total,52,,,,,,,,,,,,,52,,,,,,,,,,,,,52.174038899918223,0.10637270679111684,4.2484711940778887E-2,230.30611111111111,12016,794,453,308,284,0.96928327645051193,0.89084507042253525,0.26548672566371684,269.34
+        76,AGUT473,,,,,,,,,,,,,,50.077279752704783,0.20754716981132076,3.3018867924528301E-2,4.1336111111111116,207,37,5,3,,,,0,,50.077279752704783,0.20754716981132076,3.3018867924528301E-2,4.1336111111111116,207,37,5,3,,,,0,
+        12,MMCC808,,,,,,,,,,,,,,44.251236696147494,1.6260162601626018E-2,0,5.5591666666666679,246,4,2,1,2,1,0.5,1,,43.708026628346865,1.6908212560386472E-2,0,9.4719444444444463,414,7,7,5,2,1,0.5,1,
+        Total,,,,,,,,,,,,,,,,,,,,,,,,,,,,73.85,0.058,0.024,126510,9343041,321222,399603,270725,253764,0.965,0.903,0.872,148211.63
+        """
+        let rows = try WorkbookParser.parse(data: Data(csv.utf8), filename: "PickerScoreCard Week 25.xlsx")
+        XCTAssertEqual(rows.count, 2)
+        XCTAssertEqual(Set(rows.map(\.storeNumber)), ["12", "76"])
+
+        let mmcc = try XCTUnwrap(rows.first { $0.textPayload["shopper_id"] == "MMCC808" })
+        XCTAssertEqual(mmcc.storeNumber, "12")
+        XCTAssertEqual(mmcc.payload["pph"] ?? 0, 43.708026628346865, accuracy: 0.0001)
+        XCTAssertEqual(mmcc.payload["presub_pct"] ?? 0, 1.6908212560386472, accuracy: 0.0001)
+        XCTAssertEqual(mmcc.payload["oos_pct"] ?? 0, 0, accuracy: 0.0001)
+        XCTAssertEqual(mmcc.payload["pick_hours"] ?? 0, 9.4719444444444463, accuracy: 0.0001)
+        XCTAssertEqual(mmcc.payload["pph_picks"] ?? 0, 414, accuracy: 0.001)
+        XCTAssertEqual(mmcc.payload["subs"] ?? 0, 7, accuracy: 0.001)
+        XCTAssertEqual(mmcc.payload["orders"] ?? 0, 7, accuracy: 0.001)
+        XCTAssertEqual(mmcc.payload["dug_orders"] ?? 0, 5, accuracy: 0.001)
+        XCTAssertEqual(mmcc.payload["oth_eligible_orders"] ?? 0, 2, accuracy: 0.001)
+        XCTAssertEqual(mmcc.payload["oth_elig_pct"] ?? 0, 100, accuracy: 0.001)
+        XCTAssertEqual(mmcc.payload["oth5_pct"] ?? 0, 50, accuracy: 0.001)
+        XCTAssertEqual(mmcc.payload["ott_pct"] ?? 0, 100, accuracy: 0.001)
+        XCTAssertEqual(HeartbeatFormat.pct(mmcc.payload["presub_pct"]), "1.69%")
+        XCTAssertEqual(HeartbeatFormat.pct(mmcc.payload["oos_pct"]), "0.0%")
+
+        let agut = try XCTUnwrap(rows.first { $0.textPayload["shopper_id"] == "AGUT473" })
+        XCTAssertEqual(agut.storeNumber, "76")
+        XCTAssertEqual(agut.payload["pph"] ?? 0, 50.077279752704783, accuracy: 0.0001)
+        XCTAssertEqual(agut.payload["presub_pct"] ?? 0, 20.754716981132076, accuracy: 0.0001)
+        XCTAssertEqual(agut.payload["oos_pct"] ?? 0, 3.3018867924528301, accuracy: 0.0001)
+        XCTAssertEqual(agut.payload["pick_hours"] ?? 0, 4.1336111111111116, accuracy: 0.0001)
+        XCTAssertEqual(agut.payload["subs"] ?? 0, 37, accuracy: 0.001)
+        XCTAssertEqual(agut.payload["ott_pct"] ?? 0, 0, accuracy: 0.001)
+    }
 }

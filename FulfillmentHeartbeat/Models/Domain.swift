@@ -1244,6 +1244,10 @@ enum HeartbeatFormat {
 
     static func pct(_ value: Double?) -> String {
         guard let value else { return "—" }
+        if value == 0 { return "0.0%" }
+        if abs(value) < 10 {
+            return String(format: "%.2f%%", value)
+        }
         return String(format: "%.1f%%", value)
     }
 

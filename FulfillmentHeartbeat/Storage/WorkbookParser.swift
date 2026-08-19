@@ -359,7 +359,7 @@ enum WorkbookParser {
             for index in metricColumns {
                 let raw = cell(index)
                 guard let value = cellNumber(raw) else { continue }
-                applyMetric(&payload, header: index < header.count ? header[index] : "", value: value)
+                applyPickerMetric(&payload, header: index < header.count ? header[index] : "", value: value)
             }
             guard !payload.isEmpty else { continue }
             out.append(
@@ -562,8 +562,10 @@ enum WorkbookParser {
             key = "ott_star"
         } else if key.contains("ott") {
             key = "ott_pct"
-        } else if key.contains("othelig") {
+        } else if key.contains("othelig") && !key.contains("order") {
             key = "oth_elig_pct"
+        } else if key.contains("eligible") && key.contains("order") {
+            key = "oth_eligible_orders"
         } else if (key.contains("oth5") || key.hasPrefix("oth")) && key.contains("star") {
             key = "oth5_star"
         } else if key.contains("oth5") || key == "oth" {
@@ -621,6 +623,40 @@ enum WorkbookParser {
         if key == "compliance_pct", let orders = payload["orders"] {
             payload["picks_compliant"] = (number / 100) * orders
         }
+    }
+
+    private static let pickerMetricKeys: [String: String] = [
+        "purepph": "pph",
+        "pph": "pph",
+        "presuboos": "presub_pct",
+        "presuboospct": "presub_pct",
+        "presub": "presub_pct",
+        "oos": "oos_pct",
+        "oospct": "oos_pct",
+        "pickhours": "pick_hours",
+        "pphpicks": "pph_picks",
+        "subs": "subs",
+        "substitutes": "subs",
+        "orders": "orders",
+        "ttldugorders": "dug_orders",
+        "dugorders": "dug_orders",
+        "otheligibleorders": "oth_eligible_orders",
+        "othelig": "oth_elig_pct",
+        "otheligibility": "oth_elig_pct",
+        "oth5": "oth5_pct",
+        "ott": "ott_pct",
+        "refundamt": "refund_amt",
+        "refund": "refund_amt",
+        "coe": "coe_pct",
+    ]
+
+    private static func applyPickerMetric(_ payload: inout [String: Double], header: String, value: Double) {
+        guard let key = pickerMetricKeys[header] else { return }
+        var number = value
+        if key.hasSuffix("_pct"), number <= 1.0 {
+            number *= 100
+        }
+        payload[key] = number
     }
 
     private static func rollupPickers(_ rows: [ParsedWorkbookRow]) -> [ParsedWorkbookRow] {
