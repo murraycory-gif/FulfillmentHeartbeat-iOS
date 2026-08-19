@@ -328,37 +328,87 @@ struct FilterBar: View {
 struct FilterSheet: View {
     @EnvironmentObject private var store: HeartbeatStore
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.horizontalSizeClass) private var sizeClass
+    @State private var original = DashboardFilters()
+    @State private var confirmLeave = false
+
+    private var isDirty: Bool { store.filters != original }
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 14) {
                 summaryRow
-                columns
+                GeometryReader { geo in
+                    let pad: CGFloat = 14
+                    let columns = geo.size.width >= 700 ? 2 : 1
+                    let rows = columns == 2 ? 2 : 4
+                    let cellH = max(260, (geo.size.height - pad * CGFloat(rows - 1)) / CGFloat(rows))
+                    let items: [(String, String, String, String, [(String, String)], (String) -> Void)] = [
+                        ("Division", "Type a division", "All divisions", store.filters.division, store.divisions.map { ($0, $0) }, store.setDivision),
+                        ("District", "Type a district", "All districts", store.filters.district, store.districts.map { ($0, $0) }, store.setDistrict),
+                        ("Operations manager", "Type an OM name", "All operations managers", store.filters.om, store.operationsOMs.map { ($0, $0) }, store.setOM),
+                        ("Store #", "Type a store number", "All stores", store.filters.store, store.stores.map { entry in
+                            (entry.number, entry.name.map { "\(entry.number) · \($0)" } ?? entry.number)
+                        }, store.setStore),
+                    ]
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: pad), count: columns), spacing: pad) {
+                        ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                            FilterColumn(
+                                title: item.0,
+                                prompt: item.1,
+                                allLabel: item.2,
+                                selection: item.3,
+                                options: item.4,
+                                onChange: item.5
+                            )
+                            .frame(height: cellH)
+                        }
+                    }
+                }
             }
             .padding(20)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(AppTheme.bg.ignoresSafeArea())
             .navigationTitle("Filters")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { requestClose() }
+                }
+                ToolbarItem(placement: .primaryAction) {
                     if store.filters.isActive {
                         Button("Clear all") { store.clearFilters() }
-                            .fontWeight(.semibold)
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+                    Button("Save") { dismiss() }
                         .fontWeight(.bold)
                 }
             }
+            .alert("Would you like to save your filters?", isPresented: $confirmLeave) {
+                Button("Save") { dismiss() }
+                Button("Don't Save", role: .destructive) {
+                    store.filters = original
+                    dismiss()
+                }
+                Button("Keep editing", role: .cancel) {}
+            } message: {
+                Text("You changed Division, District, OM, or Store. Save to apply them on the dashboard.")
+            }
         }
+        .interactiveDismissDisabled(isDirty)
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .presentationCompactAdaptation(.sheet)
         .presentationCornerRadius(28)
-        .presentationContentInteraction(.scrolls)
+        .onAppear { original = store.filters }
+    }
+
+    private func requestClose() {
+        if isDirty {
+            confirmLeave = true
+        } else {
+            dismiss()
+        }
     }
 
     private var summaryRow: some View {
@@ -388,53 +438,6 @@ struct FilterSheet: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .stroke(value.isEmpty ? AppTheme.cardBorder : AppTheme.blue.opacity(0.35), lineWidth: 1)
         )
-    }
-
-    @ViewBuilder
-    private var columns: some View {
-        let panels = Group {
-            FilterColumn(
-                title: "Division",
-                prompt: "Type a division",
-                allLabel: "All divisions",
-                selection: store.filters.division,
-                options: store.divisions.map { ($0, $0) },
-                onChange: store.setDivision
-            )
-            FilterColumn(
-                title: "District",
-                prompt: "Type a district",
-                allLabel: "All districts",
-                selection: store.filters.district,
-                options: store.districts.map { ($0, $0) },
-                onChange: store.setDistrict
-            )
-            FilterColumn(
-                title: "Operations manager",
-                prompt: "Type an OM name",
-                allLabel: "All operations managers",
-                selection: store.filters.om,
-                options: store.operationsOMs.map { ($0, $0) },
-                onChange: store.setOM
-            )
-            FilterColumn(
-                title: "Store #",
-                prompt: "Type a store number",
-                allLabel: "All stores",
-                selection: store.filters.store,
-                options: store.stores.map { entry in
-                    let label = entry.name.map { "\(entry.number) · \($0)" } ?? entry.number
-                    return (entry.number, label)
-                },
-                onChange: store.setStore
-            )
-        }
-
-        if sizeClass == .regular {
-            HStack(alignment: .top, spacing: 14) { panels }
-        } else {
-            VStack(spacing: 14) { panels }
-        }
     }
 }
 
@@ -517,6 +520,7 @@ struct FilterColumn: View {
                 .padding(.bottom, 8)
             }
             .scrollIndicators(.visible)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .padding(14)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
