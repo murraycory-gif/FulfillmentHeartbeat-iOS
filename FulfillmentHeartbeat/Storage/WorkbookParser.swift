@@ -234,8 +234,21 @@ enum WorkbookParser {
         "purepicksperhour": "pph",
         "picksperhour": "pph",
         "pickhours": "pick_hours",
-        "hours": "pick_hours",
         "laborhours": "pick_hours",
+        "pphpicks": "pph_picks",
+        "subs": "subs",
+        "substitutes": "subs",
+        "ttldugorders": "dug_orders",
+        "dugorders": "dug_orders",
+        "otheligibleorders": "oth_eligible_orders",
+        "othelig": "oth_elig_pct",
+        "otheligibility": "oth_elig_pct",
+        "refundamt": "refund_amt",
+        "refundamount": "refund_amt",
+        "refund": "refund_amt",
+        "oospct": "oos_pct",
+        "oos": "oos_pct",
+        "presuboospct": "presub_pct",
         "pickerott": "ott_pct",
         "totalorders": "orders",
         "qtyordered": "qty_ordered",
@@ -257,6 +270,9 @@ enum WorkbookParser {
     ]
 
     private static func rows(from matrix: [[String]]) -> [ParsedWorkbookRow] {
+        if let pickers = parsePickerWide(matrix), !pickers.isEmpty {
+            return pickers
+        }
         if let outline = parseOutline(matrix), !outline.isEmpty {
             return outline
         }
@@ -272,6 +288,93 @@ enum WorkbookParser {
         if trimmed.isEmpty || isTotalCell(trimmed) { return nil }
         if trimmed.lowercased().hasPrefix("applied filters") { return nil }
         return trimmed
+    }
+
+    /// Weekly picker scorecard: STORE + PICKER, date blocks across the top, Total block last.
+    private static func parsePickerWide(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {
+        guard let headerIndex = matrix.firstIndex(where: { row in
+            let names = Set(row.map(normHeader))
+            let hasStore = names.contains(where: { storeKeys.contains($0) || $0 == "store" })
+            let hasPicker = names.contains(where: { shopperNameKeys.contains($0) || shopperIdKeys.contains($0) })
+            let hasPPH = names.contains("pph") || names.contains("purepph") || names.contains("presuboos") || names.contains("presuboospct")
+            return hasStore && hasPicker && hasPPH
+        }) else { return nil }
+
+        let header = matrix[headerIndex].map(normHeader)
+        func firstIndex(_ keys: [String]) -> Int? {
+            header.firstIndex { keys.contains($0) }
+        }
+        guard let storeIdx = firstIndex(storeKeys) ?? firstIndex(["store"]) else { return nil }
+        let empIdx = firstIndex(shopperIdKeys) ?? firstIndex(shopperNameKeys)
+        guard let empIdx else { return nil }
+
+        let weekRow = headerIndex > 0 ? matrix[headerIndex - 1] : []
+        var labels: [Int: String] = [:]
+        for (index, cell) in weekRow.enumerated() {
+            let trimmed = cell.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty { continue }
+            let norm = normHeader(trimmed)
+            if norm == "date" || norm == "weekid" || norm == "week" { continue }
+            if isTotalCell(trimmed) {
+                labels[index] = "total"
+            } else if let date = dateFromWeekID(trimmed) ?? isoDate(trimmed) {
+                labels[index] = date
+            }
+        }
+        var filled: [Int: String] = [:]
+        var current: String?
+        for index in 0..<header.count {
+            if let value = labels[index] { current = value }
+            if let current { filled[index] = current }
+        }
+
+        let identity: Set<Int> = [storeIdx, empIdx]
+        let metricColumns: [Int]
+        let totalCols = header.indices.filter { filled[$0] == "total" && !identity.contains($0) }
+        if !totalCols.isEmpty {
+            metricColumns = totalCols
+        } else if let lastDate = filled.values.filter({ $0 != "total" }).max() {
+            metricColumns = header.indices.filter { filled[$0] == lastDate && !identity.contains($0) }
+        } else {
+            metricColumns = header.indices.filter { !identity.contains($0) && !header[$0].isEmpty }
+        }
+        guard !metricColumns.isEmpty else { return nil }
+
+        var carryStore = ""
+        var out: [ParsedWorkbookRow] = []
+        for line in matrix.dropFirst(headerIndex + 1) {
+            func cell(_ index: Int) -> String {
+                index < line.count ? line[index] : ""
+            }
+            let storeRaw = cell(storeIdx).trimmingCharacters(in: .whitespacesAndNewlines)
+            if storeRaw.lowercased().hasPrefix("applied") { continue }
+            if looksLikeStoreNumber(storeRaw) { carryStore = storeRaw }
+            if isTotalCell(storeRaw) { continue }
+
+            let picker = cell(empIdx).trimmingCharacters(in: .whitespacesAndNewlines)
+            if picker.isEmpty || isTotalCell(picker) { continue }
+            if carryStore.isEmpty { continue }
+
+            var payload: [String: Double] = [:]
+            for index in metricColumns {
+                let raw = cell(index)
+                guard let value = cellNumber(raw) else { continue }
+                applyMetric(&payload, header: index < header.count ? header[index] : "", value: value)
+            }
+            guard !payload.isEmpty else { continue }
+            out.append(
+                ParsedWorkbookRow(
+                    division: "",
+                    operationsOM: "",
+                    storeNumber: HeartbeatMath.canonicalStore(carryStore),
+                    storeName: nil,
+                    recordedOn: filled[metricColumns.first ?? 0] == "total" ? nil : filled[metricColumns.first ?? 0],
+                    payload: payload,
+                    textPayload: ["shopper_id": picker, "shopper_name": picker]
+                )
+            )
+        }
+        return out.isEmpty ? nil : out
     }
 
     /// Outline / pivot exports: DIVISION, DISTRICT, OM_AREA, OM_ID, STORE
@@ -449,6 +552,8 @@ enum WorkbookParser {
             key = "presub_star"
         } else if key.contains("presub") || key.contains("presuboos") {
             key = "presub_pct"
+        } else if key == "oos" || key == "oospct" || (key.contains("oos") && !key.contains("presub")) {
+            key = "oos_pct"
         } else if key.contains("coe") && key.contains("star") {
             key = "coe_star"
         } else if key == "coe" || key.contains("coegiveme") {
@@ -457,10 +562,20 @@ enum WorkbookParser {
             key = "ott_star"
         } else if key.contains("ott") {
             key = "ott_pct"
+        } else if key.contains("othelig") {
+            key = "oth_elig_pct"
         } else if (key.contains("oth5") || key.hasPrefix("oth")) && key.contains("star") {
             key = "oth5_star"
         } else if key.contains("oth5") || key == "oth" {
             key = "oth5_pct"
+        } else if key.contains("dug") {
+            key = "dug_orders"
+        } else if key.contains("refund") {
+            key = "refund_amt"
+        } else if key.contains("pphpick") {
+            key = "pph_picks"
+        } else if key == "subs" || key.contains("substitute") {
+            key = "subs"
         } else if key.contains("totalrating") {
             key = "star_rating"
         } else if key.contains("underschedule") {

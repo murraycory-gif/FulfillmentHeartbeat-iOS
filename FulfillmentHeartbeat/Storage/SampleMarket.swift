@@ -228,9 +228,11 @@ enum SampleMarket {
             """
         case .pickerScorecard:
             return """
-            STORE,PICKER,PICK HOURS,PPH,Picker OTT,Total Orders,QTY Ordered,Pre-Sub-OOS %,OTH 5%,COE %,Great/Perfect Orders Count,NI/Poor Order count
-            1,AWHOR08,8.2,91.4,1,42,980,0.023,0.96,0.40,23,6
-            606,JCOLE02,6.1,52.1,0,18,410,0.071,0.80,-0.12,4,9
+            DATE,,Total
+            STORE,PICKER,Pure_PPH,Pre_SUB_OOS_%,OOS_%,PICK_HOURS,SUBS,ORDERS,Ttl DUG ORDERS,OTH_ELIG,OTH5%,OTT %,Refund_AMT
+            1,Total,74.2,0.04,0.02,18.4,12,80,60,0.96,0.91,0.84,42.10
+            1,AWHOR08,91.4,0.023,0.011,8.2,4,42,31,0.97,0.96,1,12.50
+            606,JCOLE02,52.1,0.071,0.048,6.1,9,18,11,0.88,0.80,0,21.40
             """
         }
     }

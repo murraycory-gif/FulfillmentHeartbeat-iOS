@@ -216,6 +216,11 @@ final class HeartbeatStore: ObservableObject {
                 buckets[.ott]?.append(index)
                 note(.ott, ott)
             }
+            let oos = HeartbeatMath.oosStar(row).health
+            if row.number("oos_pct") != nil, oos != .good {
+                buckets[.oos]?.append(index)
+                note(.oos, oos)
+            }
         }
 
         func byNumber(_ key: String, invert: Bool) -> (Int, Int) -> Bool {

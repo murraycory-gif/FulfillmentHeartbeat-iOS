@@ -909,18 +909,23 @@ struct PickerShopperCard: View {
                     .font(.subheadline)
                     .foregroundStyle(AppTheme.textSecondary)
             }
-            HStack(spacing: 8) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 78), spacing: 8)], spacing: 8) {
                 ForEach(metrics, id: \.name) { metric in
                     VStack(spacing: 3) {
                         Text(metric.name)
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(AppTheme.textTertiary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
                         Text(metric.value)
-                            .font(.title3.weight(.bold).monospacedDigit())
+                            .font(.headline.weight(.bold).monospacedDigit())
                             .foregroundStyle(ink(metric.health))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)
+                    .padding(.horizontal, 4)
                     .background(
                         RoundedRectangle(cornerRadius: 10, style: .continuous)
                             .fill(wash(metric.health))

@@ -43,7 +43,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .dynacap: return "Pieces per hour we allow down to the picker. Upload the Overall Capacity Summary."
         case .scheduleQuality: return "How tightly the labor plan matches the work. Upload Optimized Departments."
         case .pph: return "Pure picks completed per labor hour. Upload the WEEK_ID by Division export."
-        case .pickerScorecard: return "Shopper-level PPH, OTT, Presubs, OTH5, and COE. Upload the weekly Picker Scorecard."
+        case .pickerScorecard: return "Shopper-level totals for PPH, Presubs, OOS, pick hours, subs, orders, DUG, OTH eligibility, OTH5, OTT, and refunds."
         }
     }
 
@@ -55,7 +55,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .dynacap: return "DISTRICT · Total Pieces/Total Hrs · DPA Dynacap · Utilization %"
         case .scheduleQuality: return "Division · District · Store · Schedule Efficiency · Under % · Over %"
         case .pph: return "WEEK_ID · DIVISION · DISTRICT · OM_AREA · OM_ID · STORE · Pure PPH"
-        case .pickerScorecard: return "STORE · PICKER · PPH · OTT · Presub · OTH5 · COE · Orders"
+        case .pickerScorecard: return "STORE · PICKER · Total Pure PPH · Presub · OOS · Hours · Subs · Orders · DUG · OTH Elig · OTH5 · OTT · Refund"
         }
     }
 
@@ -734,6 +734,14 @@ enum HeartbeatMath {
         componentStar(row, starKey: "oth5_star", pctKey: "oth5_pct", full: 92, half: 78)
     }
 
+    static func oosStar(_ row: MetricRow) -> StarMark {
+        componentStar(row, starKey: "oos_star", pctKey: "oos_pct", full: 3, half: 5, invert: true)
+    }
+
+    static func othEligStar(_ row: MetricRow) -> StarMark {
+        componentStar(row, starKey: "oth_elig_star", pctKey: "oth_elig_pct", full: 95, half: 90)
+    }
+
     static func varianceHealth(_ pct: Double?) -> Health {
         guard let pct else { return .none }
         if pct <= 0.05 { return .good }
@@ -786,6 +794,8 @@ enum HeartbeatMath {
             return row.number("coe_pct") != nil && coeStar(row).health != .good
         case .pph:
             return row.number("pph") != nil && pphHealth(row) != .good
+        case .oos:
+            return row.number("oos_pct") != nil && oosStar(row).health != .good
         }
     }
 
@@ -797,6 +807,9 @@ enum HeartbeatMath {
         if row.number("presub_pct") != nil {
             flags.append(("Presub", starMark(value: row.number("presub_pct"), full: 5, half: 6, invert: true).health))
         }
+        if row.number("oos_pct") != nil {
+            flags.append(("OOS", oosStar(row).health))
+        }
         if row.number("oth5_pct") != nil {
             flags.append(("OTH", othStar(row).health))
         }
@@ -805,6 +818,9 @@ enum HeartbeatMath {
         }
         if row.number("ott_pct") != nil {
             flags.append(("OTT", ottStar(row).health))
+        }
+        if row.number("oth_elig_pct") != nil {
+            flags.append(("OTH Elig", othEligStar(row).health))
         }
         if flags.isEmpty, row.number("compliance_pct") != nil {
             flags.append(("Path", band(row.number("compliance_pct"), good: pickPathGoal, watch: pickPathRisk)))
@@ -825,14 +841,35 @@ enum HeartbeatMath {
         if row.number("presub_pct") != nil {
             items.append(("Presub", HeartbeatFormat.pct(row.number("presub_pct")), starMark(value: row.number("presub_pct"), full: 5, half: 6, invert: true).health))
         }
+        if row.number("oos_pct") != nil {
+            items.append(("OOS", HeartbeatFormat.pct(row.number("oos_pct")), oosStar(row).health))
+        }
         if row.number("oth5_pct") != nil {
-            items.append(("OTH", HeartbeatFormat.pct(row.number("oth5_pct")), othStar(row).health))
+            items.append(("OTH5", HeartbeatFormat.pct(row.number("oth5_pct")), othStar(row).health))
+        }
+        if row.number("ott_pct") != nil {
+            items.append(("OTT", HeartbeatFormat.pct(row.number("ott_pct")), ottStar(row).health))
         }
         if row.number("coe_pct") != nil {
             items.append(("COE", HeartbeatFormat.pct(row.number("coe_pct")), coeStar(row).health))
         }
-        if row.number("ott_pct") != nil {
-            items.append(("OTT", HeartbeatFormat.pct(row.number("ott_pct")), ottStar(row).health))
+        if row.number("oth_elig_pct") != nil {
+            items.append(("OTH Elig", HeartbeatFormat.pct(row.number("oth_elig_pct")), othEligStar(row).health))
+        }
+        if row.number("pick_hours") != nil {
+            items.append(("Hours", HeartbeatFormat.num(row.number("pick_hours"), digits: 1), .none))
+        }
+        if row.number("subs") != nil {
+            items.append(("Subs", HeartbeatFormat.num(row.number("subs")), .none))
+        }
+        if row.number("orders") != nil {
+            items.append(("Orders", HeartbeatFormat.num(row.number("orders")), .none))
+        }
+        if row.number("dug_orders") != nil {
+            items.append(("DUG", HeartbeatFormat.num(row.number("dug_orders")), .none))
+        }
+        if row.number("refund_amt") != nil {
+            items.append(("Refund", HeartbeatFormat.money(row.number("refund_amt")), .none))
         }
         return items
     }
@@ -1218,6 +1255,14 @@ enum HeartbeatFormat {
         return String(format: "%.\(digits)f", value)
     }
 
+    static func money(_ value: Double?) -> String {
+        guard let value else { return "—" }
+        if abs(value - value.rounded()) < 0.005 {
+            return "$" + NumberFormatter.localizedString(from: NSNumber(value: value.rounded()), number: .decimal)
+        }
+        return String(format: "$%.2f", value)
+    }
+
     static func headline(_ summary: SectionSummary) -> String {
         summary.headlineText
     }
@@ -1364,6 +1409,7 @@ enum PickerFocus: String, CaseIterable, Identifiable {
     case oth
     case coe
     case pph
+    case oos
 
     var id: String { rawValue }
 
@@ -1377,6 +1423,7 @@ enum PickerFocus: String, CaseIterable, Identifiable {
         case .oth: return "OTH"
         case .coe: return "COE"
         case .pph: return "PPH"
+        case .oos: return "OOS"
         }
     }
 }

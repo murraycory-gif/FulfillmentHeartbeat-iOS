@@ -264,6 +264,7 @@ struct SectionDetailView: View {
         pickerTile(.strong, tone: .good)
         pickerTile(.ott, tone: tone(for: falloutHealth(.ott)))
         pickerTile(.presub, tone: tone(for: falloutHealth(.presub)))
+        pickerTile(.oos, tone: tone(for: falloutHealth(.oos)))
         pickerTile(.oth, tone: tone(for: falloutHealth(.oth)))
         pickerTile(.coe, tone: tone(for: falloutHealth(.coe)))
         pickerTile(.pph, tone: tone(for: falloutHealth(.pph)))
