@@ -42,14 +42,26 @@ struct SectionLabel: View {
 
 struct HealthBadge: View {
     let health: Health
+    var prominent: Bool = false
 
     var body: some View {
-        Text(health.label)
-            .font(.caption.weight(.semibold))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 5)
-            .foregroundStyle(foreground)
-            .background(background, in: Capsule(style: .continuous))
+        Text(prominent ? health.label.uppercased() : health.label)
+            .font(prominent ? .subheadline.weight(.heavy) : .caption.weight(.semibold))
+            .tracking(prominent ? 0.4 : 0)
+            .padding(.horizontal, prominent ? 14 : 10)
+            .padding(.vertical, prominent ? 8 : 5)
+            .foregroundStyle(prominent ? Color.white : foreground)
+            .background(prominent ? solid : background, in: Capsule(style: .continuous))
+            .shadow(color: prominent ? solid.opacity(0.35) : .clear, radius: 6, y: 2)
+    }
+
+    private var solid: Color {
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.textTertiary
+        }
     }
 
     private var foreground: Color {

@@ -153,7 +153,7 @@ struct SectionCard: View {
                     }
                     Spacer()
                     if summary.health != .none {
-                        HealthBadge(health: summary.health)
+                        HealthBadge(health: summary.health, prominent: true)
                     }
                 }
                 HStack(alignment: .bottom) {
