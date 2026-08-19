@@ -45,7 +45,7 @@ struct SectionDetailView: View {
                     }
 
                     LazyVGrid(
-                        columns: [GridItem(.adaptive(minimum: 210), spacing: 14)],
+                        columns: [GridItem(.adaptive(minimum: 170), spacing: 14)],
                         spacing: 14
                     ) {
                         if section == .pph {
@@ -430,16 +430,15 @@ struct PickerFocusTile: View {
     }
 
     private var tile: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top) {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 8) {
                 Text(title)
                     .font(.title3.weight(.bold))
                     .foregroundStyle(AppTheme.text)
                     .lineLimit(2)
-                    .minimumScaleFactor(0.75)
+                    .minimumScaleFactor(0.7)
                     .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
-                Spacer(minLength: 8)
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .topLeading)
                 if health != .none {
                     HealthBadge(health: health, prominent: true)
                 }
@@ -448,19 +447,25 @@ struct PickerFocusTile: View {
                 Text(value)
                     .font(.system(size: 34, weight: .semibold, design: .rounded).monospacedDigit())
                     .foregroundStyle(ink)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
                 if let unit, !unit.isEmpty {
                     Text(unit)
                         .font(.title3.weight(.semibold))
                         .foregroundStyle(ink.opacity(0.85))
+                        .lineLimit(1)
                 }
+                Spacer(minLength: 0)
             }
+            .frame(minHeight: 40, alignment: .bottomLeading)
             Text(detail)
                 .font(.subheadline)
                 .foregroundStyle(AppTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, minHeight: 36, alignment: .topLeading)
         }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .frame(maxWidth: .infinity, minHeight: 176, maxHeight: 176, alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
                 .fill(fill)
