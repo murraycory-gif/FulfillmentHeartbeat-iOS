@@ -169,6 +169,45 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertEqual(agut.payload["oos_pct"] ?? 0, 3.3018867924528301, accuracy: 0.0001)
         XCTAssertEqual(agut.payload["pick_hours"] ?? 0, 4.1336111111111116, accuracy: 0.0001)
         XCTAssertEqual(agut.payload["subs"] ?? 0, 37, accuracy: 0.001)
-        XCTAssertEqual(agut.payload["ott_pct"] ?? 0, 0, accuracy: 0.001)
+        XCTAssertEqual(HeartbeatFormat.pct(agut.payload["oos_pct"]), "3.30%")
+    }
+
+    func testSheetXMLKeepsSkippedColumnsSoTotalsStayPut() {
+        let xml = """
+        <worksheet><sheetData>
+        <row r="21651">
+        <c r="A21651"><v>10</v></c>
+        <c r="B21651" t="inlineStr"><is><t>JBAGL16</t></is></c>
+        <c r="AB21651" s="13"/>
+        <c r="AD21651" s="10"/>
+        <c r="AE21651" s="10"/>
+        <c r="AG21651" s="11"/>
+        <c r="AP21651"><v>81.432266571993708</v></c>
+        <c r="AQ21651"><v>1.5695067264573991E-2</v></c>
+        <c r="AR21651"><v>0</v></c>
+        <c r="AS21651"><v>5.4769444444444444</v></c>
+        <c r="AT21651"><v>446</v></c>
+        <c r="AU21651"><v>7</v></c>
+        <c r="AV21651"><v>8</v></c>
+        <c r="AW21651"><v>7</v></c>
+        <c r="AX21651"><v>3</v></c>
+        <c r="AY21651"><v>1</v></c>
+        <c r="AZ21651"><v>1</v></c>
+        <c r="BA21651"><v>0.875</v></c>
+        <c r="BB21651" s="9"/>
+        </row>
+        </sheetData></worksheet>
+        """
+        let rows = SheetXML.parse(xml, strings: [])
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertGreaterThanOrEqual(rows[0].count, 53)
+        XCTAssertEqual(rows[0][0], "10")
+        XCTAssertEqual(rows[0][1], "JBAGL16")
+        XCTAssertEqual(rows[0][41], "81.432266571993708")
+        XCTAssertEqual(rows[0][42], "1.5695067264573991E-2")
+        XCTAssertEqual(rows[0][43], "0")
+        XCTAssertEqual(rows[0][44], "5.4769444444444444")
+        XCTAssertEqual(rows[0][45], "446")
+        XCTAssertEqual(rows[0][52], "0.875")
     }
 }

@@ -328,16 +328,11 @@ enum WorkbookParser {
             if let current { filled[index] = current }
         }
 
-        let identity: Set<Int> = [storeIdx, empIdx]
-        let metricColumns: [Int]
-        let totalCols = header.indices.filter { filled[$0] == "total" && !identity.contains($0) }
-        if !totalCols.isEmpty {
-            metricColumns = totalCols
-        } else if let lastDate = filled.values.filter({ $0 != "total" }).max() {
-            metricColumns = header.indices.filter { filled[$0] == lastDate && !identity.contains($0) }
-        } else {
-            metricColumns = header.indices.filter { !identity.contains($0) && !header[$0].isEmpty }
+        var lastMetricColumn: [String: Int] = [:]
+        for (index, name) in header.enumerated() where pickerMetricKeys[name] != nil {
+            lastMetricColumn[name] = index
         }
+        let metricColumns = lastMetricColumn.values.sorted()
         guard !metricColumns.isEmpty else { return nil }
 
         var carryStore = ""
@@ -356,10 +351,10 @@ enum WorkbookParser {
             if carryStore.isEmpty { continue }
 
             var payload: [String: Double] = [:]
-            for index in metricColumns {
+            for (name, index) in lastMetricColumn {
                 let raw = cell(index)
                 guard let value = cellNumber(raw) else { continue }
-                applyPickerMetric(&payload, header: index < header.count ? header[index] : "", value: value)
+                applyPickerMetric(&payload, header: name, value: value)
             }
             guard !payload.isEmpty else { continue }
             out.append(
@@ -639,8 +634,10 @@ enum WorkbookParser {
         "substitutes": "subs",
         "orders": "orders",
         "ttldugorders": "dug_orders",
+        "ttldugord": "dug_orders",
         "dugorders": "dug_orders",
         "otheligibleorders": "oth_eligible_orders",
+        "otheligible": "oth_eligible_orders",
         "othelig": "oth_elig_pct",
         "otheligibility": "oth_elig_pct",
         "oth5": "oth5_pct",
