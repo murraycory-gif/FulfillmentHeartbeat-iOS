@@ -86,7 +86,7 @@ struct SectionDetailView: View {
                 Section {
                     PickerHighlightsPanel(
                         onSelectOpportunity: { pickerFocus = .opportunity },
-                        onSelectStrong: { pickerFocus = .doingWell }
+                        onSelectStrong: { pickerFocus = .strong }
                     )
                     .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
                     .listRowSeparator(.hidden)
