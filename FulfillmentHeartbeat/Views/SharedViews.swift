@@ -1305,33 +1305,35 @@ struct FulfillmentChecklistCard: View {
             withAnimation(.easeInOut(duration: 0.2)) { expanded.toggle() }
         } label: {
             HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 8) {
-                        HStack(spacing: 6) {
-                            Text("Health Check")
-                                .font(.title3.weight(.bold))
-                                .foregroundStyle(AppTheme.text)
-                            Text("|")
-                                .font(.title3.weight(.bold))
-                                .foregroundStyle(AppTheme.textTertiary)
-                            Text("Action Items")
-                                .font(.title3.weight(.bold))
-                                .foregroundStyle(AppTheme.blue)
-                        }
-                        if store.checklistOpenCount > 0 {
-                            Text("\(store.checklistOpenCount) open")
-                                .font(.caption2.weight(.semibold))
-                                .foregroundStyle(AppTheme.bad)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
-                                .background(AppTheme.badSoft, in: Capsule(style: .continuous))
-                        }
-                    }
-                    Text(expanded ? store.filters.summary : collapsedSummary)
-                        .font(.subheadline)
-                        .foregroundStyle(AppTheme.textSecondary)
-                        .lineLimit(2)
-                }
+                Text("Heartbeat")
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(AppTheme.text)
+                Text("|")
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(AppTheme.textTertiary)
+                Text("ACTION ITEMS")
+                    .font(.subheadline.weight(.heavy))
+                    .tracking(0.4)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .foregroundStyle(Color.white)
+                    .background(AppTheme.bad, in: Capsule(style: .continuous))
+                    .shadow(color: AppTheme.bad.opacity(0.35), radius: 6, y: 2)
+                Text("\(store.checklistOpenCount) OPEN")
+                    .font(.title3.weight(.heavy))
+                    .tracking(0.4)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .foregroundStyle(Color.white)
+                    .background(
+                        store.checklistOpenCount > 0 ? AppTheme.bad : AppTheme.ok,
+                        in: Capsule(style: .continuous)
+                    )
+                    .shadow(
+                        color: (store.checklistOpenCount > 0 ? AppTheme.bad : AppTheme.ok).opacity(0.35),
+                        radius: 6,
+                        y: 2
+                    )
                 Spacer()
                 Image(systemName: expanded ? "chevron.up" : "chevron.down")
                     .font(.headline.weight(.semibold))
@@ -1341,17 +1343,6 @@ struct FulfillmentChecklistCard: View {
             }
         }
         .buttonStyle(.plain)
-    }
-
-    private var collapsedSummary: String {
-        var parts: [String] = []
-        if riskCount > 0 { parts.append("\(riskCount) at risk") }
-        if watchCount > 0 { parts.append("\(watchCount) watch") }
-        if store.pickerBoard.opportunityCount > 0 {
-            parts.append("\(store.pickerBoard.opportunityCount) opportunity pickers")
-        }
-        if parts.isEmpty { return "All KPIs healthy in this filter" }
-        return parts.joined(separator: " · ")
     }
 
     private var visibilityStrip: some View {
