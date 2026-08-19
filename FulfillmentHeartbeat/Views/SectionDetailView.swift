@@ -298,13 +298,13 @@ struct SectionDetailView: View {
             scheduleFocus = .all
         }
         callout("Goal", "90%", "Target schedule efficiency", .none, brand: true)
-        callout("At goal", HeartbeatFormat.num(Double(atGoal)), "Stores at 90%+", .good, selected: scheduleFocus == .atGoal) {
+        callout("At goal", HeartbeatFormat.num(Double(atGoal)), "Stores at 90%+", .good, unit: "stores", selected: scheduleFocus == .atGoal) {
             scheduleFocus = .atGoal
         }
-        callout("Under risk", HeartbeatFormat.num(Double(underRisk)), "Underscheduled over 5%", underRisk == 0 ? .good : .risk, selected: scheduleFocus == .underRisk) {
+        callout("Under Scheduled", HeartbeatFormat.num(Double(underRisk)), "Underscheduled over 5%", underRisk == 0 ? .good : .risk, unit: "stores", selected: scheduleFocus == .underRisk) {
             scheduleFocus = .underRisk
         }
-        callout("Over risk", HeartbeatFormat.num(Double(overRisk)), "Overscheduled over 5%", overRisk == 0 ? .good : .risk, selected: scheduleFocus == .overRisk) {
+        callout("Over Scheduled", HeartbeatFormat.num(Double(overRisk)), "Overscheduled over 5%", overRisk == 0 ? .good : .risk, unit: "stores", selected: scheduleFocus == .overRisk) {
             scheduleFocus = .overRisk
         }
     }
@@ -368,10 +368,11 @@ struct SectionDetailView: View {
         _ detail: String,
         _ health: Health,
         brand: Bool = false,
+        unit: String? = nil,
         selected: Bool = false,
         action: (() -> Void)? = nil
     ) -> some View {
-        PickerFocusTile(title: title, value: value, detail: detail, health: health, selected: selected, brand: brand, action: action)
+        PickerFocusTile(title: title, value: value, detail: detail, health: health, selected: selected, brand: brand, unit: unit, action: action)
     }
 
     private func pickerTileDetail(_ focus: PickerFocus) -> String {
@@ -406,6 +407,7 @@ struct PickerFocusTile: View {
     let health: Health
     var selected: Bool = false
     var brand: Bool = false
+    var unit: String? = nil
     var action: (() -> Void)? = nil
     @State private var pulseOn = false
 
@@ -440,9 +442,16 @@ struct PickerFocusTile: View {
                     HealthBadge(health: health, prominent: true)
                 }
             }
-            Text(value)
-                .font(.system(size: 34, weight: .semibold, design: .rounded).monospacedDigit())
-                .foregroundStyle(ink)
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(value)
+                    .font(.system(size: 34, weight: .semibold, design: .rounded).monospacedDigit())
+                    .foregroundStyle(ink)
+                if let unit, !unit.isEmpty {
+                    Text(unit)
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(ink.opacity(0.85))
+                }
+            }
             Text(detail)
                 .font(.subheadline)
                 .foregroundStyle(AppTheme.textSecondary)
