@@ -10,6 +10,9 @@ struct DashboardView: View {
         List {
             Section {
                 VStack(spacing: 16) {
+                    if store.summaries.contains(where: { $0.health == .risk || $0.health == .watch }) {
+                        FulfillmentChecklistCard()
+                    }
                     LazyVGrid(columns: columns, spacing: 16) {
                         ForEach(store.summaries) { summary in
                             SectionCard(summary: summary) {
@@ -20,9 +23,6 @@ struct DashboardView: View {
                                 }
                             }
                         }
-                    }
-                    if store.summaries.contains(where: { $0.health == .risk || $0.health == .watch }) {
-                        FulfillmentChecklistCard()
                     }
                 }
                 .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
