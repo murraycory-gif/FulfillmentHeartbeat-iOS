@@ -5,6 +5,7 @@ struct SectionDetailView: View {
     let section: MetricSection
     @State private var pickerFocus: PickerFocus = .all
     @State private var pickPathFocus: PickPathFocus = .all
+    @State private var dynacapFocus: DynacapFocus = .all
     @State private var pphFocus: PPHFocus = .all
 
     private var summary: SectionSummary { store.summary(for: section) }
