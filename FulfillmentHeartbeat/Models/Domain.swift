@@ -43,7 +43,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .fiveStar: return "Store-level star rating from Flash, Presubs, COE, OTT, and OTH5. Upload Star Ratings by Store."
         case .pickPath: return "Store-level path compliance. Upload the STORE_ID WEEK_ID export."
         case .pickPathPicker: return "Picker-level path compliance. Upload the EMPLOYEE_ALTERNATE_ID WEEK_ID export. Pickers show under each store on Pick Path."
-        case .prepNotReady: return "Share of pick hours lost to prep not ready. Upload the weekly Hours % export."
+        case .prepNotReady: return "Share of pick hours lost to prep not ready. Upload the DATE / STORE Total export."
         case .dynacap: return "Pieces per hour we allow down to the picker. Upload the Overall Capacity Summary."
         case .scheduleQuality: return "How tightly the labor plan matches the work. Upload Optimized Departments Week Store."
         case .pph: return "Pure picks completed per labor hour. Upload the DATE / STORE Total export."
@@ -56,7 +56,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .fiveStar: return "Store · Division · OM · District · Total Rating · Flash · Presubs · COE · OTT · OTH5"
         case .pickPath: return "WEEK_ID · STORE_ID · Pick Path Compliance · Orders · Pure PPH (Total columns)"
         case .pickPathPicker: return "WEEK_ID · EMPLOYEE_ALTERNATE_ID · Pick Path Compliance · Orders · Pure PPH (Total columns)"
-        case .prepNotReady: return "DIVISION · District · OM · Store · Prep Not Ready Hours %"
+        case .prepNotReady: return "DATE · DIVISION · District · OM · Store · Net Prep Not Ready Hours % (Total)"
         case .dynacap: return "DISTRICT · Total Pieces/Total Hrs · DPA Dynacap · Utilization %"
         case .scheduleQuality: return "Division · District · Store · Schedule Efficiency · Under % · Over %"
         case .pph: return "DATE · DIVISION · DISTRICT · OM_AREA · OM_ID · STORE · Pure PPH (Total)"
@@ -1484,6 +1484,14 @@ struct StoreCellViewModel {
             )
         }
     }
+}
+
+enum PrepFocus: String, CaseIterable, Identifiable {
+    case all
+    case atGoal
+    case above25
+
+    var id: String { rawValue }
 }
 
 enum ScheduleFocus: String, CaseIterable, Identifiable {

@@ -8,6 +8,7 @@ struct SectionDetailView: View {
     @State private var dynacapFocus: DynacapFocus = .all
     @State private var pphFocus: PPHFocus = .all
     @State private var scheduleFocus: ScheduleFocus = .all
+    @State private var prepFocus: PrepFocus = .all
 
     private var summary: SectionSummary { store.summary(for: section) }
     private var snapshots: [MetricRow] { store.displayRows(for: section) }
@@ -106,6 +107,8 @@ struct SectionDetailView: View {
                 PPHTable(rows: pphRows)
             } else if section == .scheduleQuality {
                 ScheduleTable(rows: scheduleRows)
+            } else if section == .prepNotReady {
+                PrepTable(rows: prepRows)
             } else {
                 StoreTable(section: section, rows: snapshots)
             }
@@ -184,6 +187,18 @@ struct SectionDetailView: View {
         }
     }
 
+    private var prepRows: [MetricRow] {
+        let scored = snapshots.filter { $0.number("pnr_rate_pct") != nil }
+        switch prepFocus {
+        case .all:
+            return scored
+        case .atGoal:
+            return scored.filter { ($0.number("pnr_rate_pct") ?? .greatestFiniteMagnitude) <= HeartbeatMath.pnrGoal }
+        case .above25:
+            return scored.filter { ($0.number("pnr_rate_pct") ?? 0) > HeartbeatMath.pnrWatch }
+        }
+    }
+
     private var scheduleRows: [MetricRow] {
         let scored = snapshots.filter { $0.number("schedule_efficiency_pct") != nil }
         switch scheduleFocus {
@@ -244,12 +259,16 @@ struct SectionDetailView: View {
         let rows = snapshots
         let atGoal = rows.filter { ($0.number("pnr_rate_pct") ?? .greatestFiniteMagnitude) <= HeartbeatMath.pnrGoal }.count
         let atRisk = rows.filter { ($0.number("pnr_rate_pct") ?? 0) > HeartbeatMath.pnrWatch }.count
-        let week = rows.compactMap(\.recordedOn).sorted().last ?? "—"
-        callout("Avg PNR hours", summary.headlineText, "1.9% healthy · over 2.5% at risk", summary.health)
+        callout("Avg PNR hours", summary.headlineText, "1.9% healthy · over 2.5% at risk", summary.health, selected: prepFocus == .all) {
+            prepFocus = .all
+        }
         callout("Goal", "1.9%", "Or less", .none, brand: true)
-        callout("At goal", HeartbeatFormat.num(Double(atGoal)), "Stores at 1.9% or better", .good, unit: "stores")
-        callout("Above 2.5%", HeartbeatFormat.num(Double(atRisk)), "At risk stores", atRisk == 0 ? .good : .risk, unit: "stores")
-        callout("Week", week, "Latest week in this file", .none)
+        callout("At goal", HeartbeatFormat.num(Double(atGoal)), "Stores at 1.9% or better", .good, unit: "stores", selected: prepFocus == .atGoal) {
+            prepFocus = .atGoal
+        }
+        callout("Above 2.5%", HeartbeatFormat.num(Double(atRisk)), "At risk stores", atRisk == 0 ? .good : .risk, unit: "stores", selected: prepFocus == .above25) {
+            prepFocus = .above25
+        }
     }
 
     @ViewBuilder

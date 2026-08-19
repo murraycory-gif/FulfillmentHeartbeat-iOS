@@ -1393,6 +1393,220 @@ struct DynacapStoreCard: View {
     }
 }
 
+struct PrepTable: View {
+    let rows: [MetricRow]
+
+    private enum Column: String, CaseIterable, Identifiable {
+        case store, pnr, status
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .store: return "Store"
+            case .pnr: return "PNR Hours %"
+            case .status: return "Status"
+            }
+        }
+    }
+
+    @State private var sort = Column.pnr
+    @State private var ascending = false
+    @State private var ordered: [MetricRow] = []
+
+    var body: some View {
+        if rows.isEmpty {
+            Section {
+                EmptyHint(
+                    symbol: "clock.badge.exclamationmark",
+                    title: "No stores in this view",
+                    detail: "Tap Avg PNR hours to see every store, or pick another callout."
+                )
+                .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 20, trailing: 20))
+                .listRowSeparator(.hidden)
+                .listRowBackground(AppTheme.bg)
+            }
+        } else {
+            Section {
+                HStack {
+                    Text("\(HeartbeatFormat.num(Double(rows.count))) stores")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(AppTheme.textSecondary)
+                    Spacer()
+                }
+                .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
+                .listRowSeparator(.hidden)
+                .listRowBackground(AppTheme.bg)
+            }
+            Section {
+                HStack(spacing: 12) {
+                    ForEach(Column.allCases) { column in
+                        Button {
+                            let nextSort = sort == column ? sort : column
+                            let nextAscending = sort == column ? !ascending : column == .store
+                            sort = nextSort
+                            ascending = nextAscending
+                            rebuildOrder(sort: nextSort, ascending: nextAscending)
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text(column.title.uppercased())
+                                    .font(.caption2.weight(.semibold))
+                                    .tracking(0.5)
+                                if sort == column {
+                                    Image(systemName: ascending ? "chevron.up" : "chevron.down")
+                                        .font(.caption2.weight(.bold))
+                                }
+                            }
+                            .foregroundStyle(sort == column ? AppTheme.blue : AppTheme.textTertiary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 4, trailing: 20))
+                .listRowSeparator(.hidden)
+                .listRowBackground(AppTheme.bg)
+
+                ForEach(ordered, id: \.storeNumber) { row in
+                    PrepStoreCard(row: row)
+                        .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(AppTheme.bg)
+                }
+            }
+            .transaction { $0.animation = nil }
+            .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
+            .onChange(of: rows.count) { _, _ in rebuildOrder(sort: sort, ascending: ascending) }
+        }
+    }
+
+    private func rebuildOrder(sort: Column, ascending: Bool) {
+        ordered = rows.sorted { lhs, rhs in
+            let result = compare(lhs, rhs, sort: sort)
+            return ascending ? result == .orderedAscending : result == .orderedDescending
+        }
+    }
+
+    private func compare(_ lhs: MetricRow, _ rhs: MetricRow, sort: Column) -> ComparisonResult {
+        switch sort {
+        case .store:
+            if let a = Int(lhs.storeNumber), let b = Int(rhs.storeNumber) {
+                return a == b ? .orderedSame : (a < b ? .orderedAscending : .orderedDescending)
+            }
+            return lhs.storeNumber.localizedStandardCompare(rhs.storeNumber)
+        case .pnr:
+            return numberOrder(lhs.number("pnr_rate_pct"), rhs.number("pnr_rate_pct"))
+        case .status:
+            let a = healthRank(HeartbeatMath.health(for: .prepNotReady, row: lhs))
+            let b = healthRank(HeartbeatMath.health(for: .prepNotReady, row: rhs))
+            if a == b { return numberOrder(lhs.number("pnr_rate_pct"), rhs.number("pnr_rate_pct")) }
+            return a < b ? .orderedAscending : .orderedDescending
+        }
+    }
+
+    private func numberOrder(_ a: Double?, _ b: Double?) -> ComparisonResult {
+        let lhs = a ?? -1
+        let rhs = b ?? -1
+        if lhs == rhs { return .orderedSame }
+        return lhs < rhs ? .orderedAscending : .orderedDescending
+    }
+
+    private func healthRank(_ health: Health) -> Int {
+        switch health {
+        case .risk: return 0
+        case .watch: return 1
+        case .good: return 2
+        case .none: return 3
+        }
+    }
+}
+
+struct PrepStoreCard: View {
+    let row: MetricRow
+
+    var body: some View {
+        let health = HeartbeatMath.health(for: .prepNotReady, row: row)
+        let rate = row.number("pnr_rate_pct")
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(row.storeNumber.isEmpty ? "—" : row.storeNumber)
+                    .font(.title3.weight(.semibold).monospacedDigit())
+                if !row.division.isEmpty {
+                    Text("|")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(AppTheme.textTertiary)
+                    Text(row.division)
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(AppTheme.textSecondary)
+                        .lineLimit(1)
+                }
+                Spacer()
+                HealthBadge(health: health, prominent: true)
+            }
+            Text(metaLine)
+                .font(.subheadline)
+                .foregroundStyle(AppTheme.textSecondary)
+            HStack(spacing: 8) {
+                metric("PNR Hours %", HeartbeatFormat.pct(rate), health)
+                metric("Goal", "1.9%", .none, brand: true)
+                metric("Watch", "1.9–2.5%", .watch)
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
+                .fill(wash(health).opacity(0.55))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
+                .stroke(ink(health).opacity(health == .none ? 0.15 : 0.45), lineWidth: health == .risk || health == .watch ? 2 : 1.5)
+        )
+    }
+
+    private var metaLine: String {
+        let district = row.district.isEmpty ? "—" : row.district
+        let om = row.operationsOM.isEmpty ? "—" : row.operationsOM
+        return "District \(district)  ·  \(om)"
+    }
+
+    private func metric(_ name: String, _ value: String, _ health: Health, brand: Bool = false) -> some View {
+        VStack(spacing: 4) {
+            Text(name)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(AppTheme.textTertiary)
+                .lineLimit(1)
+            Text(value)
+                .font(.title3.weight(.bold).monospacedDigit())
+                .foregroundStyle(brand ? AppTheme.blue : ink(health))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(brand ? AppTheme.blueSoft : wash(health))
+        )
+    }
+
+    private func ink(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.text
+        }
+    }
+
+    private func wash(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.okSoft
+        case .watch: return AppTheme.warnSoft
+        case .risk: return AppTheme.badSoft
+        case .none: return AppTheme.card
+        }
+    }
+}
+
 struct ScheduleTable: View {
     let rows: [MetricRow]
 
