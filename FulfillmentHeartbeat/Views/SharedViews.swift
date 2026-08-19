@@ -440,34 +440,39 @@ struct FilterSheet: View {
 
     private var summaryRow: some View {
         HStack(spacing: 10) {
-            ForEach(FilterFocus.allCases, id: \.self) { item in
-                Button {
-                    focus = item
-                } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(item.chipTitle.uppercased())
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(AppTheme.textTertiary)
-                        Text(display(for: item))
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(selection(for: item).isEmpty ? AppTheme.textSecondary : AppTheme.blue)
-                            .lineLimit(1)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .background(
-                        item == focus ? AppTheme.blueSoft : AppTheme.card,
-                        in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .stroke(item == focus ? AppTheme.blue : AppTheme.cardBorder, lineWidth: item == focus ? 2 : 1)
-                    )
-                }
-                .buttonStyle(.plain)
-            }
+            filterChip(.division)
+            filterChip(.district)
+            filterChip(.om)
+            filterChip(.store)
         }
+    }
+
+    private func filterChip(_ item: FilterFocus) -> some View {
+        Button {
+            focus = item
+        } label: {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.chipTitle.uppercased())
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(AppTheme.textTertiary)
+                Text(display(for: item))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(selection(for: item).isEmpty ? AppTheme.textSecondary : AppTheme.blue)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(
+                item == focus ? AppTheme.blueSoft : AppTheme.card,
+                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(item == focus ? AppTheme.blue : AppTheme.cardBorder, lineWidth: item == focus ? 2 : 1)
+            )
+        }
+        .buttonStyle(.plain)
     }
 
     private var focusPicker: some View {
@@ -512,7 +517,11 @@ struct FilterSheet: View {
     }
 }
 
-private enum FilterFocus: String, CaseIterable, Hashable {
+enum FilterFocus: String, Sendable {
+    case division
+    case district
+    case om
+    case store
     case division, district, om, store
 
     var title: String {
