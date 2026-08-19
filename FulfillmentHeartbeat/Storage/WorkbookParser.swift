@@ -1180,12 +1180,104 @@ enum SharedStrings {
     }
 }
 
+private final class SheetXMLDelegate: NSObject, XMLParserDelegate {
+    let strings: [String]
+    var rows: [[String]] = []
+    private var currentRow: [String] = []
+    private var cellType = ""
+    private var cellRef = ""
+    private var buffer = ""
+    private var capture = false
+
+    init(strings: [String]) {
+        self.strings = strings
+    }
+
+    func parser(
+        _ parser: XMLParser,
+        didStartElement elementName: String,
+        namespaceURI: String?,
+        qualifiedName qName: String?,
+        attributes attributeDict: [String: String] = [:]
+    ) {
+        switch elementName {
+        case "row":
+            currentRow = []
+        case "c":
+            cellType = attributeDict["t"] ?? ""
+            cellRef = attributeDict["r"] ?? ""
+            buffer = ""
+            capture = false
+        case "v", "t":
+            buffer = ""
+            capture = true
+        default:
+            break
+        }
+    }
+
+    func parser(_ parser: XMLParser, foundCharacters string: String) {
+        if capture { buffer.append(string) }
+    }
+
+    func parser(
+        _ parser: XMLParser,
+        didEndElement elementName: String,
+        namespaceURI: String?,
+        qualifiedName qName: String?
+    ) {
+        switch elementName {
+        case "v", "t":
+            capture = false
+        case "c":
+            placeCell()
+            buffer = ""
+            capture = false
+        case "row":
+            rows.append(currentRow)
+            currentRow = []
+        default:
+            break
+        }
+    }
+
+    private func placeCell() {
+        var value = buffer
+        if cellType == "s" {
+            let indexText = buffer.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let index = Int(indexText), strings.indices.contains(index) {
+                value = strings[index]
+            }
+        }
+        let column = sheetColumnIndex(cellRef)
+        if column < 0 || column >= 64 {
+            if column < 0 { currentRow.append(value) }
+            return
+        }
+        if currentRow.count <= column {
+            currentRow.append(contentsOf: repeatElement("", count: column - currentRow.count + 1))
+        }
+        currentRow[column] = value
+    }
+}
+
 enum SheetXML {
     static func parse(_ xml: String, strings: [String]) -> [[String]] {
         parse(data: Data(xml.utf8), strings: strings)
     }
 
     static func parse(data: Data, strings: [String]) -> [[String]] {
+        let delegate = SheetXMLDelegate(strings: strings)
+        let parser = XMLParser(data: data)
+        parser.delegate = delegate
+        parser.shouldProcessNamespaces = false
+        parser.shouldResolveExternalEntities = false
+        parser.parse()
+        if delegate.rows.count >= 2 { return delegate.rows }
+        return scanFallback(data: data, strings: strings)
+    }
+
+    private static func scanFallback(data: Data, strings: [String]) -> [[String]] {
         data.withUnsafeBytes { raw -> [[String]] in
             guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return [] }
             return scan(base, count: raw.count, strings: strings)
@@ -1272,17 +1364,7 @@ enum SheetXML {
     }
 
     private static func columnIndex(_ ref: String) -> Int {
-        var n = 0
-        for byte in ref.utf8 {
-            if byte >= 65, byte <= 90 {
-                n = n * 26 + Int(byte - 64)
-            } else if byte >= 97, byte <= 122 {
-                n = n * 26 + Int(byte - 96)
-            } else {
-                break
-            }
-        }
-        return n - 1
+        sheetColumnIndex(ref)
     }
 
     @discardableResult
@@ -1411,6 +1493,20 @@ enum SheetXML {
         }
         return true
     }
+}
+
+private func sheetColumnIndex(_ ref: String) -> Int {
+    var n = 0
+    for byte in ref.utf8 {
+        if byte >= 65, byte <= 90 {
+            n = n * 26 + Int(byte - 64)
+        } else if byte >= 97, byte <= 122 {
+            n = n * 26 + Int(byte - 96)
+        } else {
+            break
+        }
+    }
+    return n - 1
 }
 
 private func stripNS(_ xml: String) -> String {
