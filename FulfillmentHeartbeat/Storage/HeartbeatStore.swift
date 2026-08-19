@@ -45,6 +45,7 @@ final class HeartbeatStore: ObservableObject {
     private var pickerIndex: [PickerFocus: [Int]] = [:]
     private var pickerFocusHealth: [PickerFocus: Health] = [:]
     private var pickPathPickersByStore: [String: [MetricRow]] = [:]
+    private var pphPickersByStore: [String: [MetricRow]] = [:]
 
     init(rootURL: URL? = nil) {
         fileManager = .default
@@ -119,10 +120,11 @@ final class HeartbeatStore: ObservableObject {
     var pickerBoard: HeartbeatMath.PickerBoard { cachedPickerBoard }
 
     func pphPickers(forStore store: String) -> [MetricRow] {
-        let key = HeartbeatMath.canonicalStore(store)
-        return (filteredLatest[.pickerScorecard] ?? [])
-            .filter { HeartbeatMath.canonicalStore($0.storeNumber) == key && $0.number("pph") != nil }
-            .sorted { ($0.number("pph") ?? 999) < ($1.number("pph") ?? 999) }
+        pphPickersByStore[HeartbeatMath.canonicalStore(store)] ?? []
+    }
+
+    func pphPickerCount(forStore store: String) -> Int {
+        pphPickersByStore[HeartbeatMath.canonicalStore(store)]?.count ?? 0
     }
 
     func pickPathPickers(forStore store: String) -> [MetricRow] {
@@ -294,6 +296,20 @@ final class HeartbeatStore: ObservableObject {
             }
         }
         pickPathPickersByStore = buckets
+    }
+
+    private func rebuildPPHPickerIndex(scorecard: [MetricRow]) {
+        var buckets: [String: [MetricRow]] = [:]
+        buckets.reserveCapacity(512)
+        for row in scorecard where row.number("pph") != nil {
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            guard !store.isEmpty else { continue }
+            buckets[store, default: []].append(row)
+        }
+        for store in buckets.keys {
+            buckets[store]?.sort { ($0.number("pph") ?? 999) < ($1.number("pph") ?? 999) }
+        }
+        pphPickersByStore = buckets
     }
 
     func checklistItem(for item: ChecklistDriverItem, section: MetricSection) -> ChecklistItem {
@@ -733,6 +749,7 @@ final class HeartbeatStore: ObservableObject {
         cachedPickerBoard = HeartbeatMath.pickerBoard(nextLatest[.pickerScorecard] ?? [])
         rebuildPickerIndex(nextLatest[.pickerScorecard] ?? [])
         rebuildPickPathPickerIndex(scorecard: nextLatest[.pickerScorecard] ?? [])
+        rebuildPPHPickerIndex(scorecard: nextLatest[.pickerScorecard] ?? [])
         cachedChecklistGroups = buildChecklistGroups(nextLatest)
         filteredMarket = HeartbeatMath.marketBoard(
             universe,
@@ -854,6 +871,8 @@ final class HeartbeatStore: ObservableObject {
         cachedPickerBoard = caches.cachedPickerBoard
         cachedChecklistGroups = caches.cachedChecklistGroups
         rebuildPickerIndex(caches.filteredLatest[.pickerScorecard] ?? [])
+        rebuildPickPathPickerIndex(scorecard: caches.filteredLatest[.pickerScorecard] ?? [])
+        rebuildPPHPickerIndex(scorecard: caches.filteredLatest[.pickerScorecard] ?? [])
         objectWillChange.send()
     }
 

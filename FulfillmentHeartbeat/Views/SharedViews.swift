@@ -1413,6 +1413,12 @@ struct PPHTable: View {
     @State private var sort = Column.pph
     @State private var ascending = true
 
+    private var pickerCounts: [String: Int] {
+        Dictionary(uniqueKeysWithValues: rows.map {
+            ($0.storeNumber, store.pphPickerCount(forStore: $0.storeNumber))
+        })
+    }
+
     private var sortedRows: [MetricRow] {
         rows.sorted { lhs, rhs in
             let result = compare(lhs, rhs)
@@ -1476,7 +1482,7 @@ struct PPHTable: View {
                 .listRowBackground(AppTheme.bg)
 
                 ForEach(sortedRows) { row in
-                    PPHStoreCard(row: row, pickers: store.pphPickers(forStore: row.storeNumber))
+                    PPHStoreCard(row: row, pickerCount: pickerCounts[row.storeNumber] ?? store.pphPickerCount(forStore: row.storeNumber))
                         .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.bg)
@@ -1495,7 +1501,9 @@ struct PPHTable: View {
         case .pph:
             return numberOrder(lhs.number("pph"), rhs.number("pph"))
         case .pickers:
-            return numberOrder(Double(store.pphPickers(forStore: lhs.storeNumber).count), Double(store.pphPickers(forStore: rhs.storeNumber).count))
+            let a = pickerCounts[lhs.storeNumber] ?? store.pphPickerCount(forStore: lhs.storeNumber)
+            let b = pickerCounts[rhs.storeNumber] ?? store.pphPickerCount(forStore: rhs.storeNumber)
+            return numberOrder(Double(a), Double(b))
         case .status:
             let a = healthRank(HeartbeatMath.health(for: .pph, row: lhs))
             let b = healthRank(HeartbeatMath.health(for: .pph, row: rhs))
@@ -1522,9 +1530,14 @@ struct PPHTable: View {
 }
 
 struct PPHStoreCard: View {
+    @EnvironmentObject private var store: HeartbeatStore
     let row: MetricRow
-    var pickers: [MetricRow] = []
+    var pickerCount: Int = 0
     @State private var expanded = false
+
+    private var pickers: [MetricRow] {
+        expanded ? store.pphPickers(forStore: row.storeNumber) : []
+    }
 
     var body: some View {
         let health = HeartbeatMath.health(for: .pph, row: row)
@@ -1561,7 +1574,7 @@ struct PPHStoreCard: View {
                 .foregroundStyle(AppTheme.textSecondary)
             HStack(spacing: 8) {
                 metric("Pure PPH", HeartbeatFormat.num(pph, digits: 1), health)
-                metric("Pickers", HeartbeatFormat.num(Double(pickers.count)), .none)
+                metric("Pickers", HeartbeatFormat.num(Double(pickerCount)), .none)
                 metric("Goal", "80.0", .none, brand: true)
             }
             if expanded {
@@ -1582,9 +1595,9 @@ struct PPHStoreCard: View {
     private var metaLine: String {
         let district = row.district.isEmpty ? "—" : row.district
         let om = row.operationsOM.isEmpty ? "—" : row.operationsOM
-        let pickerLabel = pickers.isEmpty
+        let pickerLabel = pickerCount == 0
             ? "Tap to view pickers"
-            : "\(pickers.count) picker\(pickers.count == 1 ? "" : "s") · tap to \(expanded ? "hide" : "view")"
+            : "\(pickerCount) picker\(pickerCount == 1 ? "" : "s") · tap to \(expanded ? "hide" : "view")"
         return "District \(district)  ·  \(om)  ·  \(pickerLabel)"
     }
 
