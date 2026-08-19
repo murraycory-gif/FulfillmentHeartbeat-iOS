@@ -41,7 +41,7 @@ struct SectionDetailView: View {
                     }
 
                     LazyVGrid(
-                        columns: [GridItem(.adaptive(minimum: section == .pickerScorecard ? 210 : 160), spacing: 14)],
+                        columns: [GridItem(.adaptive(minimum: 210), spacing: 14)],
                         spacing: 14
                     ) {
                         if section == .pph {
@@ -167,11 +167,11 @@ struct SectionDetailView: View {
         let atGoal = rows.filter { ($0.number("pph") ?? 0) >= HeartbeatMath.pphGoal }.count
         let atRisk = rows.filter { ($0.number("pph") ?? .greatestFiniteMagnitude) < HeartbeatMath.pphRisk }.count
         let week = rows.compactMap(\.recordedOn).sorted().last ?? "—"
-        KpiTile(label: "Avg pure PPH", value: summary.headlineText, hint: summary.health.label, tone: tone(for: summary.health))
-        KpiTile(label: "Goal", value: "80.0", tone: .brand)
-        KpiTile(label: "At goal", value: HeartbeatFormat.num(Double(atGoal)), tone: .good)
-        KpiTile(label: "Below 74", value: HeartbeatFormat.num(Double(atRisk)), tone: .risk)
-        KpiTile(label: "Week", value: week)
+        callout("Avg pure PPH", summary.headlineText, "Goal 80 · watch under 74", summary.health)
+        callout("Goal", "80.0", "Target pure PPH", .none, brand: true)
+        callout("At goal", HeartbeatFormat.num(Double(atGoal)), "Stores at 80+", .good)
+        callout("Below 74", HeartbeatFormat.num(Double(atRisk)), "At risk stores", atRisk == 0 ? .good : .risk)
+        callout("Week", week, "Latest week in this file", .none)
     }
 
     @ViewBuilder
@@ -180,11 +180,11 @@ struct SectionDetailView: View {
         let atGoal = rows.filter { ($0.number("pnr_rate_pct") ?? .greatestFiniteMagnitude) <= HeartbeatMath.pnrGoal }.count
         let atRisk = rows.filter { ($0.number("pnr_rate_pct") ?? 0) > HeartbeatMath.pnrWatch }.count
         let week = rows.compactMap(\.recordedOn).sorted().last ?? "—"
-        KpiTile(label: "Avg PNR hours", value: summary.headlineText, hint: summary.health.label, tone: tone(for: summary.health))
-        KpiTile(label: "Goal", value: "1.9%", tone: .brand)
-        KpiTile(label: "At goal", value: HeartbeatFormat.num(Double(atGoal)), tone: .good)
-        KpiTile(label: "Above 2.5%", value: HeartbeatFormat.num(Double(atRisk)), tone: .risk)
-        KpiTile(label: "Week", value: week)
+        callout("Avg PNR hours", summary.headlineText, "1.9% healthy · over 2.5% at risk", summary.health)
+        callout("Goal", "1.9%", "Or less", .none, brand: true)
+        callout("At goal", HeartbeatFormat.num(Double(atGoal)), "Stores at 1.9% or better", .good)
+        callout("Above 2.5%", HeartbeatFormat.num(Double(atRisk)), "At risk stores", atRisk == 0 ? .good : .risk)
+        callout("Week", week, "Latest week in this file", .none)
     }
 
     @ViewBuilder
@@ -194,12 +194,12 @@ struct SectionDetailView: View {
         let atRisk = rows.filter { ($0.number("compliance_pct") ?? .greatestFiniteMagnitude) < HeartbeatMath.pickPathRisk }.count
         let orders = rows.reduce(0) { $0 + ($1.number("orders") ?? $1.number("picks_total") ?? 0) }
         let week = rows.compactMap(\.recordedOn).sorted().last ?? "—"
-        KpiTile(label: "Avg compliance", value: summary.headlineText, hint: summary.health.label, tone: tone(for: summary.health))
-        KpiTile(label: "Goal", value: "90%", tone: .brand)
-        KpiTile(label: "At goal", value: HeartbeatFormat.num(Double(atGoal)), tone: .good)
-        KpiTile(label: "Below 80%", value: HeartbeatFormat.num(Double(atRisk)), tone: .risk)
-        KpiTile(label: "Orders", value: HeartbeatFormat.num(orders))
-        KpiTile(label: "Week", value: week)
+        callout("Avg compliance", summary.headlineText, "90% goal · under 80% at risk", summary.health)
+        callout("Goal", "90%", "Target for every store", .none, brand: true)
+        callout("At goal", HeartbeatFormat.num(Double(atGoal)), "Stores at 90%+", .good)
+        callout("Below 80%", HeartbeatFormat.num(Double(atRisk)), "At risk stores", atRisk == 0 ? .good : .risk)
+        callout("Orders", HeartbeatFormat.num(orders), "Total orders in this filter", .none)
+        callout("Week", week, "Latest week in this file", .none)
     }
 
     @ViewBuilder
@@ -208,11 +208,11 @@ struct SectionDetailView: View {
         let atGoal = rows.filter { ($0.number("dynacap_rate", "pieces_per_hour") ?? 0) >= HeartbeatMath.dynacapGoal }.count
         let atRisk = rows.filter { ($0.number("dynacap_rate", "pieces_per_hour") ?? .greatestFiniteMagnitude) < HeartbeatMath.dynacapRisk }.count
         let util = HeartbeatMath.average(rows.compactMap { $0.number("utilization_pct") })
-        KpiTile(label: "Avg pieces / hour", value: summary.headlineText, hint: summary.health.label, tone: tone(for: summary.health))
-        KpiTile(label: "Goal", value: "65.0", tone: .brand)
-        KpiTile(label: "At goal", value: HeartbeatFormat.num(Double(atGoal)), tone: .good)
-        KpiTile(label: "Below 60", value: HeartbeatFormat.num(Double(atRisk)), tone: .risk)
-        KpiTile(label: "Utilization", value: HeartbeatFormat.pct(util))
+        callout("Avg pieces / hour", summary.headlineText, "65 goal · under 60 at risk", summary.health)
+        callout("Goal", "65.0", "Target pieces per hour", .none, brand: true)
+        callout("At goal", HeartbeatFormat.num(Double(atGoal)), "Stores at 65+", .good)
+        callout("Below 60", HeartbeatFormat.num(Double(atRisk)), "At risk stores", atRisk == 0 ? .good : .risk)
+        callout("Utilization", HeartbeatFormat.pct(util), "Used vs available capacity", .none)
     }
 
     @ViewBuilder
@@ -222,12 +222,12 @@ struct SectionDetailView: View {
         let underRisk = rows.filter { ($0.number("under_schedule_pct", "under_scheduled") ?? 0) > HeartbeatMath.scheduleVarianceWatch }.count
         let overRisk = rows.filter { ($0.number("over_schedule_pct", "over_scheduled") ?? 0) > HeartbeatMath.scheduleVarianceWatch }.count
         let zeroUnder = rows.filter { ($0.number("under_schedule_pct", "under_scheduled") ?? 0) <= 0.05 }.count
-        KpiTile(label: "Avg efficiency", value: summary.headlineText, hint: summary.health.label, tone: tone(for: summary.health))
-        KpiTile(label: "Goal", value: "90%", tone: .brand)
-        KpiTile(label: "At goal", value: HeartbeatFormat.num(Double(atGoal)), tone: .good)
-        KpiTile(label: "Under risk", value: HeartbeatFormat.num(Double(underRisk)), tone: .risk)
-        KpiTile(label: "Over risk", value: HeartbeatFormat.num(Double(overRisk)), tone: .risk)
-        KpiTile(label: "Zero under", value: HeartbeatFormat.num(Double(zeroUnder)), tone: .good)
+        callout("Avg efficiency", summary.headlineText, "90% goal · zero over / under", summary.health)
+        callout("Goal", "90%", "Target schedule efficiency", .none, brand: true)
+        callout("At goal", HeartbeatFormat.num(Double(atGoal)), "Stores at 90%+", .good)
+        callout("Under risk", HeartbeatFormat.num(Double(underRisk)), "Underscheduled over 5%", underRisk == 0 ? .good : .risk)
+        callout("Over risk", HeartbeatFormat.num(Double(overRisk)), "Overscheduled over 5%", overRisk == 0 ? .good : .risk)
+        callout("Zero under", HeartbeatFormat.num(Double(zeroUnder)), "Healthy underschedule", .good)
     }
 
     @ViewBuilder
@@ -246,16 +246,16 @@ struct SectionDetailView: View {
         let coeMark = HeartbeatMath.starMark(value: coe, full: 20, half: 0)
         let ottMark = HeartbeatMath.starMark(value: ott, full: 95, half: 90)
         let othMark = HeartbeatMath.starMark(value: oth, full: 92, half: 78)
-        KpiTile(label: "Avg star rating", value: summary.headlineText, hint: summary.health.label, tone: tone(for: summary.health))
-        KpiTile(label: "Goal", value: "5.00", tone: .brand)
-        KpiTile(label: "At 5.00", value: HeartbeatFormat.num(Double(atFive)), tone: .good)
-        KpiTile(label: "Pass 4.0+", value: HeartbeatFormat.num(Double(pass)), tone: .good)
-        KpiTile(label: "Fail", value: HeartbeatFormat.num(Double(fail)), tone: .risk)
-        KpiTile(label: "Flash", value: HeartbeatFormat.pct(flash), hint: flashMark.label, tone: tone(for: flashMark.health))
-        KpiTile(label: "Presubs", value: HeartbeatFormat.pct(presub), hint: presubMark.label, tone: tone(for: presubMark.health))
-        KpiTile(label: "COE", value: HeartbeatFormat.pct(coe), hint: coeMark.label, tone: tone(for: coeMark.health))
-        KpiTile(label: "OTT", value: HeartbeatFormat.pct(ott), hint: ottMark.label, tone: tone(for: ottMark.health))
-        KpiTile(label: "OTH 5%", value: HeartbeatFormat.pct(oth), hint: othMark.label, tone: tone(for: othMark.health))
+        callout("Avg star rating", summary.headlineText, "5.00 goal · 4.0+ pass", summary.health)
+        callout("Goal", "5.00", "Target store rating", .none, brand: true)
+        callout("At 5.00", HeartbeatFormat.num(Double(atFive)), "Stores at a perfect 5", .good)
+        callout("Pass 4.0+", HeartbeatFormat.num(Double(pass)), "Stores that pass", .good)
+        callout("Fail", HeartbeatFormat.num(Double(fail)), "Stores under 4.0", fail == 0 ? .good : .risk)
+        callout("Flash", HeartbeatFormat.pct(flash), flashMark.label, flashMark.health)
+        callout("Presubs", HeartbeatFormat.pct(presub), presubMark.label, presubMark.health)
+        callout("COE", HeartbeatFormat.pct(coe), coeMark.label, coeMark.health)
+        callout("OTT", HeartbeatFormat.pct(ott), ottMark.label, ottMark.health)
+        callout("OTH 5%", HeartbeatFormat.pct(oth), othMark.label, othMark.health)
     }
 
     @ViewBuilder
@@ -281,6 +281,10 @@ struct SectionDetailView: View {
             selected: pickerFocus == focus,
             action: { pickerFocus = focus }
         )
+    }
+
+    private func callout(_ title: String, _ value: String, _ detail: String, _ health: Health, brand: Bool = false) -> some View {
+        PickerFocusTile(title: title, value: value, detail: detail, health: health, brand: brand)
     }
 
     private func pickerTileDetail(_ focus: PickerFocus) -> String {
@@ -313,45 +317,20 @@ struct PickerFocusTile: View {
     let value: String
     let detail: String
     let health: Health
-    let selected: Bool
-    let action: () -> Void
+    var selected: Bool = false
+    var brand: Bool = false
+    var action: (() -> Void)? = nil
     @State private var pulseOn = false
 
     var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .top) {
-                    Text(title)
-                        .font(.title3.weight(.bold))
-                        .foregroundStyle(AppTheme.text)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                    Spacer(minLength: 8)
-                    if health != .none {
-                        HealthBadge(health: health, prominent: true)
-                    }
-                }
-                Text(value)
-                    .font(.system(size: 34, weight: .semibold, design: .rounded).monospacedDigit())
-                    .foregroundStyle(ink)
-                Text(detail)
-                    .font(.subheadline)
-                    .foregroundStyle(AppTheme.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
+        Group {
+            if let action {
+                Button(action: action) { tile }
+                    .buttonStyle(.plain)
+            } else {
+                tile
             }
-            .padding(18)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                    .fill(fill)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                    .stroke(stroke, lineWidth: selected || shouldPulse ? 2.4 : 1)
-                    .opacity(shouldPulse && !selected ? (pulseOn ? 1 : 0.22) : 1)
-            )
         }
-        .buttonStyle(.plain)
         .onAppear {
             guard shouldPulse else { return }
             pulseOn = false
@@ -361,9 +340,44 @@ struct PickerFocusTile: View {
         }
     }
 
+    private var tile: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top) {
+                Text(title)
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(AppTheme.text)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Spacer(minLength: 8)
+                if health != .none {
+                    HealthBadge(health: health, prominent: true)
+                }
+            }
+            Text(value)
+                .font(.system(size: 34, weight: .semibold, design: .rounded).monospacedDigit())
+                .foregroundStyle(ink)
+            Text(detail)
+                .font(.subheadline)
+                .foregroundStyle(AppTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                .fill(fill)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                .stroke(stroke, lineWidth: selected || shouldPulse ? 2.4 : 1)
+                .opacity(shouldPulse && !selected ? (pulseOn ? 1 : 0.22) : 1)
+        )
+    }
+
     private var shouldPulse: Bool { health == .risk || health == .watch }
 
     private var fill: Color {
+        if brand { return AppTheme.blueSoft }
         switch health {
         case .good: return AppTheme.okSoft
         case .watch: return AppTheme.warnSoft
@@ -373,7 +387,7 @@ struct PickerFocusTile: View {
     }
 
     private var stroke: Color {
-        if selected { return AppTheme.blue }
+        if selected || brand { return AppTheme.blue.opacity(selected ? 1 : 0.35) }
         switch health {
         case .good: return AppTheme.ok.opacity(0.28)
         case .watch: return AppTheme.warn
@@ -383,11 +397,12 @@ struct PickerFocusTile: View {
     }
 
     private var ink: Color {
+        if brand { return AppTheme.blue }
         switch health {
         case .good: return AppTheme.ok
         case .watch: return AppTheme.warn
         case .risk: return AppTheme.bad
-        case .none: return AppTheme.blue
+        case .none: return AppTheme.text
         }
     }
 }
