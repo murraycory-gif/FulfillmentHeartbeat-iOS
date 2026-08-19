@@ -248,43 +248,91 @@ struct HubNavLogo: View {
 }
 
 struct HeartbeatTrace: View {
-    @Environment(\.scenePhase) private var scenePhase
-
     var body: some View {
-        TimelineView(.periodic(from: .now, by: scenePhase == .active ? 0.12 : 60)) { timeline in
-            Canvas { context, size in
-                let path = Self.ecgPath(in: size)
-                context.stroke(
-                    path,
-                    with: .color(AppTheme.blue.opacity(0.18)),
-                    style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
-                )
-                let cycle = 2.2
-                let t = CGFloat(timeline.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: cycle) / cycle)
-                let head = t
-                let tail = max(0, t - 0.18)
-                if head > tail {
-                    context.stroke(
-                        path.trimmedPath(from: tail, to: head),
-                        with: .color(AppTheme.blue),
-                        style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round)
-                    )
-                }
-            }
-        }
-        .allowsHitTesting(false)
+        ECGPulseView()
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
+private struct ECGPulseView: UIViewRepresentable {
+    func makeUIView(context: Context) -> ECGPulseUIView {
+        ECGPulseUIView()
     }
 
-    static func ecgPath(in size: CGSize) -> Path {
-        var path = Path()
-        let mid = size.height * 0.55
-        let width = max(size.width, 1)
-        let amp = size.height * 0.36
+    func updateUIView(_ uiView: ECGPulseUIView, context: Context) {}
+}
 
+final class ECGPulseUIView: UIView {
+    private let track = CAShapeLayer()
+    private let pulse = CAShapeLayer()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isOpaque = false
+        backgroundColor = .clear
+        isUserInteractionEnabled = false
+        track.fillColor = nil
+        pulse.fillColor = nil
+        track.lineCap = .round
+        pulse.lineCap = .round
+        track.lineJoin = .round
+        pulse.lineJoin = .round
+        track.lineWidth = 2
+        pulse.lineWidth = 3
+        track.strokeColor = UIColor(red: 0.15, green: 0.42, blue: 0.95, alpha: 0.18).cgColor
+        pulse.strokeColor = UIColor(red: 0.15, green: 0.42, blue: 0.95, alpha: 1).cgColor
+        layer.addSublayer(track)
+        layer.addSublayer(pulse)
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let path = Self.ecgPath(in: bounds)
+        track.frame = bounds
+        pulse.frame = bounds
+        track.path = path
+        pulse.path = path
+        startAnimation()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        if window == nil {
+            pulse.removeAnimation(forKey: "beat")
+        } else {
+            startAnimation()
+        }
+    }
+
+    private func startAnimation() {
+        guard window != nil, bounds.width > 1 else { return }
+        guard pulse.animation(forKey: "beat") == nil else { return }
+        let start = CABasicAnimation(keyPath: "strokeStart")
+        start.fromValue = 0
+        start.toValue = 1
+        let end = CABasicAnimation(keyPath: "strokeEnd")
+        end.fromValue = 0.18
+        end.toValue = 1.18
+        let group = CAAnimationGroup()
+        group.animations = [start, end]
+        group.duration = 1.7
+        group.repeatCount = .infinity
+        group.timingFunction = CAMediaTimingFunction(name: .linear)
+        group.isRemovedOnCompletion = false
+        pulse.add(group, forKey: "beat")
+    }
+
+    private static func ecgPath(in rect: CGRect) -> CGPath {
+        let path = CGMutablePath()
+        let mid = rect.height * 0.55
+        let width = max(rect.width, 1)
+        let amp = rect.height * 0.36
         func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
             CGPoint(x: x * width, y: mid - y * amp)
         }
-
         path.move(to: point(0, 0))
         path.addLine(to: point(0.06, 0))
         path.addLine(to: point(0.10, 0.18))
@@ -343,9 +391,9 @@ struct FilterSheet: View {
                     title: focus.title,
                     prompt: focus.prompt,
                     allLabel: focus.allLabel,
-                    selection: focus.selection(store.filters),
-                    options: focus.options(store),
-                    onChange: { focus.apply($0, store: store) }
+                    selection: selection(for: focus),
+                    options: options(for: focus),
+                    onChange: { apply($0, to: focus) }
                 )
             }
             .padding(20)
@@ -392,7 +440,7 @@ struct FilterSheet: View {
 
     private var summaryRow: some View {
         HStack(spacing: 10) {
-            ForEach(FilterFocus.allCases) { item in
+            ForEach(FilterFocus.allCases, id: \.self) { item in
                 Button {
                     focus = item
                 } label: {
@@ -400,9 +448,9 @@ struct FilterSheet: View {
                         Text(item.chipTitle.uppercased())
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(AppTheme.textTertiary)
-                        Text(item.display(store.filters))
+                        Text(display(for: item))
                             .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(item.selection(store.filters).isEmpty ? AppTheme.textSecondary : AppTheme.blue)
+                            .foregroundStyle(selection(for: item).isEmpty ? AppTheme.textSecondary : AppTheme.blue)
                             .lineLimit(1)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -428,12 +476,44 @@ struct FilterSheet: View {
             .foregroundStyle(AppTheme.textSecondary)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
+
+    private func selection(for focus: FilterFocus) -> String {
+        switch focus {
+        case .division: return store.filters.division
+        case .district: return store.filters.district
+        case .om: return store.filters.om
+        case .store: return store.filters.store
+        }
+    }
+
+    private func display(for focus: FilterFocus) -> String {
+        let value = selection(for: focus)
+        return value.isEmpty ? focus.allLabel : value
+    }
+
+    private func options(for focus: FilterFocus) -> [(id: String, label: String)] {
+        switch focus {
+        case .division: return store.divisions.map { ($0, $0) }
+        case .district: return store.districts.map { ($0, $0) }
+        case .om: return store.operationsOMs.map { ($0, $0) }
+        case .store: return store.stores.map { entry in
+            (entry.number, entry.name.map { "\(entry.number) · \($0)" } ?? entry.number)
+        }
+        }
+    }
+
+    private func apply(_ value: String, to focus: FilterFocus) {
+        switch focus {
+        case .division: store.setDivision(value)
+        case .district: store.setDistrict(value)
+        case .om: store.setOM(value)
+        case .store: store.setStore(value)
+        }
+    }
 }
 
-@MainActor
-private enum FilterFocus: String, CaseIterable, Identifiable {
+private enum FilterFocus: String, CaseIterable, Hashable {
     case division, district, om, store
-    var id: String { rawValue }
 
     var title: String {
         switch self {
@@ -468,40 +548,6 @@ private enum FilterFocus: String, CaseIterable, Identifiable {
         case .district: return "All districts"
         case .om: return "All operations managers"
         case .store: return "All stores"
-        }
-    }
-
-    func selection(_ filters: DashboardFilters) -> String {
-        switch self {
-        case .division: return filters.division
-        case .district: return filters.district
-        case .om: return filters.om
-        case .store: return filters.store
-        }
-    }
-
-    func display(_ filters: DashboardFilters) -> String {
-        let value = selection(filters)
-        return value.isEmpty ? allLabel : value
-    }
-
-    func options(_ store: HeartbeatStore) -> [(id: String, label: String)] {
-        switch self {
-        case .division: return store.divisions.map { ($0, $0) }
-        case .district: return store.districts.map { ($0, $0) }
-        case .om: return store.operationsOMs.map { ($0, $0) }
-        case .store: return store.stores.map { entry in
-            (entry.number, entry.name.map { "\(entry.number) · \($0)" } ?? entry.number)
-        }
-        }
-    }
-
-    func apply(_ value: String, store: HeartbeatStore) {
-        switch self {
-        case .division: store.setDivision(value)
-        case .district: store.setDistrict(value)
-        case .om: store.setOM(value)
-        case .store: store.setStore(value)
         }
     }
 }

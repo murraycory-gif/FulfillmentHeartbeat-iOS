@@ -748,6 +748,7 @@ final class HeartbeatStore: ObservableObject {
                 decoder.dateDecodingStrategy = .iso8601
                 let decoded = try decoder.decode(HeartbeatSnapshot.self, from: data)
                 let caches = PulseCaches.build(rows: decoded.rows, filters: decoded.filters, uploads: decoded.uploads)
+                try? await Task.sleep(nanoseconds: 120_000_000)
                 await MainActor.run {
                     self.hydrating = true
                     self.rows = decoded.rows

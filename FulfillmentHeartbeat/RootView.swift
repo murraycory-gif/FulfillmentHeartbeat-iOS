@@ -35,7 +35,6 @@ struct RootView: View {
 
 struct LaunchSplashView: View {
     var isLoading: Bool
-    @State private var appear = false
 
     var body: some View {
         ZStack {
@@ -44,8 +43,6 @@ struct LaunchSplashView: View {
             VStack(spacing: 22) {
                 BrandMarkImage(height: 120)
                     .shadow(color: AppTheme.blue.opacity(0.18), radius: 16, y: 6)
-                    .scaleEffect(appear ? 1 : 0.94)
-                    .opacity(appear ? 1 : 0)
 
                 HeartbeatTrace()
                     .frame(width: 240, height: 40)
@@ -67,11 +64,6 @@ struct LaunchSplashView: View {
                         .font(.subheadline)
                         .foregroundStyle(AppTheme.textSecondary)
                 }
-            }
-        }
-        .onAppear {
-            withAnimation(.spring(response: 0.5, dampingFraction: 0.86)) {
-                appear = true
             }
         }
     }

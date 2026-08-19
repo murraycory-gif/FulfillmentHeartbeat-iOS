@@ -22,6 +22,7 @@
 		AA0100000000000000000A13 /* SharedViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B13 /* SharedViews.swift */; };
 		AA0100000000000000000A15 /* BrandMarkData.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B15 /* BrandMarkData.swift */; };
 		AA0100000000000000000A90 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B90 /* Assets.xcassets */; };
+		AA0100000000000000000A97 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B97 /* LaunchScreen.storyboard */; };
 		AA0100000000000000000A91 /* HeartbeatMathTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B91 /* HeartbeatMathTests.swift */; };
 		AA0100000000000000000A92 /* WorkbookParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B92 /* WorkbookParserTests.swift */; };
 		AA0100000000000000000AF0 /* MessageUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000BF0 /* MessageUI.framework */; };
@@ -53,6 +54,7 @@
 		AA0100000000000000000B13 /* SharedViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedViews.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B15 /* BrandMarkData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrandMarkData.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B90 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		AA0100000000000000000B97 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
 		AA0100000000000000000B93 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		AA0100000000000000000B94 /* FulfillmentHeartbeat.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = FulfillmentHeartbeat.entitlements; sourceTree = "<group>"; };
 		AA0100000000000000000B95 /* FulfillmentHeartbeat.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FulfillmentHeartbeat.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -103,6 +105,7 @@
 				AA0100000000000000000D06 /* Storage */,
 				AA0100000000000000000D04 /* Views */,
 				AA0100000000000000000B90 /* Assets.xcassets */,
+				AA0100000000000000000B97 /* LaunchScreen.storyboard */,
 				AA0100000000000000000B93 /* Info.plist */,
 				AA0100000000000000000B94 /* FulfillmentHeartbeat.entitlements */,
 			);
@@ -234,6 +237,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				AA0100000000000000000A90 /* Assets.xcassets in Resources */,
+				AA0100000000000000000A97 /* LaunchScreen.storyboard in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
