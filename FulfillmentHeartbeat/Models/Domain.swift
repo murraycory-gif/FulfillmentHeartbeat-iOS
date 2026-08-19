@@ -442,9 +442,13 @@ enum HeartbeatMath {
     }
 
     static func materializeDynacap(_ rows: [MetricRow], roster: [String: StoreIdentity]) -> [MetricRow] {
+        func hasRate(_ row: MetricRow) -> Bool {
+            row.number("dynacap_rate", "pieces_per_hour") != nil
+        }
         let perStore = applyRoster(latestPerStore(rows.filter { !$0.storeNumber.isEmpty }), roster: roster)
+            .filter(hasRate)
         if !perStore.isEmpty { return perStore }
-        return materializeDistrictMetric(rows, roster: roster)
+        return materializeDistrictMetric(rows, roster: roster).filter(hasRate)
     }
 
     static func materializePickPath(_ rows: [MetricRow], roster: [String: StoreIdentity]) -> [MetricRow] {

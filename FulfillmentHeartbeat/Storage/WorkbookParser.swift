@@ -188,7 +188,10 @@ enum WorkbookParser {
         "pickuputilization": "pickup_util_pct",
         "deliveryutil": "delivery_util_pct",
         "deliveryutilization": "delivery_util_pct",
-        "totalpiecestotalhrs": "dynacap_rate",
+        "totalpiecestotalhours": "dynacap_rate",
+        "totalpieceshrs": "dynacap_rate",
+        "pieceshr": "dynacap_rate",
+        "pcsperhr": "dynacap_rate",
         "totalpiecesperhour": "dynacap_rate",
         "piecesperhour": "dynacap_rate",
         "piecestotalhrs": "dynacap_rate",
@@ -696,6 +699,8 @@ enum WorkbookParser {
             key = "dug_orders"
         } else if key.contains("refund") {
             key = "refund_amt"
+        } else if key.contains("piece") && (key.contains("hr") || key.contains("hour")) {
+            key = "dynacap_rate"
         } else if key.contains("purepph") || (key == "pph") {
             key = "pph"
         } else if key.contains("pphpick") {

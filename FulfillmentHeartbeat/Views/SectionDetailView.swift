@@ -179,13 +179,14 @@ struct SectionDetailView: View {
     }
 
     private var dynacapRows: [MetricRow] {
+        let scored = snapshots.filter { $0.number("dynacap_rate", "pieces_per_hour") != nil }
         switch dynacapFocus {
         case .all:
-            return snapshots
+            return scored
         case .atGoal:
-            return snapshots.filter { ($0.number("dynacap_rate", "pieces_per_hour") ?? 0) >= HeartbeatMath.dynacapGoal }
+            return scored.filter { ($0.number("dynacap_rate", "pieces_per_hour") ?? 0) >= HeartbeatMath.dynacapGoal }
         case .below60:
-            return snapshots.filter { ($0.number("dynacap_rate", "pieces_per_hour") ?? .greatestFiniteMagnitude) < HeartbeatMath.dynacapRisk }
+            return scored.filter { ($0.number("dynacap_rate", "pieces_per_hour") ?? .greatestFiniteMagnitude) < HeartbeatMath.dynacapRisk }
         }
     }
 

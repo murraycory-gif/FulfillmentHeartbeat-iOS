@@ -1196,7 +1196,7 @@ struct DynacapTable: View {
     }
 
     @State private var sort = Column.rate
-    @State private var ascending = true
+    @State private var ascending = false
 
     private var sortedRows: [MetricRow] {
         rows.sorted { lhs, rhs in
