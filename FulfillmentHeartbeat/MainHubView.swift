@@ -57,7 +57,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
     static func from(section: MetricSection) -> HubDestination {
         switch section {
         case .fiveStar: return .fiveStar
-        case .pickPath: return .pickPath
+        case .pickPath, .pickPathPicker: return .pickPath
         case .prepNotReady: return .prepNotReady
         case .dynacap: return .dynacap
         case .scheduleQuality: return .scheduleQuality
