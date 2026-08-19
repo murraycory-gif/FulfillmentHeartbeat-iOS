@@ -328,67 +328,117 @@ struct FilterBar: View {
 struct FilterSheet: View {
     @EnvironmentObject private var store: HeartbeatStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
         NavigationStack {
-            List {
-                FilterSearchSection(
-                    title: "Division",
-                    prompt: "Search divisions",
-                    allLabel: "All divisions",
-                    selection: store.filters.division,
-                    options: store.divisions.map { ($0, $0) },
-                    onChange: store.setDivision
-                )
-                FilterSearchSection(
-                    title: "District",
-                    prompt: "Search districts",
-                    allLabel: "All districts",
-                    selection: store.filters.district,
-                    options: store.districts.map { ($0, $0) },
-                    onChange: store.setDistrict
-                )
-                FilterSearchSection(
-                    title: "Operations manager",
-                    prompt: "Search operations managers",
-                    allLabel: "All operations managers",
-                    selection: store.filters.om,
-                    options: store.operationsOMs.map { ($0, $0) },
-                    onChange: store.setOM
-                )
-                FilterSearchSection(
-                    title: "Store #",
-                    prompt: "Search store number",
-                    allLabel: "All stores",
-                    selection: store.filters.store,
-                    options: store.stores.map { entry in
-                        let label = entry.name.map { "\(entry.number) · \($0)" } ?? entry.number
-                        return (entry.number, label)
-                    },
-                    onChange: store.setStore
-                )
+            VStack(alignment: .leading, spacing: 16) {
+                summaryRow
+                columns
             }
-            .listStyle(.insetGrouped)
+            .padding(20)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .background(AppTheme.bg.ignoresSafeArea())
             .navigationTitle("Filters")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     if store.filters.isActive {
                         Button("Clear all") { store.clearFilters() }
+                            .fontWeight(.semibold)
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
-                        .fontWeight(.semibold)
+                        .fontWeight(.bold)
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.large])
         .presentationDragIndicator(.visible)
+        .presentationCompactAdaptation(.sheet)
+        .presentationCornerRadius(28)
+        .presentationContentInteraction(.scrolls)
+    }
+
+    private var summaryRow: some View {
+        HStack(spacing: 10) {
+            summaryChip("Division", store.filters.division, empty: "All divisions")
+            summaryChip("District", store.filters.district, empty: "All districts")
+            summaryChip("OM", store.filters.om, empty: "All OMs")
+            summaryChip("Store", store.filters.store, empty: "All stores")
+        }
+    }
+
+    private func summaryChip(_ title: String, _ value: String, empty: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title.uppercased())
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(AppTheme.textTertiary)
+            Text(value.isEmpty ? empty : value)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(value.isEmpty ? AppTheme.textSecondary : AppTheme.blue)
+                .lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .background(AppTheme.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(value.isEmpty ? AppTheme.cardBorder : AppTheme.blue.opacity(0.35), lineWidth: 1)
+        )
+    }
+
+    @ViewBuilder
+    private var columns: some View {
+        let panels = Group {
+            FilterColumn(
+                title: "Division",
+                prompt: "Type a division",
+                allLabel: "All divisions",
+                selection: store.filters.division,
+                options: store.divisions.map { ($0, $0) },
+                onChange: store.setDivision
+            )
+            FilterColumn(
+                title: "District",
+                prompt: "Type a district",
+                allLabel: "All districts",
+                selection: store.filters.district,
+                options: store.districts.map { ($0, $0) },
+                onChange: store.setDistrict
+            )
+            FilterColumn(
+                title: "Operations manager",
+                prompt: "Type an OM name",
+                allLabel: "All operations managers",
+                selection: store.filters.om,
+                options: store.operationsOMs.map { ($0, $0) },
+                onChange: store.setOM
+            )
+            FilterColumn(
+                title: "Store #",
+                prompt: "Type a store number",
+                allLabel: "All stores",
+                selection: store.filters.store,
+                options: store.stores.map { entry in
+                    let label = entry.name.map { "\(entry.number) · \($0)" } ?? entry.number
+                    return (entry.number, label)
+                },
+                onChange: store.setStore
+            )
+        }
+
+        if sizeClass == .regular {
+            HStack(alignment: .top, spacing: 14) { panels }
+        } else {
+            VStack(spacing: 14) { panels }
+        }
     }
 }
 
-struct FilterSearchSection: View {
+struct FilterColumn: View {
     let title: String
     let prompt: String
     let allLabel: String
@@ -408,7 +458,9 @@ struct FilterSearchSection: View {
     }
 
     var body: some View {
-        Section {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(title)
+                .font(.headline.weight(.bold))
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(AppTheme.blue)
@@ -416,63 +468,88 @@ struct FilterSearchSection: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
                     .focused($focused)
+                    .font(.body)
                     .onSubmit(applyExactOrFirst)
                 if !query.isEmpty {
                     Button {
                         query = ""
                     } label: {
                         Image(systemName: "xmark.circle.fill")
+                            .font(.title3)
                             .foregroundStyle(AppTheme.textTertiary)
                     }
                     .buttonStyle(.plain)
                 }
             }
-            Button {
-                onChange("")
-                query = ""
-            } label: {
-                HStack {
-                    Text(allLabel)
-                    Spacer()
-                    if selection.isEmpty {
-                        Image(systemName: "checkmark")
-                            .foregroundStyle(AppTheme.blue)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 12)
+            .background(AppTheme.bg, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(focused ? AppTheme.blue : AppTheme.cardBorder, lineWidth: focused ? 2 : 1)
+            )
+
+            Text(query.isEmpty ? "\(options.count) options" : "\(filtered.count) of \(options.count) match")
+                .font(.caption)
+                .foregroundStyle(AppTheme.textTertiary)
+
+            ScrollView {
+                LazyVStack(spacing: 6) {
+                    row(id: "", label: allLabel, selected: selection.isEmpty) {
+                        onChange("")
+                        query = ""
+                        focused = false
                     }
-                }
-            }
-            ForEach(filtered, id: \.id) { item in
-                Button {
-                    onChange(item.id)
-                    query = ""
-                    focused = false
-                } label: {
-                    HStack {
-                        Text(item.label)
-                            .foregroundStyle(AppTheme.text)
-                        Spacer()
-                        if item.id == selection {
-                            Image(systemName: "checkmark")
-                                .foregroundStyle(AppTheme.blue)
+                    ForEach(filtered, id: \.id) { item in
+                        row(id: item.id, label: item.label, selected: item.id == selection) {
+                            onChange(item.id)
+                            query = ""
+                            focused = false
                         }
                     }
+                    if filtered.isEmpty {
+                        Text("No matches")
+                            .font(.subheadline)
+                            .foregroundStyle(AppTheme.textTertiary)
+                            .padding(.vertical, 20)
+                    }
                 }
+                .padding(.bottom, 8)
             }
-        } header: {
-            HStack {
-                Text(title)
-                Spacer()
-                if !selection.isEmpty {
-                    Text(currentLabel)
+            .scrollIndicators(.visible)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(AppTheme.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(AppTheme.cardBorder, lineWidth: 1)
+        )
+    }
+
+    private func row(id: String, label: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Text(label)
+                    .font(.body.weight(selected ? .semibold : .regular))
+                    .foregroundStyle(selected ? AppTheme.blueDeep : AppTheme.text)
+                    .multilineTextAlignment(.leading)
+                Spacer(minLength: 0)
+                if selected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.title3)
                         .foregroundStyle(AppTheme.blue)
                 }
             }
-        } footer: {
-            Text(query.isEmpty ? "\(options.count) options" : "\(filtered.count) of \(options.count) match")
+            .padding(.horizontal, 14)
+            .padding(.vertical, 14)
+            .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+            .background(
+                selected ? AppTheme.blueSoft : AppTheme.bg,
+                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+            )
         }
-    }
-
-    private var currentLabel: String {
-        options.first(where: { $0.id == selection })?.label ?? selection
+        .buttonStyle(.plain)
     }
 
     private func applyExactOrFirst() {
