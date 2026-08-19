@@ -1202,12 +1202,20 @@ struct FulfillmentChecklistCard: View {
     @State private var showingMail = false
     @State private var mailError: String?
 
+    @State private var pulseOn = false
+
     private var riskCount: Int {
         store.summaries.filter { $0.health == .risk }.count
     }
 
     private var watchCount: Int {
         store.summaries.filter { $0.health == .watch }.count
+    }
+
+    private var pulseHealth: Health {
+        if riskCount > 0 { return .risk }
+        if watchCount > 0 { return .watch }
+        return .none
     }
 
     var body: some View {
@@ -1227,12 +1235,20 @@ struct FulfillmentChecklistCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                .fill(AppTheme.card)
-                .overlay(
-                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                        .stroke(borderColor, lineWidth: riskCount > 0 ? 1.5 : 1)
-                )
+                .fill(fill)
         )
+        .overlay(
+            RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                .stroke(stroke, lineWidth: pulseHealth == .none ? 1 : 2.4)
+                .opacity(pulseHealth == .none ? 1 : (pulseOn ? 1 : 0.22))
+        )
+        .onAppear {
+            guard pulseHealth == .risk || pulseHealth == .watch else { return }
+            pulseOn = false
+            withAnimation(.easeInOut(duration: 1.05).repeatForever(autoreverses: true)) {
+                pulseOn = true
+            }
+        }
         .onChange(of: expanded) { _, isOpen in
             if isOpen, openSection == nil {
                 openSection = MetricSection.checklistSections.first { store.summary(for: $0).health == .risk }
@@ -1266,10 +1282,22 @@ struct FulfillmentChecklistCard: View {
         }
     }
 
-    private var borderColor: Color {
-        if riskCount > 0 { return AppTheme.bad.opacity(0.45) }
-        if watchCount > 0 { return AppTheme.warn.opacity(0.45) }
-        return AppTheme.cardBorder
+    private var fill: Color {
+        switch pulseHealth {
+        case .good: return AppTheme.okSoft
+        case .watch: return AppTheme.warnSoft
+        case .risk: return AppTheme.badSoft
+        case .none: return AppTheme.card
+        }
+    }
+
+    private var stroke: Color {
+        switch pulseHealth {
+        case .good: return AppTheme.ok.opacity(0.28)
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.cardBorder
+        }
     }
 
     private var header: some View {
@@ -1279,9 +1307,17 @@ struct FulfillmentChecklistCard: View {
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 8) {
-                        Text("eCommerce Fulfillment Checklist")
-                            .font(.title3.weight(.semibold))
-                            .foregroundStyle(AppTheme.text)
+                        HStack(spacing: 6) {
+                            Text("Health Check")
+                                .font(.title3.weight(.bold))
+                                .foregroundStyle(AppTheme.text)
+                            Text("|")
+                                .font(.title3.weight(.bold))
+                                .foregroundStyle(AppTheme.textTertiary)
+                            Text("Action Items")
+                                .font(.title3.weight(.bold))
+                                .foregroundStyle(AppTheme.blue)
+                        }
                         if store.checklistOpenCount > 0 {
                             Text("\(store.checklistOpenCount) open")
                                 .font(.caption2.weight(.semibold))

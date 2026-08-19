@@ -9,26 +9,25 @@ struct DashboardView: View {
     var body: some View {
         List {
             Section {
-                LazyVGrid(columns: columns, spacing: 16) {
-                    ForEach(store.summaries) { summary in
-                        SectionCard(summary: summary) {
-                            if sizeClass == .regular {
-                                router.open(section: summary.section)
-                            } else {
-                                pushedSection = summary.section
+                VStack(spacing: 16) {
+                    LazyVGrid(columns: columns, spacing: 16) {
+                        ForEach(store.summaries) { summary in
+                            SectionCard(summary: summary) {
+                                if sizeClass == .regular {
+                                    router.open(section: summary.section)
+                                } else {
+                                    pushedSection = summary.section
+                                }
                             }
                         }
+                    }
+                    if store.summaries.contains(where: { $0.health == .risk || $0.health == .watch }) {
+                        FulfillmentChecklistCard()
                     }
                 }
                 .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
                 .listRowSeparator(.hidden)
                 .listRowBackground(AppTheme.bg)
-            }
-            Section {
-                FulfillmentChecklistCard()
-                    .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(AppTheme.bg)
             }
             Section {
                 PickerScoreCard {
