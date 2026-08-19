@@ -83,6 +83,15 @@ struct SectionDetailView: View {
             }
 
             if section == .pickerScorecard {
+                Section {
+                    PickerHighlightsPanel(
+                        onSelectOpportunity: { pickerFocus = .opportunity },
+                        onSelectStrong: { pickerFocus = .doingWell }
+                    )
+                    .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(AppTheme.bg)
+                }
                 PickerScoreTable(focus: pickerFocus)
             } else {
                 StoreTable(section: section, rows: snapshots)

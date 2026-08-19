@@ -29,18 +29,6 @@ struct DashboardView: View {
                 .listRowSeparator(.hidden)
                 .listRowBackground(AppTheme.bg)
             }
-            Section {
-                PickerScoreCard {
-                    if sizeClass == .regular {
-                        router.open(section: .pickerScorecard)
-                    } else {
-                        pushedSection = .pickerScorecard
-                    }
-                }
-                .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 16, trailing: 20))
-                .listRowSeparator(.hidden)
-                .listRowBackground(AppTheme.bg)
-            }
             if !store.seeded {
                 Section {
                     HubCard {
@@ -197,60 +185,65 @@ struct SectionCard: View {
     }
 }
 
-struct PickerScoreCard: View {
+struct PickerHighlightsPanel: View {
     @EnvironmentObject private var store: HeartbeatStore
-    let action: () -> Void
+    var onSelectOpportunity: () -> Void = {}
+    var onSelectStrong: () -> Void = {}
+    @State private var expanded = true
 
     private var board: HeartbeatMath.PickerBoard {
         store.pickerBoard
     }
 
-    private var upload: UploadRecord? { store.upload(for: .pickerScorecard) }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 8) {
-                        PickerScoreCardTitle(font: .title2.weight(.semibold))
-                        UpdatedStamp(date: upload?.uploadedAt)
-                    }
-                    Text("Shoppers underperforming on PPH, Presubs, OTH5, or COE — versus those running strong.")
+        VStack(alignment: .leading, spacing: 14) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { expanded.toggle() }
+            } label: {
+                HStack(spacing: 8) {
+                    Text("Top Opportunity Pickers")
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(AppTheme.bad)
+                    Text("|")
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(AppTheme.textTertiary)
+                    Text("Pickers Doing Well")
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(AppTheme.ok)
+                    Spacer()
+                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(AppTheme.blue)
+                        .frame(width: 36, height: 36)
+                        .background(AppTheme.blueSoft, in: Circle())
+                }
+            }
+            .buttonStyle(.plain)
+
+            if expanded {
+                if board.shopperCount == 0 {
+                    Text("Upload a picker score card workbook to rank opportunity and strong shoppers.")
                         .font(.subheadline)
                         .foregroundStyle(AppTheme.textSecondary)
-                }
-                Spacer()
-                Button(action: action) {
-                    HStack(spacing: 6) {
-                        Text("View all")
-                        Image(systemName: "arrow.up.right")
+                } else {
+                    HStack(alignment: .top, spacing: 16) {
+                        shopperColumn(
+                            title: "Top opportunity",
+                            subtitle: "Underperforming vs the metric mix",
+                            rows: board.opportunity,
+                            empty: "No opportunity shoppers in this filter.",
+                            tone: .risk,
+                            action: onSelectOpportunity
+                        )
+                        shopperColumn(
+                            title: "Doing well",
+                            subtitle: "Hitting the metric mix",
+                            rows: board.strong,
+                            empty: "No strong shoppers in this filter.",
+                            tone: .good,
+                            action: onSelectStrong
+                        )
                     }
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(AppTheme.blue)
-                }
-                .buttonStyle(.plain)
-            }
-
-            if board.shopperCount == 0 {
-                Text("Upload a picker score card workbook to rank opportunity and strong shoppers.")
-                    .font(.subheadline)
-                    .foregroundStyle(AppTheme.textSecondary)
-            } else {
-                HStack(alignment: .top, spacing: 16) {
-                    shopperColumn(
-                        title: "Top opportunity",
-                        subtitle: "Underperforming vs the metric mix",
-                        rows: board.opportunity,
-                        empty: "No opportunity shoppers in this filter.",
-                        tone: .risk
-                    )
-                    shopperColumn(
-                        title: "Doing well",
-                        subtitle: "Hitting the metric mix",
-                        rows: board.strong,
-                        empty: "No strong shoppers in this filter.",
-                        tone: .good
-                    )
                 }
             }
         }
@@ -271,7 +264,8 @@ struct PickerScoreCard: View {
         subtitle: String,
         rows: [MetricRow],
         empty: String,
-        tone: Health
+        tone: Health,
+        action: @escaping () -> Void
     ) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {

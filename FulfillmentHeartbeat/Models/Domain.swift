@@ -87,11 +87,11 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
     }
 
     static var dashboardCards: [MetricSection] {
-        [.fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pph]
+        [.fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pph, .pickerScorecard]
     }
 
     static var checklistSections: [MetricSection] {
-        dashboardCards + [.pickerScorecard]
+        dashboardCards
     }
 }
 
@@ -636,7 +636,7 @@ enum HeartbeatMath {
                 section: section,
                 storeCount: Set(latest.map(\.storeNumber)).count,
                 headline: Double(board.opportunityCount),
-                headlineLabel: "Opportunity shoppers",
+                headlineLabel: "Opportunity pickers",
                 secondary: latest.isEmpty
                     ? "No shoppers in view"
                     : "\(board.strongCount) doing well · \(board.shopperCount) shoppers",
