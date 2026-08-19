@@ -433,9 +433,18 @@ enum HeartbeatMath {
             )
         }
         if expanded.isEmpty {
-            return rows.filter { $0.number("dynacap_rate", "pieces_per_hour") != nil || $0.number("pickup_capacity") != nil }
+            return applyRoster(
+                rows.filter { $0.number("dynacap_rate", "pieces_per_hour") != nil || $0.number("pickup_capacity") != nil },
+                roster: roster
+            )
         }
-        return expanded
+        return applyRoster(expanded, roster: roster)
+    }
+
+    static func materializeDynacap(_ rows: [MetricRow], roster: [String: StoreIdentity]) -> [MetricRow] {
+        let perStore = applyRoster(latestPerStore(rows.filter { !$0.storeNumber.isEmpty }), roster: roster)
+        if !perStore.isEmpty { return perStore }
+        return materializeDistrictMetric(rows, roster: roster)
     }
 
     static func materializePickPath(_ rows: [MetricRow], roster: [String: StoreIdentity]) -> [MetricRow] {
@@ -1469,6 +1478,14 @@ struct StoreCellViewModel {
             )
         }
     }
+}
+
+enum DynacapFocus: String, CaseIterable, Identifiable {
+    case all
+    case atGoal
+    case below60
+
+    var id: String { rawValue }
 }
 
 enum PickPathFocus: String, CaseIterable, Identifiable {

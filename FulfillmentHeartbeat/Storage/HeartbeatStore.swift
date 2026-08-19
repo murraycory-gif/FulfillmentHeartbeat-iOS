@@ -687,7 +687,7 @@ final class HeartbeatStore: ObservableObject {
         for section in MetricSection.allCases {
             let sectionRows = rows.filter { $0.section == section }
             if section == .dynacap {
-                latest[section] = HeartbeatMath.materializeDistrictMetric(sectionRows, roster: roster)
+                latest[section] = HeartbeatMath.materializeDynacap(sectionRows, roster: roster)
             } else if section == .pickPath {
                 latest[section] = HeartbeatMath.materializePickPath(sectionRows, roster: roster)
             } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady || section == .pph {
@@ -920,7 +920,7 @@ private struct PulseCaches {
         for section in MetricSection.allCases {
             let sectionRows = rows.filter { $0.section == section }
             if section == .dynacap {
-                latest[section] = HeartbeatMath.materializeDistrictMetric(sectionRows, roster: roster)
+                latest[section] = HeartbeatMath.materializeDynacap(sectionRows, roster: roster)
             } else if section == .pickPath {
                 latest[section] = HeartbeatMath.materializePickPath(sectionRows, roster: roster)
             } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady || section == .pph {

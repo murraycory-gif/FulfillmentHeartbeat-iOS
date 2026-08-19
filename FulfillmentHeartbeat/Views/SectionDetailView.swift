@@ -5,6 +5,7 @@ struct SectionDetailView: View {
     let section: MetricSection
     @State private var pickerFocus: PickerFocus = .all
     @State private var pickPathFocus: PickPathFocus = .all
+    @State private var dynacapFocus: DynacapFocus = .all
 
     private var summary: SectionSummary { store.summary(for: section) }
     private var snapshots: [MetricRow] { store.displayRows(for: section) }
@@ -97,6 +98,8 @@ struct SectionDetailView: View {
                 PickerScoreTable(focus: pickerFocus)
             } else if section == .pickPath {
                 PickPathTable(rows: pickPathRows)
+            } else if section == .dynacap {
+                DynacapTable(rows: dynacapRows)
             } else {
                 StoreTable(section: section, rows: snapshots)
             }
@@ -175,6 +178,17 @@ struct SectionDetailView: View {
         }
     }
 
+    private var dynacapRows: [MetricRow] {
+        switch dynacapFocus {
+        case .all:
+            return snapshots
+        case .atGoal:
+            return snapshots.filter { ($0.number("dynacap_rate", "pieces_per_hour") ?? 0) >= HeartbeatMath.dynacapGoal }
+        case .below60:
+            return snapshots.filter { ($0.number("dynacap_rate", "pieces_per_hour") ?? .greatestFiniteMagnitude) < HeartbeatMath.dynacapRisk }
+        }
+    }
+
     @ViewBuilder
     private var pphStatusTiles: some View {
         let rows = snapshots
@@ -224,10 +238,16 @@ struct SectionDetailView: View {
         let atGoal = rows.filter { ($0.number("dynacap_rate", "pieces_per_hour") ?? 0) >= HeartbeatMath.dynacapGoal }.count
         let atRisk = rows.filter { ($0.number("dynacap_rate", "pieces_per_hour") ?? .greatestFiniteMagnitude) < HeartbeatMath.dynacapRisk }.count
         let util = HeartbeatMath.average(rows.compactMap { $0.number("utilization_pct") })
-        callout("Avg pieces / hour", summary.headlineText, "65 goal · under 60 at risk", summary.health)
+        callout("Avg pieces / hour", summary.headlineText, "65 goal · under 60 at risk", summary.health, selected: dynacapFocus == .all) {
+            dynacapFocus = .all
+        }
         callout("Goal", "65.0", "Target pieces per hour", .none, brand: true)
-        callout("At goal", HeartbeatFormat.num(Double(atGoal)), "Stores at 65+", .good)
-        callout("Below 60", HeartbeatFormat.num(Double(atRisk)), "At risk stores", atRisk == 0 ? .good : .risk)
+        callout("At goal", HeartbeatFormat.num(Double(atGoal)), "Stores at 65+", .good, selected: dynacapFocus == .atGoal) {
+            dynacapFocus = .atGoal
+        }
+        callout("Below 60", HeartbeatFormat.num(Double(atRisk)), "At risk stores", atRisk == 0 ? .good : .risk, selected: dynacapFocus == .below60) {
+            dynacapFocus = .below60
+        }
         callout("Utilization", HeartbeatFormat.pct(util), "Used vs available capacity", .none)
     }
 
