@@ -318,7 +318,7 @@ struct FilterBar: View {
             }
             .buttonStyle(BrandButtonStyle())
         }
-        .sheet(isPresented: $showingFilters) {
+        .fullScreenCover(isPresented: $showingFilters) {
             FilterSheet()
                 .environmentObject(store)
         }
@@ -330,40 +330,23 @@ struct FilterSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var original = DashboardFilters()
     @State private var confirmLeave = false
+    @State private var focus: FilterFocus = .division
 
     private var isDirty: Bool { store.filters != original }
 
     var body: some View {
         NavigationStack {
-            VStack(alignment: .leading, spacing: 14) {
+            VStack(spacing: 16) {
                 summaryRow
-                GeometryReader { geo in
-                    let pad: CGFloat = 14
-                    let columns = geo.size.width >= 700 ? 2 : 1
-                    let rows = columns == 2 ? 2 : 4
-                    let cellH = max(260, (geo.size.height - pad * CGFloat(rows - 1)) / CGFloat(rows))
-                    let items: [(String, String, String, String, [(String, String)], (String) -> Void)] = [
-                        ("Division", "Type a division", "All divisions", store.filters.division, store.divisions.map { ($0, $0) }, store.setDivision),
-                        ("District", "Type a district", "All districts", store.filters.district, store.districts.map { ($0, $0) }, store.setDistrict),
-                        ("Operations manager", "Type an OM name", "All operations managers", store.filters.om, store.operationsOMs.map { ($0, $0) }, store.setOM),
-                        ("Store #", "Type a store number", "All stores", store.filters.store, store.stores.map { entry in
-                            (entry.number, entry.name.map { "\(entry.number) · \($0)" } ?? entry.number)
-                        }, store.setStore),
-                    ]
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: pad), count: columns), spacing: pad) {
-                        ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                            FilterColumn(
-                                title: item.0,
-                                prompt: item.1,
-                                allLabel: item.2,
-                                selection: item.3,
-                                options: item.4,
-                                onChange: item.5
-                            )
-                            .frame(height: cellH)
-                        }
-                    }
-                }
+                focusPicker
+                FilterColumn(
+                    title: focus.title,
+                    prompt: focus.prompt,
+                    allLabel: focus.allLabel,
+                    selection: focus.selection(store.filters),
+                    options: focus.options(store),
+                    onChange: { focus.apply($0, store: store) }
+                )
             }
             .padding(20)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -396,10 +379,6 @@ struct FilterSheet: View {
             }
         }
         .interactiveDismissDisabled(isDirty)
-        .presentationDetents([.large])
-        .presentationDragIndicator(.visible)
-        .presentationCompactAdaptation(.sheet)
-        .presentationCornerRadius(28)
         .onAppear { original = store.filters }
     }
 
@@ -413,31 +392,116 @@ struct FilterSheet: View {
 
     private var summaryRow: some View {
         HStack(spacing: 10) {
-            summaryChip("Division", store.filters.division, empty: "All divisions")
-            summaryChip("District", store.filters.district, empty: "All districts")
-            summaryChip("OM", store.filters.om, empty: "All OMs")
-            summaryChip("Store", store.filters.store, empty: "All stores")
+            ForEach(FilterFocus.allCases) { item in
+                Button {
+                    focus = item
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(item.chipTitle.uppercased())
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(AppTheme.textTertiary)
+                        Text(item.display(store.filters))
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(item.selection(store.filters).isEmpty ? AppTheme.textSecondary : AppTheme.blue)
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(
+                        item == focus ? AppTheme.blueSoft : AppTheme.card,
+                        in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(item == focus ? AppTheme.blue : AppTheme.cardBorder, lineWidth: item == focus ? 2 : 1)
+                    )
+                }
+                .buttonStyle(.plain)
+            }
         }
     }
 
-    private func summaryChip(_ title: String, _ value: String, empty: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title.uppercased())
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(AppTheme.textTertiary)
-            Text(value.isEmpty ? empty : value)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(value.isEmpty ? AppTheme.textSecondary : AppTheme.blue)
-                .lineLimit(1)
+    private var focusPicker: some View {
+        Text("Search or tap a row in \(focus.title)")
+            .font(.subheadline)
+            .foregroundStyle(AppTheme.textSecondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private enum FilterFocus: String, CaseIterable, Identifiable {
+    case division, district, om, store
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .division: return "Division"
+        case .district: return "District"
+        case .om: return "Operations manager"
+        case .store: return "Store #"
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(AppTheme.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(value.isEmpty ? AppTheme.cardBorder : AppTheme.blue.opacity(0.35), lineWidth: 1)
-        )
+    }
+
+    var chipTitle: String {
+        switch self {
+        case .division: return "Division"
+        case .district: return "District"
+        case .om: return "OM"
+        case .store: return "Store"
+        }
+    }
+
+    var prompt: String {
+        switch self {
+        case .division: return "Type a division"
+        case .district: return "Type a district"
+        case .om: return "Type an OM name"
+        case .store: return "Type a store number"
+        }
+    }
+
+    var allLabel: String {
+        switch self {
+        case .division: return "All divisions"
+        case .district: return "All districts"
+        case .om: return "All operations managers"
+        case .store: return "All stores"
+        }
+    }
+
+    func selection(_ filters: DashboardFilters) -> String {
+        switch self {
+        case .division: return filters.division
+        case .district: return filters.district
+        case .om: return filters.om
+        case .store: return filters.store
+        }
+    }
+
+    func display(_ filters: DashboardFilters) -> String {
+        let value = selection(filters)
+        return value.isEmpty ? allLabel : value
+    }
+
+    func options(_ store: HeartbeatStore) -> [(id: String, label: String)] {
+        switch self {
+        case .division: return store.divisions.map { ($0, $0) }
+        case .district: return store.districts.map { ($0, $0) }
+        case .om: return store.operationsOMs.map { ($0, $0) }
+        case .store: return store.stores.map { entry in
+            (entry.number, entry.name.map { "\(entry.number) · \($0)" } ?? entry.number)
+        }
+        }
+    }
+
+    func apply(_ value: String, store: HeartbeatStore) {
+        switch self {
+        case .division: store.setDivision(value)
+        case .district: store.setDistrict(value)
+        case .om: store.setOM(value)
+        case .store: store.setStore(value)
+        }
     }
 }
 
@@ -463,7 +527,7 @@ struct FilterColumn: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title)
-                .font(.headline.weight(.bold))
+                .font(.title3.weight(.bold))
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(AppTheme.blue)
@@ -484,45 +548,54 @@ struct FilterColumn: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 12)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 14)
             .background(AppTheme.bg, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .stroke(focused ? AppTheme.blue : AppTheme.cardBorder, lineWidth: focused ? 2 : 1)
             )
 
-            Text(query.isEmpty ? "\(options.count) options" : "\(filtered.count) of \(options.count) match")
+            Text(query.isEmpty ? "\(options.count) options · scroll or tap" : "\(filtered.count) of \(options.count) match")
                 .font(.caption)
                 .foregroundStyle(AppTheme.textTertiary)
 
-            ScrollView {
-                LazyVStack(spacing: 6) {
-                    row(id: "", label: allLabel, selected: selection.isEmpty) {
-                        onChange("")
+            List {
+                row(id: "", label: allLabel, selected: selection.isEmpty) {
+                    onChange("")
+                    query = ""
+                    focused = false
+                }
+                .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+
+                ForEach(filtered, id: \.id) { item in
+                    row(id: item.id, label: item.label, selected: item.id == selection) {
+                        onChange(item.id)
                         query = ""
                         focused = false
                     }
-                    ForEach(filtered, id: \.id) { item in
-                        row(id: item.id, label: item.label, selected: item.id == selection) {
-                            onChange(item.id)
-                            query = ""
-                            focused = false
-                        }
-                    }
-                    if filtered.isEmpty {
-                        Text("No matches")
-                            .font(.subheadline)
-                            .foregroundStyle(AppTheme.textTertiary)
-                            .padding(.vertical, 20)
-                    }
+                    .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
                 }
-                .padding(.bottom, 8)
+
+                if filtered.isEmpty {
+                    Text("No matches")
+                        .font(.subheadline)
+                        .foregroundStyle(AppTheme.textTertiary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 20)
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
+                }
             }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
             .scrollIndicators(.visible)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .padding(14)
+        .padding(16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(AppTheme.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(
