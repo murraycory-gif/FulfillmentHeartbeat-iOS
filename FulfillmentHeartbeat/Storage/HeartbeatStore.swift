@@ -637,36 +637,13 @@ final class HeartbeatStore: ObservableObject {
         isImporting = true
         importLabel = "Reading \(filename)…"
         errorMessage = nil
-        let currentRows = rows
-        let currentUploads = uploads
         do {
-            let result = try await Task.detached(priority: .userInitiated) {
+            let incoming = try await Task.detached(priority: .userInitiated) {
                 let parsed = try WorkbookParser.parse(data: data, filename: filename)
                 if parsed.isEmpty { throw WorkbookParser.ParseError.empty }
-                let incoming = parsed.map { $0.asRow(section: section) }
-                var nextRows = currentRows.filter { $0.section != section }
-                nextRows.append(contentsOf: incoming)
-                var nextUploads = currentUploads.filter { $0.section != section }
-                nextUploads.insert(
-                    UploadRecord(section: section, filename: filename, rowCount: incoming.count),
-                    at: 0
-                )
-                let caches = PulseCaches.build(rows: nextRows, filters: DashboardFilters(), uploads: nextUploads)
-                return (incoming, nextRows, nextUploads, caches)
+                return parsed.map { $0.asRow(section: section) }
             }.value
-            rows = result.1
-            uploads = result.2
-            seeded = true
-            lastImportedSection = section
-            filters = DashboardFilters()
-            install(result.3)
-            let stores = Set(result.0.map(\.storeNumber).filter { !$0.isEmpty }).count
-            if section == .pickPathPicker {
-                statusMessage = "Imported \(result.0.count) pickers into Pick Path Compliance Picker. Open a store on Pick Path to see them."
-            } else {
-                statusMessage = "Imported \(result.0.count) rows · \(stores) stores into \(section.title). Filters cleared so the new file is in view."
-            }
-            persist()
+            applyImport(incoming, filename: filename, section: section)
         } catch {
             errorMessage = error.localizedDescription
         }

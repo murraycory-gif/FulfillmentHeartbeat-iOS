@@ -116,7 +116,7 @@ struct UploadView: View {
             defer { if accessed { url.stopAccessingSecurityScopedResource() } }
             do {
                 let data = try Data(contentsOf: url)
-                let filename = url.lastPathComponent
+                let filename = url.lastPathComponent.replacingOccurrences(of: "%", with: "pct")
                 showImporter = false
                 Task { @MainActor in
                     try? await Task.sleep(nanoseconds: 450_000_000)
