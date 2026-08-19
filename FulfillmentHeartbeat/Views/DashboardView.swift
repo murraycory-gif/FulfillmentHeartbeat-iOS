@@ -152,7 +152,9 @@ struct SectionCard: View {
                             .foregroundStyle(AppTheme.textSecondary)
                     }
                     Spacer()
-                    HealthBadge(health: summary.health)
+                    if summary.health != .none {
+                        HealthBadge(health: summary.health)
+                    }
                 }
                 HStack(alignment: .bottom) {
                     VStack(alignment: .leading, spacing: 4) {
