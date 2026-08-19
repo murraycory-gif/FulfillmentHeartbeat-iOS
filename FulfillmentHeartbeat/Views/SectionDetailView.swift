@@ -45,7 +45,7 @@ struct SectionDetailView: View {
                     }
 
                     LazyVGrid(
-                        columns: [GridItem(.adaptive(minimum: 170), spacing: 14)],
+                        columns: Array(repeating: GridItem(.flexible(minimum: 140), spacing: 14), count: 5),
                         spacing: 14
                     ) {
                         if section == .pph {
@@ -231,10 +231,10 @@ struct SectionDetailView: View {
             pphFocus = .all
         }
         callout("Goal", "80.0", "Target pure PPH", .none, brand: true)
-        callout("At goal", HeartbeatFormat.num(Double(atGoal)), "Stores at 80+", .good, selected: pphFocus == .atGoal) {
+        callout("At goal", HeartbeatFormat.num(Double(atGoal)), "Stores at 80+", .good, unit: "stores", selected: pphFocus == .atGoal) {
             pphFocus = .atGoal
         }
-        callout("Below 74", HeartbeatFormat.num(Double(atRisk)), "At risk stores", atRisk == 0 ? .good : .risk, selected: pphFocus == .below74) {
+        callout("Below 74", HeartbeatFormat.num(Double(atRisk)), "At risk stores", atRisk == 0 ? .good : .risk, unit: "stores", selected: pphFocus == .below74) {
             pphFocus = .below74
         }
     }
@@ -247,8 +247,8 @@ struct SectionDetailView: View {
         let week = rows.compactMap(\.recordedOn).sorted().last ?? "—"
         callout("Avg PNR hours", summary.headlineText, "1.9% healthy · over 2.5% at risk", summary.health)
         callout("Goal", "1.9%", "Or less", .none, brand: true)
-        callout("At goal", HeartbeatFormat.num(Double(atGoal)), "Stores at 1.9% or better", .good)
-        callout("Above 2.5%", HeartbeatFormat.num(Double(atRisk)), "At risk stores", atRisk == 0 ? .good : .risk)
+        callout("At goal", HeartbeatFormat.num(Double(atGoal)), "Stores at 1.9% or better", .good, unit: "stores")
+        callout("Above 2.5%", HeartbeatFormat.num(Double(atRisk)), "At risk stores", atRisk == 0 ? .good : .risk, unit: "stores")
         callout("Week", week, "Latest week in this file", .none)
     }
 
@@ -261,10 +261,10 @@ struct SectionDetailView: View {
             pickPathFocus = .all
         }
         callout("Goal", "90%", "Target for every store", .none, brand: true)
-        callout("At goal", HeartbeatFormat.num(Double(atGoal)), "Stores at 90%+", .good, selected: pickPathFocus == .atGoal) {
+        callout("At goal", HeartbeatFormat.num(Double(atGoal)), "Stores at 90%+", .good, unit: "stores", selected: pickPathFocus == .atGoal) {
             pickPathFocus = .atGoal
         }
-        callout("Below 80%", HeartbeatFormat.num(Double(atRisk)), "At risk stores", atRisk == 0 ? .good : .risk, selected: pickPathFocus == .below80) {
+        callout("Below 80%", HeartbeatFormat.num(Double(atRisk)), "At risk stores", atRisk == 0 ? .good : .risk, unit: "stores", selected: pickPathFocus == .below80) {
             pickPathFocus = .below80
         }
     }
@@ -279,10 +279,10 @@ struct SectionDetailView: View {
             dynacapFocus = .all
         }
         callout("Goal", "65.0", "Target pieces per hour", .none, brand: true)
-        callout("At goal", HeartbeatFormat.num(Double(atGoal)), "Stores at 65+", .good, selected: dynacapFocus == .atGoal) {
+        callout("At goal", HeartbeatFormat.num(Double(atGoal)), "Stores at 65+", .good, unit: "stores", selected: dynacapFocus == .atGoal) {
             dynacapFocus = .atGoal
         }
-        callout("Below 60", HeartbeatFormat.num(Double(atRisk)), "At risk stores", atRisk == 0 ? .good : .risk, selected: dynacapFocus == .below60) {
+        callout("Below 60", HeartbeatFormat.num(Double(atRisk)), "At risk stores", atRisk == 0 ? .good : .risk, unit: "stores", selected: dynacapFocus == .below60) {
             dynacapFocus = .below60
         }
         callout("Utilization", HeartbeatFormat.pct(util), "Used vs available capacity", .none)
@@ -327,9 +327,9 @@ struct SectionDetailView: View {
         let othMark = HeartbeatMath.starMark(value: oth, full: 92, half: 78)
         callout("Avg star rating", summary.headlineText, "5.00 goal · 4.0+ pass", summary.health)
         callout("Goal", "5.00", "Target store rating", .none, brand: true)
-        callout("At 5.00", HeartbeatFormat.num(Double(atFive)), "Stores at a perfect 5", .good)
-        callout("Pass 4.0+", HeartbeatFormat.num(Double(pass)), "Stores that pass", .good)
-        callout("Fail", HeartbeatFormat.num(Double(fail)), "Stores under 4.0", fail == 0 ? .good : .risk)
+        callout("At 5.00", HeartbeatFormat.num(Double(atFive)), "Stores at a perfect 5", .good, unit: "stores")
+        callout("Pass 4.0+", HeartbeatFormat.num(Double(pass)), "Stores that pass", .good, unit: "stores")
+        callout("Fail", HeartbeatFormat.num(Double(fail)), "Stores under 4.0", fail == 0 ? .good : .risk, unit: "stores")
         callout("Flash", HeartbeatFormat.pct(flash), flashMark.label, flashMark.health)
         callout("Presubs", HeartbeatFormat.pct(presub), presubMark.label, presubMark.health)
         callout("COE", HeartbeatFormat.pct(coe), coeMark.label, coeMark.health)
@@ -358,6 +358,7 @@ struct SectionDetailView: View {
             detail: pickerTileDetail(focus),
             health: health,
             selected: pickerFocus == focus,
+            unit: "shoppers",
             action: { pickerFocus = focus }
         )
     }
@@ -420,6 +421,7 @@ struct PickerFocusTile: View {
                 tile
             }
         }
+        .frame(maxWidth: .infinity, minHeight: 176, maxHeight: 176)
         .onAppear {
             guard shouldPulse else { return }
             pulseOn = false
@@ -465,7 +467,7 @@ struct PickerFocusTile: View {
                 .frame(maxWidth: .infinity, minHeight: 36, alignment: .topLeading)
         }
         .padding(16)
-        .frame(maxWidth: .infinity, minHeight: 176, maxHeight: 176, alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
                 .fill(fill)

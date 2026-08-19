@@ -173,7 +173,7 @@ struct KpiTile: View {
                     .foregroundStyle(tone.caption)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 176, maxHeight: 176, alignment: .topLeading)
         .padding(14)
         .background(
             RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)

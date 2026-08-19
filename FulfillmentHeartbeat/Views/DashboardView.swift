@@ -131,6 +131,7 @@ struct SectionCard: View {
                 }
             }
             .padding(20)
+            .frame(maxWidth: .infinity, minHeight: 220, maxHeight: 220, alignment: .topLeading)
             .background(
                 RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
                     .fill(fill)
