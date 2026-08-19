@@ -134,15 +134,7 @@ struct SectionCard: View {
                             Text(summary.section.title)
                                 .font(.title3.weight(.bold))
                                 .foregroundStyle(AppTheme.text)
-                            Text(HeartbeatFormat.updated(summary.lastUploadedAt))
-                                .font(.caption2.weight(.semibold))
-                                .foregroundStyle(summary.lastUploadedAt == nil ? AppTheme.textTertiary : AppTheme.blue)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
-                                .background(
-                                    (summary.lastUploadedAt == nil ? AppTheme.bg : AppTheme.blueSoft),
-                                    in: Capsule(style: .continuous)
-                                )
+                            UpdatedStamp(date: summary.lastUploadedAt)
                         }
                         Text(summary.headlineText)
                             .font(.system(size: 36, weight: .semibold, design: .rounded).monospacedDigit())
@@ -250,15 +242,7 @@ struct PickerScoreCard: View {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
                         PickerScoreCardTitle(font: .title2.weight(.semibold))
-                        Text(HeartbeatFormat.updated(upload?.uploadedAt))
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(upload == nil ? AppTheme.textTertiary : AppTheme.blue)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 3)
-                            .background(
-                                (upload == nil ? AppTheme.bg : AppTheme.blueSoft),
-                                in: Capsule(style: .continuous)
-                            )
+                        UpdatedStamp(date: upload?.uploadedAt)
                     }
                     Text("Shoppers underperforming on PPH, Presubs, OTH5, or COE — versus those running strong.")
                         .font(.subheadline)

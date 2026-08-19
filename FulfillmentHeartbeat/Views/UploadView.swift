@@ -148,7 +148,7 @@ struct UploadPanel: View {
                         .background(AppTheme.blueSoft, in: RoundedRectangle(cornerRadius: AppTheme.radiusS, style: .continuous))
                     VStack(alignment: .leading, spacing: 3) {
                         Text(section.title)
-                            .font(.headline)
+                            .font(.title3.weight(.bold))
                         Text(section.blurb)
                             .font(.caption)
                             .foregroundStyle(AppTheme.textSecondary)
@@ -156,6 +156,8 @@ struct UploadPanel: View {
                             .font(.caption.weight(.medium))
                             .foregroundStyle(AppTheme.blue)
                     }
+                    Spacer(minLength: 8)
+                    UpdatedStamp(date: upload?.uploadedAt)
                 }
 
                 Text("Expects \(section.expectedMetrics)")
@@ -170,13 +172,13 @@ struct UploadPanel: View {
                             Text(upload.filename)
                                 .font(.subheadline.weight(.medium))
                                 .lineLimit(1)
-                            Text("\(upload.rowCount) rows · \(HeartbeatFormat.relative(upload.uploadedAt))")
+                            Text("\(upload.rowCount) rows · \(HeartbeatFormat.stamp(upload.uploadedAt))")
                                 .font(.caption)
                                 .foregroundStyle(AppTheme.textSecondary)
                         } else {
-                            Text("Nothing uploaded yet")
-                                .font(.subheadline)
-                                .foregroundStyle(AppTheme.textTertiary)
+                            Text("No data")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(AppTheme.text)
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)

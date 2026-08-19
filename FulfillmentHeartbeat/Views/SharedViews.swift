@@ -83,6 +83,29 @@ struct HealthBadge: View {
     }
 }
 
+struct UpdatedStamp: View {
+    let date: Date?
+
+    private var empty: Bool { date == nil }
+
+    var body: some View {
+        Text(empty ? "NO DATA" : HeartbeatFormat.updated(date))
+            .font(.subheadline.weight(.heavy))
+            .tracking(empty ? 0.3 : 0)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .foregroundStyle(empty ? AppTheme.text : AppTheme.blue)
+            .background(
+                empty ? AppTheme.warnSoft : AppTheme.blueSoft,
+                in: Capsule(style: .continuous)
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(empty ? AppTheme.warn.opacity(0.45) : AppTheme.blue.opacity(0.22), lineWidth: 1)
+            )
+    }
+}
+
 struct KpiTile: View {
     let label: String
     let value: String
