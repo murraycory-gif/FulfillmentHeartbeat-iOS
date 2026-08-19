@@ -522,7 +522,6 @@ enum FilterFocus: String, Sendable {
     case district
     case om
     case store
-    case division, district, om, store
 
     var title: String {
         switch self {
