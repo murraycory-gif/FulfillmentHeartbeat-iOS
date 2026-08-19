@@ -410,6 +410,7 @@
 				CODE_SIGN_ENTITLEMENTS = FulfillmentHeartbeat/FulfillmentHeartbeat.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = M7FL68Q43A;
 				CURRENT_PROJECT_VERSION = 5;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = FulfillmentHeartbeat/Info.plist;
@@ -436,6 +437,7 @@
 				CODE_SIGN_ENTITLEMENTS = FulfillmentHeartbeat/FulfillmentHeartbeat.entitlements;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = M7FL68Q43A;
 				CURRENT_PROJECT_VERSION = 5;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = FulfillmentHeartbeat/Info.plist;
@@ -459,6 +461,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = M7FL68Q43A;
 				CURRENT_PROJECT_VERSION = 5;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -476,6 +479,7 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = M7FL68Q43A;
 				CURRENT_PROJECT_VERSION = 5;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
