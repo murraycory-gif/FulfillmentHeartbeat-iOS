@@ -1412,19 +1412,8 @@ struct PPHTable: View {
 
     @State private var sort = Column.pph
     @State private var ascending = true
-
-    private var pickerCounts: [String: Int] {
-        Dictionary(uniqueKeysWithValues: rows.map {
-            ($0.storeNumber, store.pphPickerCount(forStore: $0.storeNumber))
-        })
-    }
-
-    private var sortedRows: [MetricRow] {
-        rows.sorted { lhs, rhs in
-            let result = compare(lhs, rhs)
-            return ascending ? result == .orderedAscending : result == .orderedDescending
-        }
-    }
+    @State private var ordered: [MetricRow] = []
+    @State private var counts: [String: Int] = [:]
 
     var body: some View {
         if rows.isEmpty {
@@ -1454,12 +1443,11 @@ struct PPHTable: View {
                 HStack(spacing: 12) {
                     ForEach(Column.allCases) { column in
                         Button {
-                            if sort == column {
-                                ascending.toggle()
-                            } else {
-                                sort = column
-                                ascending = column == .store
-                            }
+                            let nextSort = sort == column ? sort : column
+                            let nextAscending = sort == column ? !ascending : column == .store
+                            sort = nextSort
+                            ascending = nextAscending
+                            rebuildOrder(sort: nextSort, ascending: nextAscending)
                         } label: {
                             HStack(spacing: 4) {
                                 Text(column.title.uppercased())
@@ -1481,17 +1469,34 @@ struct PPHTable: View {
                 .listRowSeparator(.hidden)
                 .listRowBackground(AppTheme.bg)
 
-                ForEach(sortedRows) { row in
-                    PPHStoreCard(row: row, pickerCount: pickerCounts[row.storeNumber] ?? store.pphPickerCount(forStore: row.storeNumber))
+                ForEach(ordered, id: \.storeNumber) { row in
+                    PPHStoreCard(row: row, pickerCount: counts[row.storeNumber] ?? 0)
                         .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.bg)
                 }
             }
+            .transaction { $0.animation = nil }
+            .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
+            .onChange(of: rows.count) { _, _ in rebuildOrder(sort: sort, ascending: ascending) }
         }
     }
 
-    private func compare(_ lhs: MetricRow, _ rhs: MetricRow) -> ComparisonResult {
+    private func rebuildOrder(sort: Column, ascending: Bool) {
+        var nextCounts: [String: Int] = [:]
+        nextCounts.reserveCapacity(rows.count)
+        for row in rows {
+            nextCounts[row.storeNumber] = store.pphPickerCount(forStore: row.storeNumber)
+        }
+        let next = rows.sorted { lhs, rhs in
+            let result = compare(lhs, rhs, sort: sort, counts: nextCounts)
+            return ascending ? result == .orderedAscending : result == .orderedDescending
+        }
+        counts = nextCounts
+        ordered = next
+    }
+
+    private func compare(_ lhs: MetricRow, _ rhs: MetricRow, sort: Column, counts: [String: Int]) -> ComparisonResult {
         switch sort {
         case .store:
             if let a = Int(lhs.storeNumber), let b = Int(rhs.storeNumber) {
@@ -1501,9 +1506,7 @@ struct PPHTable: View {
         case .pph:
             return numberOrder(lhs.number("pph"), rhs.number("pph"))
         case .pickers:
-            let a = pickerCounts[lhs.storeNumber] ?? store.pphPickerCount(forStore: lhs.storeNumber)
-            let b = pickerCounts[rhs.storeNumber] ?? store.pphPickerCount(forStore: rhs.storeNumber)
-            return numberOrder(Double(a), Double(b))
+            return numberOrder(Double(counts[lhs.storeNumber] ?? 0), Double(counts[rhs.storeNumber] ?? 0))
         case .status:
             let a = healthRank(HeartbeatMath.health(for: .pph, row: lhs))
             let b = healthRank(HeartbeatMath.health(for: .pph, row: rhs))
