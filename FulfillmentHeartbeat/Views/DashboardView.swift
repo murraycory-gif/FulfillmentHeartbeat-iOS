@@ -115,16 +115,15 @@ struct DashboardView: View {
     }
 
     private var subtitle: String {
-        if let last = store.lastUpload {
-            return "\(store.filters.summary) · Updated \(HeartbeatFormat.relative(last.uploadedAt))"
-        }
-        return store.filters.summary
+        let stamp = HeartbeatFormat.updated(store.lastUpload?.uploadedAt)
+        return "\(store.filters.summary) · \(stamp)"
     }
 }
 
 struct SectionCard: View {
     let summary: SectionSummary
     let action: () -> Void
+    @State private var pulseOn = false
 
     var body: some View {
         Button(action: action) {
@@ -135,14 +134,15 @@ struct SectionCard: View {
                             Text(summary.section.title)
                                 .font(.subheadline.weight(.medium))
                                 .foregroundStyle(AppTheme.textSecondary)
-                            if justUpdated {
-                                Text("Just updated")
-                                    .font(.caption2.weight(.semibold))
-                                    .foregroundStyle(AppTheme.blue)
-                                    .padding(.horizontal, 8)
-                                    .padding(.vertical, 3)
-                                    .background(AppTheme.blueSoft, in: Capsule(style: .continuous))
-                            }
+                            Text(HeartbeatFormat.updated(summary.lastUploadedAt))
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(summary.lastUploadedAt == nil ? AppTheme.textTertiary : AppTheme.blue)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(
+                                    (summary.lastUploadedAt == nil ? AppTheme.bg : AppTheme.blueSoft),
+                                    in: Capsule(style: .continuous)
+                                )
                         }
                         Text(summary.headlineText)
                             .font(.system(size: 36, weight: .semibold, design: .rounded).monospacedDigit())
@@ -175,13 +175,25 @@ struct SectionCard: View {
             .background(
                 RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
                     .fill(fill)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                            .stroke(stroke, lineWidth: 1)
-                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                    .stroke(stroke, lineWidth: shouldPulse ? 2.4 : 1)
+                    .opacity(shouldPulse ? (pulseOn ? 1 : 0.22) : 1)
             )
         }
         .buttonStyle(.plain)
+        .onAppear {
+            guard shouldPulse else { return }
+            pulseOn = false
+            withAnimation(.easeInOut(duration: 1.05).repeatForever(autoreverses: true)) {
+                pulseOn = true
+            }
+        }
+    }
+
+    private var shouldPulse: Bool {
+        summary.health == .risk || summary.health == .watch
     }
 
     private var fill: Color {
@@ -196,8 +208,8 @@ struct SectionCard: View {
     private var stroke: Color {
         switch summary.health {
         case .good: return AppTheme.ok.opacity(0.28)
-        case .watch: return AppTheme.warn.opacity(0.28)
-        case .risk: return AppTheme.bad.opacity(0.28)
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
         case .none: return AppTheme.cardBorder
         }
     }
@@ -209,11 +221,6 @@ struct SectionCard: View {
         case .risk: return AppTheme.bad
         case .none: return AppTheme.blue
         }
-    }
-
-    private var justUpdated: Bool {
-        guard let uploadedAt = summary.lastUploadedAt else { return false }
-        return Date().timeIntervalSince(uploadedAt) < 180
     }
 
     private var metaLine: String {
@@ -241,14 +248,15 @@ struct PickerScoreCard: View {
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 8) {
                         PickerScoreCardTitle(font: .title2.weight(.semibold))
-                        if let uploadedAt = upload?.uploadedAt, Date().timeIntervalSince(uploadedAt) < 180 {
-                            Text("Just updated")
-                                .font(.caption2.weight(.semibold))
-                                .foregroundStyle(AppTheme.blue)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
-                                .background(AppTheme.blueSoft, in: Capsule(style: .continuous))
-                        }
+                        Text(HeartbeatFormat.updated(upload?.uploadedAt))
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(upload == nil ? AppTheme.textTertiary : AppTheme.blue)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(
+                                (upload == nil ? AppTheme.bg : AppTheme.blueSoft),
+                                in: Capsule(style: .continuous)
+                            )
                     }
                     Text("Shoppers underperforming on PPH, Presubs, OTH5, or COE — versus those running strong.")
                         .font(.subheadline)

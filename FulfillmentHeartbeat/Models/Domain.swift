@@ -1230,11 +1230,15 @@ enum HeartbeatFormat {
     }
 
     static func stamp(_ date: Date?) -> String {
-        guard let date else { return "No date yet" }
+        guard let date else { return "No data" }
         let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        formatter.timeStyle = .short
+        formatter.dateFormat = "MMM d, yyyy · h:mm a"
         return formatter.string(from: date)
+    }
+
+    static func updated(_ date: Date?) -> String {
+        guard let date else { return "No data" }
+        return "Updated \(stamp(date))"
     }
 }
 
