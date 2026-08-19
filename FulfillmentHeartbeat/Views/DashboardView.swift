@@ -132,8 +132,8 @@ struct SectionCard: View {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack(spacing: 8) {
                             Text(summary.section.title)
-                                .font(.subheadline.weight(.medium))
-                                .foregroundStyle(AppTheme.textSecondary)
+                                .font(.title3.weight(.bold))
+                                .foregroundStyle(AppTheme.text)
                             Text(HeartbeatFormat.updated(summary.lastUploadedAt))
                                 .font(.caption2.weight(.semibold))
                                 .foregroundStyle(summary.lastUploadedAt == nil ? AppTheme.textTertiary : AppTheme.blue)
