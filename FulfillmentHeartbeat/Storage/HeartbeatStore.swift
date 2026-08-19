@@ -43,6 +43,7 @@ final class HeartbeatStore: ObservableObject {
     )
     private var cachedChecklistGroups: [MetricSection: [ChecklistDriverGroup]] = [:]
     private var pickerIndex: [PickerFocus: [Int]] = [:]
+    private var pickerFocusHealth: [PickerFocus: Health] = [:]
     private var pickPathPickersByStore: [String: [MetricRow]] = [:]
 
     init(rootURL: URL? = nil) {
