@@ -49,19 +49,27 @@ struct UploadView: View {
             .padding(20)
         }
         .background(AppTheme.bg.ignoresSafeArea())
-        .background {
-            DocumentPickerHost(
-                isPresented: $showImporter,
-                types: Self.workbookTypes,
-                onData: { data in
-                    guard let section = importTarget else { return }
-                    importTarget = nil
+        .fileImporter(
+            isPresented: $showImporter,
+            allowedContentTypes: Self.workbookTypes,
+            allowsMultipleSelection: false
+        ) { result in
+            let section = importTarget
+            importTarget = nil
+            switch result {
+            case .success(let urls):
+                guard let section, let url = urls.first else { return }
+                let accessed = url.startAccessingSecurityScopedResource()
+                defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+                do {
+                    let data = try Data(contentsOf: url)
                     store.importWorkbook(data: data, filename: "\(section.short).xlsx", section: section)
-                },
-                onCancel: {
-                    importTarget = nil
+                } catch {
+                    store.errorMessage = error.localizedDescription
                 }
-            )
+            case .failure(let error):
+                store.errorMessage = error.localizedDescription
+            }
         }
         .fileExporter(
             isPresented: Binding(
@@ -302,63 +310,6 @@ struct ExportItem: FileDocument {
 
     func fileWrapper(configuration: WriteConfiguration) throws -> FileWrapper {
         FileWrapper(regularFileWithContents: data)
-    }
-}
-
-struct DocumentPickerHost: UIViewControllerRepresentable {
-    @Binding var isPresented: Bool
-    let types: [UTType]
-    var onData: (Data) -> Void
-    var onCancel: () -> Void
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(isPresented: $isPresented, onData: onData, onCancel: onCancel)
-    }
-
-    func makeUIViewController(context: Context) -> UIViewController {
-        UIViewController()
-    }
-
-    func updateUIViewController(_ controller: UIViewController, context: Context) {
-        context.coordinator.onData = onData
-        context.coordinator.onCancel = onCancel
-        context.coordinator.isPresented = $isPresented
-        if isPresented, controller.presentedViewController == nil {
-            let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: true)
-            picker.delegate = context.coordinator
-            picker.allowsMultipleSelection = false
-            picker.shouldShowFileExtensions = true
-            controller.present(picker, animated: true)
-        }
-    }
-
-    final class Coordinator: NSObject, UIDocumentPickerDelegate {
-        var isPresented: Binding<Bool>
-        var onData: (Data) -> Void
-        var onCancel: () -> Void
-
-        init(isPresented: Binding<Bool>, onData: @escaping (Data) -> Void, onCancel: @escaping () -> Void) {
-            self.isPresented = isPresented
-            self.onData = onData
-            self.onCancel = onCancel
-        }
-
-        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-            isPresented.wrappedValue = false
-            guard let url = urls.first else { return }
-            do {
-                let data = try Data(contentsOf: url)
-                try? FileManager.default.removeItem(at: url)
-                onData(data)
-            } catch {
-                try? FileManager.default.removeItem(at: url)
-            }
-        }
-
-        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
-            isPresented.wrappedValue = false
-            onCancel()
-        }
     }
 }
 

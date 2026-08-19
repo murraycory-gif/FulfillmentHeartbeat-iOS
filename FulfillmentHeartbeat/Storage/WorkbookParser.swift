@@ -1198,9 +1198,10 @@ private final class SheetXMLDelegate: NSObject, XMLParserDelegate {
         didStartElement elementName: String,
         namespaceURI: String?,
         qualifiedName qName: String?,
-        attributes attributeDict: [String: String] = [:]
+        attributes attributeDict: [String: String]
     ) {
-        switch elementName {
+        let name = elementName.split(separator: ":").last.map(String.init) ?? elementName
+        switch name {
         case "row":
             currentRow = []
         case "c":
@@ -1226,7 +1227,8 @@ private final class SheetXMLDelegate: NSObject, XMLParserDelegate {
         namespaceURI: String?,
         qualifiedName qName: String?
     ) {
-        switch elementName {
+        let name = elementName.split(separator: ":").last.map(String.init) ?? elementName
+        switch name {
         case "v", "t":
             capture = false
         case "c":
@@ -1272,16 +1274,10 @@ enum SheetXML {
         parser.delegate = delegate
         parser.shouldProcessNamespaces = false
         parser.shouldResolveExternalEntities = false
-        parser.parse()
-        if delegate.rows.count >= 2 { return delegate.rows }
-        return scanFallback(data: data, strings: strings)
-    }
-
-    private static func scanFallback(data: Data, strings: [String]) -> [[String]] {
-        data.withUnsafeBytes { raw -> [[String]] in
-            guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return [] }
-            return scan(base, count: raw.count, strings: strings)
+        withExtendedLifetime(delegate) {
+            _ = parser.parse()
         }
+        return delegate.rows
     }
 
     private static func scan(_ base: UnsafePointer<UInt8>, count: Int, strings: [String]) -> [[String]] {
