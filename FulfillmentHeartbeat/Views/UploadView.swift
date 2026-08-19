@@ -106,14 +106,28 @@ struct UploadView: View {
     private func handleImport(_ result: Result<[URL], Error>) {
         let section = importTarget
         importTarget = nil
-        showImporter = false
-        guard let section else { return }
         switch result {
         case .success(let urls):
-            if let url = urls.first {
-                store.importWorkbook(url: url, section: section)
+            guard let section, let url = urls.first else {
+                showImporter = false
+                return
+            }
+            let accessed = url.startAccessingSecurityScopedResource()
+            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+            do {
+                let data = try Data(contentsOf: url)
+                let filename = url.lastPathComponent
+                showImporter = false
+                Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 450_000_000)
+                    store.importWorkbook(data: data, filename: filename, section: section)
+                }
+            } catch {
+                showImporter = false
+                store.errorMessage = error.localizedDescription
             }
         case .failure(let error):
+            showImporter = false
             store.errorMessage = error.localizedDescription
         }
     }

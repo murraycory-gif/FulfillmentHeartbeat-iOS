@@ -285,6 +285,9 @@ enum WorkbookParser {
     ]
 
     private static func rows(from matrix: [[String]]) -> [ParsedWorkbookRow] {
+        if let prep = parsePrepHours(matrix), !prep.isEmpty {
+            return prep
+        }
         if let pickers = parsePickerWide(matrix), !pickers.isEmpty {
             return pickers
         }
@@ -309,6 +312,81 @@ enum WorkbookParser {
         if trimmed.isEmpty || isTotalCell(trimmed) { return nil }
         if trimmed.lowercased().hasPrefix("applied filters") { return nil }
         return trimmed
+    }
+
+    /// DATE banner + DIVISION / District / OM / Store + Net Prep Not Ready Hours % Total.
+    private static func parsePrepHours(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {
+        guard let headerIndex = matrix.firstIndex(where: { row in
+            let names = row.map(normHeader)
+            let hasStore = names.contains(where: { storeKeys.contains($0) || $0 == "store" })
+            let hasPNR = names.contains(where: { $0.contains("prepnotready") || $0.contains("pnrhour") || $0.contains("pnrrate") })
+            return hasStore && hasPNR
+        }) else { return nil }
+
+        let header = matrix[headerIndex].map(normHeader)
+        let storeIdx = header.firstIndex { storeKeys.contains($0) || $0 == "store" }
+        let divIdx = header.firstIndex { divisionKeys.contains($0) }
+        let distIdx = header.firstIndex { districtKeys.contains($0) }
+        let omIdx = header.firstIndex { omKeys.contains($0) }
+        guard let storeIdx else { return nil }
+
+        let weekRow = headerIndex > 0 ? matrix[headerIndex - 1] : []
+        var totalIdx: Int?
+        for (index, cell) in weekRow.enumerated() where isTotalCell(cell) {
+            totalIdx = index
+        }
+        if totalIdx == nil {
+            totalIdx = header.indices.last { index in
+                header[index].contains("prepnotready") || header[index].contains("pnr")
+            }
+        }
+        guard let totalIdx else { return nil }
+
+        var recordedOn: String?
+        for cell in weekRow {
+            if let date = isoDate(cell) { recordedOn = date }
+        }
+
+        var carryDiv = ""
+        var carryDist = ""
+        var carryOM = ""
+        var out: [ParsedWorkbookRow] = []
+        out.reserveCapacity(max(0, matrix.count - headerIndex))
+
+        for line in matrix.dropFirst(headerIndex + 1) {
+            func cell(_ index: Int?) -> String {
+                guard let index, index < line.count else { return "" }
+                return line[index]
+            }
+            if let value = usableValue(cell(divIdx)) { carryDiv = value }
+            if let value = usableValue(cell(distIdx)) { carryDist = value }
+            if let value = usableValue(cell(omIdx)) { carryOM = value }
+
+            let storeRaw = cell(storeIdx).trimmingCharacters(in: .whitespacesAndNewlines)
+            if storeRaw.lowercased().hasPrefix("applied") { continue }
+            guard looksLikeStoreNumber(storeRaw) else { continue }
+            let raw = totalIdx < line.count ? line[totalIdx] : ""
+            guard let value = cellNumber(raw) else { continue }
+
+            var payload: [String: Double] = [:]
+            applyMetric(&payload, header: "pnr_rate_pct", value: value)
+            guard payload["pnr_rate_pct"] != nil else { continue }
+
+            var text: [String: String] = [:]
+            if !carryDist.isEmpty { text["district"] = carryDist }
+            out.append(
+                ParsedWorkbookRow(
+                    division: carryDiv,
+                    operationsOM: carryOM,
+                    storeNumber: HeartbeatMath.canonicalStore(storeRaw),
+                    storeName: nil,
+                    recordedOn: recordedOn,
+                    payload: payload,
+                    textPayload: text
+                )
+            )
+        }
+        return out.isEmpty ? nil : out
     }
 
     /// Weekly picker scorecard: STORE + PICKER, date blocks across the top, Total block last.
@@ -777,6 +855,7 @@ enum WorkbookParser {
         }
         if key == "over_scheduled" { key = "over_schedule_pct" }
         if key == "under_scheduled" { key = "under_schedule_pct" }
+        guard !key.isEmpty else { return }
         payload[key] = number
         if key == "orders" {
             payload["picks_total"] = number
@@ -1155,14 +1234,11 @@ enum SheetXML {
             if inRow, !closing, nameEquals(name, "c") {
                 let parsed = readCell(base, count, &i, strings: strings)
                 let column = columnIndex(parsed.ref)
-                if column >= 0 {
-                    if cells.count <= column {
-                        cells.append(contentsOf: repeatElement("", count: column - cells.count + 1))
-                    }
-                    cells[column] = parsed.value
-                } else {
-                    cells.append(parsed.value)
+                guard column >= 0, column < 64 else { continue }
+                if cells.count <= column {
+                    cells.append(contentsOf: repeatElement("", count: column - cells.count + 1))
                 }
+                cells[column] = parsed.value
                 continue
             }
 
@@ -1404,8 +1480,8 @@ final class ZipArchive {
             let payload = Data(bytes[dataStart..<(dataStart + max(compSize, 0))])
             if method == 0 {
                 files[name] = payload
-            } else if method == 8 {
-                files[name] = inflate(payload, uncompressedSize: uncompSize)
+            } else if method == 8, let inflated = inflate(payload, uncompressedSize: uncompSize) {
+                files[name] = inflated
             }
             offset = dataStart + compSize
             if flags & 0x08 != 0 {
