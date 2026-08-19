@@ -75,6 +75,8 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         switch self {
         case .pickerScorecard:
             return URL(string: "https://app.powerbi.com/groups/me/apps/d973ff03-651f-4e52-9e7a-8e5bff14b5e6/reports/7c59791f-78af-4257-8dde-c4f16b2017f0/9c54590ee447c7f3310b?experience=power-bi")
+        case .pickPath:
+            return URL(string: "https://app.powerbi.com/groups/b49dfeed-3984-42bf-82ef-d591fb235e2a/reports/b6400525-ba91-4f3d-bfba-3338a0b52fa7/ReportSection73f793f7ab37dd823bd7?experience=power-bi")
         default:
             return nil
         }
