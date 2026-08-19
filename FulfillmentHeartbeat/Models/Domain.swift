@@ -45,7 +45,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .pickPathPicker: return "Picker-level path compliance. Upload the EMPLOYEE_ALTERNATE_ID WEEK_ID export. Pickers show under each store on Pick Path."
         case .prepNotReady: return "Share of pick hours lost to prep not ready. Upload the weekly Hours % export."
         case .dynacap: return "Pieces per hour we allow down to the picker. Upload the Overall Capacity Summary."
-        case .scheduleQuality: return "How tightly the labor plan matches the work. Upload Optimized Departments."
+        case .scheduleQuality: return "How tightly the labor plan matches the work. Upload Optimized Departments Week Store."
         case .pph: return "Pure picks completed per labor hour. Upload the DATE / STORE Total export."
         case .pickerScorecard: return "Shopper-level totals for PPH, Presubs, OOS, pick hours, subs, orders, DUG, OTH eligibility, OTH5, OTT, and refunds."
         }
@@ -1482,6 +1482,15 @@ struct StoreCellViewModel {
             )
         }
     }
+}
+
+enum ScheduleFocus: String, CaseIterable, Identifiable {
+    case all
+    case atGoal
+    case underRisk
+    case overRisk
+
+    var id: String { rawValue }
 }
 
 enum PPHFocus: String, CaseIterable, Identifiable {

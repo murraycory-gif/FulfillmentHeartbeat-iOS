@@ -7,6 +7,7 @@ struct SectionDetailView: View {
     @State private var pickPathFocus: PickPathFocus = .all
     @State private var dynacapFocus: DynacapFocus = .all
     @State private var pphFocus: PPHFocus = .all
+    @State private var scheduleFocus: ScheduleFocus = .all
 
     private var summary: SectionSummary { store.summary(for: section) }
     private var snapshots: [MetricRow] { store.displayRows(for: section) }
@@ -103,6 +104,8 @@ struct SectionDetailView: View {
                 DynacapTable(rows: dynacapRows)
             } else if section == .pph {
                 PPHTable(rows: pphRows)
+            } else if section == .scheduleQuality {
+                ScheduleTable(rows: scheduleRows)
             } else {
                 StoreTable(section: section, rows: snapshots)
             }
@@ -178,6 +181,20 @@ struct SectionDetailView: View {
             return snapshots.filter { ($0.number("compliance_pct") ?? 0) >= HeartbeatMath.pickPathGoal }
         case .below80:
             return snapshots.filter { ($0.number("compliance_pct") ?? .greatestFiniteMagnitude) < HeartbeatMath.pickPathRisk }
+        }
+    }
+
+    private var scheduleRows: [MetricRow] {
+        let scored = snapshots.filter { $0.number("schedule_efficiency_pct") != nil }
+        switch scheduleFocus {
+        case .all:
+            return scored
+        case .atGoal:
+            return scored.filter { ($0.number("schedule_efficiency_pct") ?? 0) >= HeartbeatMath.scheduleGoal }
+        case .underRisk:
+            return scored.filter { ($0.number("under_schedule_pct", "under_scheduled") ?? 0) > HeartbeatMath.scheduleVarianceWatch }
+        case .overRisk:
+            return scored.filter { ($0.number("over_schedule_pct", "over_scheduled") ?? 0) > HeartbeatMath.scheduleVarianceWatch }
         }
     }
 
@@ -277,13 +294,19 @@ struct SectionDetailView: View {
         let atGoal = rows.filter { ($0.number("schedule_efficiency_pct") ?? 0) >= HeartbeatMath.scheduleGoal }.count
         let underRisk = rows.filter { ($0.number("under_schedule_pct", "under_scheduled") ?? 0) > HeartbeatMath.scheduleVarianceWatch }.count
         let overRisk = rows.filter { ($0.number("over_schedule_pct", "over_scheduled") ?? 0) > HeartbeatMath.scheduleVarianceWatch }.count
-        let zeroUnder = rows.filter { ($0.number("under_schedule_pct", "under_scheduled") ?? 0) <= 0.05 }.count
-        callout("Avg efficiency", summary.headlineText, "90% goal · zero over / under", summary.health)
+        callout("Avg efficiency", summary.headlineText, "90% goal · zero over / under", summary.health, selected: scheduleFocus == .all) {
+            scheduleFocus = .all
+        }
         callout("Goal", "90%", "Target schedule efficiency", .none, brand: true)
-        callout("At goal", HeartbeatFormat.num(Double(atGoal)), "Stores at 90%+", .good)
-        callout("Under risk", HeartbeatFormat.num(Double(underRisk)), "Underscheduled over 5%", underRisk == 0 ? .good : .risk)
-        callout("Over risk", HeartbeatFormat.num(Double(overRisk)), "Overscheduled over 5%", overRisk == 0 ? .good : .risk)
-        callout("Zero under", HeartbeatFormat.num(Double(zeroUnder)), "Healthy underschedule", .good)
+        callout("At goal", HeartbeatFormat.num(Double(atGoal)), "Stores at 90%+", .good, selected: scheduleFocus == .atGoal) {
+            scheduleFocus = .atGoal
+        }
+        callout("Under risk", HeartbeatFormat.num(Double(underRisk)), "Underscheduled over 5%", underRisk == 0 ? .good : .risk, selected: scheduleFocus == .underRisk) {
+            scheduleFocus = .underRisk
+        }
+        callout("Over risk", HeartbeatFormat.num(Double(overRisk)), "Overscheduled over 5%", overRisk == 0 ? .good : .risk, selected: scheduleFocus == .overRisk) {
+            scheduleFocus = .overRisk
+        }
     }
 
     @ViewBuilder
