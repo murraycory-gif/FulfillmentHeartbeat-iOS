@@ -762,7 +762,14 @@ enum HeartbeatMath {
     }
 
     static func pickerHasVolume(_ row: MetricRow) -> Bool {
-        (row.number("pick_hours") ?? 0) >= 1 || (row.number("orders") ?? 0) >= 5
+        (row.number("orders") ?? 0) > 15
+    }
+
+    static func refundHealth(_ row: MetricRow) -> Health {
+        guard let amount = row.number("refund_amt") else { return .none }
+        if amount <= 0 { return .good }
+        if amount <= 20 { return .watch }
+        return .risk
     }
 
     static func isRealPicker(_ row: MetricRow) -> Bool {
@@ -796,6 +803,8 @@ enum HeartbeatMath {
             return row.number("pph") != nil && pphHealth(row) != .good
         case .oos:
             return row.number("oos_pct") != nil && oosStar(row).health != .good
+        case .refund:
+            return row.number("refund_amt") != nil && refundHealth(row) != .good && refundHealth(row) != .none
         }
     }
 
@@ -821,6 +830,9 @@ enum HeartbeatMath {
         }
         if row.number("oth_elig_pct") != nil {
             flags.append(("OTH Elig", othEligStar(row).health))
+        }
+        if row.number("refund_amt") != nil {
+            flags.append(("Refund", refundHealth(row)))
         }
         if flags.isEmpty, row.number("compliance_pct") != nil {
             flags.append(("Path", band(row.number("compliance_pct"), good: pickPathGoal, watch: pickPathRisk)))
@@ -869,7 +881,7 @@ enum HeartbeatMath {
             items.append(("DUG", HeartbeatFormat.num(row.number("dug_orders")), .none))
         }
         if row.number("refund_amt") != nil {
-            items.append(("Refund", HeartbeatFormat.money(row.number("refund_amt")), .none))
+            items.append(("Refund", HeartbeatFormat.money(row.number("refund_amt")), refundHealth(row)))
         }
         return items
     }
@@ -934,13 +946,16 @@ enum HeartbeatMath {
             guard pickerHasVolume(row) else { continue }
             let health = pickerHealth(row)
             guard health != .none else { continue }
-            let score = pickerComposite(row)
             if health == .good {
+                let score = (row.number("orders") ?? 0) * pickerComposite(row)
                 strongCount += 1
                 keepTop(&strong, score: score, row: row, limit: limit, lowest: false)
             } else {
+                let gap = max(0, 1 - pickerComposite(row))
+                let refundBump = (row.number("refund_amt") ?? 0) > 20 ? 0.25 : 0
+                let score = (row.number("orders") ?? 0) * (gap + refundBump)
                 opportunityCount += 1
-                keepTop(&opportunity, score: score, row: row, limit: limit, lowest: true)
+                keepTop(&opportunity, score: score, row: row, limit: limit, lowest: false)
             }
         }
         return PickerBoard(
@@ -1414,6 +1429,7 @@ enum PickerFocus: String, CaseIterable, Identifiable {
     case coe
     case pph
     case oos
+    case refund
 
     var id: String { rawValue }
 
@@ -1428,6 +1444,7 @@ enum PickerFocus: String, CaseIterable, Identifiable {
         case .coe: return "COE"
         case .pph: return "PPH"
         case .oos: return "OOS"
+        case .refund: return "Refund"
         }
     }
 }

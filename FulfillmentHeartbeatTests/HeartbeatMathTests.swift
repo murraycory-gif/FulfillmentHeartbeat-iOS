@@ -156,4 +156,25 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(store.checklistEmailHTML().contains("viewport"))
         XCTAssertTrue(store.checklistEmailSubject().contains("Fulfillment Checklist"))
     }
+
+    func testPickerVolumeRequiresMoreThanFifteenOrders() {
+        let low = MetricRow(section: .pickerScorecard, division: "10", operationsOM: "A", storeNumber: "12", payload: ["orders": 15, "pph": 40], textPayload: ["shopper_id": "LOW15", "shopper_name": "LOW15"])
+        let high = MetricRow(section: .pickerScorecard, division: "10", operationsOM: "A", storeNumber: "12", payload: ["orders": 16, "pph": 40], textPayload: ["shopper_id": "HIGH16", "shopper_name": "HIGH16"])
+        XCTAssertFalse(HeartbeatMath.pickerHasVolume(low))
+        XCTAssertTrue(HeartbeatMath.pickerHasVolume(high))
+        XCTAssertFalse(HeartbeatMath.pickerMatches(low, focus: .opportunity))
+        XCTAssertTrue(HeartbeatMath.pickerMatches(high, focus: .opportunity))
+    }
+
+    func testRefundBands() {
+        func row(_ amount: Double) -> MetricRow {
+            MetricRow(section: .pickerScorecard, division: "10", operationsOM: "A", storeNumber: "12", payload: ["refund_amt": amount], textPayload: ["shopper_id": "R", "shopper_name": "REFUND"])
+        }
+        XCTAssertEqual(HeartbeatMath.refundHealth(row(0)), .good)
+        XCTAssertEqual(HeartbeatMath.refundHealth(row(1)), .watch)
+        XCTAssertEqual(HeartbeatMath.refundHealth(row(20)), .watch)
+        XCTAssertEqual(HeartbeatMath.refundHealth(row(20.01)), .risk)
+        XCTAssertTrue(HeartbeatMath.pickerMatches(row(25), focus: .refund))
+        XCTAssertFalse(HeartbeatMath.pickerMatches(row(0), focus: .refund))
+    }
 }

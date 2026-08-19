@@ -233,7 +233,7 @@ struct MainHubView: View {
             UploadView().hubChrome(showBack: true)
         case .fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pph, .pickerScorecard:
             if let section = dest.section {
-                SectionDetailView(section: section).hubChrome(showBack: true)
+                SectionDetailView(section: section).hubChrome(showBack: true, showsFilters: true)
             }
         }
     }

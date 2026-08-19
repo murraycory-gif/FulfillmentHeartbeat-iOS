@@ -221,6 +221,11 @@ final class HeartbeatStore: ObservableObject {
                 buckets[.oos]?.append(index)
                 note(.oos, oos)
             }
+            let refund = HeartbeatMath.refundHealth(row)
+            if row.number("refund_amt") != nil, refund == .watch || refund == .risk {
+                buckets[.refund]?.append(index)
+                note(.refund, refund)
+            }
         }
 
         func byNumber(_ key: String, invert: Bool) -> (Int, Int) -> Bool {
@@ -235,13 +240,25 @@ final class HeartbeatStore: ObservableObject {
         }
 
         buckets[.all]?.sort(by: byNumber("pph", invert: false))
-        buckets[.opportunity]?.sort(by: byNumber("pph", invert: false))
-        buckets[.strong]?.sort(by: byNumber("pph", invert: true))
+        buckets[.opportunity]?.sort { lhs, rhs in
+            let a = pickers[lhs].number("orders") ?? 0
+            let b = pickers[rhs].number("orders") ?? 0
+            if a != b { return a > b }
+            return (pickers[lhs].number("pph") ?? 9_999) < (pickers[rhs].number("pph") ?? 9_999)
+        }
+        buckets[.strong]?.sort { lhs, rhs in
+            let a = pickers[lhs].number("orders") ?? 0
+            let b = pickers[rhs].number("orders") ?? 0
+            if a != b { return a > b }
+            return (pickers[lhs].number("pph") ?? 0) > (pickers[rhs].number("pph") ?? 0)
+        }
         buckets[.pph]?.sort(by: byNumber("pph", invert: false))
         buckets[.presub]?.sort(by: byNumber("presub_pct", invert: true))
         buckets[.oth]?.sort(by: byNumber("oth5_pct", invert: false))
         buckets[.coe]?.sort(by: byNumber("coe_pct", invert: false))
         buckets[.ott]?.sort(by: byNumber("ott_pct", invert: false))
+        buckets[.oos]?.sort(by: byNumber("oos_pct", invert: true))
+        buckets[.refund]?.sort(by: byNumber("refund_amt", invert: true))
 
         pickerIndex = buckets
         pickerFocusHealth = worst

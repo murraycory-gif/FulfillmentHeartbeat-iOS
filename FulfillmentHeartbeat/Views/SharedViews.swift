@@ -900,14 +900,24 @@ struct PickerShopperCard: View {
         let health = HeartbeatMath.pickerHealth(row)
         let metrics = HeartbeatMath.pickerMetricReadout(row)
         return VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(row.shopperName)
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(AppTheme.text)
+                if !row.storeNumber.isEmpty {
+                    Text("|")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(AppTheme.textTertiary)
+                    Text("Store \(row.storeNumber)")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(AppTheme.textSecondary)
+                }
                 Spacer()
-                Text(place)
-                    .font(.subheadline)
-                    .foregroundStyle(AppTheme.textSecondary)
+                if !place.isEmpty, place != row.storeNumber {
+                    Text(place)
+                        .font(.subheadline)
+                        .foregroundStyle(AppTheme.textSecondary)
+                }
             }
             LazyVGrid(columns: [GridItem(.adaptive(minimum: 78), spacing: 8)], spacing: 8) {
                 ForEach(metrics, id: \.name) { metric in
@@ -1061,9 +1071,7 @@ struct PickerScoreTable: View {
 
     private func place(for row: MetricRow) -> String {
         let division = row.division.isEmpty ? store.identity(forStore: row.storeNumber).division : row.division
-        if row.storeNumber.isEmpty { return division.isEmpty ? "—" : division }
-        if division.isEmpty { return row.storeNumber }
-        return "\(row.storeNumber) · \(division)"
+        return division
     }
 }
 

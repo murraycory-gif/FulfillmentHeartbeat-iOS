@@ -27,8 +27,6 @@ struct SectionDetailView: View {
                             .foregroundStyle(AppTheme.textSecondary)
                     }
 
-                    FilterBar()
-
                     if missingInFile {
                         HStack(alignment: .top, spacing: 10) {
                             Image(systemName: "info.circle.fill")
@@ -42,7 +40,10 @@ struct SectionDetailView: View {
                         .background(AppTheme.blueSoft, in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous))
                     }
 
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 160), spacing: 12)], spacing: 12) {
+                    LazyVGrid(
+                        columns: [GridItem(.adaptive(minimum: section == .pickerScorecard ? 210 : 160), spacing: 14)],
+                        spacing: 14
+                    ) {
                         if section == .pph {
                             pphStatusTiles
                         } else if section == .pickPath {
@@ -259,25 +260,37 @@ struct SectionDetailView: View {
 
     @ViewBuilder
     private var pickerStatusTiles: some View {
-        pickerTile(.all, tone: .brand)
-        pickerTile(.opportunity, tone: store.pickerCount(for: .opportunity) == 0 ? .good : .risk)
-        pickerTile(.strong, tone: .good)
-        pickerTile(.ott, tone: tone(for: falloutHealth(.ott)))
-        pickerTile(.presub, tone: tone(for: falloutHealth(.presub)))
-        pickerTile(.oos, tone: tone(for: falloutHealth(.oos)))
-        pickerTile(.oth, tone: tone(for: falloutHealth(.oth)))
-        pickerTile(.coe, tone: tone(for: falloutHealth(.coe)))
-        pickerTile(.pph, tone: tone(for: falloutHealth(.pph)))
+        pickerTile(.all, health: .none)
+        pickerTile(.opportunity, health: store.pickerCount(for: .opportunity) == 0 ? .good : .risk)
+        pickerTile(.strong, health: .good)
+        pickerTile(.pph, health: falloutHealth(.pph))
+        pickerTile(.presub, health: falloutHealth(.presub))
+        pickerTile(.oos, health: falloutHealth(.oos))
+        pickerTile(.ott, health: falloutHealth(.ott))
+        pickerTile(.oth, health: falloutHealth(.oth))
+        pickerTile(.coe, health: falloutHealth(.coe))
+        pickerTile(.refund, health: falloutHealth(.refund))
     }
 
-    private func pickerTile(_ focus: PickerFocus, tone: KpiTile.Tone) -> some View {
-        KpiTile(
-            label: focus.title,
+    private func pickerTile(_ focus: PickerFocus, health: Health) -> some View {
+        PickerFocusTile(
+            title: focus.title,
             value: HeartbeatFormat.num(Double(store.pickerCount(for: focus))),
-            tone: tone,
+            detail: pickerTileDetail(focus),
+            health: health,
             selected: pickerFocus == focus,
             action: { pickerFocus = focus }
         )
+    }
+
+    private func pickerTileDetail(_ focus: PickerFocus) -> String {
+        switch focus {
+        case .all: return "Every shopper in this filter"
+        case .opportunity: return "15+ orders · underperforming"
+        case .strong: return "15+ orders · hitting the mix"
+        case .refund: return "$0 healthy · $1–20 watch · $20+ risk"
+        default: return "Below goal in this metric"
+        }
     }
 
     private func falloutHealth(_ focus: PickerFocus) -> Health {
@@ -291,6 +304,90 @@ struct SectionDetailView: View {
         case .watch: return .watch
         case .risk: return .risk
         case .none: return .plain
+        }
+    }
+}
+
+struct PickerFocusTile: View {
+    let title: String
+    let value: String
+    let detail: String
+    let health: Health
+    let selected: Bool
+    let action: () -> Void
+    @State private var pulseOn = false
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top) {
+                    Text(title)
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(AppTheme.text)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                    Spacer(minLength: 8)
+                    if health != .none {
+                        HealthBadge(health: health, prominent: true)
+                    }
+                }
+                Text(value)
+                    .font(.system(size: 34, weight: .semibold, design: .rounded).monospacedDigit())
+                    .foregroundStyle(ink)
+                Text(detail)
+                    .font(.subheadline)
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                    .fill(fill)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                    .stroke(stroke, lineWidth: selected || shouldPulse ? 2.4 : 1)
+                    .opacity(shouldPulse && !selected ? (pulseOn ? 1 : 0.22) : 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .onAppear {
+            guard shouldPulse else { return }
+            pulseOn = false
+            withAnimation(.easeInOut(duration: 1.05).repeatForever(autoreverses: true)) {
+                pulseOn = true
+            }
+        }
+    }
+
+    private var shouldPulse: Bool { health == .risk || health == .watch }
+
+    private var fill: Color {
+        switch health {
+        case .good: return AppTheme.okSoft
+        case .watch: return AppTheme.warnSoft
+        case .risk: return AppTheme.badSoft
+        case .none: return selected ? AppTheme.blueSoft : AppTheme.card
+        }
+    }
+
+    private var stroke: Color {
+        if selected { return AppTheme.blue }
+        switch health {
+        case .good: return AppTheme.ok.opacity(0.28)
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.cardBorder
+        }
+    }
+
+    private var ink: Color {
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.blue
         }
     }
 }

@@ -235,7 +235,7 @@ struct PickerHighlightsPanel: View {
                     HStack(alignment: .top, spacing: 16) {
                         shopperColumn(
                             title: "Top opportunity",
-                            subtitle: "Underperforming vs the metric mix",
+                            subtitle: "15+ orders · underperforming vs the metric mix",
                             rows: board.opportunity,
                             empty: "No opportunity shoppers in this filter.",
                             tone: .risk,
@@ -243,7 +243,7 @@ struct PickerHighlightsPanel: View {
                         )
                         shopperColumn(
                             title: "Doing well",
-                            subtitle: "Hitting the metric mix",
+                            subtitle: "15+ orders · hitting the metric mix",
                             rows: board.strong,
                             empty: "No strong shoppers in this filter.",
                             tone: .good,
@@ -290,7 +290,7 @@ struct PickerHighlightsPanel: View {
             } else {
                 ForEach(rows) { row in
                     Button(action: action) {
-                        PickerShopperCard(row: row, place: "\(row.storeNumber) · \(divisionLabel(for: row))")
+                        PickerShopperCard(row: row, place: divisionLabel(for: row))
                     }
                     .buttonStyle(.plain)
                     if row.id != rows.last?.id {
