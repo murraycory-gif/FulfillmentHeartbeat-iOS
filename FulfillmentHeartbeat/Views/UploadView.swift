@@ -12,22 +12,12 @@ struct UploadView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Upload workbooks")
-                            .font(.largeTitle.weight(.semibold))
-                        Text("One Excel file for each section. That file replaces the matching card on the dashboard.")
-                            .font(.subheadline)
-                            .foregroundStyle(AppTheme.textSecondary)
-                    }
-                    Spacer()
-                    Button {
-                        store.loadSampleMarket()
-                    } label: {
-                        Label("Load sample market", systemImage: "sparkles")
-                    }
-                    .buttonStyle(SecondaryButtonStyle())
-                    .disabled(store.isImporting)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Upload workbooks")
+                        .font(.largeTitle.weight(.semibold))
+                    Text("One Excel file for each section. That file replaces the matching card on the dashboard.")
+                        .font(.subheadline)
+                        .foregroundStyle(AppTheme.textSecondary)
                 }
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 16)], spacing: 16) {
