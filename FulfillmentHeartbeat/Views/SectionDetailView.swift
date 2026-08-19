@@ -4,6 +4,7 @@ struct SectionDetailView: View {
     @EnvironmentObject private var store: HeartbeatStore
     let section: MetricSection
     @State private var pickerFocus: PickerFocus = .all
+    @State private var pickPathFocus: PickPathFocus = .all
 
     private var summary: SectionSummary { store.summary(for: section) }
     private var snapshots: [MetricRow] { store.displayRows(for: section) }
@@ -94,6 +95,8 @@ struct SectionDetailView: View {
                     .listRowBackground(AppTheme.bg)
                 }
                 PickerScoreTable(focus: pickerFocus)
+            } else if section == .pickPath {
+                PickPathTable(rows: pickPathRows)
             } else {
                 StoreTable(section: section, rows: snapshots)
             }
@@ -161,6 +164,17 @@ struct SectionDetailView: View {
         }
     }
 
+    private var pickPathRows: [MetricRow] {
+        switch pickPathFocus {
+        case .all:
+            return snapshots
+        case .atGoal:
+            return snapshots.filter { ($0.number("compliance_pct") ?? 0) >= HeartbeatMath.pickPathGoal }
+        case .below80:
+            return snapshots.filter { ($0.number("compliance_pct") ?? .greatestFiniteMagnitude) < HeartbeatMath.pickPathRisk }
+        }
+    }
+
     @ViewBuilder
     private var pphStatusTiles: some View {
         let rows = snapshots
@@ -192,10 +206,16 @@ struct SectionDetailView: View {
         let rows = snapshots
         let atGoal = rows.filter { ($0.number("compliance_pct") ?? 0) >= HeartbeatMath.pickPathGoal }.count
         let atRisk = rows.filter { ($0.number("compliance_pct") ?? .greatestFiniteMagnitude) < HeartbeatMath.pickPathRisk }.count
-        callout("Avg compliance", summary.headlineText, "90% goal · under 80% at risk", summary.health)
+        callout("Avg compliance", summary.headlineText, "90% goal · under 80% at risk", summary.health, selected: pickPathFocus == .all) {
+            pickPathFocus = .all
+        }
         callout("Goal", "90%", "Target for every store", .none, brand: true)
-        callout("At goal", HeartbeatFormat.num(Double(atGoal)), "Stores at 90%+", .good)
-        callout("Below 80%", HeartbeatFormat.num(Double(atRisk)), "At risk stores", atRisk == 0 ? .good : .risk)
+        callout("At goal", HeartbeatFormat.num(Double(atGoal)), "Stores at 90%+", .good, selected: pickPathFocus == .atGoal) {
+            pickPathFocus = .atGoal
+        }
+        callout("Below 80%", HeartbeatFormat.num(Double(atRisk)), "At risk stores", atRisk == 0 ? .good : .risk, selected: pickPathFocus == .below80) {
+            pickPathFocus = .below80
+        }
     }
 
     @ViewBuilder
@@ -279,8 +299,16 @@ struct SectionDetailView: View {
         )
     }
 
-    private func callout(_ title: String, _ value: String, _ detail: String, _ health: Health, brand: Bool = false) -> some View {
-        PickerFocusTile(title: title, value: value, detail: detail, health: health, brand: brand)
+    private func callout(
+        _ title: String,
+        _ value: String,
+        _ detail: String,
+        _ health: Health,
+        brand: Bool = false,
+        selected: Bool = false,
+        action: (() -> Void)? = nil
+    ) -> some View {
+        PickerFocusTile(title: title, value: value, detail: detail, health: health, selected: selected, brand: brand, action: action)
     }
 
     private func pickerTileDetail(_ focus: PickerFocus) -> String {

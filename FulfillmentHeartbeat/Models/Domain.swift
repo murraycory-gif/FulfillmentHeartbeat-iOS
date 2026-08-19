@@ -1461,6 +1461,14 @@ struct StoreCellViewModel {
     }
 }
 
+enum PickPathFocus: String, CaseIterable, Identifiable {
+    case all
+    case atGoal
+    case below80
+
+    var id: String { rawValue }
+}
+
 enum PickerFocus: String, CaseIterable, Identifiable {
     case all
     case opportunity
