@@ -14,7 +14,7 @@ struct SectionDetailView: View {
     var body: some View {
         List {
             Section {
-                VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 14) {
                     VStack(alignment: .leading, spacing: 4) {
                         if section == .pickerScorecard {
                             PickerScoreCardTitle(font: .largeTitle.weight(.semibold))
@@ -78,7 +78,7 @@ struct SectionDetailView: View {
                         }
                     }
                 }
-                .listRowInsets(EdgeInsets(top: 20, leading: 20, bottom: 8, trailing: 20))
+                .listRowInsets(EdgeInsets(top: 16, leading: 20, bottom: 4, trailing: 20))
                 .listRowSeparator(.hidden)
                 .listRowBackground(AppTheme.bg)
             }
@@ -192,14 +192,10 @@ struct SectionDetailView: View {
         let rows = snapshots
         let atGoal = rows.filter { ($0.number("compliance_pct") ?? 0) >= HeartbeatMath.pickPathGoal }.count
         let atRisk = rows.filter { ($0.number("compliance_pct") ?? .greatestFiniteMagnitude) < HeartbeatMath.pickPathRisk }.count
-        let orders = rows.reduce(0) { $0 + ($1.number("orders") ?? $1.number("picks_total") ?? 0) }
-        let week = rows.compactMap(\.recordedOn).sorted().last ?? "—"
         callout("Avg compliance", summary.headlineText, "90% goal · under 80% at risk", summary.health)
         callout("Goal", "90%", "Target for every store", .none, brand: true)
         callout("At goal", HeartbeatFormat.num(Double(atGoal)), "Stores at 90%+", .good)
         callout("Below 80%", HeartbeatFormat.num(Double(atRisk)), "At risk stores", atRisk == 0 ? .good : .risk)
-        callout("Orders", HeartbeatFormat.num(orders), "Total orders in this filter", .none)
-        callout("Week", week, "Latest week in this file", .none)
     }
 
     @ViewBuilder
