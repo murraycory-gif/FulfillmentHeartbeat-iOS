@@ -5,7 +5,7 @@ struct SectionDetailView: View {
     let section: MetricSection
     @State private var pickerFocus: PickerFocus = .all
     @State private var pickPathFocus: PickPathFocus = .all
-    @State private var dynacapFocus: DynacapFocus = .all
+    @State private var pphFocus: PPHFocus = .all
 
     private var summary: SectionSummary { store.summary(for: section) }
     private var snapshots: [MetricRow] { store.displayRows(for: section) }
@@ -100,6 +100,8 @@ struct SectionDetailView: View {
                 PickPathTable(rows: pickPathRows)
             } else if section == .dynacap {
                 DynacapTable(rows: dynacapRows)
+            } else if section == .pph {
+                PPHTable(rows: pphRows)
             } else {
                 StoreTable(section: section, rows: snapshots)
             }
@@ -178,6 +180,18 @@ struct SectionDetailView: View {
         }
     }
 
+    private var pphRows: [MetricRow] {
+        let scored = snapshots.filter { $0.number("pph") != nil }
+        switch pphFocus {
+        case .all:
+            return scored
+        case .atGoal:
+            return scored.filter { ($0.number("pph") ?? 0) >= HeartbeatMath.pphGoal }
+        case .below74:
+            return scored.filter { ($0.number("pph") ?? .greatestFiniteMagnitude) < HeartbeatMath.pphRisk }
+        }
+    }
+
     private var dynacapRows: [MetricRow] {
         let scored = snapshots.filter { $0.number("dynacap_rate", "pieces_per_hour") != nil }
         switch dynacapFocus {
@@ -195,12 +209,16 @@ struct SectionDetailView: View {
         let rows = snapshots
         let atGoal = rows.filter { ($0.number("pph") ?? 0) >= HeartbeatMath.pphGoal }.count
         let atRisk = rows.filter { ($0.number("pph") ?? .greatestFiniteMagnitude) < HeartbeatMath.pphRisk }.count
-        let week = rows.compactMap(\.recordedOn).sorted().last ?? "—"
-        callout("Avg pure PPH", summary.headlineText, "Goal 80 · watch under 74", summary.health)
+        callout("Avg pure PPH", summary.headlineText, "Goal 80 · watch under 74", summary.health, selected: pphFocus == .all) {
+            pphFocus = .all
+        }
         callout("Goal", "80.0", "Target pure PPH", .none, brand: true)
-        callout("At goal", HeartbeatFormat.num(Double(atGoal)), "Stores at 80+", .good)
-        callout("Below 74", HeartbeatFormat.num(Double(atRisk)), "At risk stores", atRisk == 0 ? .good : .risk)
-        callout("Week", week, "Latest week in this file", .none)
+        callout("At goal", HeartbeatFormat.num(Double(atGoal)), "Stores at 80+", .good, selected: pphFocus == .atGoal) {
+            pphFocus = .atGoal
+        }
+        callout("Below 74", HeartbeatFormat.num(Double(atRisk)), "At risk stores", atRisk == 0 ? .good : .risk, selected: pphFocus == .below74) {
+            pphFocus = .below74
+        }
     }
 
     @ViewBuilder

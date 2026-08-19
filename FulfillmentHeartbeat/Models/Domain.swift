@@ -46,7 +46,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .prepNotReady: return "Share of pick hours lost to prep not ready. Upload the weekly Hours % export."
         case .dynacap: return "Pieces per hour we allow down to the picker. Upload the Overall Capacity Summary."
         case .scheduleQuality: return "How tightly the labor plan matches the work. Upload Optimized Departments."
-        case .pph: return "Pure picks completed per labor hour. Upload the WEEK_ID by Division export."
+        case .pph: return "Pure picks completed per labor hour. Upload the DATE / STORE Total export."
         case .pickerScorecard: return "Shopper-level totals for PPH, Presubs, OOS, pick hours, subs, orders, DUG, OTH eligibility, OTH5, OTT, and refunds."
         }
     }
@@ -59,7 +59,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .prepNotReady: return "DIVISION · District · OM · Store · Prep Not Ready Hours %"
         case .dynacap: return "DISTRICT · Total Pieces/Total Hrs · DPA Dynacap · Utilization %"
         case .scheduleQuality: return "Division · District · Store · Schedule Efficiency · Under % · Over %"
-        case .pph: return "WEEK_ID · DIVISION · DISTRICT · OM_AREA · OM_ID · STORE · Pure PPH"
+        case .pph: return "DATE · DIVISION · DISTRICT · OM_AREA · OM_ID · STORE · Pure PPH (Total)"
         case .pickerScorecard: return "STORE · PICKER · Total Pure PPH · Presub · OOS · Hours · Subs · Orders · DUG · OTH Elig · OTH5 · OTT · Refund"
         }
     }
@@ -1482,6 +1482,14 @@ struct StoreCellViewModel {
             )
         }
     }
+}
+
+enum PPHFocus: String, CaseIterable, Identifiable {
+    case all
+    case atGoal
+    case below74
+
+    var id: String { rawValue }
 }
 
 enum DynacapFocus: String, CaseIterable, Identifiable {

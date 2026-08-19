@@ -587,7 +587,25 @@ enum WorkbookParser {
             }
 
             let emitted: [ParsedWorkbookRow]
-            if !weekByColumn.isEmpty {
+            if !totalColumns.isEmpty {
+                var payload: [String: Double] = [:]
+                for index in totalColumns {
+                    let raw = index < line.count ? line[index] : ""
+                    guard let value = cellNumber(raw) else { continue }
+                    applyMetric(&payload, header: index < header.count ? header[index] : "", value: value)
+                }
+                emitted = payload.isEmpty ? [] : [
+                    ParsedWorkbookRow(
+                        division: carryDiv,
+                        operationsOM: carryOM,
+                        storeNumber: HeartbeatMath.canonicalStore(storeRaw),
+                        storeName: nil,
+                        recordedOn: weekByColumn.values.max(),
+                        payload: payload,
+                        textPayload: text
+                    )
+                ]
+            } else if !weekByColumn.isEmpty {
                 emitted = unpivotWeeks(
                     line: line,
                     metricColumns: metricColumns,

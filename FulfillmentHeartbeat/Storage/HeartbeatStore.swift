@@ -118,6 +118,13 @@ final class HeartbeatStore: ObservableObject {
 
     var pickerBoard: HeartbeatMath.PickerBoard { cachedPickerBoard }
 
+    func pphPickers(forStore store: String) -> [MetricRow] {
+        let key = HeartbeatMath.canonicalStore(store)
+        return (filteredLatest[.pickerScorecard] ?? [])
+            .filter { HeartbeatMath.canonicalStore($0.storeNumber) == key && $0.number("pph") != nil }
+            .sorted { ($0.number("pph") ?? 999) < ($1.number("pph") ?? 999) }
+    }
+
     func pickPathPickers(forStore store: String) -> [MetricRow] {
         pickPathPickersByStore[HeartbeatMath.canonicalStore(store)] ?? []
     }

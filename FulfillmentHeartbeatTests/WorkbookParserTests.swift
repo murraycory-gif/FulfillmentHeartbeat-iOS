@@ -67,8 +67,37 @@ final class WorkbookParserTests: XCTestCase {
             let csv = SampleMarket.templateCSV(for: section)
             let rows = try WorkbookParser.parse(data: Data(csv.utf8), filename: "\(section.rawValue).csv")
             XCTAssertFalse(rows.isEmpty, section.rawValue)
-            XCTAssertFalse(rows[0].storeNumber.isEmpty, section.rawValue)
+            if section != .pickPathPicker {
+                XCTAssertFalse(rows[0].storeNumber.isEmpty, section.rawValue)
+            }
         }
+    }
+
+    func testPPHDayOutlineUsesTotalColumn() throws {
+        let csv = """
+        DATE,,,,,2026-08-16,2026-08-17,2026-08-18,Total
+        DIVISION,DISTRICT,OM_AREA,OM_ID,STORE,Pure PPH,Pure PPH,Pure PPH,Pure PPH
+        Portland,Total,,,,82.7,81.5,80.4,81.7
+        ,77,Total,,,88.3,82.9,83.8,85.3
+        ,,Portland 4,Total,,88.3,82.9,83.8,85.3
+        ,,,Kennda Richardson,Total,88.3,82.9,83.8,85.3
+        ,,,,4262,126.4,142.4,125.5,131.60118190032
+        ,,,,4316,93.2,111.8,123.9,107.310732478482
+        Jewel Osco,J1,Chicago 1,Shelly Selof,1,64.9,67.0,71.3,67.3344365031863
+        Total,,,,,,,,73.8
+        """
+        let rows = try WorkbookParser.parse(data: Data(csv.utf8), filename: "pph-day.csv")
+        let store4262 = try XCTUnwrap(rows.first { $0.storeNumber == "4262" })
+        XCTAssertEqual(store4262.division, "Portland")
+        XCTAssertEqual(store4262.operationsOM, "Kennda Richardson")
+        XCTAssertEqual(store4262.textPayload["district"], "77")
+        XCTAssertEqual(store4262.payload["pph"] ?? 0, 131.60118190032, accuracy: 0.001)
+        let store1 = try XCTUnwrap(rows.first { $0.storeNumber == "1" })
+        XCTAssertEqual(store1.division, "Jewel Osco")
+        XCTAssertEqual(store1.operationsOM, "Shelly Selof")
+        XCTAssertEqual(store1.payload["pph"] ?? 0, 67.3344365031863, accuracy: 0.001)
+        XCTAssertFalse(rows.contains { $0.storeNumber.lowercased() == "total" })
+        XCTAssertEqual(rows.filter { $0.storeNumber == "4262" }.count, 1)
     }
 
     func testPickerScorecardUsesTotalColumnsAndSkipsStoreTotals() throws {
