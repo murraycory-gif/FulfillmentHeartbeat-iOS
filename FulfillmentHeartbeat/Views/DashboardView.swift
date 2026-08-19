@@ -9,12 +9,6 @@ struct DashboardView: View {
     var body: some View {
         List {
             Section {
-                header
-                    .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(AppTheme.bg)
-            }
-            Section {
                 LazyVGrid(columns: columns, spacing: 16) {
                     ForEach(store.summaries) { summary in
                         SectionCard(summary: summary) {
@@ -95,28 +89,6 @@ struct DashboardView: View {
             ]
         }
         return [GridItem(.flexible())]
-    }
-
-    private var header: some View {
-        HStack(alignment: .center, spacing: 12) {
-            HubNavLogo(pulse: true, height: 52)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Fulfillment Heartbeat")
-                    .font(.title.weight(.semibold))
-                    .foregroundStyle(AppTheme.text)
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(AppTheme.textSecondary)
-                    .lineLimit(1)
-            }
-            Spacer(minLength: 8)
-            FilterBar()
-        }
-    }
-
-    private var subtitle: String {
-        let stamp = HeartbeatFormat.updated(store.lastUpload?.uploadedAt)
-        return "\(store.filters.summary) · \(stamp)"
     }
 }
 

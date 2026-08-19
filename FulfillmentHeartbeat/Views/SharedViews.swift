@@ -857,43 +857,87 @@ struct HubChromeModifier: ViewModifier {
     @EnvironmentObject private var router: HubRouter
     @Environment(\.horizontalSizeClass) private var sizeClass
     var showBack: Bool
+    var showsFilters: Bool
 
     func body(content: Content) -> some View {
         content
             .navigationBarTitleDisplayMode(.inline)
             .navigationTitle("")
             .tint(AppTheme.blue)
-            .toolbarBackground(AppTheme.bg, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbar(.hidden, for: .navigationBar)
             .toolbar(removing: .sidebarToggle)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    HStack(spacing: 10) {
-                        if sizeClass == .regular {
-                            HubIconButton(symbol: "sidebar.left", label: "Menu", emphasized: true) {
-                                router.toggleSidebar()
-                            }
-                        }
-                        if showBack {
-                            HubIconButton(symbol: "chevron.left", label: "Dashboard") {
-                                router.open(.dashboard)
-                            }
-                        }
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Text(BuildStamp.label)
-                        .font(.caption2.weight(.semibold).monospaced())
-                        .foregroundStyle(AppTheme.textTertiary)
-                        .accessibilityLabel("Build \(BuildStamp.label)")
-                }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                HubBrandBar(showBack: showBack, showsFilters: showsFilters)
             }
     }
 }
 
+struct HubBrandBar: View {
+    @EnvironmentObject private var store: HeartbeatStore
+    @EnvironmentObject private var router: HubRouter
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    var showBack: Bool
+    var showsFilters: Bool
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 12) {
+            if sizeClass == .regular {
+                HubIconButton(symbol: "sidebar.left", label: "Menu", emphasized: true) {
+                    router.toggleSidebar()
+                }
+            }
+            if showBack {
+                HubIconButton(symbol: "chevron.left", label: "Dashboard") {
+                    router.open(.dashboard)
+                }
+            }
+            HubNavLogo(pulse: true, height: markHeight)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Fulfillment Heartbeat")
+                    .font(.title2.weight(.bold))
+                    .foregroundStyle(AppTheme.text)
+                    .lineLimit(1)
+                Text(statusLine)
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 8)
+            if showsFilters {
+                FilterBar()
+            }
+            Text(BuildStamp.label)
+                .font(.caption2.weight(.semibold).monospaced())
+                .foregroundStyle(AppTheme.textTertiary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(AppTheme.card, in: Capsule(style: .continuous))
+                .overlay(Capsule(style: .continuous).stroke(AppTheme.cardBorder, lineWidth: 1))
+                .accessibilityLabel("Build \(BuildStamp.label)")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .frame(minHeight: 64)
+        .background(AppTheme.bg)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(AppTheme.cardBorder)
+                .frame(height: 1)
+        }
+    }
+
+    private var markHeight: CGFloat {
+        sizeClass == .regular ? 44 : 34
+    }
+
+    private var statusLine: String {
+        "\(store.filters.summary) · \(HeartbeatFormat.updated(store.lastUpload?.uploadedAt))"
+    }
+}
+
 extension View {
-    func hubChrome(showBack: Bool = false) -> some View {
-        modifier(HubChromeModifier(showBack: showBack))
+    func hubChrome(showBack: Bool = false, showsFilters: Bool = false) -> some View {
+        modifier(HubChromeModifier(showBack: showBack, showsFilters: showsFilters))
     }
 }
 

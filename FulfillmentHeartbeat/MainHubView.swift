@@ -228,7 +228,7 @@ struct MainHubView: View {
     private func view(for dest: HubDestination) -> some View {
         switch dest {
         case .dashboard:
-            DashboardView().hubChrome()
+            DashboardView().hubChrome(showsFilters: true)
         case .upload:
             UploadView().hubChrome(showBack: true)
         case .fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pph, .pickerScorecard:
