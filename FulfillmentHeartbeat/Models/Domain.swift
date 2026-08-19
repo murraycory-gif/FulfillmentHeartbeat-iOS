@@ -73,6 +73,8 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
 
     var sourceLink: URL? {
         switch self {
+        case .fiveStar:
+            return URL(string: "https://app.powerbi.com/groups/me/apps/d973ff03-651f-4e52-9e7a-8e5bff14b5e6/reports/73aafb1b-7a54-4c96-af93-4736442edc42/ReportSection5f4b54422e8bd962800c?experience=power-bi")
         case .pickerScorecard:
             return URL(string: "https://app.powerbi.com/groups/me/apps/d973ff03-651f-4e52-9e7a-8e5bff14b5e6/reports/7c59791f-78af-4257-8dde-c4f16b2017f0/9c54590ee447c7f3310b?experience=power-bi")
         case .pickPath:
