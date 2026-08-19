@@ -93,4 +93,42 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertEqual(first?.payload["refund_amt"] ?? 0, 12.17, accuracy: 0.01)
         XCTAssertEqual(first?.payload["oth_elig_pct"] ?? 0, 90, accuracy: 0.5)
     }
+
+    func testSheetXMLKeepsSparseColumns() {
+        let xml = """
+        <worksheet><sheetData>
+        <row r="1">
+        <c r="A1" t="inlineStr"><is><t>STORE</t></is></c>
+        <c r="B1" t="inlineStr"><is><t>PICKER</t></is></c>
+        <c r="AP1"><v>0.016908</v></c>
+        <c r="AQ1"><v>0</v></c>
+        </row>
+        </sheetData></worksheet>
+        """
+        let rows = SheetXML.parse(xml, strings: [])
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertGreaterThanOrEqual(rows[0].count, 43)
+        XCTAssertEqual(rows[0][0], "STORE")
+        XCTAssertEqual(rows[0][1], "PICKER")
+        XCTAssertEqual(rows[0][41], "0.016908")
+        XCTAssertEqual(rows[0][42], "0")
+    }
+
+    func testPickerPercentsKeepSmallValues() throws {
+        let csv = """
+        DATE,,Total
+        STORE,PICKER,Pure_PPH,Pre_SUB_OOS_%,OOS_%,PICK_HOURS,ORDERS,OTH5%,OTT %
+        12,MMCC808,43.708,0.016908,0,9.47,7,0.5,1
+        12,SAMPLE14,80.0,1.4,0.0,8.0,10,90,95
+        """
+        let rows = try WorkbookParser.parse(data: Data(csv.utf8), filename: "PickerScoreCard.xlsx")
+        let mmcc = rows.first { $0.textPayload["shopper_id"] == "MMCC808" }
+        XCTAssertEqual(mmcc?.payload["presub_pct"] ?? 0, 1.6908, accuracy: 0.001)
+        XCTAssertEqual(mmcc?.payload["oos_pct"] ?? 0, 0, accuracy: 0.001)
+        XCTAssertEqual(mmcc?.payload["oth5_pct"] ?? 0, 50, accuracy: 0.01)
+        XCTAssertEqual(mmcc?.payload["ott_pct"] ?? 0, 100, accuracy: 0.01)
+        let sample = rows.first { $0.textPayload["shopper_id"] == "SAMPLE14" }
+        XCTAssertEqual(sample?.payload["presub_pct"] ?? 0, 1.4, accuracy: 0.001)
+        XCTAssertEqual(sample?.payload["oos_pct"] ?? 0, 0, accuracy: 0.001)
+    }
 }

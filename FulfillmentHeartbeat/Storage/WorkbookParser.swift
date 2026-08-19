@@ -606,7 +606,7 @@ enum WorkbookParser {
         if key == "utilization_pct" || key == "change_pct" {
             if number <= 1.5 { number *= 100 }
         }
-        if key.hasSuffix("_pct"), number <= 1.5 {
+        if key.hasSuffix("_pct"), number <= 1.0 {
             number *= 100
         }
         if key == "over_scheduled" { key = "over_schedule_pct" }
@@ -939,7 +939,16 @@ enum SheetXML {
             }
 
             if inRow, !closing, nameEquals(name, "c") {
-                cells.append(readCell(base, count, &i, strings: strings))
+                let parsed = readCell(base, count, &i, strings: strings)
+                let column = columnIndex(parsed.ref)
+                if column >= 0 {
+                    if cells.count <= column {
+                        cells.append(contentsOf: repeatElement("", count: column - cells.count + 1))
+                    }
+                    cells[column] = parsed.value
+                } else {
+                    cells.append(parsed.value)
+                }
                 continue
             }
 
@@ -950,25 +959,40 @@ enum SheetXML {
         return rows
     }
 
-    private static func readCell(_ base: UnsafePointer<UInt8>, _ count: Int, _ i: inout Int, strings: [String]) -> String {
+    private static func readCell(_ base: UnsafePointer<UInt8>, _ count: Int, _ i: inout Int, strings: [String]) -> (ref: String, value: String) {
         let attrStart = i
         let selfClosing = skipToTagEnd(base, count, &i)
         let type = attribute(base, from: attrStart, to: i, name: "t")
-        if selfClosing { return "" }
+        let ref = attribute(base, from: attrStart, to: i, name: "r")
+        if selfClosing { return (ref, "") }
 
         let contentStart = i
         guard let closeAt = findClosingTag(base, count, from: i, name: "c") else {
-            return ""
+            return (ref, "")
         }
         i = closeAt.end
         if type == "inlineStr" {
-            return firstInnerText(base, from: contentStart, to: closeAt.start, tag: "t")
+            return (ref, firstInnerText(base, from: contentStart, to: closeAt.start, tag: "t"))
         }
         let raw = firstInnerText(base, from: contentStart, to: closeAt.start, tag: "v")
         if type == "s", let index = Int(raw), strings.indices.contains(index) {
-            return strings[index]
+            return (ref, strings[index])
         }
-        return raw
+        return (ref, raw)
+    }
+
+    private static func columnIndex(_ ref: String) -> Int {
+        var n = 0
+        for byte in ref.utf8 {
+            if byte >= 65, byte <= 90 {
+                n = n * 26 + Int(byte - 64)
+            } else if byte >= 97, byte <= 122 {
+                n = n * 26 + Int(byte - 96)
+            } else {
+                break
+            }
+        }
+        return n - 1
     }
 
     @discardableResult
