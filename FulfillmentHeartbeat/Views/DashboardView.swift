@@ -5,6 +5,7 @@ struct DashboardView: View {
     @EnvironmentObject private var router: HubRouter
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var pushedSection: MetricSection?
+    @State private var showError = false
 
     var body: some View {
         List {
@@ -58,13 +59,18 @@ struct DashboardView: View {
         .navigationDestination(item: $pushedSection) { section in
             SectionDetailView(section: section)
         }
-        .alert("Couldn’t load", isPresented: Binding(
-            get: { store.errorMessage != nil },
-            set: { if !$0 { store.errorMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) { store.errorMessage = nil }
+        .alert("Couldn’t load", isPresented: $showError) {
+            Button("OK", role: .cancel) {
+                store.errorMessage = nil
+            }
         } message: {
             Text(store.errorMessage ?? "")
+        }
+        .onChange(of: store.errorMessage) { _, message in
+            showError = message != nil
+        }
+        .onChange(of: showError) { _, presented in
+            if !presented { store.errorMessage = nil }
         }
     }
 

@@ -8,6 +8,8 @@ struct UploadView: View {
     @State private var showImporter = false
     @State private var importTarget: MetricSection?
     @State private var exportItem: ExportItem?
+    @State private var showStatus = false
+    @State private var showError = false
 
     var body: some View {
         ScrollView {
@@ -64,25 +66,35 @@ struct UploadView: View {
         ) { _ in
             exportItem = nil
         }
-        .alert("Dashboard updated", isPresented: Binding(
-            get: { store.statusMessage != nil },
-            set: { if !$0 { store.statusMessage = nil } }
-        )) {
+        .alert("Dashboard updated", isPresented: $showStatus) {
             Button("View dashboard") {
                 store.statusMessage = nil
                 router.open(.dashboard)
             }
-            Button("OK", role: .cancel) { store.statusMessage = nil }
+            Button("OK", role: .cancel) {
+                store.statusMessage = nil
+            }
         } message: {
             Text(store.statusMessage ?? "")
         }
-        .alert("Couldn’t import", isPresented: Binding(
-            get: { store.errorMessage != nil },
-            set: { if !$0 { store.errorMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) { store.errorMessage = nil }
+        .alert("Couldn’t import", isPresented: $showError) {
+            Button("OK", role: .cancel) {
+                store.errorMessage = nil
+            }
         } message: {
             Text(store.errorMessage ?? "")
+        }
+        .onChange(of: store.statusMessage) { _, message in
+            showStatus = message != nil
+        }
+        .onChange(of: store.errorMessage) { _, message in
+            showError = message != nil
+        }
+        .onChange(of: showStatus) { _, presented in
+            if !presented { store.statusMessage = nil }
+        }
+        .onChange(of: showError) { _, presented in
+            if !presented { store.errorMessage = nil }
         }
     }
 
