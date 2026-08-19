@@ -276,6 +276,9 @@ enum WorkbookParser {
         if let outline = parseOutline(matrix), !outline.isEmpty {
             return outline
         }
+        if let stores = parseStoreWeek(matrix), !stores.isEmpty {
+            return stores
+        }
         return parseFlat(matrix)
     }
 
@@ -366,6 +369,75 @@ enum WorkbookParser {
                     recordedOn: filled[metricColumns.first ?? 0] == "total" ? nil : filled[metricColumns.first ?? 0],
                     payload: payload,
                     textPayload: ["shopper_id": picker, "shopper_name": picker]
+                )
+            )
+        }
+        return out.isEmpty ? nil : out
+    }
+
+    /// WEEK_ID across the top, STORE_ID or OM_AREA down the side, Total block last.
+    private static func parseStoreWeek(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {
+        guard let headerIndex = matrix.firstIndex(where: { row in
+            let names = Set(row.map(normHeader))
+            let hasStore = names.contains(where: { storeKeys.contains($0) || $0 == "store" })
+            let hasArea = names.contains(where: { omAreaKeys.contains($0) })
+            let hasPicker = names.contains(where: { shopperNameKeys.contains($0) || shopperIdKeys.contains($0) })
+            let hasMetric = names.contains(where: {
+                $0.contains("pickpath") || $0.contains("compliance") || $0.contains("purepph") || $0 == "pph" || $0 == "orders"
+            })
+            return (hasStore || hasArea) && !hasPicker && hasMetric
+        }) else { return nil }
+
+        let header = matrix[headerIndex].map(normHeader)
+        func firstIndex(_ keys: [String]) -> Int? {
+            header.firstIndex { keys.contains($0) }
+        }
+        let storeIdx = firstIndex(storeKeys) ?? firstIndex(["store"])
+        let areaIdx = firstIndex(omAreaKeys)
+        guard storeIdx != nil || areaIdx != nil else { return nil }
+
+        var lastMetricColumn: [String: Int] = [:]
+        for (index, name) in header.enumerated() {
+            if index == storeIdx || index == areaIdx || name.isEmpty { continue }
+            lastMetricColumn[name] = index
+        }
+        guard !lastMetricColumn.isEmpty else { return nil }
+
+        var out: [ParsedWorkbookRow] = []
+        for line in matrix.dropFirst(headerIndex + 1) {
+            func cell(_ index: Int?) -> String {
+                guard let index, index < line.count else { return "" }
+                return line[index]
+            }
+            let storeRaw = cell(storeIdx).trimmingCharacters(in: .whitespacesAndNewlines)
+            let areaRaw = cell(areaIdx).trimmingCharacters(in: .whitespacesAndNewlines)
+            if storeRaw.lowercased().hasPrefix("applied") || areaRaw.lowercased().hasPrefix("applied") { continue }
+            if isTotalCell(storeRaw) || isTotalCell(areaRaw) { continue }
+
+            let store = looksLikeStoreNumber(storeRaw) ? HeartbeatMath.canonicalStore(storeRaw) : ""
+            let area = usableValue(areaRaw) ?? ""
+            if store.isEmpty && area.isEmpty { continue }
+
+            var payload: [String: Double] = [:]
+            for (name, index) in lastMetricColumn {
+                let raw = index < line.count ? line[index] : ""
+                guard let value = cellNumber(raw) else { continue }
+                applyMetric(&payload, header: name, value: value)
+            }
+            guard payload["compliance_pct"] != nil || payload["pph"] != nil else { continue }
+
+            var text: [String: String] = [:]
+            if !area.isEmpty { text["om_area"] = area }
+            let week = matrix.prefix(headerIndex + 1).flatMap { $0 }.compactMap(dateFromWeekID).first
+            out.append(
+                ParsedWorkbookRow(
+                    division: "",
+                    operationsOM: "",
+                    storeNumber: store,
+                    storeName: nil,
+                    recordedOn: week,
+                    payload: payload,
+                    textPayload: text
                 )
             )
         }
@@ -569,6 +641,8 @@ enum WorkbookParser {
             key = "dug_orders"
         } else if key.contains("refund") {
             key = "refund_amt"
+        } else if key.contains("purepph") || (key == "pph") {
+            key = "pph"
         } else if key.contains("pphpick") {
             key = "pph_picks"
         } else if key == "subs" || key.contains("substitute") {
@@ -724,9 +798,15 @@ enum WorkbookParser {
 
     private static func parseFlat(_ matrix: [[String]]) -> [ParsedWorkbookRow] {
         guard matrix.count >= 2 else { return [] }
-        let headers = matrix[0].map(normHeader)
+        let headerIndex = matrix.firstIndex { row in
+            let names = Set(row.map(normHeader))
+            return names.contains(where: {
+                storeKeys.contains($0) || $0 == "store" || divisionKeys.contains($0) || omAreaKeys.contains($0)
+            })
+        } ?? 0
+        let headers = matrix[headerIndex].map(normHeader)
         var out: [ParsedWorkbookRow] = []
-        for line in matrix.dropFirst() {
+        for line in matrix.dropFirst(headerIndex + 1) {
             if line.allSatisfy({ $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) { continue }
             var division = ""
             var om = ""
@@ -788,10 +868,15 @@ enum WorkbookParser {
                     if !trimmed.isEmpty { text[mapped] = trimmed }
                 }
             }
-            if isTotalCell(store) || isTotalCell(text["district"] ?? "") || isTotalCell(division) { continue }
+            if isTotalCell(store) || isTotalCell(text["district"] ?? "") || isTotalCell(division) || isTotalCell(text["om_area"] ?? "") { continue }
             if store.isEmpty && name == nil && division.isEmpty {
-                if (text["district"] ?? "").isEmpty { continue }
-                if payload["dynacap_rate"] == nil { continue }
+                if payload["compliance_pct"] != nil, !(text["om_area"] ?? "").isEmpty {
+                    // OM-area pick path rollup — expanded onto stores later.
+                } else if (text["district"] ?? "").isEmpty {
+                    continue
+                } else if payload["dynacap_rate"] == nil {
+                    continue
+                }
             }
             out.append(ParsedWorkbookRow(
                 division: division,

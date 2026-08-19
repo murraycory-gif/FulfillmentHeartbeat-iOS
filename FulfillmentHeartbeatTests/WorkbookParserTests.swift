@@ -210,4 +210,21 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertEqual(rows[0][45], "446")
         XCTAssertEqual(rows[0][52], "0.875")
     }
+
+    func testPickPathStoreWeekUsesTotalColumns() throws {
+        let csv = """
+        WEEK_ID,202625,202625,202625,Total,Total,Total
+        STORE_ID,Pick Path Compliance,Orders,Pure PPH (excluding Reshop),Pick Path Compliance,Orders,Pure PPH (excluding Reshop)
+        2939,0.91,10,70,0.965870307167236,36,95.6238222009512
+        66,0.90,20,60,0.944927536231884,107,70.6372740057949
+        Total,0.79,100,50,0.795631687701431,334913,75.9349899829327
+        """
+        let rows = try WorkbookParser.parse(data: Data(csv.utf8), filename: "pick-path.csv")
+        XCTAssertEqual(rows.count, 2)
+        let store = try XCTUnwrap(rows.first { $0.storeNumber == "2939" })
+        XCTAssertEqual(store.payload["compliance_pct"] ?? 0, 96.5870307167236, accuracy: 0.001)
+        XCTAssertEqual(store.payload["orders"] ?? 0, 36, accuracy: 0.001)
+        XCTAssertEqual(store.payload["pph"] ?? 0, 95.6238222009512, accuracy: 0.001)
+        XCTAssertFalse(rows.contains { $0.storeNumber.lowercased() == "total" })
+    }
 }

@@ -659,7 +659,9 @@ final class HeartbeatStore: ObservableObject {
             let sectionRows = rows.filter { $0.section == section }
             if section == .dynacap {
                 latest[section] = HeartbeatMath.materializeDistrictMetric(sectionRows, roster: roster)
-            } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady {
+            } else if section == .pickPath {
+                latest[section] = HeartbeatMath.materializePickPath(sectionRows, roster: roster)
+            } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady || section == .pph {
                 latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(sectionRows), roster: roster)
             } else if section == .pickerScorecard {
                 latest[section] = HeartbeatMath.latestPerShopper(sectionRows)
@@ -889,7 +891,9 @@ private struct PulseCaches {
             let sectionRows = rows.filter { $0.section == section }
             if section == .dynacap {
                 latest[section] = HeartbeatMath.materializeDistrictMetric(sectionRows, roster: roster)
-            } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady {
+            } else if section == .pickPath {
+                latest[section] = HeartbeatMath.materializePickPath(sectionRows, roster: roster)
+            } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady || section == .pph {
                 latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(sectionRows), roster: roster)
             } else if section == .pickerScorecard {
                 latest[section] = HeartbeatMath.latestPerShopper(sectionRows)

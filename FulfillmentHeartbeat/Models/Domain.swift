@@ -50,7 +50,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
     var expectedMetrics: String {
         switch self {
         case .fiveStar: return "Store · Division · OM · District · Total Rating · Flash · Presubs · COE · OTT · OTH5"
-        case .pickPath: return "WEEK_ID · DIVISION · DISTRICT · OM · STORE_ID · EMPLOYEE · Pick Path · Orders · Pure PPH"
+        case .pickPath: return "WEEK_ID · STORE_ID · Pick Path Compliance · Orders · Pure PPH (Total columns)"
         case .prepNotReady: return "DIVISION · District · OM · Store · Prep Not Ready Hours %"
         case .dynacap: return "DISTRICT · Total Pieces/Total Hrs · DPA Dynacap · Utilization %"
         case .scheduleQuality: return "Division · District · Store · Schedule Efficiency · Under % · Over %"
@@ -426,6 +426,48 @@ enum HeartbeatMath {
             return rows.filter { $0.number("dynacap_rate", "pieces_per_hour") != nil || $0.number("pickup_capacity") != nil }
         }
         return expanded
+    }
+
+    static func materializePickPath(_ rows: [MetricRow], roster: [String: StoreIdentity]) -> [MetricRow] {
+        let perStore = applyRoster(latestPerStore(rows.filter { !$0.storeNumber.isEmpty }), roster: roster)
+        if !perStore.isEmpty { return perStore }
+
+        let byArea = Dictionary(
+            rows.compactMap { row -> (String, MetricRow)? in
+                let area = normalize(row.textPayload["om_area"] ?? "")
+                guard !area.isEmpty else { return nil }
+                return (area, row)
+            },
+            uniquingKeysWith: { _, latest in latest }
+        )
+        guard !byArea.isEmpty else { return applyRoster(latestPerStore(rows), roster: roster) }
+
+        var expanded: [MetricRow] = []
+        for (number, identity) in roster {
+            let keys = [
+                normalize("\(identity.division) \(identity.district)"),
+                normalize(identity.district),
+                normalize(identity.om),
+                normalize("\(identity.division) \(identity.om)"),
+            ].filter { !$0.isEmpty }
+            guard let source = keys.compactMap({ byArea[$0] }).first else { continue }
+            var text = source.textPayload
+            text["district"] = identity.district
+            text["om_area"] = source.textPayload["om_area"] ?? ""
+            expanded.append(
+                MetricRow(
+                    section: .pickPath,
+                    division: identity.division,
+                    operationsOM: identity.om,
+                    storeNumber: number,
+                    storeName: identity.name,
+                    recordedOn: source.recordedOn,
+                    payload: source.payload,
+                    textPayload: text
+                )
+            )
+        }
+        return expanded.isEmpty ? rows : expanded
     }
 
     static func remapSchedulePayload(_ payload: [String: Double]) -> [String: Double] {
