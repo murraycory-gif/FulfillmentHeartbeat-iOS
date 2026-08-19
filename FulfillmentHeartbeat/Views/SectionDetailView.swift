@@ -435,8 +435,10 @@ struct PickerFocusTile: View {
                 Text(title)
                     .font(.title3.weight(.bold))
                     .foregroundStyle(AppTheme.text)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.75)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 8)
                 if health != .none {
                     HealthBadge(health: health, prominent: true)
