@@ -2621,7 +2621,7 @@ private struct LaborChip {
     }
 }
 
-struct LaborStoreRow: View {
+private struct LaborStoreRow: View {
     let snap: LaborLineSnap
     let expanded: Bool
     let onToggle: () -> Void
