@@ -60,6 +60,9 @@ struct SectionDetailView: View {
                         .background(AppTheme.blueSoft, in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous))
                     }
 
+                    if section == .labor {
+                        laborStatusTiles
+                    } else {
                     LazyVGrid(
                         columns: Array(repeating: GridItem(.flexible(minimum: 140), spacing: 14), count: 5),
                         spacing: 14
@@ -78,8 +81,6 @@ struct SectionDetailView: View {
                             pickerStatusTiles
                         } else if section == .prepNotReady {
                             prepStatusTiles
-                        } else if section == .labor {
-                            laborStatusTiles
                         } else {
                             HubCard {
                                 VStack(alignment: .leading, spacing: 8) {
@@ -98,6 +99,7 @@ struct SectionDetailView: View {
                                 KpiTile(label: tile.label, value: tile.value)
                             }
                         }
+                    }
                     }
                 }
                 .listRowInsets(EdgeInsets(top: 16, leading: 20, bottom: 4, trailing: 20))
@@ -457,24 +459,38 @@ struct SectionDetailView: View {
         }.count
         let risk = rows.filter { ($0.number("target_vs_actual_pct") ?? 0) > HeartbeatMath.laborWatch }.count
         let tva = laborRollup("target_vs_actual_pct")
-        callout("Target vs Actual", HeartbeatFormat.pct(tva), "0% healthy · 0.01–3% watch · over 3% risk", HeartbeatMath.laborHealth(tva), selected: laborFocus == .all) {
-            laborFocus = .all
+        let uplh = laborRollup("uplh_impact_pct")
+        let wage = laborRollup("wage_impact_pct")
+        let aiv = laborRollup("aiv_impact_pct")
+        VStack(spacing: 14) {
+            HStack(spacing: 14) {
+                callout("Target vs Actual", HeartbeatFormat.pct(tva), "0% healthy · 0.01–3% watch · over 3% risk", HeartbeatMath.laborHealth(tva), selected: laborFocus == .all) {
+                    laborFocus = .all
+                }
+                callout("Healthy", HeartbeatFormat.num(Double(healthy)), "0% or better", .good, unit: "stores", selected: laborFocus == .healthy) {
+                    laborFocus = .healthy
+                }
+                callout("Watch", HeartbeatFormat.num(Double(watch)), "0.01% to 3%", watch == 0 ? .good : .watch, unit: "stores", selected: laborFocus == .watch) {
+                    laborFocus = .watch
+                }
+                callout("At Risk", HeartbeatFormat.num(Double(risk)), "Over 3%", risk == 0 ? .good : .risk, unit: "stores", selected: laborFocus == .risk) {
+                    laborFocus = .risk
+                }
+            }
+            HStack(spacing: 12) {
+                callout("CostTrgt%", HeartbeatFormat.pct(laborRollup("cost_trgt_pct")), "Cost target", .none, compact: true)
+                callout("ActCost%", HeartbeatFormat.pct(laborRollup("act_cost_pct")), "Actual cost", .none, compact: true)
+                callout("Sch Effi%", HeartbeatFormat.pct(laborRollup("schedule_efficiency_pct")), "Schedule efficiency", .none, compact: true)
+                callout("UPLH", HeartbeatFormat.pct(uplh), "UPLH impact", laborImpactHealth(uplh), compact: true)
+                callout("Wage", HeartbeatFormat.pct(wage), "Wage impact", laborImpactHealth(wage), compact: true)
+                callout("AIV", HeartbeatFormat.pct(aiv), "AIV impact", laborImpactHealth(aiv), compact: true)
+            }
         }
-        callout("Healthy", HeartbeatFormat.num(Double(healthy)), "0% or better", .good, unit: "stores", selected: laborFocus == .healthy) {
-            laborFocus = .healthy
-        }
-        callout("Watch", HeartbeatFormat.num(Double(watch)), "0.01% to 3%", watch == 0 ? .good : .watch, unit: "stores", selected: laborFocus == .watch) {
-            laborFocus = .watch
-        }
-        callout("At Risk", HeartbeatFormat.num(Double(risk)), "Over 3%", risk == 0 ? .good : .risk, unit: "stores", selected: laborFocus == .risk) {
-            laborFocus = .risk
-        }
-        callout("CostTrgt%", HeartbeatFormat.pct(laborRollup("cost_trgt_pct")), "Cost target", .none)
-        callout("ActCost%", HeartbeatFormat.pct(laborRollup("act_cost_pct")), "Actual cost", .none)
-        callout("Sch Effi%", HeartbeatFormat.pct(laborRollup("schedule_efficiency_pct")), "Schedule efficiency", .none)
-        callout("UPLH", HeartbeatFormat.pct(laborRollup("uplh_impact_pct")), "UPLH impact", .none)
-        callout("Wage", HeartbeatFormat.pct(laborRollup("wage_impact_pct")), "Wage impact", .none)
-        callout("AIV", HeartbeatFormat.pct(laborRollup("aiv_impact_pct")), "AIV impact", .none)
+    }
+
+    private func laborImpactHealth(_ value: Double?) -> Health {
+        guard let value else { return .none }
+        return value <= 0 ? .good : .risk
     }
 
     private func laborRollup(_ key: String) -> Double? {
@@ -518,9 +534,10 @@ struct SectionDetailView: View {
         brand: Bool = false,
         unit: String? = nil,
         selected: Bool = false,
+        compact: Bool = false,
         action: (() -> Void)? = nil
     ) -> some View {
-        PickerFocusTile(title: title, value: value, detail: detail, health: health, selected: selected, brand: brand, unit: unit, action: action)
+        PickerFocusTile(title: title, value: value, detail: detail, health: health, selected: selected, brand: brand, unit: unit, compact: compact, action: action)
     }
 
     private func pickerTileDetail(_ focus: PickerFocus) -> String {
@@ -556,6 +573,7 @@ struct PickerFocusTile: View {
     var selected: Bool = false
     var brand: Bool = false
     var unit: String? = nil
+    var compact: Bool = false
     var action: (() -> Void)? = nil
     @State private var pulseOn = false
 
@@ -568,7 +586,7 @@ struct PickerFocusTile: View {
                 tile
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 176, maxHeight: 176)
+        .frame(maxWidth: .infinity, minHeight: compact ? 148 : 176, maxHeight: compact ? 148 : 176)
         .onAppear {
             guard shouldPulse else { return }
             pulseOn = false
@@ -579,41 +597,42 @@ struct PickerFocusTile: View {
     }
 
     private var tile: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: compact ? 6 : 10) {
             HStack(alignment: .top, spacing: 8) {
                 Text(title)
-                    .font(.title3.weight(.bold))
+                    .font((compact ? Font.headline : Font.title3).weight(.bold))
                     .foregroundStyle(AppTheme.text)
                     .lineLimit(2)
-                    .minimumScaleFactor(0.7)
+                    .minimumScaleFactor(0.65)
                     .multilineTextAlignment(.leading)
-                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .topLeading)
+                    .frame(maxWidth: .infinity, minHeight: compact ? 28 : 44, alignment: .topLeading)
                 if health != .none {
                     HealthBadge(health: health, prominent: true)
                 }
             }
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(value)
-                    .font(.system(size: 34, weight: .semibold, design: .rounded).monospacedDigit())
+                    .font(.system(size: compact ? 26 : 34, weight: .semibold, design: .rounded).monospacedDigit())
                     .foregroundStyle(ink)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+                    .minimumScaleFactor(0.55)
                 if let unit, !unit.isEmpty {
                     Text(unit)
-                        .font(.title3.weight(.semibold))
+                        .font((compact ? Font.subheadline : Font.title3).weight(.semibold))
                         .foregroundStyle(ink.opacity(0.85))
                         .lineLimit(1)
                 }
                 Spacer(minLength: 0)
             }
-            .frame(minHeight: 40, alignment: .bottomLeading)
+            .frame(minHeight: compact ? 28 : 40, alignment: .bottomLeading)
             Text(detail)
-                .font(.subheadline)
+                .font(compact ? .caption.weight(.medium) : .subheadline)
                 .foregroundStyle(AppTheme.textSecondary)
                 .lineLimit(2)
-                .frame(maxWidth: .infinity, minHeight: 36, alignment: .topLeading)
+                .minimumScaleFactor(0.8)
+                .frame(maxWidth: .infinity, minHeight: compact ? 24 : 36, alignment: .topLeading)
         }
-        .padding(16)
+        .padding(compact ? 12 : 16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
