@@ -469,7 +469,7 @@ struct SectionDetailView: View {
         callout("At Risk", HeartbeatFormat.num(Double(risk)), "Over 3%", risk == 0 ? .good : .risk, unit: "stores", selected: laborFocus == .risk) {
             laborFocus = .risk
         }
-        callout("Weeks", span ?? "—", "All weeks in the file", .none)
+        callout("Weeks", span, "Weeks in this file", .none)
         callout("CostTrgt%", HeartbeatFormat.pct(cost), "Store cost target", .none)
         callout("Act Cost", HeartbeatFormat.money(dollars), "All stores · all weeks", .none)
     }

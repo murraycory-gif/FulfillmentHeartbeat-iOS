@@ -50,7 +50,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .dynacap: return "Pieces per hour we allow down to the picker. Upload the Overall Capacity Summary."
         case .scheduleQuality: return "How tightly the labor plan matches the work. Upload Optimized Departments Week Store."
         case .pph: return "Pure picks completed per labor hour. Upload the DATE / STORE Total export."
-        case .labor: return "All weeks in the file rolled to Target vs Actual vs CostTrgt. 0% or better is healthy, 0.01–3% watch, over 3% at risk. Tap a store for week, then day."
+        case .labor: return "Whatever weeks and days are in the file. Each upload replaces the last Labor load. 0% or better is healthy, 0.01–3% watch, over 3% at risk."
         case .pickerScorecard: return "Shopper-level totals for PPH, Presubs, OOS, pick hours, subs, orders, DUG, OTH eligibility, OTH5, OTT, and refunds."
         }
     }

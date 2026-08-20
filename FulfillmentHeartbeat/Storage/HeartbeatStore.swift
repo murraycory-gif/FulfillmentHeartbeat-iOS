@@ -343,28 +343,18 @@ final class HeartbeatStore: ObservableObject {
         let stores = rows.filter { $0.textPayload["labor_grain"] == "store" }
         let weeks = rows.filter { $0.textPayload["labor_grain"] == "week" }
         let weekIds = Set(weeks.compactMap { $0.textPayload["week"] }.filter { !$0.isEmpty }).sorted()
-        var byStore: [String: Set<String>] = [:]
-        for week in weeks {
-            let id = week.textPayload["week"] ?? ""
-            guard !id.isEmpty else { continue }
-            byStore[HeartbeatMath.canonicalStore(week.storeNumber), default: []].insert(id)
-        }
-        let short = byStore.values.filter { $0.count < weekIds.count }.count
         let noCost = stores.filter { $0.number("cost_trgt_pct") == nil }.count
         let noTva = stores.filter { $0.number("target_vs_actual_pct") == nil }.count
         let span = weekIds.isEmpty ? "—" : (weekIds.first == weekIds.last ? weekIds[0] : "\(weekIds.first!) thru \(weekIds.last!)")
         var parts = [
+            "replaced prior Labor",
             "\(HeartbeatFormat.num(Double(stores.count))) stores",
-            "\(weekIds.count) weeks (\(span))",
+            "\(weekIds.count) weeks in this file (\(span))",
+            weekIds.isEmpty ? nil : weekIds.joined(separator: ", "),
             "\(HeartbeatFormat.num(Double(weeks.count))) store-weeks",
-        ]
-        if short == 0 && noCost == 0 && noTva == 0 {
-            parts.append("all weeks and metrics loaded")
-        } else {
-            if short > 0 { parts.append("\(short) stores missing weeks") }
-            if noCost > 0 { parts.append("\(noCost) stores have no CostTrgt% in the file") }
-            if noTva > 0 { parts.append("\(noTva) stores have no Target vs Actual in the file") }
-        }
+        ].compactMap { $0 }
+        if noCost > 0 { parts.append("\(noCost) stores have no CostTrgt% in the file") }
+        if noTva > 0 { parts.append("\(noTva) stores have no Target vs Actual in the file") }
         return parts.joined(separator: " · ")
     }
 
