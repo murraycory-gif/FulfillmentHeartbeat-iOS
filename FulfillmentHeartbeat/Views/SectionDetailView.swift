@@ -9,6 +9,7 @@ struct SectionDetailView: View {
     @State private var pphFocus: PPHFocus = .all
     @State private var scheduleFocus: ScheduleFocus = .all
     @State private var prepFocus: PrepFocus = .all
+    @State private var fiveStarFocus: FiveStarFocus = .all
     @State private var laborFocus: LaborFocus = .all
 
     private var summary: SectionSummary { store.summary(for: section) }
