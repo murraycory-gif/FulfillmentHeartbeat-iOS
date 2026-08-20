@@ -34,6 +34,19 @@ struct SectionDetailView: View {
                             .foregroundStyle(AppTheme.textSecondary)
                     }
 
+                    if section == .labor, store.laborNeedsReload() {
+                        HStack(alignment: .top, spacing: 10) {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                                .foregroundStyle(AppTheme.warn)
+                            Text("Re-upload Labor on the Upload page. This file is still the old parse, so weeks and days are incomplete. Each upload replaces the last one.")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(AppTheme.text)
+                        }
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(AppTheme.warnSoft, in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous))
+                    }
+
                     if missingInFile {
                         HStack(alignment: .top, spacing: 10) {
                             Image(systemName: "info.circle.fill")
@@ -444,6 +457,7 @@ struct SectionDetailView: View {
         }.count
         let risk = rows.filter { ($0.number("target_vs_actual_pct") ?? 0) > HeartbeatMath.laborWatch }.count
         let dollars = rows.compactMap { $0.number("act_cost_dollar") }.reduce(0, +)
+        let weekIds = store.laborWeekIds()
         let span = store.laborWeekSpan()
         let cost: Double? = {
             var num = 0.0
@@ -469,7 +483,7 @@ struct SectionDetailView: View {
         callout("At Risk", HeartbeatFormat.num(Double(risk)), "Over 3%", risk == 0 ? .good : .risk, unit: "stores", selected: laborFocus == .risk) {
             laborFocus = .risk
         }
-        callout("Weeks", span, "Weeks in this file", .none)
+        callout("Weeks", weekIds.isEmpty ? "—" : "\(weekIds.count)", span == "—" ? "Weeks in this file" : span, .none)
         callout("CostTrgt%", HeartbeatFormat.pct(cost), "Store cost target", .none)
         callout("Act Cost", HeartbeatFormat.money(dollars), "All stores · all weeks", .none)
     }

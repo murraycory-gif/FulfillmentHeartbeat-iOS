@@ -2138,12 +2138,12 @@ struct LaborStoreCard: View {
             Text(displayDate(day.date))
                 .font(.headline.weight(.semibold))
             HStack(spacing: 8) {
-                metric("Tgt vs Act", HeartbeatFormat.pct(week.number("target_vs_actual_pct")), .none)
-                metric("CostTrgt%", HeartbeatFormat.pct(week.number("cost_trgt_pct")), .none)
-                metric("ActCost%", HeartbeatFormat.pct(day.actCostPct), .none)
                 metric("Charged Hrs", HeartbeatFormat.num(day.chargedHrs, digits: 1), .none)
+                metric("Empower", HeartbeatFormat.num(day.empowerHrs, digits: 1), .none)
+                metric("Sch Hrs", HeartbeatFormat.num(day.schHrs, digits: 1), .none)
+                metric("ActCost%", HeartbeatFormat.pct(day.actCostPct), .none)
             }
-            Text(dayMeta(day, week: week))
+            Text(dayMeta(day))
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(AppTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -2169,11 +2169,8 @@ struct LaborStoreCard: View {
         ].joined(separator: "  ·  ")
     }
 
-    private func dayMeta(_ day: LaborDay, week: MetricRow) -> String {
+    private func dayMeta(_ day: LaborDay) -> String {
         [
-            "Act Hrs \(HeartbeatFormat.num(week.number("act_hrs"), digits: 1))",
-            "Empower \(HeartbeatFormat.num(day.empowerHrs, digits: 1))",
-            "Sch Hrs \(HeartbeatFormat.num(day.schHrs, digits: 1))",
             "Earned \(HeartbeatFormat.num(day.earnedHrs, digits: 1))",
             "Over \(HeartbeatFormat.pct(day.overSchedulePct))",
             "Util \(HeartbeatFormat.pct(day.earnedHrsUtil))",

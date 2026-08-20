@@ -516,6 +516,9 @@ enum WorkbookParser {
                 if let uplh = bucket.uplh { payload["uplh_impact_pct"] = uplh }
                 if let wage = bucket.wage { payload["wage_impact_pct"] = wage }
                 if let aiv = bucket.aiv { payload["aiv_impact_pct"] = aiv }
+                if let cost = bucket.cost, let tva = bucket.tva {
+                    payload["act_cost_pct"] = cost + tva
+                }
                 let uniqueDays: [LaborDay] = {
                     var latest: [String: LaborDay] = [:]
                     for day in bucket.days where !day.date.isEmpty {
@@ -557,6 +560,7 @@ enum WorkbookParser {
                             "week": week,
                             "district": bucket.district,
                             "days_json": json,
+                            "parser_rev": "6",
                         ]
                     )
                 )
@@ -612,6 +616,7 @@ enum WorkbookParser {
                         "labor_grain": "store",
                         "week": span,
                         "district": district,
+                        "parser_rev": "6",
                     ]
                 )
             )
@@ -714,7 +719,7 @@ enum WorkbookParser {
             number *= 100
         } else if mapped.hasSuffix("_pct"), abs(number) <= 1.0 {
             number *= 100
-        } else if (mapped == "act_cost_pct" || mapped == "cost_trgt_pct" || mapped.hasSuffix("_impact_pct")), abs(number) > 1, abs(number) <= 8 {
+        } else if mapped.hasSuffix("_pct"), abs(number) > 1, abs(number) <= 8 {
             number *= 100
         }
         payload[mapped] = number

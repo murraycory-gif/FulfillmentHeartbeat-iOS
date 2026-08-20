@@ -316,15 +316,25 @@ final class HeartbeatStore: ObservableObject {
         pphPickersByStore = buckets
     }
 
-    func laborWeekSpan() -> String {
-        let ids = Set(laborWeeksByStore.values.flatMap { weeks in
+    func laborWeekIds() -> [String] {
+        Set(laborWeeksByStore.values.flatMap { weeks in
             weeks.compactMap { week -> String? in
                 let value = week.textPayload["week"] ?? week.recordedOn ?? ""
                 return value.isEmpty ? nil : value
             }
         }).sorted()
+    }
+
+    func laborWeekSpan() -> String {
+        let ids = laborWeekIds()
         guard let first = ids.first, let last = ids.last else { return "—" }
         return first == last ? first : "\(first) thru \(last)"
+    }
+
+    func laborNeedsReload() -> Bool {
+        let stores = rows.filter { $0.section == .labor && $0.textPayload["labor_grain"] == "store" }
+        guard !stores.isEmpty else { return false }
+        return stores.contains { ($0.textPayload["parser_rev"] ?? "") != "6" }
     }
 
     static func importAudit(section: MetricSection, rows: [MetricRow]) -> String {
