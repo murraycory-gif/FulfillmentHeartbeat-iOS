@@ -1182,10 +1182,106 @@ enum SheetXML {
     }
 
     static func parse(data: Data, strings: [String]) -> [[String]] {
-        data.withUnsafeBytes { raw -> [[String]] in
-            guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return [] }
-            return scan(base, count: raw.count, strings: strings)
+        walk(data: data, strings: strings)
+    }
+
+    /// Safe string walk. The pointer scanner crashed on Power BI sheets.
+    private static func walk(data: Data, strings: [String]) -> [[String]] {
+        guard var xml = String(data: data, encoding: .utf8) else { return [] }
+        if xml.hasPrefix("\u{FEFF}") { xml.removeFirst() }
+        xml = xml.replacingOccurrences(of: "<x:", with: "<").replacingOccurrences(of: "</x:", with: "</")
+        var rows: [[String]] = []
+        rows.reserveCapacity(4096)
+        var cursor = xml.startIndex
+        while let rowStart = xml.range(of: "<row", range: cursor..<xml.endIndex) {
+            let after = rowStart.upperBound
+            guard after < xml.endIndex else { break }
+            let mark = xml[after]
+            if mark != " " && mark != ">" && mark != "/" {
+                cursor = after
+                continue
+            }
+            guard let tagClose = xml.range(of: ">", range: after..<xml.endIndex) else { break }
+            if xml[xml.index(before: tagClose.lowerBound)] == "/" {
+                rows.append([])
+                cursor = tagClose.upperBound
+                continue
+            }
+            guard let rowEnd = xml.range(of: "</row>", range: tagClose.upperBound..<xml.endIndex) else { break }
+            rows.append(walkCells(xml[tagClose.upperBound..<rowEnd.lowerBound], strings: strings))
+            cursor = rowEnd.upperBound
         }
+        return rows
+    }
+
+    private static func walkCells(_ inner: Substring, strings: [String]) -> [String] {
+        var cells: [String] = []
+        var origin = inner.startIndex
+        while let cs = inner.range(of: "<c", range: origin..<inner.endIndex) {
+            let after = cs.upperBound
+            guard after < inner.endIndex else { break }
+            let mark = inner[after]
+            if mark != " " && mark != ">" && mark != "/" {
+                origin = after
+                continue
+            }
+            guard let tagClose = inner.range(of: ">", range: after..<inner.endIndex) else { break }
+            let openTag = String(inner[cs.lowerBound...tagClose.lowerBound])
+            let selfClosing = openTag.hasSuffix("/>") || inner[inner.index(before: tagClose.lowerBound)] == "/"
+            let type = attrValue(openTag, "t")
+            let ref = attrValue(openTag, "r")
+            var value = ""
+            if selfClosing {
+                origin = tagClose.upperBound
+            } else if let close = inner.range(of: "</c>", range: tagClose.upperBound..<inner.endIndex) {
+                let body = inner[tagClose.upperBound..<close.lowerBound]
+                if type == "inlineStr" {
+                    value = innerTexts(body, tag: "t")
+                } else {
+                    let raw = innerTexts(body, tag: "v")
+                    if type == "s", let index = Int(raw), strings.indices.contains(index) {
+                        value = strings[index]
+                    } else {
+                        value = raw
+                    }
+                }
+                origin = close.upperBound
+            } else {
+                break
+            }
+            let column = columnIndex(ref)
+            if column < 0 {
+                cells.append(value)
+            } else if column < 256 {
+                if cells.count <= column {
+                    cells.append(contentsOf: repeatElement("", count: column - cells.count + 1))
+                }
+                cells[column] = value
+            }
+        }
+        return cells
+    }
+
+    private static func attrValue(_ tag: String, _ name: String) -> String {
+        let needle = " \(name)=\""
+        guard let start = tag.range(of: needle) else { return "" }
+        let rest = tag[start.upperBound...]
+        guard let end = rest.firstIndex(of: "\"") else { return "" }
+        return String(rest[..<end])
+    }
+
+    private static func innerTexts(_ body: Substring, tag: String) -> String {
+        var out = ""
+        var origin = body.startIndex
+        let open = "<\(tag)"
+        let close = "</\(tag)>"
+        while let ts = body.range(of: open, range: origin..<body.endIndex) {
+            guard let gt = body.range(of: ">", range: ts.upperBound..<body.endIndex) else { break }
+            guard let end = body.range(of: close, range: gt.upperBound..<body.endIndex) else { break }
+            out += unescape(String(body[gt.upperBound..<end.lowerBound]))
+            origin = end.upperBound
+        }
+        return out
     }
 
     private static func scan(_ base: UnsafePointer<UInt8>, count: Int, strings: [String]) -> [[String]] {
