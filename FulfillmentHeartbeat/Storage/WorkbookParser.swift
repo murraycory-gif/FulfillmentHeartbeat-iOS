@@ -628,7 +628,8 @@ enum WorkbookParser {
                 }
                 if weight > 0 { storePayload["act_cost_pct"] = mixed / weight }
             }
-            let span = ordered.isEmpty ? "" : (ordered.first == ordered.last ? ordered[0] : "\(ordered.first!)–\(ordered.last!)")
+            let weekIds = ordered.filter { $0.hasPrefix("20") }
+            let span = weekIds.isEmpty ? "" : (weekIds.first == weekIds.last ? weekIds[0] : "\(weekIds.first!)–\(weekIds.last!)")
             out.append(
                 ParsedWorkbookRow(
                     division: division,
@@ -641,7 +642,7 @@ enum WorkbookParser {
                         "labor_grain": "store",
                         "week": span,
                         "district": district,
-                        "parser_rev": "6",
+                        "parser_rev": "7",
                     ]
                 )
             )
