@@ -1543,7 +1543,7 @@ struct StoreCellViewModel {
         case .labor:
             return StoreCellViewModel(
                 primary: HeartbeatFormat.pct(row.number("target_vs_actual_pct")),
-                extra: "Cost \(HeartbeatFormat.pct(row.number("cost_trgt_pct"))) · \(HeartbeatFormat.money(row.number("act_cost_dollar")))"
+                extra: "Cost \(HeartbeatFormat.pct(row.number("cost_trgt_pct"))) · Act \(HeartbeatFormat.pct(row.number("act_cost_pct")))"
             )
         case .pickerScorecard:
             return StoreCellViewModel(
@@ -1568,6 +1568,7 @@ struct LaborDay: Codable, Identifiable, Hashable {
     var scheduleEfficiencyPct: Double?
     var schHrs: Double?
     var empowerHrs: Double?
+    var earnedHrs: Double?
     var actCostPct: Double?
     var overSchedulePct: Double?
     var chargedHrs: Double?

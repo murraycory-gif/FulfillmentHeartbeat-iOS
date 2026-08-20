@@ -317,12 +317,40 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func laborWeeks(forStore storeNumber: String) -> [MetricRow] {
-        laborWeeksByStore[HeartbeatMath.canonicalStore(storeNumber)] ?? []
+        let store = HeartbeatMath.canonicalStore(storeNumber)
+        if let weeks = laborWeeksByStore[store], !weeks.isEmpty {
+            return weeks
+        }
+        return synthesizedLaborWeeks(for: store)
     }
 
     func laborDays(from week: MetricRow) -> [LaborDay] {
-        guard let raw = week.textPayload["days_json"], let data = raw.data(using: .utf8) else { return [] }
-        return (try? JSONDecoder().decode([LaborDay].self, from: data)) ?? []
+        if let raw = week.textPayload["days_json"],
+           let data = raw.data(using: .utf8),
+           let days = try? JSONDecoder().decode([LaborDay].self, from: data),
+           !days.isEmpty {
+            return days
+        }
+        let store = HeartbeatMath.canonicalStore(week.storeNumber)
+        let weekId = week.textPayload["week"] ?? week.recordedOn ?? ""
+        return rows.compactMap { row -> LaborDay? in
+            guard row.section == .labor,
+                  row.textPayload["labor_grain"] == "day",
+                  HeartbeatMath.canonicalStore(row.storeNumber) == store,
+                  (row.textPayload["week"] ?? "") == weekId
+            else { return nil }
+            return LaborDay(
+                date: row.recordedOn ?? "",
+                scheduleEfficiencyPct: row.number("schedule_efficiency_pct"),
+                schHrs: row.number("sch_hrs"),
+                empowerHrs: row.number("empower_hrs"),
+                earnedHrs: row.number("earned_hrs"),
+                actCostPct: row.number("act_cost_pct"),
+                overSchedulePct: row.number("over_schedule_pct"),
+                chargedHrs: row.number("charged_hrs")
+            )
+        }
+        .sorted { $0.date < $1.date }
     }
 
     private func rebuildLaborWeekIndex() {
@@ -337,6 +365,38 @@ final class HeartbeatStore: ObservableObject {
             buckets[store]?.sort { ($0.textPayload["week"] ?? "") > ($1.textPayload["week"] ?? "") }
         }
         laborWeeksByStore = buckets
+    }
+
+    private func synthesizedLaborWeeks(for store: String) -> [MetricRow] {
+        let days = rows.filter {
+            $0.section == .labor
+                && $0.textPayload["labor_grain"] == "day"
+                && HeartbeatMath.canonicalStore($0.storeNumber) == store
+        }
+        guard !days.isEmpty else { return [] }
+        var byWeek: [String: [MetricRow]] = [:]
+        for day in days {
+            let week = day.textPayload["week"] ?? day.recordedOn ?? ""
+            guard !week.isEmpty else { continue }
+            byWeek[week, default: []].append(day)
+        }
+        return byWeek.keys.sorted(by: >).compactMap { week in
+            guard let sample = byWeek[week]?.sorted(by: { ($0.recordedOn ?? "") < ($1.recordedOn ?? "") }).first else { return nil }
+            return MetricRow(
+                section: .labor,
+                division: sample.division,
+                operationsOM: sample.operationsOM,
+                storeNumber: store,
+                storeName: sample.storeName,
+                recordedOn: week,
+                payload: sample.payload,
+                textPayload: [
+                    "labor_grain": "week",
+                    "week": week,
+                    "district": sample.textPayload["district"] ?? sample.district,
+                ]
+            )
+        }
     }
 
     func checklistItem(for item: ChecklistDriverItem, section: MetricSection) -> ChecklistItem {

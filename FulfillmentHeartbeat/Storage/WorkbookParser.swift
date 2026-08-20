@@ -429,6 +429,7 @@ enum WorkbookParser {
                 scheduleEfficiencyPct: row.payload["schedule_efficiency_pct"],
                 schHrs: row.payload["sch_hrs"],
                 empowerHrs: row.payload["empower_hrs"],
+                earnedHrs: row.payload["earned_hrs"],
                 actCostPct: row.payload["act_cost_pct"],
                 overSchedulePct: row.payload["over_schedule_pct"],
                 chargedHrs: row.payload["charged_hrs"]
@@ -447,9 +448,13 @@ enum WorkbookParser {
             let ordered = weeks.keys.sorted()
             var sumDollars = 0.0
             var sumHours = 0.0
+            var sumSch = 0.0
+            var sumEmp = 0.0
+            var sumCharged = 0.0
+            var sumEarned = 0.0
             var weightedTva = 0.0
-            var weightedCost = 0.0
             var tvaWeight = 0.0
+            var weightedCost = 0.0
             var costWeight = 0.0
             var division = ""
             var district = ""
@@ -465,14 +470,23 @@ enum WorkbookParser {
                 if sampleAiv == nil { sampleAiv = bucket.aiv }
                 let hours = bucket.hours ?? 0
                 let dollars = bucket.dollars ?? 0
+                let sch = bucket.days.reduce(0) { $0 + ($1.schHrs ?? 0) }
+                let emp = bucket.days.reduce(0) { $0 + ($1.empowerHrs ?? 0) }
+                let charged = bucket.days.reduce(0) { $0 + ($1.chargedHrs ?? 0) }
+                let earned = bucket.days.reduce(0) { $0 + ($1.earnedHrs ?? 0) }
                 sumHours += hours
                 sumDollars += dollars
-                let weight = dollars > 0 ? dollars : (hours > 0 ? hours : 1)
+                sumSch += sch
+                sumEmp += emp
+                sumCharged += charged
+                sumEarned += earned
                 if let tva = bucket.tva {
+                    let weight = earned > 0 ? earned : (hours > 0 ? hours : 1)
                     weightedTva += tva * weight
                     tvaWeight += weight
                 }
                 if let cost = bucket.cost {
+                    let weight = sch > 0 ? sch : (hours > 0 ? hours : 1)
                     weightedCost += cost * weight
                     costWeight += weight
                 }
@@ -511,6 +525,16 @@ enum WorkbookParser {
             if costWeight > 0 { storePayload["cost_trgt_pct"] = weightedCost / costWeight }
             if sumDollars > 0 { storePayload["act_cost_dollar"] = sumDollars }
             if sumHours > 0 { storePayload["act_hrs"] = sumHours }
+            if sumSch > 0 { storePayload["sch_hrs"] = sumSch }
+            if sumEmp > 0 { storePayload["empower_hrs"] = sumEmp }
+            if sumCharged > 0 { storePayload["charged_hrs"] = sumCharged }
+            if sumEarned > 0 { storePayload["earned_hrs"] = sumEarned }
+            if sumEmp > 0 {
+                storePayload["over_schedule_pct"] = (sumSch - sumEmp) / sumEmp * 100
+            }
+            if let cost = storePayload["cost_trgt_pct"], let tva = storePayload["target_vs_actual_pct"] {
+                storePayload["act_cost_pct"] = cost + tva
+            }
             if let uplh = sampleUplh { storePayload["uplh_impact_pct"] = uplh }
             if let wage = sampleWage { storePayload["wage_impact_pct"] = wage }
             if let aiv = sampleAiv { storePayload["aiv_impact_pct"] = aiv }

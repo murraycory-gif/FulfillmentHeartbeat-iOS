@@ -1843,15 +1843,15 @@ struct LaborTable: View {
     let rows: [MetricRow]
 
     private enum Column: String, CaseIterable, Identifiable {
-        case store, tva, cost, dollars, hours, status
+        case store, tva, cost, actual, charged, status
         var id: String { rawValue }
         var title: String {
             switch self {
             case .store: return "Store"
             case .tva: return "Tgt vs Act"
             case .cost: return "CostTrgt%"
-            case .dollars: return "Act Cost"
-            case .hours: return "Act Hrs"
+            case .actual: return "ActCost%"
+            case .charged: return "Charged Hrs"
             case .status: return "Status"
             }
         }
@@ -1946,10 +1946,10 @@ struct LaborTable: View {
             return numberOrder(lhs.number("target_vs_actual_pct"), rhs.number("target_vs_actual_pct"))
         case .cost:
             return numberOrder(lhs.number("cost_trgt_pct"), rhs.number("cost_trgt_pct"))
-        case .dollars:
-            return numberOrder(lhs.number("act_cost_dollar"), rhs.number("act_cost_dollar"))
-        case .hours:
-            return numberOrder(lhs.number("act_hrs"), rhs.number("act_hrs"))
+        case .actual:
+            return numberOrder(lhs.number("act_cost_pct"), rhs.number("act_cost_pct"))
+        case .charged:
+            return numberOrder(lhs.number("charged_hrs"), rhs.number("charged_hrs"))
         case .status:
             let a = healthRank(HeartbeatMath.health(for: .labor, row: lhs))
             let b = healthRank(HeartbeatMath.health(for: .labor, row: rhs))
@@ -2020,8 +2020,8 @@ struct LaborStoreCard: View {
             HStack(spacing: 8) {
                 metric("Tgt vs Act", HeartbeatFormat.pct(row.number("target_vs_actual_pct")), health)
                 metric("CostTrgt%", HeartbeatFormat.pct(row.number("cost_trgt_pct")), .none)
-                metric("Act Cost", HeartbeatFormat.money(row.number("act_cost_dollar")), .none)
-                metric("Act Hrs", HeartbeatFormat.num(row.number("act_hrs"), digits: 0), .none)
+                metric("ActCost%", HeartbeatFormat.pct(row.number("act_cost_pct")), .none)
+                metric("Charged Hrs", HeartbeatFormat.num(row.number("charged_hrs"), digits: 0), .none)
             }
             if expanded {
                 weekBlock
@@ -2127,7 +2127,7 @@ struct LaborStoreCard: View {
                 metric("Sch Effi", HeartbeatFormat.pct(day.scheduleEfficiencyPct), .none)
                 metric("Sch Hrs", HeartbeatFormat.num(day.schHrs, digits: 1), .none)
                 metric("ActCost%", HeartbeatFormat.pct(day.actCostPct), .none)
-                metric("Over Sch", HeartbeatFormat.pct(day.overSchedulePct), .none)
+                metric("Charged", HeartbeatFormat.num(day.chargedHrs, digits: 1), .none)
             }
         }
         .padding(8)
