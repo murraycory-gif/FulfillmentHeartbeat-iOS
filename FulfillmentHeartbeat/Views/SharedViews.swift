@@ -56,7 +56,7 @@ struct HealthBadge: View {
             .padding(.vertical, compact ? 5 : (prominent ? 8 : 5))
             .foregroundStyle(prominent ? Color.white : foreground)
             .background(prominent ? solid : background, in: Capsule(style: .continuous))
-            .shadow(color: prominent ? solid.opacity(0.35) : .clear, radius: compact ? 3 : 6, y: 2)
+            .shadow(color: prominent && !compact ? solid.opacity(0.35) : .clear, radius: compact ? 0 : 6, y: 2)
     }
 
     private var badgeFont: Font {
@@ -1958,7 +1958,7 @@ private enum LaborRollupBuilder {
     }
 }
 
-private struct LaborMetricLine: View {
+private struct LaborMetricLine: View, Equatable {
     let label: String
     var count: Int? = nil
     let tva: Double?
@@ -2273,37 +2273,23 @@ struct LaborTable: View {
     @State private var expanded = true
 
     var body: some View {
-        Section {
-            if rows.isEmpty {
+        if rows.isEmpty {
+            Section {
                 EmptyHint(
                     symbol: "dollarsign.circle",
                     title: "No stores in this view",
                     detail: "Tap Target vs Actual to see every store, or pick another callout."
                 )
-                .padding(.horizontal, 20)
-                .padding(.bottom, 20)
-            } else if expanded {
-                ForEach(ordered) { row in
-                    LaborStoreCard(row: row)
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 2)
-                }
-                .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
-                .onChange(of: rows.count) { _, _ in
-                    rebuildOrder(sort: sort, ascending: ascending)
-                    headerPin.storeCount = rows.count
-                }
+                .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 20, trailing: 20))
+                .listRowSeparator(.hidden)
+                .listRowBackground(AppTheme.bg)
             }
-        } header: {
-            VStack(alignment: .leading, spacing: 8) {
+        } else {
+            Section {
                 Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        expanded.toggle()
-                        if expanded {
-                            rebuildOrder(sort: sort, ascending: ascending)
-                        }
-                        headerPin.tableOpen = expanded
-                    }
+                    expanded.toggle()
+                    headerPin.tableOpen = expanded
+                    if expanded { rebuildOrder(sort: sort, ascending: ascending) }
                 } label: {
                     HStack(spacing: 10) {
                         VStack(alignment: .leading, spacing: 2) {
@@ -2333,7 +2319,20 @@ struct LaborTable: View {
                     RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
                         .stroke(AppTheme.cardBorder, lineWidth: 1)
                 )
-                if expanded, !rows.isEmpty {
+                .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: expanded ? 4 : 20, trailing: 20))
+                .listRowSeparator(.hidden)
+                .listRowBackground(AppTheme.bg)
+                .onAppear {
+                    expanded = true
+                    headerPin.tableOpen = true
+                    headerPin.storeCount = rows.count
+                    headerPin.active = sort.key
+                    headerPin.ascending = ascending
+                    headerPin.onSelect = applyHeaderSort
+                }
+            }
+            if expanded {
+                Section {
                     LaborMetricHeader(
                         label: "Store",
                         showCount: false,
@@ -2341,22 +2340,22 @@ struct LaborTable: View {
                         ascending: ascending,
                         onSelect: applyHeaderSort
                     )
-                    .padding(.horizontal, 4)
+                    .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(AppTheme.bg)
+                    ForEach(ordered) { row in
+                        LaborStoreCard(row: row)
+                            .listRowInsets(EdgeInsets(top: 2, leading: 20, bottom: 2, trailing: 20))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(AppTheme.bg)
+                    }
                 }
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 8)
-            .padding(.bottom, 6)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(AppTheme.bg)
-            .onAppear {
-                expanded = true
-                headerPin.tableOpen = true
-                headerPin.storeCount = rows.count
-                headerPin.active = sort.key
-                headerPin.ascending = ascending
-                headerPin.onSelect = applyHeaderSort
-                rebuildOrder(sort: sort, ascending: ascending)
+                .transaction { $0.animation = nil }
+                .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
+                .onChange(of: rows.count) { _, _ in
+                    rebuildOrder(sort: sort, ascending: ascending)
+                    headerPin.storeCount = rows.count
+                }
             }
         }
     }
@@ -2443,7 +2442,6 @@ struct LaborStoreCard: View {
     let row: MetricRow
     @State private var expanded = false
     @State private var openWeek: String?
-    @State private var pulseOn = false
 
     private var weeks: [MetricRow] {
         expanded ? store.laborWeeks(forStore: row.storeNumber) : []
@@ -2454,14 +2452,12 @@ struct LaborStoreCard: View {
         let label = row.division.isEmpty ? (row.storeNumber.isEmpty ? "—" : row.storeNumber) : "\(row.storeNumber)  |  \(row.division)"
         return VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
             Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    expanded.toggle()
-                    if expanded {
-                        let latest = store.laborWeeks(forStore: row.storeNumber).first
-                        openWeek = latest?.textPayload["week"] ?? latest?.recordedOn
-                    } else {
-                        openWeek = nil
-                    }
+                expanded.toggle()
+                if expanded {
+                    let latest = store.laborWeeks(forStore: row.storeNumber).first
+                    openWeek = latest?.textPayload["week"] ?? latest?.recordedOn
+                } else {
+                    openWeek = nil
                 }
             } label: {
                 LaborMetricLine(
@@ -2679,7 +2675,6 @@ struct LaborStoreCard: View {
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .stroke(brand ? AppTheme.blue.opacity(0.45) : chipStroke(health), lineWidth: shouldPulse ? 2 : 1)
-                .opacity(shouldPulse ? (pulseOn ? 1 : 0.22) : 1)
         )
     }
 

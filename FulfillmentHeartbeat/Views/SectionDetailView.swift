@@ -20,37 +20,6 @@ struct SectionDetailView: View {
     }
 
     var body: some View {
-        Group {
-            if section == .labor {
-                laborPage
-            } else {
-                listPage
-            }
-        }
-        .background(AppTheme.bg.ignoresSafeArea())
-        .environmentObject(laborHeaderPin)
-    }
-
-    private var laborPage: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
-                Section {
-                    pageIntro
-                        .padding(.horizontal, 20)
-                        .padding(.top, 16)
-                        .padding(.bottom, 8)
-                    LaborRollupTable()
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 4)
-                }
-                LaborTable(rows: laborRows)
-            }
-        }
-        .scrollIndicators(.visible)
-        .background(AppTheme.bg)
-    }
-
-    private var listPage: some View {
         List {
             Section {
                 pageIntro
@@ -82,6 +51,14 @@ struct SectionDetailView: View {
                 PrepTable(rows: prepRows)
             } else if section == .fiveStar {
                 FiveStarTable(rows: fiveStarRows)
+            } else if section == .labor {
+                Section {
+                    LaborRollupTable()
+                        .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(AppTheme.bg)
+                }
+                LaborTable(rows: laborRows)
             } else {
                 StoreTable(section: section, rows: snapshots)
             }
@@ -90,6 +67,13 @@ struct SectionDetailView: View {
         .scrollContentBackground(.hidden)
         .background(AppTheme.bg.ignoresSafeArea())
         .environment(\.defaultMinListRowHeight, 1)
+        .environmentObject(laborHeaderPin)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if section == .labor && laborHeaderPin.tableOpen {
+                LaborStickyStoreHeader()
+                    .environmentObject(laborHeaderPin)
+            }
+        }
     }
 
     @ViewBuilder
