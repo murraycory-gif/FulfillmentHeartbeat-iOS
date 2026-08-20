@@ -49,7 +49,7 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
-	<true/>
+	<false/>
 	<key>UIFileSharingEnabled</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
@@ -77,17 +77,17 @@
 			<key>UTTypeConformsTo</key>
 			<array>
 				<string>public.data</string>
-				<string>public.spreadsheet</string>
 			</array>
 			<key>UTTypeDescription</key>
-			<string>Excel Workbook</string>
+			<string>Workbook</string>
 			<key>UTTypeIdentifier</key>
-			<string>org.openxmlformats.spreadsheetml.sheet</string>
+			<string>com.fulfillmentheartbeat.workbook</string>
 			<key>UTTypeTagSpecification</key>
 			<dict>
 				<key>public.filename-extension</key>
 				<array>
 					<string>xlsx</string>
+					<string>csv</string>
 				</array>
 			</dict>
 		</dict>

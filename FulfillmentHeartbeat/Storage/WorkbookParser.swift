@@ -1271,57 +1271,95 @@ enum SheetXML {
     }
 
     static func parse(data: Data, strings: [String]) -> [[String]] {
-        let regexRows = parseRegex(data: data, strings: strings)
-        let usable = regexRows.contains { row in
-            row.contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        }
-        if usable { return regexRows }
-        return data.withUnsafeBytes { raw -> [[String]] in
-            guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return regexRows }
-            return scan(base, count: raw.count, strings: strings)
-        }
+        walk(data: data, strings: strings)
     }
 
-    private static func parseRegex(data: Data, strings: [String]) -> [[String]] {
-        guard let xml = String(data: data, encoding: .utf8) else { return [] }
-        let cleaned = stripNS(xml)
+    /// String walk — no XMLParser, no regex, no unsafe pointers.
+    private static func walk(data: Data, strings: [String]) -> [[String]] {
+        guard var xml = String(data: data, encoding: .utf8) else { return [] }
+        if xml.hasPrefix("\u{FEFF}") { xml.removeFirst() }
+        xml = xml.replacingOccurrences(of: "<x:", with: "<").replacingOccurrences(of: "</x:", with: "</")
         var rows: [[String]] = []
         rows.reserveCapacity(2048)
-        let rowChunks = matches(in: cleaned, pattern: "<row\\b[\\s\\S]*?</row>")
-        guard let cellRegex = try? NSRegularExpression(
-            pattern: "<c\\b([^>]*?)(?:/>|>([\\s\\S]*?)</c>)",
-            options: [.dotMatchesLineSeparators]
-        ) else { return [] }
-        for chunk in rowChunks {
-            var cells: [String] = []
-            let range = NSRange(chunk.startIndex..., in: chunk)
-            for match in cellRegex.matches(in: chunk, range: range) {
-                let attrs = nsGroup(match, 1, in: chunk) ?? ""
-                let inner = nsGroup(match, 2, in: chunk) ?? ""
-                let ref = firstGroup(in: attrs, pattern: "r=\"([^\"]+)\"") ?? ""
-                let type = firstGroup(in: attrs, pattern: "t=\"([^\"]+)\"") ?? ""
-                var value = firstGroup(in: inner, pattern: "<v>([\\s\\S]*?)</v>")
-                    ?? firstGroup(in: inner, pattern: "<t(?:\\s[^>]*)?>([\\s\\S]*?)</t>")
-                    ?? ""
-                if type == "s", let index = Int(value.trimmingCharacters(in: .whitespacesAndNewlines)), strings.indices.contains(index) {
-                    value = strings[index]
-                } else {
-                    value = unescape(value)
-                }
-                let column = sheetColumnIndex(ref)
-                if column < 0 {
-                    cells.append(value)
-                    continue
-                }
-                guard column < 256 else { continue }
+        var cursor = xml.startIndex
+        while let rowStart = xml.range(of: "<row", range: cursor..<xml.endIndex) {
+            let after = rowStart.upperBound
+            guard after < xml.endIndex else { break }
+            let mark = xml[after]
+            if mark != " " && mark != ">" && mark != "/" {
+                cursor = after
+                continue
+            }
+            guard let tagClose = xml.range(of: ">", range: after..<xml.endIndex) else { break }
+            let open = xml[rowStart.lowerBound..<tagClose.upperBound]
+            if open.hasSuffix("/>") {
+                rows.append([])
+                cursor = tagClose.upperBound
+                continue
+            }
+            guard let rowEnd = xml.range(of: "</row>", range: tagClose.upperBound..<xml.endIndex) else { break }
+            rows.append(walkCells(xml[tagClose.upperBound..<rowEnd.lowerBound], strings: strings))
+            cursor = rowEnd.upperBound
+        }
+        return rows
+    }
+
+    private static func walkCells(_ inner: Substring, strings: [String]) -> [String] {
+        var cells: [String] = []
+        var cursor = inner.startIndex
+        while let cellStart = inner.range(of: "<c", range: cursor..<inner.endIndex) {
+            let after = cellStart.upperBound
+            guard after < inner.endIndex else { break }
+            let mark = inner[after]
+            if mark != " " && mark != ">" && mark != "/" {
+                cursor = after
+                continue
+            }
+            guard let tagClose = inner.range(of: ">", range: after..<inner.endIndex) else { break }
+            let open = String(inner[cellStart.lowerBound..<tagClose.upperBound])
+            var body = ""
+            if open.hasSuffix("/>") {
+                cursor = tagClose.upperBound
+            } else if let cellEnd = inner.range(of: "</c>", range: tagClose.upperBound..<inner.endIndex) {
+                body = String(inner[tagClose.upperBound..<cellEnd.lowerBound])
+                cursor = cellEnd.upperBound
+            } else {
+                break
+            }
+            let type = xmlAttr(open, "t")
+            let ref = xmlAttr(open, "r") ?? ""
+            var value = xmlTag(body, "v") ?? xmlTag(body, "t") ?? ""
+            if type == "s", let index = Int(value.trimmingCharacters(in: .whitespacesAndNewlines)), strings.indices.contains(index) {
+                value = strings[index]
+            } else {
+                value = unescape(value)
+            }
+            let column = sheetColumnIndex(ref)
+            if column < 0 {
+                cells.append(value)
+            } else if column < 256 {
                 if cells.count <= column {
                     cells.append(contentsOf: repeatElement("", count: column - cells.count + 1))
                 }
                 cells[column] = value
             }
-            rows.append(cells)
         }
-        return rows
+        return cells
+    }
+
+    private static func xmlAttr(_ tag: String, _ name: String) -> String? {
+        let key = name + "=\""
+        guard let start = tag.range(of: key) else { return nil }
+        let rest = tag[start.upperBound...]
+        guard let end = rest.firstIndex(of: "\"") else { return nil }
+        return String(rest[..<end])
+    }
+
+    private static func xmlTag(_ xml: String, _ name: String) -> String? {
+        guard let start = xml.range(of: "<" + name) else { return nil }
+        guard let gt = xml.range(of: ">", range: start.upperBound..<xml.endIndex) else { return nil }
+        guard let end = xml.range(of: "</" + name + ">", range: gt.upperBound..<xml.endIndex) else { return nil }
+        return String(xml[gt.upperBound..<end.lowerBound])
     }
 
     private static func scan(_ base: UnsafePointer<UInt8>, count: Int, strings: [String]) -> [[String]] {
@@ -1652,7 +1690,7 @@ final class ZipArchive {
 }
 
 private func inflate(_ source: Data, uncompressedSize: Int) -> Data? {
-    let dstSize = max(uncompressedSize, source.count * 8 + 64)
+    let dstSize = min(max(uncompressedSize, source.count * 8 + 64), 32_000_000)
     var dest = Data(count: dstSize)
     let written = dest.withUnsafeMutableBytes { destPtr -> Int in
         source.withUnsafeBytes { srcPtr in
