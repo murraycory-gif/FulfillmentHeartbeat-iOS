@@ -2160,7 +2160,6 @@ struct LaborRollupTable: View {
 }
 
 struct LaborTable: View {
-    @EnvironmentObject private var store: HeartbeatStore
     let rows: [MetricRow]
 
     private enum Column: String, CaseIterable, Identifiable {
@@ -2197,7 +2196,7 @@ struct LaborTable: View {
     @State private var sort = Column.tva
     @State private var ascending = false
     @State private var ordered: [MetricRow] = []
-    @State private var expanded = false
+    @State private var expanded = true
 
     var body: some View {
         if rows.isEmpty {
@@ -2250,9 +2249,7 @@ struct LaborTable: View {
                 .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: expanded ? 4 : 20, trailing: 20))
                 .listRowSeparator(.hidden)
                 .listRowBackground(AppTheme.bg)
-                .onChange(of: store.filters) { _, _ in
-                    expanded = false
-                }
+                .onAppear { expanded = true }
             }
             if expanded {
                 Section {
