@@ -1486,6 +1486,20 @@ struct StoreCellViewModel {
     }
 }
 
+enum FiveStarFocus: String, CaseIterable, Identifiable {
+    case all
+    case atFive
+    case pass
+    case fail
+    case flash
+    case presub
+    case coe
+    case ott
+    case oth
+
+    var id: String { rawValue }
+}
+
 enum PrepFocus: String, CaseIterable, Identifiable {
     case all
     case atGoal

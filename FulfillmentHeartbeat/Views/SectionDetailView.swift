@@ -9,6 +9,7 @@ struct SectionDetailView: View {
     @State private var pphFocus: PPHFocus = .all
     @State private var scheduleFocus: ScheduleFocus = .all
     @State private var prepFocus: PrepFocus = .all
+    @State private var fiveStarFocus: FiveStarFocus = .all
 
     private var summary: SectionSummary { store.summary(for: section) }
     private var snapshots: [MetricRow] { store.displayRows(for: section) }
@@ -109,6 +110,8 @@ struct SectionDetailView: View {
                 ScheduleTable(rows: scheduleRows)
             } else if section == .prepNotReady {
                 PrepTable(rows: prepRows)
+            } else if section == .fiveStar {
+                FiveStarTable(rows: fiveStarRows)
             } else {
                 StoreTable(section: section, rows: snapshots)
             }
@@ -184,6 +187,30 @@ struct SectionDetailView: View {
             return snapshots.filter { ($0.number("compliance_pct") ?? 0) >= HeartbeatMath.pickPathGoal }
         case .below80:
             return snapshots.filter { ($0.number("compliance_pct") ?? .greatestFiniteMagnitude) < HeartbeatMath.pickPathRisk }
+        }
+    }
+
+    private var fiveStarRows: [MetricRow] {
+        let scored = snapshots.filter { $0.number("star_rating") != nil }
+        switch fiveStarFocus {
+        case .all:
+            return scored
+        case .atFive:
+            return scored.filter { ($0.number("star_rating") ?? 0) >= 4.95 }
+        case .pass:
+            return scored.filter { ($0.number("star_rating") ?? 0) >= HeartbeatMath.fiveStarPass }
+        case .fail:
+            return scored.filter { ($0.number("star_rating") ?? .greatestFiniteMagnitude) < HeartbeatMath.fiveStarPass }
+        case .flash:
+            return scored.filter { HeartbeatMath.flashStar($0).health != .good }
+        case .presub:
+            return scored.filter { HeartbeatMath.presubStar($0).health != .good }
+        case .coe:
+            return scored.filter { HeartbeatMath.coeStar($0).health != .good }
+        case .ott:
+            return scored.filter { HeartbeatMath.ottStar($0).health != .good }
+        case .oth:
+            return scored.filter { HeartbeatMath.othStar($0).health != .good }
         }
     }
 
@@ -344,16 +371,34 @@ struct SectionDetailView: View {
         let coeMark = HeartbeatMath.starMark(value: coe, full: 20, half: 0)
         let ottMark = HeartbeatMath.starMark(value: ott, full: 95, half: 90)
         let othMark = HeartbeatMath.starMark(value: oth, full: 92, half: 78)
-        callout("Avg star rating", summary.headlineText, "5.00 goal · 4.0+ pass", summary.health)
+        callout("Avg star rating", summary.headlineText, "5.00 goal · 4.0+ pass", summary.health, selected: fiveStarFocus == .all) {
+            fiveStarFocus = .all
+        }
         callout("Goal", "5.00", "Target store rating", .none, brand: true)
-        callout("At 5.00", HeartbeatFormat.num(Double(atFive)), "Stores at a perfect 5", .good, unit: "stores")
-        callout("Pass 4.0+", HeartbeatFormat.num(Double(pass)), "Stores that pass", .good, unit: "stores")
-        callout("Fail", HeartbeatFormat.num(Double(fail)), "Stores under 4.0", fail == 0 ? .good : .risk, unit: "stores")
-        callout("Flash", HeartbeatFormat.pct(flash), flashMark.label, flashMark.health)
-        callout("Presubs", HeartbeatFormat.pct(presub), presubMark.label, presubMark.health)
-        callout("COE", HeartbeatFormat.pct(coe), coeMark.label, coeMark.health)
-        callout("OTT", HeartbeatFormat.pct(ott), ottMark.label, ottMark.health)
-        callout("OTH 5%", HeartbeatFormat.pct(oth), othMark.label, othMark.health)
+        callout("At 5.00", HeartbeatFormat.num(Double(atFive)), "Stores at a perfect 5", .good, unit: "stores", selected: fiveStarFocus == .atFive) {
+            fiveStarFocus = .atFive
+        }
+        callout("Pass 4.0+", HeartbeatFormat.num(Double(pass)), "Stores that pass", .good, unit: "stores", selected: fiveStarFocus == .pass) {
+            fiveStarFocus = .pass
+        }
+        callout("Fail", HeartbeatFormat.num(Double(fail)), "Stores under 4.0", fail == 0 ? .good : .risk, unit: "stores", selected: fiveStarFocus == .fail) {
+            fiveStarFocus = .fail
+        }
+        callout("Flash", HeartbeatFormat.pct(flash), flashMark.label, flashMark.health, selected: fiveStarFocus == .flash) {
+            fiveStarFocus = .flash
+        }
+        callout("Presubs", HeartbeatFormat.pct(presub), presubMark.label, presubMark.health, selected: fiveStarFocus == .presub) {
+            fiveStarFocus = .presub
+        }
+        callout("COE", HeartbeatFormat.pct(coe), coeMark.label, coeMark.health, selected: fiveStarFocus == .coe) {
+            fiveStarFocus = .coe
+        }
+        callout("OTT", HeartbeatFormat.pct(ott), ottMark.label, ottMark.health, selected: fiveStarFocus == .ott) {
+            fiveStarFocus = .ott
+        }
+        callout("OTH 5%", HeartbeatFormat.pct(oth), othMark.label, othMark.health, selected: fiveStarFocus == .oth) {
+            fiveStarFocus = .oth
+        }
     }
 
     @ViewBuilder
