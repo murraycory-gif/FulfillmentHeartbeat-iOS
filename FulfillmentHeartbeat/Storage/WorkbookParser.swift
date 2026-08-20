@@ -1271,7 +1271,10 @@ enum SheetXML {
     }
 
     static func parse(data: Data, strings: [String]) -> [[String]] {
-        walk(data: data, strings: strings)
+        data.withUnsafeBytes { raw -> [[String]] in
+            guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return [] }
+            return scan(base, count: raw.count, strings: strings)
+        }
     }
 
     /// String walk — no XMLParser, no regex, no unsafe pointers.

@@ -51,25 +51,10 @@ struct UploadView: View {
         .background(AppTheme.bg.ignoresSafeArea())
         .fileImporter(
             isPresented: $showImporter,
-            allowedContentTypes: [.item, .data, .commaSeparatedText],
-            allowsMultipleSelection: false
-        ) { result in
-            let section = importTarget
-            importTarget = nil
-            switch result {
-            case .success(let urls):
-                guard let section, let url = urls.first else { return }
-                do {
-                    let data = try Self.bytesFromPickedFile(url)
-                    let filename = url.lastPathComponent.replacingOccurrences(of: "%", with: "pct")
-                    store.importWorkbook(data: data, filename: filename, section: section)
-                } catch {
-                    store.errorMessage = error.localizedDescription
-                }
-            case .failure(let error):
-                store.errorMessage = error.localizedDescription
-            }
-        }
+            allowedContentTypes: Self.workbookTypes,
+            allowsMultipleSelection: false,
+            onCompletion: handleImport
+        )
         .fileExporter(
             isPresented: Binding(
                 get: { exportItem != nil },
@@ -118,14 +103,27 @@ struct UploadView: View {
         showImporter = true
     }
 
-    private static func bytesFromPickedFile(_ url: URL) throws -> Data {
-        let accessed = url.startAccessingSecurityScopedResource()
-        defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-        let data = try Data(contentsOf: url)
-        guard !data.isEmpty else {
-            throw NSError(domain: "HeartbeatImport", code: 1, userInfo: [NSLocalizedDescriptionKey: "Could not read that file."])
+    private func handleImport(_ result: Result<[URL], Error>) {
+        let section = importTarget
+        importTarget = nil
+        showImporter = false
+        guard let section else { return }
+        switch result {
+        case .success(let urls):
+            if let url = urls.first {
+                store.importWorkbook(url: url, section: section)
+            }
+        case .failure(let error):
+            store.errorMessage = error.localizedDescription
         }
-        return data
+    }
+
+    private static var workbookTypes: [UTType] {
+        var types: [UTType] = [.commaSeparatedText, .plainText, .spreadsheet, .data]
+        if let xlsx = UTType(filenameExtension: "xlsx") { types.insert(xlsx, at: 0) }
+        if let xls = UTType(filenameExtension: "xls") { types.insert(xls, at: 1) }
+        if let csv = UTType(filenameExtension: "csv") { types.append(csv) }
+        return types
     }
 }
 
