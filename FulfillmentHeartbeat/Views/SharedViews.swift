@@ -434,10 +434,11 @@ struct FilterSheet: View {
     @EnvironmentObject private var store: HeartbeatStore
     @Environment(\.dismiss) private var dismiss
     @State private var original = DashboardFilters()
+    @State private var draft = DashboardFilters()
     @State private var confirmLeave = false
     @State private var focus: FilterFocus = .division
 
-    private var isDirty: Bool { store.filters != original }
+    private var isDirty: Bool { draft != original }
 
     var body: some View {
         NavigationStack {
@@ -449,9 +450,11 @@ struct FilterSheet: View {
                     prompt: focus.prompt,
                     allLabel: focus.allLabel,
                     selection: selection(for: focus),
-                    options: options(for: focus),
+                    options: store.filterChoices(focus: focus, draft: draft),
                     onChange: { apply($0, to: focus) }
                 )
+                .id(focus)
+                .transaction { $0.animation = nil }
             }
             .padding(20)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -463,28 +466,33 @@ struct FilterSheet: View {
                     Button("Cancel") { requestClose() }
                 }
                 ToolbarItem(placement: .primaryAction) {
-                    if store.filters.isActive {
-                        Button("Clear all") { store.clearFilters() }
+                    if draft.isActive {
+                        Button("Clear all") { draft = DashboardFilters() }
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { dismiss() }
+                    Button("Save") { saveAndClose() }
                         .fontWeight(.bold)
                 }
             }
             .alert("Would you like to save your filters?", isPresented: $confirmLeave) {
-                Button("Save") { dismiss() }
-                Button("Don't Save", role: .destructive) {
-                    store.filters = original
-                    dismiss()
-                }
+                Button("Save") { saveAndClose() }
+                Button("Don't Save", role: .destructive) { dismiss() }
                 Button("Keep editing", role: .cancel) {}
             } message: {
                 Text("You changed Division, District, OM, or Store. Save to apply them on the dashboard.")
             }
         }
         .interactiveDismissDisabled(isDirty)
-        .onAppear { original = store.filters }
+        .onAppear {
+            original = store.filters
+            draft = store.filters
+        }
+    }
+
+    private func saveAndClose() {
+        store.commitFilters(draft)
+        dismiss()
     }
 
     private func requestClose() {
@@ -541,10 +549,10 @@ struct FilterSheet: View {
 
     private func selection(for focus: FilterFocus) -> String {
         switch focus {
-        case .division: return store.filters.division
-        case .district: return store.filters.district
-        case .om: return store.filters.om
-        case .store: return store.filters.store
+        case .division: return draft.division
+        case .district: return draft.district
+        case .om: return draft.om
+        case .store: return draft.store
         }
     }
 
@@ -553,24 +561,22 @@ struct FilterSheet: View {
         return value.isEmpty ? focus.allLabel : value
     }
 
-    private func options(for focus: FilterFocus) -> [(id: String, label: String)] {
-        switch focus {
-        case .division: return store.divisions.map { ($0, $0) }
-        case .district: return store.districts.map { ($0, $0) }
-        case .om: return store.operationsOMs.map { ($0, $0) }
-        case .store: return store.stores.map { entry in
-            (entry.number, entry.name.map { "\(entry.number) · \($0)" } ?? entry.number)
-        }
-        }
-    }
-
     private func apply(_ value: String, to focus: FilterFocus) {
+        var next = draft
         switch focus {
-        case .division: store.setDivision(value)
-        case .district: store.setDistrict(value)
-        case .om: store.setOM(value)
-        case .store: store.setStore(value)
+        case .division:
+            next = DashboardFilters(division: value, district: "", om: "", store: "")
+        case .district:
+            next.district = value
+            next.om = ""
+            next.store = ""
+        case .om:
+            next.om = value
+            next.store = ""
+        case .store:
+            next.store = value
         }
+        draft = next
     }
 }
 
