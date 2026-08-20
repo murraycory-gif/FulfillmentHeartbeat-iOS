@@ -109,6 +109,8 @@ struct SectionDetailView: View {
                     PageHeadline(lead: "Schedule Quality", accent: "ScoreCard", blurb: section.blurb)
                 } else if section == .dynacap {
                     PageHeadline(lead: "Dynacap Settings", accent: "ScoreCard", blurb: section.blurb)
+                } else if section == .prepNotReady {
+                    PageHeadline(lead: "Prep Not Ready", accent: "ScoreCard", blurb: section.blurb)
                 } else {
                     PageHeadline(
                         lead: section == .pickPath ? "Pick Path Compliance" : section.title,
