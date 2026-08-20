@@ -244,6 +244,9 @@ struct SectionSummary: Identifiable {
         if section == .pickerScorecard {
             return HeartbeatFormat.num(headline)
         }
+        if section == .labor {
+            return String(format: "%.2f%%", headline)
+        }
         return String(format: "%.1f%%", headline)
     }
 }
@@ -718,11 +721,14 @@ enum HeartbeatMath {
                 lastUploadedAt: upload?.uploadedAt
             )
         case .labor:
-            let weights = latest.compactMap { row -> (Double, Double)? in
-                guard let tva = row.number("target_vs_actual_pct") else { return nil }
-                return (tva, max(row.number("act_cost_dollar") ?? 0, 1))
-            }
+            let market = rows.first { $0.textPayload["labor_grain"] == "market" }
+            let latest = rows.filter { $0.textPayload["labor_grain"] != "market" }
             let headline: Double? = {
+                if let value = market?.number("target_vs_actual_pct") { return value }
+                let weights = latest.compactMap { row -> (Double, Double)? in
+                    guard let tva = row.number("target_vs_actual_pct") else { return nil }
+                    return (tva, max(row.number("earned_hrs") ?? row.number("act_cost_dollar") ?? 0, 1))
+                }
                 let total = weights.reduce(0) { $0 + $1.1 }
                 guard total > 0 else { return average(latest.compactMap { $0.number("target_vs_actual_pct") }) }
                 return weights.reduce(0) { $0 + $1.0 * $1.1 } / total

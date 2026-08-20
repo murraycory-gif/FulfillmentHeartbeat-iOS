@@ -331,6 +331,10 @@ final class HeartbeatStore: ObservableObject {
         return first == last ? first : "\(first) thru \(last)"
     }
 
+    func laborMarketRow() -> MetricRow? {
+        rows.first { $0.section == .labor && $0.textPayload["labor_grain"] == "market" }
+    }
+
     func laborNeedsReload() -> Bool {
         let stores = rows.filter { $0.section == .labor && $0.textPayload["labor_grain"] == "store" }
         guard !stores.isEmpty else { return false }
@@ -1003,7 +1007,11 @@ final class HeartbeatStore: ObservableObject {
         )
         refreshFilterOptions()
         cachedSummaries = MetricSection.dashboardCards.map { section in
-            var summary = HeartbeatMath.summarize(section, rows: nextLatest[section] ?? [], upload: upload(for: section))
+            var input = nextLatest[section] ?? []
+            if section == .labor, !filters.isActive, let market = laborMarketRow() {
+                input.append(market)
+            }
+            var summary = HeartbeatMath.summarize(section, rows: input, upload: upload(for: section))
             if summary.storeCount == 0, !filteredMarket.isEmpty {
                 summary.secondary = "No \(section.short) data for \(filteredMarket.count) stores in this filter"
                 summary.health = .none
@@ -1204,14 +1212,17 @@ private struct PulseCaches {
                 latest[section] = HeartbeatMath.latestPerStore(sectionRows)
             }
         }
-        return refilter(latest: latest, roster: roster, filters: filters, uploads: uploads)
+        return refilter(latest: latest, roster: roster, filters: filters, uploads: uploads, laborMarket: rows.first {
+            $0.section == .labor && $0.textPayload["labor_grain"] == "market"
+        })
     }
 
     static func refilter(
         latest: [MetricSection: [MetricRow]],
         roster: [String: HeartbeatMath.StoreIdentity],
         filters: DashboardFilters,
-        uploads: [UploadRecord]
+        uploads: [UploadRecord],
+        laborMarket: MetricRow? = nil
     ) -> PulseCaches {
         let universe = MetricSection.allCases
             .filter { $0 != .pickerScorecard && $0 != .pickPathPicker }
@@ -1264,9 +1275,13 @@ private struct PulseCaches {
         }
         let stores = seen.keys.sorted(by: HeartbeatFormat.storeOrder).map { ($0, seen[$0] ?? nil) }
         let summaries = MetricSection.dashboardCards.map { section -> SectionSummary in
+            var input = nextLatest[section] ?? []
+            if section == .labor, !filters.isActive, let laborMarket {
+                input.append(laborMarket)
+            }
             var summary = HeartbeatMath.summarize(
                 section,
-                rows: nextLatest[section] ?? [],
+                rows: input,
                 upload: uploads.first { $0.section == section }
             )
             if summary.storeCount == 0, !market.isEmpty {

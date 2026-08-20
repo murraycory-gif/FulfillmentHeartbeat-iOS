@@ -456,24 +456,10 @@ struct SectionDetailView: View {
             return value > 0 && value <= HeartbeatMath.laborWatch
         }.count
         let risk = rows.filter { ($0.number("target_vs_actual_pct") ?? 0) > HeartbeatMath.laborWatch }.count
-        let dollars = rows.compactMap { $0.number("act_cost_dollar") }.reduce(0, +)
-        let weekIds = store.laborWeekIds()
-        let span = store.laborWeekSpan()
-        let cost: Double? = {
-            var num = 0.0
-            var den = 0.0
-            for row in rows {
-                guard let value = row.number("cost_trgt_pct") else { continue }
-                let weight = row.number("sch_hrs") ?? row.number("act_hrs") ?? 1
-                num += value * weight
-                den += weight
-            }
-            return den > 0 ? num / den : nil
-        }()
-        callout("Target vs Actual", summary.headlineText, "0% healthy · 0.01–3% watch · over 3% risk", summary.health, selected: laborFocus == .all) {
+        let tva = laborRollup("target_vs_actual_pct")
+        callout("Target vs Actual", HeartbeatFormat.pct(tva), "0% healthy · 0.01–3% watch · over 3% risk", HeartbeatMath.laborHealth(tva), selected: laborFocus == .all) {
             laborFocus = .all
         }
-        callout("Goal", "0.00%", "At or below target", .none, brand: true)
         callout("Healthy", HeartbeatFormat.num(Double(healthy)), "0% or better", .good, unit: "stores", selected: laborFocus == .healthy) {
             laborFocus = .healthy
         }
@@ -483,9 +469,33 @@ struct SectionDetailView: View {
         callout("At Risk", HeartbeatFormat.num(Double(risk)), "Over 3%", risk == 0 ? .good : .risk, unit: "stores", selected: laborFocus == .risk) {
             laborFocus = .risk
         }
-        callout("Weeks", weekIds.isEmpty ? "—" : "\(weekIds.count)", weekIds.isEmpty ? "Store totals in this file" : span, .none)
-        callout("CostTrgt%", HeartbeatFormat.pct(cost), "Store cost target", .none)
-        callout("Act Cost", HeartbeatFormat.money(dollars), "All stores · all weeks", .none)
+        callout("CostTrgt%", HeartbeatFormat.pct(laborRollup("cost_trgt_pct")), "Cost target", .none)
+        callout("ActCost%", HeartbeatFormat.pct(laborRollup("act_cost_pct")), "Actual cost", .none)
+        callout("Sch Effi%", HeartbeatFormat.pct(laborRollup("schedule_efficiency_pct")), "Schedule efficiency", .none)
+        callout("UPLH", HeartbeatFormat.pct(laborRollup("uplh_impact_pct")), "UPLH impact", .none)
+        callout("Wage", HeartbeatFormat.pct(laborRollup("wage_impact_pct")), "Wage impact", .none)
+        callout("AIV", HeartbeatFormat.pct(laborRollup("aiv_impact_pct")), "AIV impact", .none)
+    }
+
+    private func laborRollup(_ key: String) -> Double? {
+        if !store.filters.isActive, let value = store.laborMarketRow()?.number(key) {
+            return value
+        }
+        let weightKey: String
+        switch key {
+        case "cost_trgt_pct": weightKey = "sch_hrs"
+        case "schedule_efficiency_pct": weightKey = "empower_hrs"
+        default: weightKey = "earned_hrs"
+        }
+        var num = 0.0
+        var den = 0.0
+        for row in snapshots {
+            guard let value = row.number(key) else { continue }
+            let weight = row.number(weightKey) ?? row.number("act_cost_dollar") ?? 1
+            num += value * weight
+            den += weight
+        }
+        return den > 0 ? num / den : nil
     }
 
     @ViewBuilder

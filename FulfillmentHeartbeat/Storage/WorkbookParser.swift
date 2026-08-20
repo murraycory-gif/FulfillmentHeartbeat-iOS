@@ -422,7 +422,15 @@ enum WorkbookParser {
             guard let index = names.firstIndex(of: key), index < row.count else { return "" }
             return row[index].trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        guard let store = usableValue(cell("storeid")), looksLikeStoreNumber(store) else { return nil }
+        let storeRaw = cell("storeid")
+        let market = isTotalCell(storeRaw)
+        let store: String
+        if market {
+            store = ""
+        } else {
+            guard let value = usableValue(storeRaw), looksLikeStoreNumber(value) else { return nil }
+            store = value
+        }
         var payload: [String: Double] = [:]
         for (index, rawHeader) in header.enumerated() where index < row.count {
             let key = names.indices.contains(index) ? names[index] : normHeader(rawHeader)
@@ -444,7 +452,7 @@ enum WorkbookParser {
             recordedOn: nil,
             payload: payload,
             textPayload: [
-                "labor_grain": "store",
+                "labor_grain": market ? "market" : "store",
                 "parser_rev": "8",
             ]
         )
