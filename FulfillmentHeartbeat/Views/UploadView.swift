@@ -5,10 +5,11 @@ import UIKit
 struct UploadView: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var router: HubRouter
+    @State private var showImporter = false
+    @State private var importTarget: MetricSection?
     @State private var exportItem: ExportItem?
     @State private var showStatus = false
     @State private var showError = false
-    @State private var shareSection: MetricSection?
 
     var body: some View {
         ScrollView {
@@ -16,7 +17,7 @@ struct UploadView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Upload workbooks")
                         .font(.largeTitle.weight(.semibold))
-                    Text("Download the Excel from Power BI, tap Choose file, pick it from iCloud Drive or OneDrive.")
+                    Text("One Excel file for each section. Choose file and pick it from iCloud Drive or OneDrive.")
                         .font(.subheadline)
                         .foregroundStyle(AppTheme.textSecondary)
                 }
@@ -47,10 +48,12 @@ struct UploadView: View {
             .padding(20)
         }
         .background(AppTheme.bg.ignoresSafeArea())
-        .sheet(item: $shareSection) { section in
-            ShareImportSheet(section: section)
-                .environmentObject(store)
-        }
+        .fileImporter(
+            isPresented: $showImporter,
+            allowedContentTypes: Self.workbookTypes,
+            allowsMultipleSelection: false,
+            onCompletion: handleImport
+        )
         .fileExporter(
             isPresented: Binding(
                 get: { exportItem != nil },
@@ -95,8 +98,34 @@ struct UploadView: View {
     }
 
     private func beginImport(_ section: MetricSection) {
-        store.waitingForFileSection = section
-        shareSection = section
+        importTarget = section
+        showImporter = true
+    }
+
+    private func handleImport(_ result: Result<[URL], Error>) {
+        let section = importTarget
+        importTarget = nil
+        showImporter = false
+        guard let section else { return }
+        switch result {
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            do {
+                let file = try HeartbeatFilePicker.readPickedFile(url)
+                store.importWorkbook(data: file.data, filename: file.name, section: section)
+            } catch {
+                store.errorMessage = error.localizedDescription
+            }
+        case .failure(let error):
+            store.errorMessage = error.localizedDescription
+        }
+    }
+
+    private static var workbookTypes: [UTType] {
+        var types: [UTType] = [.item, .data, .commaSeparatedText, .spreadsheet]
+        if let xlsx = UTType(filenameExtension: "xlsx") { types.insert(xlsx, at: 0) }
+        if let csv = UTType(filenameExtension: "csv") { types.append(csv) }
+        return types
     }
 }
 
