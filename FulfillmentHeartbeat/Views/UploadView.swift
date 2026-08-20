@@ -31,7 +31,9 @@ struct UploadView: View {
                             justUpdated: store.lastImportedSection == section,
                             enabled: !store.isImporting,
                             onPick: { beginImport(section) },
-                            onDropURL: { store.importWorkbook(url: $0, section: section) },
+                            onDropData: { data, name in
+                                store.importWorkbook(data: data, filename: name, section: section)
+                            },
                             onTemplate: {
                                 exportItem = ExportItem(
                                     filename: "\(section.rawValue)-template.csv",
@@ -196,7 +198,7 @@ struct UploadPanel: View {
     var justUpdated: Bool = false
     var enabled: Bool = true
     let onPick: () -> Void
-    let onDropURL: (URL) -> Void
+    let onDropData: (Data, String) -> Void
     let onTemplate: () -> Void
     let onClear: () -> Void
 
@@ -303,54 +305,50 @@ struct UploadPanel: View {
         .disabled(!enabled)
         .onDrop(of: Self.dropTypes, isTargeted: $targeted) { providers in
             guard enabled else { return false }
-            return Self.takeDrop(providers, into: onDropURL)
+            return Self.takeDrop(providers, into: onDropData)
         }
     }
 
-    private static let dropTypes: [UTType] = {
-        var types: [UTType] = [.fileURL, .commaSeparatedText, .spreadsheet, .data]
-        if let xlsx = UTType(filenameExtension: "xlsx") { types.insert(xlsx, at: 0) }
-        if let csv = UTType(filenameExtension: "csv") { types.append(csv) }
-        return types
-    }()
+    private static let dropTypes: [UTType] = [.data, .item, .fileURL]
 
-    private static func takeDrop(_ providers: [NSItemProvider], into onDropURL: @escaping (URL) -> Void) -> Bool {
-        if let provider = providers.first(where: { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }) {
-            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+    private static func takeDrop(_ providers: [NSItemProvider], into onDrop: @escaping (Data, String) -> Void) -> Bool {
+        guard let provider = providers.first else { return false }
+        let typeId: String
+        if provider.hasItemConformingToTypeIdentifier(UTType.data.identifier) {
+            typeId = UTType.data.identifier
+        } else if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+            typeId = UTType.fileURL.identifier
+        } else {
+            typeId = UTType.item.identifier
+        }
+        if typeId == UTType.fileURL.identifier {
+            provider.loadItem(forTypeIdentifier: typeId, options: nil) { item, _ in
                 let url: URL?
                 if let value = item as? URL {
                     url = value
                 } else if let data = item as? Data {
                     url = URL(dataRepresentation: data, relativeTo: nil)
-                } else if let text = item as? String {
-                    url = URL(string: text)
                 } else {
                     url = nil
                 }
                 guard let url else { return }
-                DispatchQueue.main.async { onDropURL(url) }
+                let accessed = url.startAccessingSecurityScopedResource()
+                defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+                guard let raw = try? Data(contentsOf: url, options: [.uncached]) else { return }
+                var owned = Data()
+                owned.append(contentsOf: raw)
+                let name = url.lastPathComponent
+                DispatchQueue.main.async { onDrop(owned, name) }
             }
             return true
         }
-
-        let fallbacks = [
-            "org.openxmlformats.spreadsheetml.sheet",
-            UTType.commaSeparatedText.identifier,
-            UTType.data.identifier,
-        ]
-        for typeId in fallbacks {
-            guard let provider = providers.first(where: { $0.hasItemConformingToTypeIdentifier(typeId) }) else { continue }
-            provider.loadDataRepresentation(forTypeIdentifier: typeId) { data, _ in
-                guard let data else { return }
-                let ext = typeId.contains("comma") ? "csv" : "xlsx"
-                let dest = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("heartbeat-drop-\(UUID().uuidString).\(ext)")
-                try? data.write(to: dest)
-                DispatchQueue.main.async { onDropURL(dest) }
-            }
-            return true
+        provider.loadDataRepresentation(forTypeIdentifier: typeId) { data, _ in
+            guard let data, !data.isEmpty else { return }
+            var owned = Data()
+            owned.append(contentsOf: data)
+            DispatchQueue.main.async { onDrop(owned, "workbook.xlsx") }
         }
-        return false
+        return true
     }
 }
 

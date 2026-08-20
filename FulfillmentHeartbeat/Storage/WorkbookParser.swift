@@ -1182,10 +1182,94 @@ enum SheetXML {
     }
 
     static func parse(data: Data, strings: [String]) -> [[String]] {
-        data.withUnsafeBytes { raw -> [[String]] in
-            guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return [] }
-            return scan(base, count: raw.count, strings: strings)
+        walk(data: data, strings: strings)
+    }
+
+    private static func walk(data: Data, strings: [String]) -> [[String]] {
+        guard var xml = String(data: data, encoding: .utf8) else { return [] }
+        if xml.hasPrefix("\u{FEFF}") { xml.removeFirst() }
+        xml = xml.replacingOccurrences(of: "<x:", with: "<").replacingOccurrences(of: "</x:", with: "</")
+        var rows: [[String]] = []
+        rows.reserveCapacity(2048)
+        var cursor = xml.startIndex
+        while let rowStart = xml.range(of: "<row", range: cursor..<xml.endIndex) {
+            let after = rowStart.upperBound
+            guard after < xml.endIndex else { break }
+            let mark = xml[after]
+            if mark != " " && mark != ">" && mark != "/" {
+                cursor = after
+                continue
+            }
+            guard let tagClose = xml.range(of: ">", range: after..<xml.endIndex) else { break }
+            let open = xml[rowStart.lowerBound..<tagClose.upperBound]
+            if open.hasSuffix("/>") {
+                rows.append([])
+                cursor = tagClose.upperBound
+                continue
+            }
+            guard let rowEnd = xml.range(of: "</row>", range: tagClose.upperBound..<xml.endIndex) else { break }
+            rows.append(walkCells(xml[tagClose.upperBound..<rowEnd.lowerBound], strings: strings))
+            cursor = rowEnd.upperBound
         }
+        return rows
+    }
+
+    private static func walkCells(_ inner: Substring, strings: [String]) -> [String] {
+        var cells: [String] = []
+        var cursor = inner.startIndex
+        while let cellStart = inner.range(of: "<c", range: cursor..<inner.endIndex) {
+            let after = cellStart.upperBound
+            guard after < inner.endIndex else { break }
+            let mark = inner[after]
+            if mark != " " && mark != ">" && mark != "/" {
+                cursor = after
+                continue
+            }
+            guard let tagClose = inner.range(of: ">", range: after..<inner.endIndex) else { break }
+            let open = String(inner[cellStart.lowerBound..<tagClose.upperBound])
+            var body = ""
+            if open.hasSuffix("/>") {
+                cursor = tagClose.upperBound
+            } else if let cellEnd = inner.range(of: "</c>", range: tagClose.upperBound..<inner.endIndex) {
+                body = String(inner[tagClose.upperBound..<cellEnd.lowerBound])
+                cursor = cellEnd.upperBound
+            } else {
+                break
+            }
+            let type = xmlAttr(open, "t")
+            let ref = xmlAttr(open, "r") ?? ""
+            var value = xmlTag(body, "v") ?? xmlTag(body, "t") ?? ""
+            if type == "s", let index = Int(value.trimmingCharacters(in: .whitespacesAndNewlines)), strings.indices.contains(index) {
+                value = strings[index]
+            } else {
+                value = unescape(value)
+            }
+            let column = columnIndex(ref)
+            if column < 0 {
+                cells.append(value)
+            } else if column < 256 {
+                if cells.count <= column {
+                    cells.append(contentsOf: repeatElement("", count: column - cells.count + 1))
+                }
+                cells[column] = value
+            }
+        }
+        return cells
+    }
+
+    private static func xmlAttr(_ tag: String, _ name: String) -> String? {
+        let key = name + "=\""
+        guard let start = tag.range(of: key) else { return nil }
+        let rest = tag[start.upperBound...]
+        guard let end = rest.firstIndex(of: "\"") else { return nil }
+        return String(rest[..<end])
+    }
+
+    private static func xmlTag(_ xml: String, _ name: String) -> String? {
+        guard let start = xml.range(of: "<" + name) else { return nil }
+        guard let gt = xml.range(of: ">", range: start.upperBound..<xml.endIndex) else { return nil }
+        guard let end = xml.range(of: "</" + name + ">", range: gt.upperBound..<xml.endIndex) else { return nil }
+        return String(xml[gt.upperBound..<end.lowerBound])
     }
 
     private static func scan(_ base: UnsafePointer<UInt8>, count: Int, strings: [String]) -> [[String]] {

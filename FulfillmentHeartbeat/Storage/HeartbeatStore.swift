@@ -659,7 +659,7 @@ final class HeartbeatStore: ObservableObject {
                 if parsed.isEmpty { throw WorkbookParser.ParseError.empty }
                 return parsed.map { $0.asRow(section: section) }
             }.value
-            applyImport(incoming, filename: filename, section: section)
+            await applyImport(incoming, filename: filename, section: section)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -667,15 +667,24 @@ final class HeartbeatStore: ObservableObject {
         importLabel = nil
     }
 
-    private func applyImport(_ incoming: [MetricRow], filename: String, section: MetricSection) {
-        rows.removeAll { $0.section == section }
-        rows.append(contentsOf: incoming)
-        uploads.removeAll { $0.section == section }
-        uploads.insert(UploadRecord(section: section, filename: filename, rowCount: incoming.count), at: 0)
-        seeded = true
+    private func applyImport(_ incoming: [MetricRow], filename: String, section: MetricSection) async {
         lastImportedSection = section
-        rebuildIndex()
-        replaceFilters(DashboardFilters())
+        seeded = true
+        importLabel = "Updating dashboard…"
+        let currentRows = rows
+        let currentUploads = uploads
+        let nextRows = currentRows.filter { $0.section != section } + incoming
+        var nextUploads = currentUploads.filter { $0.section != section }
+        nextUploads.insert(UploadRecord(section: section, filename: filename, rowCount: incoming.count), at: 0)
+        let caches = await Task.detached(priority: .userInitiated) {
+            PulseCaches.build(rows: nextRows, filters: DashboardFilters(), uploads: nextUploads)
+        }.value
+        hydrating = true
+        rows = nextRows
+        uploads = nextUploads
+        filters = DashboardFilters()
+        install(caches)
+        hydrating = false
         let stores = Set(incoming.map(\.storeNumber).filter { !$0.isEmpty }).count
         if section == .pickPathPicker {
             statusMessage = "Imported \(incoming.count) pickers into Pick Path Compliance Picker. Open a store on Pick Path to see them."
