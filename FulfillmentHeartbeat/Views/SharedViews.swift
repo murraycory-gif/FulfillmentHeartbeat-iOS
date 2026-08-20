@@ -2164,8 +2164,7 @@ struct LaborRollupTable: View {
 
     var body: some View {
         if let grain, !summary.isEmpty {
-            Section {
-                VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
+            VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
                     Button {
                         withAnimation(.easeInOut(duration: 0.2)) {
                             expanded.toggle()
@@ -2216,13 +2215,9 @@ struct LaborRollupTable: View {
                     RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
                         .stroke(AppTheme.cardBorder, lineWidth: 1)
                 )
-                .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 12, trailing: 20))
-                .listRowSeparator(.hidden)
-                .listRowBackground(AppTheme.bg)
                 .onChange(of: store.filters) { _, _ in
                     expanded = false
                 }
-            }
         }
     }
 
@@ -2278,29 +2273,36 @@ struct LaborTable: View {
     @State private var expanded = true
 
     var body: some View {
-        if rows.isEmpty {
-            Section {
+        Section {
+            if rows.isEmpty {
                 EmptyHint(
                     symbol: "dollarsign.circle",
                     title: "No stores in this view",
                     detail: "Tap Target vs Actual to see every store, or pick another callout."
                 )
-                .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 20, trailing: 20))
-                .listRowSeparator(.hidden)
-                .listRowBackground(AppTheme.bg)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 20)
+            } else if expanded {
+                ForEach(ordered) { row in
+                    LaborStoreCard(row: row)
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 2)
+                }
+                .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
+                .onChange(of: rows.count) { _, _ in
+                    rebuildOrder(sort: sort, ascending: ascending)
+                    headerPin.storeCount = rows.count
+                }
             }
-        } else {
-            Section {
+        } header: {
+            VStack(alignment: .leading, spacing: 8) {
                 Button {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         expanded.toggle()
                         if expanded {
                             rebuildOrder(sort: sort, ascending: ascending)
-                            headerPin.tableOpen = true
-                        } else {
-                            headerPin.tableOpen = false
-                            headerPin.pinned = false
                         }
+                        headerPin.tableOpen = expanded
                     }
                 } label: {
                     HStack(spacing: 10) {
@@ -2331,40 +2333,30 @@ struct LaborTable: View {
                     RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
                         .stroke(AppTheme.cardBorder, lineWidth: 1)
                 )
-                .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: expanded ? 4 : 20, trailing: 20))
-                .listRowSeparator(.hidden)
-                .listRowBackground(AppTheme.bg)
-                .onAppear {
-                    expanded = true
-                    headerPin.tableOpen = true
-                    headerPin.storeCount = rows.count
-                    headerPin.active = sort.key
-                    headerPin.ascending = ascending
-                    headerPin.onSelect = applyHeaderSort
+                if expanded, !rows.isEmpty {
+                    LaborMetricHeader(
+                        label: "Store",
+                        showCount: false,
+                        active: sort.key,
+                        ascending: ascending,
+                        onSelect: applyHeaderSort
+                    )
+                    .padding(.horizontal, 4)
                 }
             }
-            if expanded {
-                Section {
-                    ForEach(ordered) { row in
-                        LaborStoreCard(row: row)
-                            .listRowInsets(EdgeInsets(top: 2, leading: 20, bottom: 2, trailing: 20))
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(AppTheme.bg)
-                    }
-                }
-                .transaction { $0.animation = nil }
-                .onAppear {
-                    rebuildOrder(sort: sort, ascending: ascending)
-                    headerPin.tableOpen = true
-                    headerPin.storeCount = rows.count
-                    headerPin.active = sort.key
-                    headerPin.ascending = ascending
-                    headerPin.onSelect = applyHeaderSort
-                }
-                .onChange(of: rows.count) { _, _ in
-                    rebuildOrder(sort: sort, ascending: ascending)
-                    headerPin.storeCount = rows.count
-                }
+            .padding(.horizontal, 20)
+            .padding(.top, 8)
+            .padding(.bottom, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(AppTheme.bg)
+            .onAppear {
+                expanded = true
+                headerPin.tableOpen = true
+                headerPin.storeCount = rows.count
+                headerPin.active = sort.key
+                headerPin.ascending = ascending
+                headerPin.onSelect = applyHeaderSort
+                rebuildOrder(sort: sort, ascending: ascending)
             }
         }
     }

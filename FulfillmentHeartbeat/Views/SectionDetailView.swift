@@ -20,92 +20,43 @@ struct SectionDetailView: View {
     }
 
     var body: some View {
+        Group {
+            if section == .labor {
+                laborPage
+            } else {
+                listPage
+            }
+        }
+        .background(AppTheme.bg.ignoresSafeArea())
+        .environmentObject(laborHeaderPin)
+    }
+
+    private var laborPage: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                Section {
+                    pageIntro
+                        .padding(.horizontal, 20)
+                        .padding(.top, 16)
+                        .padding(.bottom, 8)
+                    LaborRollupTable()
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 4)
+                }
+                LaborTable(rows: laborRows)
+            }
+        }
+        .scrollIndicators(.visible)
+        .background(AppTheme.bg)
+    }
+
+    private var listPage: some View {
         List {
             Section {
-                VStack(alignment: .leading, spacing: 14) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        if section == .pickerScorecard {
-                            PickerScoreCardTitle(font: .largeTitle.weight(.semibold))
-                        } else {
-                            Text(section == .pickPath ? "Pick Path Compliance" : section.title)
-                                .font(.largeTitle.weight(.semibold))
-                        }
-                        Text(section.blurb)
-                            .font(.subheadline)
-                            .foregroundStyle(AppTheme.textSecondary)
-                    }
-
-                    if section == .labor, store.laborNeedsReload() {
-                        HStack(alignment: .top, spacing: 10) {
-                            Image(systemName: "exclamationmark.triangle.fill")
-                                .foregroundStyle(AppTheme.warn)
-                            Text("Re-upload LABOR Store View Thru Week.xlsx. The Power BI Total row is missing, so company tiles cannot match -0.04% Target vs Actual.")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(AppTheme.text)
-                        }
-                        .padding(12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(AppTheme.warnSoft, in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous))
-                    }
-
-                    if missingInFile {
-                        HStack(alignment: .top, spacing: 10) {
-                            Image(systemName: "info.circle.fill")
-                                .foregroundStyle(AppTheme.blue)
-                            Text("\(store.filters.division.isEmpty ? "This filter" : store.filters.division) isn’t in the \(section.short) workbook. Stores below come from PPH so the same division still shows across the app.")
-                                .font(.subheadline)
-                                .foregroundStyle(AppTheme.textSecondary)
-                        }
-                        .padding(12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(AppTheme.blueSoft, in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous))
-                    }
-
-                    if section == .labor {
-                        laborStatusTiles
-                    } else {
-                    LazyVGrid(
-                        columns: Array(repeating: GridItem(.flexible(minimum: 140), spacing: 14), count: 5),
-                        spacing: 14
-                    ) {
-                        if section == .pph {
-                            pphStatusTiles
-                        } else if section == .pickPath {
-                            pickPathStatusTiles
-                        } else if section == .dynacap {
-                            dynacapStatusTiles
-                        } else if section == .scheduleQuality {
-                            scheduleStatusTiles
-                        } else if section == .fiveStar {
-                            fiveStarStatusTiles
-                        } else if section == .pickerScorecard {
-                            pickerStatusTiles
-                        } else if section == .prepNotReady {
-                            prepStatusTiles
-                        } else {
-                            HubCard {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Text(summary.headlineLabel)
-                                        .font(.caption.weight(.medium))
-                                        .foregroundStyle(AppTheme.textSecondary)
-                                    HStack(alignment: .bottom) {
-                                        Text(summary.headlineText)
-                                            .font(.system(size: 32, weight: .semibold).monospacedDigit())
-                                        Spacer()
-                                        HealthBadge(health: summary.health)
-                                    }
-                                }
-                            }
-                            ForEach(tiles, id: \.label) { tile in
-                                KpiTile(label: tile.label, value: tile.value)
-                            }
-                        }
-                    }
-                    }
-                }
-                .listRowInsets(EdgeInsets(top: 16, leading: 20, bottom: 4, trailing: 20))
-                .listRowSeparator(.hidden)
-                .listRowBackground(AppTheme.bg)
+                pageIntro
+                    .listRowInsets(EdgeInsets(top: 16, leading: 20, bottom: 4, trailing: 20))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(AppTheme.bg)
             }
 
             if section == .pickerScorecard {
@@ -131,11 +82,6 @@ struct SectionDetailView: View {
                 PrepTable(rows: prepRows)
             } else if section == .fiveStar {
                 FiveStarTable(rows: fiveStarRows)
-            } else if section == .labor {
-                Group {
-                    LaborRollupTable()
-                    LaborTable(rows: laborRows)
-                }
             } else {
                 StoreTable(section: section, rows: snapshots)
             }
@@ -144,11 +90,89 @@ struct SectionDetailView: View {
         .scrollContentBackground(.hidden)
         .background(AppTheme.bg.ignoresSafeArea())
         .environment(\.defaultMinListRowHeight, 1)
-        .environmentObject(laborHeaderPin)
-        .safeAreaInset(edge: .top, spacing: 0) {
-            if section == .labor && laborHeaderPin.tableOpen {
-                LaborStickyStoreHeader()
-                    .environmentObject(laborHeaderPin)
+    }
+
+    @ViewBuilder
+    private var pageIntro: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 4) {
+                if section == .pickerScorecard {
+                    PickerScoreCardTitle(font: .largeTitle.weight(.semibold))
+                } else {
+                    Text(section == .pickPath ? "Pick Path Compliance" : section.title)
+                        .font(.largeTitle.weight(.semibold))
+                }
+                Text(section.blurb)
+                    .font(.subheadline)
+                    .foregroundStyle(AppTheme.textSecondary)
+            }
+
+            if section == .labor, store.laborNeedsReload() {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(AppTheme.warn)
+                    Text("Re-upload LABOR Store View Thru Week.xlsx. The Power BI Total row is missing, so company tiles cannot match -0.04% Target vs Actual.")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(AppTheme.text)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(AppTheme.warnSoft, in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous))
+            }
+
+            if missingInFile {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "info.circle.fill")
+                        .foregroundStyle(AppTheme.blue)
+                    Text("\(store.filters.division.isEmpty ? "This filter" : store.filters.division) isn’t in the \(section.short) workbook. Stores below come from PPH so the same division still shows across the app.")
+                        .font(.subheadline)
+                        .foregroundStyle(AppTheme.textSecondary)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(AppTheme.blueSoft, in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous))
+            }
+
+            if section == .labor {
+                laborStatusTiles
+            } else {
+                LazyVGrid(
+                    columns: Array(repeating: GridItem(.flexible(minimum: 140), spacing: 14), count: 5),
+                    spacing: 14
+                ) {
+                    if section == .pph {
+                        pphStatusTiles
+                    } else if section == .pickPath {
+                        pickPathStatusTiles
+                    } else if section == .dynacap {
+                        dynacapStatusTiles
+                    } else if section == .scheduleQuality {
+                        scheduleStatusTiles
+                    } else if section == .fiveStar {
+                        fiveStarStatusTiles
+                    } else if section == .pickerScorecard {
+                        pickerStatusTiles
+                    } else if section == .prepNotReady {
+                        prepStatusTiles
+                    } else {
+                        HubCard {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(summary.headlineLabel)
+                                    .font(.caption.weight(.medium))
+                                    .foregroundStyle(AppTheme.textSecondary)
+                                HStack(alignment: .bottom) {
+                                    Text(summary.headlineText)
+                                        .font(.system(size: 32, weight: .semibold).monospacedDigit())
+                                    Spacer()
+                                    HealthBadge(health: summary.health)
+                                }
+                            }
+                        }
+                        ForEach(tiles, id: \.label) { tile in
+                            KpiTile(label: tile.label, value: tile.value)
+                        }
+                    }
+                }
             }
         }
     }
