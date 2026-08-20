@@ -516,24 +516,34 @@ enum WorkbookParser {
                 if let uplh = bucket.uplh { payload["uplh_impact_pct"] = uplh }
                 if let wage = bucket.wage { payload["wage_impact_pct"] = wage }
                 if let aiv = bucket.aiv { payload["aiv_impact_pct"] = aiv }
-                let days = Dictionary(grouping: bucket.days, by: \.date)
-                    .values
-                    .compactMap { $0.last }
-                    .sorted { $0.date < $1.date }
-                    .filter {
-                        ($0.chargedHrs ?? 0) > 0
-                            || ($0.empowerHrs ?? 0) > 0
-                            || ($0.schHrs ?? 0) > 0
-                            || ($0.earnedHrs ?? 0) > 0
+                let uniqueDays: [LaborDay] = {
+                    var latest: [String: LaborDay] = [:]
+                    for day in bucket.days where !day.date.isEmpty {
+                        latest[day.date] = day
                     }
-                let hasActivity = charged > 0 || emp > 0 || sch > 0 || hours > 0 || dollars > 0 || !days.isEmpty
+                    return latest.values.sorted { $0.date < $1.date }
+                }()
+                let activeDays = uniqueDays.filter { day in
+                    (day.chargedHrs ?? 0) > 0
+                        || (day.empowerHrs ?? 0) > 0
+                        || (day.schHrs ?? 0) > 0
+                        || (day.earnedHrs ?? 0) > 0
+                }
+                let hasActivity = charged > 0 || emp > 0 || sch > 0 || hours > 0 || dollars > 0 || !activeDays.isEmpty
                 if !hasActivity { continue }
                 if payload["act_cost_pct"] == nil {
-                    let chargedWeight = days.reduce(0.0) { $0 + ($1.chargedHrs ?? 0) }
-                    let mixed = days.reduce(0.0) { $0 + ($1.actCostPct ?? 0) * ($1.chargedHrs ?? 0) }
+                    var chargedWeight = 0.0
+                    var mixed = 0.0
+                    for day in activeDays {
+                        let dayCharged = day.chargedHrs ?? 0
+                        guard dayCharged > 0, let pct = day.actCostPct else { continue }
+                        chargedWeight += dayCharged
+                        mixed += pct * dayCharged
+                    }
                     if chargedWeight > 0 { payload["act_cost_pct"] = mixed / chargedWeight }
                 }
-                let json = (try? encoder.encode(days)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+                let jsonData = (try? encoder.encode(activeDays)) ?? Data("[]".utf8)
+                let json = String(data: jsonData, encoding: .utf8) ?? "[]"
                 out.append(
                     ParsedWorkbookRow(
                         division: bucket.division,
@@ -682,7 +692,7 @@ enum WorkbookParser {
             mapped = "empower_hrs"
         } else if key.contains("uplh") {
             mapped = "uplh_impact_pct"
-        } else if key.contains("wageimpact") || key == "wageimpact" || key.contains("wage") && key.contains("impact") {
+        } else if key.contains("wageimpact") || key == "wageimpact" || (key.contains("wage") && key.contains("impact")) {
             mapped = "wage_impact_pct"
         } else if key.contains("aiv") {
             mapped = "aiv_impact_pct"
