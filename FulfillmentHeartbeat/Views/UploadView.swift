@@ -162,20 +162,31 @@ struct UploadView: View {
         guard let section else { return }
         switch result {
         case .success(let urls):
-            if let url = urls.first {
-                store.importWorkbook(url: url, section: section)
+            guard let url = urls.first else { return }
+            let accessed = url.startAccessingSecurityScopedResource()
+            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+            do {
+                let owned = try Self.ownedBytes(from: url)
+                store.importWorkbook(data: owned, filename: url.lastPathComponent, section: section)
+            } catch {
+                store.errorMessage = error.localizedDescription
             }
         case .failure(let error):
             store.errorMessage = error.localizedDescription
         }
     }
 
+    /// Force a real byte copy. Mapped security-scoped Data crashes after the picker closes.
+    private static func ownedBytes(from url: URL) throws -> Data {
+        let raw = try Data(contentsOf: url, options: [.uncached])
+        var owned = Data()
+        owned.reserveCapacity(raw.count)
+        owned.append(contentsOf: raw)
+        return owned
+    }
+
     private static var workbookTypes: [UTType] {
-        var types: [UTType] = [.commaSeparatedText, .plainText, .spreadsheet, .data]
-        if let xlsx = UTType(filenameExtension: "xlsx") { types.insert(xlsx, at: 0) }
-        if let xls = UTType(filenameExtension: "xls") { types.insert(xls, at: 1) }
-        if let csv = UTType(filenameExtension: "csv") { types.append(csv) }
-        return types
+        [.item, .data, .commaSeparatedText]
     }
 }
 

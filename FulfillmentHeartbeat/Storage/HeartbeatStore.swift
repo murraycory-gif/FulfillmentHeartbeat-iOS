@@ -634,8 +634,11 @@ final class HeartbeatStore: ObservableObject {
         let accessed = url.startAccessingSecurityScopedResource()
         defer { if accessed { url.stopAccessingSecurityScopedResource() } }
         do {
-            let data = try Data(contentsOf: url)
-            Task { await runImport(data: data, filename: url.lastPathComponent, section: section) }
+            let raw = try Data(contentsOf: url, options: [.uncached])
+            var owned = Data()
+            owned.reserveCapacity(raw.count)
+            owned.append(contentsOf: raw)
+            Task { await runImport(data: owned, filename: url.lastPathComponent, section: section) }
         } catch {
             errorMessage = error.localizedDescription
         }
