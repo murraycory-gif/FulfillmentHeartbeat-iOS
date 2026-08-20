@@ -113,6 +113,8 @@ struct SectionDetailView: View {
                     PageHeadline(lead: "Prep Not Ready", accent: "ScoreCard", blurb: section.blurb)
                 } else if section == .pickPath {
                     PageHeadline(lead: "Pick Path Compliance", accent: "ScoreCard", blurb: section.blurb)
+                } else if section == .fiveStar {
+                    PageHeadline(lead: "5 Star", accent: "ScoreCard", blurb: section.blurb)
                 } else {
                     PageHeadline(
                         lead: section == .pickPath ? "Pick Path Compliance" : section.title,
