@@ -1535,7 +1535,7 @@ struct StoreCellViewModel {
         case .labor:
             return StoreCellViewModel(
                 primary: HeartbeatFormat.pct(row.number("target_vs_actual_pct")),
-                extra: "Cost \(HeartbeatFormat.pct(row.number("cost_trgt_pct"))) · Act \(HeartbeatFormat.pct(row.number("act_cost_pct")))"
+                extra: "Cost \(HeartbeatFormat.pct(row.number("cost_trgt_pct"))) · \(HeartbeatFormat.money(row.number("act_cost_dollar")))"
             )
         case .pickerScorecard:
             return StoreCellViewModel(

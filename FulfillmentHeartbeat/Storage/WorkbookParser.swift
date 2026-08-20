@@ -469,6 +469,14 @@ enum WorkbookParser {
             mapped = "over_schedule_pct"
         } else if key.contains("scheffi") {
             mapped = "schedule_efficiency_pct"
+        } else if key.contains("empower") {
+            mapped = "empower_hrs"
+        } else if key.contains("uplh") {
+            mapped = "uplh_impact_pct"
+        } else if key.contains("wageimpact") || key == "wageimpact" || key.contains("wage") && key.contains("impact") {
+            mapped = "wage_impact_pct"
+        } else if key.contains("aiv") {
+            mapped = "aiv_impact_pct"
         } else if key == "acthrs" {
             mapped = "act_hrs"
         } else if key == "schhrs" {
@@ -485,7 +493,7 @@ enum WorkbookParser {
         }
         if mapped.hasSuffix("_pct"), abs(number) <= 1.0 {
             number *= 100
-        } else if mapped == "act_cost_pct" || mapped == "cost_trgt_pct", abs(number) > 1, abs(number) <= 5 {
+        } else if (mapped == "act_cost_pct" || mapped == "cost_trgt_pct" || mapped.hasSuffix("_impact_pct")), abs(number) > 1, abs(number) <= 8 {
             number *= 100
         }
         payload[mapped] = number
@@ -500,31 +508,24 @@ enum WorkbookParser {
         }
         var out: [ParsedWorkbookRow] = []
         out.reserveCapacity(byStore.count + latest.count)
+        let weekKeys = [
+            "target_vs_actual_pct", "cost_trgt_pct", "act_hrs", "act_cost_dollar",
+            "uplh_impact_pct", "wage_impact_pct", "aiv_impact_pct",
+        ]
         for (store, storeDays) in byStore {
             let sorted = storeDays.sorted { ($0.recordedOn ?? "") < ($1.recordedOn ?? "") }
             out.append(contentsOf: sorted)
+            let sample = sorted[sorted.count / 2]
             var payload: [String: Double] = [:]
-            let hours = sorted.compactMap { $0.payload["act_hrs"] }
-            let totalHours = hours.reduce(0, +)
-            func weighted(_ key: String) -> Double? {
-                if totalHours > 0 {
-                    let sum = sorted.reduce(0.0) { $0 + (($1.payload[key] ?? 0) * ($1.payload["act_hrs"] ?? 0)) }
-                    return sum / totalHours
+            for key in weekKeys {
+                if let value = sample.payload[key] {
+                    payload[key] = value
                 }
-                let values = sorted.compactMap { $0.payload[key] }
-                guard !values.isEmpty else { return nil }
-                return values.reduce(0, +) / Double(values.count)
             }
-            if let tva = weighted("target_vs_actual_pct") { payload["target_vs_actual_pct"] = tva }
-            if let cost = weighted("cost_trgt_pct") { payload["cost_trgt_pct"] = cost }
-            if let act = weighted("act_cost_pct") { payload["act_cost_pct"] = act }
-            if let sch = weighted("schedule_efficiency_pct") { payload["schedule_efficiency_pct"] = sch }
-            if totalHours > 0 { payload["act_hrs"] = totalHours }
             let schHrs = sorted.compactMap { $0.payload["sch_hrs"] }.reduce(0, +)
             if schHrs > 0 { payload["sch_hrs"] = schHrs }
-            let dollars = sorted.compactMap { $0.payload["act_cost_dollar"] }.reduce(0, +)
-            if dollars > 0 { payload["act_cost_dollar"] = dollars }
-            let sample = sorted.last!
+            let empHrs = sorted.compactMap { $0.payload["empower_hrs"] }.reduce(0, +)
+            if empHrs > 0 { payload["empower_hrs"] = empHrs }
             out.append(
                 ParsedWorkbookRow(
                     division: sample.division,

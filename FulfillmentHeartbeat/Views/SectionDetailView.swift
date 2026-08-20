@@ -175,13 +175,13 @@ struct SectionDetailView: View {
                 ("Week", week ?? "—"),
             ]
         case .labor:
-            let healthy = rows.filter { ($0.number("target_vs_actual_pct") ?? 1) <= 0 }.count
             let risk = rows.filter { ($0.number("target_vs_actual_pct") ?? 0) > HeartbeatMath.laborWatch }.count
+            let week = rows.compactMap { $0.textPayload["week"] }.filter { !$0.isEmpty }.max()
             return [
+                ("Week", week ?? "—"),
                 ("Cost target", HeartbeatFormat.pct(avg("cost_trgt_pct"))),
-                ("Act cost", HeartbeatFormat.pct(avg("act_cost_pct"))),
-                ("Healthy", HeartbeatFormat.num(Double(healthy))),
-                ("Over 3%", HeartbeatFormat.num(Double(risk))),
+                ("Act cost", HeartbeatFormat.money(avg("act_cost_dollar"))),
+                ("At risk", HeartbeatFormat.num(Double(risk))),
             ]
         case .pickerScorecard:
             let board = HeartbeatMath.pickerBoard(rows)
@@ -444,7 +444,8 @@ struct SectionDetailView: View {
         }.count
         let risk = rows.filter { ($0.number("target_vs_actual_pct") ?? 0) > HeartbeatMath.laborWatch }.count
         let cost = HeartbeatMath.average(rows.compactMap { $0.number("cost_trgt_pct") })
-        let actual = HeartbeatMath.average(rows.compactMap { $0.number("act_cost_pct") })
+        let dollars = HeartbeatMath.average(rows.compactMap { $0.number("act_cost_dollar") })
+        let week = rows.compactMap { $0.textPayload["week"] }.filter { !$0.isEmpty }.max()
         callout("Target vs Actual", summary.headlineText, "0% healthy · 0.01–3% watch · over 3% risk", summary.health, selected: laborFocus == .all) {
             laborFocus = .all
         }
@@ -458,8 +459,9 @@ struct SectionDetailView: View {
         callout("At Risk", HeartbeatFormat.num(Double(risk)), "Over 3%", risk == 0 ? .good : .risk, unit: "stores", selected: laborFocus == .risk) {
             laborFocus = .risk
         }
-        callout("CostTrgt%", HeartbeatFormat.pct(cost), "Cost target", .none)
-        callout("ActCost%", HeartbeatFormat.pct(actual), "Actual cost", .none)
+        callout("Week", week ?? "—", "Latest week in the file", .none)
+        callout("CostTrgt%", HeartbeatFormat.pct(cost), "Week cost target", .none)
+        callout("Act Cost", HeartbeatFormat.money(dollars), "Week actual $", .none)
     }
 
     @ViewBuilder
