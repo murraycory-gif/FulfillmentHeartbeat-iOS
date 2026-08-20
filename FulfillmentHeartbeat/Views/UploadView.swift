@@ -5,11 +5,9 @@ import UIKit
 struct UploadView: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var router: HubRouter
-    @State private var importTarget: MetricSection?
     @State private var exportItem: ExportItem?
     @State private var showStatus = false
     @State private var showError = false
-    @State private var inboxFiles: [URL] = []
 
     var body: some View {
         ScrollView {
@@ -17,12 +15,10 @@ struct UploadView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Upload workbooks")
                         .font(.largeTitle.weight(.semibold))
-                    Text("Copy each Excel into Files → On My iPad → Heartbeat, then tap Pick file on the matching card. Do not drag files — that crashes on this iPad.")
+                    Text("Download the Excel from Power BI (Link), then tap Choose file. iCloud Drive and OneDrive both work.")
                         .font(.subheadline)
                         .foregroundStyle(AppTheme.textSecondary)
                 }
-
-                inboxCard
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 16)], spacing: 16) {
                     ForEach(MetricSection.uploadOrder) { section in
@@ -50,17 +46,6 @@ struct UploadView: View {
             .padding(20)
         }
         .background(AppTheme.bg.ignoresSafeArea())
-        .sheet(item: $importTarget) { section in
-            FilePickSheet(
-                section: section,
-                files: inboxFiles,
-                onImport: { url in
-                    store.importWorkbook(url: url, section: section)
-                    importTarget = nil
-                },
-                onRefresh: { inboxFiles = store.inboxWorkbooks() }
-            )
-        }
         .fileExporter(
             isPresented: Binding(
                 get: { exportItem != nil },
@@ -90,10 +75,8 @@ struct UploadView: View {
         } message: {
             Text(store.errorMessage ?? "")
         }
-        .onAppear { inboxFiles = store.inboxWorkbooks() }
         .onChange(of: store.statusMessage) { _, message in
             showStatus = message != nil
-            inboxFiles = store.inboxWorkbooks()
         }
         .onChange(of: store.errorMessage) { _, message in
             showError = message != nil
@@ -106,56 +89,12 @@ struct UploadView: View {
         }
     }
 
-    private var inboxCard: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Heartbeat folder")
-                .font(.title3.weight(.bold))
-            Text("Put the Excel in Files → On My iPad → Heartbeat, then tap Import next to it. Do not drag files onto the cards.")
-                .font(.subheadline)
-                .foregroundStyle(AppTheme.textSecondary)
-            if inboxFiles.isEmpty {
-                Text("No .xlsx or .csv files in the Heartbeat folder yet.")
-                    .font(.footnote)
-                    .foregroundStyle(AppTheme.textSecondary)
-            } else {
-                ForEach(inboxFiles, id: \.path) { url in
-                    HStack(spacing: 12) {
-                        Image(systemName: "doc")
-                            .foregroundStyle(AppTheme.blue)
-                        Text(url.lastPathComponent)
-                            .font(.subheadline.weight(.semibold))
-                            .lineLimit(2)
-                        Spacer()
-                        Menu("Import") {
-                            ForEach(MetricSection.uploadOrder) { section in
-                                Button(section.title) {
-                                    store.importWorkbook(url: url, section: section)
-                                }
-                            }
-                        }
-                        .font(.subheadline.weight(.bold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(AppTheme.blue, in: Capsule())
-                    }
-                    .padding(12)
-                    .background(AppTheme.blueSoft, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                }
-            }
-            Button("Refresh folder") {
-                inboxFiles = store.inboxWorkbooks()
-            }
-            .font(.subheadline.weight(.semibold))
-            .foregroundStyle(AppTheme.blue)
-        }
-        .padding(16)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-    }
-
     private func beginImport(_ section: MetricSection) {
-        inboxFiles = store.inboxWorkbooks()
-        importTarget = section
+        HeartbeatFilePicker.shared.present { data, name in
+            store.importWorkbook(data: data, filename: name, section: section)
+        } onFail: { message in
+            store.errorMessage = message
+        }
     }
 }
 
@@ -236,16 +175,16 @@ struct UploadPanel: View {
     private var dropZone: some View {
         Button(action: onPick) {
             VStack(spacing: 8) {
-                Image(systemName: "folder")
+                Image(systemName: "square.and.arrow.up")
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(AppTheme.blue)
-                Text("Pick a file from Heartbeat")
+                Text("Choose the Excel from iCloud or OneDrive")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(AppTheme.text)
-                Text("Files → On My iPad → Heartbeat")
+                Text(".xlsx or .csv · replaces current \(section.short) data")
                     .font(.caption)
                     .foregroundStyle(AppTheme.textTertiary)
-                Text("Pick file")
+                Text("Choose file")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white)
                     .padding(.horizontal, 16)
@@ -270,80 +209,95 @@ struct UploadPanel: View {
     }
 }
 
-struct FilePickSheet: View {
-    let section: MetricSection
-    let files: [URL]
-    let onImport: (URL) -> Void
-    let onRefresh: () -> Void
-    @Environment(\.dismiss) private var dismiss
+final class HeartbeatFilePicker: NSObject, UIDocumentPickerDelegate {
+    static let shared = HeartbeatFilePicker()
+    private var onPick: ((Data, String) -> Void)?
+    private var onFail: ((String) -> Void)?
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Import \(section.title)")
-                        .font(.title2.weight(.bold))
-                    Text("Tap a file already in Heartbeat. If the list is empty, copy the Excel into Files → On My iPad → Heartbeat first.")
-                        .font(.subheadline)
-                        .foregroundStyle(AppTheme.textSecondary)
-                }
-                Spacer()
-                Button("Close") { dismiss() }
-                    .font(.subheadline.weight(.semibold))
-            }
-
-            if files.isEmpty {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("No Excel files in Heartbeat yet")
-                        .font(.headline)
-                    Text("1. Keep the iPad plugged into the Mac")
-                    Text("2. Finder → iPad in the sidebar → Files → Heartbeat")
-                    Text("3. Drop the Excel into that Heartbeat folder")
-                    Text("4. Come back here and tap Refresh, then Use")
-                }
-                .font(.subheadline)
-                .padding(16)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(AppTheme.blueSoft, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            } else {
-                ScrollView {
-                    VStack(spacing: 10) {
-                        ForEach(files, id: \.path) { url in
-                            Button {
-                                onImport(url)
-                            } label: {
-                                HStack {
-                                    Image(systemName: "doc.fill")
-                                        .foregroundStyle(AppTheme.blue)
-                                    Text(url.lastPathComponent)
-                                        .font(.subheadline.weight(.semibold))
-                                        .foregroundStyle(AppTheme.text)
-                                        .multilineTextAlignment(.leading)
-                                    Spacer()
-                                    Text("Use")
-                                        .font(.subheadline.weight(.bold))
-                                        .foregroundStyle(.white)
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 8)
-                                        .background(AppTheme.blue, in: Capsule())
-                                }
-                                .padding(14)
-                                .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-            }
-
-            Button("Refresh list", action: onRefresh)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(AppTheme.blue)
-            Spacer(minLength: 0)
+    func present(onPick: @escaping (Data, String) -> Void, onFail: @escaping (String) -> Void) {
+        self.onPick = onPick
+        self.onFail = onFail
+        let picker = UIDocumentPickerViewController(
+            forOpeningContentTypes: [.item, .data, .commaSeparatedText],
+            asCopy: true
+        )
+        picker.delegate = self
+        picker.allowsMultipleSelection = false
+        picker.shouldShowFileExtensions = true
+        picker.modalPresentationStyle = .formSheet
+        picker.preferredContentSize = CGSize(width: 720, height: 640)
+        guard let presenter = Self.topController() else {
+            onFail("Could not open the file picker.")
+            return
         }
-        .padding(24)
-        .frame(minWidth: 520, minHeight: 480)
-        .background(AppTheme.bg)
+        if presenter.presentedViewController != nil {
+            presenter.dismiss(animated: false) {
+                presenter.present(picker, animated: true)
+            }
+        } else {
+            presenter.present(picker, animated: true)
+        }
+    }
+
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        guard let url = urls.first else {
+            onFail?("No file was selected.")
+            clear()
+            return
+        }
+        let success = onPick
+        let fail = onFail
+        clear()
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let file = try Self.readFile(url)
+                DispatchQueue.main.async { success?(file.data, file.name) }
+            } catch {
+                DispatchQueue.main.async { fail?(error.localizedDescription) }
+            }
+        }
+    }
+
+    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        clear()
+    }
+
+    private static func readFile(_ url: URL) throws -> (data: Data, name: String) {
+        var copied: Data?
+        var coordError: NSError?
+        NSFileCoordinator().coordinate(readingItemAt: url, options: [.forUploading], error: &coordError) { local in
+            copied = try? Data(contentsOf: local, options: [.uncached])
+        }
+        if copied == nil {
+            let accessed = url.startAccessingSecurityScopedResource()
+            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+            copied = try Data(contentsOf: url, options: [.uncached])
+        }
+        guard let raw = copied, !raw.isEmpty else {
+            throw NSError(
+                domain: "HeartbeatImport",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Could not read that file."]
+            )
+        }
+        var owned = Data()
+        owned.append(contentsOf: raw)
+        return (owned, url.lastPathComponent)
+    }
+
+    private func clear() {
+        onPick = nil
+        onFail = nil
+    }
+
+    private static func topController() -> UIViewController? {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let window = scenes.flatMap(\.windows).first(where: \.isKeyWindow) ?? scenes.first?.windows.first
+        var controller = window?.rootViewController
+        while let presented = controller?.presentedViewController {
+            controller = presented
+        }
+        return controller
     }
 }
 
