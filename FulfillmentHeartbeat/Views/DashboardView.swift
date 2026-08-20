@@ -11,6 +11,7 @@ struct DashboardView: View {
         List {
             Section {
                 VStack(spacing: 16) {
+                    PageHeadline(lead: "Dashboard")
                     if store.summaries.contains(where: { $0.health == .risk || $0.health == .watch }) {
                         FulfillmentChecklistCard()
                     }

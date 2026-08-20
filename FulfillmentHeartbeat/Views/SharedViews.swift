@@ -24,8 +24,56 @@ struct PickerScoreCardTitle: View {
     var font: Font = .title2.weight(.semibold)
 
     var body: some View {
-        (Text("Picker ") + Text("ScoreCard").foregroundStyle(AppTheme.blue))
-            .font(font)
+        PageHeadline(lead: "Picker", accent: "ScoreCard", font: font, showsFilter: false)
+    }
+}
+
+struct PageHeadline: View {
+    @EnvironmentObject private var store: HeartbeatStore
+    var lead: String
+    var accent: String? = nil
+    var blurb: String? = nil
+    var font: Font = .largeTitle.weight(.semibold)
+    var showsFilter: Bool = true
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                titleText
+                    .font(font)
+                    .fixedSize(horizontal: true, vertical: false)
+                if showsFilter {
+                    Text("|")
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(AppTheme.textTertiary)
+                    Text(store.filters.summary)
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(AppTheme.text)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.55)
+                    Spacer(minLength: 0)
+                }
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(accessibilityText)
+            if let blurb, !blurb.isEmpty {
+                Text(blurb)
+                    .font(.subheadline)
+                    .foregroundStyle(AppTheme.textSecondary)
+            }
+        }
+    }
+
+    private var titleText: Text {
+        if let accent, !accent.isEmpty {
+            return Text(lead + " ") + Text(accent).foregroundStyle(AppTheme.blue)
+        }
+        return Text(lead)
+    }
+
+    private var accessibilityText: String {
+        let name = accent == nil ? lead : "\(lead) \(accent!)"
+        return showsFilter ? "\(name). \(store.filters.summary)" : name
     }
 }
 
@@ -3642,7 +3690,7 @@ struct HubBrandBar: View {
                     .font(.title2.weight(.bold))
                     .foregroundStyle(AppTheme.text)
                     .lineLimit(1)
-                Text(statusLine)
+                Text(HeartbeatFormat.updated(store.lastUpload?.uploadedAt))
                     .font(.caption)
                     .foregroundStyle(AppTheme.textSecondary)
                     .lineLimit(1)
@@ -3673,10 +3721,6 @@ struct HubBrandBar: View {
 
     private var markHeight: CGFloat {
         sizeClass == .regular ? 44 : 34
-    }
-
-    private var statusLine: String {
-        "\(store.filters.summary) · \(HeartbeatFormat.updated(store.lastUpload?.uploadedAt))"
     }
 }
 

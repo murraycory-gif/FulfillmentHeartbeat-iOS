@@ -100,14 +100,15 @@ struct SectionDetailView: View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
                 if section == .pickerScorecard {
-                    PickerScoreCardTitle(font: .largeTitle.weight(.semibold))
+                    PageHeadline(lead: "Picker", accent: "ScoreCard", blurb: section.blurb)
+                } else if section == .labor {
+                    PageHeadline(lead: "Labor", accent: "ScoreCard", blurb: section.blurb)
                 } else {
-                    Text(section == .pickPath ? "Pick Path Compliance" : section.title)
-                        .font(.largeTitle.weight(.semibold))
+                    PageHeadline(
+                        lead: section == .pickPath ? "Pick Path Compliance" : section.title,
+                        blurb: section.blurb
+                    )
                 }
-                Text(section.blurb)
-                    .font(.subheadline)
-                    .foregroundStyle(AppTheme.textSecondary)
             }
 
             if section == .labor, store.laborNeedsReload() {
