@@ -218,21 +218,25 @@ struct MainHubView: View {
     @ViewBuilder
     private var detail: some View {
         NavigationStack {
-            view(for: router.current)
+            page(for: router.current)
                 .id("\(router.current.rawValue)-\(store.filterStamp)")
         }
+        .hubChrome(
+            showBack: router.current != .dashboard,
+            showsFilters: router.current != .upload
+        )
     }
 
     @ViewBuilder
-    private func view(for dest: HubDestination) -> some View {
+    private func page(for dest: HubDestination) -> some View {
         switch dest {
         case .dashboard:
-            DashboardView().hubChrome(showsFilters: true)
+            DashboardView()
         case .upload:
-            UploadView().hubChrome(showBack: true)
+            UploadView()
         case .fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pph, .labor, .pickerScorecard:
             if let section = dest.section {
-                SectionDetailView(section: section).hubChrome(showBack: true, showsFilters: true)
+                SectionDetailView(section: section)
             }
         }
     }

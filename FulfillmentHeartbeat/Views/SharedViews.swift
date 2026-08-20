@@ -2461,7 +2461,7 @@ struct LaborRollupTable: View {
 
     private var summary: [LaborRollupRow] {
         guard let grain else { return [] }
-        let source = LaborRollupBuilder.source(from: store.allLatest(for: .labor), filters: store.filters)
+        let source = LaborRollupBuilder.source(from: store.displayRows(for: .labor), filters: store.filters)
         return LaborRollupBuilder.rows(from: source, grain: grain)
     }
 }

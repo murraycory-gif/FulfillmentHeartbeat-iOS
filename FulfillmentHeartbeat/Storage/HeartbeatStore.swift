@@ -764,6 +764,7 @@ final class HeartbeatStore: ObservableObject {
     func commitFilters(_ next: DashboardFilters) {
         if filters == next { return }
         filters = next
+        persist()
     }
 
     func filterChoices(focus: FilterFocus, draft: DashboardFilters) -> [(id: String, label: String)] {
