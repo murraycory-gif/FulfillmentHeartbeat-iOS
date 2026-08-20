@@ -3666,7 +3666,6 @@ struct HubChromeModifier: ViewModifier {
 }
 
 struct HubBrandBar: View {
-    @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var router: HubRouter
     @Environment(\.horizontalSizeClass) private var sizeClass
     var showBack: Bool
@@ -3685,16 +3684,6 @@ struct HubBrandBar: View {
                 }
             }
             HubNavLogo(pulse: true, height: markHeight)
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Fulfillment Heartbeat")
-                    .font(.title2.weight(.bold))
-                    .foregroundStyle(AppTheme.text)
-                    .lineLimit(1)
-                Text(HeartbeatFormat.updated(store.lastUpload?.uploadedAt))
-                    .font(.caption)
-                    .foregroundStyle(AppTheme.textSecondary)
-                    .lineLimit(1)
-            }
             Spacer(minLength: 8)
             if showsFilters {
                 FilterBar()
