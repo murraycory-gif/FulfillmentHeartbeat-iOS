@@ -334,7 +334,7 @@ final class HeartbeatStore: ObservableObject {
     func laborNeedsReload() -> Bool {
         let stores = rows.filter { $0.section == .labor && $0.textPayload["labor_grain"] == "store" }
         guard !stores.isEmpty else { return false }
-        return stores.contains { ($0.textPayload["parser_rev"] ?? "") != "6" }
+        return stores.contains { ($0.textPayload["parser_rev"] ?? "") != "7" }
     }
 
     static func importAudit(section: MetricSection, rows: [MetricRow]) -> String {

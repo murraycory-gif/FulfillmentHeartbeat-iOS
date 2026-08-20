@@ -38,7 +38,7 @@ struct SectionDetailView: View {
                         HStack(alignment: .top, spacing: 10) {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .foregroundStyle(AppTheme.warn)
-                            Text("Re-upload Labor on the Upload page. This file is still the old parse, so weeks and days are incomplete. Each upload replaces the last one.")
+                            Text("Re-upload Labor using LABOR Week Total company.xlsx. This view is still the old parse.")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(AppTheme.text)
                         }

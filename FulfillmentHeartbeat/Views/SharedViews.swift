@@ -2025,12 +2025,7 @@ struct LaborStoreCard: View {
             Text(metaLine)
                 .font(.subheadline)
                 .foregroundStyle(AppTheme.textSecondary)
-            HStack(spacing: 8) {
-                metric("Tgt vs Act", HeartbeatFormat.pct(row.number("target_vs_actual_pct")), health)
-                metric("CostTrgt%", HeartbeatFormat.pct(row.number("cost_trgt_pct")), .none)
-                metric("ActCost%", HeartbeatFormat.pct(row.number("act_cost_pct")), .none)
-                metric("Charged Hrs", HeartbeatFormat.num(row.number("charged_hrs"), digits: 1), .none)
-            }
+            laborGrid(from: row, health: health)
             if expanded {
                 weekBlock
             }
@@ -2050,7 +2045,7 @@ struct LaborStoreCard: View {
         let district = row.district.isEmpty ? "—" : row.district
         let om = row.operationsOM.isEmpty ? "—" : row.operationsOM
         let week = row.textPayload["week"].flatMap { $0.isEmpty ? nil : $0 } ?? "—"
-        return "District \(district)  ·  \(om)  ·  \(week)  ·  tap for weeks"
+        return "District \(district)  ·  \(om)  ·  \(week)  ·  tap for weeks & days"
     }
 
     @ViewBuilder
@@ -2100,16 +2095,7 @@ struct LaborStoreCard: View {
                 }
             }
             .buttonStyle(.plain)
-            HStack(spacing: 8) {
-                metric("Tgt vs Act", HeartbeatFormat.pct(week.number("target_vs_actual_pct")), health)
-                metric("CostTrgt%", HeartbeatFormat.pct(week.number("cost_trgt_pct")), .none)
-                metric("ActCost%", HeartbeatFormat.pct(week.number("act_cost_pct")), .none)
-                metric("Charged Hrs", HeartbeatFormat.num(week.number("charged_hrs"), digits: 1), .none)
-            }
-            Text(weekMeta(week))
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(AppTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
+            laborGrid(from: week, health: health)
             if isOpen {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("By day")
@@ -2137,16 +2123,7 @@ struct LaborStoreCard: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(displayDate(day.date))
                 .font(.headline.weight(.semibold))
-            HStack(spacing: 8) {
-                metric("Charged Hrs", HeartbeatFormat.num(day.chargedHrs, digits: 1), .none)
-                metric("Empower", HeartbeatFormat.num(day.empowerHrs, digits: 1), .none)
-                metric("Sch Hrs", HeartbeatFormat.num(day.schHrs, digits: 1), .none)
-                metric("ActCost%", HeartbeatFormat.pct(day.actCostPct), .none)
-            }
-            Text(dayMeta(day))
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(AppTheme.textSecondary)
-                .fixedSize(horizontal: false, vertical: true)
+            laborGrid(day: day)
         }
         .padding(10)
         .background(
@@ -2155,26 +2132,55 @@ struct LaborStoreCard: View {
         )
     }
 
-    private func weekMeta(_ week: MetricRow) -> String {
-        [
-            "Act Hrs \(HeartbeatFormat.num(week.number("act_hrs"), digits: 1))",
-            "Empower \(HeartbeatFormat.num(week.number("empower_hrs"), digits: 1))",
-            "Sch Hrs \(HeartbeatFormat.num(week.number("sch_hrs"), digits: 1))",
-            "Earned \(HeartbeatFormat.num(week.number("earned_hrs"), digits: 1))",
-            "Over \(HeartbeatFormat.pct(week.number("over_schedule_pct")))",
-            HeartbeatFormat.money(week.number("act_cost_dollar")),
-            "UPLH \(HeartbeatFormat.pct(week.number("uplh_impact_pct")))",
-            "Wage \(HeartbeatFormat.pct(week.number("wage_impact_pct")))",
-            "AIV \(HeartbeatFormat.pct(week.number("aiv_impact_pct")))",
-        ].joined(separator: "  ·  ")
+    private func laborGrid(from row: MetricRow, health: Health) -> some View {
+        grid([
+            ("Tgt vs Act", HeartbeatFormat.pct(row.number("target_vs_actual_pct")), health),
+            ("CostTrgt%", HeartbeatFormat.pct(row.number("cost_trgt_pct")), .none),
+            ("ActCost%", HeartbeatFormat.pct(row.number("act_cost_pct")), .none),
+            ("Charged Hrs", HeartbeatFormat.num(row.number("charged_hrs"), digits: 1), .none),
+            ("Act Hrs", HeartbeatFormat.num(row.number("act_hrs"), digits: 1), .none),
+            ("Empower", HeartbeatFormat.num(row.number("empower_hrs"), digits: 1), .none),
+            ("Sch Hrs", HeartbeatFormat.num(row.number("sch_hrs"), digits: 1), .none),
+            ("Earned Hrs", HeartbeatFormat.num(row.number("earned_hrs"), digits: 1), .none),
+            ("ActCost$", HeartbeatFormat.money(row.number("act_cost_dollar")), .none),
+            ("Over %", HeartbeatFormat.pct(row.number("over_schedule_pct")), .none),
+            ("Sch Effi%", HeartbeatFormat.pct(row.number("schedule_efficiency_pct")), .none),
+            ("Earned Util", HeartbeatFormat.pct(row.number("earned_hrs_util")), .none),
+            ("UPLH", HeartbeatFormat.pct(row.number("uplh_impact_pct")), .none),
+            ("Wage", HeartbeatFormat.pct(row.number("wage_impact_pct")), .none),
+            ("AIV", HeartbeatFormat.pct(row.number("aiv_impact_pct")), .none),
+        ])
     }
 
-    private func dayMeta(_ day: LaborDay) -> String {
-        [
-            "Earned \(HeartbeatFormat.num(day.earnedHrs, digits: 1))",
-            "Over \(HeartbeatFormat.pct(day.overSchedulePct))",
-            "Util \(HeartbeatFormat.pct(day.earnedHrsUtil))",
-        ].joined(separator: "  ·  ")
+    private func laborGrid(day: LaborDay) -> some View {
+        grid([
+            ("Charged Hrs", HeartbeatFormat.num(day.chargedHrs, digits: 1), .none),
+            ("Empower", HeartbeatFormat.num(day.empowerHrs, digits: 1), .none),
+            ("Sch Hrs", HeartbeatFormat.num(day.schHrs, digits: 1), .none),
+            ("Earned Hrs", HeartbeatFormat.num(day.earnedHrs, digits: 1), .none),
+            ("ActCost%", HeartbeatFormat.pct(day.actCostPct), .none),
+            ("Over %", HeartbeatFormat.pct(day.overSchedulePct), .none),
+            ("Sch Effi%", HeartbeatFormat.pct(day.scheduleEfficiencyPct), .none),
+            ("Earned Util", HeartbeatFormat.pct(day.earnedHrsUtil), .none),
+        ])
+    }
+
+    private func grid(_ items: [(String, String, Health)]) -> some View {
+        let rows = stride(from: 0, to: items.count, by: 4).map { Array(items[$0..<min($0 + 4, items.count)]) }
+        return VStack(spacing: 8) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                HStack(spacing: 8) {
+                    ForEach(Array(row.enumerated()), id: \.offset) { _, item in
+                        metric(item.0, item.1, item.2)
+                    }
+                    if row.count < 4 {
+                        ForEach(0..<(4 - row.count), id: \.self) { _ in
+                            Color.clear.frame(maxWidth: .infinity)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private func displayDate(_ raw: String) -> String {

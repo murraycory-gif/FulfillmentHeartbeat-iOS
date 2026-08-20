@@ -469,9 +469,11 @@ enum WorkbookParser {
             var weightedWage = 0.0
             var weightedAiv = 0.0
             var impactWeight = 0.0
+            var weightedEff = 0.0
+            var effWeight = 0.0
             var division = ""
             var district = ""
-            for week in ordered {
+            for week in ordered where week.hasPrefix("20") {
                 guard let bucket = weeks[week] else { continue }
                 if division.isEmpty { division = bucket.division }
                 if district.isEmpty { district = bucket.district }
@@ -513,6 +515,28 @@ enum WorkbookParser {
                 if charged > 0 { payload["charged_hrs"] = charged }
                 if earned > 0 { payload["earned_hrs"] = earned }
                 if emp > 0 { payload["over_schedule_pct"] = (sch - emp) / emp * 100 }
+                var weekEff = 0.0
+                var weekEffW = 0.0
+                var weekUtil = 0.0
+                var weekUtilW = 0.0
+                for day in bucket.days {
+                    let weight = day.empowerHrs ?? day.schHrs ?? 1
+                    if let value = day.scheduleEfficiencyPct {
+                        weekEff += value * weight
+                        weekEffW += weight
+                    }
+                    if let value = day.earnedHrsUtil {
+                        weekUtil += value * weight
+                        weekUtilW += weight
+                    }
+                }
+                if weekEffW > 0 {
+                    payload["schedule_efficiency_pct"] = weekEff / weekEffW
+                    let storeW = emp > 0 ? emp : weekEffW
+                    weightedEff += (weekEff / weekEffW) * storeW
+                    effWeight += storeW
+                }
+                if weekUtilW > 0 { payload["earned_hrs_util"] = weekUtil / weekUtilW }
                 if let uplh = bucket.uplh { payload["uplh_impact_pct"] = uplh }
                 if let wage = bucket.wage { payload["wage_impact_pct"] = wage }
                 if let aiv = bucket.aiv { payload["aiv_impact_pct"] = aiv }
@@ -560,7 +584,7 @@ enum WorkbookParser {
                             "week": week,
                             "district": bucket.district,
                             "days_json": json,
-                            "parser_rev": "6",
+                            "parser_rev": "7",
                         ]
                     )
                 )
@@ -587,6 +611,7 @@ enum WorkbookParser {
             if sumEmp > 0 {
                 storePayload["over_schedule_pct"] = (sumSch - sumEmp) / sumEmp * 100
             }
+            if effWeight > 0 { storePayload["schedule_efficiency_pct"] = weightedEff / effWeight }
             if let cost = storePayload["cost_trgt_pct"], let tva = storePayload["target_vs_actual_pct"] {
                 storePayload["act_cost_pct"] = cost + tva
             } else if sumCharged > 0 {
@@ -640,6 +665,7 @@ enum WorkbookParser {
         if let value = usableValue(cell("weekid")) {
             week = Self.normalizeWeekID(value)
         }
+        if week.lowercased().contains("applied") || isTotalCell(week) { return nil }
         let dateRaw = cell("ddate")
         if isTotalCell(dateRaw) {
             date = ""
