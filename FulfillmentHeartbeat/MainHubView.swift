@@ -71,6 +71,8 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
+    static var sectionItems: [HubDestination] { [.dashboard, .fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pph, .labor, .pickerScorecard] }
+    static var settingsItems: [HubDestination] { [.upload] }
     static var primaryTabs: [HubDestination] { [.dashboard, .upload] }
     static var metricItems: [HubDestination] { [.fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pph, .labor, .pickerScorecard] }
 }
@@ -169,13 +171,13 @@ struct MainHubView: View {
 
     private var sidebar: some View {
         List {
-            Section {
-                ForEach(HubDestination.primaryTabs) { item in
+            Section("Sections") {
+                ForEach(HubDestination.sectionItems) { item in
                     sidebarRow(item)
                 }
             }
-            Section("Sections") {
-                ForEach(HubDestination.metricItems) { item in
+            Section("Settings") {
+                ForEach(HubDestination.settingsItems) { item in
                     sidebarRow(item)
                 }
             }
@@ -192,15 +194,6 @@ struct MainHubView: View {
             ToolbarItem(placement: .principal) {
                 HubNavLogo()
             }
-        }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            Text("MARKET OPERATIONS")
-                .font(.caption.weight(.semibold))
-                .tracking(0.8)
-                .foregroundStyle(AppTheme.textTertiary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 20)
-                .padding(.bottom, 8)
         }
     }
 
