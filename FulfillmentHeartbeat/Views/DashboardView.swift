@@ -101,12 +101,16 @@ struct SectionCard: View {
                                 .foregroundStyle(AppTheme.text)
                             UpdatedStamp(date: summary.lastUploadedAt)
                         }
-                        Text(summary.headlineText)
-                            .font(.system(size: 36, weight: .semibold, design: .rounded).monospacedDigit())
-                            .foregroundStyle(ink)
-                        Text(summary.headlineLabel)
-                            .font(.subheadline)
-                            .foregroundStyle(AppTheme.textSecondary)
+                        if summary.section == .scheduleQuality {
+                            schedulePair
+                        } else {
+                            Text(summary.headlineText)
+                                .font(.system(size: 36, weight: .semibold, design: .rounded).monospacedDigit())
+                                .foregroundStyle(ink)
+                            Text(summary.headlineLabel)
+                                .font(.subheadline)
+                                .foregroundStyle(AppTheme.textSecondary)
+                        }
                     }
                     Spacer()
                     if summary.health != .none {
@@ -115,9 +119,11 @@ struct SectionCard: View {
                 }
                 HStack(alignment: .bottom) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(summary.secondary)
-                            .font(.subheadline)
-                            .foregroundStyle(AppTheme.text)
+                        if summary.section != .scheduleQuality {
+                            Text(summary.secondary)
+                                .font(.subheadline)
+                                .foregroundStyle(AppTheme.text)
+                        }
                         Text(metaLine)
                             .font(.caption)
                             .foregroundStyle(AppTheme.textTertiary)
@@ -150,6 +156,33 @@ struct SectionCard: View {
                 pulseOn = true
             }
         }
+    }
+
+    private var schedulePair: some View {
+        HStack(spacing: 12) {
+            scheduleStat("Under Scheduled", summary.underScheduledCount)
+            scheduleStat("Over Scheduled", summary.overScheduledCount)
+        }
+    }
+
+    private func scheduleStat(_ title: String, _ count: Int) -> some View {
+        let health: Health = count == 0 ? .good : .risk
+        return VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(AppTheme.textSecondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text(HeartbeatFormat.num(Double(count)))
+                    .font(.system(size: 30, weight: .semibold, design: .rounded).monospacedDigit())
+                    .foregroundStyle(health == .risk ? AppTheme.bad : AppTheme.ok)
+                Text("stores")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(health == .risk ? AppTheme.bad : AppTheme.textSecondary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var shouldPulse: Bool {

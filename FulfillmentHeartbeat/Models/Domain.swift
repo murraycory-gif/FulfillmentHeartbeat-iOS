@@ -219,6 +219,8 @@ struct SectionSummary: Identifiable {
     var riskCount: Int
     var lastFilename: String?
     var lastUploadedAt: Date?
+    var underScheduledCount: Int = 0
+    var overScheduledCount: Int = 0
 
     var id: MetricSection { section }
 
@@ -661,26 +663,30 @@ enum HeartbeatMath {
                 lastUploadedAt: upload?.uploadedAt
             )
         case .scheduleQuality:
-            let headline = average(latest.compactMap { $0.number("under_schedule_pct", "under_scheduled") })
-            let atZero = latest.filter { ($0.number("under_schedule_pct", "under_scheduled") ?? 0) <= 0 }.count
-            let underWatch = latest.filter {
-                let value = $0.number("under_schedule_pct", "under_scheduled") ?? 0
-                return value > 0 && value <= scheduleVarianceWatch
-            }.count
+            let headline = average(latest.compactMap { $0.number("schedule_efficiency_pct") })
+            let atGoal = latest.filter { ($0.number("schedule_efficiency_pct") ?? 0) >= scheduleGoal }.count
             let underRisk = latest.filter { ($0.number("under_schedule_pct", "under_scheduled") ?? 0) > scheduleVarianceWatch }.count
+            let overRisk = latest.filter { ($0.number("over_schedule_pct", "over_scheduled") ?? 0) > scheduleVarianceWatch }.count
+            let calloutHealth: Health = {
+                if underRisk > 0 || overRisk > 0 { return .risk }
+                if watch > 0 { return .watch }
+                return latest.isEmpty ? .none : .good
+            }()
             return SectionSummary(
                 section: section,
                 storeCount: latest.count,
                 headline: headline,
-                headlineLabel: "Under Schedule",
+                headlineLabel: "Avg schedule efficiency",
                 secondary: latest.isEmpty
                     ? "No Schedule rows in this filter"
-                    : "\(atZero) of \(latest.count) at 0% · \(underWatch) watch · \(underRisk) over 5%",
-                health: latest.isEmpty ? .none : varianceHealth(headline),
+                    : "\(atGoal) of \(latest.count) at 90% · \(underRisk) under · \(overRisk) over",
+                health: calloutHealth,
                 watchCount: watch,
                 riskCount: risk,
                 lastFilename: upload?.filename,
-                lastUploadedAt: upload?.uploadedAt
+                lastUploadedAt: upload?.uploadedAt,
+                underScheduledCount: underRisk,
+                overScheduledCount: overRisk
             )
         case .pph:
             let headline = average(latest.compactMap { $0.number("pph") })

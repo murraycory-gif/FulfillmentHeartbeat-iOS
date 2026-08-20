@@ -337,10 +337,12 @@ struct SectionDetailView: View {
     @ViewBuilder
     private var scheduleStatusTiles: some View {
         let rows = snapshots
+        let efficiency = HeartbeatMath.average(rows.compactMap { $0.number("schedule_efficiency_pct") })
+        let efficiencyHealth = HeartbeatMath.band(efficiency, good: HeartbeatMath.scheduleGoal, watch: HeartbeatMath.scheduleWatch)
         let atGoal = rows.filter { ($0.number("schedule_efficiency_pct") ?? 0) >= HeartbeatMath.scheduleGoal }.count
         let underRisk = rows.filter { ($0.number("under_schedule_pct", "under_scheduled") ?? 0) > HeartbeatMath.scheduleVarianceWatch }.count
         let overRisk = rows.filter { ($0.number("over_schedule_pct", "over_scheduled") ?? 0) > HeartbeatMath.scheduleVarianceWatch }.count
-        callout("Avg efficiency", summary.headlineText, "90% goal · zero over / under", summary.health, selected: scheduleFocus == .all) {
+        callout("Avg schedule efficiency", HeartbeatFormat.pct(efficiency), "90% goal · zero over / under", efficiencyHealth, selected: scheduleFocus == .all) {
             scheduleFocus = .all
         }
         callout("Goal", "90%", "Target schedule efficiency", .none, brand: true)
