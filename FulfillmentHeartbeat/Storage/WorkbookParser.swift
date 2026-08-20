@@ -305,6 +305,9 @@ enum WorkbookParser {
         if let labor = parseLabor(matrix), !labor.isEmpty {
             return labor
         }
+        if let lost = parseLostRevenue(matrix), !lost.isEmpty {
+            return lost
+        }
         if let prep = parsePrepHours(matrix), !prep.isEmpty {
             return prep
         }
@@ -345,6 +348,84 @@ enum WorkbookParser {
     private static func isLaborWorkbook(_ strings: [String]) -> Bool {
         let blob = strings.prefix(40).map(normHeader).joined(separator: " ")
         return blob.contains("costtrgt") && blob.contains("targetvsactual")
+    }
+
+    private static func parseLostRevenue(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {
+        guard let headerIndex = matrix.firstIndex(where: { row in
+            let blob = row.map { $0.lowercased() }.joined(separator: " ")
+            return blob.contains("total lost revenue") && blob.contains("total opportunity")
+        }) else { return nil }
+        let headers = matrix[headerIndex]
+        let keys = headers.map(lostRevenueColumn)
+        guard keys.contains("store"), keys.contains("lost_revenue") else { return nil }
+        var out: [ParsedWorkbookRow] = []
+        out.reserveCapacity(max(matrix.count - headerIndex, 1))
+        for line in matrix.dropFirst(headerIndex + 1) {
+            if line.allSatisfy({ $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) { continue }
+            var store = ""
+            var payload: [String: Double] = [:]
+            for (index, key) in keys.enumerated() {
+                guard !key.isEmpty else { continue }
+                let raw = index < line.count ? line[index] : ""
+                if key == "store" {
+                    store = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                    continue
+                }
+                if let number = cellNumber(raw) {
+                    var value = number
+                    if key.hasSuffix("_pct"), value <= 2 { value *= 100 }
+                    payload[key] = value
+                }
+            }
+            if store.lowercased().hasPrefix("applied filters") { continue }
+            let isTotal = isTotalCell(store)
+            if store.isEmpty { continue }
+            if !isTotal {
+                store = HeartbeatMath.canonicalStore(store)
+                if store.isEmpty || HeartbeatMath.isIgnoredStore(store) { continue }
+                if payload["lost_revenue"] == nil && payload["ecomm_sales"] == nil { continue }
+            }
+            var text: [String: String] = ["lost_grain": isTotal ? "market" : "store"]
+            if isTotal { text["parser_rev"] = "lost1" }
+            out.append(
+                ParsedWorkbookRow(
+                    division: "",
+                    operationsOM: "",
+                    storeNumber: isTotal ? "" : store,
+                    storeName: isTotal ? "Total" : nil,
+                    recordedOn: nil,
+                    payload: payload,
+                    textPayload: text
+                )
+            )
+        }
+        return out.isEmpty ? nil : out
+    }
+
+    private static func lostRevenueColumn(_ raw: String) -> String {
+        let lower = raw.lowercased()
+        let hasPct = raw.contains("%") || lower.contains("percent")
+        if lower.trimmingCharacters(in: .whitespacesAndNewlines) == "store" { return "store" }
+        if (lower.contains("ecomm") || lower.contains("e-comm") || lower.contains("ecommerce")) && lower.contains("sales") {
+            return "ecomm_sales"
+        }
+        if lower.contains("total lost revenue") && lower.contains("fy") && hasPct { return "lost_revenue_goal_pct" }
+        if lower.contains("total lost revenue") && lower.contains("fy") { return "lost_revenue_goal" }
+        if lower.contains("total lost revenue") && lower.contains("total opportunity") && hasPct { return "lost_revenue_pct" }
+        if lower.contains("total lost revenue") && lower.contains("total opportunity") { return "lost_revenue" }
+        if lower.contains("post sub oos") && hasPct && !lower.contains("foregone") { return "post_sub_oos_pct" }
+        if lower.contains("post sub oos") && lower.contains("foregone") && hasPct { return "post_sub_oos_foregone_pct" }
+        if lower.contains("post sub oos") && lower.contains("foregone") { return "post_sub_oos_foregone" }
+        if lower.contains("refund") && hasPct { return "refund_lost_pct" }
+        if lower.contains("refund") { return "refund_lost" }
+        if lower.contains("capacity utilization") { return "capacity_util_pct" }
+        if lower.contains("missed sales") && hasPct { return "missed_sales_pct" }
+        if lower.contains("missed sales") { return "missed_sales" }
+        if lower.contains("cancelled") && hasPct { return "cancelled_lost_pct" }
+        if lower.contains("cancelled") { return "cancelled_lost" }
+        if lower.contains("kill switch") && hasPct { return "kill_switch_pct" }
+        if lower.contains("kill switch") && lower.contains("lost sales") { return "kill_switch_lost" }
+        return ""
     }
 
     private static func parseLabor(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {

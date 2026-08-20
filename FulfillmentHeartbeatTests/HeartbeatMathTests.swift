@@ -177,4 +177,59 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(HeartbeatMath.pickerMatches(row(25), focus: .refund))
         XCTAssertFalse(HeartbeatMath.pickerMatches(row(0), focus: .refund))
     }
+
+    func testLostRevenueSummarizeUsesMarketTotalThenFilterSum() {
+        let market = MetricRow(
+            section: .lostRevenue,
+            division: "",
+            operationsOM: "",
+            storeNumber: "",
+            storeName: "Total",
+            payload: [
+                "ecomm_sales": 46_077_144.47,
+                "lost_revenue": 2_087_654.14,
+                "lost_revenue_pct": 4.53,
+            ],
+            textPayload: ["lost_grain": "market"]
+        )
+        let jewel = MetricRow(
+            section: .lostRevenue,
+            division: "Jewel Osco",
+            operationsOM: "Shelly Selof",
+            storeNumber: "1",
+            payload: [
+                "ecomm_sales": 10_000,
+                "lost_revenue": 450,
+                "lost_revenue_pct": 4.5,
+            ],
+            textPayload: ["lost_grain": "store"]
+        )
+        let portland = MetricRow(
+            section: .lostRevenue,
+            division: "Portland",
+            operationsOM: "Kennda Richardson",
+            storeNumber: "4262",
+            payload: [
+                "ecomm_sales": 20_000,
+                "lost_revenue": 1_600,
+                "lost_revenue_pct": 8.0,
+            ],
+            textPayload: ["lost_grain": "store"]
+        )
+        let all = HeartbeatMath.summarize(.lostRevenue, rows: [jewel, portland, market], upload: nil)
+        XCTAssertEqual(all.headline ?? 0, 2_087_654.14, accuracy: 0.01)
+        XCTAssertEqual(all.lostRevenuePct ?? 0, 4.53, accuracy: 0.01)
+        XCTAssertEqual(all.storeCount, 2)
+        XCTAssertEqual(all.health, .watch)
+        XCTAssertEqual(HeartbeatFormat.money(all.headline), "$2,087,654.14")
+        XCTAssertEqual(HeartbeatFormat.pct(all.lostRevenuePct), "4.53%")
+
+        let filtered = HeartbeatMath.summarize(.lostRevenue, rows: [jewel], upload: nil)
+        XCTAssertEqual(filtered.headline ?? 0, 450, accuracy: 0.01)
+        XCTAssertEqual(filtered.lostRevenuePct ?? 0, 4.5, accuracy: 0.05)
+        XCTAssertEqual(filtered.storeCount, 1)
+        XCTAssertEqual(HeartbeatMath.lostRevenueHealth(portland), .risk)
+        XCTAssertEqual(HeartbeatMath.lostRevenueHealth(jewel), .watch)
+    }
 }
+

@@ -778,6 +778,7 @@ struct StoreTable: View {
             case .result:
                 if section == .pph { return "PPH" }
                 if section == .prepNotReady { return "PNR %" }
+                if section == .lostRevenue { return "Lost $" }
                 return "Result"
             case .status: return "Status"
             }
@@ -899,6 +900,7 @@ struct StoreTable: View {
         case .pph: return row.number("pph") ?? -1
         case .labor: return row.number("target_vs_actual_pct") ?? -1
         case .pickerScorecard: return HeartbeatMath.pickerComposite(row)
+        case .lostRevenue: return row.number("lost_revenue") ?? -1
         }
     }
 
@@ -915,7 +917,7 @@ struct StoreTable: View {
                 } else {
                     Text(row.storeNumber.isEmpty ? "—" : row.storeNumber)
                         .font(.subheadline.weight(.semibold).monospacedDigit())
-                    if section == .dynacap || section == .scheduleQuality || section == .fiveStar || section == .prepNotReady {
+                    if section == .dynacap || section == .scheduleQuality || section == .fiveStar || section == .prepNotReady || section == .lostRevenue {
                         Text(row.division.isEmpty ? "—" : row.division)
                             .font(.caption)
                             .foregroundStyle(AppTheme.textSecondary)

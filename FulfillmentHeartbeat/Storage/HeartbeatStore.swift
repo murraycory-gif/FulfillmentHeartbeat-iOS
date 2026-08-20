@@ -343,6 +343,10 @@ final class HeartbeatStore: ObservableObject {
         }
     }
 
+    func lostRevenueMarketRow() -> MetricRow? {
+        rows.first { $0.section == .lostRevenue && $0.textPayload["lost_grain"] == "market" }
+    }
+
     func laborNeedsReload() -> Bool {
         let stores = rows.filter { $0.section == .labor && $0.textPayload["labor_grain"] == "store" }
         guard !stores.isEmpty else { return false }
@@ -359,6 +363,14 @@ final class HeartbeatStore: ObservableObject {
         }
         let stores = Set(rows.map { HeartbeatMath.canonicalStore($0.storeNumber) }.filter { !$0.isEmpty })
         let shoppers = Set(rows.compactMap { $0.textPayload["shopper_id"] }.filter { !$0.isEmpty })
+        if section == .lostRevenue {
+            let hasTotal = rows.contains { $0.textPayload["lost_grain"] == "market" }
+            return [
+                "\(HeartbeatFormat.num(Double(rows.count))) rows",
+                "\(HeartbeatFormat.num(Double(stores.count))) stores",
+                hasTotal ? "Power BI Total row captured for company tiles" : "missing Total row — filter totals will sum the stores in view",
+            ].joined(separator: " · ")
+        }
         if !shoppers.isEmpty {
             return "\(HeartbeatFormat.num(Double(rows.count))) rows · \(HeartbeatFormat.num(Double(stores.count))) stores · \(HeartbeatFormat.num(Double(shoppers.count))) shoppers"
         }
@@ -1012,7 +1024,7 @@ final class HeartbeatStore: ObservableObject {
     private func rebuildIndex() {
         unfilteredPulse = nil
         let identitySource = rows.filter {
-            $0.section != .scheduleQuality && $0.section != .dynacap && $0.section != .pickerScorecard && $0.section != .pickPathPicker
+            $0.section != .scheduleQuality && $0.section != .dynacap && $0.section != .pickerScorecard && $0.section != .pickPathPicker && $0.section != .lostRevenue
         }
         roster = HeartbeatMath.storeRoster(identitySource.isEmpty ? rows.filter { $0.section != .pickerScorecard && $0.section != .pickPathPicker } : identitySource)
         var latest: [MetricSection: [MetricRow]] = [:]
@@ -1022,8 +1034,11 @@ final class HeartbeatStore: ObservableObject {
                 latest[section] = HeartbeatMath.materializeDynacap(sectionRows, roster: roster)
             } else if section == .pickPath {
                 latest[section] = HeartbeatMath.materializePickPath(sectionRows, roster: roster)
-            } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady || section == .pph {
-                latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(sectionRows), roster: roster)
+            } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady || section == .pph || section == .lostRevenue {
+                let source = section == .lostRevenue
+                    ? sectionRows.filter { $0.textPayload["lost_grain"] != "market" }
+                    : sectionRows
+                latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(source), roster: roster)
             } else if section == .labor {
                 let stores = sectionRows.filter { $0.textPayload["labor_grain"] == "store" }
                 latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(stores), roster: roster)
@@ -1081,8 +1096,11 @@ final class HeartbeatStore: ObservableObject {
             if section == .labor, !filters.isActive, let market = laborMarketRow() {
                 input.append(market)
             }
+            if section == .lostRevenue, !filters.isActive, let market = lostRevenueMarketRow() {
+                input.append(market)
+            }
             var summary = HeartbeatMath.summarize(section, rows: input, upload: upload(for: section))
-            if summary.storeCount == 0, !filteredMarket.isEmpty {
+            if summary.storeCount == 0, !filteredMarket.isEmpty, summary.headline == nil {
                 summary.secondary = "No \(section.short) data for \(filteredMarket.count) stores in this filter"
                 summary.health = .none
             }
@@ -1312,7 +1330,7 @@ private struct PulseCaches {
 
     static func build(rows: [MetricRow], filters: DashboardFilters, uploads: [UploadRecord]) -> PulseCaches {
         let identitySource = rows.filter {
-            $0.section != .scheduleQuality && $0.section != .dynacap && $0.section != .pickerScorecard && $0.section != .pickPathPicker
+            $0.section != .scheduleQuality && $0.section != .dynacap && $0.section != .pickerScorecard && $0.section != .pickPathPicker && $0.section != .lostRevenue
         }
         let roster = HeartbeatMath.storeRoster(
             identitySource.isEmpty ? rows.filter { $0.section != .pickerScorecard && $0.section != .pickPathPicker } : identitySource
@@ -1324,8 +1342,11 @@ private struct PulseCaches {
                 latest[section] = HeartbeatMath.materializeDynacap(sectionRows, roster: roster)
             } else if section == .pickPath {
                 latest[section] = HeartbeatMath.materializePickPath(sectionRows, roster: roster)
-            } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady || section == .pph {
-                latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(sectionRows), roster: roster)
+            } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady || section == .pph || section == .lostRevenue {
+                let source = section == .lostRevenue
+                    ? sectionRows.filter { $0.textPayload["lost_grain"] != "market" }
+                    : sectionRows
+                latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(source), roster: roster)
             } else if section == .labor {
                 let stores = sectionRows.filter { $0.textPayload["labor_grain"] == "store" }
                 latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(stores), roster: roster)
@@ -1335,9 +1356,18 @@ private struct PulseCaches {
                 latest[section] = HeartbeatMath.latestPerStore(sectionRows)
             }
         }
-        return refilter(latest: latest, roster: roster, filters: filters, uploads: uploads, laborMarket: rows.first {
-            $0.section == .labor && $0.textPayload["labor_grain"] == "market"
-        })
+        return refilter(
+            latest: latest,
+            roster: roster,
+            filters: filters,
+            uploads: uploads,
+            laborMarket: rows.first {
+                $0.section == .labor && $0.textPayload["labor_grain"] == "market"
+            },
+            lostRevenueMarket: rows.first {
+                $0.section == .lostRevenue && $0.textPayload["lost_grain"] == "market"
+            }
+        )
     }
 
     static func refilter(
@@ -1345,7 +1375,8 @@ private struct PulseCaches {
         roster: [String: HeartbeatMath.StoreIdentity],
         filters: DashboardFilters,
         uploads: [UploadRecord],
-        laborMarket: MetricRow? = nil
+        laborMarket: MetricRow? = nil,
+        lostRevenueMarket: MetricRow? = nil
     ) -> PulseCaches {
         let universe = MetricSection.allCases
             .filter { $0 != .pickerScorecard && $0 != .pickPathPicker }
@@ -1393,12 +1424,15 @@ private struct PulseCaches {
             if section == .labor, !filters.isActive, let laborMarket {
                 input.append(laborMarket)
             }
+            if section == .lostRevenue, !filters.isActive, let lostRevenueMarket {
+                input.append(lostRevenueMarket)
+            }
             var summary = HeartbeatMath.summarize(
                 section,
                 rows: input,
                 upload: uploads.first { $0.section == section }
             )
-            if summary.storeCount == 0, !market.isEmpty {
+            if summary.storeCount == 0, !market.isEmpty, summary.headline == nil {
                 summary.secondary = "No \(section.short) data for \(market.count) stores in this filter"
                 summary.health = .none
             }

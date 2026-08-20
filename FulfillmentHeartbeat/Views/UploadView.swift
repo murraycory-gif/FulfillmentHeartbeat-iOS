@@ -144,8 +144,7 @@ struct UploadPanel: View {
                         .frame(width: 44, height: 44)
                         .background(AppTheme.blueSoft, in: RoundedRectangle(cornerRadius: AppTheme.radiusS, style: .continuous))
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(section.title)
-                            .font(.title3.weight(.bold))
+                        panelTitle
                         Text(section.blurb)
                             .font(.caption)
                             .foregroundStyle(AppTheme.textSecondary)
@@ -234,6 +233,17 @@ struct UploadPanel: View {
 
                 UpdatedStamp(date: upload?.uploadedAt, wide: true)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var panelTitle: some View {
+        if section == .lostRevenue {
+            (Text("Loss Revenue ") + Text("ScoreCard").foregroundStyle(AppTheme.blue))
+                .font(.title3.weight(.bold))
+        } else {
+            Text(section.title)
+                .font(.title3.weight(.bold))
         }
     }
 }

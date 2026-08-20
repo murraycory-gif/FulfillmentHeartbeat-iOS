@@ -173,6 +173,24 @@ enum SampleMarket {
                     ))
                 }
 
+                let sales = clamp(9_000 + jitter(index + 53, 6_000), 1_200, 28_000)
+                let lostRate = clamp(0.028 + jitter(index + 59, 0.035), 0.006, 0.12)
+                let lost = (sales * lostRate).rounded(2)
+                out.append(MetricRow(
+                    section: .lostRevenue,
+                    division: store.division,
+                    operationsOM: store.om,
+                    storeNumber: store.store,
+                    storeName: store.name,
+                    recordedOn: date,
+                    payload: [
+                        "ecomm_sales": sales.rounded(2),
+                        "lost_revenue": lost,
+                        "lost_revenue_pct": (lostRate * 100).rounded(2),
+                    ],
+                    textPayload: ["lost_grain": "store", "district": store.district]
+                ))
+
                 let shoppers = [
                     ("\(store.name.split(separator: " ").first ?? "Store") A", 0),
                     ("\(store.name.split(separator: " ").first ?? "Store") B", 1),
@@ -205,6 +223,24 @@ enum SampleMarket {
                 }
             }
         }
+        let lastDate = dates.last ?? ""
+        let lostStores = out.filter { $0.section == .lostRevenue && $0.recordedOn == lastDate }
+        let lostDollars = lostStores.compactMap { $0.number("lost_revenue") }.reduce(0, +)
+        let lostSales = lostStores.compactMap { $0.number("ecomm_sales") }.reduce(0, +)
+        out.append(MetricRow(
+            section: .lostRevenue,
+            division: "",
+            operationsOM: "",
+            storeNumber: "",
+            storeName: "Total",
+            recordedOn: lastDate,
+            payload: [
+                "ecomm_sales": lostSales,
+                "lost_revenue": lostDollars,
+                "lost_revenue_pct": lostSales > 0 ? lostDollars / lostSales * 100 : 0,
+            ],
+            textPayload: ["lost_grain": "market"]
+        ))
         return out.map { row in
             var copy = row
             if let store = stores.first(where: { $0.store == row.storeNumber }) {
@@ -283,6 +319,13 @@ enum SampleMarket {
             1,Total,74.2,0.04,0.02,18.4,12,80,60,0.96,0.91,0.84,42.10
             1,AWHOR08,91.4,0.023,0.011,8.2,4,42,31,0.97,0.96,1,12.50
             606,JCOLE02,52.1,0.071,0.048,6.1,9,18,11,0.88,0.80,0,21.40
+            """
+        case .lostRevenue:
+            return """
+            Store,eComm Sales,Total Lost Revenue (Total Opportunity),Total Lost Revenue % (Total Opportunity)
+            1,10000,450,0.045
+            606,8000,560,0.07
+            Total,18000,1010,0.056111
             """
         }
     }

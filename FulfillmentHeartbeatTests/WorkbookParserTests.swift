@@ -271,4 +271,30 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertEqual(rows[0].payload["orders"] ?? 0, 17, accuracy: 0.01)
         XCTAssertEqual(rows[0].payload["pph"] ?? 0, 129.917857281894, accuracy: 0.001)
     }
+
+    func testLostRevenueKeepsDollarAndPercentColumnsAndTotalRow() throws {
+        let csv = """
+        Store,eComm Sales,Total Lost Revenue (Total Opportunity),Total Lost Revenue % (Total Opportunity),Total Lost Revenue (FY2026 Goal) %
+        2218,2193.25,2538.573,1.15744807933432,0.546313005813291
+        1,10000,450,0.045,0.028
+        378,,,,,
+        210,500,10,0.02,0.01
+        Total,46077144.47,2087654.14383581,0.0453078021185763,0.0279096891593072
+        """
+        let rows = try WorkbookParser.parse(data: Data(csv.utf8), filename: "Breakdown Week 25.xlsx")
+        XCTAssertEqual(Set(rows.map(\.storeNumber)), Set(["2218", "1", ""]))
+        let store = try XCTUnwrap(rows.first { $0.storeNumber == "2218" })
+        XCTAssertEqual(store.payload["lost_revenue"] ?? 0, 2538.573, accuracy: 0.001)
+        XCTAssertEqual(store.payload["lost_revenue_pct"] ?? 0, 115.744807933432, accuracy: 0.001)
+        XCTAssertEqual(store.payload["ecomm_sales"] ?? 0, 2193.25, accuracy: 0.001)
+        XCTAssertEqual(store.textPayload["lost_grain"], "store")
+        let company = try XCTUnwrap(rows.first { $0.storeNumber == "1" })
+        XCTAssertEqual(company.payload["lost_revenue_pct"] ?? 0, 4.5, accuracy: 0.01)
+        let market = try XCTUnwrap(rows.first { $0.textPayload["lost_grain"] == "market" })
+        XCTAssertEqual(market.payload["lost_revenue"] ?? 0, 2087654.14383581, accuracy: 0.01)
+        XCTAssertEqual(market.payload["lost_revenue_pct"] ?? 0, 4.53078021185763, accuracy: 0.0001)
+        XCTAssertEqual(market.payload["ecomm_sales"] ?? 0, 46077144.47, accuracy: 0.01)
+        XCTAssertFalse(rows.contains { $0.storeNumber == "378" })
+    }
 }
+

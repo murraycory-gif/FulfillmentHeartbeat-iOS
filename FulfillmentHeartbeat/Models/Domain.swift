@@ -10,6 +10,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
     case pph = "pph"
     case labor = "labor"
     case pickerScorecard = "picker_scorecard"
+    case lostRevenue = "lost_revenue"
 
     var id: String { rawValue }
 
@@ -24,6 +25,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .pph: return "PPH Pure Picks Per Hour"
         case .labor: return "Labor"
         case .pickerScorecard: return "Picker ScoreCard"
+        case .lostRevenue: return "Loss Revenue"
         }
     }
 
@@ -38,6 +40,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .pph: return "PPH"
         case .labor: return "Labor"
         case .pickerScorecard: return "Pickers"
+        case .lostRevenue: return "Lost Rev"
         }
     }
 
@@ -52,6 +55,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .pph: return "Pure picks completed per labor hour. Upload the DATE / STORE Total export."
         case .labor: return "Upload LABOR Store View Thru Week.xlsx for store totals. Optional: Total company day file for week and day drill-in. Each upload replaces the last Labor load."
         case .pickerScorecard: return "Shopper-level totals for PPH, Presubs, OOS, pick hours, subs, orders, DUG, OTH eligibility, OTH5, OTT, and refunds."
+        case .lostRevenue: return "Total lost revenue opportunity by store. Upload Breakdown Week.xlsx from the Lost Revenue report."
         }
     }
 
@@ -66,6 +70,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .pph: return "DATE · DIVISION · DISTRICT · OM_AREA · OM_ID · STORE · Pure PPH (Total)"
         case .labor: return "STORE_ID · Sch Effi% · Empower Hrs · Sch_Hrs · ActHrs · Earned Hrs · CostTrgt% · ActCost% · Target vs Actual% · Charged Hrs  (or the day file with WEEK_ID · D_DATE)"
         case .pickerScorecard: return "STORE · PICKER · Total Pure PPH · Presub · OOS · Hours · Subs · Orders · DUG · OTH Elig · OTH5 · OTT · Refund"
+        case .lostRevenue: return "Store · eComm Sales · Total Lost Revenue (Total Opportunity) · Total Lost Revenue % (Total Opportunity)"
         }
     }
 
@@ -80,6 +85,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .pph: return "speedometer"
         case .labor: return "dollarsign.circle.fill"
         case .pickerScorecard: return "person.2.fill"
+        case .lostRevenue: return "chart.line.downtrend.xyaxis"
         }
     }
 
@@ -99,17 +105,19 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
             return URL(string: "https://app.powerbi.com/groups/b49dfeed-3984-42bf-82ef-d591fb235e2a/reports/b4af7dad-92e1-4e78-a222-39b97c245e44/ReportSectionceac564838e55ea8368a?experience=power-bi")
         case .dynacap:
             return URL(string: "https://app.powerbi.com/groups/me/apps/d973ff03-651f-4e52-9e7a-8e5bff14b5e6/reports/c7805592-9273-416c-a02f-edc74e0a75d0/ReportSection7246ca8b726f69d2ad9d?experience=power-bi&clientSideAuth=0")
+        case .lostRevenue:
+            return URL(string: "https://app.powerbi.com/groups/me/apps/d973ff03-651f-4e52-9e7a-8e5bff14b5e6/reports/dac4848e-a28a-4e12-bfbb-b386da90f344/e57401a67b0f2379a0b3?ctid=b7f604a0-00a9-4188-9248-42f3a5aac2e9&experience=power-bi")
         default:
             return nil
         }
     }
 
     static var dashboardCards: [MetricSection] {
-        [.fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pph, .labor, .pickerScorecard]
+        [.lostRevenue, .fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pph, .labor, .pickerScorecard]
     }
 
     static var uploadOrder: [MetricSection] {
-        [.fiveStar, .pickPath, .pickPathPicker, .prepNotReady, .dynacap, .scheduleQuality, .pph, .labor, .pickerScorecard]
+        [.lostRevenue, .fiveStar, .pickPath, .pickPathPicker, .prepNotReady, .dynacap, .scheduleQuality, .pph, .labor, .pickerScorecard]
     }
 
     static var checklistSections: [MetricSection] {
@@ -234,6 +242,7 @@ struct SectionSummary: Identifiable {
     var lastUploadedAt: Date?
     var underScheduledCount: Int = 0
     var overScheduledCount: Int = 0
+    var lostRevenuePct: Double? = nil
 
     var id: MetricSection { section }
 
@@ -247,6 +256,9 @@ struct SectionSummary: Identifiable {
         }
         if section == .pickerScorecard {
             return HeartbeatFormat.num(headline)
+        }
+        if section == .lostRevenue {
+            return HeartbeatFormat.money(headline)
         }
         if section == .labor {
             return String(format: "%.2f%%", headline)
@@ -659,6 +671,8 @@ enum HeartbeatMath {
             return laborHealth(row)
         case .pickerScorecard:
             return pickerHealth(row)
+        case .lostRevenue:
+            return lostRevenueHealth(row)
         }
     }
 
@@ -673,7 +687,14 @@ enum HeartbeatMath {
     }
 
     static func summarize(_ section: MetricSection, rows: [MetricRow], upload: UploadRecord?) -> SectionSummary {
-        let latest = section == .pickerScorecard ? latestPerShopper(rows) : latestPerStore(rows)
+        let latest: [MetricRow]
+        if section == .pickerScorecard {
+            latest = latestPerShopper(rows)
+        } else if section == .lostRevenue {
+            latest = rows.filter { !isIgnoredStore($0.storeNumber) }
+        } else {
+            latest = latestPerStore(rows)
+        }
         let watch = latest.filter { health(for: section, row: $0) == .watch }.count
         let risk = latest.filter { health(for: section, row: $0) == .risk }.count
 
@@ -838,6 +859,36 @@ enum HeartbeatMath {
                 lastFilename: upload?.filename,
                 lastUploadedAt: upload?.uploadedAt
             )
+        case .lostRevenue:
+            let stores = latest.filter { $0.textPayload["lost_grain"] != "market" && !isIgnoredStore($0.storeNumber) }
+            let market = latest.first { $0.textPayload["lost_grain"] == "market" }
+            let dollars: Double?
+            let pct: Double?
+            if let market {
+                dollars = market.number("lost_revenue")
+                pct = market.number("lost_revenue_pct")
+            } else {
+                let sumDollars = stores.compactMap { $0.number("lost_revenue") }.reduce(0, +)
+                let sumSales = stores.compactMap { $0.number("ecomm_sales") }.reduce(0, +)
+                dollars = stores.isEmpty ? nil : sumDollars
+                pct = sumSales > 0 ? sumDollars / sumSales * 100 : nil
+            }
+            let scored = stores.isEmpty ? (market.map { [$0] } ?? []) : stores
+            return SectionSummary(
+                section: section,
+                storeCount: stores.count,
+                headline: dollars,
+                headlineLabel: "Total lost revenue",
+                secondary: scored.isEmpty
+                    ? "No Lost Revenue rows in this filter"
+                    : "Total Lost Revenue % (Total Opportunity)",
+                health: scored.isEmpty ? .none : lostRevenueHealth(pct: pct),
+                watchCount: scored.filter { lostRevenueHealth($0) == .watch }.count,
+                riskCount: scored.filter { lostRevenueHealth($0) == .risk }.count,
+                lastFilename: upload?.filename,
+                lastUploadedAt: upload?.uploadedAt,
+                lostRevenuePct: pct
+            )
         }
     }
 
@@ -846,6 +897,8 @@ enum HeartbeatMath {
     static let pphGoal = 80.0
     static let pphRisk = 74.0
     static let laborWatch = 3.0
+    static let lostRevenueGood = 3.0
+    static let lostRevenueWatch = 5.0
     static let pickPathGoal = 90.0
     static let pickPathRisk = 80.0
     static let dynacapGoal = 65.0
@@ -1001,6 +1054,14 @@ enum HeartbeatMath {
         if value <= 0 { return .good }
         if value <= laborWatch { return .watch }
         return .risk
+    }
+
+    static func lostRevenueHealth(_ row: MetricRow) -> Health {
+        lostRevenueHealth(pct: row.number("lost_revenue_pct"))
+    }
+
+    static func lostRevenueHealth(pct: Double?) -> Health {
+        band(pct, good: lostRevenueGood, watch: lostRevenueWatch, invert: true)
     }
 
     static func pickerHasVolume(_ row: MetricRow) -> Bool {
@@ -1245,6 +1306,8 @@ enum HeartbeatMath {
             return row.number("target_vs_actual_pct") ?? 0
         case .pickerScorecard:
             return -pickerComposite(row)
+        case .lostRevenue:
+            return row.number("lost_revenue") ?? 0
         }
     }
 
@@ -1348,6 +1411,8 @@ enum HeartbeatMath {
                 value = row.number("target_vs_actual_pct")
             case .pickerScorecard:
                 value = pickerComposite(row)
+            case .lostRevenue:
+                value = row.number("lost_revenue")
             }
             guard let value else { continue }
             buckets[date, default: []].append(value)
@@ -1618,10 +1683,17 @@ enum HeartbeatFormat {
 
     static func money(_ value: Double?) -> String {
         guard let value else { return "—" }
+        let formatter = NumberFormatter()
+        formatter.locale = Locale(identifier: "en_US")
+        formatter.numberStyle = .decimal
         if abs(value - value.rounded()) < 0.005 {
-            return "$" + NumberFormatter.localizedString(from: NSNumber(value: value.rounded()), number: .decimal)
+            formatter.maximumFractionDigits = 0
+            formatter.minimumFractionDigits = 0
+            return "$" + (formatter.string(from: NSNumber(value: value.rounded())) ?? "0")
         }
-        return String(format: "$%.2f", value)
+        formatter.maximumFractionDigits = 2
+        formatter.minimumFractionDigits = 2
+        return "$" + (formatter.string(from: NSNumber(value: value)) ?? "0")
     }
 
     static func headline(_ summary: SectionSummary) -> String {
@@ -1761,6 +1833,11 @@ struct StoreCellViewModel {
             return StoreCellViewModel(
                 primary: HeartbeatFormat.num(row.number("pph"), digits: 1),
                 extra: HeartbeatMath.pickerOpportunityText(row)
+            )
+        case .lostRevenue:
+            return StoreCellViewModel(
+                primary: HeartbeatFormat.money(row.number("lost_revenue")),
+                extra: "\(HeartbeatFormat.pct(row.number("lost_revenue_pct"))) of \(HeartbeatFormat.money(row.number("ecomm_sales"))) sales"
             )
         }
     }

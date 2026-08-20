@@ -59,6 +59,11 @@ struct SectionDetailView: View {
                         .listRowBackground(AppTheme.bg)
                 }
                 LaborTable(rows: laborRows)
+            } else if section == .lostRevenue {
+                StoreTable(
+                    section: section,
+                    rows: snapshots.filter { $0.textPayload["lost_grain"] != "market" && !$0.storeNumber.isEmpty }
+                )
             } else {
                 StoreTable(section: section, rows: snapshots)
             }
@@ -115,6 +120,8 @@ struct SectionDetailView: View {
                     PageHeadline(lead: "Pick Path Compliance", accent: "ScoreCard", blurb: section.blurb)
                 } else if section == .fiveStar {
                     PageHeadline(lead: "5 Star", accent: "ScoreCard", blurb: section.blurb)
+                } else if section == .lostRevenue {
+                    PageHeadline(lead: "Loss Revenue", accent: "ScoreCard", blurb: section.blurb)
                 } else {
                     PageHeadline(
                         lead: section == .pickPath ? "Pick Path Compliance" : section.title,
@@ -170,6 +177,8 @@ struct SectionDetailView: View {
                         pickerStatusTiles
                     } else if section == .prepNotReady {
                         prepStatusTiles
+                    } else if section == .lostRevenue {
+                        lostRevenueStatusTiles
                     } else {
                         HubCard {
                             VStack(alignment: .leading, spacing: 8) {
@@ -255,6 +264,14 @@ struct SectionDetailView: View {
                 ("Shoppers", HeartbeatFormat.num(Double(rows.count))),
                 ("Opportunity", HeartbeatFormat.num(Double(board.opportunity.count))),
                 ("Doing well", HeartbeatFormat.num(Double(board.strong.count))),
+            ]
+        case .lostRevenue:
+            let dollars = rows.compactMap { $0.number("lost_revenue") }.reduce(0, +)
+            let sales = rows.compactMap { $0.number("ecomm_sales") }.reduce(0, +)
+            return [
+                ("Lost revenue", HeartbeatFormat.money(dollars)),
+                ("Lost %", HeartbeatFormat.pct(sales > 0 ? dollars / sales * 100 : summary.lostRevenuePct)),
+                ("eComm sales", HeartbeatFormat.money(sales)),
             ]
         }
     }
@@ -393,6 +410,19 @@ struct SectionDetailView: View {
         callout("Above 2.5%", HeartbeatFormat.num(Double(atRisk)), "At risk stores", atRisk == 0 ? .good : .risk, unit: "stores", selected: prepFocus == .above25) {
             prepFocus = .above25
         }
+    }
+
+    @ViewBuilder
+    private var lostRevenueStatusTiles: some View {
+        let rows = snapshots.filter { $0.textPayload["lost_grain"] != "market" && !$0.storeNumber.isEmpty }
+        let dollars = summary.headline
+        let pct = summary.lostRevenuePct
+        let sales = rows.compactMap { $0.number("ecomm_sales") }.reduce(0, +)
+        let atRisk = rows.filter { HeartbeatMath.lostRevenueHealth($0) == .risk }.count
+        callout("Total lost revenue", HeartbeatFormat.money(dollars), "Total Opportunity", summary.health)
+        callout("Lost revenue %", HeartbeatFormat.pct(pct), "Total Opportunity", summary.health)
+        callout("eComm sales", HeartbeatFormat.money(sales > 0 ? sales : nil), "In this filter", .none, brand: true)
+        callout("At risk", HeartbeatFormat.num(Double(atRisk)), "Stores over 5%", atRisk == 0 ? .good : .risk, unit: "stores")
     }
 
     @ViewBuilder

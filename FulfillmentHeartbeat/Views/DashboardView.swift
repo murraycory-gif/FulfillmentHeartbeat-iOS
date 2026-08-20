@@ -15,8 +15,17 @@ struct DashboardView: View {
                     if store.summaries.contains(where: { $0.health == .risk || $0.health == .watch }) {
                         FulfillmentChecklistCard()
                     }
+                    if let lost = store.summaries.first(where: { $0.section == .lostRevenue }) {
+                        LostRevenueDashCard(summary: lost) {
+                            if sizeClass == .regular {
+                                router.open(section: .lostRevenue)
+                            } else {
+                                pushedSection = .lostRevenue
+                            }
+                        }
+                    }
                     LazyVGrid(columns: columns, spacing: 16) {
-                        ForEach(store.summaries) { summary in
+                        ForEach(store.summaries.filter { $0.section != .lostRevenue }) { summary in
                             SectionCard(summary: summary) {
                                 if sizeClass == .regular {
                                     router.open(section: summary.section)
@@ -173,6 +182,117 @@ struct SectionCard: View {
                 .minimumScaleFactor(0.8)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var shouldPulse: Bool {
+        summary.health == .risk || summary.health == .watch
+    }
+
+    private var fill: Color {
+        switch summary.health {
+        case .good: return AppTheme.okSoft
+        case .watch: return AppTheme.warnSoft
+        case .risk: return AppTheme.badSoft
+        case .none: return AppTheme.card
+        }
+    }
+
+    private var stroke: Color {
+        switch summary.health {
+        case .good: return AppTheme.ok.opacity(0.28)
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.cardBorder
+        }
+    }
+
+    private var ink: Color {
+        switch summary.health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.blue
+        }
+    }
+}
+
+struct LostRevenueDashCard: View {
+    let summary: SectionSummary
+    let action: () -> Void
+    @State private var pulseOn = false
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top) {
+                    HStack(spacing: 8) {
+                        (Text("Loss Revenue ") + Text("ScoreCard").foregroundStyle(AppTheme.blue))
+                            .font(.title3.weight(.bold))
+                        UpdatedStamp(date: summary.lastUploadedAt)
+                    }
+                    Spacer()
+                    if summary.health != .none {
+                        HealthBadge(health: summary.health, prominent: true)
+                    }
+                }
+                HStack(spacing: 24) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(summary.headlineText)
+                            .font(.system(size: 36, weight: .semibold, design: .rounded).monospacedDigit())
+                            .foregroundStyle(ink)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.55)
+                        Text("Total Lost Revenue (Total Opportunity)")
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(AppTheme.text)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.8)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(HeartbeatFormat.pct(summary.lostRevenuePct))
+                            .font(.system(size: 36, weight: .semibold, design: .rounded).monospacedDigit())
+                            .foregroundStyle(ink)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.55)
+                        Text("Total Lost Revenue % (Total Opportunity)")
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(AppTheme.text)
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.8)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                Spacer(minLength: 0)
+                HStack {
+                    Spacer()
+                    Image(systemName: "arrow.up.right")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(ink)
+                        .frame(width: 40, height: 40)
+                        .background(Color.white.opacity(0.65), in: RoundedRectangle(cornerRadius: AppTheme.radiusS, style: .continuous))
+                }
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity, minHeight: 220, maxHeight: 220, alignment: .topLeading)
+            .background(
+                RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                    .fill(fill)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                    .stroke(stroke, lineWidth: shouldPulse ? 2.4 : 1)
+                    .opacity(shouldPulse ? (pulseOn ? 1 : 0.22) : 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .onAppear {
+            guard shouldPulse else { return }
+            pulseOn = false
+            withAnimation(.easeInOut(duration: 1.05).repeatForever(autoreverses: true)) {
+                pulseOn = true
+            }
+        }
     }
 
     private var shouldPulse: Bool {
