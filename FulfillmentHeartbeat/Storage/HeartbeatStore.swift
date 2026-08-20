@@ -94,6 +94,10 @@ final class HeartbeatStore: ObservableObject {
         rows(for: section, relaxUnknown: relaxUnknown)
     }
 
+    func allLatest(for section: MetricSection) -> [MetricRow] {
+        latestBySection[section] ?? []
+    }
+
     func displayRows(for section: MetricSection) -> [MetricRow] {
         let latest = filteredLatest[section] ?? []
         if section == .pickerScorecard { return latest }

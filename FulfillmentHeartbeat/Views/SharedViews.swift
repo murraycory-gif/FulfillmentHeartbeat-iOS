@@ -1884,9 +1884,32 @@ private struct LaborRollupRow: Identifiable {
 private enum LaborRollupBuilder {
     static func grain(for filters: DashboardFilters) -> LaborRollupGrain? {
         if !filters.store.isEmpty { return nil }
-        if !filters.om.isEmpty || !filters.district.isEmpty { return .store }
-        if !filters.division.isEmpty { return .district }
+        if !filters.division.isEmpty || !filters.district.isEmpty || !filters.om.isEmpty {
+            return .district
+        }
         return .division
+    }
+
+    static func source(from all: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
+        let stores = all.filter {
+            $0.textPayload["labor_grain"] != "market" && !$0.storeNumber.isEmpty
+        }
+        if !filters.division.isEmpty {
+            return stores.filter { HeartbeatMath.matches($0.division, filters.division) }
+        }
+        if !filters.district.isEmpty {
+            let divisions = Set(
+                stores.filter { HeartbeatMath.matches($0.district, filters.district) }.map(\.division)
+            )
+            return stores.filter { divisions.contains($0.division) }
+        }
+        if !filters.om.isEmpty {
+            let divisions = Set(
+                stores.filter { HeartbeatMath.matches($0.operationsOM, filters.om) }.map(\.division)
+            )
+            return stores.filter { divisions.contains($0.division) }
+        }
+        return stores
     }
 
     static func rows(from stores: [MetricRow], grain: LaborRollupGrain) -> [LaborRollupRow] {
@@ -2082,7 +2105,6 @@ private struct LaborMetricHeader: View {
 
 struct LaborRollupTable: View {
     @EnvironmentObject private var store: HeartbeatStore
-    let rows: [MetricRow]
     @State private var expanded = false
 
     var body: some View {
@@ -2155,7 +2177,8 @@ struct LaborRollupTable: View {
 
     private var summary: [LaborRollupRow] {
         guard let grain else { return [] }
-        return LaborRollupBuilder.rows(from: rows, grain: grain)
+        let source = LaborRollupBuilder.source(from: store.allLatest(for: .labor), filters: store.filters)
+        return LaborRollupBuilder.rows(from: source, grain: grain)
     }
 }
 
