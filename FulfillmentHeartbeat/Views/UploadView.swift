@@ -10,6 +10,7 @@ struct UploadView: View {
     @State private var exportItem: ExportItem?
     @State private var showStatus = false
     @State private var showError = false
+    @State private var inboxFiles: [URL] = []
 
     var body: some View {
         ScrollView {
@@ -41,6 +42,8 @@ struct UploadView: View {
                         )
                     }
                 }
+
+                inboxCard
 
                 Text("Headers can be flexible — Division, Operations OM, and Store Number are picked up automatically. Use Link to pull the raw Power BI export, or Template for a clean file.")
                     .font(.subheadline)
@@ -84,8 +87,10 @@ struct UploadView: View {
         } message: {
             Text(store.errorMessage ?? "")
         }
+        .onAppear { inboxFiles = store.inboxWorkbooks() }
         .onChange(of: store.statusMessage) { _, message in
             showStatus = message != nil
+            inboxFiles = store.inboxWorkbooks()
         }
         .onChange(of: store.errorMessage) { _, message in
             showError = message != nil
@@ -96,6 +101,53 @@ struct UploadView: View {
         .onChange(of: showError) { _, presented in
             if !presented { store.errorMessage = nil }
         }
+    }
+
+    private var inboxCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Heartbeat folder")
+                .font(.title3.weight(.bold))
+            Text("If Choose file crashes, copy the Excel into Files → On My iPad → Heartbeat, then import it here. No picker.")
+                .font(.subheadline)
+                .foregroundStyle(AppTheme.textSecondary)
+            if inboxFiles.isEmpty {
+                Text("No .xlsx or .csv files in the Heartbeat folder yet.")
+                    .font(.footnote)
+                    .foregroundStyle(AppTheme.textSecondary)
+            } else {
+                ForEach(inboxFiles, id: \.path) { url in
+                    HStack(spacing: 12) {
+                        Image(systemName: "doc")
+                            .foregroundStyle(AppTheme.blue)
+                        Text(url.lastPathComponent)
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(2)
+                        Spacer()
+                        Menu("Import") {
+                            ForEach(MetricSection.uploadOrder) { section in
+                                Button(section.title) {
+                                    store.importWorkbook(url: url, section: section)
+                                }
+                            }
+                        }
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(AppTheme.blue, in: Capsule())
+                    }
+                    .padding(12)
+                    .background(AppTheme.blueSoft, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+            }
+            Button("Refresh folder") {
+                inboxFiles = store.inboxWorkbooks()
+            }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(AppTheme.blue)
+        }
+        .padding(16)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private func beginImport(_ section: MetricSection) {

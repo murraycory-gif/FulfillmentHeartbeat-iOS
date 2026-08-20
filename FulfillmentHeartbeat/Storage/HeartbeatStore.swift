@@ -617,6 +617,19 @@ final class HeartbeatStore: ObservableObject {
         persist()
     }
 
+    func inboxWorkbooks() -> [URL] {
+        let docs = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        try? fileManager.createDirectory(at: docs, withIntermediateDirectories: true)
+        let urls = (try? fileManager.contentsOfDirectory(
+            at: docs,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        )) ?? []
+        return urls.filter { url in
+            ["xlsx", "xls", "csv"].contains(url.pathExtension.lowercased())
+        }.sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
+    }
+
     func importWorkbook(url: URL, section: MetricSection) {
         let accessed = url.startAccessingSecurityScopedResource()
         defer { if accessed { url.stopAccessingSecurityScopedResource() } }

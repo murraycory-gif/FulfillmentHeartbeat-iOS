@@ -314,6 +314,7 @@ enum WorkbookParser {
         return trimmed
     }
 
+    /// Weekly picker scorecard: STORE + PICKER, date blocks across the top, Total block last.
     /// DATE banner + DIVISION / District / OM / Store + Net Prep Not Ready Hours % Total.
     private static func parsePrepHours(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {
         guard let headerIndex = matrix.firstIndex(where: { row in
@@ -686,11 +687,6 @@ enum WorkbookParser {
                     guard let value = cellNumber(raw) else { continue }
                     applyMetric(&payload, header: index < header.count ? header[index] : "", value: value)
                 }
-                if payload["pnr_rate_pct"] == nil, header.contains(where: { $0.contains("prepnotready") || $0.contains("pnr") }) {
-                    if let index = totalColumns.last, let value = cellNumber(index < line.count ? line[index] : "") {
-                        applyMetric(&payload, header: "pnr_rate_pct", value: value)
-                    }
-                }
                 emitted = payload.isEmpty ? [] : [
                     ParsedWorkbookRow(
                         division: carryDiv,
@@ -857,7 +853,6 @@ enum WorkbookParser {
         }
         if key == "over_scheduled" { key = "over_schedule_pct" }
         if key == "under_scheduled" { key = "under_schedule_pct" }
-        guard !key.isEmpty else { return }
         payload[key] = number
         if key == "orders" {
             payload["picks_total"] = number
@@ -1093,14 +1088,13 @@ enum WorkbookParser {
         let formats = ["M/d/yyyy", "MM/dd/yyyy", "M/d/yy", "yyyy-MM-dd", "MMM d, yyyy"]
         let parser = DateFormatter()
         parser.locale = Locale(identifier: "en_US_POSIX")
-        parser.timeZone = TimeZone(secondsFromGMT: 0)
         for format in formats {
             parser.dateFormat = format
             if let date = parser.date(from: trimmed) {
                 return iso(date)
             }
         }
-        return nil
+        return trimmed
     }
 
     static func excelSerialDate(_ value: Double) -> String {
@@ -1182,89 +1176,6 @@ enum SharedStrings {
     }
 }
 
-private final class SheetXMLDelegate: NSObject, XMLParserDelegate {
-    let strings: [String]
-    var rows: [[String]] = []
-    private var currentRow: [String] = []
-    private var cellType = ""
-    private var cellRef = ""
-    private var buffer = ""
-    private var capture = false
-
-    init(strings: [String]) {
-        self.strings = strings
-    }
-
-    func parser(
-        _ parser: XMLParser,
-        didStartElement elementName: String,
-        namespaceURI: String?,
-        qualifiedName qName: String?,
-        attributes attributeDict: [String: String]
-    ) {
-        let name = elementName.split(separator: ":").last.map(String.init) ?? elementName
-        switch name {
-        case "row":
-            currentRow = []
-        case "c":
-            cellType = attributeDict["t"] ?? ""
-            cellRef = attributeDict["r"] ?? ""
-            buffer = ""
-            capture = false
-        case "v", "t":
-            buffer = ""
-            capture = true
-        default:
-            break
-        }
-    }
-
-    func parser(_ parser: XMLParser, foundCharacters string: String) {
-        if capture { buffer.append(string) }
-    }
-
-    func parser(
-        _ parser: XMLParser,
-        didEndElement elementName: String,
-        namespaceURI: String?,
-        qualifiedName qName: String?
-    ) {
-        let name = elementName.split(separator: ":").last.map(String.init) ?? elementName
-        switch name {
-        case "v", "t":
-            capture = false
-        case "c":
-            placeCell()
-            buffer = ""
-            capture = false
-        case "row":
-            rows.append(currentRow)
-            currentRow = []
-        default:
-            break
-        }
-    }
-
-    private func placeCell() {
-        var value = buffer
-        if cellType == "s" {
-            let indexText = buffer.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let index = Int(indexText), strings.indices.contains(index) {
-                value = strings[index]
-            }
-        }
-        let column = sheetColumnIndex(cellRef)
-        if column < 0 || column >= 64 {
-            if column < 0 { currentRow.append(value) }
-            return
-        }
-        if currentRow.count <= column {
-            currentRow.append(contentsOf: repeatElement("", count: column - currentRow.count + 1))
-        }
-        currentRow[column] = value
-    }
-}
-
 enum SheetXML {
     static func parse(_ xml: String, strings: [String]) -> [[String]] {
         parse(data: Data(xml.utf8), strings: strings)
@@ -1275,94 +1186,6 @@ enum SheetXML {
             guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return [] }
             return scan(base, count: raw.count, strings: strings)
         }
-    }
-
-    /// String walk — no XMLParser, no regex, no unsafe pointers.
-    private static func walk(data: Data, strings: [String]) -> [[String]] {
-        guard var xml = String(data: data, encoding: .utf8) else { return [] }
-        if xml.hasPrefix("\u{FEFF}") { xml.removeFirst() }
-        xml = xml.replacingOccurrences(of: "<x:", with: "<").replacingOccurrences(of: "</x:", with: "</")
-        var rows: [[String]] = []
-        rows.reserveCapacity(2048)
-        var cursor = xml.startIndex
-        while let rowStart = xml.range(of: "<row", range: cursor..<xml.endIndex) {
-            let after = rowStart.upperBound
-            guard after < xml.endIndex else { break }
-            let mark = xml[after]
-            if mark != " " && mark != ">" && mark != "/" {
-                cursor = after
-                continue
-            }
-            guard let tagClose = xml.range(of: ">", range: after..<xml.endIndex) else { break }
-            let open = xml[rowStart.lowerBound..<tagClose.upperBound]
-            if open.hasSuffix("/>") {
-                rows.append([])
-                cursor = tagClose.upperBound
-                continue
-            }
-            guard let rowEnd = xml.range(of: "</row>", range: tagClose.upperBound..<xml.endIndex) else { break }
-            rows.append(walkCells(xml[tagClose.upperBound..<rowEnd.lowerBound], strings: strings))
-            cursor = rowEnd.upperBound
-        }
-        return rows
-    }
-
-    private static func walkCells(_ inner: Substring, strings: [String]) -> [String] {
-        var cells: [String] = []
-        var cursor = inner.startIndex
-        while let cellStart = inner.range(of: "<c", range: cursor..<inner.endIndex) {
-            let after = cellStart.upperBound
-            guard after < inner.endIndex else { break }
-            let mark = inner[after]
-            if mark != " " && mark != ">" && mark != "/" {
-                cursor = after
-                continue
-            }
-            guard let tagClose = inner.range(of: ">", range: after..<inner.endIndex) else { break }
-            let open = String(inner[cellStart.lowerBound..<tagClose.upperBound])
-            var body = ""
-            if open.hasSuffix("/>") {
-                cursor = tagClose.upperBound
-            } else if let cellEnd = inner.range(of: "</c>", range: tagClose.upperBound..<inner.endIndex) {
-                body = String(inner[tagClose.upperBound..<cellEnd.lowerBound])
-                cursor = cellEnd.upperBound
-            } else {
-                break
-            }
-            let type = xmlAttr(open, "t")
-            let ref = xmlAttr(open, "r") ?? ""
-            var value = xmlTag(body, "v") ?? xmlTag(body, "t") ?? ""
-            if type == "s", let index = Int(value.trimmingCharacters(in: .whitespacesAndNewlines)), strings.indices.contains(index) {
-                value = strings[index]
-            } else {
-                value = unescape(value)
-            }
-            let column = sheetColumnIndex(ref)
-            if column < 0 {
-                cells.append(value)
-            } else if column < 256 {
-                if cells.count <= column {
-                    cells.append(contentsOf: repeatElement("", count: column - cells.count + 1))
-                }
-                cells[column] = value
-            }
-        }
-        return cells
-    }
-
-    private static func xmlAttr(_ tag: String, _ name: String) -> String? {
-        let key = name + "=\""
-        guard let start = tag.range(of: key) else { return nil }
-        let rest = tag[start.upperBound...]
-        guard let end = rest.firstIndex(of: "\"") else { return nil }
-        return String(rest[..<end])
-    }
-
-    private static func xmlTag(_ xml: String, _ name: String) -> String? {
-        guard let start = xml.range(of: "<" + name) else { return nil }
-        guard let gt = xml.range(of: ">", range: start.upperBound..<xml.endIndex) else { return nil }
-        guard let end = xml.range(of: "</" + name + ">", range: gt.upperBound..<xml.endIndex) else { return nil }
-        return String(xml[gt.upperBound..<end.lowerBound])
     }
 
     private static func scan(_ base: UnsafePointer<UInt8>, count: Int, strings: [String]) -> [[String]] {
@@ -1407,11 +1230,14 @@ enum SheetXML {
             if inRow, !closing, nameEquals(name, "c") {
                 let parsed = readCell(base, count, &i, strings: strings)
                 let column = columnIndex(parsed.ref)
-                guard column >= 0, column < 64 else { continue }
-                if cells.count <= column {
-                    cells.append(contentsOf: repeatElement("", count: column - cells.count + 1))
+                if column >= 0 {
+                    if cells.count <= column {
+                        cells.append(contentsOf: repeatElement("", count: column - cells.count + 1))
+                    }
+                    cells[column] = parsed.value
+                } else {
+                    cells.append(parsed.value)
                 }
-                cells[column] = parsed.value
                 continue
             }
 
@@ -1445,7 +1271,17 @@ enum SheetXML {
     }
 
     private static func columnIndex(_ ref: String) -> Int {
-        sheetColumnIndex(ref)
+        var n = 0
+        for byte in ref.utf8 {
+            if byte >= 65, byte <= 90 {
+                n = n * 26 + Int(byte - 64)
+            } else if byte >= 97, byte <= 122 {
+                n = n * 26 + Int(byte - 96)
+            } else {
+                break
+            }
+        }
+        return n - 1
     }
 
     @discardableResult
@@ -1576,27 +1412,6 @@ enum SheetXML {
     }
 }
 
-private func sheetColumnIndex(_ ref: String) -> Int {
-    var n = 0
-    for byte in ref.utf8 {
-        if byte >= 65, byte <= 90 {
-            n = n * 26 + Int(byte - 64)
-        } else if byte >= 97, byte <= 122 {
-            n = n * 26 + Int(byte - 96)
-        } else {
-            break
-        }
-    }
-    return n - 1
-}
-
-private func nsGroup(_ match: NSTextCheckingResult, _ index: Int, in text: String) -> String? {
-    guard index < match.numberOfRanges else { return nil }
-    let range = match.range(at: index)
-    guard range.location != NSNotFound, let swift = Range(range, in: text) else { return nil }
-    return String(text[swift])
-}
-
 private func stripNS(_ xml: String) -> String {
     xml.replacingOccurrences(of: "<(/?)(\\w+):", with: "<$1", options: .regularExpression)
 }
@@ -1664,8 +1479,8 @@ final class ZipArchive {
             let payload = Data(bytes[dataStart..<(dataStart + max(compSize, 0))])
             if method == 0 {
                 files[name] = payload
-            } else if method == 8, let inflated = inflate(payload, uncompressedSize: uncompSize) {
-                files[name] = inflated
+            } else if method == 8 {
+                files[name] = inflate(payload, uncompressedSize: uncompSize)
             }
             offset = dataStart + compSize
             if flags & 0x08 != 0 {
@@ -1693,7 +1508,7 @@ final class ZipArchive {
 }
 
 private func inflate(_ source: Data, uncompressedSize: Int) -> Data? {
-    let dstSize = min(max(uncompressedSize, source.count * 8 + 64), 32_000_000)
+    let dstSize = max(uncompressedSize, source.count * 8 + 64)
     var dest = Data(count: dstSize)
     let written = dest.withUnsafeMutableBytes { destPtr -> Int in
         source.withUnsafeBytes { srcPtr in
