@@ -16,12 +16,14 @@ final class HeartbeatStore: ObservableObject {
     @Published var lastImportedSection: MetricSection? = nil
     @Published var isImporting = false
     @Published var importLabel: String?
+    @Published var pendingExternalName: String?
     @Published private(set) var isReady = false
 
     private let fileManager: FileManager
     private let snapshotURL: URL
     private let checklistURL: URL
     private var hydrating = false
+    private var pendingExternalData: Data?
     @Published private(set) var checklistRecipients: [String] = []
     private var checklistByKey: [String: ChecklistItem] = [:]
     private var commentSaveTask: Task<Void, Never>?
@@ -618,7 +620,8 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func inboxWorkbooks() -> [URL] {
-        let docs = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        harvestInbox()
+        let docs = documentsURL
         try? fileManager.createDirectory(at: docs, withIntermediateDirectories: true)
         let urls = (try? fileManager.contentsOfDirectory(
             at: docs,
@@ -628,6 +631,59 @@ final class HeartbeatStore: ObservableObject {
         return urls.filter { url in
             ["xlsx", "xls", "csv"].contains(url.pathExtension.lowercased())
         }.sorted { $0.lastPathComponent.localizedCaseInsensitiveCompare($1.lastPathComponent) == .orderedAscending }
+    }
+
+    func receiveExternalFile(url: URL) {
+        let accessed = url.startAccessingSecurityScopedResource()
+        defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+        do {
+            let raw = try Data(contentsOf: url, options: [.uncached])
+            var owned = Data()
+            owned.append(contentsOf: raw)
+            let name = url.lastPathComponent.isEmpty ? "workbook.xlsx" : url.lastPathComponent
+            _ = saveToDocuments(owned, filename: name)
+            pendingExternalData = owned
+            pendingExternalName = name
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func importPending(into section: MetricSection) {
+        guard let data = pendingExternalData, let name = pendingExternalName else { return }
+        pendingExternalData = nil
+        pendingExternalName = nil
+        importWorkbook(data: data, filename: name, section: section)
+    }
+
+    func dismissPending() {
+        pendingExternalData = nil
+        pendingExternalName = nil
+    }
+
+    @discardableResult
+    func saveToDocuments(_ data: Data, filename: String) -> URL {
+        let docs = documentsURL
+        try? fileManager.createDirectory(at: docs, withIntermediateDirectories: true)
+        let dest = docs.appendingPathComponent(filename)
+        try? data.write(to: dest, options: [.atomic])
+        return dest
+    }
+
+    private var documentsURL: URL {
+        fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    }
+
+    private func harvestInbox() {
+        let inbox = documentsURL.appendingPathComponent("Inbox")
+        guard fileManager.fileExists(atPath: inbox.path),
+              let files = try? fileManager.contentsOfDirectory(at: inbox, includingPropertiesForKeys: nil)
+        else { return }
+        for file in files {
+            let dest = documentsURL.appendingPathComponent(file.lastPathComponent)
+            try? fileManager.removeItem(at: dest)
+            try? fileManager.moveItem(at: file, to: dest)
+        }
     }
 
     func importWorkbook(url: URL, section: MetricSection) {
@@ -645,6 +701,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func importWorkbook(data: Data, filename: String, section: MetricSection) {
+        _ = saveToDocuments(data, filename: filename)
         Task { await runImport(data: data, filename: filename, section: section) }
     }
 
