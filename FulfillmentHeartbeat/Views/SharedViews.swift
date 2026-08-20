@@ -1989,6 +1989,7 @@ struct LaborStoreCard: View {
     let row: MetricRow
     @State private var expanded = false
     @State private var openWeek: String?
+    @State private var pulseOn = false
 
     private var weeks: [MetricRow] {
         expanded ? store.laborWeeks(forStore: row.storeNumber) : []
@@ -2048,6 +2049,12 @@ struct LaborStoreCard: View {
             RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
                 .stroke(ink(health).opacity(health == .none ? 0.15 : 0.45), lineWidth: health == .risk || health == .watch ? 2 : 1.5)
         )
+        .onAppear {
+            pulseOn = false
+            withAnimation(.easeInOut(duration: 1.05).repeatForever(autoreverses: true)) {
+                pulseOn = true
+            }
+        }
     }
 
     private var metaLine: String {
@@ -2132,7 +2139,7 @@ struct LaborStoreCard: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(displayDate(day.date))
                 .font(.headline.weight(.semibold))
-            laborGrid(day: day)
+            laborGrid(day: day, week: week)
         }
         .padding(10)
         .background(
@@ -2142,45 +2149,51 @@ struct LaborStoreCard: View {
     }
 
     private func laborGrid(from row: MetricRow, health: Health) -> some View {
+        let tva = row.number("target_vs_actual_pct")
+        let cost = row.number("cost_trgt_pct")
+        let act = row.number("act_cost_pct")
+        let efficiency = row.number("schedule_efficiency_pct")
+        let over = row.number("over_schedule_pct")
         grid([
-            ("Tgt vs Act", HeartbeatFormat.pct(row.number("target_vs_actual_pct")), health),
-            ("CostTrgt%", HeartbeatFormat.pct(row.number("cost_trgt_pct")), .none),
-            ("ActCost%", HeartbeatFormat.pct(row.number("act_cost_pct")), .none),
-            ("Charged Hrs", HeartbeatFormat.num(row.number("charged_hrs"), digits: 1), .none),
-            ("Act Hrs", HeartbeatFormat.num(row.number("act_hrs"), digits: 1), .none),
-            ("Empower", HeartbeatFormat.num(row.number("empower_hrs"), digits: 1), .none),
-            ("Sch Hrs", HeartbeatFormat.num(row.number("sch_hrs"), digits: 1), .none),
-            ("Earned Hrs", HeartbeatFormat.num(row.number("earned_hrs"), digits: 1), .none),
-            ("ActCost$", HeartbeatFormat.money(row.number("act_cost_dollar")), .none),
-            ("Over %", HeartbeatFormat.pct(row.number("over_schedule_pct")), .none),
-            ("Sch Effi%", HeartbeatFormat.pct(row.number("schedule_efficiency_pct")), .none),
-            ("Earned Util", HeartbeatFormat.pct(row.number("earned_hrs_util")), .none),
-            ("UPLH", HeartbeatFormat.pct(row.number("uplh_impact_pct")), .none),
-            ("Wage", HeartbeatFormat.pct(row.number("wage_impact_pct")), .none),
-            ("AIV", HeartbeatFormat.pct(row.number("aiv_impact_pct")), .none),
+            ("Tgt vs Act", HeartbeatFormat.pct(tva), HeartbeatMath.laborHealth(tva), false),
+            ("CostTrgt%", HeartbeatFormat.pct(cost), .none, true),
+            ("ActCost%", HeartbeatFormat.pct(act), actCostHealth(act, cost), false),
+            ("Charged Hrs", HeartbeatFormat.num(row.number("charged_hrs"), digits: 1), .none, false),
+            ("Act Hrs", HeartbeatFormat.num(row.number("act_hrs"), digits: 1), .none, false),
+            ("Empower", HeartbeatFormat.num(row.number("empower_hrs"), digits: 1), .none, false),
+            ("Sch Hrs", HeartbeatFormat.num(row.number("sch_hrs"), digits: 1), .none, false),
+            ("Earned Hrs", HeartbeatFormat.num(row.number("earned_hrs"), digits: 1), .none, false),
+            ("ActCost$", HeartbeatFormat.money(row.number("act_cost_dollar")), .none, false),
+            ("Over %", HeartbeatFormat.pct(over), HeartbeatMath.varianceHealth(over), false),
+            ("Sch Effi%", HeartbeatFormat.pct(efficiency), HeartbeatMath.band(efficiency, good: HeartbeatMath.scheduleGoal, watch: HeartbeatMath.scheduleWatch), false),
+            ("Earned Util", HeartbeatFormat.pct(row.number("earned_hrs_util")), .none, false),
+            ("UPLH", HeartbeatFormat.pct(row.number("uplh_impact_pct")), impactHealth(row.number("uplh_impact_pct")), false),
+            ("Wage", HeartbeatFormat.pct(row.number("wage_impact_pct")), impactHealth(row.number("wage_impact_pct")), false),
+            ("AIV", HeartbeatFormat.pct(row.number("aiv_impact_pct")), impactHealth(row.number("aiv_impact_pct")), false),
         ])
     }
 
-    private func laborGrid(day: LaborDay) -> some View {
+    private func laborGrid(day: LaborDay, week: MetricRow) -> some View {
+        let cost = week.number("cost_trgt_pct")
         grid([
-            ("Charged Hrs", HeartbeatFormat.num(day.chargedHrs, digits: 1), .none),
-            ("Empower", HeartbeatFormat.num(day.empowerHrs, digits: 1), .none),
-            ("Sch Hrs", HeartbeatFormat.num(day.schHrs, digits: 1), .none),
-            ("Earned Hrs", HeartbeatFormat.num(day.earnedHrs, digits: 1), .none),
-            ("ActCost%", HeartbeatFormat.pct(day.actCostPct), .none),
-            ("Over %", HeartbeatFormat.pct(day.overSchedulePct), .none),
-            ("Sch Effi%", HeartbeatFormat.pct(day.scheduleEfficiencyPct), .none),
-            ("Earned Util", HeartbeatFormat.pct(day.earnedHrsUtil), .none),
+            ("Charged Hrs", HeartbeatFormat.num(day.chargedHrs, digits: 1), .none, false),
+            ("Empower", HeartbeatFormat.num(day.empowerHrs, digits: 1), .none, false),
+            ("Sch Hrs", HeartbeatFormat.num(day.schHrs, digits: 1), .none, false),
+            ("Earned Hrs", HeartbeatFormat.num(day.earnedHrs, digits: 1), .none, false),
+            ("ActCost%", HeartbeatFormat.pct(day.actCostPct), actCostHealth(day.actCostPct, cost), false),
+            ("Over %", HeartbeatFormat.pct(day.overSchedulePct), HeartbeatMath.varianceHealth(day.overSchedulePct), false),
+            ("Sch Effi%", HeartbeatFormat.pct(day.scheduleEfficiencyPct), HeartbeatMath.band(day.scheduleEfficiencyPct, good: HeartbeatMath.scheduleGoal, watch: HeartbeatMath.scheduleWatch), false),
+            ("Earned Util", HeartbeatFormat.pct(day.earnedHrsUtil), .none, false),
         ])
     }
 
-    private func grid(_ items: [(String, String, Health)]) -> some View {
+    private func grid(_ items: [(String, String, Health, Bool)]) -> some View {
         let rows = stride(from: 0, to: items.count, by: 4).map { Array(items[$0..<min($0 + 4, items.count)]) }
         return VStack(spacing: 8) {
             ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                 HStack(spacing: 8) {
                     ForEach(Array(row.enumerated()), id: \.offset) { _, item in
-                        metric(item.0, item.1, item.2)
+                        metric(item.0, item.1, item.2, brand: item.3)
                     }
                     if row.count < 4 {
                         ForEach(0..<(4 - row.count), id: \.self) { _ in
@@ -2199,24 +2212,50 @@ struct LaborStoreCard: View {
         return "\(parts[1])/\(parts[2])/\(parts[0])"
     }
 
-    private func metric(_ name: String, _ value: String, _ health: Health) -> some View {
-        VStack(spacing: 4) {
+    private func metric(_ name: String, _ value: String, _ health: Health, brand: Bool = false) -> some View {
+        let shouldPulse = health == .risk || health == .watch
+        return VStack(spacing: 4) {
             Text(name)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(AppTheme.textTertiary)
                 .lineLimit(1)
+                .minimumScaleFactor(0.7)
             Text(value)
                 .font(.title3.weight(.bold).monospacedDigit())
-                .foregroundStyle(ink(health))
+                .foregroundStyle(brand ? AppTheme.blue : ink(health))
                 .lineLimit(1)
-                .minimumScaleFactor(0.7)
+                .minimumScaleFactor(0.65)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 10)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(wash(health))
+                .fill(brand ? AppTheme.blueSoft : wash(health))
         )
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(brand ? AppTheme.blue.opacity(0.45) : chipStroke(health), lineWidth: shouldPulse ? 2 : 1)
+                .opacity(shouldPulse ? (pulseOn ? 1 : 0.22) : 1)
+        )
+    }
+
+    private func impactHealth(_ value: Double?) -> Health {
+        guard let value else { return .none }
+        return value <= 0 ? .good : .risk
+    }
+
+    private func actCostHealth(_ act: Double?, _ cost: Double?) -> Health {
+        guard let act, let cost else { return .none }
+        return act <= cost ? .good : .risk
+    }
+
+    private func chipStroke(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.ok.opacity(0.35)
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return Color.clear
+        }
     }
 
     private func ink(_ health: Health) -> Color {
