@@ -5,7 +5,6 @@ import UIKit
 struct UploadView: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var router: HubRouter
-    @State private var showFileSheet = false
     @State private var importTarget: MetricSection?
     @State private var exportItem: ExportItem?
     @State private var showStatus = false
@@ -18,10 +17,12 @@ struct UploadView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Upload workbooks")
                         .font(.largeTitle.weight(.semibold))
-                    Text("One Excel file for each section. That file replaces the matching card on the dashboard.")
+                    Text("Copy each Excel into Files → On My iPad → Heartbeat, then tap Pick file on the matching card. Do not drag files — that crashes on this iPad.")
                         .font(.subheadline)
                         .foregroundStyle(AppTheme.textSecondary)
                 }
+
+                inboxCard
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 16)], spacing: 16) {
                     ForEach(MetricSection.uploadOrder) { section in
@@ -31,9 +32,6 @@ struct UploadView: View {
                             justUpdated: store.lastImportedSection == section,
                             enabled: !store.isImporting,
                             onPick: { beginImport(section) },
-                            onDropData: { data, name in
-                                store.importWorkbook(data: data, filename: name, section: section)
-                            },
                             onTemplate: {
                                 exportItem = ExportItem(
                                     filename: "\(section.rawValue)-template.csv",
@@ -45,8 +43,6 @@ struct UploadView: View {
                     }
                 }
 
-                inboxCard
-
                 Text("Headers can be flexible — Division, Operations OM, and Store Number are picked up automatically. Use Link to pull the raw Power BI export, or Template for a clean file.")
                     .font(.subheadline)
                     .foregroundStyle(AppTheme.textSecondary)
@@ -54,18 +50,16 @@ struct UploadView: View {
             .padding(20)
         }
         .background(AppTheme.bg.ignoresSafeArea())
-        .sheet(isPresented: $showFileSheet) {
-            if let section = importTarget {
-                FilePickSheet(
-                    section: section,
-                    files: inboxFiles,
-                    onImport: { url in
-                        store.importWorkbook(url: url, section: section)
-                        showFileSheet = false
-                    },
-                    onRefresh: { inboxFiles = store.inboxWorkbooks() }
-                )
-            }
+        .sheet(item: $importTarget) { section in
+            FilePickSheet(
+                section: section,
+                files: inboxFiles,
+                onImport: { url in
+                    store.importWorkbook(url: url, section: section)
+                    importTarget = nil
+                },
+                onRefresh: { inboxFiles = store.inboxWorkbooks() }
+            )
         }
         .fileExporter(
             isPresented: Binding(
@@ -116,7 +110,7 @@ struct UploadView: View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Heartbeat folder")
                 .font(.title3.weight(.bold))
-            Text("Copy the Excel into Files → On My iPad → Heartbeat, then tap Import. Drag onto a card also works. The iPad file picker is not used — it crashes on these Power BI files.")
+            Text("Put the Excel in Files → On My iPad → Heartbeat, then tap Import next to it. Do not drag files onto the cards.")
                 .font(.subheadline)
                 .foregroundStyle(AppTheme.textSecondary)
             if inboxFiles.isEmpty {
@@ -162,7 +156,6 @@ struct UploadView: View {
     private func beginImport(_ section: MetricSection) {
         inboxFiles = store.inboxWorkbooks()
         importTarget = section
-        showFileSheet = true
     }
 }
 
@@ -172,11 +165,8 @@ struct UploadPanel: View {
     var justUpdated: Bool = false
     var enabled: Bool = true
     let onPick: () -> Void
-    let onDropData: (Data, String) -> Void
     let onTemplate: () -> Void
     let onClear: () -> Void
-
-    @State private var targeted = false
 
     var body: some View {
         HubCard {
@@ -246,13 +236,13 @@ struct UploadPanel: View {
     private var dropZone: some View {
         Button(action: onPick) {
             VStack(spacing: 8) {
-                Image(systemName: targeted ? "tray.and.arrow.down.fill" : "square.and.arrow.up")
+                Image(systemName: "folder")
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(AppTheme.blue)
-                Text(targeted ? "Drop to replace this section" : "Drop Excel here or tap to pick a Heartbeat file")
+                Text("Pick a file from Heartbeat")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(AppTheme.text)
-                Text(".xlsx or .csv · replaces current \(section.short) data")
+                Text("Files → On My iPad → Heartbeat")
                     .font(.caption)
                     .foregroundStyle(AppTheme.textTertiary)
                 Text("Pick file")
@@ -268,61 +258,15 @@ struct UploadPanel: View {
             .padding(.horizontal, 12)
             .background(
                 RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
-                    .fill(targeted || justUpdated ? AppTheme.blueSoft : AppTheme.bg)
+                    .fill(justUpdated ? AppTheme.blueSoft : AppTheme.bg)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
-                    .strokeBorder(AppTheme.blue.opacity(targeted ? 0.7 : 0.22), style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
+                    .strokeBorder(AppTheme.blue.opacity(0.22), lineWidth: 1.5)
             )
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
-        .onDrop(of: Self.dropTypes, isTargeted: $targeted) { providers in
-            guard enabled else { return false }
-            return Self.takeDrop(providers, into: onDropData)
-        }
-    }
-
-    private static let dropTypes: [UTType] = [.data, .item, .fileURL]
-
-    private static func takeDrop(_ providers: [NSItemProvider], into onDrop: @escaping (Data, String) -> Void) -> Bool {
-        guard let provider = providers.first else { return false }
-        let typeId: String
-        if provider.hasItemConformingToTypeIdentifier(UTType.data.identifier) {
-            typeId = UTType.data.identifier
-        } else if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-            typeId = UTType.fileURL.identifier
-        } else {
-            typeId = UTType.item.identifier
-        }
-        if typeId == UTType.fileURL.identifier {
-            provider.loadItem(forTypeIdentifier: typeId, options: nil) { item, _ in
-                let url: URL?
-                if let value = item as? URL {
-                    url = value
-                } else if let data = item as? Data {
-                    url = URL(dataRepresentation: data, relativeTo: nil)
-                } else {
-                    url = nil
-                }
-                guard let url else { return }
-                let accessed = url.startAccessingSecurityScopedResource()
-                defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-                guard let raw = try? Data(contentsOf: url, options: [.uncached]) else { return }
-                var owned = Data()
-                owned.append(contentsOf: raw)
-                let name = url.lastPathComponent
-                DispatchQueue.main.async { onDrop(owned, name) }
-            }
-            return true
-        }
-        provider.loadDataRepresentation(forTypeIdentifier: typeId) { data, _ in
-            guard let data, !data.isEmpty else { return }
-            var owned = Data()
-            owned.append(contentsOf: data)
-            DispatchQueue.main.async { onDrop(owned, "workbook.xlsx") }
-        }
-        return true
     }
 }
 
@@ -334,48 +278,72 @@ struct FilePickSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    Text("The iPad file picker crashes on these Power BI Excel files. Pick a file already in Heartbeat, drag it onto the card, or share it from the Files app into Heartbeat.")
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Import \(section.title)")
+                        .font(.title2.weight(.bold))
+                    Text("Tap a file already in Heartbeat. If the list is empty, copy the Excel into Files → On My iPad → Heartbeat first.")
                         .font(.subheadline)
                         .foregroundStyle(AppTheme.textSecondary)
-                        .listRowBackground(Color.clear)
                 }
-                Section("In Heartbeat") {
-                    if files.isEmpty {
-                        Text("No Excel files in On My iPad → Heartbeat yet.")
-                            .foregroundStyle(AppTheme.textSecondary)
-                    } else {
+                Spacer()
+                Button("Close") { dismiss() }
+                    .font(.subheadline.weight(.semibold))
+            }
+
+            if files.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("No Excel files in Heartbeat yet")
+                        .font(.headline)
+                    Text("1. Open the Files app")
+                    Text("2. Go to the folder that has your Excel")
+                    Text("3. Long-press the file → Move → On My iPad → Heartbeat")
+                    Text("4. Come back here and tap Refresh")
+                }
+                .font(.subheadline)
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(AppTheme.blueSoft, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            } else {
+                ScrollView {
+                    VStack(spacing: 10) {
                         ForEach(files, id: \.path) { url in
                             Button {
                                 onImport(url)
                             } label: {
-                                Label(url.lastPathComponent, systemImage: "doc.fill")
-                                    .foregroundStyle(AppTheme.text)
+                                HStack {
+                                    Image(systemName: "doc.fill")
+                                        .foregroundStyle(AppTheme.blue)
+                                    Text(url.lastPathComponent)
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(AppTheme.text)
+                                        .multilineTextAlignment(.leading)
+                                    Spacer()
+                                    Text("Use")
+                                        .font(.subheadline.weight(.bold))
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+                                        .background(AppTheme.blue, in: Capsule())
+                                }
+                                .padding(14)
+                                .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                             }
+                            .buttonStyle(.plain)
                         }
                     }
                 }
-                Section("Add a file") {
-                    Text("1. Open the Files app")
-                    Text("2. Long-press the Excel file")
-                    Text("3. Share → Heartbeat, or Move to On My iPad → Heartbeat")
-                    Text("4. Come back and tap it above")
-                    Text("On iPad you can also split Files and drag the file onto the upload card.")
-                }
             }
-            .navigationTitle("Import \(section.short)")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { dismiss() }
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    Button("Refresh", action: onRefresh)
-                }
-            }
+
+            Button("Refresh list", action: onRefresh)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(AppTheme.blue)
+            Spacer(minLength: 0)
         }
+        .padding(24)
+        .frame(minWidth: 520, minHeight: 480)
+        .background(AppTheme.bg)
     }
 }
 
