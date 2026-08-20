@@ -1389,11 +1389,7 @@ enum HeartbeatFormat {
 
     static func pct(_ value: Double?) -> String {
         guard let value else { return "—" }
-        if value == 0 { return "0.0%" }
-        if abs(value) < 10 {
-            return String(format: "%.2f%%", value)
-        }
-        return String(format: "%.1f%%", value)
+        return String(format: "%.2f%%", value)
     }
 
     static func num(_ value: Double?, digits: Int = 0) -> String {
@@ -1569,6 +1565,7 @@ struct LaborDay: Codable, Identifiable, Hashable {
     var schHrs: Double?
     var empowerHrs: Double?
     var earnedHrs: Double?
+    var earnedHrsUtil: Double?
     var actCostPct: Double?
     var overSchedulePct: Double?
     var chargedHrs: Double?

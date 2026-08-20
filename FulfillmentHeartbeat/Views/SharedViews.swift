@@ -1989,7 +1989,15 @@ struct LaborStoreCard: View {
         let health = HeartbeatMath.health(for: .labor, row: row)
         return VStack(alignment: .leading, spacing: 12) {
             Button {
-                withAnimation(.easeInOut(duration: 0.2)) { expanded.toggle() }
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    expanded.toggle()
+                    if expanded {
+                        let latest = store.laborWeeks(forStore: row.storeNumber).first
+                        openWeek = latest?.textPayload["week"] ?? latest?.recordedOn
+                    } else {
+                        openWeek = nil
+                    }
+                }
             } label: {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text(row.storeNumber.isEmpty ? "—" : row.storeNumber)
@@ -2089,12 +2097,7 @@ struct LaborStoreCard: View {
                 }
             }
             .buttonStyle(.plain)
-            HStack(spacing: 8) {
-                metric("Tgt vs Act", HeartbeatFormat.pct(week.number("target_vs_actual_pct")), health)
-                metric("CostTrgt%", HeartbeatFormat.pct(week.number("cost_trgt_pct")), .none)
-                metric("Act Cost", HeartbeatFormat.money(week.number("act_cost_dollar")), .none)
-                metric("Act Hrs", HeartbeatFormat.num(week.number("act_hrs"), digits: 0), .none)
-            }
+            metricGrid(weekItems(week, health: health))
             if isOpen {
                 let days = store.laborDays(from: week)
                 VStack(alignment: .leading, spacing: 8) {
@@ -2106,7 +2109,7 @@ struct LaborStoreCard: View {
                             .foregroundStyle(AppTheme.textSecondary)
                     } else {
                         ForEach(days) { day in
-                            dayRow(day)
+                            dayRow(day, week: week)
                         }
                     }
                 }
@@ -2119,22 +2122,69 @@ struct LaborStoreCard: View {
         )
     }
 
-    private func dayRow(_ day: LaborDay) -> some View {
+    private func dayRow(_ day: LaborDay, week: MetricRow) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(day.date.isEmpty ? "—" : day.date)
+            Text(displayDate(day.date))
                 .font(.headline.weight(.semibold))
-            HStack(spacing: 8) {
-                metric("Sch Effi", HeartbeatFormat.pct(day.scheduleEfficiencyPct), .none)
-                metric("Sch Hrs", HeartbeatFormat.num(day.schHrs, digits: 1), .none)
-                metric("ActCost%", HeartbeatFormat.pct(day.actCostPct), .none)
-                metric("Charged", HeartbeatFormat.num(day.chargedHrs, digits: 1), .none)
-            }
+            metricGrid(dayItems(day, week: week))
         }
         .padding(8)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(AppTheme.bg)
         )
+    }
+
+    private func weekItems(_ week: MetricRow, health: Health) -> [(String, String, Health)] {
+        [
+            ("Tgt vs Act", HeartbeatFormat.pct(week.number("target_vs_actual_pct")), health),
+            ("CostTrgt%", HeartbeatFormat.pct(week.number("cost_trgt_pct")), .none),
+            ("ActCost$", HeartbeatFormat.money(week.number("act_cost_dollar")), .none),
+            ("Act Hrs", HeartbeatFormat.num(week.number("act_hrs"), digits: 1), .none),
+            ("Empower Hrs", HeartbeatFormat.num(week.number("empower_hrs"), digits: 1), .none),
+            ("Sch Hrs", HeartbeatFormat.num(week.number("sch_hrs"), digits: 1), .none),
+            ("Earned Hrs", HeartbeatFormat.num(week.number("earned_hrs"), digits: 1), .none),
+            ("Over Sch%", HeartbeatFormat.pct(week.number("over_schedule_pct")), .none),
+            ("UPLH", HeartbeatFormat.pct(week.number("uplh_impact_pct")), .none),
+            ("Wage", HeartbeatFormat.pct(week.number("wage_impact_pct")), .none),
+            ("AIV", HeartbeatFormat.pct(week.number("aiv_impact_pct")), .none),
+            ("Charged Hrs", HeartbeatFormat.num(week.number("charged_hrs"), digits: 1), .none),
+        ]
+    }
+
+    private func dayItems(_ day: LaborDay, week: MetricRow) -> [(String, String, Health)] {
+        let health = HeartbeatMath.laborHealth(week)
+        return [
+            ("Tgt vs Act", HeartbeatFormat.pct(week.number("target_vs_actual_pct")), health),
+            ("CostTrgt%", HeartbeatFormat.pct(week.number("cost_trgt_pct")), .none),
+            ("ActCost%", HeartbeatFormat.pct(day.actCostPct), .none),
+            ("Act Hrs", HeartbeatFormat.num(week.number("act_hrs"), digits: 1), .none),
+            ("Empower Hrs", HeartbeatFormat.num(day.empowerHrs, digits: 1), .none),
+            ("Sch Hrs", HeartbeatFormat.num(day.schHrs, digits: 1), .none),
+            ("Earned Hrs", HeartbeatFormat.num(day.earnedHrs, digits: 1), .none),
+            ("Earned Util", HeartbeatFormat.pct(day.earnedHrsUtil), .none),
+            ("Over Sch%", HeartbeatFormat.pct(day.overSchedulePct), .none),
+            ("UPLH", HeartbeatFormat.pct(week.number("uplh_impact_pct")), .none),
+            ("Wage", HeartbeatFormat.pct(week.number("wage_impact_pct")), .none),
+            ("AIV", HeartbeatFormat.pct(week.number("aiv_impact_pct")), .none),
+            ("Charged Hrs", HeartbeatFormat.num(day.chargedHrs, digits: 1), .none),
+            ("ActCost$", HeartbeatFormat.money(week.number("act_cost_dollar")), .none),
+        ]
+    }
+
+    private func metricGrid(_ items: [(String, String, Health)]) -> some View {
+        LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 88), spacing: 8), count: 4), spacing: 8) {
+            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                metric(item.0, item.1, item.2)
+            }
+        }
+    }
+
+    private func displayDate(_ raw: String) -> String {
+        guard raw.count >= 10 else { return raw.isEmpty ? "—" : raw }
+        let parts = raw.prefix(10).split(separator: "-")
+        guard parts.count == 3 else { return raw }
+        return "\(parts[1])/\(parts[2])/\(parts[0])"
     }
 
     private func metric(_ name: String, _ value: String, _ health: Health) -> some View {

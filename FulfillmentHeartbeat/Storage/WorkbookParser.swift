@@ -430,6 +430,7 @@ enum WorkbookParser {
                 schHrs: row.payload["sch_hrs"],
                 empowerHrs: row.payload["empower_hrs"],
                 earnedHrs: row.payload["earned_hrs"],
+                earnedHrsUtil: row.payload["earned_hrs_util"],
                 actCostPct: row.payload["act_cost_pct"],
                 overSchedulePct: row.payload["over_schedule_pct"],
                 chargedHrs: row.payload["charged_hrs"]
@@ -495,6 +496,11 @@ enum WorkbookParser {
                 if let cost = bucket.cost { payload["cost_trgt_pct"] = cost }
                 if dollars > 0 { payload["act_cost_dollar"] = dollars }
                 if hours > 0 { payload["act_hrs"] = hours }
+                if sch > 0 { payload["sch_hrs"] = sch }
+                if emp > 0 { payload["empower_hrs"] = emp }
+                if charged > 0 { payload["charged_hrs"] = charged }
+                if earned > 0 { payload["earned_hrs"] = earned }
+                if emp > 0 { payload["over_schedule_pct"] = (sch - emp) / emp * 100 }
                 if let uplh = bucket.uplh { payload["uplh_impact_pct"] = uplh }
                 if let wage = bucket.wage { payload["wage_impact_pct"] = wage }
                 if let aiv = bucket.aiv { payload["aiv_impact_pct"] = aiv }
@@ -648,7 +654,9 @@ enum WorkbookParser {
             applyMetric(&payload, header: key, value: value)
             return
         }
-        if mapped.hasSuffix("_pct"), abs(number) <= 1.0 {
+        if mapped == "earned_hrs_util", abs(number) < 50 {
+            number *= 100
+        } else if mapped.hasSuffix("_pct"), abs(number) <= 1.0 {
             number *= 100
         } else if (mapped == "act_cost_pct" || mapped == "cost_trgt_pct" || mapped.hasSuffix("_impact_pct")), abs(number) > 1, abs(number) <= 8 {
             number *= 100

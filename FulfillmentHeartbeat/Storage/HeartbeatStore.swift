@@ -345,6 +345,7 @@ final class HeartbeatStore: ObservableObject {
                 schHrs: row.number("sch_hrs"),
                 empowerHrs: row.number("empower_hrs"),
                 earnedHrs: row.number("earned_hrs"),
+                earnedHrsUtil: row.number("earned_hrs_util"),
                 actCostPct: row.number("act_cost_pct"),
                 overSchedulePct: row.number("over_schedule_pct"),
                 chargedHrs: row.number("charged_hrs")
@@ -1043,6 +1044,7 @@ final class HeartbeatStore: ObservableObject {
         rebuildPickerIndex(caches.filteredLatest[.pickerScorecard] ?? [])
         rebuildPickPathPickerIndex(scorecard: caches.filteredLatest[.pickerScorecard] ?? [])
         rebuildPPHPickerIndex(scorecard: caches.filteredLatest[.pickerScorecard] ?? [])
+        rebuildLaborWeekIndex()
         objectWillChange.send()
     }
 
