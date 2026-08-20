@@ -768,39 +768,45 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func filterChoices(focus: FilterFocus, draft: DashboardFilters) -> [(id: String, label: String)] {
+        func pairs(_ values: [String]) -> [(id: String, label: String)] {
+            values.map { (id: $0, label: $0) }
+        }
         switch focus {
         case .division:
-            return cachedDivisions.map { ($0, $0) }
+            return pairs(cachedDivisions)
         case .district:
-            return roster.values
-                .filter { draft.division.isEmpty || HeartbeatMath.matches($0.division, draft.division) }
-                .map(\.district)
-                .filter { !$0.isEmpty }
-                .uniqued()
-                .sorted()
-                .map { ($0, $0) }
+            return pairs(
+                roster.values
+                    .filter { draft.division.isEmpty || HeartbeatMath.matches($0.division, draft.division) }
+                    .map(\.district)
+                    .filter { !$0.isEmpty }
+                    .uniqued()
+                    .sorted()
+            )
         case .om:
-            return roster.values
-                .filter { draft.division.isEmpty || HeartbeatMath.matches($0.division, draft.division) }
-                .filter { draft.district.isEmpty || HeartbeatMath.matches($0.district, draft.district) }
-                .map(\.om)
-                .filter { value in
-                    !value.isEmpty && value.rangeOfCharacter(from: .letters) != nil
-                }
-                .uniqued()
-                .sorted()
-                .map { ($0, $0) }
+            return pairs(
+                roster.values
+                    .filter { draft.division.isEmpty || HeartbeatMath.matches($0.division, draft.division) }
+                    .filter { draft.district.isEmpty || HeartbeatMath.matches($0.district, draft.district) }
+                    .map(\.om)
+                    .filter { value in
+                        !value.isEmpty && value.rangeOfCharacter(from: .letters) != nil
+                    }
+                    .uniqued()
+                    .sorted()
+            )
         case .store:
-            var seen: [String: String?] = [:]
+            var seen: [String: String] = [:]
             for (number, identity) in roster {
                 if !draft.division.isEmpty, !HeartbeatMath.matches(identity.division, draft.division) { continue }
                 if !draft.district.isEmpty, !HeartbeatMath.matches(identity.district, draft.district) { continue }
                 if !draft.om.isEmpty, !HeartbeatMath.matches(identity.om, draft.om) { continue }
-                if seen[number] == nil { seen[number] = identity.name }
+                if seen[number] == nil { seen[number] = identity.name ?? "" }
             }
             return seen.keys.sorted(by: HeartbeatFormat.storeOrder).map { number in
-                let name = seen[number] ?? nil
-                (number, name.map { "\(number) · \($0)" } ?? number)
+                let name = seen[number] ?? ""
+                let label = name.isEmpty ? number : "\(number) · \(name)"
+                return (id: number, label: label)
             }
         }
     }

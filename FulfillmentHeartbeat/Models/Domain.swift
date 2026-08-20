@@ -1431,6 +1431,49 @@ struct DashboardFilters: Equatable, Codable {
     }
 }
 
+enum FilterFocus: String, Sendable {
+    case division
+    case district
+    case om
+    case store
+
+    var title: String {
+        switch self {
+        case .division: return "Division"
+        case .district: return "District"
+        case .om: return "Operations manager"
+        case .store: return "Store #"
+        }
+    }
+
+    var chipTitle: String {
+        switch self {
+        case .division: return "Division"
+        case .district: return "District"
+        case .om: return "OM"
+        case .store: return "Store"
+        }
+    }
+
+    var prompt: String {
+        switch self {
+        case .division: return "Type a division"
+        case .district: return "Type a district"
+        case .om: return "Type an OM name"
+        case .store: return "Type a store number"
+        }
+    }
+
+    var allLabel: String {
+        switch self {
+        case .division: return "All divisions"
+        case .district: return "All districts"
+        case .om: return "All operations managers"
+        case .store: return "All stores"
+        }
+    }
+}
+
 struct HeartbeatSnapshot: Codable {
     var rows: [MetricRow]
     var uploads: [UploadRecord]
