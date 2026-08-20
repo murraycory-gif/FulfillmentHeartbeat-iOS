@@ -1984,6 +1984,20 @@ struct LaborTable: View {
     }
 }
 
+private struct LaborChip {
+    let name: String
+    let value: String
+    let health: Health
+    var brand: Bool = false
+
+    init(_ name: String, _ value: String, _ health: Health, brand: Bool = false) {
+        self.name = name
+        self.value = value
+        self.health = health
+        self.brand = brand
+    }
+}
+
 struct LaborStoreCard: View {
     @EnvironmentObject private var store: HeartbeatStore
     let row: MetricRow
@@ -2148,52 +2162,60 @@ struct LaborStoreCard: View {
         )
     }
 
-    private func laborGrid(from row: MetricRow, health: Health) -> some View {
+    private func laborGrid(from row: MetricRow, health _: Health) -> some View {
+        laborChipGrid(laborStoreChips(row))
+    }
+
+    private func laborGrid(day: LaborDay, week: MetricRow) -> some View {
+        laborChipGrid(laborDayChips(day, week: week))
+    }
+
+    private func laborStoreChips(_ row: MetricRow) -> [LaborChip] {
         let tva = row.number("target_vs_actual_pct")
         let cost = row.number("cost_trgt_pct")
         let act = row.number("act_cost_pct")
         let efficiency = row.number("schedule_efficiency_pct")
         let over = row.number("over_schedule_pct")
-        grid([
-            ("Tgt vs Act", HeartbeatFormat.pct(tva), HeartbeatMath.laborHealth(tva), false),
-            ("CostTrgt%", HeartbeatFormat.pct(cost), .none, true),
-            ("ActCost%", HeartbeatFormat.pct(act), actCostHealth(act, cost), false),
-            ("Charged Hrs", HeartbeatFormat.num(row.number("charged_hrs"), digits: 1), .none, false),
-            ("Act Hrs", HeartbeatFormat.num(row.number("act_hrs"), digits: 1), .none, false),
-            ("Empower", HeartbeatFormat.num(row.number("empower_hrs"), digits: 1), .none, false),
-            ("Sch Hrs", HeartbeatFormat.num(row.number("sch_hrs"), digits: 1), .none, false),
-            ("Earned Hrs", HeartbeatFormat.num(row.number("earned_hrs"), digits: 1), .none, false),
-            ("ActCost$", HeartbeatFormat.money(row.number("act_cost_dollar")), .none, false),
-            ("Over %", HeartbeatFormat.pct(over), HeartbeatMath.varianceHealth(over), false),
-            ("Sch Effi%", HeartbeatFormat.pct(efficiency), HeartbeatMath.band(efficiency, good: HeartbeatMath.scheduleGoal, watch: HeartbeatMath.scheduleWatch), false),
-            ("Earned Util", HeartbeatFormat.pct(row.number("earned_hrs_util")), .none, false),
-            ("UPLH", HeartbeatFormat.pct(row.number("uplh_impact_pct")), impactHealth(row.number("uplh_impact_pct")), false),
-            ("Wage", HeartbeatFormat.pct(row.number("wage_impact_pct")), impactHealth(row.number("wage_impact_pct")), false),
-            ("AIV", HeartbeatFormat.pct(row.number("aiv_impact_pct")), impactHealth(row.number("aiv_impact_pct")), false),
-        ])
+        var chips: [LaborChip] = []
+        chips.append(LaborChip("Tgt vs Act", HeartbeatFormat.pct(tva), HeartbeatMath.laborHealth(tva)))
+        chips.append(LaborChip("CostTrgt%", HeartbeatFormat.pct(cost), .none, brand: true))
+        chips.append(LaborChip("ActCost%", HeartbeatFormat.pct(act), actCostHealth(act, cost)))
+        chips.append(LaborChip("Charged Hrs", HeartbeatFormat.num(row.number("charged_hrs"), digits: 1), .none))
+        chips.append(LaborChip("Act Hrs", HeartbeatFormat.num(row.number("act_hrs"), digits: 1), .none))
+        chips.append(LaborChip("Empower", HeartbeatFormat.num(row.number("empower_hrs"), digits: 1), .none))
+        chips.append(LaborChip("Sch Hrs", HeartbeatFormat.num(row.number("sch_hrs"), digits: 1), .none))
+        chips.append(LaborChip("Earned Hrs", HeartbeatFormat.num(row.number("earned_hrs"), digits: 1), .none))
+        chips.append(LaborChip("ActCost$", HeartbeatFormat.money(row.number("act_cost_dollar")), .none))
+        chips.append(LaborChip("Over %", HeartbeatFormat.pct(over), HeartbeatMath.varianceHealth(over)))
+        chips.append(LaborChip("Sch Effi%", HeartbeatFormat.pct(efficiency), HeartbeatMath.band(efficiency, good: HeartbeatMath.scheduleGoal, watch: HeartbeatMath.scheduleWatch)))
+        chips.append(LaborChip("Earned Util", HeartbeatFormat.pct(row.number("earned_hrs_util")), .none))
+        chips.append(LaborChip("UPLH", HeartbeatFormat.pct(row.number("uplh_impact_pct")), impactHealth(row.number("uplh_impact_pct"))))
+        chips.append(LaborChip("Wage", HeartbeatFormat.pct(row.number("wage_impact_pct")), impactHealth(row.number("wage_impact_pct"))))
+        chips.append(LaborChip("AIV", HeartbeatFormat.pct(row.number("aiv_impact_pct")), impactHealth(row.number("aiv_impact_pct"))))
+        return chips
     }
 
-    private func laborGrid(day: LaborDay, week: MetricRow) -> some View {
+    private func laborDayChips(_ day: LaborDay, week: MetricRow) -> [LaborChip] {
         let cost = week.number("cost_trgt_pct")
-        grid([
-            ("Charged Hrs", HeartbeatFormat.num(day.chargedHrs, digits: 1), .none, false),
-            ("Empower", HeartbeatFormat.num(day.empowerHrs, digits: 1), .none, false),
-            ("Sch Hrs", HeartbeatFormat.num(day.schHrs, digits: 1), .none, false),
-            ("Earned Hrs", HeartbeatFormat.num(day.earnedHrs, digits: 1), .none, false),
-            ("ActCost%", HeartbeatFormat.pct(day.actCostPct), actCostHealth(day.actCostPct, cost), false),
-            ("Over %", HeartbeatFormat.pct(day.overSchedulePct), HeartbeatMath.varianceHealth(day.overSchedulePct), false),
-            ("Sch Effi%", HeartbeatFormat.pct(day.scheduleEfficiencyPct), HeartbeatMath.band(day.scheduleEfficiencyPct, good: HeartbeatMath.scheduleGoal, watch: HeartbeatMath.scheduleWatch), false),
-            ("Earned Util", HeartbeatFormat.pct(day.earnedHrsUtil), .none, false),
-        ])
+        var chips: [LaborChip] = []
+        chips.append(LaborChip("Charged Hrs", HeartbeatFormat.num(day.chargedHrs, digits: 1), .none))
+        chips.append(LaborChip("Empower", HeartbeatFormat.num(day.empowerHrs, digits: 1), .none))
+        chips.append(LaborChip("Sch Hrs", HeartbeatFormat.num(day.schHrs, digits: 1), .none))
+        chips.append(LaborChip("Earned Hrs", HeartbeatFormat.num(day.earnedHrs, digits: 1), .none))
+        chips.append(LaborChip("ActCost%", HeartbeatFormat.pct(day.actCostPct), actCostHealth(day.actCostPct, cost)))
+        chips.append(LaborChip("Over %", HeartbeatFormat.pct(day.overSchedulePct), HeartbeatMath.varianceHealth(day.overSchedulePct)))
+        chips.append(LaborChip("Sch Effi%", HeartbeatFormat.pct(day.scheduleEfficiencyPct), HeartbeatMath.band(day.scheduleEfficiencyPct, good: HeartbeatMath.scheduleGoal, watch: HeartbeatMath.scheduleWatch)))
+        chips.append(LaborChip("Earned Util", HeartbeatFormat.pct(day.earnedHrsUtil), .none))
+        return chips
     }
 
-    private func grid(_ items: [(String, String, Health, Bool)]) -> some View {
+    private func laborChipGrid(_ items: [LaborChip]) -> some View {
         let rows = stride(from: 0, to: items.count, by: 4).map { Array(items[$0..<min($0 + 4, items.count)]) }
         return VStack(spacing: 8) {
             ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
                 HStack(spacing: 8) {
                     ForEach(Array(row.enumerated()), id: \.offset) { _, item in
-                        metric(item.0, item.1, item.2, brand: item.3)
+                        metric(item.name, item.value, item.health, brand: item.brand)
                     }
                     if row.count < 4 {
                         ForEach(0..<(4 - row.count), id: \.self) { _ in
