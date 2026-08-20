@@ -1901,9 +1901,9 @@ private enum LaborRollupGrain {
 
     var title: String {
         switch self {
-        case .division: return "By division"
+        case .division: return "Markets"
         case .district: return "By district"
-        case .store: return "By store"
+        case .store: return "Store"
         }
     }
 
@@ -2294,9 +2294,9 @@ struct LaborStickyStoreHeader: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text("By store")
+                Text("Store")
                     .font(.subheadline.weight(.bold))
-                    .foregroundStyle(AppTheme.text)
+                    .foregroundStyle(AppTheme.blue)
                 Text("\(HeartbeatFormat.num(Double(pin.storeCount))) stores")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(AppTheme.textSecondary)
@@ -2392,7 +2392,7 @@ struct LaborRollupTable: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(grain.title)
                                     .font(.title3.weight(.bold))
-                                    .foregroundStyle(AppTheme.text)
+                                    .foregroundStyle(AppTheme.blue)
                                 Text("\(summary.count) \(grain.columnTitle.lowercased())\(summary.count == 1 ? "" : "s")  ·  tap to \(expanded ? "collapse" : "expand")")
                                     .font(.subheadline.weight(.semibold))
                                     .foregroundStyle(AppTheme.textSecondary)
@@ -2512,9 +2512,9 @@ struct LaborTable: View {
                 } label: {
                     HStack(spacing: 10) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("By store")
+                            Text("Store")
                                 .font(.title3.weight(.bold))
-                                .foregroundStyle(AppTheme.text)
+                                .foregroundStyle(AppTheme.blue)
                             Text("\(HeartbeatFormat.num(Double(rows.count))) stores  ·  tap to \(expanded ? "collapse" : "expand")")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(AppTheme.textSecondary)
