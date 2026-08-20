@@ -2044,8 +2044,8 @@ struct LaborStoreCard: View {
     private var metaLine: String {
         let district = row.district.isEmpty ? "—" : row.district
         let om = row.operationsOM.isEmpty ? "—" : row.operationsOM
-        let week = row.textPayload["week"].flatMap { $0.isEmpty ? nil : $0 } ?? "—"
-        return "District \(district)  ·  \(om)  ·  \(week)  ·  tap for weeks & days"
+        let week = row.textPayload["week"].flatMap { $0.isEmpty ? nil : $0 } ?? "store totals"
+        return "District \(district)  ·  \(om)  ·  \(week)"
     }
 
     @ViewBuilder
@@ -2054,7 +2054,7 @@ struct LaborStoreCard: View {
             Text("By week")
                 .font(.subheadline.weight(.bold))
             if weeks.isEmpty {
-                Text("No weekly rows for this store.")
+                Text("This Labor file is store totals. Week and day drill-in needs the Total company day export.")
                     .font(.subheadline)
                     .foregroundStyle(AppTheme.textSecondary)
             } else {

@@ -353,6 +353,10 @@ enum WorkbookParser {
             return names.contains("storeid") && names.contains(where: { $0.contains("targetvsactual") || $0.contains("costtrgt") })
         }) else { return nil }
         let headerRow = matrix[headerIndex]
+        let names = headerRow.map(normHeader)
+        if !names.contains("weekid") {
+            return matrix[(headerIndex + 1)...].compactMap { laborStoreRow($0, header: headerRow) }
+        }
         var acc: [String: [String: LaborWeekAcc]] = [:]
         var week = ""
         var date = ""
@@ -379,12 +383,22 @@ enum WorkbookParser {
         var division = ""
         var district = ""
         var acc: [String: [String: LaborWeekAcc]] = [:]
+        var storeRows: [ParsedWorkbookRow] = []
+        var storeView = false
         acc.reserveCapacity(2200)
+        storeRows.reserveCapacity(2200)
         SheetXML.forEachRow(data: data, strings: strings) { row in
             if header.isEmpty {
                 let names = row.map(normHeader)
                 if names.contains("storeid") && names.contains(where: { $0.contains("costtrgt") || $0.contains("targetvsactual") }) {
                     header = row
+                    storeView = !names.contains("weekid")
+                }
+                return
+            }
+            if storeView {
+                if let parsed = laborStoreRow(row, header: header) {
+                    storeRows.append(parsed)
                 }
                 return
             }
@@ -398,7 +412,42 @@ enum WorkbookParser {
             ) else { return }
             mergeLabor(&acc, parsed)
         }
+        if storeView { return storeRows }
         return flattenLabor(acc)
+    }
+
+    private static func laborStoreRow(_ row: [String], header: [String]) -> ParsedWorkbookRow? {
+        let names = header.map(normHeader)
+        func cell(_ key: String) -> String {
+            guard let index = names.firstIndex(of: key), index < row.count else { return "" }
+            return row[index].trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        guard let store = usableValue(cell("storeid")), looksLikeStoreNumber(store) else { return nil }
+        var payload: [String: Double] = [:]
+        for (index, rawHeader) in header.enumerated() where index < row.count {
+            let key = names.indices.contains(index) ? names[index] : normHeader(rawHeader)
+            if key == "storeid" { continue }
+            guard let number = cellNumber(row[index]) else { continue }
+            laborMetric(&payload, header: rawHeader, key: key, value: number)
+        }
+        guard !payload.isEmpty else { return nil }
+        if payload["act_cost_pct"] == nil,
+           let cost = payload["cost_trgt_pct"],
+           let tva = payload["target_vs_actual_pct"] {
+            payload["act_cost_pct"] = cost + tva
+        }
+        return ParsedWorkbookRow(
+            division: "",
+            operationsOM: "",
+            storeNumber: store,
+            storeName: nil,
+            recordedOn: nil,
+            payload: payload,
+            textPayload: [
+                "labor_grain": "store",
+                "parser_rev": "8",
+            ]
+        )
     }
 
     private struct LaborWeekAcc {

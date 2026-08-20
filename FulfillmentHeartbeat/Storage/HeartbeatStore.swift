@@ -334,7 +334,10 @@ final class HeartbeatStore: ObservableObject {
     func laborNeedsReload() -> Bool {
         let stores = rows.filter { $0.section == .labor && $0.textPayload["labor_grain"] == "store" }
         guard !stores.isEmpty else { return false }
-        return stores.contains { ($0.textPayload["parser_rev"] ?? "") != "7" }
+        return stores.contains {
+            let rev = $0.textPayload["parser_rev"] ?? ""
+            return rev != "7" && rev != "8"
+        }
     }
 
     static func importAudit(section: MetricSection, rows: [MetricRow]) -> String {
@@ -356,13 +359,20 @@ final class HeartbeatStore: ObservableObject {
         let noCost = stores.filter { $0.number("cost_trgt_pct") == nil }.count
         let noTva = stores.filter { $0.number("target_vs_actual_pct") == nil }.count
         let span = weekIds.isEmpty ? "—" : (weekIds.first == weekIds.last ? weekIds[0] : "\(weekIds.first!) thru \(weekIds.last!)")
+        if weekIds.isEmpty {
+            return [
+                "replaced prior Labor",
+                "\(HeartbeatFormat.num(Double(stores.count))) stores",
+                "store totals (all weeks already rolled in this file)",
+            ].joined(separator: " · ")
+        }
         var parts = [
             "replaced prior Labor",
             "\(HeartbeatFormat.num(Double(stores.count))) stores",
             "\(weekIds.count) weeks in this file (\(span))",
-            weekIds.isEmpty ? nil : weekIds.joined(separator: ", "),
+            weekIds.joined(separator: ", "),
             "\(HeartbeatFormat.num(Double(weeks.count))) store-weeks",
-        ].compactMap { $0 }
+        ]
         if noCost > 0 { parts.append("\(noCost) stores have no CostTrgt% in the file") }
         if noTva > 0 { parts.append("\(noTva) stores have no Target vs Actual in the file") }
         return parts.joined(separator: " · ")

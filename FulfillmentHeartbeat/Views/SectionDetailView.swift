@@ -38,7 +38,7 @@ struct SectionDetailView: View {
                         HStack(alignment: .top, spacing: 10) {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .foregroundStyle(AppTheme.warn)
-                            Text("Re-upload Labor using LABOR Week Total company.xlsx. This view is still the old parse.")
+                            Text("Re-upload Labor. Use LABOR Store View Thru Week.xlsx for store totals.")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(AppTheme.text)
                         }
@@ -483,7 +483,7 @@ struct SectionDetailView: View {
         callout("At Risk", HeartbeatFormat.num(Double(risk)), "Over 3%", risk == 0 ? .good : .risk, unit: "stores", selected: laborFocus == .risk) {
             laborFocus = .risk
         }
-        callout("Weeks", weekIds.isEmpty ? "—" : "\(weekIds.count)", span == "—" ? "Weeks in this file" : span, .none)
+        callout("Weeks", weekIds.isEmpty ? "—" : "\(weekIds.count)", weekIds.isEmpty ? "Store totals in this file" : span, .none)
         callout("CostTrgt%", HeartbeatFormat.pct(cost), "Store cost target", .none)
         callout("Act Cost", HeartbeatFormat.money(dollars), "All stores · all weeks", .none)
     }
