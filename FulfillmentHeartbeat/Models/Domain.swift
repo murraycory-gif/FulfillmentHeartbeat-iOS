@@ -198,19 +198,22 @@ struct UploadRecord: Identifiable, Codable, Hashable {
     var filename: String
     var rowCount: Int
     var uploadedAt: Date
+    var validation: String?
 
     init(
         id: UUID = UUID(),
         section: MetricSection,
         filename: String,
         rowCount: Int,
-        uploadedAt: Date = Date()
+        uploadedAt: Date = Date(),
+        validation: String? = nil
     ) {
         self.id = id
         self.section = section
         self.filename = filename
         self.rowCount = rowCount
         self.uploadedAt = uploadedAt
+        self.validation = validation
     }
 }
 

@@ -209,6 +209,12 @@ struct UploadPanel: View {
                             Text("\(upload.rowCount) rows")
                                 .font(.caption)
                                 .foregroundStyle(AppTheme.textSecondary)
+                            if let validation = upload.validation, !validation.isEmpty {
+                                Text(validation)
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(AppTheme.text)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     } else {

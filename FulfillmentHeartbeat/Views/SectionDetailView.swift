@@ -176,10 +176,9 @@ struct SectionDetailView: View {
             ]
         case .labor:
             let risk = rows.filter { ($0.number("target_vs_actual_pct") ?? 0) > HeartbeatMath.laborWatch }.count
-            let span = rows.compactMap { $0.textPayload["week"] }.filter { !$0.isEmpty }.max()
             let dollars = rows.compactMap { $0.number("act_cost_dollar") }.reduce(0, +)
             return [
-                ("Weeks", span ?? "—"),
+                ("Weeks", store.laborWeekSpan()),
                 ("Cost target", HeartbeatFormat.pct(avg("cost_trgt_pct"))),
                 ("Act cost", HeartbeatFormat.money(dollars)),
                 ("At risk", HeartbeatFormat.num(Double(risk))),
@@ -446,7 +445,7 @@ struct SectionDetailView: View {
         let risk = rows.filter { ($0.number("target_vs_actual_pct") ?? 0) > HeartbeatMath.laborWatch }.count
         let cost = HeartbeatMath.average(rows.compactMap { $0.number("cost_trgt_pct") })
         let dollars = rows.compactMap { $0.number("act_cost_dollar") }.reduce(0, +)
-        let span = rows.compactMap { $0.textPayload["week"] }.filter { !$0.isEmpty }.max()
+        let span = store.laborWeekSpan()
         callout("Target vs Actual", summary.headlineText, "0% healthy · 0.01–3% watch · over 3% risk", summary.health, selected: laborFocus == .all) {
             laborFocus = .all
         }

@@ -334,6 +334,14 @@ enum WorkbookParser {
         return trimmed
     }
 
+    private static func normalizeWeekID(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let value = Double(trimmed), value >= 200_000, value == value.rounded() {
+            return String(Int(value))
+        }
+        return trimmed
+    }
+
     private static func isLaborWorkbook(_ strings: [String]) -> Bool {
         let blob = strings.prefix(40).map(normHeader).joined(separator: " ")
         return blob.contains("costtrgt") && blob.contains("targetvsactual")
@@ -494,8 +502,8 @@ enum WorkbookParser {
                 var payload: [String: Double] = [:]
                 if let tva = bucket.tva { payload["target_vs_actual_pct"] = tva }
                 if let cost = bucket.cost { payload["cost_trgt_pct"] = cost }
-                if dollars > 0 { payload["act_cost_dollar"] = dollars }
-                if hours > 0 { payload["act_hrs"] = hours }
+                if let dollars = bucket.dollars { payload["act_cost_dollar"] = dollars }
+                if let hours = bucket.hours { payload["act_hrs"] = hours }
                 if sch > 0 { payload["sch_hrs"] = sch }
                 if emp > 0 { payload["empower_hrs"] = emp }
                 if charged > 0 { payload["charged_hrs"] = charged }
@@ -577,7 +585,9 @@ enum WorkbookParser {
             guard let index = names.firstIndex(of: key), index < row.count else { return "" }
             return row[index].trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        if let value = usableValue(cell("weekid")) { week = value }
+        if let value = usableValue(cell("weekid")) {
+            week = Self.normalizeWeekID(value)
+        }
         let dateRaw = cell("ddate")
         if isTotalCell(dateRaw) {
             date = ""
@@ -607,7 +617,6 @@ enum WorkbookParser {
             guard let number = cellNumber(row[index]) else { continue }
             laborMetric(&payload, header: rawHeader, key: key, value: number)
         }
-        guard payload["target_vs_actual_pct"] != nil || payload["cost_trgt_pct"] != nil else { return nil }
         return ParsedWorkbookRow(
             division: division,
             operationsOM: "",

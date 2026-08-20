@@ -316,6 +316,58 @@ final class HeartbeatStore: ObservableObject {
         pphPickersByStore = buckets
     }
 
+    func laborWeekSpan() -> String {
+        let ids = Set(laborWeeksByStore.values.flatMap { weeks in
+            weeks.compactMap { week -> String? in
+                let value = week.textPayload["week"] ?? week.recordedOn ?? ""
+                return value.isEmpty ? nil : value
+            }
+        }).sorted()
+        guard let first = ids.first, let last = ids.last else { return "—" }
+        return first == last ? first : "\(first)–\(last)"
+    }
+
+    static func importAudit(section: MetricSection, rows: [MetricRow]) -> String {
+        if section == .labor {
+            return laborAudit(rows)
+        }
+        let stores = Set(rows.map { HeartbeatMath.canonicalStore($0.storeNumber) }.filter { !$0.isEmpty })
+        let shoppers = Set(rows.compactMap { $0.textPayload["shopper_id"] }.filter { !$0.isEmpty })
+        if !shoppers.isEmpty {
+            return "\(HeartbeatFormat.num(Double(rows.count))) rows · \(HeartbeatFormat.num(Double(stores.count))) stores · \(HeartbeatFormat.num(Double(shoppers.count))) shoppers"
+        }
+        return "\(HeartbeatFormat.num(Double(rows.count))) rows · \(HeartbeatFormat.num(Double(stores.count))) stores"
+    }
+
+    private static func laborAudit(_ rows: [MetricRow]) -> String {
+        let stores = rows.filter { $0.textPayload["labor_grain"] == "store" }
+        let weeks = rows.filter { $0.textPayload["labor_grain"] == "week" }
+        let weekIds = Set(weeks.compactMap { $0.textPayload["week"] }.filter { !$0.isEmpty }).sorted()
+        var byStore: [String: Set<String>] = [:]
+        for week in weeks {
+            let id = week.textPayload["week"] ?? ""
+            guard !id.isEmpty else { continue }
+            byStore[HeartbeatMath.canonicalStore(week.storeNumber), default: []].insert(id)
+        }
+        let short = byStore.values.filter { $0.count < weekIds.count }.count
+        let noCost = stores.filter { $0.number("cost_trgt_pct") == nil }.count
+        let noTva = stores.filter { $0.number("target_vs_actual_pct") == nil }.count
+        let span = weekIds.isEmpty ? "—" : (weekIds.first == weekIds.last ? weekIds[0] : "\(weekIds.first!)–\(weekIds.last!)")
+        var parts = [
+            "\(HeartbeatFormat.num(Double(stores.count))) stores",
+            "\(weekIds.count) weeks (\(span))",
+            "\(HeartbeatFormat.num(Double(weeks.count))) store-weeks",
+        ]
+        if short == 0 && noCost == 0 && noTva == 0 {
+            parts.append("all weeks and metrics loaded")
+        } else {
+            if short > 0 { parts.append("\(short) stores missing weeks") }
+            if noCost > 0 { parts.append("\(noCost) stores have no CostTrgt% in the file") }
+            if noTva > 0 { parts.append("\(noTva) stores have no Target vs Actual in the file") }
+        }
+        return parts.joined(separator: " · ")
+    }
+
     func laborWeeks(forStore storeNumber: String) -> [MetricRow] {
         let store = HeartbeatMath.canonicalStore(storeNumber)
         if let weeks = laborWeeksByStore[store], !weeks.isEmpty {
@@ -817,7 +869,15 @@ final class HeartbeatStore: ObservableObject {
         let currentUploads = uploads
         let nextRows = currentRows.filter { $0.section != section } + incoming
         var nextUploads = currentUploads.filter { $0.section != section }
-        nextUploads.insert(UploadRecord(section: section, filename: filename, rowCount: incoming.count), at: 0)
+        nextUploads.insert(
+            UploadRecord(
+                section: section,
+                filename: filename,
+                rowCount: incoming.count,
+                validation: Self.importAudit(section: section, rows: incoming)
+            ),
+            at: 0
+        )
         let caches = await Task.detached(priority: .userInitiated) {
             PulseCaches.build(rows: nextRows, filters: DashboardFilters(), uploads: nextUploads)
         }.value
@@ -830,6 +890,8 @@ final class HeartbeatStore: ObservableObject {
         let stores = Set(incoming.map(\.storeNumber).filter { !$0.isEmpty }).count
         if section == .pickPathPicker {
             statusMessage = "Imported \(incoming.count) pickers into Pick Path Compliance Picker. Open a store on Pick Path to see them."
+        } else if let validation = nextUploads.first?.validation {
+            statusMessage = "Imported \(section.title): \(validation)"
         } else {
             statusMessage = "Imported \(incoming.count) rows · \(stores) stores into \(section.title). Filters cleared so the new file is in view."
         }
