@@ -1938,25 +1938,41 @@ private enum LaborRollupBuilder {
 struct LaborRollupTable: View {
     @EnvironmentObject private var store: HeartbeatStore
     let rows: [MetricRow]
+    @State private var expanded = false
 
     var body: some View {
         if let grain, !summary.isEmpty {
             Section {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(grain.title)
-                            .font(.title3.weight(.bold))
-                        Text("\(summary.count)")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(AppTheme.textSecondary)
-                        Spacer()
-                        Text("Current filter totals")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(AppTheme.textTertiary)
+                VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            expanded.toggle()
+                        }
+                    } label: {
+                        HStack(spacing: 10) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(grain.title)
+                                    .font(.title3.weight(.bold))
+                                    .foregroundStyle(AppTheme.text)
+                                Text("\(summary.count) \(grain.columnTitle.lowercased())\(summary.count == 1 ? "" : "s")  ·  tap to \(expanded ? "collapse" : "expand")")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(AppTheme.textSecondary)
+                            }
+                            Spacer()
+                            Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                                .font(.headline.weight(.semibold))
+                                .foregroundStyle(AppTheme.blue)
+                                .frame(width: 36, height: 36)
+                                .background(AppTheme.blueSoft, in: Circle())
+                        }
+                        .contentShape(Rectangle())
                     }
-                    header(grain)
-                    ForEach(summary) { row in
-                        rollupRow(row, grain: grain)
+                    .buttonStyle(.plain)
+                    if expanded {
+                        header(grain)
+                        ForEach(summary) { row in
+                            rollupRow(row, grain: grain)
+                        }
                     }
                 }
                 .padding(16)
@@ -1971,6 +1987,9 @@ struct LaborRollupTable: View {
                 .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 12, trailing: 20))
                 .listRowSeparator(.hidden)
                 .listRowBackground(AppTheme.bg)
+                .onChange(of: store.filters) { _, _ in
+                    expanded = false
+                }
             }
         }
     }
