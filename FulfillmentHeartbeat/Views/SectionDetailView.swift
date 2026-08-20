@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SectionDetailView: View {
     @EnvironmentObject private var store: HeartbeatStore
+    @StateObject private var laborHeaderPin = LaborHeaderPin()
     let section: MetricSection
     @State private var pickerFocus: PickerFocus = .all
     @State private var pickPathFocus: PickPathFocus = .all
@@ -143,6 +144,20 @@ struct SectionDetailView: View {
         .scrollContentBackground(.hidden)
         .background(AppTheme.bg.ignoresSafeArea())
         .environment(\.defaultMinListRowHeight, 1)
+        .environmentObject(laborHeaderPin)
+        .coordinateSpace(name: "sectionList")
+        .onPreferenceChange(LaborHeaderMinYKey.self) { minY in
+            let pinned = section == .labor && minY < 8
+            if laborHeaderPin.pinned != pinned {
+                laborHeaderPin.pinned = pinned
+            }
+        }
+        .overlay(alignment: .top) {
+            if section == .labor && laborHeaderPin.pinned {
+                LaborStickyStoreHeader()
+                    .environmentObject(laborHeaderPin)
+            }
+        }
     }
 
     private var tiles: [(label: String, value: String)] {

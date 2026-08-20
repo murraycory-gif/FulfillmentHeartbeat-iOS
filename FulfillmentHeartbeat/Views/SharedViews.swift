@@ -2049,7 +2049,43 @@ private struct LaborMetricLine: View {
     }
 }
 
-private struct LaborMetricHeader: View {
+struct LaborHeaderMinYKey: PreferenceKey {
+    static var defaultValue: CGFloat = 9_999
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = min(value, nextValue())
+    }
+}
+
+final class LaborHeaderPin: ObservableObject {
+    @Published var pinned = false
+    @Published var active = "tva"
+    @Published var ascending = false
+    var onSelect: ((String) -> Void)?
+}
+
+struct LaborStickyStoreHeader: View {
+    @EnvironmentObject private var pin: LaborHeaderPin
+
+    var body: some View {
+        LaborMetricHeader(
+            label: "Store",
+            showCount: false,
+            active: pin.active,
+            ascending: pin.ascending,
+            onSelect: { pin.onSelect?($0) }
+        )
+        .padding(.horizontal, 20)
+        .padding(.vertical, 8)
+        .background(AppTheme.bg)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(AppTheme.cardBorder)
+                .frame(height: 1)
+        }
+    }
+}
+
+struct LaborMetricHeader: View {
     let label: String
     var showCount: Bool = false
     var active: String? = nil
@@ -2183,6 +2219,7 @@ struct LaborRollupTable: View {
 }
 
 struct LaborTable: View {
+    @EnvironmentObject private var headerPin: LaborHeaderPin
     let rows: [MetricRow]
 
     private enum Column: String, CaseIterable, Identifiable {
@@ -2238,7 +2275,11 @@ struct LaborTable: View {
                 Button {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         expanded.toggle()
-                        if expanded { rebuildOrder(sort: sort, ascending: ascending) }
+                        if expanded {
+                            rebuildOrder(sort: sort, ascending: ascending)
+                        } else {
+                            headerPin.pinned = false
+                        }
                     }
                 } label: {
                     HStack(spacing: 10) {
@@ -2281,14 +2322,27 @@ struct LaborTable: View {
                         showCount: false,
                         active: sort.key,
                         ascending: ascending,
-                        onSelect: { key in
-                            let column = Column.allCases.first { $0.key == key } ?? .tva
-                            let nextAscending = sort == column ? !ascending : column == .store
-                            sort = column
-                            ascending = nextAscending
-                            rebuildOrder(sort: column, ascending: nextAscending)
+                        onSelect: applyHeaderSort
+                    )
+                    .background(
+                        GeometryReader { geo in
+                            Color.clear.preference(
+                                key: LaborHeaderMinYKey.self,
+                                value: geo.frame(in: .named("sectionList")).minY
+                            )
                         }
                     )
+                    .onAppear {
+                        headerPin.active = sort.key
+                        headerPin.ascending = ascending
+                        headerPin.onSelect = applyHeaderSort
+                    }
+                    .onChange(of: sort) { _, column in
+                        headerPin.active = column.key
+                    }
+                    .onChange(of: ascending) { _, value in
+                        headerPin.ascending = value
+                    }
                     .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
                     .listRowSeparator(.hidden)
                     .listRowBackground(AppTheme.bg)
@@ -2304,6 +2358,16 @@ struct LaborTable: View {
                 .onChange(of: rows.count) { _, _ in rebuildOrder(sort: sort, ascending: ascending) }
             }
         }
+    }
+
+    private func applyHeaderSort(_ key: String) {
+        let column = Column.allCases.first { $0.key == key } ?? .tva
+        let nextAscending = sort == column ? !ascending : column == .store
+        sort = column
+        ascending = nextAscending
+        headerPin.active = column.key
+        headerPin.ascending = nextAscending
+        rebuildOrder(sort: column, ascending: nextAscending)
     }
 
     private func rebuildOrder(sort: Column, ascending: Bool) {
