@@ -661,19 +661,22 @@ enum HeartbeatMath {
                 lastUploadedAt: upload?.uploadedAt
             )
         case .scheduleQuality:
-            let headline = average(latest.compactMap { $0.number("schedule_efficiency_pct") })
-            let atGoal = latest.filter { ($0.number("schedule_efficiency_pct") ?? 0) >= scheduleGoal }.count
+            let headline = average(latest.compactMap { $0.number("under_schedule_pct", "under_scheduled") })
+            let atZero = latest.filter { ($0.number("under_schedule_pct", "under_scheduled") ?? 0) <= 0 }.count
+            let underWatch = latest.filter {
+                let value = $0.number("under_schedule_pct", "under_scheduled") ?? 0
+                return value > 0 && value <= scheduleVarianceWatch
+            }.count
             let underRisk = latest.filter { ($0.number("under_schedule_pct", "under_scheduled") ?? 0) > scheduleVarianceWatch }.count
-            let overRisk = latest.filter { ($0.number("over_schedule_pct", "over_scheduled") ?? 0) > scheduleVarianceWatch }.count
             return SectionSummary(
                 section: section,
                 storeCount: latest.count,
                 headline: headline,
-                headlineLabel: "Avg schedule efficiency",
+                headlineLabel: "Under Schedule",
                 secondary: latest.isEmpty
                     ? "No Schedule rows in this filter"
-                    : "\(atGoal) of \(latest.count) at 90% · \(underRisk) under risk · \(overRisk) over risk",
-                health: latest.isEmpty ? .none : band(headline, good: scheduleGoal, watch: scheduleWatch),
+                    : "\(atZero) of \(latest.count) at 0% · \(underWatch) watch · \(underRisk) over 5%",
+                health: latest.isEmpty ? .none : varianceHealth(headline),
                 watchCount: watch,
                 riskCount: risk,
                 lastFilename: upload?.filename,
