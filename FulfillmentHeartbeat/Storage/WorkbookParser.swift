@@ -506,8 +506,8 @@ enum WorkbookParser {
                 var payload: [String: Double] = [:]
                 if let tva = bucket.tva { payload["target_vs_actual_pct"] = tva }
                 if let cost = bucket.cost { payload["cost_trgt_pct"] = cost }
-                if let dollars = bucket.dollars { payload["act_cost_dollar"] = dollars }
-                if let hours = bucket.hours { payload["act_hrs"] = hours }
+                if let costValue = bucket.dollars { payload["act_cost_dollar"] = costValue }
+                if let hourValue = bucket.hours { payload["act_hrs"] = hourValue }
                 if sch > 0 { payload["sch_hrs"] = sch }
                 if emp > 0 { payload["empower_hrs"] = emp }
                 if charged > 0 { payload["charged_hrs"] = charged }
@@ -529,9 +529,9 @@ enum WorkbookParser {
                 let hasActivity = charged > 0 || emp > 0 || sch > 0 || hours > 0 || dollars > 0 || !days.isEmpty
                 if !hasActivity { continue }
                 if payload["act_cost_pct"] == nil {
-                    let weight = days.reduce(0.0) { $0 + ($1.chargedHrs ?? 0) }
+                    let chargedWeight = days.reduce(0.0) { $0 + ($1.chargedHrs ?? 0) }
                     let mixed = days.reduce(0.0) { $0 + ($1.actCostPct ?? 0) * ($1.chargedHrs ?? 0) }
-                    if weight > 0 { payload["act_cost_pct"] = mixed / weight }
+                    if chargedWeight > 0 { payload["act_cost_pct"] = mixed / chargedWeight }
                 }
                 let json = (try? encoder.encode(days)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
                 out.append(
