@@ -1848,6 +1848,238 @@ struct FiveStarStoreCard: View {
     }
 }
 
+private enum LaborRollupGrain {
+    case division, district, store
+
+    var title: String {
+        switch self {
+        case .division: return "By division"
+        case .district: return "By district"
+        case .store: return "By store"
+        }
+    }
+
+    var columnTitle: String {
+        switch self {
+        case .division: return "Division"
+        case .district: return "District"
+        case .store: return "Store"
+        }
+    }
+}
+
+private struct LaborRollupRow: Identifiable {
+    let id: String
+    let label: String
+    let storeCount: Int
+    let tva: Double?
+    let cost: Double?
+    let act: Double?
+    let efficiency: Double?
+    let uplh: Double?
+    let wage: Double?
+    let aiv: Double?
+}
+
+private enum LaborRollupBuilder {
+    static func grain(for filters: DashboardFilters) -> LaborRollupGrain? {
+        if !filters.store.isEmpty { return nil }
+        if !filters.om.isEmpty || !filters.district.isEmpty { return .store }
+        if !filters.division.isEmpty { return .district }
+        return .division
+    }
+
+    static func rows(from stores: [MetricRow], grain: LaborRollupGrain) -> [LaborRollupRow] {
+        var buckets: [String: [MetricRow]] = [:]
+        for row in stores {
+            if row.textPayload["labor_grain"] == "market" { continue }
+            let key: String
+            switch grain {
+            case .division:
+                key = row.division.isEmpty ? "Unassigned" : row.division
+            case .district:
+                key = row.district.isEmpty ? "Unassigned" : row.district
+            case .store:
+                key = HeartbeatMath.canonicalStore(row.storeNumber)
+            }
+            guard !key.isEmpty else { continue }
+            buckets[key, default: []].append(row)
+        }
+        var result: [LaborRollupRow] = []
+        result.reserveCapacity(buckets.count)
+        for (key, group) in buckets {
+            let label: String
+            switch grain {
+            case .division, .district:
+                label = key
+            case .store:
+                let division = group.first?.division ?? ""
+                label = division.isEmpty ? key : "\(key)  |  \(division)"
+            }
+            result.append(
+                LaborRollupRow(
+                    id: key,
+                    label: label,
+                    storeCount: group.count,
+                    tva: HeartbeatMath.laborRollup(group, key: "target_vs_actual_pct"),
+                    cost: HeartbeatMath.laborRollup(group, key: "cost_trgt_pct"),
+                    act: HeartbeatMath.laborRollup(group, key: "act_cost_pct"),
+                    efficiency: HeartbeatMath.laborRollup(group, key: "schedule_efficiency_pct"),
+                    uplh: HeartbeatMath.laborRollup(group, key: "uplh_impact_pct"),
+                    wage: HeartbeatMath.laborRollup(group, key: "wage_impact_pct"),
+                    aiv: HeartbeatMath.laborRollup(group, key: "aiv_impact_pct")
+                )
+            )
+        }
+        return result.sorted { ($0.tva ?? -999) > ($1.tva ?? -999) }
+    }
+}
+
+struct LaborRollupTable: View {
+    @EnvironmentObject private var store: HeartbeatStore
+    let rows: [MetricRow]
+
+    var body: some View {
+        if let grain, !summary.isEmpty {
+            Section {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text(grain.title)
+                            .font(.title3.weight(.bold))
+                        Text("\(summary.count)")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(AppTheme.textSecondary)
+                        Spacer()
+                        Text("Current filter totals")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(AppTheme.textTertiary)
+                    }
+                    header(grain)
+                    ForEach(summary) { row in
+                        rollupRow(row, grain: grain)
+                    }
+                }
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                        .fill(AppTheme.card)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                        .stroke(AppTheme.cardBorder, lineWidth: 1)
+                )
+                .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 12, trailing: 20))
+                .listRowSeparator(.hidden)
+                .listRowBackground(AppTheme.bg)
+            }
+        }
+    }
+
+    private var grain: LaborRollupGrain? {
+        LaborRollupBuilder.grain(for: store.filters)
+    }
+
+    private var summary: [LaborRollupRow] {
+        guard let grain else { return [] }
+        return LaborRollupBuilder.rows(from: rows, grain: grain)
+    }
+
+    private func header(_ grain: LaborRollupGrain) -> some View {
+        HStack(spacing: 6) {
+            Text(grain.columnTitle.uppercased())
+                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            if grain != .store {
+                Text("STORES")
+                    .frame(width: 58, alignment: .trailing)
+            }
+            Text("TGT VS ACT").frame(maxWidth: .infinity, alignment: .trailing)
+            Text("COSTTRGT%").frame(maxWidth: .infinity, alignment: .trailing)
+            Text("ACTCOST%").frame(maxWidth: .infinity, alignment: .trailing)
+            Text("SCH EFFI%").frame(maxWidth: .infinity, alignment: .trailing)
+            Text("UPLH").frame(maxWidth: .infinity, alignment: .trailing)
+            Text("WAGE").frame(maxWidth: .infinity, alignment: .trailing)
+            Text("AIV").frame(maxWidth: .infinity, alignment: .trailing)
+            Text("STATUS").frame(width: 88, alignment: .trailing)
+        }
+        .font(.caption2.weight(.semibold))
+        .tracking(0.4)
+        .foregroundStyle(AppTheme.textTertiary)
+        .lineLimit(1)
+        .minimumScaleFactor(0.7)
+    }
+
+    private func rollupRow(_ row: LaborRollupRow, grain: LaborRollupGrain) -> some View {
+        let tvaHealth = HeartbeatMath.laborHealth(row.tva)
+        return HStack(spacing: 6) {
+            Text(row.label)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(AppTheme.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            if grain != .store {
+                Text(HeartbeatFormat.num(Double(row.storeCount)))
+                    .font(.subheadline.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .frame(width: 58, alignment: .trailing)
+            }
+            metric(HeartbeatFormat.pct(row.tva), tvaHealth)
+            metric(HeartbeatFormat.pct(row.cost), .none, brand: true)
+            metric(HeartbeatFormat.pct(row.act), actHealth(row.act, row.cost))
+            metric(HeartbeatFormat.pct(row.efficiency), HeartbeatMath.band(row.efficiency, good: HeartbeatMath.scheduleGoal, watch: HeartbeatMath.scheduleWatch))
+            metric(HeartbeatFormat.pct(row.uplh), impact(row.uplh))
+            metric(HeartbeatFormat.pct(row.wage), impact(row.wage))
+            metric(HeartbeatFormat.pct(row.aiv), impact(row.aiv))
+            HealthBadge(health: tvaHealth, prominent: true, compact: true)
+                .frame(width: 88, alignment: .trailing)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func metric(_ value: String, _ health: Health, brand: Bool = false) -> some View {
+        Text(value)
+            .font(.subheadline.weight(.bold).monospacedDigit())
+            .foregroundStyle(brand ? AppTheme.blue : ink(health))
+            .lineLimit(1)
+            .minimumScaleFactor(0.6)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .padding(.vertical, 6)
+            .padding(.horizontal, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(brand ? AppTheme.blueSoft : wash(health))
+            )
+    }
+
+    private func impact(_ value: Double?) -> Health {
+        guard let value else { return .none }
+        return value <= 0 ? .good : .risk
+    }
+
+    private func actHealth(_ act: Double?, _ cost: Double?) -> Health {
+        guard let act, let cost else { return .none }
+        return act <= cost ? .good : .risk
+    }
+
+    private func ink(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.text
+        }
+    }
+
+    private func wash(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.okSoft
+        case .watch: return AppTheme.warnSoft
+        case .risk: return AppTheme.badSoft
+        case .none: return Color.clear
+        }
+    }
+}
+
 struct LaborTable: View {
     let rows: [MetricRow]
 

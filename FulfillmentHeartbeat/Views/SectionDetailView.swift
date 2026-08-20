@@ -131,7 +131,10 @@ struct SectionDetailView: View {
             } else if section == .fiveStar {
                 FiveStarTable(rows: fiveStarRows)
             } else if section == .labor {
-                LaborTable(rows: laborRows)
+                Group {
+                    LaborRollupTable(rows: snapshots)
+                    LaborTable(rows: laborRows)
+                }
             } else {
                 StoreTable(section: section, rows: snapshots)
             }
