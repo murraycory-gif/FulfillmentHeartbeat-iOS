@@ -51,7 +51,7 @@ struct UploadView: View {
         .background(AppTheme.bg.ignoresSafeArea())
         .fileImporter(
             isPresented: $showImporter,
-            allowedContentTypes: Self.workbookTypes,
+            allowedContentTypes: [.item],
             allowsMultipleSelection: false
         ) { result in
             let section = importTarget
@@ -59,10 +59,8 @@ struct UploadView: View {
             switch result {
             case .success(let urls):
                 guard let section, let url = urls.first else { return }
-                let accessed = url.startAccessingSecurityScopedResource()
-                defer { if accessed { url.stopAccessingSecurityScopedResource() } }
                 do {
-                    let data = try Data(contentsOf: url)
+                    let data = try Self.bytesFromPickedFile(url)
                     store.importWorkbook(data: data, filename: "\(section.short).xlsx", section: section)
                 } catch {
                     store.errorMessage = error.localizedDescription
@@ -119,12 +117,32 @@ struct UploadView: View {
         showImporter = true
     }
 
-    private static var workbookTypes: [UTType] {
-        var types: [UTType] = [.commaSeparatedText, .plainText, .spreadsheet, .data]
-        if let xlsx = UTType(filenameExtension: "xlsx") { types.insert(xlsx, at: 0) }
-        if let xls = UTType(filenameExtension: "xls") { types.insert(xls, at: 1) }
-        if let csv = UTType(filenameExtension: "csv") { types.append(csv) }
-        return types
+    /// Copy the picked file as generic bytes. Do not use spreadsheet UTIs — iOS Excel
+    /// Quick Look crashes on the Prep Not Ready workbook when the picker opens it.
+    private static func bytesFromPickedFile(_ url: URL) throws -> Data {
+        let accessed = url.startAccessingSecurityScopedResource()
+        defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("hb-\(UUID().uuidString).bin")
+        var coordError: NSError?
+        var copyError: Error?
+        NSFileCoordinator().coordinate(readingItemAt: url, options: .withoutChanges, error: &coordError) { fresh in
+            do {
+                if FileManager.default.fileExists(atPath: tmp.path) {
+                    try FileManager.default.removeItem(at: tmp)
+                }
+                try FileManager.default.copyItem(at: fresh, to: tmp)
+            } catch {
+                copyError = error
+            }
+        }
+        if let coordError { throw coordError }
+        if let copyError { throw copyError }
+        let data = try Data(contentsOf: tmp)
+        try? FileManager.default.removeItem(at: tmp)
+        guard !data.isEmpty else {
+            throw NSError(domain: "HeartbeatImport", code: 1, userInfo: [NSLocalizedDescriptionKey: "Could not read that file."])
+        }
+        return data
     }
 }
 
