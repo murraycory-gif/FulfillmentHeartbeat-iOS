@@ -93,4 +93,4 @@ xcrun devicectl device process launch --device "$UDID" "$BUNDLE_ID" || true
 
 echo ""
 echo "Tap the Heartbeat icon if it did not come forward."
-echo "Top-right stamp should be HB-0819.1  1.0 (5)."
+echo "Top-right stamp should match FulfillmentHeartbeat/BuildStamp.swift (currently HB-0819.47)."
