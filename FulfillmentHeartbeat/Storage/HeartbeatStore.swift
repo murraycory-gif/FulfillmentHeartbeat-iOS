@@ -19,6 +19,7 @@ final class HeartbeatStore: ObservableObject {
     @Published var pendingExternalName: String?
     @Published var waitingForFileSection: MetricSection?
     @Published private(set) var isReady = false
+    @Published private(set) var filterStamp = 0
 
     private let fileManager: FileManager
     private let snapshotURL: URL
@@ -1072,6 +1073,7 @@ final class HeartbeatStore: ObservableObject {
             }
             return summary
         }
+        filterStamp += 1
         objectWillChange.send()
     }
 

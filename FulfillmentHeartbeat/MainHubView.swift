@@ -219,6 +219,7 @@ struct MainHubView: View {
     private var detail: some View {
         NavigationStack {
             view(for: router.current)
+                .id("\(router.current.rawValue)-\(store.filterStamp)")
         }
     }
 

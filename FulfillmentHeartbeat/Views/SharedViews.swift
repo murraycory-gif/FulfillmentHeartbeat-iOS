@@ -1540,6 +1540,7 @@ struct PrepTable: View {
             .transaction { $0.animation = nil }
             .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
             .onChange(of: rows.count) { _, _ in rebuildOrder(sort: sort, ascending: ascending) }
+            .onChange(of: rows.first?.storeNumber) { _, _ in rebuildOrder(sort: sort, ascending: ascending) }
         }
     }
 
@@ -1756,6 +1757,7 @@ struct FiveStarTable: View {
             .transaction { $0.animation = nil }
             .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
             .onChange(of: rows.count) { _, _ in rebuildOrder(sort: sort, ascending: ascending) }
+            .onChange(of: rows.first?.storeNumber) { _, _ in rebuildOrder(sort: sort, ascending: ascending) }
         }
     }
 
@@ -2594,6 +2596,10 @@ struct LaborTable: View {
                     rebuildOrder(sort: sort, ascending: ascending)
                     headerPin.storeCount = rows.count
                 }
+                .onChange(of: rows.first?.storeNumber) { _, _ in
+                    rebuildOrder(sort: sort, ascending: ascending)
+                    headerPin.storeCount = rows.count
+                }
             }
         }
     }
@@ -3034,6 +3040,7 @@ struct ScheduleTable: View {
             .transaction { $0.animation = nil }
             .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
             .onChange(of: rows.count) { _, _ in rebuildOrder(sort: sort, ascending: ascending) }
+            .onChange(of: rows.first?.storeNumber) { _, _ in rebuildOrder(sort: sort, ascending: ascending) }
         }
     }
 
@@ -3257,6 +3264,7 @@ struct PPHTable: View {
             .transaction { $0.animation = nil }
             .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
             .onChange(of: rows.count) { _, _ in rebuildOrder(sort: sort, ascending: ascending) }
+            .onChange(of: rows.first?.storeNumber) { _, _ in rebuildOrder(sort: sort, ascending: ascending) }
         }
     }
 
