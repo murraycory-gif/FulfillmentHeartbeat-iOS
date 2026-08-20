@@ -270,8 +270,8 @@ final class HeartbeatFilePicker: NSObject, UIDocumentPickerDelegate {
             while Date() < deadline {
                 let values = try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey, .fileSizeKey])
                 let status = values?.ubiquitousItemDownloadingStatus
-                if status == .current { break }
-                if let size = values?.fileSize, size > 0, status != .downloading { break }
+                if status == .current || status == .downloaded { break }
+                if let size = values?.fileSize, size > 0, status != .notDownloaded { break }
                 Thread.sleep(forTimeInterval: 0.15)
             }
         }
