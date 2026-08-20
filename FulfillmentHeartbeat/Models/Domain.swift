@@ -1405,12 +1405,16 @@ struct DashboardFilters: Equatable, Codable {
     }
 
     var summary: String {
+        summaryParts.map(\.text).joined(separator: " · ")
+    }
+
+    var summaryParts: [(text: String, active: Bool)] {
         [
-            division.isEmpty ? "All divisions" : division,
-            district.isEmpty ? "All districts" : "District \(district)",
-            om.isEmpty ? "All OMs" : om,
-            store.isEmpty ? "All stores" : store,
-        ].joined(separator: " · ")
+            (division.isEmpty ? "All divisions" : division, !division.isEmpty),
+            (district.isEmpty ? "All districts" : "District \(district)", !district.isEmpty),
+            (om.isEmpty ? "All OMs" : om, !om.isEmpty),
+            (store.isEmpty ? "All stores" : store, !store.isEmpty),
+        ]
     }
 
     enum CodingKeys: String, CodingKey { case division, district, om, store }

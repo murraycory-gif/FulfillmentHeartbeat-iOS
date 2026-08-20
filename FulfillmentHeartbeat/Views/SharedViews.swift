@@ -46,9 +46,8 @@ struct PageHeadline: View {
                     Text("|")
                         .font(.title3.weight(.bold))
                         .foregroundStyle(AppTheme.textTertiary)
-                    Text(store.filters.summary)
+                    filterSummaryText
                         .font(.title3.weight(.semibold))
-                        .foregroundStyle(AppTheme.text)
                         .lineLimit(1)
                         .minimumScaleFactor(0.55)
                     Spacer(minLength: 0)
@@ -69,6 +68,18 @@ struct PageHeadline: View {
             return Text(lead + " ") + Text(accent).foregroundStyle(AppTheme.blue)
         }
         return Text(lead)
+    }
+
+    private var filterSummaryText: Text {
+        let parts = store.filters.summaryParts
+        var result = Text("")
+        for (index, part) in parts.enumerated() {
+            if index > 0 {
+                result = result + Text(" · ").foregroundStyle(AppTheme.textTertiary)
+            }
+            result = result + Text(part.text).foregroundStyle(part.active ? AppTheme.blue : AppTheme.text)
+        }
+        return result
     }
 
     private var accessibilityText: String {
