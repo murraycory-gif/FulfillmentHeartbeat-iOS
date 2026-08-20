@@ -5,8 +5,6 @@ import UIKit
 struct UploadView: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var router: HubRouter
-    @State private var showImporter = false
-    @State private var importTarget: MetricSection?
     @State private var exportItem: ExportItem?
     @State private var showStatus = false
     @State private var showError = false
@@ -17,7 +15,7 @@ struct UploadView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Upload workbooks")
                         .font(.largeTitle.weight(.semibold))
-                    Text("One Excel file for each section. That file replaces the matching card on the dashboard.")
+                    Text("Download the Excel from Power BI, tap Choose file, pick it from iCloud Drive or OneDrive.")
                         .font(.subheadline)
                         .foregroundStyle(AppTheme.textSecondary)
                 }
@@ -30,7 +28,6 @@ struct UploadView: View {
                             justUpdated: store.lastImportedSection == section,
                             enabled: !store.isImporting,
                             onPick: { beginImport(section) },
-                            onDropURL: { store.importWorkbook(url: $0, section: section) },
                             onTemplate: {
                                 exportItem = ExportItem(
                                     filename: "\(section.rawValue)-template.csv",
@@ -42,19 +39,13 @@ struct UploadView: View {
                     }
                 }
 
-                Text("Headers can be flexible — Division, Operations OM, and Store Number are picked up automatically. Use Link to pull the raw Power BI export, or Template for a clean file.")
+                Text("Headers can be flexible — Division, Operations OM, and Store Number are picked up automatically. Use Link to pull the raw Power BI export.")
                     .font(.subheadline)
                     .foregroundStyle(AppTheme.textSecondary)
             }
             .padding(20)
         }
         .background(AppTheme.bg.ignoresSafeArea())
-        .fileImporter(
-            isPresented: $showImporter,
-            allowedContentTypes: Self.workbookTypes,
-            allowsMultipleSelection: false,
-            onCompletion: handleImport
-        )
         .fileExporter(
             isPresented: Binding(
                 get: { exportItem != nil },
@@ -99,31 +90,11 @@ struct UploadView: View {
     }
 
     private func beginImport(_ section: MetricSection) {
-        importTarget = section
-        showImporter = true
-    }
-
-    private func handleImport(_ result: Result<[URL], Error>) {
-        let section = importTarget
-        importTarget = nil
-        showImporter = false
-        guard let section else { return }
-        switch result {
-        case .success(let urls):
-            if let url = urls.first {
-                store.importWorkbook(url: url, section: section)
-            }
-        case .failure(let error):
-            store.errorMessage = error.localizedDescription
+        HeartbeatFilePicker.shared.present { data, name in
+            store.importWorkbook(data: data, filename: name, section: section)
+        } onFail: { message in
+            store.errorMessage = message
         }
-    }
-
-    private static var workbookTypes: [UTType] {
-        var types: [UTType] = [.commaSeparatedText, .plainText, .spreadsheet, .data]
-        if let xlsx = UTType(filenameExtension: "xlsx") { types.insert(xlsx, at: 0) }
-        if let xls = UTType(filenameExtension: "xls") { types.insert(xls, at: 1) }
-        if let csv = UTType(filenameExtension: "csv") { types.append(csv) }
-        return types
     }
 }
 
@@ -133,11 +104,8 @@ struct UploadPanel: View {
     var justUpdated: Bool = false
     var enabled: Bool = true
     let onPick: () -> Void
-    let onDropURL: (URL) -> Void
     let onTemplate: () -> Void
     let onClear: () -> Void
-
-    @State private var targeted = false
 
     var body: some View {
         HubCard {
@@ -167,7 +135,39 @@ struct UploadPanel: View {
                     .font(.caption)
                     .foregroundStyle(AppTheme.textTertiary)
 
-                dropZone
+                Button(action: onPick) {
+                    VStack(spacing: 8) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundStyle(AppTheme.blue)
+                        Text("Choose file from iCloud or OneDrive")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(AppTheme.text)
+                        Text(".xlsx or .csv · replaces current \(section.short) data")
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.textTertiary)
+                        Text("Choose file")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                            .background(AppTheme.blue, in: Capsule(style: .continuous))
+                            .padding(.top, 4)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 22)
+                    .padding(.horizontal, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
+                            .fill(justUpdated ? AppTheme.blueSoft : AppTheme.bg)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
+                            .strokeBorder(AppTheme.blue.opacity(0.22), lineWidth: 1.5)
+                    )
+                }
+                .buttonStyle(.plain)
+                .disabled(!enabled)
 
                 HStack(alignment: .center, spacing: 10) {
                     if let upload {
@@ -203,91 +203,112 @@ struct UploadPanel: View {
             }
         }
     }
+}
 
-    private var dropZone: some View {
-        Button(action: onPick) {
-            VStack(spacing: 8) {
-                Image(systemName: targeted ? "tray.and.arrow.down.fill" : "square.and.arrow.up")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(AppTheme.blue)
-                Text(targeted ? "Drop to replace this section" : "Drop Excel here or choose a file")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(AppTheme.text)
-                Text(".xlsx or .csv · replaces current \(section.short) data")
-                    .font(.caption)
-                    .foregroundStyle(AppTheme.textTertiary)
-                Text("Choose file")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .background(AppTheme.blue, in: Capsule(style: .continuous))
-                    .padding(.top, 4)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 22)
-            .padding(.horizontal, 12)
-            .background(
-                RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
-                    .fill(targeted || justUpdated ? AppTheme.blueSoft : AppTheme.bg)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
-                    .strokeBorder(AppTheme.blue.opacity(targeted ? 0.7 : 0.22), style: StrokeStyle(lineWidth: 1.5, dash: [6, 4]))
-            )
+/// Copies the picked file into the app first. iCloud Drive and OneDrive are
+/// not readable in-place after the picker closes.
+final class HeartbeatFilePicker: NSObject, UIDocumentPickerDelegate {
+    static let shared = HeartbeatFilePicker()
+    private var onPick: ((Data, String) -> Void)?
+    private var onFail: ((String) -> Void)?
+
+    func present(onPick: @escaping (Data, String) -> Void, onFail: @escaping (String) -> Void) {
+        self.onPick = onPick
+        self.onFail = onFail
+        let picker = UIDocumentPickerViewController(
+            forOpeningContentTypes: [.item, .data, .commaSeparatedText],
+            asCopy: true
+        )
+        picker.delegate = self
+        picker.allowsMultipleSelection = false
+        picker.shouldShowFileExtensions = true
+        picker.modalPresentationStyle = .formSheet
+        picker.preferredContentSize = CGSize(width: 720, height: 640)
+        guard let presenter = Self.topController() else {
+            onFail("Could not open the file picker.")
+            return
         }
-        .buttonStyle(.plain)
-        .disabled(!enabled)
-        .onDrop(of: Self.dropTypes, isTargeted: $targeted) { providers in
-            guard enabled else { return false }
-            return Self.takeDrop(providers, into: onDropURL)
+        if presenter.presentedViewController != nil {
+            presenter.dismiss(animated: false) {
+                presenter.present(picker, animated: true)
+            }
+        } else {
+            presenter.present(picker, animated: true)
         }
     }
 
-    private static let dropTypes: [UTType] = {
-        var types: [UTType] = [.fileURL, .commaSeparatedText, .spreadsheet, .data]
-        if let xlsx = UTType(filenameExtension: "xlsx") { types.insert(xlsx, at: 0) }
-        if let csv = UTType(filenameExtension: "csv") { types.append(csv) }
-        return types
-    }()
-
-    private static func takeDrop(_ providers: [NSItemProvider], into onDropURL: @escaping (URL) -> Void) -> Bool {
-        if let provider = providers.first(where: { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) }) {
-            provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
-                let url: URL?
-                if let value = item as? URL {
-                    url = value
-                } else if let data = item as? Data {
-                    url = URL(dataRepresentation: data, relativeTo: nil)
-                } else if let text = item as? String {
-                    url = URL(string: text)
-                } else {
-                    url = nil
-                }
-                guard let url else { return }
-                DispatchQueue.main.async { onDropURL(url) }
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        guard let url = urls.first else {
+            onFail?("No file was selected.")
+            clear()
+            return
+        }
+        let success = onPick
+        let fail = onFail
+        clear()
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let file = try Self.readPickedFile(url)
+                DispatchQueue.main.async { success?(file.data, file.name) }
+            } catch {
+                DispatchQueue.main.async { fail?(error.localizedDescription) }
             }
-            return true
+        }
+    }
+
+    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        clear()
+    }
+
+    static func readPickedFile(_ url: URL) throws -> (data: Data, name: String) {
+        let accessed = url.startAccessingSecurityScopedResource()
+        defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+
+        if FileManager.default.isUbiquitousItem(at: url) {
+            try? FileManager.default.startDownloadingUbiquitousItem(at: url)
+            let deadline = Date().addingTimeInterval(20)
+            while Date() < deadline {
+                let values = try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey, .fileSizeKey])
+                let status = values?.ubiquitousItemDownloadingStatus
+                if status == .current { break }
+                if let size = values?.fileSize, size > 0, status != .downloading { break }
+                Thread.sleep(forTimeInterval: 0.15)
+            }
         }
 
-        let fallbacks = [
-            "org.openxmlformats.spreadsheetml.sheet",
-            UTType.commaSeparatedText.identifier,
-            UTType.data.identifier,
-        ]
-        for typeId in fallbacks {
-            guard let provider = providers.first(where: { $0.hasItemConformingToTypeIdentifier(typeId) }) else { continue }
-            provider.loadDataRepresentation(forTypeIdentifier: typeId) { data, _ in
-                guard let data else { return }
-                let ext = typeId.contains("comma") ? "csv" : "xlsx"
-                let dest = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("heartbeat-drop-\(UUID().uuidString).\(ext)")
-                try? data.write(to: dest)
-                DispatchQueue.main.async { onDropURL(dest) }
-            }
-            return true
+        var copied: Data?
+        var coordError: NSError?
+        NSFileCoordinator().coordinate(readingItemAt: url, options: [.forUploading], error: &coordError) { local in
+            copied = try? Data(contentsOf: local, options: [.uncached])
         }
-        return false
+        if copied == nil || copied?.isEmpty == true {
+            copied = try Data(contentsOf: url, options: [.uncached])
+        }
+        guard let raw = copied, !raw.isEmpty else {
+            throw NSError(
+                domain: "HeartbeatImport",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Could not read that file. Open it in Files first so iCloud or OneDrive finishes downloading, then Choose file again."]
+            )
+        }
+        var owned = Data()
+        owned.append(contentsOf: raw)
+        return (owned, url.lastPathComponent)
+    }
+
+    private func clear() {
+        onPick = nil
+        onFail = nil
+    }
+
+    private static func topController() -> UIViewController? {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let window = scenes.flatMap(\.windows).first(where: \.isKeyWindow) ?? scenes.first?.windows.first
+        var controller = window?.rootViewController
+        while let presented = controller?.presentedViewController {
+            controller = presented
+        }
+        return controller
     }
 }
 

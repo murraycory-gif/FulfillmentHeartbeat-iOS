@@ -687,16 +687,13 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func importWorkbook(url: URL, section: MetricSection) {
-        let accessed = url.startAccessingSecurityScopedResource()
-        defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-        do {
-            let raw = try Data(contentsOf: url, options: [.uncached])
-            var owned = Data()
-            owned.reserveCapacity(raw.count)
-            owned.append(contentsOf: raw)
-            Task { await runImport(data: owned, filename: url.lastPathComponent, section: section) }
-        } catch {
-            errorMessage = error.localizedDescription
+        Task {
+            do {
+                let file = try HeartbeatFilePicker.readPickedFile(url)
+                await runImport(data: file.data, filename: file.name, section: section)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 

@@ -71,26 +71,5 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
-	<key>UTImportedTypeDeclarations</key>
-	<array>
-		<dict>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-				<string>public.spreadsheet</string>
-			</array>
-			<key>UTTypeDescription</key>
-			<string>Excel Workbook</string>
-			<key>UTTypeIdentifier</key>
-			<string>org.openxmlformats.spreadsheetml.sheet</string>
-			<key>UTTypeTagSpecification</key>
-			<dict>
-				<key>public.filename-extension</key>
-				<array>
-					<string>xlsx</string>
-				</array>
-			</dict>
-		</dict>
-	</array>
 </dict>
 </plist>
