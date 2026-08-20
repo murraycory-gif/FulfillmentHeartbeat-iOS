@@ -17,6 +17,7 @@ final class HeartbeatStore: ObservableObject {
     @Published var isImporting = false
     @Published var importLabel: String?
     @Published var pendingExternalName: String?
+    @Published var waitingForFileSection: MetricSection?
     @Published private(set) var isReady = false
 
     private let fileManager: FileManager
@@ -634,18 +635,20 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func receiveExternalFile(url: URL) {
-        let accessed = url.startAccessingSecurityScopedResource()
-        defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-        do {
-            let raw = try Data(contentsOf: url, options: [.uncached])
-            var owned = Data()
-            owned.append(contentsOf: raw)
-            let name = url.lastPathComponent.isEmpty ? "workbook.xlsx" : url.lastPathComponent
-            _ = saveToDocuments(owned, filename: name)
-            pendingExternalData = owned
-            pendingExternalName = name
-        } catch {
-            errorMessage = error.localizedDescription
+        Task {
+            do {
+                let file = try HeartbeatFilePicker.readPickedFile(url)
+                _ = saveToDocuments(file.data, filename: file.name)
+                if let section = waitingForFileSection {
+                    waitingForFileSection = nil
+                    await runImport(data: file.data, filename: file.name, section: section)
+                } else {
+                    pendingExternalData = file.data
+                    pendingExternalName = file.name
+                }
+            } catch {
+                errorMessage = error.localizedDescription
+            }
         }
     }
 

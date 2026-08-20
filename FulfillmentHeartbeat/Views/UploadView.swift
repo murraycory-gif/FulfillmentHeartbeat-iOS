@@ -8,6 +8,7 @@ struct UploadView: View {
     @State private var exportItem: ExportItem?
     @State private var showStatus = false
     @State private var showError = false
+    @State private var shareSection: MetricSection?
 
     var body: some View {
         ScrollView {
@@ -46,6 +47,10 @@ struct UploadView: View {
             .padding(20)
         }
         .background(AppTheme.bg.ignoresSafeArea())
+        .sheet(item: $shareSection) { section in
+            ShareImportSheet(section: section)
+                .environmentObject(store)
+        }
         .fileExporter(
             isPresented: Binding(
                 get: { exportItem != nil },
@@ -90,11 +95,8 @@ struct UploadView: View {
     }
 
     private func beginImport(_ section: MetricSection) {
-        HeartbeatFilePicker.shared.present { data, name in
-            store.importWorkbook(data: data, filename: name, section: section)
-        } onFail: { message in
-            store.errorMessage = message
-        }
+        store.waitingForFileSection = section
+        shareSection = section
     }
 }
 
@@ -205,8 +207,58 @@ struct UploadPanel: View {
     }
 }
 
-/// Copies the picked file into the app first. iCloud Drive and OneDrive are
-/// not readable in-place after the picker closes.
+struct ShareImportSheet: View {
+    let section: MetricSection
+    @EnvironmentObject private var store: HeartbeatStore
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Import \(section.title)")
+                .font(.title2.weight(.bold))
+            Text("On this iPad, Apple’s file picker crashes when it opens these Power BI Excel files. Share the file from Files instead — that does not crash.")
+                .font(.subheadline)
+                .foregroundStyle(AppTheme.textSecondary)
+            VStack(alignment: .leading, spacing: 8) {
+                Text("1. Tap Open Files")
+                Text("2. Go to iCloud Drive or OneDrive")
+                Text("3. Tap the Excel → Share → Heartbeat")
+            }
+            .font(.body.weight(.medium))
+            Button {
+                if let url = URL(string: "shareddocuments://") {
+                    UIApplication.shared.open(url)
+                }
+            } label: {
+                Text("Open Files")
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(AppTheme.blue, in: Capsule())
+            }
+            .buttonStyle(.plain)
+            Button("Cancel") {
+                store.waitingForFileSection = nil
+                dismiss()
+            }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(AppTheme.textSecondary)
+            Spacer(minLength: 0)
+        }
+        .padding(28)
+        .frame(minWidth: 480, minHeight: 360)
+        .background(AppTheme.bg)
+        .onChange(of: store.isImporting) { _, importing in
+            if importing { dismiss() }
+        }
+        .onChange(of: store.statusMessage) { _, message in
+            if message != nil { dismiss() }
+        }
+    }
+}
+
+/// Copies iCloud / OneDrive files into memory. Not used as a picker.
 final class HeartbeatFilePicker: NSObject, UIDocumentPickerDelegate {
     static let shared = HeartbeatFilePicker()
     private var onPick: ((Data, String) -> Void)?
