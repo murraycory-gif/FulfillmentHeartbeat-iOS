@@ -145,15 +145,8 @@ struct SectionDetailView: View {
         .background(AppTheme.bg.ignoresSafeArea())
         .environment(\.defaultMinListRowHeight, 1)
         .environmentObject(laborHeaderPin)
-        .coordinateSpace(name: "sectionList")
-        .onPreferenceChange(LaborHeaderMinYKey.self) { minY in
-            let pinned = section == .labor && minY < 8
-            if laborHeaderPin.pinned != pinned {
-                laborHeaderPin.pinned = pinned
-            }
-        }
-        .overlay(alignment: .top) {
-            if section == .labor && laborHeaderPin.pinned {
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if section == .labor && laborHeaderPin.tableOpen {
                 LaborStickyStoreHeader()
                     .environmentObject(laborHeaderPin)
             }

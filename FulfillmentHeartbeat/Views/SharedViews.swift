@@ -2050,16 +2050,23 @@ private struct LaborMetricLine: View {
 }
 
 struct LaborHeaderMinYKey: PreferenceKey {
-    static var defaultValue: CGFloat = 9_999
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = min(value, nextValue())
+    static var defaultValue: CGFloat? = nil
+    static func reduce(value: inout CGFloat?, nextValue: () -> CGFloat?) {
+        let next = nextValue()
+        switch (value, next) {
+        case let (a?, b?): value = min(a, b)
+        case (nil, let b?): value = b
+        default: break
+        }
     }
 }
 
 final class LaborHeaderPin: ObservableObject {
+    @Published var tableOpen = true
     @Published var pinned = false
     @Published var active = "tva"
     @Published var ascending = false
+    @Published var storeCount = 0
     var onSelect: ((String) -> Void)?
 }
 
@@ -2067,15 +2074,27 @@ struct LaborStickyStoreHeader: View {
     @EnvironmentObject private var pin: LaborHeaderPin
 
     var body: some View {
-        LaborMetricHeader(
-            label: "Store",
-            showCount: false,
-            active: pin.active,
-            ascending: pin.ascending,
-            onSelect: { pin.onSelect?($0) }
-        )
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("By store")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(AppTheme.text)
+                Text("\(HeartbeatFormat.num(Double(pin.storeCount))) stores")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.textSecondary)
+                Spacer()
+            }
+            LaborMetricHeader(
+                label: "Store",
+                showCount: false,
+                active: pin.active,
+                ascending: pin.ascending,
+                onSelect: { pin.onSelect?($0) }
+            )
+        }
         .padding(.horizontal, 20)
-        .padding(.vertical, 8)
+        .padding(.top, 8)
+        .padding(.bottom, 8)
         .background(AppTheme.bg)
         .overlay(alignment: .bottom) {
             Rectangle()
@@ -2277,7 +2296,9 @@ struct LaborTable: View {
                         expanded.toggle()
                         if expanded {
                             rebuildOrder(sort: sort, ascending: ascending)
+                            headerPin.tableOpen = true
                         } else {
+                            headerPin.tableOpen = false
                             headerPin.pinned = false
                         }
                     }
@@ -2313,39 +2334,17 @@ struct LaborTable: View {
                 .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: expanded ? 4 : 20, trailing: 20))
                 .listRowSeparator(.hidden)
                 .listRowBackground(AppTheme.bg)
-                .onAppear { expanded = true }
+                .onAppear {
+                    expanded = true
+                    headerPin.tableOpen = true
+                    headerPin.storeCount = rows.count
+                    headerPin.active = sort.key
+                    headerPin.ascending = ascending
+                    headerPin.onSelect = applyHeaderSort
+                }
             }
             if expanded {
                 Section {
-                    LaborMetricHeader(
-                        label: "Store",
-                        showCount: false,
-                        active: sort.key,
-                        ascending: ascending,
-                        onSelect: applyHeaderSort
-                    )
-                    .background(
-                        GeometryReader { geo in
-                            Color.clear.preference(
-                                key: LaborHeaderMinYKey.self,
-                                value: geo.frame(in: .named("sectionList")).minY
-                            )
-                        }
-                    )
-                    .onAppear {
-                        headerPin.active = sort.key
-                        headerPin.ascending = ascending
-                        headerPin.onSelect = applyHeaderSort
-                    }
-                    .onChange(of: sort) { _, column in
-                        headerPin.active = column.key
-                    }
-                    .onChange(of: ascending) { _, value in
-                        headerPin.ascending = value
-                    }
-                    .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(AppTheme.bg)
                     ForEach(ordered) { row in
                         LaborStoreCard(row: row)
                             .listRowInsets(EdgeInsets(top: 2, leading: 20, bottom: 2, trailing: 20))
@@ -2354,8 +2353,18 @@ struct LaborTable: View {
                     }
                 }
                 .transaction { $0.animation = nil }
-                .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
-                .onChange(of: rows.count) { _, _ in rebuildOrder(sort: sort, ascending: ascending) }
+                .onAppear {
+                    rebuildOrder(sort: sort, ascending: ascending)
+                    headerPin.tableOpen = true
+                    headerPin.storeCount = rows.count
+                    headerPin.active = sort.key
+                    headerPin.ascending = ascending
+                    headerPin.onSelect = applyHeaderSort
+                }
+                .onChange(of: rows.count) { _, _ in
+                    rebuildOrder(sort: sort, ascending: ascending)
+                    headerPin.storeCount = rows.count
+                }
             }
         }
     }
