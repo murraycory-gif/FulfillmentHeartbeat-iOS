@@ -5,6 +5,8 @@ import UIKit
 struct UploadView: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var router: HubRouter
+    @State private var showImporter = false
+    @State private var importTarget: MetricSection?
     @State private var exportItem: ExportItem?
     @State private var showStatus = false
     @State private var showError = false
@@ -47,6 +49,27 @@ struct UploadView: View {
             .padding(20)
         }
         .background(AppTheme.bg.ignoresSafeArea())
+        .fileImporter(
+            isPresented: $showImporter,
+            allowedContentTypes: [.item, .data, .commaSeparatedText],
+            allowsMultipleSelection: false
+        ) { result in
+            let section = importTarget
+            importTarget = nil
+            switch result {
+            case .success(let urls):
+                guard let section, let url = urls.first else { return }
+                do {
+                    let data = try Self.bytesFromPickedFile(url)
+                    let filename = url.lastPathComponent.replacingOccurrences(of: "%", with: "pct")
+                    store.importWorkbook(data: data, filename: filename, section: section)
+                } catch {
+                    store.errorMessage = error.localizedDescription
+                }
+            case .failure(let error):
+                store.errorMessage = error.localizedDescription
+            }
+        }
         .fileExporter(
             isPresented: Binding(
                 get: { exportItem != nil },
@@ -91,12 +114,18 @@ struct UploadView: View {
     }
 
     private func beginImport(_ section: MetricSection) {
-        HeartbeatDocumentPicker.shared.pick { [store] data, name in
-            let filename = name.replacingOccurrences(of: "%", with: "pct")
-            store.importWorkbook(data: data, filename: filename, section: section)
-        } onFail: { [store] message in
-            store.errorMessage = message
+        importTarget = section
+        showImporter = true
+    }
+
+    private static func bytesFromPickedFile(_ url: URL) throws -> Data {
+        let accessed = url.startAccessingSecurityScopedResource()
+        defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+        let data = try Data(contentsOf: url)
+        guard !data.isEmpty else {
+            throw NSError(domain: "HeartbeatImport", code: 1, userInfo: [NSLocalizedDescriptionKey: "Could not read that file."])
         }
+        return data
     }
 }
 
@@ -261,62 +290,6 @@ struct UploadPanel: View {
             return true
         }
         return false
-    }
-}
-
-final class HeartbeatDocumentPicker: NSObject, UIDocumentPickerDelegate {
-    static let shared = HeartbeatDocumentPicker()
-    private var onPick: ((Data, String) -> Void)?
-    private var onFail: ((String) -> Void)?
-
-    func pick(onPick: @escaping (Data, String) -> Void, onFail: @escaping (String) -> Void) {
-        self.onPick = onPick
-        self.onFail = onFail
-        guard let presenter = Self.topController() else {
-            onFail("Could not open the file picker.")
-            return
-        }
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.data], asCopy: true)
-        picker.delegate = self
-        picker.allowsMultipleSelection = false
-        picker.shouldShowFileExtensions = true
-        presenter.present(picker, animated: true)
-    }
-
-    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
-        defer {
-            onPick = nil
-            onFail = nil
-        }
-        guard let url = urls.first else {
-            onFail?("No file was selected.")
-            return
-        }
-        do {
-            let data = try Data(contentsOf: url)
-            guard !data.isEmpty else {
-                onFail?("That file was empty.")
-                return
-            }
-            onPick?(data, url.lastPathComponent)
-        } catch {
-            onFail?(error.localizedDescription)
-        }
-    }
-
-    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
-        onPick = nil
-        onFail = nil
-    }
-
-    private static func topController() -> UIViewController? {
-        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-        let window = scenes.flatMap(\.windows).first(where: \.isKeyWindow) ?? scenes.first?.windows.first
-        var controller = window?.rootViewController
-        while let presented = controller?.presentedViewController {
-            controller = presented
-        }
-        return controller
     }
 }
 
