@@ -296,10 +296,10 @@ struct FilePickSheet: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("No Excel files in Heartbeat yet")
                         .font(.headline)
-                    Text("1. Open the Files app")
-                    Text("2. Go to the folder that has your Excel")
-                    Text("3. Long-press the file → Move → On My iPad → Heartbeat")
-                    Text("4. Come back here and tap Refresh")
+                    Text("1. Keep the iPad plugged into the Mac")
+                    Text("2. Finder → iPad in the sidebar → Files → Heartbeat")
+                    Text("3. Drop the Excel into that Heartbeat folder")
+                    Text("4. Come back here and tap Refresh, then Use")
                 }
                 .font(.subheadline)
                 .padding(16)
