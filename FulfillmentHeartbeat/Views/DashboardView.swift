@@ -92,42 +92,31 @@ struct SectionCard: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack(spacing: 8) {
-                            Text(summary.section == .pickPath ? "Pick Path Compliance" : summary.section.title)
-                                .font(.title3.weight(.bold))
-                                .foregroundStyle(AppTheme.text)
-                            UpdatedStamp(date: summary.lastUploadedAt)
-                        }
-                        if summary.section == .scheduleQuality {
-                            schedulePair
-                        } else {
-                            Text(summary.headlineText)
-                                .font(.system(size: 36, weight: .semibold, design: .rounded).monospacedDigit())
-                                .foregroundStyle(ink)
-                            Text(summary.headlineLabel)
-                                .font(.subheadline)
-                                .foregroundStyle(AppTheme.textSecondary)
-                        }
+                    HStack(spacing: 8) {
+                        Text(summary.section == .pickPath ? "Pick Path Compliance" : summary.section.title)
+                            .font(.title3.weight(.bold))
+                            .foregroundStyle(AppTheme.text)
+                        UpdatedStamp(date: summary.lastUploadedAt)
                     }
                     Spacer()
                     if summary.health != .none {
                         HealthBadge(health: summary.health, prominent: true)
                     }
                 }
-                HStack(alignment: .bottom) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        if summary.section != .scheduleQuality {
-                            Text(summary.secondary)
-                                .font(.subheadline)
-                                .foregroundStyle(AppTheme.text)
-                        }
-                        Text(metaLine)
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.textTertiary)
-                    }
+                if summary.section == .scheduleQuality {
+                    schedulePair
+                } else {
+                    Text(summary.headlineText)
+                        .font(.system(size: 36, weight: .semibold, design: .rounded).monospacedDigit())
+                        .foregroundStyle(ink)
+                    Text(summary.headlineLabel)
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(AppTheme.text)
+                }
+                Spacer(minLength: 0)
+                HStack {
                     Spacer()
                     Image(systemName: "arrow.up.right")
                         .font(.body.weight(.semibold))
@@ -159,7 +148,7 @@ struct SectionCard: View {
     }
 
     private var schedulePair: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 16) {
             scheduleStat("Under Scheduled", summary.underScheduledCount)
             scheduleStat("Over Scheduled", summary.overScheduledCount)
         }
@@ -167,20 +156,20 @@ struct SectionCard: View {
 
     private func scheduleStat(_ title: String, _ count: Int) -> some View {
         let health: Health = count == 0 ? .good : .risk
-        return VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(AppTheme.textSecondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(HeartbeatFormat.num(Double(count)))
-                    .font(.system(size: 30, weight: .semibold, design: .rounded).monospacedDigit())
+                    .font(.system(size: 36, weight: .semibold, design: .rounded).monospacedDigit())
                     .foregroundStyle(health == .risk ? AppTheme.bad : AppTheme.ok)
                 Text("stores")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(health == .risk ? AppTheme.bad : AppTheme.textSecondary)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(health == .risk ? AppTheme.bad : AppTheme.text)
             }
+            Text(title)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(AppTheme.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -214,14 +203,6 @@ struct SectionCard: View {
         case .risk: return AppTheme.bad
         case .none: return AppTheme.blue
         }
-    }
-
-    private var metaLine: String {
-        var parts = ["\(summary.storeCount) store\(summary.storeCount == 1 ? "" : "s")"]
-        if summary.riskCount > 0 {
-            parts.append("\(summary.riskCount) at risk")
-        }
-        return parts.joined(separator: " · ")
     }
 }
 
