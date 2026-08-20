@@ -1979,9 +1979,10 @@ struct LaborStoreCard: View {
     @EnvironmentObject private var store: HeartbeatStore
     let row: MetricRow
     @State private var expanded = false
+    @State private var openWeek: String?
 
-    private var days: [MetricRow] {
-        expanded ? store.laborDays(forStore: row.storeNumber) : []
+    private var weeks: [MetricRow] {
+        expanded ? store.laborWeeks(forStore: row.storeNumber) : []
     }
 
     var body: some View {
@@ -2023,7 +2024,7 @@ struct LaborStoreCard: View {
                 metric("Act Hrs", HeartbeatFormat.num(row.number("act_hrs"), digits: 0), .none)
             }
             if expanded {
-                dayBlock
+                weekBlock
             }
         }
         .padding(16)
@@ -2041,21 +2042,21 @@ struct LaborStoreCard: View {
         let district = row.district.isEmpty ? "—" : row.district
         let om = row.operationsOM.isEmpty ? "—" : row.operationsOM
         let week = row.textPayload["week"].flatMap { $0.isEmpty ? nil : $0 } ?? "—"
-        return "District \(district)  ·  \(om)  ·  Week \(week)  ·  tap for days"
+        return "District \(district)  ·  \(om)  ·  \(week)  ·  tap for weeks"
     }
 
     @ViewBuilder
-    private var dayBlock: some View {
+    private var weekBlock: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("By day")
+            Text("By week")
                 .font(.subheadline.weight(.bold))
-            if days.isEmpty {
-                Text("No daily rows for this store in the latest week.")
+            if weeks.isEmpty {
+                Text("No weekly rows for this store.")
                     .font(.subheadline)
                     .foregroundStyle(AppTheme.textSecondary)
             } else {
-                ForEach(days) { day in
-                    dayRow(day)
+                ForEach(weeks) { week in
+                    weekRow(week)
                 }
             }
         }
@@ -2067,26 +2068,72 @@ struct LaborStoreCard: View {
         )
     }
 
-    private func dayRow(_ day: MetricRow) -> some View {
-        let health = HeartbeatMath.laborHealth(day)
+    private func weekRow(_ week: MetricRow) -> some View {
+        let health = HeartbeatMath.laborHealth(week)
+        let weekId = week.textPayload["week"] ?? week.recordedOn ?? "—"
+        let isOpen = openWeek == weekId
         return VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(day.recordedOn ?? "—")
-                    .font(.headline.weight(.semibold))
-                Spacer()
-                HealthBadge(health: health, prominent: true)
+            Button {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    openWeek = isOpen ? nil : weekId
+                }
+            } label: {
+                HStack {
+                    Text("Week \(weekId)")
+                        .font(.headline.weight(.semibold))
+                    Spacer()
+                    HealthBadge(health: health, prominent: true)
+                    Image(systemName: isOpen ? "chevron.up" : "chevron.down")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(AppTheme.blue)
+                }
             }
+            .buttonStyle(.plain)
             HStack(spacing: 8) {
-                metric("Sch Effi", HeartbeatFormat.pct(day.number("schedule_efficiency_pct")), .none)
-                metric("Sch Hrs", HeartbeatFormat.num(day.number("sch_hrs"), digits: 1), .none)
-                metric("ActCost%", HeartbeatFormat.pct(day.number("act_cost_pct")), .none)
-                metric("Over Sch", HeartbeatFormat.pct(day.number("over_schedule_pct")), .none)
+                metric("Tgt vs Act", HeartbeatFormat.pct(week.number("target_vs_actual_pct")), health)
+                metric("CostTrgt%", HeartbeatFormat.pct(week.number("cost_trgt_pct")), .none)
+                metric("Act Cost", HeartbeatFormat.money(week.number("act_cost_dollar")), .none)
+                metric("Act Hrs", HeartbeatFormat.num(week.number("act_hrs"), digits: 0), .none)
+            }
+            if isOpen {
+                let days = store.laborDays(from: week)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("By day")
+                        .font(.subheadline.weight(.bold))
+                    if days.isEmpty {
+                        Text("No daily rows in this week.")
+                            .font(.subheadline)
+                            .foregroundStyle(AppTheme.textSecondary)
+                    } else {
+                        ForEach(days) { day in
+                            dayRow(day)
+                        }
+                    }
+                }
             }
         }
         .padding(10)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(wash(health).opacity(0.7))
+        )
+    }
+
+    private func dayRow(_ day: LaborDay) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(day.date.isEmpty ? "—" : day.date)
+                .font(.headline.weight(.semibold))
+            HStack(spacing: 8) {
+                metric("Sch Effi", HeartbeatFormat.pct(day.scheduleEfficiencyPct), .none)
+                metric("Sch Hrs", HeartbeatFormat.num(day.schHrs, digits: 1), .none)
+                metric("ActCost%", HeartbeatFormat.pct(day.actCostPct), .none)
+                metric("Over Sch", HeartbeatFormat.pct(day.overSchedulePct), .none)
+            }
+        }
+        .padding(8)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(AppTheme.bg)
         )
     }
 

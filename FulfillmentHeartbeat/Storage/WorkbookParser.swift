@@ -345,7 +345,7 @@ enum WorkbookParser {
             return names.contains("storeid") && names.contains(where: { $0.contains("targetvsactual") || $0.contains("costtrgt") })
         }) else { return nil }
         let headerRow = matrix[headerIndex]
-        var days: [ParsedWorkbookRow] = []
+        var acc: [String: [String: LaborWeekAcc]] = [:]
         var week = ""
         var date = ""
         var division = ""
@@ -359,9 +359,9 @@ enum WorkbookParser {
                 division: &division,
                 district: &district
             ) else { continue }
-            days.append(parsed)
+            mergeLabor(&acc, parsed)
         }
-        return collapseLabor(days)
+        return flattenLabor(acc)
     }
 
     private static func parseLaborSheet(data: Data, strings: [String]) -> [ParsedWorkbookRow] {
@@ -370,9 +370,8 @@ enum WorkbookParser {
         var date = ""
         var division = ""
         var district = ""
-        var maxWeek = ""
-        var days: [ParsedWorkbookRow] = []
-        days.reserveCapacity(4096)
+        var acc: [String: [String: LaborWeekAcc]] = [:]
+        acc.reserveCapacity(2200)
         SheetXML.forEachRow(data: data, strings: strings) { row in
             if header.isEmpty {
                 let names = row.map(normHeader)
@@ -389,16 +388,150 @@ enum WorkbookParser {
                 division: &division,
                 district: &district
             ) else { return }
-            let rowWeek = parsed.textPayload["week"] ?? ""
-            if rowWeek > maxWeek {
-                maxWeek = rowWeek
-                days.removeAll(keepingCapacity: true)
-            }
-            if rowWeek == maxWeek {
-                days.append(parsed)
-            }
+            mergeLabor(&acc, parsed)
         }
-        return collapseLabor(days)
+        return flattenLabor(acc)
+    }
+
+    private struct LaborWeekAcc {
+        var division: String
+        var district: String
+        var tva: Double?
+        var cost: Double?
+        var dollars: Double?
+        var hours: Double?
+        var uplh: Double?
+        var wage: Double?
+        var aiv: Double?
+        var days: [LaborDay] = []
+    }
+
+    private static func mergeLabor(_ acc: inout [String: [String: LaborWeekAcc]], _ row: ParsedWorkbookRow) {
+        let store = row.storeNumber
+        let week = row.textPayload["week"] ?? ""
+        guard !store.isEmpty, !week.isEmpty else { return }
+        var bucket = acc[store]?[week] ?? LaborWeekAcc(
+            division: row.division,
+            district: row.textPayload["district"] ?? ""
+        )
+        if bucket.tva == nil { bucket.tva = row.payload["target_vs_actual_pct"] }
+        if bucket.cost == nil { bucket.cost = row.payload["cost_trgt_pct"] }
+        if bucket.dollars == nil { bucket.dollars = row.payload["act_cost_dollar"] }
+        if bucket.hours == nil { bucket.hours = row.payload["act_hrs"] }
+        if bucket.uplh == nil { bucket.uplh = row.payload["uplh_impact_pct"] }
+        if bucket.wage == nil { bucket.wage = row.payload["wage_impact_pct"] }
+        if bucket.aiv == nil { bucket.aiv = row.payload["aiv_impact_pct"] }
+        if bucket.division.isEmpty { bucket.division = row.division }
+        if bucket.district.isEmpty { bucket.district = row.textPayload["district"] ?? "" }
+        bucket.days.append(
+            LaborDay(
+                date: row.recordedOn ?? "",
+                scheduleEfficiencyPct: row.payload["schedule_efficiency_pct"],
+                schHrs: row.payload["sch_hrs"],
+                empowerHrs: row.payload["empower_hrs"],
+                actCostPct: row.payload["act_cost_pct"],
+                overSchedulePct: row.payload["over_schedule_pct"],
+                chargedHrs: row.payload["charged_hrs"]
+            )
+        )
+        var storeWeeks = acc[store] ?? [:]
+        storeWeeks[week] = bucket
+        acc[store] = storeWeeks
+    }
+
+    private static func flattenLabor(_ acc: [String: [String: LaborWeekAcc]]) -> [ParsedWorkbookRow] {
+        var out: [ParsedWorkbookRow] = []
+        out.reserveCapacity(acc.count * 9)
+        let encoder = JSONEncoder()
+        for (store, weeks) in acc {
+            let ordered = weeks.keys.sorted()
+            var sumDollars = 0.0
+            var sumHours = 0.0
+            var weightedTva = 0.0
+            var weightedCost = 0.0
+            var tvaWeight = 0.0
+            var costWeight = 0.0
+            var division = ""
+            var district = ""
+            var sampleUplh: Double?
+            var sampleWage: Double?
+            var sampleAiv: Double?
+            for week in ordered {
+                guard let bucket = weeks[week] else { continue }
+                if division.isEmpty { division = bucket.division }
+                if district.isEmpty { district = bucket.district }
+                if sampleUplh == nil { sampleUplh = bucket.uplh }
+                if sampleWage == nil { sampleWage = bucket.wage }
+                if sampleAiv == nil { sampleAiv = bucket.aiv }
+                let hours = bucket.hours ?? 0
+                let dollars = bucket.dollars ?? 0
+                sumHours += hours
+                sumDollars += dollars
+                let weight = dollars > 0 ? dollars : (hours > 0 ? hours : 1)
+                if let tva = bucket.tva {
+                    weightedTva += tva * weight
+                    tvaWeight += weight
+                }
+                if let cost = bucket.cost {
+                    weightedCost += cost * weight
+                    costWeight += weight
+                }
+                var payload: [String: Double] = [:]
+                if let tva = bucket.tva { payload["target_vs_actual_pct"] = tva }
+                if let cost = bucket.cost { payload["cost_trgt_pct"] = cost }
+                if dollars > 0 { payload["act_cost_dollar"] = dollars }
+                if hours > 0 { payload["act_hrs"] = hours }
+                if let uplh = bucket.uplh { payload["uplh_impact_pct"] = uplh }
+                if let wage = bucket.wage { payload["wage_impact_pct"] = wage }
+                if let aiv = bucket.aiv { payload["aiv_impact_pct"] = aiv }
+                let days = Dictionary(grouping: bucket.days, by: \.date)
+                    .values
+                    .compactMap { $0.last }
+                    .sorted { $0.date < $1.date }
+                let json = (try? encoder.encode(days)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+                out.append(
+                    ParsedWorkbookRow(
+                        division: bucket.division,
+                        operationsOM: "",
+                        storeNumber: store,
+                        storeName: nil,
+                        recordedOn: week,
+                        payload: payload,
+                        textPayload: [
+                            "labor_grain": "week",
+                            "week": week,
+                            "district": bucket.district,
+                            "days_json": json,
+                        ]
+                    )
+                )
+            }
+            var storePayload: [String: Double] = [:]
+            if tvaWeight > 0 { storePayload["target_vs_actual_pct"] = weightedTva / tvaWeight }
+            if costWeight > 0 { storePayload["cost_trgt_pct"] = weightedCost / costWeight }
+            if sumDollars > 0 { storePayload["act_cost_dollar"] = sumDollars }
+            if sumHours > 0 { storePayload["act_hrs"] = sumHours }
+            if let uplh = sampleUplh { storePayload["uplh_impact_pct"] = uplh }
+            if let wage = sampleWage { storePayload["wage_impact_pct"] = wage }
+            if let aiv = sampleAiv { storePayload["aiv_impact_pct"] = aiv }
+            let span = ordered.isEmpty ? "" : (ordered.first == ordered.last ? ordered[0] : "\(ordered.first!)–\(ordered.last!)")
+            out.append(
+                ParsedWorkbookRow(
+                    division: division,
+                    operationsOM: "",
+                    storeNumber: store,
+                    storeName: nil,
+                    recordedOn: span,
+                    payload: storePayload,
+                    textPayload: [
+                        "labor_grain": "store",
+                        "week": span,
+                        "district": district,
+                    ]
+                )
+            )
+        }
+        return out
     }
 
     private static func laborRow(
@@ -497,52 +630,6 @@ enum WorkbookParser {
             number *= 100
         }
         payload[mapped] = number
-    }
-
-    private static func collapseLabor(_ days: [ParsedWorkbookRow]) -> [ParsedWorkbookRow] {
-        let maxWeek = days.compactMap { $0.textPayload["week"] }.max() ?? ""
-        let latest = maxWeek.isEmpty ? days : days.filter { $0.textPayload["week"] == maxWeek }
-        var byStore: [String: [ParsedWorkbookRow]] = [:]
-        for row in latest {
-            byStore[row.storeNumber, default: []].append(row)
-        }
-        var out: [ParsedWorkbookRow] = []
-        out.reserveCapacity(byStore.count + latest.count)
-        let weekKeys = [
-            "target_vs_actual_pct", "cost_trgt_pct", "act_hrs", "act_cost_dollar",
-            "uplh_impact_pct", "wage_impact_pct", "aiv_impact_pct",
-        ]
-        for (store, storeDays) in byStore {
-            let sorted = storeDays.sorted { ($0.recordedOn ?? "") < ($1.recordedOn ?? "") }
-            out.append(contentsOf: sorted)
-            let sample = sorted[sorted.count / 2]
-            var payload: [String: Double] = [:]
-            for key in weekKeys {
-                if let value = sample.payload[key] {
-                    payload[key] = value
-                }
-            }
-            let schHrs = sorted.compactMap { $0.payload["sch_hrs"] }.reduce(0, +)
-            if schHrs > 0 { payload["sch_hrs"] = schHrs }
-            let empHrs = sorted.compactMap { $0.payload["empower_hrs"] }.reduce(0, +)
-            if empHrs > 0 { payload["empower_hrs"] = empHrs }
-            out.append(
-                ParsedWorkbookRow(
-                    division: sample.division,
-                    operationsOM: sample.operationsOM,
-                    storeNumber: store,
-                    storeName: nil,
-                    recordedOn: maxWeek.isEmpty ? sample.recordedOn : maxWeek,
-                    payload: payload,
-                    textPayload: [
-                        "labor_grain": "store",
-                        "week": maxWeek,
-                        "district": sample.textPayload["district"] ?? "",
-                    ]
-                )
-            )
-        }
-        return out
     }
 
     private static func excelSerialDate(_ raw: String) -> String? {

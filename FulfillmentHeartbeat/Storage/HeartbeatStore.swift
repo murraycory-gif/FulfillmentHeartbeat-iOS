@@ -49,7 +49,7 @@ final class HeartbeatStore: ObservableObject {
     private var pickerFocusHealth: [PickerFocus: Health] = [:]
     private var pickPathPickersByStore: [String: [MetricRow]] = [:]
     private var pphPickersByStore: [String: [MetricRow]] = [:]
-    private var laborDaysByStore: [String: [MetricRow]] = [:]
+    private var laborWeeksByStore: [String: [MetricRow]] = [:]
 
     init(rootURL: URL? = nil) {
         fileManager = .default
@@ -316,22 +316,27 @@ final class HeartbeatStore: ObservableObject {
         pphPickersByStore = buckets
     }
 
-    func laborDays(forStore storeNumber: String) -> [MetricRow] {
-        laborDaysByStore[HeartbeatMath.canonicalStore(storeNumber)] ?? []
+    func laborWeeks(forStore storeNumber: String) -> [MetricRow] {
+        laborWeeksByStore[HeartbeatMath.canonicalStore(storeNumber)] ?? []
     }
 
-    private func rebuildLaborDayIndex() {
+    func laborDays(from week: MetricRow) -> [LaborDay] {
+        guard let raw = week.textPayload["days_json"], let data = raw.data(using: .utf8) else { return [] }
+        return (try? JSONDecoder().decode([LaborDay].self, from: data)) ?? []
+    }
+
+    private func rebuildLaborWeekIndex() {
         var buckets: [String: [MetricRow]] = [:]
         buckets.reserveCapacity(512)
-        for row in rows where row.section == .labor && row.textPayload["labor_grain"] == "day" {
+        for row in rows where row.section == .labor && row.textPayload["labor_grain"] == "week" {
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
             guard !store.isEmpty else { continue }
             buckets[store, default: []].append(row)
         }
         for store in buckets.keys {
-            buckets[store]?.sort { ($0.recordedOn ?? "") < ($1.recordedOn ?? "") }
+            buckets[store]?.sort { ($0.textPayload["week"] ?? "") > ($1.textPayload["week"] ?? "") }
         }
-        laborDaysByStore = buckets
+        laborWeeksByStore = buckets
     }
 
     func checklistItem(for item: ChecklistDriverItem, section: MetricSection) -> ChecklistItem {
@@ -817,7 +822,7 @@ final class HeartbeatStore: ObservableObject {
             } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady || section == .pph {
                 latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(sectionRows), roster: roster)
             } else if section == .labor {
-                let stores = sectionRows.filter { $0.textPayload["labor_grain"] != "day" }
+                let stores = sectionRows.filter { $0.textPayload["labor_grain"] == "store" }
                 latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(stores), roster: roster)
             } else if section == .pickerScorecard || section == .pickPathPicker {
                 latest[section] = HeartbeatMath.latestPerShopper(sectionRows)
@@ -827,7 +832,7 @@ final class HeartbeatStore: ObservableObject {
         }
         latestBySection = latest
         cachedDivisions = roster.values.map(\.division).filter { !$0.isEmpty }.uniqued().sorted()
-        rebuildLaborDayIndex()
+        rebuildLaborWeekIndex()
     }
 
     private func applyFilters() {
@@ -1057,7 +1062,7 @@ private struct PulseCaches {
             } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady || section == .pph {
                 latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(sectionRows), roster: roster)
             } else if section == .labor {
-                let stores = sectionRows.filter { $0.textPayload["labor_grain"] != "day" }
+                let stores = sectionRows.filter { $0.textPayload["labor_grain"] == "store" }
                 latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(stores), roster: roster)
             } else if section == .pickerScorecard || section == .pickPathPicker {
                 latest[section] = HeartbeatMath.latestPerShopper(sectionRows)

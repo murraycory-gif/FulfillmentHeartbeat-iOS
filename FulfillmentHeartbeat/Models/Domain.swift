@@ -50,7 +50,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .dynacap: return "Pieces per hour we allow down to the picker. Upload the Overall Capacity Summary."
         case .scheduleQuality: return "How tightly the labor plan matches the work. Upload Optimized Departments Week Store."
         case .pph: return "Pure picks completed per labor hour. Upload the DATE / STORE Total export."
-        case .labor: return "Cost target vs actual. 0% or better is healthy, 0.01–3% watch, over 3% at risk. Tap a store for the day breakout."
+        case .labor: return "All weeks in the file rolled to Target vs Actual vs CostTrgt. 0% or better is healthy, 0.01–3% watch, over 3% at risk. Tap a store for week, then day."
         case .pickerScorecard: return "Shopper-level totals for PPH, Presubs, OOS, pick hours, subs, orders, DUG, OTH eligibility, OTH5, OTT, and refunds."
         }
     }
@@ -715,7 +715,15 @@ enum HeartbeatMath {
                 lastUploadedAt: upload?.uploadedAt
             )
         case .labor:
-            let headline = average(latest.compactMap { $0.number("target_vs_actual_pct") })
+            let weights = latest.compactMap { row -> (Double, Double)? in
+                guard let tva = row.number("target_vs_actual_pct") else { return nil }
+                return (tva, max(row.number("act_cost_dollar") ?? 0, 1))
+            }
+            let headline: Double? = {
+                let total = weights.reduce(0) { $0 + $1.1 }
+                guard total > 0 else { return average(latest.compactMap { $0.number("target_vs_actual_pct") }) }
+                return weights.reduce(0) { $0 + $1.0 * $1.1 } / total
+            }()
             let healthy = latest.filter { ($0.number("target_vs_actual_pct") ?? 1) <= 0 }.count
             let watchCount = latest.filter {
                 let value = $0.number("target_vs_actual_pct") ?? 0
@@ -1553,6 +1561,18 @@ enum LaborFocus: String, CaseIterable, Identifiable {
     case risk
 
     var id: String { rawValue }
+}
+
+struct LaborDay: Codable, Identifiable, Hashable {
+    var date: String
+    var scheduleEfficiencyPct: Double?
+    var schHrs: Double?
+    var empowerHrs: Double?
+    var actCostPct: Double?
+    var overSchedulePct: Double?
+    var chargedHrs: Double?
+
+    var id: String { date }
 }
 
 enum FiveStarFocus: String, CaseIterable, Identifiable {
