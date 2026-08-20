@@ -1958,6 +1958,145 @@ private enum LaborRollupBuilder {
     }
 }
 
+private struct LaborLineSnap: Identifiable, Equatable {
+    let id: UUID
+    let storeNumber: String
+    let label: String
+    let district: String
+    let om: String
+    let week: String
+    let tva: String
+    let cost: String
+    let act: String
+    let efficiency: String
+    let uplh: String
+    let wage: String
+    let aiv: String
+    let tvaHealth: Health
+    let actHealth: Health
+    let effHealth: Health
+    let uplhHealth: Health
+    let wageHealth: Health
+    let aivHealth: Health
+
+    init(_ row: MetricRow) {
+        id = row.id
+        storeNumber = row.storeNumber
+        label = row.division.isEmpty
+            ? (row.storeNumber.isEmpty ? "—" : row.storeNumber)
+            : "\(row.storeNumber)  |  \(row.division)"
+        district = row.district
+        om = row.operationsOM
+        week = row.textPayload["week"].flatMap { $0.isEmpty ? nil : $0 } ?? "store totals"
+        let tvaValue = row.number("target_vs_actual_pct")
+        let costValue = row.number("cost_trgt_pct")
+        let actValue = row.number("act_cost_pct")
+        let effValue = row.number("schedule_efficiency_pct")
+        let uplhValue = row.number("uplh_impact_pct")
+        let wageValue = row.number("wage_impact_pct")
+        let aivValue = row.number("aiv_impact_pct")
+        tva = HeartbeatFormat.pct(tvaValue)
+        cost = HeartbeatFormat.pct(costValue)
+        act = HeartbeatFormat.pct(actValue)
+        efficiency = HeartbeatFormat.pct(effValue)
+        uplh = HeartbeatFormat.pct(uplhValue)
+        wage = HeartbeatFormat.pct(wageValue)
+        aiv = HeartbeatFormat.pct(aivValue)
+        tvaHealth = HeartbeatMath.laborHealth(tvaValue)
+        if let actValue, let costValue {
+            actHealth = actValue <= costValue ? .good : .risk
+        } else {
+            actHealth = .none
+        }
+        effHealth = HeartbeatMath.band(effValue, good: HeartbeatMath.scheduleGoal, watch: HeartbeatMath.scheduleWatch)
+        uplhHealth = Self.impact(uplhValue)
+        wageHealth = Self.impact(wageValue)
+        aivHealth = Self.impact(aivValue)
+    }
+
+    private static func impact(_ value: Double?) -> Health {
+        guard let value else { return .none }
+        return value <= 0 ? .good : .risk
+    }
+}
+
+private struct LaborCheapLine: View, Equatable {
+    let snap: LaborLineSnap
+    let expanded: Bool
+
+    var body: some View {
+        HStack(spacing: 6) {
+            HStack(spacing: 4) {
+                Text(snap.label)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(AppTheme.text)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(AppTheme.blue)
+            }
+            .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            cell(snap.tva, snap.tvaHealth)
+            cell(snap.cost, .none, brand: true)
+            cell(snap.act, snap.actHealth)
+            cell(snap.efficiency, snap.effHealth)
+            cell(snap.uplh, snap.uplhHealth)
+            cell(snap.wage, snap.wageHealth)
+            cell(snap.aiv, snap.aivHealth)
+            Text(snap.tvaHealth.label.uppercased())
+                .font(.caption.weight(.heavy))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .foregroundStyle(Color.white)
+                .background(pill(snap.tvaHealth), in: Capsule())
+                .frame(width: 88, alignment: .trailing)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func cell(_ value: String, _ health: Health, brand: Bool = false) -> some View {
+        Text(value)
+            .font(.subheadline.weight(.bold).monospacedDigit())
+            .foregroundStyle(brand ? AppTheme.blue : ink(health))
+            .lineLimit(1)
+            .minimumScaleFactor(0.6)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .padding(.vertical, 6)
+            .padding(.horizontal, 6)
+            .background(brand ? AppTheme.blueSoft : wash(health), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private func ink(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.text
+        }
+    }
+
+    private func wash(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.okSoft
+        case .watch: return AppTheme.warnSoft
+        case .risk: return AppTheme.badSoft
+        case .none: return Color.clear
+        }
+    }
+
+    private func pill(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.textTertiary
+        }
+    }
+}
+
 private struct LaborMetricLine: View, Equatable {
     let label: String
     var count: Int? = nil
@@ -2297,7 +2436,8 @@ struct LaborTable: View {
 
     @State private var sort = Column.tva
     @State private var ascending = false
-    @State private var ordered: [MetricRow] = []
+    @State private var snaps: [LaborLineSnap] = []
+    @State private var openStore: String?
 
     private var expanded: Bool { headerPin.storesExpanded }
 
@@ -2374,15 +2514,21 @@ struct LaborTable: View {
                         GeometryReader { geo in
                             Color.clear.preference(
                                 key: LaborHeaderMinYKey.self,
-                                value: geo.frame(in: .global).minY
+                                value: (geo.frame(in: .global).minY / 12).rounded() * 12
                             )
                         }
                     )
                     .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
                     .listRowSeparator(.hidden)
                     .listRowBackground(AppTheme.bg)
-                    ForEach(ordered) { row in
-                        LaborStoreCard(row: row)
+                    ForEach(snaps) { snap in
+                        LaborStoreRow(
+                            snap: snap,
+                            expanded: openStore == snap.storeNumber,
+                            onToggle: {
+                                openStore = openStore == snap.storeNumber ? nil : snap.storeNumber
+                            }
+                        )
                             .listRowInsets(EdgeInsets(top: 2, leading: 20, bottom: 2, trailing: 20))
                             .listRowSeparator(.hidden)
                             .listRowBackground(AppTheme.bg)
@@ -2409,10 +2555,10 @@ struct LaborTable: View {
     }
 
     private func rebuildOrder(sort: Column, ascending: Bool) {
-        ordered = rows.sorted { lhs, rhs in
+        snaps = rows.sorted { lhs, rhs in
             let result = compare(lhs, rhs, sort: sort)
             return ascending ? result == .orderedAscending : result == .orderedDescending
-        }
+        }.map(LaborLineSnap.init)
     }
 
     private func compare(_ lhs: MetricRow, _ rhs: MetricRow, sort: Column) -> ComparisonResult {
@@ -2475,63 +2621,58 @@ private struct LaborChip {
     }
 }
 
-struct LaborStoreCard: View {
-    @EnvironmentObject private var store: HeartbeatStore
-    let row: MetricRow
-    @State private var expanded = false
-    @State private var openWeek: String?
-
-    private var weeks: [MetricRow] {
-        expanded ? store.laborWeeks(forStore: row.storeNumber) : []
-    }
+struct LaborStoreRow: View {
+    let snap: LaborLineSnap
+    let expanded: Bool
+    let onToggle: () -> Void
 
     var body: some View {
-        let health = HeartbeatMath.health(for: .labor, row: row)
-        let label = row.division.isEmpty ? (row.storeNumber.isEmpty ? "—" : row.storeNumber) : "\(row.storeNumber)  |  \(row.division)"
-        return VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
-            Button {
-                expanded.toggle()
-                if expanded {
-                    let latest = store.laborWeeks(forStore: row.storeNumber).first
-                    openWeek = latest?.textPayload["week"] ?? latest?.recordedOn
-                } else {
-                    openWeek = nil
-                }
-            } label: {
-                LaborMetricLine(
-                    label: label,
-                    tva: row.number("target_vs_actual_pct"),
-                    cost: row.number("cost_trgt_pct"),
-                    act: row.number("act_cost_pct"),
-                    efficiency: row.number("schedule_efficiency_pct"),
-                    uplh: row.number("uplh_impact_pct"),
-                    wage: row.number("wage_impact_pct"),
-                    aiv: row.number("aiv_impact_pct"),
-                    chevronExpanded: expanded
-                )
-                .contentShape(Rectangle())
+        VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
+            Button(action: onToggle) {
+                LaborCheapLine(snap: snap, expanded: expanded)
+                    .equatable()
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             if expanded {
-                Text(metaLine)
-                    .font(.subheadline)
-                    .foregroundStyle(AppTheme.textSecondary)
-                weekBlock
+                LaborStoreExpand(
+                    storeNumber: snap.storeNumber,
+                    district: snap.district,
+                    om: snap.om,
+                    week: snap.week
+                )
             }
         }
-        .padding(.horizontal, 4)
-        .padding(.vertical, expanded ? 10 : 0)
-        .background(
-            RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
-                .fill(expanded ? wash(health).opacity(0.35) : Color.clear)
-        )
+    }
+}
+
+struct LaborStoreExpand: View {
+    @EnvironmentObject private var store: HeartbeatStore
+    let storeNumber: String
+    let district: String
+    let om: String
+    let week: String
+    @State private var openWeek: String?
+
+    private var weeks: [MetricRow] {
+        store.laborWeeks(forStore: storeNumber)
     }
 
-    private var metaLine: String {
-        let district = row.district.isEmpty ? "—" : row.district
-        let om = row.operationsOM.isEmpty ? "—" : row.operationsOM
-        let week = row.textPayload["week"].flatMap { $0.isEmpty ? nil : $0 } ?? "store totals"
-        return "District \(district)  ·  \(om)  ·  \(week)"
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("District \(district.isEmpty ? "—" : district)  ·  \(om.isEmpty ? "—" : om)  ·  \(week)")
+                .font(.subheadline)
+                .foregroundStyle(AppTheme.textSecondary)
+            weekBlock
+        }
+        .padding(.horizontal, 4)
+        .padding(.vertical, 10)
+        .onAppear {
+            if openWeek == nil {
+                let latest = weeks.first
+                openWeek = latest?.textPayload["week"] ?? latest?.recordedOn
+            }
+        }
     }
 
     @ViewBuilder

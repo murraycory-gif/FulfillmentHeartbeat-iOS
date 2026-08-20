@@ -113,7 +113,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
     }
 }
 
-enum Health: String, Codable {
+enum Health: String, Codable, Equatable {
     case good, watch, risk, none
 
     var label: String {
