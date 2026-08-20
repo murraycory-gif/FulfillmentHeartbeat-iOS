@@ -2063,11 +2063,19 @@ struct LaborHeaderMinYKey: PreferenceKey {
 
 final class LaborHeaderPin: ObservableObject {
     @Published var tableOpen = true
+    @Published var storesExpanded = true
+    @Published var rollupExpanded = true
     @Published var pinned = false
     @Published var active = "tva"
     @Published var ascending = false
     @Published var storeCount = 0
     var onSelect: ((String) -> Void)?
+
+    func openOnPageEnter() {
+        storesExpanded = true
+        rollupExpanded = true
+        tableOpen = true
+    }
 }
 
 struct LaborStickyStoreHeader: View {
@@ -2160,15 +2168,15 @@ struct LaborMetricHeader: View {
 
 struct LaborRollupTable: View {
     @EnvironmentObject private var store: HeartbeatStore
-    @State private var expanded = false
+    @EnvironmentObject private var headerPin: LaborHeaderPin
+
+    private var expanded: Bool { headerPin.rollupExpanded }
 
     var body: some View {
         if let grain, !summary.isEmpty {
             VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
                     Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            expanded.toggle()
-                        }
+                        headerPin.rollupExpanded.toggle()
                     } label: {
                         HStack(spacing: 10) {
                             VStack(alignment: .leading, spacing: 2) {
@@ -2215,9 +2223,6 @@ struct LaborRollupTable: View {
                     RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
                         .stroke(AppTheme.cardBorder, lineWidth: 1)
                 )
-                .onChange(of: store.filters) { _, _ in
-                    expanded = false
-                }
         }
     }
 
@@ -2270,7 +2275,8 @@ struct LaborTable: View {
     @State private var sort = Column.tva
     @State private var ascending = false
     @State private var ordered: [MetricRow] = []
-    @State private var expanded = true
+
+    private var expanded: Bool { headerPin.storesExpanded }
 
     var body: some View {
         if rows.isEmpty {
@@ -2287,9 +2293,10 @@ struct LaborTable: View {
         } else {
             Section {
                 Button {
-                    expanded.toggle()
-                    headerPin.tableOpen = expanded
-                    if expanded { rebuildOrder(sort: sort, ascending: ascending) }
+                    let next = !headerPin.storesExpanded
+                    headerPin.storesExpanded = next
+                    headerPin.tableOpen = next
+                    if next { rebuildOrder(sort: sort, ascending: ascending) }
                 } label: {
                     HStack(spacing: 10) {
                         VStack(alignment: .leading, spacing: 2) {
@@ -2323,8 +2330,7 @@ struct LaborTable: View {
                 .listRowSeparator(.hidden)
                 .listRowBackground(AppTheme.bg)
                 .onAppear {
-                    expanded = true
-                    headerPin.tableOpen = true
+                    headerPin.tableOpen = headerPin.storesExpanded
                     headerPin.storeCount = rows.count
                     headerPin.active = sort.key
                     headerPin.ascending = ascending

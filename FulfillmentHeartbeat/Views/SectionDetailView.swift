@@ -74,6 +74,11 @@ struct SectionDetailView: View {
                     .environmentObject(laborHeaderPin)
             }
         }
+        .onAppear {
+            if section == .labor {
+                laborHeaderPin.openOnPageEnter()
+            }
+        }
     }
 
     @ViewBuilder
