@@ -107,6 +107,8 @@ struct SectionDetailView: View {
                     PageHeadline(lead: "PPH Pure Picks Per Hour", accent: "ScoreCard", blurb: section.blurb)
                 } else if section == .scheduleQuality {
                     PageHeadline(lead: "Schedule Quality", accent: "ScoreCard", blurb: section.blurb)
+                } else if section == .dynacap {
+                    PageHeadline(lead: "Dynacap Settings", accent: "ScoreCard", blurb: section.blurb)
                 } else {
                     PageHeadline(
                         lead: section == .pickPath ? "Pick Path Compliance" : section.title,
