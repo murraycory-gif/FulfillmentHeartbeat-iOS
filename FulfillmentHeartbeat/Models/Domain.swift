@@ -233,7 +233,7 @@ struct SectionSummary: Identifiable {
             return String(format: "%.1f", headline)
         }
         if section == .pickerScorecard {
-            return String(format: "%.0f", headline)
+            return HeartbeatFormat.num(headline)
         }
         return String(format: "%.1f%%", headline)
     }
