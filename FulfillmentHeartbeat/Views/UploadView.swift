@@ -61,7 +61,9 @@ struct UploadView: View {
                 guard let section, let url = urls.first else { return }
                 do {
                     let data = try Self.bytesFromPickedFile(url)
-                    store.importWorkbook(data: data, filename: "\(section.short).xlsx", section: section)
+                    let filename = url.lastPathComponent
+                        .replacingOccurrences(of: "%", with: "pct")
+                    store.importWorkbook(data: data, filename: filename, section: section)
                 } catch {
                     store.errorMessage = error.localizedDescription
                 }

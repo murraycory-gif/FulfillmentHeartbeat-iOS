@@ -1271,6 +1271,18 @@ enum SheetXML {
     }
 
     static func parse(data: Data, strings: [String]) -> [[String]] {
+        let regexRows = parseRegex(data: data, strings: strings)
+        let usable = regexRows.contains { row in
+            row.contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        }
+        if usable { return regexRows }
+        return data.withUnsafeBytes { raw -> [[String]] in
+            guard let base = raw.bindMemory(to: UInt8.self).baseAddress else { return regexRows }
+            return scan(base, count: raw.count, strings: strings)
+        }
+    }
+
+    private static func parseRegex(data: Data, strings: [String]) -> [[String]] {
         guard let xml = String(data: data, encoding: .utf8) else { return [] }
         let cleaned = stripNS(xml)
         var rows: [[String]] = []
@@ -1297,7 +1309,11 @@ enum SheetXML {
                     value = unescape(value)
                 }
                 let column = sheetColumnIndex(ref)
-                guard column >= 0, column < 32 else { continue }
+                if column < 0 {
+                    cells.append(value)
+                    continue
+                }
+                guard column < 256 else { continue }
                 if cells.count <= column {
                     cells.append(contentsOf: repeatElement("", count: column - cells.count + 1))
                 }
