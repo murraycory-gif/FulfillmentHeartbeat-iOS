@@ -2160,6 +2160,7 @@ struct LaborRollupTable: View {
 }
 
 struct LaborTable: View {
+    @EnvironmentObject private var store: HeartbeatStore
     let rows: [MetricRow]
 
     private enum Column: String, CaseIterable, Identifiable {
@@ -2196,6 +2197,7 @@ struct LaborTable: View {
     @State private var sort = Column.tva
     @State private var ascending = false
     @State private var ordered: [MetricRow] = []
+    @State private var expanded = false
 
     var body: some View {
         if rows.isEmpty {
@@ -2211,10 +2213,49 @@ struct LaborTable: View {
             }
         } else {
             Section {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("\(HeartbeatFormat.num(Double(rows.count))) stores")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(AppTheme.textSecondary)
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        expanded.toggle()
+                        if expanded { rebuildOrder(sort: sort, ascending: ascending) }
+                    }
+                } label: {
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("By store")
+                                .font(.title3.weight(.bold))
+                                .foregroundStyle(AppTheme.text)
+                            Text("\(HeartbeatFormat.num(Double(rows.count))) stores  ·  tap to \(expanded ? "collapse" : "expand")")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(AppTheme.textSecondary)
+                        }
+                        Spacer()
+                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(AppTheme.blue)
+                            .frame(width: 36, height: 36)
+                            .background(AppTheme.blueSoft, in: Circle())
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                        .fill(AppTheme.card)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                        .stroke(AppTheme.cardBorder, lineWidth: 1)
+                )
+                .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: expanded ? 4 : 20, trailing: 20))
+                .listRowSeparator(.hidden)
+                .listRowBackground(AppTheme.bg)
+                .onChange(of: store.filters) { _, _ in
+                    expanded = false
+                }
+            }
+            if expanded {
+                Section {
                     LaborMetricHeader(
                         label: "Store",
                         showCount: false,
@@ -2228,22 +2269,20 @@ struct LaborTable: View {
                             rebuildOrder(sort: column, ascending: nextAscending)
                         }
                     )
+                    .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(AppTheme.bg)
+                    ForEach(ordered) { row in
+                        LaborStoreCard(row: row)
+                            .listRowInsets(EdgeInsets(top: 2, leading: 20, bottom: 2, trailing: 20))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(AppTheme.bg)
+                    }
                 }
-                .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
-                .listRowSeparator(.hidden)
-                .listRowBackground(AppTheme.bg)
+                .transaction { $0.animation = nil }
+                .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
+                .onChange(of: rows.count) { _, _ in rebuildOrder(sort: sort, ascending: ascending) }
             }
-            Section {
-                ForEach(ordered) { row in
-                    LaborStoreCard(row: row)
-                        .listRowInsets(EdgeInsets(top: 2, leading: 20, bottom: 2, trailing: 20))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.bg)
-                }
-            }
-            .transaction { $0.animation = nil }
-            .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
-            .onChange(of: rows.count) { _, _ in rebuildOrder(sort: sort, ascending: ascending) }
         }
     }
 
