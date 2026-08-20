@@ -255,6 +255,7 @@ enum HeartbeatMath {
     static func latestPerStore(_ rows: [MetricRow]) -> [MetricRow] {
         var map: [String: MetricRow] = [:]
         for row in rows {
+            if isIgnoredStore(row.storeNumber) { continue }
             let key = row.storeNumber.isEmpty
                 ? "\(row.division)|\(row.operationsOM)|\(row.storeName ?? "")"
                 : row.storeNumber
@@ -412,17 +413,39 @@ enum HeartbeatMath {
         return trimmed
     }
 
+    static let ignoredStores: Set<String> = ["210", "239"]
+
+    static let identityOverrides: [String: StoreIdentity] = [
+        "3603": StoreIdentity(division: "Mid-Atlantic", district: "A9", om: "Aimee Cabrera-Kleissler", name: nil)
+    ]
+
+    static func isIgnoredStore(_ raw: String) -> Bool {
+        ignoredStores.contains(canonicalStore(raw))
+    }
+
     static func storeRoster(_ rows: [MetricRow]) -> [String: StoreIdentity] {
         var map: [String: StoreIdentity] = [:]
         for row in rows {
             guard !row.storeNumber.isEmpty else { continue }
             let number = canonicalStore(row.storeNumber)
+            if ignoredStores.contains(number) { continue }
             var current = map[number] ?? StoreIdentity(division: "", district: "", om: "", name: nil)
             if current.division.isEmpty, !row.division.isEmpty { current.division = row.division }
             if current.district.isEmpty, !row.district.isEmpty { current.district = row.district }
             if current.om.isEmpty, !row.operationsOM.isEmpty { current.om = row.operationsOM }
             if current.name == nil, let name = row.storeName, !name.isEmpty { current.name = name }
             map[number] = current
+        }
+        for (number, override) in identityOverrides {
+            var current = map[number] ?? override
+            if !override.division.isEmpty { current.division = override.division }
+            if !override.district.isEmpty { current.district = override.district }
+            if !override.om.isEmpty { current.om = override.om }
+            if let name = override.name, current.name == nil { current.name = name }
+            map[number] = current
+        }
+        for number in ignoredStores {
+            map.removeValue(forKey: number)
         }
         return map
     }

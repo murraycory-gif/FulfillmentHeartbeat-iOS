@@ -432,7 +432,7 @@ final class HeartbeatStore: ObservableObject {
         buckets.reserveCapacity(512)
         for row in rows where row.section == .labor && row.textPayload["labor_grain"] == "week" {
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
-            guard !store.isEmpty else { continue }
+            guard !store.isEmpty, !HeartbeatMath.isIgnoredStore(store) else { continue }
             buckets[store, default: []].append(row)
         }
         for store in buckets.keys {
