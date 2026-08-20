@@ -264,8 +264,6 @@ struct UploadPanel: View {
     }
 }
 
-}
-
 final class HeartbeatDocumentPicker: NSObject, UIDocumentPickerDelegate {
     static let shared = HeartbeatDocumentPicker()
     private var onPick: ((Data, String) -> Void)?
