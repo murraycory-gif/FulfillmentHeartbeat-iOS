@@ -520,6 +520,19 @@ enum WorkbookParser {
                     .values
                     .compactMap { $0.last }
                     .sorted { $0.date < $1.date }
+                    .filter {
+                        ($0.chargedHrs ?? 0) > 0
+                            || ($0.empowerHrs ?? 0) > 0
+                            || ($0.schHrs ?? 0) > 0
+                            || ($0.earnedHrs ?? 0) > 0
+                    }
+                let hasActivity = charged > 0 || emp > 0 || sch > 0 || hours > 0 || dollars > 0 || !days.isEmpty
+                if !hasActivity { continue }
+                if payload["act_cost_pct"] == nil {
+                    let weight = days.reduce(0.0) { $0 + ($1.chargedHrs ?? 0) }
+                    let mixed = days.reduce(0.0) { $0 + ($1.actCostPct ?? 0) * ($1.chargedHrs ?? 0) }
+                    if weight > 0 { payload["act_cost_pct"] = mixed / weight }
+                }
                 let json = (try? encoder.encode(days)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
                 out.append(
                     ParsedWorkbookRow(
@@ -562,6 +575,19 @@ enum WorkbookParser {
             }
             if let cost = storePayload["cost_trgt_pct"], let tva = storePayload["target_vs_actual_pct"] {
                 storePayload["act_cost_pct"] = cost + tva
+            } else if sumCharged > 0 {
+                var mixed = 0.0
+                var weight = 0.0
+                for week in ordered {
+                    guard let bucket = weeks[week] else { continue }
+                    for day in bucket.days {
+                        let charged = day.chargedHrs ?? 0
+                        guard charged > 0, let pct = day.actCostPct else { continue }
+                        mixed += pct * charged
+                        weight += charged
+                    }
+                }
+                if weight > 0 { storePayload["act_cost_pct"] = mixed / weight }
             }
             let span = ordered.isEmpty ? "" : (ordered.first == ordered.last ? ordered[0] : "\(ordered.first!)–\(ordered.last!)")
             out.append(

@@ -443,9 +443,19 @@ struct SectionDetailView: View {
             return value > 0 && value <= HeartbeatMath.laborWatch
         }.count
         let risk = rows.filter { ($0.number("target_vs_actual_pct") ?? 0) > HeartbeatMath.laborWatch }.count
-        let cost = HeartbeatMath.average(rows.compactMap { $0.number("cost_trgt_pct") })
         let dollars = rows.compactMap { $0.number("act_cost_dollar") }.reduce(0, +)
         let span = store.laborWeekSpan()
+        let cost: Double? = {
+            var num = 0.0
+            var den = 0.0
+            for row in rows {
+                guard let value = row.number("cost_trgt_pct") else { continue }
+                let weight = row.number("sch_hrs") ?? row.number("act_hrs") ?? 1
+                num += value * weight
+                den += weight
+            }
+            return den > 0 ? num / den : nil
+        }()
         callout("Target vs Actual", summary.headlineText, "0% healthy · 0.01–3% watch · over 3% risk", summary.health, selected: laborFocus == .all) {
             laborFocus = .all
         }

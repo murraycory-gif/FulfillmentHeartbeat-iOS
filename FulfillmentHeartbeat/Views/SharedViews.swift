@@ -2056,21 +2056,15 @@ struct LaborStoreCard: View {
     @ViewBuilder
     private var weekBlock: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("By week  ·  same columns as the store card")
+            Text("By week")
                 .font(.subheadline.weight(.bold))
             if weeks.isEmpty {
                 Text("No weekly rows for this store.")
                     .font(.subheadline)
                     .foregroundStyle(AppTheme.textSecondary)
             } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        laborHeader
-                        laborStrip(title: "All weeks", values: values(from: row), health: HeartbeatMath.health(for: .labor, row: row))
-                        ForEach(weeks) { week in
-                            weekTable(week)
-                        }
-                    }
+                ForEach(weeks) { week in
+                    weekCard(week)
                 }
             }
         }
@@ -2082,11 +2076,14 @@ struct LaborStoreCard: View {
         )
     }
 
-    private func weekTable(_ week: MetricRow) -> some View {
+    private func weekCard(_ week: MetricRow) -> some View {
         let health = HeartbeatMath.laborHealth(week)
         let weekId = week.textPayload["week"] ?? week.recordedOn ?? "—"
         let isOpen = openWeek == weekId
-        return VStack(alignment: .leading, spacing: 8) {
+        let days = isOpen ? store.laborDays(from: week).filter {
+            ($0.chargedHrs ?? 0) > 0 || ($0.empowerHrs ?? 0) > 0 || ($0.schHrs ?? 0) > 0
+        } : []
+        return VStack(alignment: .leading, spacing: 10) {
             Button {
                 withAnimation(.easeInOut(duration: 0.18)) {
                     openWeek = isOpen ? nil : weekId
@@ -2103,111 +2100,84 @@ struct LaborStoreCard: View {
                 }
             }
             .buttonStyle(.plain)
-            laborStrip(title: "Week", values: values(from: week), health: health)
+            HStack(spacing: 8) {
+                metric("Tgt vs Act", HeartbeatFormat.pct(week.number("target_vs_actual_pct")), health)
+                metric("CostTrgt%", HeartbeatFormat.pct(week.number("cost_trgt_pct")), .none)
+                metric("ActCost%", HeartbeatFormat.pct(week.number("act_cost_pct")), .none)
+                metric("Charged Hrs", HeartbeatFormat.num(week.number("charged_hrs"), digits: 1), .none)
+            }
+            Text(weekMeta(week))
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(AppTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
             if isOpen {
-                let days = store.laborDays(from: week)
-                if days.isEmpty {
-                    Text("No daily rows in this week.")
-                        .font(.subheadline)
-                        .foregroundStyle(AppTheme.textSecondary)
-                } else {
-                    ForEach(days) { day in
-                        laborStrip(title: displayDate(day.date), values: values(day: day, week: week), health: .none)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("By day")
+                        .font(.subheadline.weight(.bold))
+                    if days.isEmpty {
+                        Text("No charged days in this week.")
+                            .font(.subheadline)
+                            .foregroundStyle(AppTheme.textSecondary)
+                    } else {
+                        ForEach(days) { day in
+                            dayCard(day, week: week)
+                        }
                     }
                 }
             }
         }
-        .padding(10)
+        .padding(12)
         .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(wash(health).opacity(0.7))
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(wash(health).opacity(0.55))
         )
     }
 
-    private var laborCols: [(String, CGFloat)] {
-        [
-            ("Tgt vs Act", 102),
-            ("CostTrgt%", 96),
-            ("ActCost%", 96),
-            ("Charged", 90),
-            ("Act Hrs", 88),
-            ("Empower", 88),
-            ("Sch Hrs", 88),
-            ("Earned", 88),
-            ("Over%", 84),
-            ("ActCost$", 104),
-            ("UPLH", 84),
-            ("Wage", 84),
-            ("AIV", 84),
-        ]
-    }
-
-    private var laborHeader: some View {
-        HStack(spacing: 8) {
-            Text("Grain")
-                .frame(width: 92, alignment: .leading)
-            ForEach(laborCols, id: \.0) { col in
-                Text(col.0)
-                    .frame(width: col.1, alignment: .trailing)
+    private func dayCard(_ day: LaborDay, week: MetricRow) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(displayDate(day.date))
+                .font(.headline.weight(.semibold))
+            HStack(spacing: 8) {
+                metric("Tgt vs Act", HeartbeatFormat.pct(week.number("target_vs_actual_pct")), .none)
+                metric("CostTrgt%", HeartbeatFormat.pct(week.number("cost_trgt_pct")), .none)
+                metric("ActCost%", HeartbeatFormat.pct(day.actCostPct), .none)
+                metric("Charged Hrs", HeartbeatFormat.num(day.chargedHrs, digits: 1), .none)
             }
+            Text(dayMeta(day, week: week))
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(AppTheme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .font(.caption.weight(.bold))
-        .foregroundStyle(AppTheme.textTertiary)
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(AppTheme.bg)
+        )
     }
 
-    private func laborStrip(title: String, values: [String], health: Health) -> some View {
-        HStack(spacing: 8) {
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-                .frame(width: 92, alignment: .leading)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-            ForEach(Array(laborCols.enumerated()), id: \.offset) { index, col in
-                let value = values.indices.contains(index) ? values[index] : "—"
-                Text(value)
-                    .font(.subheadline.weight(.bold).monospacedDigit())
-                    .foregroundStyle(index == 0 ? ink(health) : AppTheme.text)
-                    .frame(width: col.1, alignment: .trailing)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-            }
-        }
-    }
-
-    private func values(from row: MetricRow) -> [String] {
+    private func weekMeta(_ week: MetricRow) -> String {
         [
-            HeartbeatFormat.pct(row.number("target_vs_actual_pct")),
-            HeartbeatFormat.pct(row.number("cost_trgt_pct")),
-            HeartbeatFormat.pct(row.number("act_cost_pct")),
-            HeartbeatFormat.num(row.number("charged_hrs"), digits: 1),
-            HeartbeatFormat.num(row.number("act_hrs"), digits: 1),
-            HeartbeatFormat.num(row.number("empower_hrs"), digits: 1),
-            HeartbeatFormat.num(row.number("sch_hrs"), digits: 1),
-            HeartbeatFormat.num(row.number("earned_hrs"), digits: 1),
-            HeartbeatFormat.pct(row.number("over_schedule_pct")),
-            HeartbeatFormat.money(row.number("act_cost_dollar")),
-            HeartbeatFormat.pct(row.number("uplh_impact_pct")),
-            HeartbeatFormat.pct(row.number("wage_impact_pct")),
-            HeartbeatFormat.pct(row.number("aiv_impact_pct")),
-        ]
-    }
-
-    private func values(day: LaborDay, week: MetricRow) -> [String] {
-        [
-            HeartbeatFormat.pct(week.number("target_vs_actual_pct")),
-            HeartbeatFormat.pct(week.number("cost_trgt_pct")),
-            HeartbeatFormat.pct(day.actCostPct),
-            HeartbeatFormat.num(day.chargedHrs, digits: 1),
-            HeartbeatFormat.num(week.number("act_hrs"), digits: 1),
-            HeartbeatFormat.num(day.empowerHrs, digits: 1),
-            HeartbeatFormat.num(day.schHrs, digits: 1),
-            HeartbeatFormat.num(day.earnedHrs, digits: 1),
-            HeartbeatFormat.pct(day.overSchedulePct),
+            "Act Hrs \(HeartbeatFormat.num(week.number("act_hrs"), digits: 1))",
+            "Empower \(HeartbeatFormat.num(week.number("empower_hrs"), digits: 1))",
+            "Sch Hrs \(HeartbeatFormat.num(week.number("sch_hrs"), digits: 1))",
+            "Earned \(HeartbeatFormat.num(week.number("earned_hrs"), digits: 1))",
+            "Over \(HeartbeatFormat.pct(week.number("over_schedule_pct")))",
             HeartbeatFormat.money(week.number("act_cost_dollar")),
-            HeartbeatFormat.pct(week.number("uplh_impact_pct")),
-            HeartbeatFormat.pct(week.number("wage_impact_pct")),
-            HeartbeatFormat.pct(week.number("aiv_impact_pct")),
-        ]
+            "UPLH \(HeartbeatFormat.pct(week.number("uplh_impact_pct")))",
+            "Wage \(HeartbeatFormat.pct(week.number("wage_impact_pct")))",
+            "AIV \(HeartbeatFormat.pct(week.number("aiv_impact_pct")))",
+        ].joined(separator: "  ·  ")
+    }
+
+    private func dayMeta(_ day: LaborDay, week: MetricRow) -> String {
+        [
+            "Act Hrs \(HeartbeatFormat.num(week.number("act_hrs"), digits: 1))",
+            "Empower \(HeartbeatFormat.num(day.empowerHrs, digits: 1))",
+            "Sch Hrs \(HeartbeatFormat.num(day.schHrs, digits: 1))",
+            "Earned \(HeartbeatFormat.num(day.earnedHrs, digits: 1))",
+            "Over \(HeartbeatFormat.pct(day.overSchedulePct))",
+            "Util \(HeartbeatFormat.pct(day.earnedHrsUtil))",
+        ].joined(separator: "  ·  ")
     }
 
     private func displayDate(_ raw: String) -> String {

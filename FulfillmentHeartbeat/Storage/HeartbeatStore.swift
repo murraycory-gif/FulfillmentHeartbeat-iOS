@@ -324,7 +324,7 @@ final class HeartbeatStore: ObservableObject {
             }
         }).sorted()
         guard let first = ids.first, let last = ids.last else { return "—" }
-        return first == last ? first : "\(first)–\(last)"
+        return first == last ? first : "\(first) thru \(last)"
     }
 
     static func importAudit(section: MetricSection, rows: [MetricRow]) -> String {
@@ -352,7 +352,7 @@ final class HeartbeatStore: ObservableObject {
         let short = byStore.values.filter { $0.count < weekIds.count }.count
         let noCost = stores.filter { $0.number("cost_trgt_pct") == nil }.count
         let noTva = stores.filter { $0.number("target_vs_actual_pct") == nil }.count
-        let span = weekIds.isEmpty ? "—" : (weekIds.first == weekIds.last ? weekIds[0] : "\(weekIds.first!)–\(weekIds.last!)")
+        let span = weekIds.isEmpty ? "—" : (weekIds.first == weekIds.last ? weekIds[0] : "\(weekIds.first!) thru \(weekIds.last!)")
         var parts = [
             "\(HeartbeatFormat.num(Double(stores.count))) stores",
             "\(weekIds.count) weeks (\(span))",
