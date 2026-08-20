@@ -1935,127 +1935,54 @@ private enum LaborRollupBuilder {
     }
 }
 
-struct LaborRollupTable: View {
-    @EnvironmentObject private var store: HeartbeatStore
-    let rows: [MetricRow]
-    @State private var expanded = false
+private struct LaborMetricLine: View {
+    let label: String
+    var count: Int? = nil
+    let tva: Double?
+    let cost: Double?
+    let act: Double?
+    let efficiency: Double?
+    let uplh: Double?
+    let wage: Double?
+    let aiv: Double?
+    var chevronExpanded: Bool? = nil
 
     var body: some View {
-        if let grain, !summary.isEmpty {
-            Section {
-                VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            expanded.toggle()
-                        }
-                    } label: {
-                        HStack(spacing: 10) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(grain.title)
-                                    .font(.title3.weight(.bold))
-                                    .foregroundStyle(AppTheme.text)
-                                Text("\(summary.count) \(grain.columnTitle.lowercased())\(summary.count == 1 ? "" : "s")  ·  tap to \(expanded ? "collapse" : "expand")")
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(AppTheme.textSecondary)
-                            }
-                            Spacer()
-                            Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                                .font(.headline.weight(.semibold))
-                                .foregroundStyle(AppTheme.blue)
-                                .frame(width: 36, height: 36)
-                                .background(AppTheme.blueSoft, in: Circle())
-                        }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    if expanded {
-                        header(grain)
-                        ForEach(summary) { row in
-                            rollupRow(row, grain: grain)
-                        }
-                    }
-                }
-                .padding(16)
-                .background(
-                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                        .fill(AppTheme.card)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                        .stroke(AppTheme.cardBorder, lineWidth: 1)
-                )
-                .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 12, trailing: 20))
-                .listRowSeparator(.hidden)
-                .listRowBackground(AppTheme.bg)
-                .onChange(of: store.filters) { _, _ in
-                    expanded = false
-                }
-            }
-        }
-    }
-
-    private var grain: LaborRollupGrain? {
-        LaborRollupBuilder.grain(for: store.filters)
-    }
-
-    private var summary: [LaborRollupRow] {
-        guard let grain else { return [] }
-        return LaborRollupBuilder.rows(from: rows, grain: grain)
-    }
-
-    private func header(_ grain: LaborRollupGrain) -> some View {
+        let tvaHealth = HeartbeatMath.laborHealth(tva)
         HStack(spacing: 6) {
-            Text(grain.columnTitle.uppercased())
-                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
-            if grain != .store {
-                Text("STORES")
-                    .frame(width: 58, alignment: .trailing)
+            HStack(spacing: 4) {
+                Text(label)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(AppTheme.text)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                if let chevronExpanded {
+                    Image(systemName: chevronExpanded ? "chevron.up" : "chevron.down")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(AppTheme.blue)
+                }
             }
-            Text("TGT VS ACT").frame(maxWidth: .infinity, alignment: .trailing)
-            Text("COSTTRGT%").frame(maxWidth: .infinity, alignment: .trailing)
-            Text("ACTCOST%").frame(maxWidth: .infinity, alignment: .trailing)
-            Text("SCH EFFI%").frame(maxWidth: .infinity, alignment: .trailing)
-            Text("UPLH").frame(maxWidth: .infinity, alignment: .trailing)
-            Text("WAGE").frame(maxWidth: .infinity, alignment: .trailing)
-            Text("AIV").frame(maxWidth: .infinity, alignment: .trailing)
-            Text("STATUS").frame(width: 88, alignment: .trailing)
-        }
-        .font(.caption2.weight(.semibold))
-        .tracking(0.4)
-        .foregroundStyle(AppTheme.textTertiary)
-        .lineLimit(1)
-        .minimumScaleFactor(0.7)
-    }
-
-    private func rollupRow(_ row: LaborRollupRow, grain: LaborRollupGrain) -> some View {
-        let tvaHealth = HeartbeatMath.laborHealth(row.tva)
-        return HStack(spacing: 6) {
-            Text(row.label)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(AppTheme.text)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
-            if grain != .store {
-                Text(HeartbeatFormat.num(Double(row.storeCount)))
+            .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            if let count {
+                Text(HeartbeatFormat.num(Double(count)))
                     .font(.subheadline.weight(.semibold).monospacedDigit())
                     .foregroundStyle(AppTheme.textSecondary)
                     .frame(width: 58, alignment: .trailing)
             }
-            metric(HeartbeatFormat.pct(row.tva), tvaHealth)
-            metric(HeartbeatFormat.pct(row.cost), .none, brand: true)
-            metric(HeartbeatFormat.pct(row.act), actHealth(row.act, row.cost))
-            metric(HeartbeatFormat.pct(row.efficiency), HeartbeatMath.band(row.efficiency, good: HeartbeatMath.scheduleGoal, watch: HeartbeatMath.scheduleWatch))
-            metric(HeartbeatFormat.pct(row.uplh), impact(row.uplh))
-            metric(HeartbeatFormat.pct(row.wage), impact(row.wage))
-            metric(HeartbeatFormat.pct(row.aiv), impact(row.aiv))
+            cell(HeartbeatFormat.pct(tva), tvaHealth)
+            cell(HeartbeatFormat.pct(cost), .none, brand: true)
+            cell(HeartbeatFormat.pct(act), actHealth(act, cost))
+            cell(HeartbeatFormat.pct(efficiency), HeartbeatMath.band(efficiency, good: HeartbeatMath.scheduleGoal, watch: HeartbeatMath.scheduleWatch))
+            cell(HeartbeatFormat.pct(uplh), impact(uplh))
+            cell(HeartbeatFormat.pct(wage), impact(wage))
+            cell(HeartbeatFormat.pct(aiv), impact(aiv))
             HealthBadge(health: tvaHealth, prominent: true, compact: true)
                 .frame(width: 88, alignment: .trailing)
         }
         .padding(.vertical, 4)
     }
 
-    private func metric(_ value: String, _ health: Health, brand: Bool = false) -> some View {
+    private func cell(_ value: String, _ health: Health, brand: Bool = false) -> some View {
         Text(value)
             .font(.subheadline.weight(.bold).monospacedDigit())
             .foregroundStyle(brand ? AppTheme.blue : ink(health))
@@ -2099,11 +2026,144 @@ struct LaborRollupTable: View {
     }
 }
 
+private struct LaborMetricHeader: View {
+    let label: String
+    var showCount: Bool = false
+    var active: String? = nil
+    var ascending: Bool = false
+    var onSelect: ((String) -> Void)? = nil
+
+    var body: some View {
+        HStack(spacing: 6) {
+            head(label, key: "label", alignment: .leading)
+                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            if showCount {
+                head("Stores", key: "count", alignment: .trailing)
+                    .frame(width: 58, alignment: .trailing)
+            }
+            head("Tgt vs Act", key: "tva")
+            head("CostTrgt%", key: "cost")
+            head("ActCost%", key: "act")
+            head("Sch Effi%", key: "eff")
+            head("UPLH", key: "uplh")
+            head("Wage", key: "wage")
+            head("AIV", key: "aiv")
+            head("Status", key: "status", alignment: .trailing)
+                .frame(width: 88, alignment: .trailing)
+        }
+        .font(.caption2.weight(.semibold))
+        .tracking(0.4)
+        .lineLimit(1)
+        .minimumScaleFactor(0.7)
+    }
+
+    private func head(_ title: String, key: String, alignment: Alignment = .trailing) -> some View {
+        let selected = active == key
+        let content = HStack(spacing: 3) {
+            Text(title.uppercased())
+            if selected {
+                Image(systemName: ascending ? "chevron.up" : "chevron.down")
+                    .font(.caption2.weight(.bold))
+            }
+        }
+        .foregroundStyle(selected ? AppTheme.blue : AppTheme.textTertiary)
+        .frame(maxWidth: alignment == .leading ? nil : .infinity, alignment: alignment)
+        .contentShape(Rectangle())
+        return Group {
+            if let onSelect {
+                Button { onSelect(key) } label: { content }
+                    .buttonStyle(.plain)
+            } else {
+                content
+            }
+        }
+    }
+}
+
+struct LaborRollupTable: View {
+    @EnvironmentObject private var store: HeartbeatStore
+    let rows: [MetricRow]
+    @State private var expanded = false
+
+    var body: some View {
+        if let grain, !summary.isEmpty {
+            Section {
+                VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            expanded.toggle()
+                        }
+                    } label: {
+                        HStack(spacing: 10) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(grain.title)
+                                    .font(.title3.weight(.bold))
+                                    .foregroundStyle(AppTheme.text)
+                                Text("\(summary.count) \(grain.columnTitle.lowercased())\(summary.count == 1 ? "" : "s")  ·  tap to \(expanded ? "collapse" : "expand")")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(AppTheme.textSecondary)
+                            }
+                            Spacer()
+                            Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                                .font(.headline.weight(.semibold))
+                                .foregroundStyle(AppTheme.blue)
+                                .frame(width: 36, height: 36)
+                                .background(AppTheme.blueSoft, in: Circle())
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    if expanded {
+                        LaborMetricHeader(label: grain.columnTitle, showCount: grain != .store)
+                        ForEach(summary) { row in
+                            LaborMetricLine(
+                                label: row.label,
+                                count: grain == .store ? nil : row.storeCount,
+                                tva: row.tva,
+                                cost: row.cost,
+                                act: row.act,
+                                efficiency: row.efficiency,
+                                uplh: row.uplh,
+                                wage: row.wage,
+                                aiv: row.aiv
+                            )
+                        }
+                    }
+                }
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                        .fill(AppTheme.card)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                        .stroke(AppTheme.cardBorder, lineWidth: 1)
+                )
+                .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 12, trailing: 20))
+                .listRowSeparator(.hidden)
+                .listRowBackground(AppTheme.bg)
+                .onChange(of: store.filters) { _, _ in
+                    expanded = false
+                }
+            }
+        }
+    }
+
+    private var grain: LaborRollupGrain? {
+        LaborRollupBuilder.grain(for: store.filters)
+    }
+
+    private var summary: [LaborRollupRow] {
+        guard let grain else { return [] }
+        return LaborRollupBuilder.rows(from: rows, grain: grain)
+    }
+}
+
 struct LaborTable: View {
     let rows: [MetricRow]
 
     private enum Column: String, CaseIterable, Identifiable {
-        case store, tva, cost, actual, charged, status
+        case store, tva, cost, actual, efficiency, uplh, wage, aiv, status
         var id: String { rawValue }
         var title: String {
             switch self {
@@ -2111,8 +2171,24 @@ struct LaborTable: View {
             case .tva: return "Tgt vs Act"
             case .cost: return "CostTrgt%"
             case .actual: return "ActCost%"
-            case .charged: return "Charged Hrs"
+            case .efficiency: return "Sch Effi%"
+            case .uplh: return "UPLH"
+            case .wage: return "Wage"
+            case .aiv: return "AIV"
             case .status: return "Status"
+            }
+        }
+        var key: String {
+            switch self {
+            case .store: return "label"
+            case .tva: return "tva"
+            case .cost: return "cost"
+            case .actual: return "act"
+            case .efficiency: return "eff"
+            case .uplh: return "uplh"
+            case .wage: return "wage"
+            case .aiv: return "aiv"
+            case .status: return "status"
             }
         }
     }
@@ -2135,49 +2211,32 @@ struct LaborTable: View {
             }
         } else {
             Section {
-                HStack {
+                VStack(alignment: .leading, spacing: 8) {
                     Text("\(HeartbeatFormat.num(Double(rows.count))) stores")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(AppTheme.textSecondary)
-                    Spacer()
+                    LaborMetricHeader(
+                        label: "Store",
+                        showCount: false,
+                        active: sort.key,
+                        ascending: ascending,
+                        onSelect: { key in
+                            let column = Column.allCases.first { $0.key == key } ?? .tva
+                            let nextAscending = sort == column ? !ascending : column == .store
+                            sort = column
+                            ascending = nextAscending
+                            rebuildOrder(sort: column, ascending: nextAscending)
+                        }
+                    )
                 }
                 .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
                 .listRowSeparator(.hidden)
                 .listRowBackground(AppTheme.bg)
             }
             Section {
-                HStack(spacing: 12) {
-                    ForEach(Column.allCases) { column in
-                        Button {
-                            let nextSort = sort == column ? sort : column
-                            let nextAscending = sort == column ? !ascending : column == .store
-                            sort = nextSort
-                            ascending = nextAscending
-                            rebuildOrder(sort: nextSort, ascending: nextAscending)
-                        } label: {
-                            HStack(spacing: 4) {
-                                Text(column.title.uppercased())
-                                    .font(.caption2.weight(.semibold))
-                                    .tracking(0.5)
-                                if sort == column {
-                                    Image(systemName: ascending ? "chevron.up" : "chevron.down")
-                                        .font(.caption2.weight(.bold))
-                                }
-                            }
-                            .foregroundStyle(sort == column ? AppTheme.blue : AppTheme.textTertiary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 4, trailing: 20))
-                .listRowSeparator(.hidden)
-                .listRowBackground(AppTheme.bg)
-
                 ForEach(ordered) { row in
                     LaborStoreCard(row: row)
-                        .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
+                        .listRowInsets(EdgeInsets(top: 2, leading: 20, bottom: 2, trailing: 20))
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.bg)
                 }
@@ -2208,8 +2267,14 @@ struct LaborTable: View {
             return numberOrder(lhs.number("cost_trgt_pct"), rhs.number("cost_trgt_pct"))
         case .actual:
             return numberOrder(lhs.number("act_cost_pct"), rhs.number("act_cost_pct"))
-        case .charged:
-            return numberOrder(lhs.number("charged_hrs"), rhs.number("charged_hrs"))
+        case .efficiency:
+            return numberOrder(lhs.number("schedule_efficiency_pct"), rhs.number("schedule_efficiency_pct"))
+        case .uplh:
+            return numberOrder(lhs.number("uplh_impact_pct"), rhs.number("uplh_impact_pct"))
+        case .wage:
+            return numberOrder(lhs.number("wage_impact_pct"), rhs.number("wage_impact_pct"))
+        case .aiv:
+            return numberOrder(lhs.number("aiv_impact_pct"), rhs.number("aiv_impact_pct"))
         case .status:
             let a = healthRank(HeartbeatMath.health(for: .labor, row: lhs))
             let b = healthRank(HeartbeatMath.health(for: .labor, row: rhs))
@@ -2262,7 +2327,8 @@ struct LaborStoreCard: View {
 
     var body: some View {
         let health = HeartbeatMath.health(for: .labor, row: row)
-        return VStack(alignment: .leading, spacing: 12) {
+        let label = row.division.isEmpty ? (row.storeNumber.isEmpty ? "—" : row.storeNumber) : "\(row.storeNumber)  |  \(row.division)"
+        return VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) {
                     expanded.toggle()
@@ -2274,52 +2340,33 @@ struct LaborStoreCard: View {
                     }
                 }
             } label: {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(row.storeNumber.isEmpty ? "—" : row.storeNumber)
-                        .font(.title3.weight(.semibold).monospacedDigit())
-                        .foregroundStyle(AppTheme.text)
-                    if !row.division.isEmpty {
-                        Text("|")
-                            .font(.title3.weight(.semibold))
-                            .foregroundStyle(AppTheme.textTertiary)
-                        Text(row.division)
-                            .font(.title3.weight(.semibold))
-                            .foregroundStyle(AppTheme.textSecondary)
-                            .lineLimit(1)
-                    }
-                    Spacer()
-                    HealthBadge(health: health, prominent: true)
-                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                        .font(.headline.weight(.semibold))
-                        .foregroundStyle(AppTheme.blue)
-                        .frame(width: 36, height: 36)
-                        .background(AppTheme.blueSoft, in: Circle())
-                }
+                LaborMetricLine(
+                    label: label,
+                    tva: row.number("target_vs_actual_pct"),
+                    cost: row.number("cost_trgt_pct"),
+                    act: row.number("act_cost_pct"),
+                    efficiency: row.number("schedule_efficiency_pct"),
+                    uplh: row.number("uplh_impact_pct"),
+                    wage: row.number("wage_impact_pct"),
+                    aiv: row.number("aiv_impact_pct"),
+                    chevronExpanded: expanded
+                )
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            Text(metaLine)
-                .font(.subheadline)
-                .foregroundStyle(AppTheme.textSecondary)
-            laborGrid(from: row, health: health)
             if expanded {
+                Text(metaLine)
+                    .font(.subheadline)
+                    .foregroundStyle(AppTheme.textSecondary)
                 weekBlock
             }
         }
-        .padding(16)
+        .padding(.horizontal, 4)
+        .padding(.vertical, expanded ? 10 : 0)
         .background(
             RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
-                .fill(wash(health).opacity(0.55))
+                .fill(expanded ? wash(health).opacity(0.35) : Color.clear)
         )
-        .overlay(
-            RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
-                .stroke(ink(health).opacity(health == .none ? 0.15 : 0.45), lineWidth: health == .risk || health == .watch ? 2 : 1.5)
-        )
-        .onAppear {
-            pulseOn = false
-            withAnimation(.easeInOut(duration: 1.05).repeatForever(autoreverses: true)) {
-                pulseOn = true
-            }
-        }
     }
 
     private var metaLine: String {
