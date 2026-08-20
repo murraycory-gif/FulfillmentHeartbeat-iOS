@@ -43,16 +43,25 @@ struct SectionLabel: View {
 struct HealthBadge: View {
     let health: Health
     var prominent: Bool = false
+    var compact: Bool = false
 
     var body: some View {
         Text(prominent ? health.label.uppercased() : health.label)
-            .font(prominent ? .subheadline.weight(.heavy) : .caption.weight(.semibold))
-            .tracking(prominent ? 0.4 : 0)
-            .padding(.horizontal, prominent ? 14 : 10)
-            .padding(.vertical, prominent ? 8 : 5)
+            .font(badgeFont)
+            .tracking(compact ? 0 : (prominent ? 0.4 : 0))
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .fixedSize(horizontal: true, vertical: true)
+            .padding(.horizontal, compact ? 8 : (prominent ? 14 : 10))
+            .padding(.vertical, compact ? 5 : (prominent ? 8 : 5))
             .foregroundStyle(prominent ? Color.white : foreground)
             .background(prominent ? solid : background, in: Capsule(style: .continuous))
-            .shadow(color: prominent ? solid.opacity(0.35) : .clear, radius: 6, y: 2)
+            .shadow(color: prominent ? solid.opacity(0.35) : .clear, radius: compact ? 3 : 6, y: 2)
+    }
+
+    private var badgeFont: Font {
+        if compact { return .caption.weight(.heavy) }
+        return prominent ? .subheadline.weight(.heavy) : .caption.weight(.semibold)
     }
 
     private var solid: Color {

@@ -459,6 +459,9 @@ struct SectionDetailView: View {
         }.count
         let risk = rows.filter { ($0.number("target_vs_actual_pct") ?? 0) > HeartbeatMath.laborWatch }.count
         let tva = laborRollup("target_vs_actual_pct")
+        let cost = laborRollup("cost_trgt_pct")
+        let act = laborRollup("act_cost_pct")
+        let efficiency = laborRollup("schedule_efficiency_pct")
         let uplh = laborRollup("uplh_impact_pct")
         let wage = laborRollup("wage_impact_pct")
         let aiv = laborRollup("aiv_impact_pct")
@@ -477,13 +480,19 @@ struct SectionDetailView: View {
                     laborFocus = .risk
                 }
             }
-            HStack(spacing: 12) {
-                callout("CostTrgt%", HeartbeatFormat.pct(laborRollup("cost_trgt_pct")), "Cost target", .none, compact: true)
-                callout("ActCost%", HeartbeatFormat.pct(laborRollup("act_cost_pct")), "Actual cost", .none, compact: true)
-                callout("Sch Effi%", HeartbeatFormat.pct(laborRollup("schedule_efficiency_pct")), "Schedule efficiency", .none, compact: true)
-                callout("UPLH", HeartbeatFormat.pct(uplh), "UPLH impact", laborImpactHealth(uplh), compact: true)
-                callout("Wage", HeartbeatFormat.pct(wage), "Wage impact", laborImpactHealth(wage), compact: true)
-                callout("AIV", HeartbeatFormat.pct(aiv), "AIV impact", laborImpactHealth(aiv), compact: true)
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 12) {
+                    laborMetricCallouts(cost: cost, act: act, efficiency: efficiency, uplh: uplh, wage: wage, aiv: aiv)
+                }
+                .frame(minWidth: 1080)
+                VStack(spacing: 12) {
+                    HStack(spacing: 12) {
+                        laborCostCallouts(cost: cost, act: act, efficiency: efficiency)
+                    }
+                    HStack(spacing: 12) {
+                        laborImpactCallouts(uplh: uplh, wage: wage, aiv: aiv)
+                    }
+                }
             }
         }
     }
@@ -491,6 +500,36 @@ struct SectionDetailView: View {
     private func laborImpactHealth(_ value: Double?) -> Health {
         guard let value else { return .none }
         return value <= 0 ? .good : .risk
+    }
+
+    private func laborActCostHealth(_ act: Double?, _ cost: Double?) -> Health {
+        guard let act, let cost else { return .none }
+        return act <= cost ? .good : .risk
+    }
+
+    private func laborActCostDetail(_ act: Double?, _ cost: Double?) -> String {
+        guard let act, let cost else { return "Actual cost" }
+        return act <= cost ? "At or below target" : "Above cost target"
+    }
+
+    @ViewBuilder
+    private func laborMetricCallouts(cost: Double?, act: Double?, efficiency: Double?, uplh: Double?, wage: Double?, aiv: Double?) -> some View {
+        laborCostCallouts(cost: cost, act: act, efficiency: efficiency)
+        laborImpactCallouts(uplh: uplh, wage: wage, aiv: aiv)
+    }
+
+    @ViewBuilder
+    private func laborCostCallouts(cost: Double?, act: Double?, efficiency: Double?) -> some View {
+        callout("CostTrgt%", HeartbeatFormat.pct(cost), "Cost target", .none, brand: true, compact: true)
+        callout("ActCost%", HeartbeatFormat.pct(act), laborActCostDetail(act, cost), laborActCostHealth(act, cost), compact: true)
+        callout("Sch Effi%", HeartbeatFormat.pct(efficiency), "90% goal · 85% watch", HeartbeatMath.band(efficiency, good: HeartbeatMath.scheduleGoal, watch: HeartbeatMath.scheduleWatch), compact: true)
+    }
+
+    @ViewBuilder
+    private func laborImpactCallouts(uplh: Double?, wage: Double?, aiv: Double?) -> some View {
+        callout("UPLH", HeartbeatFormat.pct(uplh), "UPLH impact", laborImpactHealth(uplh), compact: true)
+        callout("Wage", HeartbeatFormat.pct(wage), "Wage impact", laborImpactHealth(wage), compact: true)
+        callout("AIV", HeartbeatFormat.pct(aiv), "AIV impact", laborImpactHealth(aiv), compact: true)
     }
 
     private func laborRollup(_ key: String) -> Double? {
@@ -598,16 +637,17 @@ struct PickerFocusTile: View {
 
     private var tile: some View {
         VStack(alignment: .leading, spacing: compact ? 6 : 10) {
-            HStack(alignment: .top, spacing: 8) {
+            HStack(alignment: .center, spacing: compact ? 6 : 8) {
                 Text(title)
                     .font((compact ? Font.headline : Font.title3).weight(.bold))
                     .foregroundStyle(AppTheme.text)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.65)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
                     .multilineTextAlignment(.leading)
-                    .frame(maxWidth: .infinity, minHeight: compact ? 28 : 44, alignment: .topLeading)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 if health != .none {
-                    HealthBadge(health: health, prominent: true)
+                    HealthBadge(health: health, prominent: true, compact: compact)
+                        .layoutPriority(1)
                 }
             }
             HStack(alignment: .firstTextBaseline, spacing: 8) {
