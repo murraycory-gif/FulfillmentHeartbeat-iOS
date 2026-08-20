@@ -51,6 +51,7 @@ final class HeartbeatStore: ObservableObject {
     private var pickPathPickersByStore: [String: [MetricRow]] = [:]
     private var pphPickersByStore: [String: [MetricRow]] = [:]
     private var laborWeeksByStore: [String: [MetricRow]] = [:]
+    private var unfilteredPulse: FilterPulse?
 
     init(rootURL: URL? = nil) {
         fileManager = .default
@@ -812,7 +813,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func clearFilters() {
-        replaceFilters(DashboardFilters())
+        commitFilters(DashboardFilters())
     }
 
     func loadSampleMarket() {
@@ -1007,6 +1008,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func rebuildIndex() {
+        unfilteredPulse = nil
         let identitySource = rows.filter {
             $0.section != .scheduleQuality && $0.section != .dynacap && $0.section != .pickerScorecard && $0.section != .pickPathPicker
         }
@@ -1035,24 +1037,37 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func applyFilters() {
+        if !filters.isActive, let pulse = unfilteredPulse {
+            install(pulse)
+            objectWillChange.send()
+            Task { @MainActor in
+                filterStamp += 1
+            }
+            return
+        }
+
         let universe = latestUniverse
         var nextLatest: [MetricSection: [MetricRow]] = [:]
-        for section in MetricSection.allCases where section != .pickerScorecard && section != .pickPathPicker {
-            nextLatest[section] = HeartbeatMath.filtered(
-                latestBySection[section] ?? [],
-                division: filters.division,
-                district: filters.district,
-                om: filters.om,
-                store: filters.store,
-                relaxUnknown: false,
-                universe: universe
-            )
-        }
-        let pickers = latestBySection[.pickerScorecard] ?? []
-        if let allowed = pickerStoreSet() {
-            nextLatest[.pickerScorecard] = pickers.filter { allowed.contains(HeartbeatMath.canonicalStore($0.storeNumber)) }
+        if filters.isActive {
+            for section in MetricSection.allCases where section != .pickerScorecard && section != .pickPathPicker {
+                nextLatest[section] = HeartbeatMath.filtered(
+                    latestBySection[section] ?? [],
+                    division: filters.division,
+                    district: filters.district,
+                    om: filters.om,
+                    store: filters.store,
+                    relaxUnknown: false,
+                    universe: universe
+                )
+            }
+            let pickers = latestBySection[.pickerScorecard] ?? []
+            if let allowed = pickerStoreSet() {
+                nextLatest[.pickerScorecard] = pickers.filter { allowed.contains(HeartbeatMath.canonicalStore($0.storeNumber)) }
+            } else {
+                nextLatest[.pickerScorecard] = pickers
+            }
         } else {
-            nextLatest[.pickerScorecard] = pickers
+            nextLatest = latestBySection
         }
         filteredLatest = nextLatest
         cachedPickerBoard = HeartbeatMath.pickerBoard(nextLatest[.pickerScorecard] ?? [])
@@ -1080,8 +1095,60 @@ final class HeartbeatStore: ObservableObject {
             }
             return summary
         }
-        filterStamp += 1
+        if !filters.isActive {
+            unfilteredPulse = snapshotPulse()
+        }
         objectWillChange.send()
+        Task { @MainActor in
+            filterStamp += 1
+        }
+    }
+
+    private struct FilterPulse {
+        var filteredLatest: [MetricSection: [MetricRow]]
+        var pickerBoard: HeartbeatMath.PickerBoard
+        var pickerIndex: [PickerFocus: [Int]]
+        var pickerFocusHealth: [PickerFocus: Health]
+        var pickPathPickersByStore: [String: [MetricRow]]
+        var pphPickersByStore: [String: [MetricRow]]
+        var checklistGroups: [MetricSection: [ChecklistDriverGroup]]
+        var market: [HeartbeatMath.MarketStore]
+        var districts: [String]
+        var oms: [String]
+        var stores: [(number: String, name: String?)]
+        var summaries: [SectionSummary]
+    }
+
+    private func snapshotPulse() -> FilterPulse {
+        FilterPulse(
+            filteredLatest: filteredLatest,
+            pickerBoard: cachedPickerBoard,
+            pickerIndex: pickerIndex,
+            pickerFocusHealth: pickerFocusHealth,
+            pickPathPickersByStore: pickPathPickersByStore,
+            pphPickersByStore: pphPickersByStore,
+            checklistGroups: cachedChecklistGroups,
+            market: filteredMarket,
+            districts: cachedDistricts,
+            oms: cachedOMs,
+            stores: cachedStores,
+            summaries: cachedSummaries
+        )
+    }
+
+    private func install(_ pulse: FilterPulse) {
+        filteredLatest = pulse.filteredLatest
+        cachedPickerBoard = pulse.pickerBoard
+        pickerIndex = pulse.pickerIndex
+        pickerFocusHealth = pulse.pickerFocusHealth
+        pickPathPickersByStore = pulse.pickPathPickersByStore
+        pphPickersByStore = pulse.pphPickersByStore
+        cachedChecklistGroups = pulse.checklistGroups
+        filteredMarket = pulse.market
+        cachedDistricts = pulse.districts
+        cachedOMs = pulse.oms
+        cachedStores = pulse.stores
+        cachedSummaries = pulse.summaries
     }
 
     private func refreshFilterOptions() {
