@@ -9,7 +9,7 @@ struct SectionDetailView: View {
     @State private var pphFocus: PPHFocus = .all
     @State private var scheduleFocus: ScheduleFocus = .all
     @State private var prepFocus: PrepFocus = .all
-    @State private var fiveStarFocus: FiveStarFocus = .all
+    @State private var laborFocus: LaborFocus = .all
 
     private var summary: SectionSummary { store.summary(for: section) }
     private var snapshots: [MetricRow] { store.displayRows(for: section) }
@@ -64,6 +64,8 @@ struct SectionDetailView: View {
                             pickerStatusTiles
                         } else if section == .prepNotReady {
                             prepStatusTiles
+                        } else if section == .labor {
+                            laborStatusTiles
                         } else {
                             HubCard {
                                 VStack(alignment: .leading, spacing: 8) {
@@ -112,6 +114,8 @@ struct SectionDetailView: View {
                 PrepTable(rows: prepRows)
             } else if section == .fiveStar {
                 FiveStarTable(rows: fiveStarRows)
+            } else if section == .labor {
+                LaborTable(rows: laborRows)
             } else {
                 StoreTable(section: section, rows: snapshots)
             }
@@ -169,6 +173,15 @@ struct SectionDetailView: View {
                 ("Below 74", HeartbeatFormat.num(Double(atRisk))),
                 ("Week", week ?? "—"),
             ]
+        case .labor:
+            let healthy = rows.filter { ($0.number("target_vs_actual_pct") ?? 1) <= 0 }.count
+            let risk = rows.filter { ($0.number("target_vs_actual_pct") ?? 0) > HeartbeatMath.laborWatch }.count
+            return [
+                ("Cost target", HeartbeatFormat.pct(avg("cost_trgt_pct"))),
+                ("Act cost", HeartbeatFormat.pct(avg("act_cost_pct"))),
+                ("Healthy", HeartbeatFormat.num(Double(healthy))),
+                ("Over 3%", HeartbeatFormat.num(Double(risk))),
+            ]
         case .pickerScorecard:
             let board = HeartbeatMath.pickerBoard(rows)
             return [
@@ -211,6 +224,23 @@ struct SectionDetailView: View {
             return scored.filter { HeartbeatMath.ottStar($0).health != .good }
         case .oth:
             return scored.filter { HeartbeatMath.othStar($0).health != .good }
+        }
+    }
+
+    private var laborRows: [MetricRow] {
+        let scored = snapshots.filter { $0.number("target_vs_actual_pct") != nil }
+        switch laborFocus {
+        case .all:
+            return scored
+        case .healthy:
+            return scored.filter { ($0.number("target_vs_actual_pct") ?? 1) <= 0 }
+        case .watch:
+            return scored.filter {
+                let value = $0.number("target_vs_actual_pct") ?? 0
+                return value > 0 && value <= HeartbeatMath.laborWatch
+            }
+        case .risk:
+            return scored.filter { ($0.number("target_vs_actual_pct") ?? 0) > HeartbeatMath.laborWatch }
         }
     }
 
@@ -401,6 +431,34 @@ struct SectionDetailView: View {
         callout("OTH 5%", HeartbeatFormat.pct(oth), othMark.label, othMark.health, selected: fiveStarFocus == .oth) {
             fiveStarFocus = .oth
         }
+    }
+
+    @ViewBuilder
+    private var laborStatusTiles: some View {
+        let rows = snapshots
+        let healthy = rows.filter { ($0.number("target_vs_actual_pct") ?? 1) <= 0 }.count
+        let watch = rows.filter {
+            let value = $0.number("target_vs_actual_pct") ?? 0
+            return value > 0 && value <= HeartbeatMath.laborWatch
+        }.count
+        let risk = rows.filter { ($0.number("target_vs_actual_pct") ?? 0) > HeartbeatMath.laborWatch }.count
+        let cost = HeartbeatMath.average(rows.compactMap { $0.number("cost_trgt_pct") })
+        let actual = HeartbeatMath.average(rows.compactMap { $0.number("act_cost_pct") })
+        callout("Target vs Actual", summary.headlineText, "0% healthy · 0.01–3% watch · over 3% risk", summary.health, selected: laborFocus == .all) {
+            laborFocus = .all
+        }
+        callout("Goal", "0.00%", "At or below target", .none, brand: true)
+        callout("Healthy", HeartbeatFormat.num(Double(healthy)), "0% or better", .good, unit: "stores", selected: laborFocus == .healthy) {
+            laborFocus = .healthy
+        }
+        callout("Watch", HeartbeatFormat.num(Double(watch)), "0.01% to 3%", watch == 0 ? .good : .watch, unit: "stores", selected: laborFocus == .watch) {
+            laborFocus = .watch
+        }
+        callout("At Risk", HeartbeatFormat.num(Double(risk)), "Over 3%", risk == 0 ? .good : .risk, unit: "stores", selected: laborFocus == .risk) {
+            laborFocus = .risk
+        }
+        callout("CostTrgt%", HeartbeatFormat.pct(cost), "Cost target", .none)
+        callout("ActCost%", HeartbeatFormat.pct(actual), "Actual cost", .none)
     }
 
     @ViewBuilder

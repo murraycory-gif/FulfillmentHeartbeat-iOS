@@ -137,6 +137,42 @@ enum SampleMarket {
                     ]
                 ))
 
+                let tva = clamp(jitter(index + 41, 5) - 0.4, -2.5, 6.5)
+                out.append(MetricRow(
+                    section: .labor,
+                    division: store.division,
+                    operationsOM: store.om,
+                    storeNumber: store.store,
+                    storeName: store.name,
+                    recordedOn: "202624",
+                    payload: [
+                        "target_vs_actual_pct": tva.rounded(2),
+                        "cost_trgt_pct": clamp(11 + jitter(index + 7, 4), 8, 18).rounded(1),
+                        "act_cost_pct": clamp(12 + jitter(index + 9, 8), 6, 28).rounded(1),
+                        "act_hrs": clamp(120 + jitter(index, 40), 80, 200).rounded(1),
+                        "sch_hrs": clamp(118 + jitter(index + 2, 36), 80, 200).rounded(1),
+                    ],
+                    textPayload: ["labor_grain": "store", "week": "202624", "district": store.district]
+                ))
+                for day in 0..<3 {
+                    let dayTva = clamp(tva + jitter(index + day, 1.2), -3, 7)
+                    out.append(MetricRow(
+                        section: .labor,
+                        division: store.division,
+                        operationsOM: store.om,
+                        storeNumber: store.store,
+                        storeName: store.name,
+                        recordedOn: String(format: "2026-06-%02d", 8 + day),
+                        payload: [
+                            "target_vs_actual_pct": dayTva.rounded(2),
+                            "cost_trgt_pct": clamp(11 + jitter(index + day, 4), 8, 18).rounded(1),
+                            "act_cost_pct": clamp(12 + jitter(index + day + 3, 8), 6, 28).rounded(1),
+                            "act_hrs": clamp(18 + jitter(index + day, 6), 10, 32).rounded(1),
+                        ],
+                        textPayload: ["labor_grain": "day", "week": "202624", "district": store.district]
+                    ))
+                }
+
                 let shoppers = [
                     ("\(store.name.split(separator: " ").first ?? "Store") A", 0),
                     ("\(store.name.split(separator: " ").first ?? "Store") B", 1),
@@ -232,6 +268,13 @@ enum SampleMarket {
             Jewel Osco,J1,Chicago 1,Shelly Selof,1,62.1,59.6,59.6,67.5,64.8,64.9,70.2,65.0,63.9
             Jewel Osco,J1,Chicago 1,Shelly Selof,606,64.8,61.1,62.9,64.2,67.1,66.3,60.9,63.0,63.9
             Haggen,39,Haggen 1,Luke Lomas,3427,87.9,88.8,85.8,84.8,83.2,85.7,82.4,87.0,85.5
+            """
+        case .labor:
+            return """
+            WEEK_ID,D_DATE,DIVISION_NM,DISTRICT,STORE_ID,CostTrgt%,ActCost%,Target vs Actual%,ActHrs,Sch_Hrs
+            202624,Total,JEWEL,J1,1,0.115,0.118,0.003,120,118
+            202624,2026-06-08,JEWEL,J1,1,0.115,0.121,0.006,18,17
+            202624,Total,HAGGEN,39,3427,0.149,0.140,-0.009,95,96
             """
         case .pickerScorecard:
             return """

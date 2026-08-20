@@ -839,6 +839,7 @@ struct StoreTable: View {
         case .dynacap: return row.number("dynacap_rate", "pieces_per_hour") ?? (HeartbeatMath.dynacapAligned(row) == true ? 1 : 0)
         case .scheduleQuality: return row.number("schedule_efficiency_pct") ?? -1
         case .pph: return row.number("pph") ?? -1
+        case .labor: return row.number("target_vs_actual_pct") ?? -1
         case .pickerScorecard: return HeartbeatMath.pickerComposite(row)
         }
     }
@@ -1816,6 +1817,291 @@ struct FiveStarStoreCard: View {
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(brand ? AppTheme.blueSoft : wash(health))
+        )
+    }
+
+    private func ink(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.text
+        }
+    }
+
+    private func wash(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.okSoft
+        case .watch: return AppTheme.warnSoft
+        case .risk: return AppTheme.badSoft
+        case .none: return AppTheme.card
+        }
+    }
+}
+
+struct LaborTable: View {
+    let rows: [MetricRow]
+
+    private enum Column: String, CaseIterable, Identifiable {
+        case store, tva, cost, actual, status
+        var id: String { rawValue }
+        var title: String {
+            switch self {
+            case .store: return "Store"
+            case .tva: return "Tgt vs Act"
+            case .cost: return "CostTrgt%"
+            case .actual: return "ActCost%"
+            case .status: return "Status"
+            }
+        }
+    }
+
+    @State private var sort = Column.tva
+    @State private var ascending = false
+    @State private var ordered: [MetricRow] = []
+
+    var body: some View {
+        if rows.isEmpty {
+            Section {
+                EmptyHint(
+                    symbol: "dollarsign.circle",
+                    title: "No stores in this view",
+                    detail: "Tap Target vs Actual to see every store, or pick another callout."
+                )
+                .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 20, trailing: 20))
+                .listRowSeparator(.hidden)
+                .listRowBackground(AppTheme.bg)
+            }
+        } else {
+            Section {
+                HStack {
+                    Text("\(HeartbeatFormat.num(Double(rows.count))) stores")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(AppTheme.textSecondary)
+                    Spacer()
+                }
+                .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
+                .listRowSeparator(.hidden)
+                .listRowBackground(AppTheme.bg)
+            }
+            Section {
+                HStack(spacing: 12) {
+                    ForEach(Column.allCases) { column in
+                        Button {
+                            let nextSort = sort == column ? sort : column
+                            let nextAscending = sort == column ? !ascending : column == .store
+                            sort = nextSort
+                            ascending = nextAscending
+                            rebuildOrder(sort: nextSort, ascending: nextAscending)
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text(column.title.uppercased())
+                                    .font(.caption2.weight(.semibold))
+                                    .tracking(0.5)
+                                if sort == column {
+                                    Image(systemName: ascending ? "chevron.up" : "chevron.down")
+                                        .font(.caption2.weight(.bold))
+                                }
+                            }
+                            .foregroundStyle(sort == column ? AppTheme.blue : AppTheme.textTertiary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 4, trailing: 20))
+                .listRowSeparator(.hidden)
+                .listRowBackground(AppTheme.bg)
+
+                ForEach(ordered) { row in
+                    LaborStoreCard(row: row)
+                        .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(AppTheme.bg)
+                }
+            }
+            .transaction { $0.animation = nil }
+            .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
+            .onChange(of: rows.count) { _, _ in rebuildOrder(sort: sort, ascending: ascending) }
+        }
+    }
+
+    private func rebuildOrder(sort: Column, ascending: Bool) {
+        ordered = rows.sorted { lhs, rhs in
+            let result = compare(lhs, rhs, sort: sort)
+            return ascending ? result == .orderedAscending : result == .orderedDescending
+        }
+    }
+
+    private func compare(_ lhs: MetricRow, _ rhs: MetricRow, sort: Column) -> ComparisonResult {
+        switch sort {
+        case .store:
+            if let a = Int(lhs.storeNumber), let b = Int(rhs.storeNumber) {
+                return a == b ? .orderedSame : (a < b ? .orderedAscending : .orderedDescending)
+            }
+            return lhs.storeNumber.localizedStandardCompare(rhs.storeNumber)
+        case .tva:
+            return numberOrder(lhs.number("target_vs_actual_pct"), rhs.number("target_vs_actual_pct"))
+        case .cost:
+            return numberOrder(lhs.number("cost_trgt_pct"), rhs.number("cost_trgt_pct"))
+        case .actual:
+            return numberOrder(lhs.number("act_cost_pct"), rhs.number("act_cost_pct"))
+        case .status:
+            let a = healthRank(HeartbeatMath.health(for: .labor, row: lhs))
+            let b = healthRank(HeartbeatMath.health(for: .labor, row: rhs))
+            if a == b { return numberOrder(lhs.number("target_vs_actual_pct"), rhs.number("target_vs_actual_pct")) }
+            return a < b ? .orderedAscending : .orderedDescending
+        }
+    }
+
+    private func numberOrder(_ a: Double?, _ b: Double?) -> ComparisonResult {
+        let lhs = a ?? -999
+        let rhs = b ?? -999
+        if lhs == rhs { return .orderedSame }
+        return lhs < rhs ? .orderedAscending : .orderedDescending
+    }
+
+    private func healthRank(_ health: Health) -> Int {
+        switch health {
+        case .risk: return 0
+        case .watch: return 1
+        case .good: return 2
+        case .none: return 3
+        }
+    }
+}
+
+struct LaborStoreCard: View {
+    @EnvironmentObject private var store: HeartbeatStore
+    let row: MetricRow
+    @State private var expanded = false
+
+    private var days: [MetricRow] {
+        expanded ? store.laborDays(forStore: row.storeNumber) : []
+    }
+
+    var body: some View {
+        let health = HeartbeatMath.health(for: .labor, row: row)
+        return VStack(alignment: .leading, spacing: 12) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { expanded.toggle() }
+            } label: {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(row.storeNumber.isEmpty ? "—" : row.storeNumber)
+                        .font(.title3.weight(.semibold).monospacedDigit())
+                        .foregroundStyle(AppTheme.text)
+                    if !row.division.isEmpty {
+                        Text("|")
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(AppTheme.textTertiary)
+                        Text(row.division)
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(AppTheme.textSecondary)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                    HealthBadge(health: health, prominent: true)
+                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(AppTheme.blue)
+                        .frame(width: 36, height: 36)
+                        .background(AppTheme.blueSoft, in: Circle())
+                }
+            }
+            .buttonStyle(.plain)
+            Text(metaLine)
+                .font(.subheadline)
+                .foregroundStyle(AppTheme.textSecondary)
+            HStack(spacing: 8) {
+                metric("Tgt vs Act", HeartbeatFormat.pct(row.number("target_vs_actual_pct")), health)
+                metric("CostTrgt%", HeartbeatFormat.pct(row.number("cost_trgt_pct")), .none)
+                metric("ActCost%", HeartbeatFormat.pct(row.number("act_cost_pct")), .none)
+            }
+            if expanded {
+                dayBlock
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
+                .fill(wash(health).opacity(0.55))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
+                .stroke(ink(health).opacity(health == .none ? 0.15 : 0.45), lineWidth: health == .risk || health == .watch ? 2 : 1.5)
+        )
+    }
+
+    private var metaLine: String {
+        let district = row.district.isEmpty ? "—" : row.district
+        let om = row.operationsOM.isEmpty ? "—" : row.operationsOM
+        let week = row.textPayload["week"].flatMap { $0.isEmpty ? nil : $0 } ?? "—"
+        return "District \(district)  ·  \(om)  ·  Week \(week)  ·  tap for days"
+    }
+
+    @ViewBuilder
+    private var dayBlock: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("By day")
+                .font(.subheadline.weight(.bold))
+            if days.isEmpty {
+                Text("No daily rows for this store in the latest week.")
+                    .font(.subheadline)
+                    .foregroundStyle(AppTheme.textSecondary)
+            } else {
+                ForEach(days) { day in
+                    dayRow(day)
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(AppTheme.card.opacity(0.9))
+        )
+    }
+
+    private func dayRow(_ day: MetricRow) -> some View {
+        let health = HeartbeatMath.laborHealth(day)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(day.recordedOn ?? "—")
+                    .font(.headline.weight(.semibold))
+                Spacer()
+                HealthBadge(health: health, prominent: true)
+            }
+            HStack(spacing: 8) {
+                metric("Tgt vs Act", HeartbeatFormat.pct(day.number("target_vs_actual_pct")), health)
+                metric("CostTrgt%", HeartbeatFormat.pct(day.number("cost_trgt_pct")), .none)
+                metric("ActCost%", HeartbeatFormat.pct(day.number("act_cost_pct")), .none)
+            }
+        }
+        .padding(10)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(wash(health).opacity(0.7))
+        )
+    }
+
+    private func metric(_ name: String, _ value: String, _ health: Health) -> some View {
+        VStack(spacing: 4) {
+            Text(name)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(AppTheme.textTertiary)
+                .lineLimit(1)
+            Text(value)
+                .font(.title3.weight(.bold).monospacedDigit())
+                .foregroundStyle(ink(health))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(wash(health))
         )
     }
 

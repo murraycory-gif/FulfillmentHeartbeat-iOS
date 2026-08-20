@@ -9,6 +9,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
     case dynacap
     case scheduleQuality
     case pph
+    case labor
     case pickerScorecard
 
     var id: String { rawValue }
@@ -23,6 +24,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         case .dynacap: return MetricSection.dynacap.title
         case .scheduleQuality: return MetricSection.scheduleQuality.title
         case .pph: return MetricSection.pph.title
+        case .labor: return MetricSection.labor.title
         case .pickerScorecard: return MetricSection.pickerScorecard.title
         }
     }
@@ -37,6 +39,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         case .dynacap: return MetricSection.dynacap.symbol
         case .scheduleQuality: return MetricSection.scheduleQuality.symbol
         case .pph: return MetricSection.pph.symbol
+        case .labor: return MetricSection.labor.symbol
         case .pickerScorecard: return MetricSection.pickerScorecard.symbol
         }
     }
@@ -49,6 +52,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         case .dynacap: return .dynacap
         case .scheduleQuality: return .scheduleQuality
         case .pph: return .pph
+        case .labor: return .labor
         case .pickerScorecard: return .pickerScorecard
         default: return nil
         }
@@ -62,12 +66,13 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         case .dynacap: return .dynacap
         case .scheduleQuality: return .scheduleQuality
         case .pph: return .pph
+        case .labor: return .labor
         case .pickerScorecard: return .pickerScorecard
         }
     }
 
     static var primaryTabs: [HubDestination] { [.dashboard, .upload] }
-    static var metricItems: [HubDestination] { [.fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pph, .pickerScorecard] }
+    static var metricItems: [HubDestination] { [.fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pph, .labor, .pickerScorecard] }
 }
 
 final class HubRouter: ObservableObject {
@@ -231,7 +236,7 @@ struct MainHubView: View {
             DashboardView().hubChrome(showsFilters: true)
         case .upload:
             UploadView().hubChrome(showBack: true)
-        case .fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pph, .pickerScorecard:
+        case .fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pph, .labor, .pickerScorecard:
             if let section = dest.section {
                 SectionDetailView(section: section).hubChrome(showBack: true, showsFilters: true)
             }

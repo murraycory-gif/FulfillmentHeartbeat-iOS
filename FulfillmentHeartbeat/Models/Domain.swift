@@ -8,6 +8,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
     case dynacap = "dynacap"
     case scheduleQuality = "schedule_quality"
     case pph = "pph"
+    case labor = "labor"
     case pickerScorecard = "picker_scorecard"
 
     var id: String { rawValue }
@@ -21,6 +22,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .dynacap: return "Dynacap Setting"
         case .scheduleQuality: return "Schedule Quality"
         case .pph: return "PPH Pure Picks Per Hour"
+        case .labor: return "Labor"
         case .pickerScorecard: return "Picker ScoreCard"
         }
     }
@@ -34,6 +36,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .dynacap: return "Dynacap"
         case .scheduleQuality: return "Schedule"
         case .pph: return "PPH"
+        case .labor: return "Labor"
         case .pickerScorecard: return "Pickers"
         }
     }
@@ -47,6 +50,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .dynacap: return "Pieces per hour we allow down to the picker. Upload the Overall Capacity Summary."
         case .scheduleQuality: return "How tightly the labor plan matches the work. Upload Optimized Departments Week Store."
         case .pph: return "Pure picks completed per labor hour. Upload the DATE / STORE Total export."
+        case .labor: return "Cost target vs actual. 0% or better is healthy, 0.01–3% watch, over 3% at risk. Tap a store for the day breakout."
         case .pickerScorecard: return "Shopper-level totals for PPH, Presubs, OOS, pick hours, subs, orders, DUG, OTH eligibility, OTH5, OTT, and refunds."
         }
     }
@@ -60,6 +64,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .dynacap: return "DISTRICT · Total Pieces/Total Hrs · DPA Dynacap · Utilization %"
         case .scheduleQuality: return "Division · District · Store · Schedule Efficiency · Under % · Over %"
         case .pph: return "DATE · DIVISION · DISTRICT · OM_AREA · OM_ID · STORE · Pure PPH (Total)"
+        case .labor: return "WEEK_ID · D_DATE · DIVISION_NM · DISTRICT · STORE_ID · CostTrgt% · ActCost% · Target vs Actual%"
         case .pickerScorecard: return "STORE · PICKER · Total Pure PPH · Presub · OOS · Hours · Subs · Orders · DUG · OTH Elig · OTH5 · OTT · Refund"
         }
     }
@@ -73,6 +78,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .dynacap: return "slider.horizontal.3"
         case .scheduleQuality: return "calendar.badge.clock"
         case .pph: return "speedometer"
+        case .labor: return "dollarsign.circle.fill"
         case .pickerScorecard: return "person.2.fill"
         }
     }
@@ -95,11 +101,11 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
     }
 
     static var dashboardCards: [MetricSection] {
-        [.fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pph, .pickerScorecard]
+        [.fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pph, .labor, .pickerScorecard]
     }
 
     static var uploadOrder: [MetricSection] {
-        [.fiveStar, .pickPath, .pickPathPicker, .prepNotReady, .dynacap, .scheduleQuality, .pph, .pickerScorecard]
+        [.fiveStar, .pickPath, .pickPathPicker, .prepNotReady, .dynacap, .scheduleQuality, .pph, .labor, .pickerScorecard]
     }
 
     static var checklistSections: [MetricSection] {
@@ -568,6 +574,8 @@ enum HeartbeatMath {
             return scheduleHealth(row)
         case .pph:
             return pphHealth(row)
+        case .labor:
+            return laborHealth(row)
         case .pickerScorecard:
             return pickerHealth(row)
         }
@@ -706,6 +714,28 @@ enum HeartbeatMath {
                 lastFilename: upload?.filename,
                 lastUploadedAt: upload?.uploadedAt
             )
+        case .labor:
+            let headline = average(latest.compactMap { $0.number("target_vs_actual_pct") })
+            let healthy = latest.filter { ($0.number("target_vs_actual_pct") ?? 1) <= 0 }.count
+            let watchCount = latest.filter {
+                let value = $0.number("target_vs_actual_pct") ?? 0
+                return value > 0 && value <= laborWatch
+            }.count
+            let riskCount = latest.filter { ($0.number("target_vs_actual_pct") ?? 0) > laborWatch }.count
+            return SectionSummary(
+                section: section,
+                storeCount: latest.count,
+                headline: headline,
+                headlineLabel: "Target vs Actual",
+                secondary: latest.isEmpty
+                    ? "No Labor rows in this filter"
+                    : "\(healthy) healthy · \(watchCount) watch · \(riskCount) over 3%",
+                health: latest.isEmpty ? .none : laborHealth(headline),
+                watchCount: watchCount,
+                riskCount: riskCount,
+                lastFilename: upload?.filename,
+                lastUploadedAt: upload?.uploadedAt
+            )
         case .pickerScorecard:
             let board = pickerBoard(latest)
             return SectionSummary(
@@ -733,6 +763,7 @@ enum HeartbeatMath {
     static let pnrWatch = 2.5
     static let pphGoal = 80.0
     static let pphRisk = 74.0
+    static let laborWatch = 3.0
     static let pickPathGoal = 90.0
     static let pickPathRisk = 80.0
     static let dynacapGoal = 65.0
@@ -835,6 +866,17 @@ enum HeartbeatMath {
 
     static func pphHealth(_ row: MetricRow) -> Health {
         band(row.number("pph"), good: pphGoal, watch: pphRisk)
+    }
+
+    static func laborHealth(_ row: MetricRow) -> Health {
+        laborHealth(row.number("target_vs_actual_pct"))
+    }
+
+    static func laborHealth(_ value: Double?) -> Health {
+        guard let value else { return .none }
+        if value <= 0 { return .good }
+        if value <= laborWatch { return .watch }
+        return .risk
     }
 
     static func pickerHasVolume(_ row: MetricRow) -> Bool {
@@ -1075,6 +1117,8 @@ enum HeartbeatMath {
             return max(under, over) + miss
         case .pph:
             return -(row.number("pph") ?? 999)
+        case .labor:
+            return row.number("target_vs_actual_pct") ?? 0
         case .pickerScorecard:
             return -pickerComposite(row)
         }
@@ -1176,6 +1220,8 @@ enum HeartbeatMath {
                 value = row.number("schedule_efficiency_pct")
             case .pph:
                 value = row.number("pph")
+            case .labor:
+                value = row.number("target_vs_actual_pct")
             case .pickerScorecard:
                 value = pickerComposite(row)
             }
@@ -1486,6 +1532,11 @@ struct StoreCellViewModel {
                 primary: HeartbeatFormat.num(pph, digits: 1),
                 extra: gapText
             )
+        case .labor:
+            return StoreCellViewModel(
+                primary: HeartbeatFormat.pct(row.number("target_vs_actual_pct")),
+                extra: "Cost \(HeartbeatFormat.pct(row.number("cost_trgt_pct"))) · Act \(HeartbeatFormat.pct(row.number("act_cost_pct")))"
+            )
         case .pickerScorecard:
             return StoreCellViewModel(
                 primary: HeartbeatFormat.num(row.number("pph"), digits: 1),
@@ -1493,6 +1544,15 @@ struct StoreCellViewModel {
             )
         }
     }
+}
+
+enum LaborFocus: String, CaseIterable, Identifiable {
+    case all
+    case healthy
+    case watch
+    case risk
+
+    var id: String { rawValue }
 }
 
 enum FiveStarFocus: String, CaseIterable, Identifiable {

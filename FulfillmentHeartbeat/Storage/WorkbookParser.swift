@@ -71,6 +71,10 @@ enum WorkbookParser {
         ]
         for name in sheetNames {
             if let sheet = zip.file(named: name) {
+                if isLaborWorkbook(strings) {
+                    let labor = parseLaborSheet(data: sheet, strings: strings)
+                    if !labor.isEmpty { return labor }
+                }
                 let matrix = SheetXML.parse(data: sheet, strings: strings)
                 return rows(from: matrix)
             }
@@ -280,10 +284,27 @@ enum WorkbookParser {
         dict["goalpph"] = "goal_pph"
         dict["pphgoal"] = "goal_pph"
         dict["targetpph"] = "goal_pph"
+        dict["costtrgt"] = "cost_trgt_pct"
+        dict["costtrgtpct"] = "cost_trgt_pct"
+        dict["actcost"] = "act_cost_pct"
+        dict["actcostpct"] = "act_cost_pct"
+        dict["acttrgt"] = "act_cost_pct"
+        dict["acttrgtpct"] = "act_cost_pct"
+        dict["targetvsactual"] = "target_vs_actual_pct"
+        dict["targetvsactualpct"] = "target_vs_actual_pct"
+        dict["scheffi"] = "schedule_efficiency_pct"
+        dict["scheffipct"] = "schedule_efficiency_pct"
+        dict["acthrs"] = "act_hrs"
+        dict["schhrs"] = "sch_hrs"
+        dict["actcostdollar"] = "act_cost_dollar"
+        dict["chargedhrs"] = "charged_hrs"
         return dict
     }()
 
     private static func rows(from matrix: [[String]]) -> [ParsedWorkbookRow] {
+        if let labor = parseLabor(matrix), !labor.isEmpty {
+            return labor
+        }
         if let prep = parsePrepHours(matrix), !prep.isEmpty {
             return prep
         }
@@ -311,6 +332,230 @@ enum WorkbookParser {
         if trimmed.isEmpty || isTotalCell(trimmed) { return nil }
         if trimmed.lowercased().hasPrefix("applied filters") { return nil }
         return trimmed
+    }
+
+    private static func isLaborWorkbook(_ strings: [String]) -> Bool {
+        let blob = strings.prefix(40).map(normHeader).joined(separator: " ")
+        return blob.contains("costtrgt") && blob.contains("targetvsactual")
+    }
+
+    private static func parseLabor(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {
+        guard let headerIndex = matrix.firstIndex(where: { row in
+            let names = row.map(normHeader)
+            return names.contains("storeid") && names.contains(where: { $0.contains("targetvsactual") || $0.contains("costtrgt") })
+        }) else { return nil }
+        let headerRow = matrix[headerIndex]
+        var days: [ParsedWorkbookRow] = []
+        var week = ""
+        var date = ""
+        var division = ""
+        var district = ""
+        for row in matrix[(headerIndex + 1)...] {
+            guard let parsed = laborRow(
+                row,
+                header: headerRow,
+                week: &week,
+                date: &date,
+                division: &division,
+                district: &district
+            ) else { continue }
+            days.append(parsed)
+        }
+        return collapseLabor(days)
+    }
+
+    private static func parseLaborSheet(data: Data, strings: [String]) -> [ParsedWorkbookRow] {
+        var header: [String] = []
+        var week = ""
+        var date = ""
+        var division = ""
+        var district = ""
+        var maxWeek = ""
+        var days: [ParsedWorkbookRow] = []
+        days.reserveCapacity(4096)
+        SheetXML.forEachRow(data: data, strings: strings) { row in
+            if header.isEmpty {
+                let names = row.map(normHeader)
+                if names.contains("storeid") && names.contains(where: { $0.contains("costtrgt") || $0.contains("targetvsactual") }) {
+                    header = row
+                }
+                return
+            }
+            guard let parsed = laborRow(
+                row,
+                header: header,
+                week: &week,
+                date: &date,
+                division: &division,
+                district: &district
+            ) else { return }
+            let rowWeek = parsed.textPayload["week"] ?? ""
+            if rowWeek > maxWeek {
+                maxWeek = rowWeek
+                days.removeAll(keepingCapacity: true)
+            }
+            if rowWeek == maxWeek {
+                days.append(parsed)
+            }
+        }
+        return collapseLabor(days)
+    }
+
+    private static func laborRow(
+        _ row: [String],
+        header: [String],
+        week: inout String,
+        date: inout String,
+        division: inout String,
+        district: inout String
+    ) -> ParsedWorkbookRow? {
+        let names = header.map(normHeader)
+        func cell(_ key: String) -> String {
+            guard let index = names.firstIndex(of: key), index < row.count else { return "" }
+            return row[index].trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let value = usableValue(cell("weekid")) { week = value }
+        let dateRaw = cell("ddate")
+        if isTotalCell(dateRaw) {
+            date = ""
+        } else if let value = excelSerialDate(dateRaw) ?? usableValue(dateRaw) {
+            date = value
+        }
+        let divRaw = cell("divisionnm").isEmpty ? cell("division") : cell("divisionnm")
+        if isTotalCell(divRaw) {
+            division = ""
+        } else if let value = usableValue(divRaw) {
+            division = value
+        }
+        let distRaw = cell("district")
+        if isTotalCell(distRaw) {
+            district = ""
+        } else if let value = usableValue(distRaw) {
+            district = value
+        }
+        let storeRaw = cell("storeid")
+        guard let store = usableValue(storeRaw), looksLikeStoreNumber(store) else { return nil }
+        guard !date.isEmpty else { return nil }
+
+        var payload: [String: Double] = [:]
+        for (index, rawHeader) in header.enumerated() where index < row.count {
+            let key = names.indices.contains(index) ? names[index] : normHeader(rawHeader)
+            if ["weekid", "ddate", "divisionnm", "division", "district", "storeid"].contains(key) { continue }
+            guard let number = cellNumber(row[index]) else { continue }
+            laborMetric(&payload, header: rawHeader, key: key, value: number)
+        }
+        guard payload["target_vs_actual_pct"] != nil || payload["cost_trgt_pct"] != nil else { return nil }
+        return ParsedWorkbookRow(
+            division: division,
+            operationsOM: "",
+            storeNumber: HeartbeatMath.canonicalStore(store),
+            storeName: nil,
+            recordedOn: date,
+            payload: payload,
+            textPayload: ["labor_grain": "day", "week": week, "district": district]
+        )
+    }
+
+    private static func laborMetric(_ payload: inout [String: Double], header: String, key: String, value: Double) {
+        var mapped = key
+        var number = value
+        if key.contains("targetvsactual") {
+            mapped = "target_vs_actual_pct"
+        } else if key.contains("costtrgt") {
+            mapped = "cost_trgt_pct"
+        } else if key == "actcost" || key.contains("acttrgt") {
+            mapped = header.contains("$") ? "act_cost_dollar" : "act_cost_pct"
+        } else if key.contains("overschedule") {
+            mapped = "over_schedule_pct"
+        } else if key.contains("scheffi") {
+            mapped = "schedule_efficiency_pct"
+        } else if key == "acthrs" {
+            mapped = "act_hrs"
+        } else if key == "schhrs" {
+            mapped = "sch_hrs"
+        } else if key.contains("chargedhrs") {
+            mapped = "charged_hrs"
+        } else if key.contains("earnedhrs") && key.contains("util") {
+            mapped = "earned_hrs_util"
+        } else if key.contains("earnedhrs") {
+            mapped = "earned_hrs"
+        } else {
+            applyMetric(&payload, header: key, value: value)
+            return
+        }
+        if mapped.hasSuffix("_pct"), abs(number) <= 1.0 {
+            number *= 100
+        } else if mapped == "act_cost_pct" || mapped == "cost_trgt_pct", abs(number) > 1, abs(number) <= 5 {
+            number *= 100
+        }
+        payload[mapped] = number
+    }
+
+    private static func collapseLabor(_ days: [ParsedWorkbookRow]) -> [ParsedWorkbookRow] {
+        let maxWeek = days.compactMap { $0.textPayload["week"] }.max() ?? ""
+        let latest = maxWeek.isEmpty ? days : days.filter { $0.textPayload["week"] == maxWeek }
+        var byStore: [String: [ParsedWorkbookRow]] = [:]
+        for row in latest {
+            byStore[row.storeNumber, default: []].append(row)
+        }
+        var out: [ParsedWorkbookRow] = []
+        out.reserveCapacity(byStore.count + latest.count)
+        for (store, storeDays) in byStore {
+            let sorted = storeDays.sorted { ($0.recordedOn ?? "") < ($1.recordedOn ?? "") }
+            out.append(contentsOf: sorted)
+            var payload: [String: Double] = [:]
+            let hours = sorted.compactMap { $0.payload["act_hrs"] }
+            let totalHours = hours.reduce(0, +)
+            func weighted(_ key: String) -> Double? {
+                if totalHours > 0 {
+                    let sum = sorted.reduce(0.0) { $0 + (($1.payload[key] ?? 0) * ($1.payload["act_hrs"] ?? 0)) }
+                    return sum / totalHours
+                }
+                let values = sorted.compactMap { $0.payload[key] }
+                guard !values.isEmpty else { return nil }
+                return values.reduce(0, +) / Double(values.count)
+            }
+            if let tva = weighted("target_vs_actual_pct") { payload["target_vs_actual_pct"] = tva }
+            if let cost = weighted("cost_trgt_pct") { payload["cost_trgt_pct"] = cost }
+            if let act = weighted("act_cost_pct") { payload["act_cost_pct"] = act }
+            if let sch = weighted("schedule_efficiency_pct") { payload["schedule_efficiency_pct"] = sch }
+            if totalHours > 0 { payload["act_hrs"] = totalHours }
+            let schHrs = sorted.compactMap { $0.payload["sch_hrs"] }.reduce(0, +)
+            if schHrs > 0 { payload["sch_hrs"] = schHrs }
+            let dollars = sorted.compactMap { $0.payload["act_cost_dollar"] }.reduce(0, +)
+            if dollars > 0 { payload["act_cost_dollar"] = dollars }
+            let sample = sorted.last!
+            out.append(
+                ParsedWorkbookRow(
+                    division: sample.division,
+                    operationsOM: sample.operationsOM,
+                    storeNumber: store,
+                    storeName: nil,
+                    recordedOn: maxWeek.isEmpty ? sample.recordedOn : maxWeek,
+                    payload: payload,
+                    textPayload: [
+                        "labor_grain": "store",
+                        "week": maxWeek,
+                        "district": sample.textPayload["district"] ?? "",
+                    ]
+                )
+            )
+        }
+        return out
+    }
+
+    private static func excelSerialDate(_ raw: String) -> String? {
+        guard let serial = Double(raw.trimmingCharacters(in: .whitespacesAndNewlines)),
+              serial > 20000, serial < 80000
+        else { return nil }
+        let unix = (serial - 25569.0) * 86400.0
+        let date = Date(timeIntervalSince1970: unix)
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
     }
 
     /// Weekly picker scorecard: STORE + PICKER, date blocks across the top, Total block last.
@@ -850,6 +1095,9 @@ enum WorkbookParser {
         if key.hasSuffix("_pct"), number <= 1.0 {
             number *= 100
         }
+        if (key == "act_cost_pct" || key == "cost_trgt_pct"), abs(number) > 1, abs(number) <= 5 {
+            number *= 100
+        }
         if key == "over_scheduled" { key = "over_schedule_pct" }
         if key == "under_scheduled" { key = "under_schedule_pct" }
         payload[key] = number
@@ -1182,6 +1430,31 @@ enum SheetXML {
 
     static func parse(data: Data, strings: [String]) -> [[String]] {
         walk(data: data, strings: strings)
+    }
+
+    static func forEachRow(data: Data, strings: [String], handle: ([String]) -> Void) {
+        guard var xml = String(data: data, encoding: .utf8) else { return }
+        if xml.hasPrefix("\u{FEFF}") { xml.removeFirst() }
+        xml = xml.replacingOccurrences(of: "<x:", with: "<").replacingOccurrences(of: "</x:", with: "</")
+        var cursor = xml.startIndex
+        while let rowStart = xml.range(of: "<row", range: cursor..<xml.endIndex) {
+            let after = rowStart.upperBound
+            guard after < xml.endIndex else { break }
+            let mark = xml[after]
+            if mark != " " && mark != ">" && mark != "/" {
+                cursor = after
+                continue
+            }
+            guard let tagClose = xml.range(of: ">", range: after..<xml.endIndex) else { break }
+            if xml[xml.index(before: tagClose.lowerBound)] == "/" {
+                handle([])
+                cursor = tagClose.upperBound
+                continue
+            }
+            guard let rowEnd = xml.range(of: "</row>", range: tagClose.upperBound..<xml.endIndex) else { break }
+            handle(walkCells(xml[tagClose.upperBound..<rowEnd.lowerBound], strings: strings))
+            cursor = rowEnd.upperBound
+        }
     }
 
     /// Safe string walk. The pointer scanner crashed on Power BI sheets.
