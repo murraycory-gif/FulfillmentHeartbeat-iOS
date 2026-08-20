@@ -2061,6 +2061,13 @@ struct LaborHeaderMinYKey: PreferenceKey {
     }
 }
 
+struct LaborListTopKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
 final class LaborHeaderPin: ObservableObject {
     @Published var tableOpen = true
     @Published var storesExpanded = true
@@ -2069,12 +2076,28 @@ final class LaborHeaderPin: ObservableObject {
     @Published var active = "tva"
     @Published var ascending = false
     @Published var storeCount = 0
+    var listTop: CGFloat = 0
     var onSelect: ((String) -> Void)?
 
     func openOnPageEnter() {
         storesExpanded = true
         rollupExpanded = true
         tableOpen = true
+        pinned = false
+    }
+
+    func updatePin(headerMinY: CGFloat?) {
+        guard storesExpanded else {
+            if pinned { pinned = false }
+            return
+        }
+        guard let headerMinY else { return }
+        let top = listTop
+        if pinned {
+            if headerMinY > top + 44 { pinned = false }
+        } else if headerMinY <= top + 10 {
+            pinned = true
+        }
     }
 }
 
@@ -2296,6 +2319,7 @@ struct LaborTable: View {
                     let next = !headerPin.storesExpanded
                     headerPin.storesExpanded = next
                     headerPin.tableOpen = next
+                    if !next { headerPin.pinned = false }
                     if next { rebuildOrder(sort: sort, ascending: ascending) }
                 } label: {
                     HStack(spacing: 10) {
@@ -2345,6 +2369,14 @@ struct LaborTable: View {
                         active: sort.key,
                         ascending: ascending,
                         onSelect: applyHeaderSort
+                    )
+                    .background(
+                        GeometryReader { geo in
+                            Color.clear.preference(
+                                key: LaborHeaderMinYKey.self,
+                                value: geo.frame(in: .global).minY
+                            )
+                        }
                     )
                     .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
                     .listRowSeparator(.hidden)

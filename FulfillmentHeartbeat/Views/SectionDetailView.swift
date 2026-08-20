@@ -68,8 +68,22 @@ struct SectionDetailView: View {
         .background(AppTheme.bg.ignoresSafeArea())
         .environment(\.defaultMinListRowHeight, 1)
         .environmentObject(laborHeaderPin)
-        .safeAreaInset(edge: .top, spacing: 0) {
-            if section == .labor && laborHeaderPin.tableOpen {
+        .background(
+            GeometryReader { geo in
+                Color.clear.preference(
+                    key: LaborListTopKey.self,
+                    value: geo.frame(in: .global).minY
+                )
+            }
+        )
+        .onPreferenceChange(LaborListTopKey.self) { top in
+            laborHeaderPin.listTop = top
+        }
+        .onPreferenceChange(LaborHeaderMinYKey.self) { minY in
+            laborHeaderPin.updatePin(headerMinY: minY)
+        }
+        .overlay(alignment: .top) {
+            if section == .labor && laborHeaderPin.storesExpanded && laborHeaderPin.pinned {
                 LaborStickyStoreHeader()
                     .environmentObject(laborHeaderPin)
             }
