@@ -447,7 +447,7 @@ struct FilterSheet: View {
     @State private var original = DashboardFilters()
     @State private var draft = DashboardFilters()
     @State private var confirmLeave = false
-    @State private var focus: FilterFocus = .division
+    @State private var focus: FilterFocus = .region
 
     private var isDirty: Bool { draft != original }
 
@@ -494,7 +494,7 @@ struct FilterSheet: View {
                 }
                 Button("Keep editing", role: .cancel) {}
             } message: {
-                Text("You changed Division, District, OM, or Store. Save to apply them on the dashboard.")
+                Text("You changed Region, Division, District, OM, or Store. Save to apply them on the dashboard.")
             }
         }
         .interactiveDismissDisabled(isDirty)
@@ -518,11 +518,16 @@ struct FilterSheet: View {
     }
 
     private var summaryRow: some View {
-        HStack(spacing: 10) {
-            filterChip(.division)
-            filterChip(.district)
-            filterChip(.om)
-            filterChip(.store)
+        VStack(spacing: 10) {
+            HStack(spacing: 10) {
+                filterChip(.region)
+                filterChip(.division)
+            }
+            HStack(spacing: 10) {
+                filterChip(.district)
+                filterChip(.om)
+                filterChip(.store)
+            }
         }
     }
 
@@ -563,6 +568,7 @@ struct FilterSheet: View {
 
     private func selection(for focus: FilterFocus) -> String {
         switch focus {
+        case .region: return draft.region
         case .division: return draft.division
         case .district: return draft.district
         case .om: return draft.om
@@ -578,8 +584,18 @@ struct FilterSheet: View {
     private func apply(_ value: String, to focus: FilterFocus) {
         var next = draft
         switch focus {
+        case .region:
+            next = DashboardFilters(region: value, division: "", district: "", om: "", store: "")
         case .division:
-            next = DashboardFilters(division: value, district: "", om: "", store: "")
+            next.division = value
+            next.district = ""
+            next.om = ""
+            next.store = ""
+            if value.isEmpty {
+                // keep region
+            } else if let match = MarketRegion.containing(value) {
+                next.region = match.rawValue
+            }
         case .district:
             next.district = value
             next.om = ""
@@ -1930,7 +1946,10 @@ private enum LaborRollupBuilder {
             $0.textPayload["labor_grain"] != "market" && !$0.storeNumber.isEmpty
         }
         if !filters.division.isEmpty {
-            return stores.filter { HeartbeatMath.matches($0.division, filters.division) }
+            return stores.filter { filters.includesDivision($0.division) }
+        }
+        if !filters.region.isEmpty {
+            return stores.filter { filters.includesDivision($0.division) }
         }
         if !filters.district.isEmpty {
             let divisions = Set(

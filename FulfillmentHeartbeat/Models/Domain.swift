@@ -293,7 +293,25 @@ enum HeartbeatMath {
     }
 
     static func filtered(_ rows: [MetricRow], division: String, district: String, om: String, store: String) -> [MetricRow] {
-        filtered(rows, division: division, district: district, om: om, store: store, relaxUnknown: false, universe: nil)
+        filtered(rows, division: division, district: district, om: om, store: store, relaxUnknown: false, universe: nil, region: "")
+    }
+
+    static func filtered(
+        _ rows: [MetricRow],
+        filters: DashboardFilters,
+        relaxUnknown: Bool = false,
+        universe: [MetricRow]? = nil
+    ) -> [MetricRow] {
+        filtered(
+            rows,
+            division: filters.division,
+            district: filters.district,
+            om: filters.om,
+            store: filters.store,
+            relaxUnknown: relaxUnknown,
+            universe: universe,
+            region: filters.region
+        )
     }
 
     static func filtered(
@@ -303,23 +321,33 @@ enum HeartbeatMath {
         om: String,
         store: String,
         relaxUnknown: Bool,
-        universe: [MetricRow]? = nil
+        universe: [MetricRow]? = nil,
+        region: String = ""
     ) -> [MetricRow] {
         let pool = universe ?? rows
         let roster = storeRoster(pool)
-        let divisionStores = storeSet(in: pool, roster: roster, value: division, relax: relaxUnknown) { $0.division }
-        let districtStores = storeSet(in: pool, roster: roster, value: district, relax: relaxUnknown) { $0.district }
-        let omStores = storeSet(in: pool, roster: roster, value: om, relax: relaxUnknown) { $0.om }
+        let divisionValues: [String]
+        if !division.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            divisionValues = [division]
+        } else if let market = MarketRegion(rawValue: region) {
+            divisionValues = market.divisions
+        } else {
+            divisionValues = []
+        }
+        let divisionStores = storeSet(in: pool, roster: roster, values: divisionValues, relax: relaxUnknown) { $0.division }
+        let districtStores = storeSet(in: pool, roster: roster, values: district.isEmpty ? [] : [district], relax: relaxUnknown) { $0.district }
+        let omStores = storeSet(in: pool, roster: roster, values: om.isEmpty ? [] : [om], relax: relaxUnknown) { $0.om }
         let storeFilter = usableFilter(store, in: pool.map(\.storeNumber), relax: relaxUnknown)
 
         return rows.filter { row in
-            if let divisionStores, !belongs(row.storeNumber, to: divisionStores, identity: resolvedIdentity(row, roster: roster).division, value: division) {
+            let identity = resolvedIdentity(row, roster: roster)
+            if let divisionStores, !belongs(row.storeNumber, to: divisionStores, identity: identity.division, values: divisionValues) {
                 return false
             }
-            if let districtStores, !belongs(row.storeNumber, to: districtStores, identity: resolvedIdentity(row, roster: roster).district, value: district) {
+            if let districtStores, !belongs(row.storeNumber, to: districtStores, identity: identity.district, values: [district]) {
                 return false
             }
-            if let omStores, !belongs(row.storeNumber, to: omStores, identity: resolvedIdentity(row, roster: roster).om, value: om) {
+            if let omStores, !belongs(row.storeNumber, to: omStores, identity: identity.om, values: [om]) {
                 return false
             }
             if let storeFilter, !matches(row.storeNumber, storeFilter) { return false }
@@ -334,11 +362,23 @@ enum HeartbeatMath {
         relax: Bool,
         field: (StoreIdentity) -> String
     ) -> Set<String>? {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        storeSet(in: rows, roster: roster, values: value.isEmpty ? [] : [value], relax: relax, field: field)
+    }
+
+    private static func storeSet(
+        in rows: [MetricRow],
+        roster: [String: StoreIdentity],
+        values: [String],
+        relax: Bool,
+        field: (StoreIdentity) -> String
+    ) -> Set<String>? {
+        let trimmed = values
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
         if trimmed.isEmpty { return nil }
         let hits = Set(rows.compactMap { row -> String? in
             let identity = resolvedIdentity(row, roster: roster)
-            guard matches(field(identity), trimmed), !row.storeNumber.isEmpty else { return nil }
+            guard trimmed.contains(where: { MarketRegion.matchesDivision(field(identity), $0) }), !row.storeNumber.isEmpty else { return nil }
             return row.storeNumber
         })
         if hits.isEmpty { return relax ? nil : [] }
@@ -346,8 +386,12 @@ enum HeartbeatMath {
     }
 
     private static func belongs(_ storeNumber: String, to stores: Set<String>, identity: String, value: String) -> Bool {
+        belongs(storeNumber, to: stores, identity: identity, values: [value])
+    }
+
+    private static func belongs(_ storeNumber: String, to stores: Set<String>, identity: String, values: [String]) -> Bool {
         if !storeNumber.isEmpty { return stores.contains(storeNumber) }
-        return matches(identity, value)
+        return values.contains { MarketRegion.matchesDivision(identity, $0) }
     }
 
     static func usableFilter(_ value: String, in options: [String], relax: Bool) -> String? {
@@ -384,8 +428,12 @@ enum HeartbeatMath {
         var id: String { storeNumber }
     }
 
-    static func marketBoard(_ rows: [MetricRow], division: String, district: String, om: String, store: String) -> [MarketStore] {
-        let matched = filtered(rows, division: division, district: district, om: om, store: store, relaxUnknown: false, universe: rows)
+    static func marketBoard(_ rows: [MetricRow], filters: DashboardFilters) -> [MarketStore] {
+        marketBoard(rows, division: filters.division, district: filters.district, om: filters.om, store: filters.store, region: filters.region)
+    }
+
+    static func marketBoard(_ rows: [MetricRow], division: String, district: String, om: String, store: String, region: String = "") -> [MarketStore] {
+        let matched = filtered(rows, division: division, district: district, om: om, store: store, relaxUnknown: false, universe: rows, region: region)
         let roster = storeRoster(rows)
         var pph: [String: Double] = [:]
         for row in latestPerStore(matched.filter { $0.section == .pph }) {
@@ -1395,13 +1443,14 @@ struct ChecklistDriverGroup: Identifiable, Equatable {
 }
 
 struct DashboardFilters: Equatable, Codable {
+    var region = ""
     var division = ""
     var district = ""
     var om = ""
     var store = ""
 
     var isActive: Bool {
-        !division.isEmpty || !district.isEmpty || !om.isEmpty || !store.isEmpty
+        !region.isEmpty || !division.isEmpty || !district.isEmpty || !om.isEmpty || !store.isEmpty
     }
 
     var summary: String {
@@ -1410,6 +1459,7 @@ struct DashboardFilters: Equatable, Codable {
 
     var summaryParts: [(text: String, active: Bool)] {
         [
+            (region.isEmpty ? "All regions" : region, !region.isEmpty),
             (division.isEmpty ? "All divisions" : division, !division.isEmpty),
             (district.isEmpty ? "All districts" : "District \(district)", !district.isEmpty),
             (om.isEmpty ? "All OMs" : om, !om.isEmpty),
@@ -1417,11 +1467,22 @@ struct DashboardFilters: Equatable, Codable {
         ]
     }
 
-    enum CodingKeys: String, CodingKey { case division, district, om, store }
+    func includesDivision(_ value: String) -> Bool {
+        if !division.isEmpty { return MarketRegion.matchesDivision(value, division) }
+        if let region = MarketRegion(rawValue: region) { return region.contains(value) }
+        return true
+    }
+
+    var regionDivisions: [String] {
+        MarketRegion(rawValue: region)?.divisions ?? []
+    }
+
+    enum CodingKeys: String, CodingKey { case region, division, district, om, store }
 
     init() {}
 
-    init(division: String, district: String, om: String, store: String) {
+    init(region: String = "", division: String, district: String, om: String, store: String) {
+        self.region = region
         self.division = division
         self.district = district
         self.om = om
@@ -1430,6 +1491,7 @@ struct DashboardFilters: Equatable, Codable {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        region = try c.decodeIfPresent(String.self, forKey: .region) ?? ""
         division = try c.decodeIfPresent(String.self, forKey: .division) ?? ""
         district = try c.decodeIfPresent(String.self, forKey: .district) ?? ""
         om = try c.decodeIfPresent(String.self, forKey: .om) ?? ""
@@ -1437,7 +1499,42 @@ struct DashboardFilters: Equatable, Codable {
     }
 }
 
+enum MarketRegion: String, CaseIterable, Identifiable, Sendable {
+    case east = "East Region"
+    case south = "South Region"
+    case california = "California Region"
+    case west = "West Region"
+
+    var id: String { rawValue }
+
+    var divisions: [String] {
+        switch self {
+        case .east: return ["Shaws", "Mid-Atlantic", "Mid Atlantic", "Jewel Osco"]
+        case .south: return ["Southern", "United", "Southwest"]
+        case .california: return ["NorCal", "SoCal"]
+        case .west: return ["Mountain West", "Seattle", "Haggen", "Portland"]
+        }
+    }
+
+    func contains(_ division: String) -> Bool {
+        divisions.contains { Self.matchesDivision(division, $0) }
+    }
+
+    static func containing(_ division: String) -> MarketRegion? {
+        allCases.first { $0.contains(division) }
+    }
+
+    static func matchesDivision(_ lhs: String, _ rhs: String) -> Bool {
+        HeartbeatMath.matches(lhs, rhs)
+            || HeartbeatMath.matches(
+                lhs.replacingOccurrences(of: "-", with: " "),
+                rhs.replacingOccurrences(of: "-", with: " ")
+            )
+    }
+}
+
 enum FilterFocus: String, Sendable {
+    case region
     case division
     case district
     case om
@@ -1445,6 +1542,7 @@ enum FilterFocus: String, Sendable {
 
     var title: String {
         switch self {
+        case .region: return "Region"
         case .division: return "Division"
         case .district: return "District"
         case .om: return "Operations manager"
@@ -1454,6 +1552,7 @@ enum FilterFocus: String, Sendable {
 
     var chipTitle: String {
         switch self {
+        case .region: return "Region"
         case .division: return "Division"
         case .district: return "District"
         case .om: return "OM"
@@ -1463,6 +1562,7 @@ enum FilterFocus: String, Sendable {
 
     var prompt: String {
         switch self {
+        case .region: return "Type a region"
         case .division: return "Type a division"
         case .district: return "Type a district"
         case .om: return "Type an OM name"
@@ -1472,6 +1572,7 @@ enum FilterFocus: String, Sendable {
 
     var allLabel: String {
         switch self {
+        case .region: return "All regions"
         case .division: return "All divisions"
         case .district: return "All districts"
         case .om: return "All operations managers"

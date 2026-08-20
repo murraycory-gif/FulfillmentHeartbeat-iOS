@@ -79,10 +79,7 @@ final class HeartbeatStore: ObservableObject {
         if relaxUnknown {
             return HeartbeatMath.filtered(
                 latestBySection[section] ?? [],
-                division: filters.division,
-                district: filters.district,
-                om: filters.om,
-                store: filters.store,
+                filters: filters,
                 relaxUnknown: true,
                 universe: latestUniverse
             )
@@ -727,10 +724,7 @@ final class HeartbeatStore: ObservableObject {
             section,
             rows: HeartbeatMath.filtered(
                 sectionRows,
-                division: filters.division,
-                district: filters.district,
-                om: filters.om,
-                store: filters.store,
+                filters: filters,
                 relaxUnknown: false,
                 universe: sectionRows + latestUniverse
             )
@@ -738,7 +732,9 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func setDivision(_ value: String) {
-        replaceFilters(DashboardFilters(division: value, district: "", om: "", store: ""))
+        var next = DashboardFilters(region: MarketRegion.containing(value)?.rawValue ?? filters.region, division: value, district: "", om: "", store: "")
+        if value.isEmpty { next.region = filters.region }
+        replaceFilters(next)
     }
 
     func setDistrict(_ value: String) {
@@ -773,12 +769,18 @@ final class HeartbeatStore: ObservableObject {
             values.map { (id: $0, label: $0) }
         }
         switch focus {
+        case .region:
+            return MarketRegion.allCases.map { (id: $0.rawValue, label: $0.rawValue) }
         case .division:
-            return pairs(cachedDivisions)
+            let all = cachedDivisions
+            if let region = MarketRegion(rawValue: draft.region) {
+                return pairs(all.filter { region.contains($0) })
+            }
+            return pairs(all)
         case .district:
             return pairs(
                 roster.values
-                    .filter { draft.division.isEmpty || HeartbeatMath.matches($0.division, draft.division) }
+                    .filter { draft.includesDivision($0.division) }
                     .map(\.district)
                     .filter { !$0.isEmpty }
                     .uniqued()
@@ -787,7 +789,7 @@ final class HeartbeatStore: ObservableObject {
         case .om:
             return pairs(
                 roster.values
-                    .filter { draft.division.isEmpty || HeartbeatMath.matches($0.division, draft.division) }
+                    .filter { draft.includesDivision($0.division) }
                     .filter { draft.district.isEmpty || HeartbeatMath.matches($0.district, draft.district) }
                     .map(\.om)
                     .filter { value in
@@ -799,7 +801,7 @@ final class HeartbeatStore: ObservableObject {
         case .store:
             var seen: [String: String] = [:]
             for (number, identity) in roster {
-                if !draft.division.isEmpty, !HeartbeatMath.matches(identity.division, draft.division) { continue }
+                if !draft.includesDivision(identity.division) { continue }
                 if !draft.district.isEmpty, !HeartbeatMath.matches(identity.district, draft.district) { continue }
                 if !draft.om.isEmpty, !HeartbeatMath.matches(identity.om, draft.om) { continue }
                 if seen[number] == nil { seen[number] = identity.name ?? "" }
@@ -1052,10 +1054,7 @@ final class HeartbeatStore: ObservableObject {
             for section in MetricSection.allCases where section != .pickerScorecard && section != .pickPathPicker {
                 nextLatest[section] = HeartbeatMath.filtered(
                     latestBySection[section] ?? [],
-                    division: filters.division,
-                    district: filters.district,
-                    om: filters.om,
-                    store: filters.store,
+                    filters: filters,
                     relaxUnknown: false,
                     universe: universe
                 )
@@ -1075,13 +1074,7 @@ final class HeartbeatStore: ObservableObject {
         rebuildPickPathPickerIndex(scorecard: nextLatest[.pickerScorecard] ?? [])
         rebuildPPHPickerIndex(scorecard: nextLatest[.pickerScorecard] ?? [])
         cachedChecklistGroups = buildChecklistGroups(nextLatest)
-        filteredMarket = HeartbeatMath.marketBoard(
-            universe,
-            division: filters.division,
-            district: filters.district,
-            om: filters.om,
-            store: filters.store
-        )
+        filteredMarket = HeartbeatMath.marketBoard(universe, filters: filters)
         refreshFilterOptions()
         cachedSummaries = MetricSection.dashboardCards.map { section in
             var input = nextLatest[section] ?? []
@@ -1153,13 +1146,13 @@ final class HeartbeatStore: ObservableObject {
 
     private func refreshFilterOptions() {
         cachedDistricts = roster.values
-            .filter { filters.division.isEmpty || HeartbeatMath.matches($0.division, filters.division) }
+            .filter { filters.includesDivision($0.division) }
             .map(\.district)
             .filter { !$0.isEmpty }
             .uniqued()
             .sorted()
         cachedOMs = roster.values
-            .filter { filters.division.isEmpty || HeartbeatMath.matches($0.division, filters.division) }
+            .filter { filters.includesDivision($0.division) }
             .filter { filters.district.isEmpty || HeartbeatMath.matches($0.district, filters.district) }
             .map(\.om)
             .filter { value in
@@ -1169,7 +1162,7 @@ final class HeartbeatStore: ObservableObject {
             .sorted()
         var seen: [String: String?] = [:]
         for (number, identity) in roster {
-            if !filters.division.isEmpty, !HeartbeatMath.matches(identity.division, filters.division) { continue }
+            if !filters.includesDivision(identity.division) { continue }
             if !filters.district.isEmpty, !HeartbeatMath.matches(identity.district, filters.district) { continue }
             if !filters.om.isEmpty, !HeartbeatMath.matches(identity.om, filters.om) { continue }
             if seen[number] == nil { seen[number] = identity.name }
@@ -1178,12 +1171,12 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func pickerStoreSet() -> Set<String>? {
-        if filters.division.isEmpty, filters.district.isEmpty, filters.om.isEmpty, filters.store.isEmpty {
+        if !filters.isActive {
             return nil
         }
         var allowed: Set<String> = []
         for (number, identity) in roster {
-            if !filters.division.isEmpty, !HeartbeatMath.matches(identity.division, filters.division) { continue }
+            if !filters.includesDivision(identity.division) { continue }
             if !filters.district.isEmpty, !HeartbeatMath.matches(identity.district, filters.district) { continue }
             if !filters.om.isEmpty, !HeartbeatMath.matches(identity.om, filters.om) { continue }
             if !filters.store.isEmpty, !HeartbeatMath.matches(number, filters.store) { continue }
@@ -1361,10 +1354,7 @@ private struct PulseCaches {
         for section in MetricSection.allCases where section != .pickerScorecard && section != .pickPathPicker {
             nextLatest[section] = HeartbeatMath.filtered(
                 latest[section] ?? [],
-                division: filters.division,
-                district: filters.district,
-                om: filters.om,
-                store: filters.store,
+                filters: filters,
                 relaxUnknown: false,
                 universe: universe
             )
@@ -1376,21 +1366,15 @@ private struct PulseCaches {
             nextLatest[.pickerScorecard] = pickers
         }
         let pickerBoard = HeartbeatMath.pickerBoard(nextLatest[.pickerScorecard] ?? [])
-        let market = HeartbeatMath.marketBoard(
-            universe,
-            division: filters.division,
-            district: filters.district,
-            om: filters.om,
-            store: filters.store
-        )
+        let market = HeartbeatMath.marketBoard(universe, filters: filters)
         let districts = roster.values
-            .filter { filters.division.isEmpty || HeartbeatMath.matches($0.division, filters.division) }
+            .filter { filters.includesDivision($0.division) }
             .map(\.district)
             .filter { !$0.isEmpty }
             .uniqued()
             .sorted()
         let oms = roster.values
-            .filter { filters.division.isEmpty || HeartbeatMath.matches($0.division, filters.division) }
+            .filter { filters.includesDivision($0.division) }
             .filter { filters.district.isEmpty || HeartbeatMath.matches($0.district, filters.district) }
             .map(\.om)
             .filter { value in !value.isEmpty && value.rangeOfCharacter(from: .letters) != nil }
@@ -1398,7 +1382,7 @@ private struct PulseCaches {
             .sorted()
         var seen: [String: String?] = [:]
         for (number, identity) in roster {
-            if !filters.division.isEmpty, !HeartbeatMath.matches(identity.division, filters.division) { continue }
+            if !filters.includesDivision(identity.division) { continue }
             if !filters.district.isEmpty, !HeartbeatMath.matches(identity.district, filters.district) { continue }
             if !filters.om.isEmpty, !HeartbeatMath.matches(identity.om, filters.om) { continue }
             if seen[number] == nil { seen[number] = identity.name }
@@ -1439,12 +1423,12 @@ private struct PulseCaches {
         roster: [String: HeartbeatMath.StoreIdentity],
         filters: DashboardFilters
     ) -> Set<String>? {
-        if filters.division.isEmpty, filters.district.isEmpty, filters.om.isEmpty, filters.store.isEmpty {
+        if !filters.isActive {
             return nil
         }
         var allowed: Set<String> = []
         for (number, identity) in roster {
-            if !filters.division.isEmpty, !HeartbeatMath.matches(identity.division, filters.division) { continue }
+            if !filters.includesDivision(identity.division) { continue }
             if !filters.district.isEmpty, !HeartbeatMath.matches(identity.district, filters.district) { continue }
             if !filters.om.isEmpty, !HeartbeatMath.matches(identity.om, filters.om) { continue }
             if !filters.store.isEmpty, !HeartbeatMath.matches(number, filters.store) { continue }
