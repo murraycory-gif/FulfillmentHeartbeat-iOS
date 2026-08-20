@@ -15,7 +15,7 @@ struct UploadView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 4) {
-                    PageHeadline(lead: "Upload workbooks", blurb: "One Excel file for each section. Choose file and pick it from iCloud Drive or OneDrive.")
+                    PageHeadline(lead: "Upload", accent: "Workbooks", blurb: "One Excel file for each section. Choose file and pick it from iCloud Drive or OneDrive.")
                 }
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 16)], spacing: 16) {
