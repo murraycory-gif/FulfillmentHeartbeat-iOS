@@ -363,6 +363,8 @@ enum WorkbookParser {
             if let value = usableValue(cell(omIdx)) { carryOM = value }
 
             let storeRaw = cell(storeIdx).trimmingCharacters(in: .whitespacesAndNewlines)
+            if storeRaw.isEmpty { continue }
+            if isTotalCell(storeRaw) { continue }
             if storeRaw.lowercased().hasPrefix("applied") { continue }
             guard looksLikeStoreNumber(storeRaw) else { continue }
             let raw = totalIdx < line.count ? line[totalIdx] : ""
@@ -1269,15 +1271,41 @@ enum SheetXML {
     }
 
     static func parse(data: Data, strings: [String]) -> [[String]] {
-        let delegate = SheetXMLDelegate(strings: strings)
-        let parser = XMLParser(data: data)
-        parser.delegate = delegate
-        parser.shouldProcessNamespaces = false
-        parser.shouldResolveExternalEntities = false
-        withExtendedLifetime(delegate) {
-            _ = parser.parse()
+        guard let xml = String(data: data, encoding: .utf8) else { return [] }
+        let cleaned = stripNS(xml)
+        var rows: [[String]] = []
+        rows.reserveCapacity(2048)
+        let rowChunks = matches(in: cleaned, pattern: "<row\\b[\\s\\S]*?</row>")
+        guard let cellRegex = try? NSRegularExpression(
+            pattern: "<c\\b([^>]*?)(?:/>|>([\\s\\S]*?)</c>)",
+            options: [.dotMatchesLineSeparators]
+        ) else { return [] }
+        for chunk in rowChunks {
+            var cells: [String] = []
+            let range = NSRange(chunk.startIndex..., in: chunk)
+            for match in cellRegex.matches(in: chunk, range: range) {
+                let attrs = nsGroup(match, 1, in: chunk) ?? ""
+                let inner = nsGroup(match, 2, in: chunk) ?? ""
+                let ref = firstGroup(in: attrs, pattern: "r=\"([^\"]+)\"") ?? ""
+                let type = firstGroup(in: attrs, pattern: "t=\"([^\"]+)\"") ?? ""
+                var value = firstGroup(in: inner, pattern: "<v>([\\s\\S]*?)</v>")
+                    ?? firstGroup(in: inner, pattern: "<t(?:\\s[^>]*)?>([\\s\\S]*?)</t>")
+                    ?? ""
+                if type == "s", let index = Int(value.trimmingCharacters(in: .whitespacesAndNewlines)), strings.indices.contains(index) {
+                    value = strings[index]
+                } else {
+                    value = unescape(value)
+                }
+                let column = sheetColumnIndex(ref)
+                guard column >= 0, column < 32 else { continue }
+                if cells.count <= column {
+                    cells.append(contentsOf: repeatElement("", count: column - cells.count + 1))
+                }
+                cells[column] = value
+            }
+            rows.append(cells)
         }
-        return delegate.rows
+        return rows
     }
 
     private static func scan(_ base: UnsafePointer<UInt8>, count: Int, strings: [String]) -> [[String]] {
@@ -1503,6 +1531,13 @@ private func sheetColumnIndex(_ ref: String) -> Int {
         }
     }
     return n - 1
+}
+
+private func nsGroup(_ match: NSTextCheckingResult, _ index: Int, in text: String) -> String? {
+    guard index < match.numberOfRanges else { return nil }
+    let range = match.range(at: index)
+    guard range.location != NSNotFound, let swift = Range(range, in: text) else { return nil }
+    return String(text[swift])
 }
 
 private func stripNS(_ xml: String) -> String {
