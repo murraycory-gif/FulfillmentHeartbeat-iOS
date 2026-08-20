@@ -467,7 +467,7 @@ struct FilterSheet: View {
                 }
                 ToolbarItem(placement: .primaryAction) {
                     if draft.isActive {
-                        Button("Clear all") { draft = DashboardFilters() }
+                        Button("Clear all") { applyDraft(DashboardFilters()) }
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
@@ -477,7 +477,10 @@ struct FilterSheet: View {
             }
             .alert("Would you like to save your filters?", isPresented: $confirmLeave) {
                 Button("Save") { saveAndClose() }
-                Button("Don't Save", role: .destructive) { dismiss() }
+                Button("Don't Save", role: .destructive) {
+                    store.commitFilters(original)
+                    dismiss()
+                }
                 Button("Keep editing", role: .cancel) {}
             } message: {
                 Text("You changed Division, District, OM, or Store. Save to apply them on the dashboard.")
@@ -576,7 +579,15 @@ struct FilterSheet: View {
         case .store:
             next.store = value
         }
+        applyDraft(next)
+    }
+
+    private func applyDraft(_ next: DashboardFilters) {
         draft = next
+        Task { @MainActor in
+            await Task.yield()
+            store.commitFilters(next)
+        }
     }
 }
 
