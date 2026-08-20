@@ -38,7 +38,7 @@ struct SectionDetailView: View {
                         HStack(alignment: .top, spacing: 10) {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .foregroundStyle(AppTheme.warn)
-                            Text("Re-upload Labor. Use LABOR Store View Thru Week.xlsx for store totals.")
+                            Text("Re-upload LABOR Store View Thru Week.xlsx. The Power BI Total row is missing, so company tiles cannot match -0.04% Target vs Actual.")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(AppTheme.text)
                         }
@@ -481,21 +481,7 @@ struct SectionDetailView: View {
         if !store.filters.isActive, let value = store.laborMarketRow()?.number(key) {
             return value
         }
-        let weightKey: String
-        switch key {
-        case "cost_trgt_pct": weightKey = "sch_hrs"
-        case "schedule_efficiency_pct": weightKey = "empower_hrs"
-        default: weightKey = "earned_hrs"
-        }
-        var num = 0.0
-        var den = 0.0
-        for row in snapshots {
-            guard let value = row.number(key) else { continue }
-            let weight = row.number(weightKey) ?? row.number("act_cost_dollar") ?? 1
-            num += value * weight
-            den += weight
-        }
-        return den > 0 ? num / den : nil
+        return HeartbeatMath.laborRollup(snapshots, key: key)
     }
 
     @ViewBuilder

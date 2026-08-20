@@ -721,18 +721,8 @@ enum HeartbeatMath {
                 lastUploadedAt: upload?.uploadedAt
             )
         case .labor:
-            let market = rows.first { $0.textPayload["labor_grain"] == "market" }
             let latest = rows.filter { $0.textPayload["labor_grain"] != "market" }
-            let headline: Double? = {
-                if let value = market?.number("target_vs_actual_pct") { return value }
-                let weights = latest.compactMap { row -> (Double, Double)? in
-                    guard let tva = row.number("target_vs_actual_pct") else { return nil }
-                    return (tva, max(row.number("earned_hrs") ?? row.number("act_cost_dollar") ?? 0, 1))
-                }
-                let total = weights.reduce(0) { $0 + $1.1 }
-                guard total > 0 else { return average(latest.compactMap { $0.number("target_vs_actual_pct") }) }
-                return weights.reduce(0) { $0 + $1.0 * $1.1 } / total
-            }()
+            let headline: Double? = laborRollup(rows, key: "target_vs_actual_pct")
             let healthy = latest.filter { ($0.number("target_vs_actual_pct") ?? 1) <= 0 }.count
             let watchCount = latest.filter {
                 let value = $0.number("target_vs_actual_pct") ?? 0
@@ -883,6 +873,48 @@ enum HeartbeatMath {
 
     static func pphHealth(_ row: MetricRow) -> Health {
         band(row.number("pph"), good: pphGoal, watch: pphRisk)
+    }
+
+    static func laborRollup(_ rows: [MetricRow], key: String) -> Double? {
+        if let market = rows.first(where: { $0.textPayload["labor_grain"] == "market" }) {
+            return market.number(key)
+        }
+        let stores = rows.filter { $0.textPayload["labor_grain"] != "market" }
+        if stores.count == 1 { return stores[0].number(key) }
+        if key == "schedule_efficiency_pct" {
+            return laborWeighted(stores, key: key, weightKey: "empower_hrs")
+        }
+        var num = 0.0
+        var den = 0.0
+        for row in stores {
+            guard let value = row.number(key) else { continue }
+            let weight = laborBase(row)
+            num += value * weight
+            den += weight
+        }
+        return den > 0 ? num / den : nil
+    }
+
+    private static func laborBase(_ row: MetricRow) -> Double {
+        if let dollars = row.number("act_cost_dollar"),
+           let act = row.number("act_cost_pct"),
+           abs(act) > 0.0001 {
+            return dollars / (act / 100)
+        }
+        return row.number("earned_hrs") ?? row.number("charged_hrs") ?? 1
+    }
+
+    private static func laborWeighted(_ rows: [MetricRow], key: String, weightKey: String) -> Double? {
+        var num = 0.0
+        var den = 0.0
+        for row in rows {
+            guard let value = row.number(key) else { continue }
+            let weight = row.number(weightKey) ?? 0
+            guard weight > 0 else { continue }
+            num += value * weight
+            den += weight
+        }
+        return den > 0 ? num / den : nil
     }
 
     static func laborHealth(_ row: MetricRow) -> Health {

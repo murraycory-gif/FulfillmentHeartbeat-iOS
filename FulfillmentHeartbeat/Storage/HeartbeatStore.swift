@@ -332,12 +332,18 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func laborMarketRow() -> MetricRow? {
-        rows.first { $0.section == .labor && $0.textPayload["labor_grain"] == "market" }
+        rows.first {
+            $0.section == .labor && (
+                $0.textPayload["labor_grain"] == "market"
+                    || HeartbeatMath.canonicalStore($0.storeNumber).caseInsensitiveCompare("TOTAL") == .orderedSame
+            )
+        }
     }
 
     func laborNeedsReload() -> Bool {
         let stores = rows.filter { $0.section == .labor && $0.textPayload["labor_grain"] == "store" }
         guard !stores.isEmpty else { return false }
+        if laborMarketRow() == nil, laborWeekIds().isEmpty { return true }
         return stores.contains {
             let rev = $0.textPayload["parser_rev"] ?? ""
             return rev != "7" && rev != "8"
@@ -364,10 +370,11 @@ final class HeartbeatStore: ObservableObject {
         let noTva = stores.filter { $0.number("target_vs_actual_pct") == nil }.count
         let span = weekIds.isEmpty ? "—" : (weekIds.first == weekIds.last ? weekIds[0] : "\(weekIds.first!) thru \(weekIds.last!)")
         if weekIds.isEmpty {
+            let hasTotal = rows.contains { $0.textPayload["labor_grain"] == "market" }
             return [
                 "replaced prior Labor",
                 "\(HeartbeatFormat.num(Double(stores.count))) stores",
-                "store totals (all weeks already rolled in this file)",
+                hasTotal ? "Power BI Total row captured for company tiles" : "missing Total row — re-upload Store View so tiles match Power BI",
             ].joined(separator: " · ")
         }
         var parts = [

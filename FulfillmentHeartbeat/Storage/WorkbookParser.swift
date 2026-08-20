@@ -426,7 +426,7 @@ enum WorkbookParser {
         let market = isTotalCell(storeRaw)
         let store: String
         if market {
-            store = ""
+            store = "TOTAL"
         } else {
             guard let value = usableValue(storeRaw), looksLikeStoreNumber(value) else { return nil }
             store = value
