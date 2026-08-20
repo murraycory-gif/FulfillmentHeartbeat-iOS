@@ -2029,7 +2029,7 @@ struct LaborStoreCard: View {
                 metric("Tgt vs Act", HeartbeatFormat.pct(row.number("target_vs_actual_pct")), health)
                 metric("CostTrgt%", HeartbeatFormat.pct(row.number("cost_trgt_pct")), .none)
                 metric("ActCost%", HeartbeatFormat.pct(row.number("act_cost_pct")), .none)
-                metric("Charged Hrs", HeartbeatFormat.num(row.number("charged_hrs"), digits: 0), .none)
+                metric("Charged Hrs", HeartbeatFormat.num(row.number("charged_hrs"), digits: 1), .none)
             }
             if expanded {
                 weekBlock
@@ -2055,16 +2055,22 @@ struct LaborStoreCard: View {
 
     @ViewBuilder
     private var weekBlock: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("By week")
+        VStack(alignment: .leading, spacing: 10) {
+            Text("By week  ·  same columns as the store card")
                 .font(.subheadline.weight(.bold))
             if weeks.isEmpty {
                 Text("No weekly rows for this store.")
                     .font(.subheadline)
                     .foregroundStyle(AppTheme.textSecondary)
             } else {
-                ForEach(weeks) { week in
-                    weekRow(week)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        laborHeader
+                        laborStrip(title: "All weeks", values: values(from: row), health: HeartbeatMath.health(for: .labor, row: row))
+                        ForEach(weeks) { week in
+                            weekTable(week)
+                        }
+                    }
                 }
             }
         }
@@ -2076,7 +2082,7 @@ struct LaborStoreCard: View {
         )
     }
 
-    private func weekRow(_ week: MetricRow) -> some View {
+    private func weekTable(_ week: MetricRow) -> some View {
         let health = HeartbeatMath.laborHealth(week)
         let weekId = week.textPayload["week"] ?? week.recordedOn ?? "—"
         let isOpen = openWeek == weekId
@@ -2097,20 +2103,16 @@ struct LaborStoreCard: View {
                 }
             }
             .buttonStyle(.plain)
-            metricGrid(weekItems(week, health: health))
+            laborStrip(title: "Week", values: values(from: week), health: health)
             if isOpen {
                 let days = store.laborDays(from: week)
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("By day")
-                        .font(.subheadline.weight(.bold))
-                    if days.isEmpty {
-                        Text("No daily rows in this week.")
-                            .font(.subheadline)
-                            .foregroundStyle(AppTheme.textSecondary)
-                    } else {
-                        ForEach(days) { day in
-                            dayRow(day, week: week)
-                        }
+                if days.isEmpty {
+                    Text("No daily rows in this week.")
+                        .font(.subheadline)
+                        .foregroundStyle(AppTheme.textSecondary)
+                } else {
+                    ForEach(days) { day in
+                        laborStrip(title: displayDate(day.date), values: values(day: day, week: week), health: .none)
                     }
                 }
             }
@@ -2122,62 +2124,90 @@ struct LaborStoreCard: View {
         )
     }
 
-    private func dayRow(_ day: LaborDay, week: MetricRow) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(displayDate(day.date))
-                .font(.headline.weight(.semibold))
-            metricGrid(dayItems(day, week: week))
-        }
-        .padding(8)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(AppTheme.bg)
-        )
-    }
-
-    private func weekItems(_ week: MetricRow, health: Health) -> [(String, String, Health)] {
+    private var laborCols: [(String, CGFloat)] {
         [
-            ("Tgt vs Act", HeartbeatFormat.pct(week.number("target_vs_actual_pct")), health),
-            ("CostTrgt%", HeartbeatFormat.pct(week.number("cost_trgt_pct")), .none),
-            ("ActCost$", HeartbeatFormat.money(week.number("act_cost_dollar")), .none),
-            ("Act Hrs", HeartbeatFormat.num(week.number("act_hrs"), digits: 1), .none),
-            ("Empower Hrs", HeartbeatFormat.num(week.number("empower_hrs"), digits: 1), .none),
-            ("Sch Hrs", HeartbeatFormat.num(week.number("sch_hrs"), digits: 1), .none),
-            ("Earned Hrs", HeartbeatFormat.num(week.number("earned_hrs"), digits: 1), .none),
-            ("Over Sch%", HeartbeatFormat.pct(week.number("over_schedule_pct")), .none),
-            ("UPLH", HeartbeatFormat.pct(week.number("uplh_impact_pct")), .none),
-            ("Wage", HeartbeatFormat.pct(week.number("wage_impact_pct")), .none),
-            ("AIV", HeartbeatFormat.pct(week.number("aiv_impact_pct")), .none),
-            ("Charged Hrs", HeartbeatFormat.num(week.number("charged_hrs"), digits: 1), .none),
+            ("Tgt vs Act", 102),
+            ("CostTrgt%", 96),
+            ("ActCost%", 96),
+            ("Charged", 90),
+            ("Act Hrs", 88),
+            ("Empower", 88),
+            ("Sch Hrs", 88),
+            ("Earned", 88),
+            ("Over%", 84),
+            ("ActCost$", 104),
+            ("UPLH", 84),
+            ("Wage", 84),
+            ("AIV", 84),
         ]
     }
 
-    private func dayItems(_ day: LaborDay, week: MetricRow) -> [(String, String, Health)] {
-        let health = HeartbeatMath.laborHealth(week)
-        return [
-            ("Tgt vs Act", HeartbeatFormat.pct(week.number("target_vs_actual_pct")), health),
-            ("CostTrgt%", HeartbeatFormat.pct(week.number("cost_trgt_pct")), .none),
-            ("ActCost%", HeartbeatFormat.pct(day.actCostPct), .none),
-            ("Act Hrs", HeartbeatFormat.num(week.number("act_hrs"), digits: 1), .none),
-            ("Empower Hrs", HeartbeatFormat.num(day.empowerHrs, digits: 1), .none),
-            ("Sch Hrs", HeartbeatFormat.num(day.schHrs, digits: 1), .none),
-            ("Earned Hrs", HeartbeatFormat.num(day.earnedHrs, digits: 1), .none),
-            ("Earned Util", HeartbeatFormat.pct(day.earnedHrsUtil), .none),
-            ("Over Sch%", HeartbeatFormat.pct(day.overSchedulePct), .none),
-            ("UPLH", HeartbeatFormat.pct(week.number("uplh_impact_pct")), .none),
-            ("Wage", HeartbeatFormat.pct(week.number("wage_impact_pct")), .none),
-            ("AIV", HeartbeatFormat.pct(week.number("aiv_impact_pct")), .none),
-            ("Charged Hrs", HeartbeatFormat.num(day.chargedHrs, digits: 1), .none),
-            ("ActCost$", HeartbeatFormat.money(week.number("act_cost_dollar")), .none),
-        ]
-    }
-
-    private func metricGrid(_ items: [(String, String, Health)]) -> some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 88), spacing: 8), count: 4), spacing: 8) {
-            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                metric(item.0, item.1, item.2)
+    private var laborHeader: some View {
+        HStack(spacing: 8) {
+            Text("Grain")
+                .frame(width: 92, alignment: .leading)
+            ForEach(laborCols, id: \.0) { col in
+                Text(col.0)
+                    .frame(width: col.1, alignment: .trailing)
             }
         }
+        .font(.caption.weight(.bold))
+        .foregroundStyle(AppTheme.textTertiary)
+    }
+
+    private func laborStrip(title: String, values: [String], health: Health) -> some View {
+        HStack(spacing: 8) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .frame(width: 92, alignment: .leading)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            ForEach(Array(laborCols.enumerated()), id: \.offset) { index, col in
+                let value = values.indices.contains(index) ? values[index] : "—"
+                Text(value)
+                    .font(.subheadline.weight(.bold).monospacedDigit())
+                    .foregroundStyle(index == 0 ? ink(health) : AppTheme.text)
+                    .frame(width: col.1, alignment: .trailing)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+        }
+    }
+
+    private func values(from row: MetricRow) -> [String] {
+        [
+            HeartbeatFormat.pct(row.number("target_vs_actual_pct")),
+            HeartbeatFormat.pct(row.number("cost_trgt_pct")),
+            HeartbeatFormat.pct(row.number("act_cost_pct")),
+            HeartbeatFormat.num(row.number("charged_hrs"), digits: 1),
+            HeartbeatFormat.num(row.number("act_hrs"), digits: 1),
+            HeartbeatFormat.num(row.number("empower_hrs"), digits: 1),
+            HeartbeatFormat.num(row.number("sch_hrs"), digits: 1),
+            HeartbeatFormat.num(row.number("earned_hrs"), digits: 1),
+            HeartbeatFormat.pct(row.number("over_schedule_pct")),
+            HeartbeatFormat.money(row.number("act_cost_dollar")),
+            HeartbeatFormat.pct(row.number("uplh_impact_pct")),
+            HeartbeatFormat.pct(row.number("wage_impact_pct")),
+            HeartbeatFormat.pct(row.number("aiv_impact_pct")),
+        ]
+    }
+
+    private func values(day: LaborDay, week: MetricRow) -> [String] {
+        [
+            HeartbeatFormat.pct(week.number("target_vs_actual_pct")),
+            HeartbeatFormat.pct(week.number("cost_trgt_pct")),
+            HeartbeatFormat.pct(day.actCostPct),
+            HeartbeatFormat.num(day.chargedHrs, digits: 1),
+            HeartbeatFormat.num(week.number("act_hrs"), digits: 1),
+            HeartbeatFormat.num(day.empowerHrs, digits: 1),
+            HeartbeatFormat.num(day.schHrs, digits: 1),
+            HeartbeatFormat.num(day.earnedHrs, digits: 1),
+            HeartbeatFormat.pct(day.overSchedulePct),
+            HeartbeatFormat.money(week.number("act_cost_dollar")),
+            HeartbeatFormat.pct(week.number("uplh_impact_pct")),
+            HeartbeatFormat.pct(week.number("wage_impact_pct")),
+            HeartbeatFormat.pct(week.number("aiv_impact_pct")),
+        ]
     }
 
     private func displayDate(_ raw: String) -> String {

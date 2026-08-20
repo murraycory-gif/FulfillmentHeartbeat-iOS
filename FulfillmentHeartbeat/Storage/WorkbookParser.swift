@@ -465,18 +465,16 @@ enum WorkbookParser {
             var tvaWeight = 0.0
             var weightedCost = 0.0
             var costWeight = 0.0
+            var weightedUplh = 0.0
+            var weightedWage = 0.0
+            var weightedAiv = 0.0
+            var impactWeight = 0.0
             var division = ""
             var district = ""
-            var sampleUplh: Double?
-            var sampleWage: Double?
-            var sampleAiv: Double?
             for week in ordered {
                 guard let bucket = weeks[week] else { continue }
                 if division.isEmpty { division = bucket.division }
                 if district.isEmpty { district = bucket.district }
-                if sampleUplh == nil { sampleUplh = bucket.uplh }
-                if sampleWage == nil { sampleWage = bucket.wage }
-                if sampleAiv == nil { sampleAiv = bucket.aiv }
                 let hours = bucket.hours ?? 0
                 let dollars = bucket.dollars ?? 0
                 let sch = bucket.days.reduce(0) { $0 + ($1.schHrs ?? 0) }
@@ -489,15 +487,21 @@ enum WorkbookParser {
                 sumEmp += emp
                 sumCharged += charged
                 sumEarned += earned
+                let weight = earned > 0 ? earned : (hours > 0 ? hours : 1)
                 if let tva = bucket.tva {
-                    let weight = earned > 0 ? earned : (hours > 0 ? hours : 1)
                     weightedTva += tva * weight
                     tvaWeight += weight
                 }
                 if let cost = bucket.cost {
-                    let weight = sch > 0 ? sch : (hours > 0 ? hours : 1)
-                    weightedCost += cost * weight
-                    costWeight += weight
+                    let costW = sch > 0 ? sch : weight
+                    weightedCost += cost * costW
+                    costWeight += costW
+                }
+                if bucket.uplh != nil || bucket.wage != nil || bucket.aiv != nil {
+                    weightedUplh += (bucket.uplh ?? 0) * weight
+                    weightedWage += (bucket.wage ?? 0) * weight
+                    weightedAiv += (bucket.aiv ?? 0) * weight
+                    impactWeight += weight
                 }
                 var payload: [String: Double] = [:]
                 if let tva = bucket.tva { payload["target_vs_actual_pct"] = tva }
@@ -535,8 +539,18 @@ enum WorkbookParser {
                 )
             }
             var storePayload: [String: Double] = [:]
-            if tvaWeight > 0 { storePayload["target_vs_actual_pct"] = weightedTva / tvaWeight }
             if costWeight > 0 { storePayload["cost_trgt_pct"] = weightedCost / costWeight }
+            if impactWeight > 0 {
+                let uplh = weightedUplh / impactWeight
+                let wage = weightedWage / impactWeight
+                let aiv = weightedAiv / impactWeight
+                storePayload["uplh_impact_pct"] = uplh
+                storePayload["wage_impact_pct"] = wage
+                storePayload["aiv_impact_pct"] = aiv
+                storePayload["target_vs_actual_pct"] = uplh + wage + aiv
+            } else if tvaWeight > 0 {
+                storePayload["target_vs_actual_pct"] = weightedTva / tvaWeight
+            }
             if sumDollars > 0 { storePayload["act_cost_dollar"] = sumDollars }
             if sumHours > 0 { storePayload["act_hrs"] = sumHours }
             if sumSch > 0 { storePayload["sch_hrs"] = sumSch }
@@ -549,9 +563,6 @@ enum WorkbookParser {
             if let cost = storePayload["cost_trgt_pct"], let tva = storePayload["target_vs_actual_pct"] {
                 storePayload["act_cost_pct"] = cost + tva
             }
-            if let uplh = sampleUplh { storePayload["uplh_impact_pct"] = uplh }
-            if let wage = sampleWage { storePayload["wage_impact_pct"] = wage }
-            if let aiv = sampleAiv { storePayload["aiv_impact_pct"] = aiv }
             let span = ordered.isEmpty ? "" : (ordered.first == ordered.last ? ordered[0] : "\(ordered.first!)–\(ordered.last!)")
             out.append(
                 ParsedWorkbookRow(
