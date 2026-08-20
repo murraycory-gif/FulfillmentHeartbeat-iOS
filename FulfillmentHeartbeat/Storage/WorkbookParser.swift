@@ -103,186 +103,185 @@ enum WorkbookParser {
     ]
     private static let dateKeys = ["date", "week", "weekending", "period", "recordedon", "asof", "reportdate"]
 
-    private static let metricAliases: [String: String] = [
-        "starrating": "star_rating",
-        "stars": "star_rating",
-        "fivestar": "star_rating",
-        "fivestars": "star_rating",
-        "rating": "star_rating",
-        "totalrating": "star_rating",
-        "flashavailabilitymakeitconvenient": "flash_pct",
-        "flashavailability": "flash_pct",
-        "flash": "flash_pct",
-        "flashavailabilitystar": "flash_star",
-        "ottmakeitconvenient": "ott_pct",
-        "ott": "ott_pct",
-        "ottstar": "ott_star",
-        "presuboosgivemewhatiordered": "presub_pct",
-        "presuboos": "presub_pct",
-        "presub": "presub_pct",
-        "presuboosstar": "presub_star",
-        "coegivemewhatiordered": "coe_pct",
-        "coe": "coe_pct",
-        "coestar": "coe_star",
-        "oth5pleasanthandoff": "oth5_pct",
-        "oth5": "oth5_pct",
-        "oth": "oth5_pct",
-        "oth5star": "oth5_star",
-        "passrate40": "pass",
-        "passrate": "pass",
-        "otp": "otp_pct",
-        "otpct": "otp_pct",
-        "ontime": "otp_pct",
-        "ontimepromise": "otp_pct",
-        "ontimepct": "otp_pct",
-        "fill": "fill_rate_pct",
-        "fillrate": "fill_rate_pct",
-        "fillratepct": "fill_rate_pct",
-        "quality": "quality_score",
-        "qualityscore": "quality_score",
-        "cx": "cx_score",
-        "cxscore": "cx_score",
-        "customerexperience": "cx_score",
-        "compliance": "compliance_pct",
-        "compliancepct": "compliance_pct",
-        "pickpath": "compliance_pct",
-        "pickpathcompliance": "compliance_pct",
-        "pathcompliance": "compliance_pct",
-        "orders": "orders",
-        "ordercount": "orders",
-        "order": "orders",
-        "purepphexcludingreshop": "pph",
-        "pphexcludingreshop": "pph",
-        "pickstotal": "picks_total",
-        "totalpicks": "picks_total",
-        "pickscompliant": "picks_compliant",
-        "compliantpicks": "picks_compliant",
-        "exceptions": "exception_count",
-        "exceptioncount": "exception_count",
-        "pnr": "pnr_count",
-        "pnrcount": "pnr_count",
-        "netprepnotreadyhourspct": "pnr_rate_pct",
-        "prepnotreadyhourspct": "pnr_rate_pct",
-        "prepnotreadyhours": "pnr_rate_pct",
-        "pnrhours": "pnr_rate_pct",
-        "notready": "pnr_rate_pct",
-        "netprepnotreadyhours": "pnr_rate_pct",
-        "prepnotreadyhours": "pnr_rate_pct",
-        "netprepnotreadyhourspct": "pnr_rate_pct",
-        "pnrhours": "pnr_rate_pct",
-        "pnrrate": "pnr_rate_pct",
-        "pnrratepct": "pnr_rate_pct",
-        "ordersdue": "orders_due",
-        "dueorders": "orders_due",
-        "avglatemin": "avg_late_min",
-        "avglate": "avg_late_min",
-        "lateavg": "avg_late_min",
-        "pickupcapacity": "pickup_capacity",
-        "pickupcap": "pickup_capacity",
-        "pickupslots": "pickup_capacity",
-        "deliverycapacity": "delivery_capacity",
-        "deliverycap": "delivery_capacity",
-        "deliveryslots": "delivery_capacity",
-        "recpickup": "rec_pickup",
-        "recommendedpickup": "rec_pickup",
-        "recdelivery": "rec_delivery",
-        "recommendeddelivery": "rec_delivery",
-        "pickuputil": "pickup_util_pct",
-        "pickuputilization": "pickup_util_pct",
-        "deliveryutil": "delivery_util_pct",
-        "deliveryutilization": "delivery_util_pct",
-        "totalpiecestotalhours": "dynacap_rate",
-        "totalpieceshrs": "dynacap_rate",
-        "pieceshr": "dynacap_rate",
-        "pcsperhr": "dynacap_rate",
-        "totalpiecesperhour": "dynacap_rate",
-        "piecesperhour": "dynacap_rate",
-        "piecestotalhrs": "dynacap_rate",
-        "dynacaprate": "dynacap_rate",
-        "dynacapsetting": "dynacap_rate",
-        "dpadynacap": "dpa_dynacap",
-        "eotcapacity": "eot_capacity",
-        "usedcapacity": "used_capacity",
-        "utilization": "utilization_pct",
-        "utilizationpct": "utilization_pct",
-        "change": "change_pct",
-        "pctchange": "change_pct",
-        "scheduleefficiency": "schedule_efficiency_pct",
-        "scheduleeff": "schedule_efficiency_pct",
-        "efficiency": "schedule_efficiency_pct",
-        "schedefficiency": "schedule_efficiency_pct",
-        "scheduleefficicency": "schedule_efficiency_pct",
-        "scheduleefficicencypctschvstgt": "schedule_efficiency_pct",
-        "scheduleefficiencypctschvstgt": "schedule_efficiency_pct",
-        "underschedulepctschvstgt": "under_schedule_pct",
-        "overschedulepctschvstgt": "over_schedule_pct",
-        "scheduleadherencepctpchvsch": "schedule_adherence_pct",
-        "underadherencepctpchvsch": "under_adherence_pct",
-        "overadherencepctpchvsch": "over_adherence_pct",
-        "staffingefficiencypctpchvstgt": "staffing_efficiency_pct",
-        "understaffingpctpchvstgt": "under_staffing_pct",
-        "overstaffingpctpchvstgt": "over_staffing_pct",
-        "scheduleefficiencyschvstgt": "schedule_efficiency_pct",
-        "scheduleefficicencyvsschvstgt": "schedule_efficiency_pct",
-        "scheduleefficiencyvsschvstgt": "schedule_efficiency_pct",
-        "overscheduled": "over_schedule_pct",
-        "oversched": "over_schedule_pct",
-        "overhours": "over_schedule_pct",
-        "overschedule": "over_schedule_pct",
-        "overscheduleschvstgt": "over_schedule_pct",
-        "overschedulevsschvstgt": "over_schedule_pct",
-        "underscheduled": "under_schedule_pct",
-        "undersched": "under_schedule_pct",
-        "underhours": "under_schedule_pct",
-        "underschedule": "under_schedule_pct",
-        "underscheduleschvstgt": "under_schedule_pct",
-        "underschedulevsschvstgt": "under_schedule_pct",
-        "scheduleadherencepchvsch": "schedule_adherence_pct",
-        "scheduleadherence": "schedule_adherence_pct",
-        "underadherencepchvsch": "under_adherence_pct",
-        "overadherencepchvsch": "over_adherence_pct",
-        "staffingefficiencypchvstgt": "staffing_efficiency_pct",
-        "understaffingpchvstgt": "under_staffing_pct",
-        "overstaffingpchvstgt": "over_staffing_pct",
-        "pph": "pph",
-        "purepph": "pph",
-        "purepicksperhour": "pph",
-        "picksperhour": "pph",
-        "pickhours": "pick_hours",
-        "laborhours": "pick_hours",
-        "pphpicks": "pph_picks",
-        "subs": "subs",
-        "substitutes": "subs",
-        "ttldugorders": "dug_orders",
-        "dugorders": "dug_orders",
-        "otheligibleorders": "oth_eligible_orders",
-        "othelig": "oth_elig_pct",
-        "otheligibility": "oth_elig_pct",
-        "refundamt": "refund_amt",
-        "refundamount": "refund_amt",
-        "refund": "refund_amt",
-        "oospct": "oos_pct",
-        "oos": "oos_pct",
-        "presuboospct": "presub_pct",
-        "pickerott": "ott_pct",
-        "totalorders": "orders",
-        "qtyordered": "qty_ordered",
-        "oossubstitutespresuboosct": "presub_count",
-        "presuboosct": "presub_count",
-        "oosct": "oos_count",
-        "subct": "sub_count",
-        "totalitemspicked": "items_picked",
-        "totalhandoffs": "handoffs",
-        "handoffsover5min": "handoffs_over_5",
-        "handoffcompliance": "handoff_compliance_pct",
-        "ofhandoffdefects": "handoff_defects",
-        "handoffdefects": "handoff_defects",
-        "greatperfectorderscount": "great_orders",
-        "nipoorordercount": "poor_orders",
-        "goalpph": "goal_pph",
-        "pphgoal": "goal_pph",
-        "targetpph": "goal_pph",
-    ]
+    private static let metricAliases: [String: String] = {
+        var dict: [String: String] = [:]
+        dict["starrating"] = "star_rating"
+        dict["stars"] = "star_rating"
+        dict["fivestar"] = "star_rating"
+        dict["fivestars"] = "star_rating"
+        dict["rating"] = "star_rating"
+        dict["totalrating"] = "star_rating"
+        dict["flashavailabilitymakeitconvenient"] = "flash_pct"
+        dict["flashavailability"] = "flash_pct"
+        dict["flash"] = "flash_pct"
+        dict["flashavailabilitystar"] = "flash_star"
+        dict["ottmakeitconvenient"] = "ott_pct"
+        dict["ott"] = "ott_pct"
+        dict["ottstar"] = "ott_star"
+        dict["presuboosgivemewhatiordered"] = "presub_pct"
+        dict["presuboos"] = "presub_pct"
+        dict["presub"] = "presub_pct"
+        dict["presuboosstar"] = "presub_star"
+        dict["coegivemewhatiordered"] = "coe_pct"
+        dict["coe"] = "coe_pct"
+        dict["coestar"] = "coe_star"
+        dict["oth5pleasanthandoff"] = "oth5_pct"
+        dict["oth5"] = "oth5_pct"
+        dict["oth"] = "oth5_pct"
+        dict["oth5star"] = "oth5_star"
+        dict["passrate40"] = "pass"
+        dict["passrate"] = "pass"
+        dict["otp"] = "otp_pct"
+        dict["otpct"] = "otp_pct"
+        dict["ontime"] = "otp_pct"
+        dict["ontimepromise"] = "otp_pct"
+        dict["ontimepct"] = "otp_pct"
+        dict["fill"] = "fill_rate_pct"
+        dict["fillrate"] = "fill_rate_pct"
+        dict["fillratepct"] = "fill_rate_pct"
+        dict["quality"] = "quality_score"
+        dict["qualityscore"] = "quality_score"
+        dict["cx"] = "cx_score"
+        dict["cxscore"] = "cx_score"
+        dict["customerexperience"] = "cx_score"
+        dict["compliance"] = "compliance_pct"
+        dict["compliancepct"] = "compliance_pct"
+        dict["pickpath"] = "compliance_pct"
+        dict["pickpathcompliance"] = "compliance_pct"
+        dict["pathcompliance"] = "compliance_pct"
+        dict["orders"] = "orders"
+        dict["ordercount"] = "orders"
+        dict["order"] = "orders"
+        dict["purepphexcludingreshop"] = "pph"
+        dict["pphexcludingreshop"] = "pph"
+        dict["pickstotal"] = "picks_total"
+        dict["totalpicks"] = "picks_total"
+        dict["pickscompliant"] = "picks_compliant"
+        dict["compliantpicks"] = "picks_compliant"
+        dict["exceptions"] = "exception_count"
+        dict["exceptioncount"] = "exception_count"
+        dict["pnr"] = "pnr_count"
+        dict["pnrcount"] = "pnr_count"
+        dict["netprepnotreadyhourspct"] = "pnr_rate_pct"
+        dict["prepnotreadyhourspct"] = "pnr_rate_pct"
+        dict["prepnotreadyhours"] = "pnr_rate_pct"
+        dict["pnrhours"] = "pnr_rate_pct"
+        dict["notready"] = "pnr_rate_pct"
+        dict["netprepnotreadyhours"] = "pnr_rate_pct"
+        dict["pnrrate"] = "pnr_rate_pct"
+        dict["pnrratepct"] = "pnr_rate_pct"
+        dict["ordersdue"] = "orders_due"
+        dict["dueorders"] = "orders_due"
+        dict["avglatemin"] = "avg_late_min"
+        dict["avglate"] = "avg_late_min"
+        dict["lateavg"] = "avg_late_min"
+        dict["pickupcapacity"] = "pickup_capacity"
+        dict["pickupcap"] = "pickup_capacity"
+        dict["pickupslots"] = "pickup_capacity"
+        dict["deliverycapacity"] = "delivery_capacity"
+        dict["deliverycap"] = "delivery_capacity"
+        dict["deliveryslots"] = "delivery_capacity"
+        dict["recpickup"] = "rec_pickup"
+        dict["recommendedpickup"] = "rec_pickup"
+        dict["recdelivery"] = "rec_delivery"
+        dict["recommendeddelivery"] = "rec_delivery"
+        dict["pickuputil"] = "pickup_util_pct"
+        dict["pickuputilization"] = "pickup_util_pct"
+        dict["deliveryutil"] = "delivery_util_pct"
+        dict["deliveryutilization"] = "delivery_util_pct"
+        dict["totalpiecestotalhours"] = "dynacap_rate"
+        dict["totalpieceshrs"] = "dynacap_rate"
+        dict["pieceshr"] = "dynacap_rate"
+        dict["pcsperhr"] = "dynacap_rate"
+        dict["totalpiecesperhour"] = "dynacap_rate"
+        dict["piecesperhour"] = "dynacap_rate"
+        dict["piecestotalhrs"] = "dynacap_rate"
+        dict["dynacaprate"] = "dynacap_rate"
+        dict["dynacapsetting"] = "dynacap_rate"
+        dict["dpadynacap"] = "dpa_dynacap"
+        dict["eotcapacity"] = "eot_capacity"
+        dict["usedcapacity"] = "used_capacity"
+        dict["utilization"] = "utilization_pct"
+        dict["utilizationpct"] = "utilization_pct"
+        dict["change"] = "change_pct"
+        dict["pctchange"] = "change_pct"
+        dict["scheduleefficiency"] = "schedule_efficiency_pct"
+        dict["scheduleeff"] = "schedule_efficiency_pct"
+        dict["efficiency"] = "schedule_efficiency_pct"
+        dict["schedefficiency"] = "schedule_efficiency_pct"
+        dict["scheduleefficicency"] = "schedule_efficiency_pct"
+        dict["scheduleefficicencypctschvstgt"] = "schedule_efficiency_pct"
+        dict["scheduleefficiencypctschvstgt"] = "schedule_efficiency_pct"
+        dict["underschedulepctschvstgt"] = "under_schedule_pct"
+        dict["overschedulepctschvstgt"] = "over_schedule_pct"
+        dict["scheduleadherencepctpchvsch"] = "schedule_adherence_pct"
+        dict["underadherencepctpchvsch"] = "under_adherence_pct"
+        dict["overadherencepctpchvsch"] = "over_adherence_pct"
+        dict["staffingefficiencypctpchvstgt"] = "staffing_efficiency_pct"
+        dict["understaffingpctpchvstgt"] = "under_staffing_pct"
+        dict["overstaffingpctpchvstgt"] = "over_staffing_pct"
+        dict["scheduleefficiencyschvstgt"] = "schedule_efficiency_pct"
+        dict["scheduleefficicencyvsschvstgt"] = "schedule_efficiency_pct"
+        dict["scheduleefficiencyvsschvstgt"] = "schedule_efficiency_pct"
+        dict["overscheduled"] = "over_schedule_pct"
+        dict["oversched"] = "over_schedule_pct"
+        dict["overhours"] = "over_schedule_pct"
+        dict["overschedule"] = "over_schedule_pct"
+        dict["overscheduleschvstgt"] = "over_schedule_pct"
+        dict["overschedulevsschvstgt"] = "over_schedule_pct"
+        dict["underscheduled"] = "under_schedule_pct"
+        dict["undersched"] = "under_schedule_pct"
+        dict["underhours"] = "under_schedule_pct"
+        dict["underschedule"] = "under_schedule_pct"
+        dict["underscheduleschvstgt"] = "under_schedule_pct"
+        dict["underschedulevsschvstgt"] = "under_schedule_pct"
+        dict["scheduleadherencepchvsch"] = "schedule_adherence_pct"
+        dict["scheduleadherence"] = "schedule_adherence_pct"
+        dict["underadherencepchvsch"] = "under_adherence_pct"
+        dict["overadherencepchvsch"] = "over_adherence_pct"
+        dict["staffingefficiencypchvstgt"] = "staffing_efficiency_pct"
+        dict["understaffingpchvstgt"] = "under_staffing_pct"
+        dict["overstaffingpchvstgt"] = "over_staffing_pct"
+        dict["pph"] = "pph"
+        dict["purepph"] = "pph"
+        dict["purepicksperhour"] = "pph"
+        dict["picksperhour"] = "pph"
+        dict["pickhours"] = "pick_hours"
+        dict["laborhours"] = "pick_hours"
+        dict["pphpicks"] = "pph_picks"
+        dict["subs"] = "subs"
+        dict["substitutes"] = "subs"
+        dict["ttldugorders"] = "dug_orders"
+        dict["dugorders"] = "dug_orders"
+        dict["otheligibleorders"] = "oth_eligible_orders"
+        dict["othelig"] = "oth_elig_pct"
+        dict["otheligibility"] = "oth_elig_pct"
+        dict["refundamt"] = "refund_amt"
+        dict["refundamount"] = "refund_amt"
+        dict["refund"] = "refund_amt"
+        dict["oospct"] = "oos_pct"
+        dict["oos"] = "oos_pct"
+        dict["presuboospct"] = "presub_pct"
+        dict["pickerott"] = "ott_pct"
+        dict["totalorders"] = "orders"
+        dict["qtyordered"] = "qty_ordered"
+        dict["oossubstitutespresuboosct"] = "presub_count"
+        dict["presuboosct"] = "presub_count"
+        dict["oosct"] = "oos_count"
+        dict["subct"] = "sub_count"
+        dict["totalitemspicked"] = "items_picked"
+        dict["totalhandoffs"] = "handoffs"
+        dict["handoffsover5min"] = "handoffs_over_5"
+        dict["handoffcompliance"] = "handoff_compliance_pct"
+        dict["ofhandoffdefects"] = "handoff_defects"
+        dict["handoffdefects"] = "handoff_defects"
+        dict["greatperfectorderscount"] = "great_orders"
+        dict["nipoorordercount"] = "poor_orders"
+        dict["goalpph"] = "goal_pph"
+        dict["pphgoal"] = "goal_pph"
+        dict["targetpph"] = "goal_pph"
+        return dict
+    }()
 
     private static func rows(from matrix: [[String]]) -> [ParsedWorkbookRow] {
         if let prep = parsePrepHours(matrix), !prep.isEmpty {
