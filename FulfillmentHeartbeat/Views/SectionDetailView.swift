@@ -745,7 +745,6 @@ struct SectionDetailView: View {
         pickerTile(.oos, health: falloutHealth(.oos))
         pickerTile(.ott, health: falloutHealth(.ott))
         pickerTile(.oth, health: falloutHealth(.oth))
-        pickerTile(.coe, health: falloutHealth(.coe))
         pickerTile(.refund, health: falloutHealth(.refund))
     }
 

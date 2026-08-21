@@ -171,6 +171,8 @@ final class HeartbeatStore: ObservableObject {
             return pickerNumberOrder(lhs.number("ott_pct"), rhs.number("ott_pct"))
         case .oth5:
             return pickerNumberOrder(lhs.number("oth5_pct"), rhs.number("oth5_pct"))
+        case .refund:
+            return pickerNumberOrder(lhs.number("refund_amt") ?? 0, rhs.number("refund_amt") ?? 0)
         case .name:
             return lhs.shopperName.localizedStandardCompare(rhs.shopperName)
         case .store:

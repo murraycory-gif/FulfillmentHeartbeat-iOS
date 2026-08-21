@@ -7404,7 +7404,7 @@ struct PickerScoreTable: View {
     var focus: PickerFocus = .all
 
     private enum Column: String, CaseIterable, Identifiable {
-        case shopper, pph, presub, oos, ott, oth5, status
+        case shopper, pph, presub, oos, ott, oth5, refund, status
         var id: String { rawValue }
         var key: String {
             switch self {
@@ -7414,6 +7414,7 @@ struct PickerScoreTable: View {
             case .oos: return "oos"
             case .ott: return "ott"
             case .oth5: return "oth5"
+            case .refund: return "refund"
             case .status: return "status"
             }
         }
@@ -7425,6 +7426,7 @@ struct PickerScoreTable: View {
             case .oos: return .oos
             case .ott: return .ott
             case .oth5: return .oth5
+            case .refund: return .refund
             case .status: return .status
             }
         }
@@ -7518,6 +7520,7 @@ struct PickerScoreTable: View {
                         label: "Shopper",
                         active: sort.key,
                         ascending: ascending,
+                        showRefund: true,
                         onSelect: applyHeaderSort
                     )
                     .background(
@@ -7537,7 +7540,8 @@ struct PickerScoreTable: View {
                             expanded: openShopper == snap.id.uuidString,
                             onToggle: {
                                 openShopper = openShopper == snap.id.uuidString ? nil : snap.id.uuidString
-                            }
+                            },
+                            showRefund: true
                         )
                         .listRowInsets(EdgeInsets(top: 2, leading: 20, bottom: 2, trailing: 20))
                         .listRowSeparator(.hidden)
@@ -7657,6 +7661,7 @@ struct PickerLineSnap: Identifiable, Equatable {
 private struct PickerCheapLine: View, Equatable {
     let snap: PickerLineSnap
     let expanded: Bool
+    var showRefund: Bool = false
 
     var body: some View {
         HStack(spacing: 6) {
@@ -7676,6 +7681,9 @@ private struct PickerCheapLine: View, Equatable {
             cell(snap.oos, snap.oosHealth)
             cell(snap.ott, snap.ottHealth)
             cell(snap.oth5, snap.oth5Health)
+            if showRefund {
+                cell(snap.refund, snap.refundHealth)
+            }
             Text(snap.health.label.uppercased())
                 .font(.caption.weight(.heavy))
                 .lineLimit(1)
@@ -7733,6 +7741,7 @@ struct PickerMetricHeader: View {
     let label: String
     var active: String? = nil
     var ascending: Bool = false
+    var showRefund: Bool = false
     var onSelect: ((String) -> Void)? = nil
 
     var body: some View {
@@ -7744,6 +7753,9 @@ struct PickerMetricHeader: View {
             head("OOS", key: "oos")
             head("OTT", key: "ott")
             head("OTH5", key: "oth5")
+            if showRefund {
+                head("Refund", key: "refund")
+            }
             head("Status", key: "status", alignment: .trailing)
                 .frame(width: 88, alignment: .trailing)
         }
@@ -7794,6 +7806,7 @@ struct PickerStickyStoreHeader: View {
                 label: "Shopper",
                 active: pin.active,
                 ascending: pin.ascending,
+                showRefund: true,
                 onSelect: { pin.onSelect?($0) }
             )
         }
@@ -7813,11 +7826,12 @@ struct PickerStoreRow: View {
     let snap: PickerLineSnap
     let expanded: Bool
     let onToggle: () -> Void
+    var showRefund: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
             Button(action: onToggle) {
-                PickerCheapLine(snap: snap, expanded: expanded)
+                PickerCheapLine(snap: snap, expanded: expanded, showRefund: showRefund)
                     .equatable()
                     .contentShape(Rectangle())
             }
