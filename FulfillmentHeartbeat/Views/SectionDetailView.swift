@@ -57,6 +57,12 @@ struct SectionDetailView: View {
                 }
                 DynacapTable(rows: dynacapRows)
             } else if section == .pph {
+                Section {
+                    PPHRollupTable()
+                        .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(AppTheme.bg)
+                }
                 PPHTable(rows: pphRows)
             } else if section == .scheduleQuality {
                 Section {
@@ -144,11 +150,14 @@ struct SectionDetailView: View {
                 } else if section == .scheduleQuality {
                     ScheduleStickyStoreHeader()
                         .environmentObject(laborHeaderPin)
+                } else if section == .pph {
+                    PPHStickyStoreHeader()
+                        .environmentObject(laborHeaderPin)
                 }
             }
         }
         .onAppear {
-            if section == .labor || section == .lostRevenue || section == .fiveStar || section == .pickPath || section == .prepNotReady || section == .dynacap || section == .scheduleQuality {
+            if section == .labor || section == .lostRevenue || section == .fiveStar || section == .pickPath || section == .prepNotReady || section == .dynacap || section == .scheduleQuality || section == .pph {
                 laborHeaderPin.openOnPageEnter()
             }
         }
