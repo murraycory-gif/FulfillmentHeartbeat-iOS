@@ -954,32 +954,29 @@ struct StoreTable: View {
 }
 
 struct PickPathTable: View {
-    @EnvironmentObject private var store: HeartbeatStore
+    @EnvironmentObject private var headerPin: LaborHeaderPin
     let rows: [MetricRow]
 
     private enum Column: String, CaseIterable, Identifiable {
         case store, path, pph, orders, status
         var id: String { rawValue }
-        var title: String {
+        var key: String {
             switch self {
-            case .store: return "Store"
-            case .path: return "Pick Path"
-            case .pph: return "Avg PPH"
-            case .orders: return "Orders"
-            case .status: return "Status"
+            case .store: return "label"
+            case .path: return "path"
+            case .pph: return "pph"
+            case .orders: return "orders"
+            case .status: return "status"
             }
         }
     }
 
     @State private var sort = Column.path
     @State private var ascending = true
+    @State private var snaps: [PickPathLineSnap] = []
+    @State private var openStore: String?
 
-    private var sortedRows: [MetricRow] {
-        rows.sorted { lhs, rhs in
-            let result = compare(lhs, rhs)
-            return ascending ? result == .orderedAscending : result == .orderedDescending
-        }
-    }
+    private var expanded: Bool { headerPin.storesExpanded }
 
     var body: some View {
         if rows.isEmpty {
@@ -995,58 +992,117 @@ struct PickPathTable: View {
             }
         } else {
             Section {
-                HStack {
-                    Text("\(HeartbeatFormat.num(Double(rows.count))) stores")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(AppTheme.textSecondary)
-                    Spacer()
-                }
-                .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
-                .listRowSeparator(.hidden)
-                .listRowBackground(AppTheme.bg)
-            }
-            Section {
-                HStack(spacing: 12) {
-                    ForEach(Column.allCases) { column in
-                        Button {
-                            if sort == column {
-                                ascending.toggle()
-                            } else {
-                                sort = column
-                                ascending = column == .store
-                            }
-                        } label: {
-                            HStack(spacing: 4) {
-                                Text(column.title.uppercased())
-                                    .font(.caption2.weight(.semibold))
-                                    .tracking(0.5)
-                                if sort == column {
-                                    Image(systemName: ascending ? "chevron.up" : "chevron.down")
-                                        .font(.caption2.weight(.bold))
-                                }
-                            }
-                            .foregroundStyle(sort == column ? AppTheme.blue : AppTheme.textTertiary)
-                            .frame(maxWidth: column == .store ? 180 : .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
+                Button {
+                    let next = !headerPin.storesExpanded
+                    headerPin.storesExpanded = next
+                    headerPin.tableOpen = next
+                    if !next { headerPin.pinned = false }
+                    if next { rebuildOrder(sort: sort, ascending: ascending) }
+                } label: {
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Store")
+                                .font(.title3.weight(.bold))
+                                .foregroundStyle(AppTheme.blue)
+                            Text("\(HeartbeatFormat.num(Double(rows.count))) stores  ·  tap to \(expanded ? "collapse" : "expand")")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(AppTheme.textSecondary)
                         }
-                        .buttonStyle(.plain)
+                        Spacer()
+                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(AppTheme.blue)
+                            .frame(width: 36, height: 36)
+                            .background(AppTheme.blueSoft, in: Circle())
                     }
+                    .contentShape(Rectangle())
                 }
-                .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 4, trailing: 20))
+                .buttonStyle(.plain)
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                        .fill(AppTheme.card)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                        .stroke(AppTheme.cardBorder, lineWidth: 1)
+                )
+                .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: expanded ? 4 : 20, trailing: 20))
                 .listRowSeparator(.hidden)
                 .listRowBackground(AppTheme.bg)
-
-                ForEach(sortedRows) { row in
-                    PickPathStoreCard(row: row, pickers: store.pickPathPickers(forStore: row.storeNumber))
-                        .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
+                .onAppear {
+                    headerPin.tableOpen = headerPin.storesExpanded
+                    headerPin.storeCount = rows.count
+                    headerPin.active = sort.key
+                    headerPin.ascending = ascending
+                    headerPin.onSelect = applyHeaderSort
+                }
+            }
+            if expanded {
+                Section {
+                    PickPathMetricHeader(
+                        label: "Store",
+                        showCount: false,
+                        active: sort.key,
+                        ascending: ascending,
+                        onSelect: applyHeaderSort
+                    )
+                    .background(
+                        GeometryReader { geo in
+                            Color.clear.preference(
+                                key: LaborHeaderMinYKey.self,
+                                value: (geo.frame(in: .global).minY / 12).rounded() * 12
+                            )
+                        }
+                    )
+                    .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(AppTheme.bg)
+                    ForEach(snaps) { snap in
+                        PickPathStoreRow(
+                            snap: snap,
+                            expanded: openStore == snap.storeNumber,
+                            onToggle: {
+                                openStore = openStore == snap.storeNumber ? nil : snap.storeNumber
+                            }
+                        )
+                        .listRowInsets(EdgeInsets(top: 2, leading: 20, bottom: 2, trailing: 20))
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.bg)
+                    }
+                }
+                .transaction { $0.animation = nil }
+                .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
+                .onChange(of: rows.count) { _, _ in
+                    rebuildOrder(sort: sort, ascending: ascending)
+                    headerPin.storeCount = rows.count
+                }
+                .onChange(of: rows.first?.storeNumber) { _, _ in
+                    rebuildOrder(sort: sort, ascending: ascending)
+                    headerPin.storeCount = rows.count
                 }
             }
         }
     }
 
-    private func compare(_ lhs: MetricRow, _ rhs: MetricRow) -> ComparisonResult {
+    private func applyHeaderSort(_ key: String) {
+        let column = Column.allCases.first { $0.key == key } ?? .path
+        let nextAscending = sort == column ? !ascending : column == .store
+        sort = column
+        ascending = nextAscending
+        headerPin.active = column.key
+        headerPin.ascending = nextAscending
+        rebuildOrder(sort: column, ascending: nextAscending)
+    }
+
+    private func rebuildOrder(sort: Column, ascending: Bool) {
+        snaps = rows.sorted { lhs, rhs in
+            let result = compare(lhs, rhs, sort: sort)
+            return ascending ? result == .orderedAscending : result == .orderedDescending
+        }.map(PickPathLineSnap.init)
+    }
+
+    private func compare(_ lhs: MetricRow, _ rhs: MetricRow, sort: Column) -> ComparisonResult {
         switch sort {
         case .store:
             if let a = Int(lhs.storeNumber), let b = Int(rhs.storeNumber) {
@@ -1058,7 +1114,7 @@ struct PickPathTable: View {
         case .pph:
             return numberOrder(lhs.number("pph"), rhs.number("pph"))
         case .orders:
-            return numberOrder(lhs.number("orders") ?? lhs.number("picks_total"), rhs.number("orders") ?? rhs.number("picks_total"))
+            return numberOrder(PickPathMath.orders(lhs), PickPathMath.orders(rhs))
         case .status:
             let a = healthRank(HeartbeatMath.health(for: .pickPath, row: lhs))
             let b = healthRank(HeartbeatMath.health(for: .pickPath, row: rhs))
@@ -1084,90 +1140,473 @@ struct PickPathTable: View {
     }
 }
 
-struct PickPathStoreCard: View {
-    let row: MetricRow
-    var pickers: [MetricRow] = []
-    @State private var expanded = false
+private enum PickPathMath {
+    static func orders(_ row: MetricRow) -> Double? {
+        row.number("orders") ?? row.number("picks_total")
+    }
+
+    static func pathHealth(_ value: Double?) -> Health {
+        guard value != nil else { return .none }
+        return HeartbeatMath.band(value, good: HeartbeatMath.pickPathGoal, watch: HeartbeatMath.pickPathRisk)
+    }
+
+    static func pphHealth(_ value: Double?) -> Health {
+        guard value != nil else { return .none }
+        return HeartbeatMath.band(value, good: HeartbeatMath.pphGoal, watch: HeartbeatMath.pphRisk)
+    }
+}
+
+private struct PickPathRollupRow: Identifiable {
+    let id: String
+    let label: String
+    let storeCount: Int
+    let path: Double?
+    let pph: Double?
+    let orders: Double?
+
+    var health: Health { PickPathMath.pathHealth(path) }
+}
+
+private enum PickPathRollupBuilder {
+    static func grain(for filters: DashboardFilters) -> LaborRollupGrain? {
+        LaborRollupBuilder.grain(for: filters)
+    }
+
+    static func source(from all: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
+        let stores = all.filter { !$0.storeNumber.isEmpty }
+        if !filters.division.isEmpty || !filters.region.isEmpty {
+            return stores.filter { filters.includesDivision($0.division) }
+        }
+        if !filters.district.isEmpty {
+            let divisions = Set(
+                stores.filter { HeartbeatMath.matches($0.district, filters.district) }.map(\.division)
+            )
+            return stores.filter { divisions.contains($0.division) }
+        }
+        if !filters.om.isEmpty {
+            let divisions = Set(
+                stores.filter { HeartbeatMath.matches($0.operationsOM, filters.om) }.map(\.division)
+            )
+            return stores.filter { divisions.contains($0.division) }
+        }
+        return stores
+    }
+
+    static func rows(from stores: [MetricRow], grain: LaborRollupGrain) -> [PickPathRollupRow] {
+        var buckets: [String: [MetricRow]] = [:]
+        for row in stores {
+            let key: String
+            switch grain {
+            case .division:
+                key = row.division.isEmpty ? "Unassigned" : row.division
+            case .district:
+                key = row.district.isEmpty ? "Unassigned" : row.district
+            case .store:
+                key = HeartbeatMath.canonicalStore(row.storeNumber)
+            }
+            guard !key.isEmpty else { continue }
+            buckets[key, default: []].append(row)
+        }
+        var result: [PickPathRollupRow] = []
+        result.reserveCapacity(buckets.count)
+        for (key, group) in buckets {
+            let label: String
+            switch grain {
+            case .division, .district:
+                label = key
+            case .store:
+                let division = group.first?.division ?? ""
+                label = division.isEmpty ? key : "\(key)  |  \(division)"
+            }
+            let orderValues = group.compactMap(PickPathMath.orders)
+            result.append(
+                PickPathRollupRow(
+                    id: key,
+                    label: label,
+                    storeCount: group.count,
+                    path: HeartbeatMath.average(group.compactMap { $0.number("compliance_pct") }),
+                    pph: HeartbeatMath.average(group.compactMap { $0.number("pph") }),
+                    orders: orderValues.isEmpty ? nil : orderValues.reduce(0, +)
+                )
+            )
+        }
+        return result.sorted { ($0.path ?? 999) < ($1.path ?? 999) }
+    }
+}
+
+private struct PickPathLineSnap: Identifiable, Equatable {
+    let id: UUID
+    let storeNumber: String
+    let label: String
+    let district: String
+    let om: String
+    let path: String
+    let pph: String
+    let orders: String
+    let health: Health
+    let pathHealth: Health
+    let pphHealth: Health
+    let pathValue: Double
+    let pphValue: Double
+    let ordersValue: Double
+
+    init(_ row: MetricRow) {
+        id = row.id
+        storeNumber = row.storeNumber
+        label = row.division.isEmpty
+            ? (row.storeNumber.isEmpty ? "—" : row.storeNumber)
+            : "\(row.storeNumber)  |  \(row.division)"
+        district = row.district
+        om = row.operationsOM
+        let pathNum = row.number("compliance_pct")
+        let pphNum = row.number("pph")
+        let ordersNum = PickPathMath.orders(row)
+        path = HeartbeatFormat.pct(pathNum)
+        pph = HeartbeatFormat.num(pphNum, digits: 1)
+        orders = HeartbeatFormat.num(ordersNum)
+        health = HeartbeatMath.health(for: .pickPath, row: row)
+        pathHealth = PickPathMath.pathHealth(pathNum)
+        pphHealth = PickPathMath.pphHealth(pphNum)
+        pathValue = pathNum ?? -1
+        pphValue = pphNum ?? -1
+        ordersValue = ordersNum ?? -1
+    }
+}
+
+private struct PickPathCheapLine: View, Equatable {
+    let snap: PickPathLineSnap
+    let expanded: Bool
 
     var body: some View {
-        let health = HeartbeatMath.health(for: .pickPath, row: row)
-        let pphHealth = row.number("pph") == nil ? Health.none : HeartbeatMath.pphHealth(row)
-        let path = row.number("compliance_pct")
-        let pph = row.number("pph")
-        let orders = row.number("orders") ?? row.number("picks_total")
-        return VStack(alignment: .leading, spacing: 12) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) { expanded.toggle() }
-            } label: {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(row.storeNumber.isEmpty ? "—" : row.storeNumber)
-                        .font(.title3.weight(.semibold).monospacedDigit())
-                        .foregroundStyle(AppTheme.text)
-                    if !row.division.isEmpty {
-                        Text("|")
-                            .font(.title3.weight(.semibold))
-                            .foregroundStyle(AppTheme.textTertiary)
-                        Text(row.division)
-                            .font(.title3.weight(.semibold))
-                            .foregroundStyle(AppTheme.textSecondary)
-                            .lineLimit(1)
-                    }
-                    Spacer()
-                    HealthBadge(health: health, prominent: true)
-                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                        .font(.headline.weight(.semibold))
-                        .foregroundStyle(AppTheme.blue)
-                        .frame(width: 36, height: 36)
-                        .background(AppTheme.blueSoft, in: Circle())
-                }
+        HStack(spacing: 6) {
+            HStack(spacing: 4) {
+                Text(snap.label)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(AppTheme.text)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(AppTheme.blue)
             }
-            .buttonStyle(.plain)
-            Text(metaLine)
-                .font(.subheadline)
-                .foregroundStyle(AppTheme.textSecondary)
-            HStack(spacing: 8) {
-                metric("Pick Path", HeartbeatFormat.pct(path), health)
-                metric("Avg PPH", HeartbeatFormat.num(pph, digits: 1), pphHealth)
-                metric("Orders", HeartbeatFormat.num(orders), .none)
+            .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            cell(snap.path, snap.pathHealth)
+            cell(snap.pph, snap.pphHealth)
+            cell(snap.orders, .none)
+            Text(snap.health.label.uppercased())
+                .font(.caption.weight(.heavy))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .foregroundStyle(Color.white)
+                .background(pill(snap.health), in: Capsule())
+                .frame(width: 88, alignment: .trailing)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func cell(_ value: String, _ health: Health) -> some View {
+        Text(value)
+            .font(.subheadline.weight(.bold).monospacedDigit())
+            .foregroundStyle(ink(health))
+            .lineLimit(1)
+            .minimumScaleFactor(0.55)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .padding(.vertical, 6)
+            .padding(.horizontal, 6)
+            .background(wash(health), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private func ink(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.text
+        }
+    }
+
+    private func wash(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.okSoft
+        case .watch: return AppTheme.warnSoft
+        case .risk: return AppTheme.badSoft
+        case .none: return Color.clear
+        }
+    }
+
+    private func pill(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.textTertiary
+        }
+    }
+}
+
+private struct PickPathMetricLine: View, Equatable {
+    let label: String
+    var count: Int? = nil
+    let path: Double?
+    let pph: Double?
+    let orders: Double?
+
+    var body: some View {
+        let health = PickPathMath.pathHealth(path)
+        HStack(spacing: 6) {
+            Text(label)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(AppTheme.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            if let count {
+                Text(HeartbeatFormat.num(Double(count)))
+                    .font(.subheadline.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .frame(width: 58, alignment: .trailing)
             }
-            if expanded {
-                pickerBlock
+            cell(HeartbeatFormat.pct(path), health)
+            cell(HeartbeatFormat.num(pph, digits: 1), PickPathMath.pphHealth(pph))
+            cell(HeartbeatFormat.num(orders), .none)
+            HealthBadge(health: health, prominent: true, compact: true)
+                .frame(width: 88, alignment: .trailing)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func cell(_ value: String, _ health: Health) -> some View {
+        Text(value)
+            .font(.subheadline.weight(.bold).monospacedDigit())
+            .foregroundStyle(ink(health))
+            .lineLimit(1)
+            .minimumScaleFactor(0.55)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .padding(.vertical, 6)
+            .padding(.horizontal, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(wash(health))
+            )
+    }
+
+    private func ink(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.text
+        }
+    }
+
+    private func wash(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.okSoft
+        case .watch: return AppTheme.warnSoft
+        case .risk: return AppTheme.badSoft
+        case .none: return Color.clear
+        }
+    }
+}
+
+struct PickPathMetricHeader: View {
+    let label: String
+    var showCount: Bool = false
+    var active: String? = nil
+    var ascending: Bool = false
+    var onSelect: ((String) -> Void)? = nil
+
+    var body: some View {
+        HStack(spacing: 6) {
+            head(label, key: "label", alignment: .leading)
+                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            if showCount {
+                head("Stores", key: "count", alignment: .trailing)
+                    .frame(width: 58, alignment: .trailing)
+            }
+            head("Pick Path", key: "path")
+            head("Avg PPH", key: "pph")
+            head("Orders", key: "orders")
+            head("Status", key: "status", alignment: .trailing)
+                .frame(width: 88, alignment: .trailing)
+        }
+        .font(.caption2.weight(.semibold))
+        .tracking(0.4)
+        .lineLimit(1)
+        .minimumScaleFactor(0.65)
+    }
+
+    private func head(_ title: String, key: String, alignment: Alignment = .trailing) -> some View {
+        let selected = active == key
+        let content = HStack(spacing: 3) {
+            Text(title.uppercased())
+            if selected {
+                Image(systemName: ascending ? "chevron.up" : "chevron.down")
+                    .font(.caption2.weight(.bold))
             }
         }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
-                .fill(wash(health).opacity(0.55))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
-                .stroke(ink(health).opacity(health == .none ? 0.15 : 0.45), lineWidth: health == .risk || health == .watch ? 2 : 1.5)
-        )
-    }
-
-    private var metaLine: String {
-        let district = row.district.isEmpty ? "—" : row.district
-        let om = row.operationsOM.isEmpty ? "—" : row.operationsOM
-        let pickerLabel = pickers.isEmpty ? "Tap to view pickers" : "\(pickers.count) picker\(pickers.count == 1 ? "" : "s") · tap to \(expanded ? "hide" : "view")"
-        return "District \(district)  ·  \(om)  ·  \(pickerLabel)"
-    }
-
-    @ViewBuilder
-    private var pickerBlock: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Pickers")
-                .font(.subheadline.weight(.bold))
-                .foregroundStyle(AppTheme.text)
-            if pickers.isEmpty {
-                Text("Upload Pick Path Compliance Picker and Picker ScoreCard to see shoppers for this store.")
-                    .font(.subheadline)
-                    .foregroundStyle(AppTheme.textSecondary)
-                    .padding(.vertical, 6)
+        .foregroundStyle(selected ? AppTheme.blue : AppTheme.textTertiary)
+        .frame(maxWidth: alignment == .leading ? nil : .infinity, alignment: alignment)
+        .contentShape(Rectangle())
+        return Group {
+            if let onSelect {
+                Button { onSelect(key) } label: { content }
+                    .buttonStyle(.plain)
             } else {
-                ForEach(pickers) { picker in
-                    pickerRow(picker)
+                content
+            }
+        }
+    }
+}
+
+struct PickPathStickyStoreHeader: View {
+    @EnvironmentObject private var pin: LaborHeaderPin
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Store")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(AppTheme.blue)
+                Text("\(HeartbeatFormat.num(Double(pin.storeCount))) stores")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.textSecondary)
+                Spacer()
+            }
+            PickPathMetricHeader(
+                label: "Store",
+                showCount: false,
+                active: pin.active,
+                ascending: pin.ascending,
+                onSelect: { pin.onSelect?($0) }
+            )
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .padding(.bottom, 8)
+        .background(AppTheme.bg)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(AppTheme.cardBorder)
+                .frame(height: 1)
+        }
+    }
+}
+
+struct PickPathRollupTable: View {
+    @EnvironmentObject private var store: HeartbeatStore
+    @EnvironmentObject private var headerPin: LaborHeaderPin
+
+    private var expanded: Bool { headerPin.rollupExpanded }
+
+    var body: some View {
+        if let grain, !summary.isEmpty {
+            VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
+                Button {
+                    headerPin.rollupExpanded.toggle()
+                } label: {
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(grain.title)
+                                .font(.title3.weight(.bold))
+                                .foregroundStyle(AppTheme.blue)
+                            Text("\(summary.count) \(grain.columnTitle.lowercased())\(summary.count == 1 ? "" : "s")  ·  tap to \(expanded ? "collapse" : "expand")")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(AppTheme.textSecondary)
+                        }
+                        Spacer()
+                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(AppTheme.blue)
+                            .frame(width: 36, height: 36)
+                            .background(AppTheme.blueSoft, in: Circle())
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                if expanded {
+                    PickPathMetricHeader(label: grain.columnTitle, showCount: grain != .store)
+                    ForEach(summary) { row in
+                        PickPathMetricLine(
+                            label: row.label,
+                            count: grain == .store ? nil : row.storeCount,
+                            path: row.path,
+                            pph: row.pph,
+                            orders: row.orders
+                        )
+                    }
                 }
             }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                    .fill(AppTheme.card)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                    .stroke(AppTheme.cardBorder, lineWidth: 1)
+            )
+        }
+    }
+
+    private var grain: LaborRollupGrain? {
+        PickPathRollupBuilder.grain(for: store.filters)
+    }
+
+    private var summary: [PickPathRollupRow] {
+        guard let grain else { return [] }
+        let source = PickPathRollupBuilder.source(from: store.displayRows(for: .pickPath), filters: store.filters)
+        return PickPathRollupBuilder.rows(from: source, grain: grain)
+    }
+}
+
+private struct PickPathStoreRow: View {
+    let snap: PickPathLineSnap
+    let expanded: Bool
+    let onToggle: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
+            Button(action: onToggle) {
+                PickPathCheapLine(snap: snap, expanded: expanded)
+                    .equatable()
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if expanded {
+                PickPathStoreExpand(snap: snap)
+            }
+        }
+    }
+}
+
+private struct PickPathStoreExpand: View {
+    @EnvironmentObject private var store: HeartbeatStore
+    let snap: PickPathLineSnap
+
+    private var pickers: [MetricRow] {
+        store.pickPathPickers(forStore: snap.storeNumber).sorted {
+            ($0.number("compliance_pct") ?? 999) < ($1.number("compliance_pct") ?? 999)
+        }
+    }
+
+    private var chips: [(String, String, Health)] {
+        [
+            ("Pick Path", snap.path, snap.pathHealth),
+            ("Avg PPH", snap.pph, snap.pphHealth),
+            ("Orders", snap.orders, .none),
+        ]
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("District \(snap.district.isEmpty ? "—" : snap.district)  ·  \(snap.om.isEmpty ? "—" : snap.om)")
+                .font(.subheadline)
+                .foregroundStyle(AppTheme.textSecondary)
+            chipGrid
+            pickerBlock
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1177,28 +1616,73 @@ struct PickPathStoreCard: View {
         )
     }
 
-    private func pickerRow(_ picker: MetricRow) -> some View {
-        let health = HeartbeatMath.health(for: .pickPathPicker, row: picker)
-        let pphHealth = picker.number("pph") == nil ? Health.none : HeartbeatMath.pphHealth(picker)
-        return VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(picker.shopperName)
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(AppTheme.text)
-                Spacer()
-                HealthBadge(health: health, prominent: true)
-            }
-            HStack(spacing: 8) {
-                metric("Pick Path", HeartbeatFormat.pct(picker.number("compliance_pct")), health)
-                metric("Avg PPH", HeartbeatFormat.num(picker.number("pph"), digits: 1), pphHealth)
-                metric("Orders", HeartbeatFormat.num(picker.number("orders") ?? picker.number("picks_total")), .none)
+    private var chipGrid: some View {
+        HStack(spacing: 8) {
+            ForEach(Array(chips.enumerated()), id: \.offset) { _, item in
+                metric(item.0, item.1, item.2)
             }
         }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(wash(health).opacity(0.7))
-        )
+    }
+
+    @ViewBuilder
+    private var pickerBlock: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(pickers.isEmpty ? "Pickers" : "Pickers  ·  \(pickers.count)")
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(AppTheme.text)
+            if pickers.isEmpty {
+                Text("Upload Pick Path Compliance Picker and Picker ScoreCard to see shoppers for this store.")
+                    .font(.subheadline)
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .padding(.vertical, 6)
+            } else {
+                HStack(spacing: 6) {
+                    Text("PICKER")
+                        .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                    Text("PICK PATH")
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    Text("AVG PPH")
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    Text("ORDERS")
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    Text("STATUS")
+                        .frame(width: 88, alignment: .trailing)
+                }
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(AppTheme.textTertiary)
+                .tracking(0.4)
+                ForEach(pickers) { picker in
+                    pickerLine(picker)
+                }
+            }
+        }
+    }
+
+    private func pickerLine(_ picker: MetricRow) -> some View {
+        let health = HeartbeatMath.health(for: .pickPathPicker, row: picker)
+        let path = picker.number("compliance_pct")
+        let pph = picker.number("pph")
+        let orders = PickPathMath.orders(picker)
+        return HStack(spacing: 6) {
+            Text(picker.shopperName)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(AppTheme.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            cell(HeartbeatFormat.pct(path), health)
+            cell(HeartbeatFormat.num(pph, digits: 1), PickPathMath.pphHealth(pph))
+            cell(HeartbeatFormat.num(orders), .none)
+            Text(health.label.uppercased())
+                .font(.caption.weight(.heavy))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .foregroundStyle(Color.white)
+                .background(pill(health), in: Capsule())
+                .frame(width: 88, alignment: .trailing)
+        }
     }
 
     private func metric(_ name: String, _ value: String, _ health: Health) -> some View {
@@ -1212,6 +1696,7 @@ struct PickPathStoreCard: View {
                 .foregroundStyle(ink(health))
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
+            HealthBadge(health: health)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 10)
@@ -1219,6 +1704,18 @@ struct PickPathStoreCard: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(wash(health))
         )
+    }
+
+    private func cell(_ value: String, _ health: Health) -> some View {
+        Text(value)
+            .font(.subheadline.weight(.bold).monospacedDigit())
+            .foregroundStyle(ink(health))
+            .lineLimit(1)
+            .minimumScaleFactor(0.55)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .padding(.vertical, 6)
+            .padding(.horizontal, 6)
+            .background(wash(health), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
     private func ink(_ health: Health) -> Color {
@@ -1236,6 +1733,15 @@ struct PickPathStoreCard: View {
         case .watch: return AppTheme.warnSoft
         case .risk: return AppTheme.badSoft
         case .none: return AppTheme.card
+        }
+    }
+
+    private func pill(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.textTertiary
         }
     }
 }

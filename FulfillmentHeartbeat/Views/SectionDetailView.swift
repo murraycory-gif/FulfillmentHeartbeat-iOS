@@ -41,6 +41,12 @@ struct SectionDetailView: View {
                 }
                 PickerScoreTable(focus: pickerFocus)
             } else if section == .pickPath {
+                Section {
+                    PickPathRollupTable()
+                        .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(AppTheme.bg)
+                }
                 PickPathTable(rows: pickPathRows)
             } else if section == .dynacap {
                 DynacapTable(rows: dynacapRows)
@@ -108,11 +114,14 @@ struct SectionDetailView: View {
                 } else if section == .fiveStar {
                     FiveStarStickyStoreHeader()
                         .environmentObject(laborHeaderPin)
+                } else if section == .pickPath {
+                    PickPathStickyStoreHeader()
+                        .environmentObject(laborHeaderPin)
                 }
             }
         }
         .onAppear {
-            if section == .labor || section == .lostRevenue || section == .fiveStar {
+            if section == .labor || section == .lostRevenue || section == .fiveStar || section == .pickPath {
                 laborHeaderPin.openOnPageEnter()
             }
         }
