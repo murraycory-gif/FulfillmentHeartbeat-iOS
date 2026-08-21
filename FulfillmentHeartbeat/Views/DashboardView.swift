@@ -6,12 +6,37 @@ struct DashboardView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var pushedSection: MetricSection?
     @State private var showError = false
+    @State private var showLayoutGallery = false
 
     var body: some View {
         List {
             Section {
                 VStack(spacing: 16) {
                     PageHeadline(lead: "Fulfillment Heartbeat", accent: "Dashboard")
+                    Button {
+                        showLayoutGallery = true
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "square.grid.3x3.fill")
+                                .font(.title3.weight(.semibold))
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Preview 4 dashboard layouts")
+                                    .font(.headline.weight(.bold))
+                                Text("A Equal wall  ·  B Command strip  ·  C Grouped  ·  D Pulse table")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.white.opacity(0.85))
+                            }
+                            Spacer()
+                            Text("Open")
+                                .font(.subheadline.weight(.bold))
+                            Image(systemName: "chevron.right")
+                                .font(.headline.weight(.semibold))
+                        }
+                        .foregroundStyle(.white)
+                        .padding(16)
+                        .background(AppTheme.blue, in: RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
                     if store.summaries.contains(where: { $0.health == .risk || $0.health == .watch }) {
                         FulfillmentChecklistCard()
                     }
@@ -81,6 +106,10 @@ struct DashboardView: View {
         }
         .onChange(of: showError) { _, presented in
             if !presented { store.errorMessage = nil }
+        }
+        .fullScreenCover(isPresented: $showLayoutGallery) {
+            DashboardLayoutGallery(isPresented: $showLayoutGallery)
+                .environmentObject(store)
         }
     }
 
