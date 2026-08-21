@@ -5888,25 +5888,30 @@ private struct LostRevenueStoreExpand: View {
 }
 
 struct ScheduleTable: View {
+    @EnvironmentObject private var headerPin: LaborHeaderPin
     let rows: [MetricRow]
 
     private enum Column: String, CaseIterable, Identifiable {
-        case store, efficiency, under, over, status
+        case store, efficiency, goal, under, over, status
         var id: String { rawValue }
-        var title: String {
+        var key: String {
             switch self {
-            case .store: return "Store"
-            case .efficiency: return "Efficiency"
-            case .under: return "Under"
-            case .over: return "Over"
-            case .status: return "Status"
+            case .store: return "label"
+            case .efficiency: return "efficiency"
+            case .goal: return "goal"
+            case .under: return "under"
+            case .over: return "over"
+            case .status: return "status"
             }
         }
     }
 
     @State private var sort = Column.efficiency
     @State private var ascending = true
-    @State private var ordered: [MetricRow] = []
+    @State private var snaps: [ScheduleLineSnap] = []
+    @State private var openStore: String?
+
+    private var expanded: Bool { headerPin.storesExpanded }
 
     var body: some View {
         if rows.isEmpty {
@@ -5922,65 +5927,114 @@ struct ScheduleTable: View {
             }
         } else {
             Section {
-                HStack {
-                    Text("\(HeartbeatFormat.num(Double(rows.count))) stores")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(AppTheme.textSecondary)
-                    Spacer()
-                }
-                .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
-                .listRowSeparator(.hidden)
-                .listRowBackground(AppTheme.bg)
-            }
-            Section {
-                HStack(spacing: 12) {
-                    ForEach(Column.allCases) { column in
-                        Button {
-                            let nextSort = sort == column ? sort : column
-                            let nextAscending = sort == column ? !ascending : column == .store
-                            sort = nextSort
-                            ascending = nextAscending
-                            rebuildOrder(sort: nextSort, ascending: nextAscending)
-                        } label: {
-                            HStack(spacing: 4) {
-                                Text(column.title.uppercased())
-                                    .font(.caption2.weight(.semibold))
-                                    .tracking(0.5)
-                                if sort == column {
-                                    Image(systemName: ascending ? "chevron.up" : "chevron.down")
-                                        .font(.caption2.weight(.bold))
-                                }
-                            }
-                            .foregroundStyle(sort == column ? AppTheme.blue : AppTheme.textTertiary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
+                Button {
+                    let next = !headerPin.storesExpanded
+                    headerPin.storesExpanded = next
+                    headerPin.tableOpen = next
+                    if !next { headerPin.pinned = false }
+                    if next { rebuildOrder(sort: sort, ascending: ascending) }
+                } label: {
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Store")
+                                .font(.title3.weight(.bold))
+                                .foregroundStyle(AppTheme.blue)
+                            Text("\(HeartbeatFormat.num(Double(rows.count))) stores  ·  tap to \(expanded ? "collapse" : "expand")")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(AppTheme.textSecondary)
                         }
-                        .buttonStyle(.plain)
+                        Spacer()
+                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(AppTheme.blue)
+                            .frame(width: 36, height: 36)
+                            .background(AppTheme.blueSoft, in: Circle())
                     }
+                    .contentShape(Rectangle())
                 }
-                .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 4, trailing: 20))
+                .buttonStyle(.plain)
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                        .fill(AppTheme.card)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                        .stroke(AppTheme.cardBorder, lineWidth: 1)
+                )
+                .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: expanded ? 4 : 20, trailing: 20))
                 .listRowSeparator(.hidden)
                 .listRowBackground(AppTheme.bg)
-
-                ForEach(ordered, id: \.storeNumber) { row in
-                    ScheduleStoreCard(row: row)
-                        .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
+                .onAppear {
+                    headerPin.tableOpen = headerPin.storesExpanded
+                    headerPin.storeCount = rows.count
+                    headerPin.active = sort.key
+                    headerPin.ascending = ascending
+                    headerPin.onSelect = applyHeaderSort
+                }
+            }
+            if expanded {
+                Section {
+                    ScheduleMetricHeader(
+                        label: "Store",
+                        showCount: false,
+                        active: sort.key,
+                        ascending: ascending,
+                        onSelect: applyHeaderSort
+                    )
+                    .background(
+                        GeometryReader { geo in
+                            Color.clear.preference(
+                                key: LaborHeaderMinYKey.self,
+                                value: (geo.frame(in: .global).minY / 12).rounded() * 12
+                            )
+                        }
+                    )
+                    .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(AppTheme.bg)
+                    ForEach(snaps) { snap in
+                        ScheduleStoreRow(
+                            snap: snap,
+                            expanded: openStore == snap.storeNumber,
+                            onToggle: {
+                                openStore = openStore == snap.storeNumber ? nil : snap.storeNumber
+                            }
+                        )
+                        .listRowInsets(EdgeInsets(top: 2, leading: 20, bottom: 2, trailing: 20))
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.bg)
+                    }
+                }
+                .transaction { $0.animation = nil }
+                .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
+                .onChange(of: rows.count) { _, _ in
+                    rebuildOrder(sort: sort, ascending: ascending)
+                    headerPin.storeCount = rows.count
+                }
+                .onChange(of: rows.first?.storeNumber) { _, _ in
+                    rebuildOrder(sort: sort, ascending: ascending)
+                    headerPin.storeCount = rows.count
                 }
             }
-            .transaction { $0.animation = nil }
-            .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
-            .onChange(of: rows.count) { _, _ in rebuildOrder(sort: sort, ascending: ascending) }
-            .onChange(of: rows.first?.storeNumber) { _, _ in rebuildOrder(sort: sort, ascending: ascending) }
         }
     }
 
+    private func applyHeaderSort(_ key: String) {
+        let column = Column.allCases.first { $0.key == key } ?? .efficiency
+        let nextAscending = sort == column ? !ascending : column == .store
+        sort = column
+        ascending = nextAscending
+        headerPin.active = column.key
+        headerPin.ascending = nextAscending
+        rebuildOrder(sort: column, ascending: nextAscending)
+    }
+
     private func rebuildOrder(sort: Column, ascending: Bool) {
-        ordered = rows.sorted { lhs, rhs in
+        snaps = rows.sorted { lhs, rhs in
             let result = compare(lhs, rhs, sort: sort)
             return ascending ? result == .orderedAscending : result == .orderedDescending
-        }
+        }.map(ScheduleLineSnap.init)
     }
 
     private func compare(_ lhs: MetricRow, _ rhs: MetricRow, sort: Column) -> ComparisonResult {
@@ -5990,16 +6044,16 @@ struct ScheduleTable: View {
                 return a == b ? .orderedSame : (a < b ? .orderedAscending : .orderedDescending)
             }
             return lhs.storeNumber.localizedStandardCompare(rhs.storeNumber)
-        case .efficiency:
-            return numberOrder(lhs.number("schedule_efficiency_pct"), rhs.number("schedule_efficiency_pct"))
+        case .efficiency, .goal:
+            return numberOrder(ScheduleMath.efficiency(lhs), ScheduleMath.efficiency(rhs))
         case .under:
-            return numberOrder(lhs.number("under_schedule_pct", "under_scheduled"), rhs.number("under_schedule_pct", "under_scheduled"))
+            return numberOrder(ScheduleMath.under(lhs), ScheduleMath.under(rhs))
         case .over:
-            return numberOrder(lhs.number("over_schedule_pct", "over_scheduled"), rhs.number("over_schedule_pct", "over_scheduled"))
+            return numberOrder(ScheduleMath.over(lhs), ScheduleMath.over(rhs))
         case .status:
             let a = healthRank(HeartbeatMath.health(for: .scheduleQuality, row: lhs))
             let b = healthRank(HeartbeatMath.health(for: .scheduleQuality, row: rhs))
-            if a == b { return numberOrder(lhs.number("schedule_efficiency_pct"), rhs.number("schedule_efficiency_pct")) }
+            if a == b { return numberOrder(ScheduleMath.efficiency(lhs), ScheduleMath.efficiency(rhs)) }
             return a < b ? .orderedAscending : .orderedDescending
         }
     }
@@ -6021,57 +6075,511 @@ struct ScheduleTable: View {
     }
 }
 
-struct ScheduleStoreCard: View {
-    let row: MetricRow
+private enum ScheduleMath {
+    static let goalText = "90%"
+
+    static func efficiency(_ row: MetricRow) -> Double? {
+        row.number("schedule_efficiency_pct")
+    }
+
+    static func under(_ row: MetricRow) -> Double? {
+        row.number("under_schedule_pct", "under_scheduled")
+    }
+
+    static func over(_ row: MetricRow) -> Double? {
+        row.number("over_schedule_pct", "over_scheduled")
+    }
+
+    static func efficiencyHealth(_ value: Double?) -> Health {
+        guard value != nil else { return .none }
+        return HeartbeatMath.band(value, good: HeartbeatMath.scheduleGoal, watch: HeartbeatMath.scheduleWatch)
+    }
+}
+
+private struct ScheduleRollupRow: Identifiable {
+    let id: String
+    let label: String
+    let storeCount: Int
+    let efficiency: Double?
+    let under: Double?
+    let over: Double?
+
+    var health: Health {
+        let underHealth = HeartbeatMath.varianceHealth(under)
+        let overHealth = HeartbeatMath.varianceHealth(over)
+        let efficiencyHealth = ScheduleMath.efficiencyHealth(efficiency)
+        let ranks: [Health: Int] = [.none: 0, .good: 1, .watch: 2, .risk: 3]
+        return [underHealth, overHealth, efficiencyHealth].max { (ranks[$0] ?? 0) < (ranks[$1] ?? 0) } ?? .none
+    }
+}
+
+private enum ScheduleRollupBuilder {
+    static func grain(for filters: DashboardFilters) -> LaborRollupGrain? {
+        LaborRollupBuilder.grain(for: filters)
+    }
+
+    static func source(from all: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
+        let stores = all.filter { !$0.storeNumber.isEmpty && ScheduleMath.efficiency($0) != nil }
+        if !filters.division.isEmpty || !filters.region.isEmpty {
+            return stores.filter { filters.includesDivision($0.division) }
+        }
+        if !filters.district.isEmpty {
+            let divisions = Set(
+                stores.filter { HeartbeatMath.matches($0.district, filters.district) }.map(\.division)
+            )
+            return stores.filter { divisions.contains($0.division) }
+        }
+        if !filters.om.isEmpty {
+            let divisions = Set(
+                stores.filter { HeartbeatMath.matches($0.operationsOM, filters.om) }.map(\.division)
+            )
+            return stores.filter { divisions.contains($0.division) }
+        }
+        return stores
+    }
+
+    static func rows(from stores: [MetricRow], grain: LaborRollupGrain) -> [ScheduleRollupRow] {
+        var buckets: [String: [MetricRow]] = [:]
+        for row in stores {
+            let key: String
+            switch grain {
+            case .division:
+                key = row.division.isEmpty ? "Unassigned" : MarketRegion.canonicalName(row.division)
+            case .district:
+                key = row.district.isEmpty ? "Unassigned" : row.district
+            case .store:
+                key = HeartbeatMath.canonicalStore(row.storeNumber)
+            }
+            guard !key.isEmpty else { continue }
+            buckets[key, default: []].append(row)
+        }
+        var result: [ScheduleRollupRow] = []
+        result.reserveCapacity(buckets.count)
+        for (key, group) in buckets {
+            let label: String
+            switch grain {
+            case .division, .district:
+                label = key
+            case .store:
+                let division = group.first?.division ?? ""
+                label = division.isEmpty ? key : "\(key)  |  \(division)"
+            }
+            result.append(
+                ScheduleRollupRow(
+                    id: key,
+                    label: label,
+                    storeCount: group.count,
+                    efficiency: HeartbeatMath.average(group.compactMap(ScheduleMath.efficiency)),
+                    under: HeartbeatMath.average(group.compactMap(ScheduleMath.under)),
+                    over: HeartbeatMath.average(group.compactMap(ScheduleMath.over))
+                )
+            )
+        }
+        return result.sorted { ($0.efficiency ?? 999) < ($1.efficiency ?? 999) }
+    }
+}
+
+private struct ScheduleLineSnap: Identifiable, Equatable {
+    let id: UUID
+    let storeNumber: String
+    let label: String
+    let district: String
+    let om: String
+    let efficiency: String
+    let under: String
+    let over: String
+    let health: Health
+    let efficiencyHealth: Health
+    let underHealth: Health
+    let overHealth: Health
+    let efficiencyValue: Double
+    let underValue: Double
+    let overValue: Double
+
+    init(_ row: MetricRow) {
+        id = row.id
+        storeNumber = row.storeNumber
+        label = row.division.isEmpty
+            ? (row.storeNumber.isEmpty ? "—" : row.storeNumber)
+            : "\(row.storeNumber)  |  \(row.division)"
+        district = row.district
+        om = row.operationsOM
+        let efficiencyNum = ScheduleMath.efficiency(row)
+        let underNum = ScheduleMath.under(row)
+        let overNum = ScheduleMath.over(row)
+        efficiency = HeartbeatFormat.pct(efficiencyNum)
+        under = HeartbeatFormat.pct(underNum)
+        over = HeartbeatFormat.pct(overNum)
+        health = HeartbeatMath.health(for: .scheduleQuality, row: row)
+        efficiencyHealth = ScheduleMath.efficiencyHealth(efficiencyNum)
+        underHealth = HeartbeatMath.varianceHealth(underNum)
+        overHealth = HeartbeatMath.varianceHealth(overNum)
+        efficiencyValue = efficiencyNum ?? -1
+        underValue = underNum ?? -1
+        overValue = overNum ?? -1
+    }
+}
+
+private struct ScheduleCheapLine: View, Equatable {
+    let snap: ScheduleLineSnap
+    let expanded: Bool
 
     var body: some View {
-        let health = HeartbeatMath.health(for: .scheduleQuality, row: row)
-        let efficiency = row.number("schedule_efficiency_pct")
-        let under = row.number("under_schedule_pct", "under_scheduled")
-        let over = row.number("over_schedule_pct", "over_scheduled")
-        return VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(row.storeNumber.isEmpty ? "—" : row.storeNumber)
-                    .font(.title3.weight(.semibold).monospacedDigit())
-                if !row.division.isEmpty {
-                    Text("|")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(AppTheme.textTertiary)
-                    Text(row.division)
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(AppTheme.textSecondary)
-                        .lineLimit(1)
-                }
-                Spacer()
-                HealthBadge(health: health, prominent: true)
+        HStack(spacing: 6) {
+            HStack(spacing: 4) {
+                Text(snap.label)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(AppTheme.text)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(AppTheme.blue)
             }
-            Text(metaLine)
-                .font(.subheadline)
-                .foregroundStyle(AppTheme.textSecondary)
-            HStack(spacing: 8) {
-                metric("Efficiency", HeartbeatFormat.pct(efficiency), HeartbeatMath.band(efficiency, good: HeartbeatMath.scheduleGoal, watch: HeartbeatMath.scheduleWatch))
-                metric("Under", HeartbeatFormat.pct(under), HeartbeatMath.varianceHealth(under))
-                metric("Over", HeartbeatFormat.pct(over), HeartbeatMath.varianceHealth(over))
+            .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            cell(snap.efficiency, snap.efficiencyHealth)
+            cell(ScheduleMath.goalText, .none, brand: true)
+            cell(snap.under, snap.underHealth)
+            cell(snap.over, snap.overHealth)
+            Text(snap.health.label.uppercased())
+                .font(.caption.weight(.heavy))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .foregroundStyle(Color.white)
+                .background(pill(snap.health), in: Capsule())
+                .frame(width: 88, alignment: .trailing)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func cell(_ value: String, _ health: Health, brand: Bool = false) -> some View {
+        Text(value)
+            .font(.subheadline.weight(.bold).monospacedDigit())
+            .foregroundStyle(brand ? AppTheme.blue : ink(health))
+            .lineLimit(1)
+            .minimumScaleFactor(0.55)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .padding(.vertical, 6)
+            .padding(.horizontal, 6)
+            .background(brand ? AppTheme.blueSoft : wash(health), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private func ink(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.text
+        }
+    }
+
+    private func wash(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.okSoft
+        case .watch: return AppTheme.warnSoft
+        case .risk: return AppTheme.badSoft
+        case .none: return Color.clear
+        }
+    }
+
+    private func pill(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.textTertiary
+        }
+    }
+}
+
+private struct ScheduleMetricLine: View, Equatable {
+    let label: String
+    var count: Int? = nil
+    let efficiency: Double?
+    let under: Double?
+    let over: Double?
+
+    var body: some View {
+        let health = ScheduleRollupRow(id: label, label: label, storeCount: count ?? 0, efficiency: efficiency, under: under, over: over).health
+        HStack(spacing: 6) {
+            Text(label)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(AppTheme.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            if let count {
+                Text(HeartbeatFormat.num(Double(count)))
+                    .font(.subheadline.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .frame(width: 58, alignment: .trailing)
+            }
+            cell(HeartbeatFormat.pct(efficiency), ScheduleMath.efficiencyHealth(efficiency))
+            cell(ScheduleMath.goalText, .none, brand: true)
+            cell(HeartbeatFormat.pct(under), HeartbeatMath.varianceHealth(under))
+            cell(HeartbeatFormat.pct(over), HeartbeatMath.varianceHealth(over))
+            HealthBadge(health: health, prominent: true, compact: true)
+                .frame(width: 88, alignment: .trailing)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func cell(_ value: String, _ health: Health, brand: Bool = false) -> some View {
+        Text(value)
+            .font(.subheadline.weight(.bold).monospacedDigit())
+            .foregroundStyle(brand ? AppTheme.blue : ink(health))
+            .lineLimit(1)
+            .minimumScaleFactor(0.55)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .padding(.vertical, 6)
+            .padding(.horizontal, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(brand ? AppTheme.blueSoft : wash(health))
+            )
+    }
+
+    private func ink(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.text
+        }
+    }
+
+    private func wash(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.okSoft
+        case .watch: return AppTheme.warnSoft
+        case .risk: return AppTheme.badSoft
+        case .none: return Color.clear
+        }
+    }
+}
+
+struct ScheduleMetricHeader: View {
+    let label: String
+    var showCount: Bool = false
+    var active: String? = nil
+    var ascending: Bool = false
+    var onSelect: ((String) -> Void)? = nil
+
+    var body: some View {
+        HStack(spacing: 6) {
+            head(label, key: "label", alignment: .leading)
+                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            if showCount {
+                head("Stores", key: "count", alignment: .trailing)
+                    .frame(width: 58, alignment: .trailing)
+            }
+            head("Efficiency", key: "efficiency")
+            head("Goal", key: "goal")
+            head("Under", key: "under")
+            head("Over", key: "over")
+            head("Status", key: "status", alignment: .trailing)
+                .frame(width: 88, alignment: .trailing)
+        }
+        .font(.caption2.weight(.semibold))
+        .tracking(0.4)
+        .lineLimit(1)
+        .minimumScaleFactor(0.65)
+    }
+
+    private func head(_ title: String, key: String, alignment: Alignment = .trailing) -> some View {
+        let selected = active == key
+        let content = HStack(spacing: 3) {
+            Text(title.uppercased())
+            if selected {
+                Image(systemName: ascending ? "chevron.up" : "chevron.down")
+                    .font(.caption2.weight(.bold))
             }
         }
-        .padding(16)
+        .foregroundStyle(selected ? AppTheme.blue : AppTheme.textTertiary)
+        .frame(maxWidth: alignment == .leading ? nil : .infinity, alignment: alignment)
+        .contentShape(Rectangle())
+        return Group {
+            if let onSelect {
+                Button { onSelect(key) } label: { content }
+                    .buttonStyle(.plain)
+            } else {
+                content
+            }
+        }
+    }
+}
+
+struct ScheduleStickyStoreHeader: View {
+    @EnvironmentObject private var pin: LaborHeaderPin
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Store")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(AppTheme.blue)
+                Text("\(HeartbeatFormat.num(Double(pin.storeCount))) stores")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.textSecondary)
+                Spacer()
+            }
+            ScheduleMetricHeader(
+                label: "Store",
+                showCount: false,
+                active: pin.active,
+                ascending: pin.ascending,
+                onSelect: { pin.onSelect?($0) }
+            )
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .padding(.bottom, 8)
+        .background(AppTheme.bg)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(AppTheme.cardBorder)
+                .frame(height: 1)
+        }
+    }
+}
+
+struct ScheduleRollupTable: View {
+    @EnvironmentObject private var store: HeartbeatStore
+    @EnvironmentObject private var headerPin: LaborHeaderPin
+
+    private var expanded: Bool { headerPin.rollupExpanded }
+
+    var body: some View {
+        if let grain, !summary.isEmpty {
+            VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
+                Button {
+                    headerPin.rollupExpanded.toggle()
+                } label: {
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(grain.title)
+                                .font(.title3.weight(.bold))
+                                .foregroundStyle(AppTheme.blue)
+                            Text("\(summary.count) \(grain.columnTitle.lowercased())\(summary.count == 1 ? "" : "s")  ·  tap to \(expanded ? "collapse" : "expand")")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(AppTheme.textSecondary)
+                        }
+                        Spacer()
+                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(AppTheme.blue)
+                            .frame(width: 36, height: 36)
+                            .background(AppTheme.blueSoft, in: Circle())
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                if expanded {
+                    ScheduleMetricHeader(label: grain.columnTitle, showCount: grain != .store)
+                    ForEach(summary) { row in
+                        ScheduleMetricLine(
+                            label: row.label,
+                            count: grain == .store ? nil : row.storeCount,
+                            efficiency: row.efficiency,
+                            under: row.under,
+                            over: row.over
+                        )
+                    }
+                }
+            }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                    .fill(AppTheme.card)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                    .stroke(AppTheme.cardBorder, lineWidth: 1)
+            )
+        }
+    }
+
+    private var grain: LaborRollupGrain? {
+        ScheduleRollupBuilder.grain(for: store.filters)
+    }
+
+    private var summary: [ScheduleRollupRow] {
+        guard let grain else { return [] }
+        let source = ScheduleRollupBuilder.source(from: store.displayRows(for: .scheduleQuality), filters: store.filters)
+        var rows = ScheduleRollupBuilder.rows(from: source, grain: grain)
+        if grain == .division {
+            for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
+                rows.append(ScheduleRollupRow(id: extra.name, label: extra.name, storeCount: extra.storeCount, efficiency: nil, under: nil, over: nil))
+            }
+            rows.sort { ($0.efficiency ?? 999) < ($1.efficiency ?? 999) }
+        }
+        return rows
+    }
+}
+
+private struct ScheduleStoreRow: View {
+    let snap: ScheduleLineSnap
+    let expanded: Bool
+    let onToggle: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
+            Button(action: onToggle) {
+                ScheduleCheapLine(snap: snap, expanded: expanded)
+                    .equatable()
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if expanded {
+                ScheduleStoreExpand(snap: snap)
+            }
+        }
+    }
+}
+
+private struct ScheduleStoreExpand: View {
+    let snap: ScheduleLineSnap
+
+    private var chips: [(String, String, Health, Bool)] {
+        [
+            ("Efficiency", snap.efficiency, snap.efficiencyHealth, false),
+            ("Goal", ScheduleMath.goalText, .none, true),
+            ("Under", snap.under, snap.underHealth, false),
+            ("Over", snap.over, snap.overHealth, false),
+        ]
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("District \(snap.district.isEmpty ? "—" : snap.district)  ·  \(snap.om.isEmpty ? "—" : snap.om)")
+                .font(.subheadline)
+                .foregroundStyle(AppTheme.textSecondary)
+            chipGrid
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
-                .fill(wash(health).opacity(0.55))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
-                .stroke(ink(health).opacity(health == .none ? 0.15 : 0.45), lineWidth: health == .risk || health == .watch ? 2 : 1.5)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(AppTheme.card.opacity(0.9))
         )
     }
 
-    private var metaLine: String {
-        let district = row.district.isEmpty ? "—" : row.district
-        let om = row.operationsOM.isEmpty ? "—" : row.operationsOM
-        return "District \(district)  ·  \(om)"
+    private var chipGrid: some View {
+        let rows = stride(from: 0, to: chips.count, by: 3).map { Array(chips[$0..<min($0 + 3, chips.count)]) }
+        return VStack(spacing: 8) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                HStack(spacing: 8) {
+                    ForEach(Array(row.enumerated()), id: \.offset) { _, item in
+                        metric(item.0, item.1, item.2, brand: item.3)
+                    }
+                }
+            }
+        }
     }
 
-    private func metric(_ name: String, _ value: String, _ health: Health) -> some View {
+    private func metric(_ name: String, _ value: String, _ health: Health, brand: Bool) -> some View {
         VStack(spacing: 4) {
             Text(name)
                 .font(.caption.weight(.semibold))
@@ -6079,15 +6587,18 @@ struct ScheduleStoreCard: View {
                 .lineLimit(1)
             Text(value)
                 .font(.title3.weight(.bold).monospacedDigit())
-                .foregroundStyle(ink(health))
+                .foregroundStyle(brand ? AppTheme.blue : ink(health))
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
+            if !brand {
+                HealthBadge(health: health)
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 10)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(wash(health))
+                .fill(brand ? AppTheme.blueSoft : wash(health))
         )
     }
 
