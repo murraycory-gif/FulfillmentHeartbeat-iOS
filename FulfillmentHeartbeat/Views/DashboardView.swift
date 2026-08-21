@@ -20,9 +20,9 @@ struct DashboardView: View {
                             Image(systemName: "square.grid.3x3.fill")
                                 .font(.title3.weight(.semibold))
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("Preview 4 dashboard layouts")
+                                Text("Preview more dashboard layouts")
                                     .font(.headline.weight(.bold))
-                                Text("A Equal wall  ·  B Command strip  ·  C Grouped  ·  D Pulse table")
+                                Text("New: E Exception  ·  F Health board  ·  G Briefing  ·  H Spotlight")
                                     .font(.subheadline)
                                     .foregroundStyle(.white.opacity(0.85))
                             }

@@ -2,6 +2,7 @@ import SwiftUI
 
 enum DashLayoutOption: String, CaseIterable, Identifiable {
     case equalWall, commandStrip, grouped, pulseTable
+    case exceptionConsole, kanban, briefing, spotlight
 
     var id: String { rawValue }
 
@@ -11,6 +12,10 @@ enum DashLayoutOption: String, CaseIterable, Identifiable {
         case .commandStrip: return "B"
         case .grouped: return "C"
         case .pulseTable: return "D"
+        case .exceptionConsole: return "E"
+        case .kanban: return "F"
+        case .briefing: return "G"
+        case .spotlight: return "H"
         }
     }
 
@@ -20,6 +25,10 @@ enum DashLayoutOption: String, CaseIterable, Identifiable {
         case .commandStrip: return "Command strip"
         case .grouped: return "Grouped by job"
         case .pulseTable: return "Pulse table"
+        case .exceptionConsole: return "Exception console"
+        case .kanban: return "Health board"
+        case .briefing: return "Briefing list"
+        case .spotlight: return "Spotlight"
         }
     }
 
@@ -29,6 +38,17 @@ enum DashLayoutOption: String, CaseIterable, Identifiable {
         case .commandStrip: return "All KPIs in a thin row. Actions on the left. Loss Revenue still big."
         case .grouped: return "Customer promise on top. Labor and capacity underneath."
         case .pulseTable: return "Same compact table as Labor / 5 Star. Company pulse plus open actions."
+        case .exceptionConsole: return "The 3 worst scorecards get the big cards. Everything else sits in a tray."
+        case .kanban: return "At Risk / Watch / Healthy columns. Cards live in the bucket they belong in."
+        case .briefing: return "One list, like Mail. Loss Revenue stays a slim banner. Fast to scan."
+        case .spotlight: return "One featured problem on the left. The other eight as a tight stack on the right."
+        }
+    }
+
+    var isNew: Bool {
+        switch self {
+        case .exceptionConsole, .kanban, .briefing, .spotlight: return true
+        default: return false
         }
     }
 }
@@ -36,17 +56,15 @@ enum DashLayoutOption: String, CaseIterable, Identifiable {
 struct DashboardLayoutGallery: View {
     @EnvironmentObject private var store: HeartbeatStore
     @Binding var isPresented: Bool
-    @State private var option: DashLayoutOption = .equalWall
+    @State private var option: DashLayoutOption = .exceptionConsole
 
     var body: some View {
         VStack(spacing: 0) {
             header
-            Picker("Layout", selection: $option) {
-                ForEach(DashLayoutOption.allCases) { item in
-                    Text("\(item.letter)  \(item.title)").tag(item)
-                }
+            VStack(spacing: 8) {
+                layoutRow(Array(DashLayoutOption.allCases.prefix(4)))
+                layoutRow(Array(DashLayoutOption.allCases.suffix(4)))
             }
-            .pickerStyle(.segmented)
             .padding(.horizontal, 20)
             .padding(.top, 12)
             Text(option.blurb)
@@ -63,6 +81,10 @@ struct DashboardLayoutGallery: View {
                     case .commandStrip: commandStrip
                     case .grouped: grouped
                     case .pulseTable: pulseTable
+                    case .exceptionConsole: exceptionConsole
+                    case .kanban: kanban
+                    case .briefing: briefing
+                    case .spotlight: spotlight
                     }
                 }
                 .padding(.horizontal, 20)
@@ -95,6 +117,49 @@ struct DashboardLayoutGallery: View {
         .padding(.top, 18)
         .padding(.bottom, 12)
         .background(AppTheme.card)
+    }
+
+    private func layoutRow(_ items: [DashLayoutOption]) -> some View {
+        HStack(spacing: 8) {
+            ForEach(items) { item in
+                Button {
+                    option = item
+                } label: {
+                    HStack(spacing: 6) {
+                        Text(item.letter)
+                            .font(.headline.weight(.bold))
+                        Text(item.title)
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                        if item.isNew {
+                            Text("NEW")
+                                .font(.caption2.weight(.heavy))
+                                .foregroundStyle(option == item ? Color.white : AppTheme.blue)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(
+                                    (option == item ? Color.white.opacity(0.22) : AppTheme.blueSoft),
+                                    in: Capsule()
+                                )
+                        }
+                    }
+                    .foregroundStyle(option == item ? Color.white : AppTheme.text)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity)
+                    .background(
+                        option == item ? AppTheme.blue : AppTheme.card,
+                        in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(option == item ? AppTheme.blue : AppTheme.cardBorder, lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+        }
     }
 
     private var cards: [SectionSummary] {
@@ -245,6 +310,213 @@ struct DashboardLayoutGallery: View {
                     .stroke(AppTheme.cardBorder, lineWidth: 1)
             )
             LayoutActionList(limit: 5, horizontal: true)
+        }
+    }
+
+    private var ranked: [SectionSummary] {
+        cards.sorted { healthRank($0.health) < healthRank($1.health) }
+    }
+
+    private var worst: [SectionSummary] { Array(ranked.prefix(3)) }
+    private var rest: [SectionSummary] { Array(ranked.dropFirst(3)) }
+
+    private var exceptionConsole: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            actionBar
+            Text("Needs you now")
+                .font(.title3.weight(.bold))
+                .foregroundStyle(AppTheme.bad)
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 14), count: 3), spacing: 14) {
+                ForEach(worst) { card in
+                    LayoutMetricCard(summary: card, height: 200, dualLost: card.section == .lostRevenue)
+                }
+            }
+            Text("Everything else")
+                .font(.title3.weight(.bold))
+                .foregroundStyle(AppTheme.blue)
+            HStack(spacing: 10) {
+                ForEach(rest) { card in
+                    LayoutChip(summary: card)
+                }
+            }
+        }
+    }
+
+    private var kanban: some View {
+        HStack(alignment: .top, spacing: 14) {
+            kanbanColumn("At risk", .risk, cards.filter { $0.health == .risk })
+            kanbanColumn("Watch", .watch, cards.filter { $0.health == .watch })
+            kanbanColumn("Healthy", .good, cards.filter { $0.health == .good || $0.health == .none })
+        }
+    }
+
+    private func kanbanColumn(_ title: String, _ health: Health, _ items: [SectionSummary]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Text(title)
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(LayoutTone.ink(health))
+                Text("\(items.count)")
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(LayoutTone.ink(health))
+                Spacer()
+            }
+            .padding(.horizontal, 4)
+            if items.isEmpty {
+                Text("None")
+                    .font(.subheadline)
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .padding(16)
+                    .frame(maxWidth: .infinity)
+                    .background(AppTheme.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            } else {
+                ForEach(items) { card in
+                    LayoutMetricCard(summary: card, height: 132, dualLost: card.section == .lostRevenue)
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(LayoutTone.wash(health).opacity(0.45), in: RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
+    }
+
+    private var briefing: some View {
+        VStack(spacing: 14) {
+            if let lost {
+                HStack(spacing: 16) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        (Text("Loss Revenue ") + Text("ScoreCard").foregroundStyle(AppTheme.blue))
+                            .font(.headline.weight(.bold))
+                        Text("Total opportunity")
+                            .font(.subheadline)
+                            .foregroundStyle(AppTheme.textSecondary)
+                    }
+                    Spacer()
+                    Text(lost.headlineText)
+                        .font(.title.weight(.bold).monospacedDigit())
+                        .foregroundStyle(LayoutTone.ink(lost.health))
+                    Text(HeartbeatFormat.pct(lost.lostRevenuePct))
+                        .font(.title.weight(.bold).monospacedDigit())
+                        .foregroundStyle(LayoutTone.ink(lost.health))
+                    HealthBadge(health: lost.health, prominent: true)
+                }
+                .padding(16)
+                .background(LayoutTone.wash(lost.health), in: RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
+            }
+            VStack(spacing: 0) {
+                ForEach(Array(others.enumerated()), id: \.element.id) { index, card in
+                    if index > 0 { Divider().opacity(0.35) }
+                    HStack(spacing: 14) {
+                        Image(systemName: card.section.symbol)
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(LayoutTone.ink(card.health))
+                            .frame(width: 36)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(card.section == .pickPath ? "Pick Path Compliance" : card.section.title)
+                                .font(.headline.weight(.bold))
+                            Text(card.headlineLabel)
+                                .font(.subheadline)
+                                .foregroundStyle(AppTheme.textSecondary)
+                        }
+                        Spacer()
+                        Text(card.headlineText)
+                            .font(.title2.weight(.bold).monospacedDigit())
+                            .foregroundStyle(LayoutTone.ink(card.health))
+                        HealthBadge(health: card.health, prominent: true, compact: true)
+                    }
+                    .padding(.vertical, 14)
+                    .padding(.horizontal, 4)
+                }
+            }
+            .padding(16)
+            .background(AppTheme.card, in: RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                    .stroke(AppTheme.cardBorder, lineWidth: 1)
+            )
+        }
+    }
+
+    private var spotlight: some View {
+        HStack(alignment: .top, spacing: 16) {
+            if let feature = ranked.first {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Spotlight")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(AppTheme.blue)
+                    Text(feature.section == .pickPath ? "Pick Path Compliance" : feature.section.title)
+                        .font(.largeTitle.weight(.bold))
+                        .foregroundStyle(AppTheme.text)
+                    HealthBadge(health: feature.health, prominent: true)
+                    Text(feature.headlineText)
+                        .font(.system(size: 64, weight: .semibold, design: .rounded).monospacedDigit())
+                        .foregroundStyle(LayoutTone.ink(feature.health))
+                        .minimumScaleFactor(0.5)
+                        .lineLimit(1)
+                    Text(feature.headlineLabel)
+                        .font(.title3.weight(.semibold))
+                    HStack(spacing: 24) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Goal")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(AppTheme.textTertiary)
+                            Text(goal(for: feature.section))
+                                .font(.title2.weight(.bold))
+                                .foregroundStyle(AppTheme.blue)
+                        }
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(feature.section == .pickerScorecard ? "Shoppers" : "Stores")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(AppTheme.textTertiary)
+                            Text(HeartbeatFormat.num(Double(feature.storeCount)))
+                                .font(.title2.weight(.bold))
+                        }
+                    }
+                    Spacer(minLength: 0)
+                    Text("Biggest gap vs goal in this filter")
+                        .font(.subheadline)
+                        .foregroundStyle(AppTheme.textSecondary)
+                }
+                .padding(24)
+                .frame(maxWidth: .infinity, minHeight: 420, alignment: .topLeading)
+                .background(LayoutTone.wash(feature.health), in: RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                        .stroke(LayoutTone.ink(feature.health).opacity(0.4), lineWidth: 1.5)
+                )
+            }
+            VStack(spacing: 8) {
+                ForEach(Array(ranked.dropFirst())) { card in
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(card.section == .pickPath ? "Pick Path" : card.section.title)
+                                .font(.subheadline.weight(.semibold))
+                                .lineLimit(1)
+                            Text(card.headlineLabel)
+                                .font(.caption)
+                                .foregroundStyle(AppTheme.textSecondary)
+                                .lineLimit(1)
+                        }
+                        Spacer()
+                        Text(card.headlineText)
+                            .font(.headline.weight(.bold).monospacedDigit())
+                            .foregroundStyle(LayoutTone.ink(card.health))
+                        HealthBadge(health: card.health, prominent: true, compact: true)
+                    }
+                    .padding(12)
+                    .background(LayoutTone.wash(card.health), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+            }
+            .frame(width: 420)
+        }
+    }
+
+    private func healthRank(_ health: Health) -> Int {
+        switch health {
+        case .risk: return 0
+        case .watch: return 1
+        case .good: return 2
+        case .none: return 3
         }
     }
 
