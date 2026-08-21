@@ -55,6 +55,12 @@ struct SectionDetailView: View {
             } else if section == .scheduleQuality {
                 ScheduleTable(rows: scheduleRows)
             } else if section == .prepNotReady {
+                Section {
+                    PrepRollupTable()
+                        .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(AppTheme.bg)
+                }
                 PrepTable(rows: prepRows)
             } else if section == .fiveStar {
                 Section {
@@ -117,11 +123,14 @@ struct SectionDetailView: View {
                 } else if section == .pickPath {
                     PickPathStickyStoreHeader()
                         .environmentObject(laborHeaderPin)
+                } else if section == .prepNotReady {
+                    PrepStickyStoreHeader()
+                        .environmentObject(laborHeaderPin)
                 }
             }
         }
         .onAppear {
-            if section == .labor || section == .lostRevenue || section == .fiveStar || section == .pickPath {
+            if section == .labor || section == .lostRevenue || section == .fiveStar || section == .pickPath || section == .prepNotReady {
                 laborHeaderPin.openOnPageEnter()
             }
         }
