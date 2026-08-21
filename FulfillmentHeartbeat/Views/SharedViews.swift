@@ -1754,30 +1754,29 @@ private struct PickPathStoreExpand: View {
 }
 
 struct DynacapTable: View {
+    @EnvironmentObject private var headerPin: LaborHeaderPin
     let rows: [MetricRow]
 
     private enum Column: String, CaseIterable, Identifiable {
-        case store, rate, util, status
+        case store, rate, goal, util, status
         var id: String { rawValue }
-        var title: String {
+        var key: String {
             switch self {
-            case .store: return "Store"
-            case .rate: return "Pieces / hr"
-            case .util: return "Utilization"
-            case .status: return "Status"
+            case .store: return "label"
+            case .rate: return "rate"
+            case .goal: return "goal"
+            case .util: return "util"
+            case .status: return "status"
             }
         }
     }
 
     @State private var sort = Column.rate
     @State private var ascending = false
+    @State private var snaps: [DynacapLineSnap] = []
+    @State private var openStore: String?
 
-    private var sortedRows: [MetricRow] {
-        rows.sorted { lhs, rhs in
-            let result = compare(lhs, rhs)
-            return ascending ? result == .orderedAscending : result == .orderedDescending
-        }
-    }
+    private var expanded: Bool { headerPin.storesExpanded }
 
     var body: some View {
         if rows.isEmpty {
@@ -1793,72 +1792,131 @@ struct DynacapTable: View {
             }
         } else {
             Section {
-                HStack {
-                    Text("\(HeartbeatFormat.num(Double(rows.count))) stores")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(AppTheme.textSecondary)
-                    Spacer()
-                }
-                .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
-                .listRowSeparator(.hidden)
-                .listRowBackground(AppTheme.bg)
-            }
-            Section {
-                HStack(spacing: 12) {
-                    ForEach(Column.allCases) { column in
-                        Button {
-                            if sort == column {
-                                ascending.toggle()
-                            } else {
-                                sort = column
-                                ascending = column == .store
-                            }
-                        } label: {
-                            HStack(spacing: 4) {
-                                Text(column.title.uppercased())
-                                    .font(.caption2.weight(.semibold))
-                                    .tracking(0.5)
-                                if sort == column {
-                                    Image(systemName: ascending ? "chevron.up" : "chevron.down")
-                                        .font(.caption2.weight(.bold))
-                                }
-                            }
-                            .foregroundStyle(sort == column ? AppTheme.blue : AppTheme.textTertiary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
+                Button {
+                    let next = !headerPin.storesExpanded
+                    headerPin.storesExpanded = next
+                    headerPin.tableOpen = next
+                    if !next { headerPin.pinned = false }
+                    if next { rebuildOrder(sort: sort, ascending: ascending) }
+                } label: {
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Store")
+                                .font(.title3.weight(.bold))
+                                .foregroundStyle(AppTheme.blue)
+                            Text("\(HeartbeatFormat.num(Double(rows.count))) stores  ·  tap to \(expanded ? "collapse" : "expand")")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(AppTheme.textSecondary)
                         }
-                        .buttonStyle(.plain)
+                        Spacer()
+                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(AppTheme.blue)
+                            .frame(width: 36, height: 36)
+                            .background(AppTheme.blueSoft, in: Circle())
                     }
+                    .contentShape(Rectangle())
                 }
-                .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 4, trailing: 20))
+                .buttonStyle(.plain)
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                        .fill(AppTheme.card)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                        .stroke(AppTheme.cardBorder, lineWidth: 1)
+                )
+                .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: expanded ? 4 : 20, trailing: 20))
                 .listRowSeparator(.hidden)
                 .listRowBackground(AppTheme.bg)
-
-                ForEach(sortedRows) { row in
-                    DynacapStoreCard(row: row)
-                        .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
+                .onAppear {
+                    headerPin.tableOpen = headerPin.storesExpanded
+                    headerPin.storeCount = rows.count
+                    headerPin.active = sort.key
+                    headerPin.ascending = ascending
+                    headerPin.onSelect = applyHeaderSort
+                }
+            }
+            if expanded {
+                Section {
+                    DynacapMetricHeader(
+                        label: "Store",
+                        showCount: false,
+                        active: sort.key,
+                        ascending: ascending,
+                        onSelect: applyHeaderSort
+                    )
+                    .background(
+                        GeometryReader { geo in
+                            Color.clear.preference(
+                                key: LaborHeaderMinYKey.self,
+                                value: (geo.frame(in: .global).minY / 12).rounded() * 12
+                            )
+                        }
+                    )
+                    .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(AppTheme.bg)
+                    ForEach(snaps) { snap in
+                        DynacapStoreRow(
+                            snap: snap,
+                            expanded: openStore == snap.storeNumber,
+                            onToggle: {
+                                openStore = openStore == snap.storeNumber ? nil : snap.storeNumber
+                            }
+                        )
+                        .listRowInsets(EdgeInsets(top: 2, leading: 20, bottom: 2, trailing: 20))
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.bg)
+                    }
+                }
+                .transaction { $0.animation = nil }
+                .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
+                .onChange(of: rows.count) { _, _ in
+                    rebuildOrder(sort: sort, ascending: ascending)
+                    headerPin.storeCount = rows.count
+                }
+                .onChange(of: rows.first?.storeNumber) { _, _ in
+                    rebuildOrder(sort: sort, ascending: ascending)
+                    headerPin.storeCount = rows.count
                 }
             }
         }
     }
 
-    private func compare(_ lhs: MetricRow, _ rhs: MetricRow) -> ComparisonResult {
+    private func applyHeaderSort(_ key: String) {
+        let column = Column.allCases.first { $0.key == key } ?? .rate
+        let nextAscending = sort == column ? !ascending : column == .store
+        sort = column
+        ascending = nextAscending
+        headerPin.active = column.key
+        headerPin.ascending = nextAscending
+        rebuildOrder(sort: column, ascending: nextAscending)
+    }
+
+    private func rebuildOrder(sort: Column, ascending: Bool) {
+        snaps = rows.sorted { lhs, rhs in
+            let result = compare(lhs, rhs, sort: sort)
+            return ascending ? result == .orderedAscending : result == .orderedDescending
+        }.map(DynacapLineSnap.init)
+    }
+
+    private func compare(_ lhs: MetricRow, _ rhs: MetricRow, sort: Column) -> ComparisonResult {
         switch sort {
         case .store:
             if let a = Int(lhs.storeNumber), let b = Int(rhs.storeNumber) {
                 return a == b ? .orderedSame : (a < b ? .orderedAscending : .orderedDescending)
             }
             return lhs.storeNumber.localizedStandardCompare(rhs.storeNumber)
-        case .rate:
-            return numberOrder(lhs.number("dynacap_rate", "pieces_per_hour"), rhs.number("dynacap_rate", "pieces_per_hour"))
+        case .rate, .goal:
+            return numberOrder(DynacapMath.rate(lhs), DynacapMath.rate(rhs))
         case .util:
             return numberOrder(lhs.number("utilization_pct"), rhs.number("utilization_pct"))
         case .status:
             let a = healthRank(HeartbeatMath.health(for: .dynacap, row: lhs))
             let b = healthRank(HeartbeatMath.health(for: .dynacap, row: rhs))
-            if a == b { return numberOrder(lhs.number("dynacap_rate", "pieces_per_hour"), rhs.number("dynacap_rate", "pieces_per_hour")) }
+            if a == b { return numberOrder(DynacapMath.rate(lhs), DynacapMath.rate(rhs)) }
             return a < b ? .orderedAscending : .orderedDescending
         }
     }
@@ -1880,55 +1938,469 @@ struct DynacapTable: View {
     }
 }
 
-struct DynacapStoreCard: View {
-    let row: MetricRow
+private enum DynacapMath {
+    static let goalText = "65.0"
+
+    static func rate(_ row: MetricRow) -> Double? {
+        row.number("dynacap_rate", "pieces_per_hour")
+    }
+
+    static func rateHealth(_ value: Double?) -> Health {
+        guard value != nil else { return .none }
+        return HeartbeatMath.band(value, good: HeartbeatMath.dynacapGoal, watch: HeartbeatMath.dynacapRisk)
+    }
+}
+
+private struct DynacapRollupRow: Identifiable {
+    let id: String
+    let label: String
+    let storeCount: Int
+    let rate: Double?
+    let util: Double?
+
+    var health: Health { DynacapMath.rateHealth(rate) }
+}
+
+private enum DynacapRollupBuilder {
+    static func grain(for filters: DashboardFilters) -> LaborRollupGrain? {
+        LaborRollupBuilder.grain(for: filters)
+    }
+
+    static func source(from all: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
+        let stores = all.filter { !$0.storeNumber.isEmpty && DynacapMath.rate($0) != nil }
+        if !filters.division.isEmpty || !filters.region.isEmpty {
+            return stores.filter { filters.includesDivision($0.division) }
+        }
+        if !filters.district.isEmpty {
+            let divisions = Set(
+                stores.filter { HeartbeatMath.matches($0.district, filters.district) }.map(\.division)
+            )
+            return stores.filter { divisions.contains($0.division) }
+        }
+        if !filters.om.isEmpty {
+            let divisions = Set(
+                stores.filter { HeartbeatMath.matches($0.operationsOM, filters.om) }.map(\.division)
+            )
+            return stores.filter { divisions.contains($0.division) }
+        }
+        return stores
+    }
+
+    static func rows(from stores: [MetricRow], grain: LaborRollupGrain) -> [DynacapRollupRow] {
+        var buckets: [String: [MetricRow]] = [:]
+        for row in stores {
+            let key: String
+            switch grain {
+            case .division:
+                key = row.division.isEmpty ? "Unassigned" : MarketRegion.canonicalName(row.division)
+            case .district:
+                key = row.district.isEmpty ? "Unassigned" : row.district
+            case .store:
+                key = HeartbeatMath.canonicalStore(row.storeNumber)
+            }
+            guard !key.isEmpty else { continue }
+            buckets[key, default: []].append(row)
+        }
+        var result: [DynacapRollupRow] = []
+        result.reserveCapacity(buckets.count)
+        for (key, group) in buckets {
+            let label: String
+            switch grain {
+            case .division, .district:
+                label = key
+            case .store:
+                let division = group.first?.division ?? ""
+                label = division.isEmpty ? key : "\(key)  |  \(division)"
+            }
+            result.append(
+                DynacapRollupRow(
+                    id: key,
+                    label: label,
+                    storeCount: group.count,
+                    rate: HeartbeatMath.average(group.compactMap(DynacapMath.rate)),
+                    util: HeartbeatMath.average(group.compactMap { $0.number("utilization_pct") })
+                )
+            )
+        }
+        return result.sorted { ($0.rate ?? 999) < ($1.rate ?? 999) }
+    }
+}
+
+private struct DynacapLineSnap: Identifiable, Equatable {
+    let id: UUID
+    let storeNumber: String
+    let label: String
+    let district: String
+    let om: String
+    let rate: String
+    let util: String
+    let health: Health
+    let rateValue: Double
+    let utilValue: Double
+
+    init(_ row: MetricRow) {
+        id = row.id
+        storeNumber = row.storeNumber
+        label = row.division.isEmpty
+            ? (row.storeNumber.isEmpty ? "—" : row.storeNumber)
+            : "\(row.storeNumber)  |  \(row.division)"
+        district = row.district
+        om = row.operationsOM
+        let rateNum = DynacapMath.rate(row)
+        let utilNum = row.number("utilization_pct")
+        rate = HeartbeatFormat.num(rateNum, digits: 1)
+        util = HeartbeatFormat.pct(utilNum)
+        health = HeartbeatMath.health(for: .dynacap, row: row)
+        rateValue = rateNum ?? -1
+        utilValue = utilNum ?? -1
+    }
+}
+
+private struct DynacapCheapLine: View, Equatable {
+    let snap: DynacapLineSnap
+    let expanded: Bool
 
     var body: some View {
-        let health = HeartbeatMath.health(for: .dynacap, row: row)
-        let rate = row.number("dynacap_rate", "pieces_per_hour")
-        let util = row.number("utilization_pct")
-        return VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(row.storeNumber.isEmpty ? "—" : row.storeNumber)
-                    .font(.title3.weight(.semibold).monospacedDigit())
-                if !row.division.isEmpty {
-                    Text("|")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(AppTheme.textTertiary)
-                    Text(row.division)
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(AppTheme.textSecondary)
-                        .lineLimit(1)
-                }
-                Spacer()
-                HealthBadge(health: health, prominent: true)
+        HStack(spacing: 6) {
+            HStack(spacing: 4) {
+                Text(snap.label)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(AppTheme.text)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(AppTheme.blue)
             }
-            Text(metaLine)
+            .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            cell(snap.rate, snap.health)
+            cell(DynacapMath.goalText, .none, brand: true)
+            cell(snap.util, .none)
+            Text(snap.health.label.uppercased())
+                .font(.caption.weight(.heavy))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .foregroundStyle(Color.white)
+                .background(pill(snap.health), in: Capsule())
+                .frame(width: 88, alignment: .trailing)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func cell(_ value: String, _ health: Health, brand: Bool = false) -> some View {
+        Text(value)
+            .font(.subheadline.weight(.bold).monospacedDigit())
+            .foregroundStyle(brand ? AppTheme.blue : ink(health))
+            .lineLimit(1)
+            .minimumScaleFactor(0.55)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .padding(.vertical, 6)
+            .padding(.horizontal, 6)
+            .background(brand ? AppTheme.blueSoft : wash(health), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private func ink(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.text
+        }
+    }
+
+    private func wash(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.okSoft
+        case .watch: return AppTheme.warnSoft
+        case .risk: return AppTheme.badSoft
+        case .none: return Color.clear
+        }
+    }
+
+    private func pill(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.textTertiary
+        }
+    }
+}
+
+private struct DynacapMetricLine: View, Equatable {
+    let label: String
+    var count: Int? = nil
+    let rate: Double?
+    let util: Double?
+
+    var body: some View {
+        let health = DynacapMath.rateHealth(rate)
+        HStack(spacing: 6) {
+            Text(label)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(AppTheme.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            if let count {
+                Text(HeartbeatFormat.num(Double(count)))
+                    .font(.subheadline.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .frame(width: 58, alignment: .trailing)
+            }
+            cell(HeartbeatFormat.num(rate, digits: 1), health)
+            cell(DynacapMath.goalText, .none, brand: true)
+            cell(HeartbeatFormat.pct(util), .none)
+            HealthBadge(health: health, prominent: true, compact: true)
+                .frame(width: 88, alignment: .trailing)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func cell(_ value: String, _ health: Health, brand: Bool = false) -> some View {
+        Text(value)
+            .font(.subheadline.weight(.bold).monospacedDigit())
+            .foregroundStyle(brand ? AppTheme.blue : ink(health))
+            .lineLimit(1)
+            .minimumScaleFactor(0.55)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .padding(.vertical, 6)
+            .padding(.horizontal, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(brand ? AppTheme.blueSoft : wash(health))
+            )
+    }
+
+    private func ink(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.text
+        }
+    }
+
+    private func wash(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.okSoft
+        case .watch: return AppTheme.warnSoft
+        case .risk: return AppTheme.badSoft
+        case .none: return Color.clear
+        }
+    }
+}
+
+struct DynacapMetricHeader: View {
+    let label: String
+    var showCount: Bool = false
+    var active: String? = nil
+    var ascending: Bool = false
+    var onSelect: ((String) -> Void)? = nil
+
+    var body: some View {
+        HStack(spacing: 6) {
+            head(label, key: "label", alignment: .leading)
+                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            if showCount {
+                head("Stores", key: "count", alignment: .trailing)
+                    .frame(width: 58, alignment: .trailing)
+            }
+            head("Pieces / hr", key: "rate")
+            head("Goal", key: "goal")
+            head("Utilization", key: "util")
+            head("Status", key: "status", alignment: .trailing)
+                .frame(width: 88, alignment: .trailing)
+        }
+        .font(.caption2.weight(.semibold))
+        .tracking(0.4)
+        .lineLimit(1)
+        .minimumScaleFactor(0.65)
+    }
+
+    private func head(_ title: String, key: String, alignment: Alignment = .trailing) -> some View {
+        let selected = active == key
+        let content = HStack(spacing: 3) {
+            Text(title.uppercased())
+            if selected {
+                Image(systemName: ascending ? "chevron.up" : "chevron.down")
+                    .font(.caption2.weight(.bold))
+            }
+        }
+        .foregroundStyle(selected ? AppTheme.blue : AppTheme.textTertiary)
+        .frame(maxWidth: alignment == .leading ? nil : .infinity, alignment: alignment)
+        .contentShape(Rectangle())
+        return Group {
+            if let onSelect {
+                Button { onSelect(key) } label: { content }
+                    .buttonStyle(.plain)
+            } else {
+                content
+            }
+        }
+    }
+}
+
+struct DynacapStickyStoreHeader: View {
+    @EnvironmentObject private var pin: LaborHeaderPin
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Store")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(AppTheme.blue)
+                Text("\(HeartbeatFormat.num(Double(pin.storeCount))) stores")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.textSecondary)
+                Spacer()
+            }
+            DynacapMetricHeader(
+                label: "Store",
+                showCount: false,
+                active: pin.active,
+                ascending: pin.ascending,
+                onSelect: { pin.onSelect?($0) }
+            )
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .padding(.bottom, 8)
+        .background(AppTheme.bg)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(AppTheme.cardBorder)
+                .frame(height: 1)
+        }
+    }
+}
+
+struct DynacapRollupTable: View {
+    @EnvironmentObject private var store: HeartbeatStore
+    @EnvironmentObject private var headerPin: LaborHeaderPin
+
+    private var expanded: Bool { headerPin.rollupExpanded }
+
+    var body: some View {
+        if let grain, !summary.isEmpty {
+            VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
+                Button {
+                    headerPin.rollupExpanded.toggle()
+                } label: {
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(grain.title)
+                                .font(.title3.weight(.bold))
+                                .foregroundStyle(AppTheme.blue)
+                            Text("\(summary.count) \(grain.columnTitle.lowercased())\(summary.count == 1 ? "" : "s")  ·  tap to \(expanded ? "collapse" : "expand")")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(AppTheme.textSecondary)
+                        }
+                        Spacer()
+                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(AppTheme.blue)
+                            .frame(width: 36, height: 36)
+                            .background(AppTheme.blueSoft, in: Circle())
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                if expanded {
+                    DynacapMetricHeader(label: grain.columnTitle, showCount: grain != .store)
+                    ForEach(summary) { row in
+                        DynacapMetricLine(
+                            label: row.label,
+                            count: grain == .store ? nil : row.storeCount,
+                            rate: row.rate,
+                            util: row.util
+                        )
+                    }
+                }
+            }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                    .fill(AppTheme.card)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                    .stroke(AppTheme.cardBorder, lineWidth: 1)
+            )
+        }
+    }
+
+    private var grain: LaborRollupGrain? {
+        DynacapRollupBuilder.grain(for: store.filters)
+    }
+
+    private var summary: [DynacapRollupRow] {
+        guard let grain else { return [] }
+        let source = DynacapRollupBuilder.source(from: store.displayRows(for: .dynacap), filters: store.filters)
+        var rows = DynacapRollupBuilder.rows(from: source, grain: grain)
+        if grain == .division {
+            for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
+                rows.append(DynacapRollupRow(id: extra.name, label: extra.name, storeCount: extra.storeCount, rate: nil, util: nil))
+            }
+            rows.sort { ($0.rate ?? 999) < ($1.rate ?? 999) }
+        }
+        return rows
+    }
+}
+
+private struct DynacapStoreRow: View {
+    let snap: DynacapLineSnap
+    let expanded: Bool
+    let onToggle: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
+            Button(action: onToggle) {
+                DynacapCheapLine(snap: snap, expanded: expanded)
+                    .equatable()
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if expanded {
+                DynacapStoreExpand(snap: snap)
+            }
+        }
+    }
+}
+
+private struct DynacapStoreExpand: View {
+    let snap: DynacapLineSnap
+
+    private var chips: [(String, String, Health, Bool)] {
+        [
+            ("Pieces / hr", snap.rate, snap.health, false),
+            ("Goal", DynacapMath.goalText, .none, true),
+            ("Utilization", snap.util, .none, false),
+        ]
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("District \(snap.district.isEmpty ? "—" : snap.district)  ·  \(snap.om.isEmpty ? "—" : snap.om)")
                 .font(.subheadline)
                 .foregroundStyle(AppTheme.textSecondary)
             HStack(spacing: 8) {
-                metric("Pieces / hr", HeartbeatFormat.num(rate, digits: 1), health)
-                metric("Utilization", HeartbeatFormat.pct(util), .none)
+                ForEach(Array(chips.enumerated()), id: \.offset) { _, item in
+                    metric(item.0, item.1, item.2, brand: item.3)
+                }
             }
         }
-        .padding(16)
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
-                .fill(wash(health).opacity(0.55))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
-                .stroke(ink(health).opacity(health == .none ? 0.15 : 0.45), lineWidth: health == .risk || health == .watch ? 2 : 1.5)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(AppTheme.card.opacity(0.9))
         )
     }
 
-    private var metaLine: String {
-        let district = row.district.isEmpty ? "—" : row.district
-        let om = row.operationsOM.isEmpty ? "—" : row.operationsOM
-        return "District \(district)  ·  \(om)"
-    }
-
-    private func metric(_ name: String, _ value: String, _ health: Health) -> some View {
+    private func metric(_ name: String, _ value: String, _ health: Health, brand: Bool) -> some View {
         VStack(spacing: 4) {
             Text(name)
                 .font(.caption.weight(.semibold))
@@ -1936,15 +2408,18 @@ struct DynacapStoreCard: View {
                 .lineLimit(1)
             Text(value)
                 .font(.title3.weight(.bold).monospacedDigit())
-                .foregroundStyle(ink(health))
+                .foregroundStyle(brand ? AppTheme.blue : ink(health))
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
+            if !brand {
+                HealthBadge(health: health)
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 10)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(wash(health))
+                .fill(brand ? AppTheme.blueSoft : wash(health))
         )
     }
 

@@ -49,6 +49,12 @@ struct SectionDetailView: View {
                 }
                 PickPathTable(rows: pickPathRows)
             } else if section == .dynacap {
+                Section {
+                    DynacapRollupTable()
+                        .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(AppTheme.bg)
+                }
                 DynacapTable(rows: dynacapRows)
             } else if section == .pph {
                 PPHTable(rows: pphRows)
@@ -126,11 +132,14 @@ struct SectionDetailView: View {
                 } else if section == .prepNotReady {
                     PrepStickyStoreHeader()
                         .environmentObject(laborHeaderPin)
+                } else if section == .dynacap {
+                    DynacapStickyStoreHeader()
+                        .environmentObject(laborHeaderPin)
                 }
             }
         }
         .onAppear {
-            if section == .labor || section == .lostRevenue || section == .fiveStar || section == .pickPath || section == .prepNotReady {
+            if section == .labor || section == .lostRevenue || section == .fiveStar || section == .pickPath || section == .prepNotReady || section == .dynacap {
                 laborHeaderPin.openOnPageEnter()
             }
         }
