@@ -2955,6 +2955,795 @@ struct LaborStoreExpand: View {
     }
 }
 
+private struct LostRevenueRollupRow: Identifiable {
+    let id: String
+    let label: String
+    let storeCount: Int
+    let lost: Double?
+    let pct: Double?
+    let goal: Double?
+    let sales: Double?
+    let post: Double?
+    let refund: Double?
+    let missed: Double?
+
+    var health: Health { HeartbeatMath.lostRevenueHealth(pct: pct) }
+}
+
+private enum LostRevenueMath {
+    static func sum(_ rows: [MetricRow], _ key: String) -> Double? {
+        let values = rows.compactMap { $0.number(key) }
+        return values.isEmpty ? nil : values.reduce(0, +)
+    }
+
+    static func ratio(_ dollars: Double?, _ sales: Double?) -> Double? {
+        guard let dollars, let sales, sales > 0 else { return nil }
+        return dollars / sales * 100
+    }
+
+    static func pack(_ rows: [MetricRow]) -> LostRevenueRollupRow {
+        let sales = sum(rows, "ecomm_sales")
+        let lost = sum(rows, "lost_revenue")
+        let goalDollars = sum(rows, "lost_revenue_goal")
+        return LostRevenueRollupRow(
+            id: "tmp",
+            label: "",
+            storeCount: rows.count,
+            lost: lost,
+            pct: ratio(lost, sales) ?? HeartbeatMath.average(rows.compactMap { $0.number("lost_revenue_pct") }),
+            goal: ratio(goalDollars, sales) ?? HeartbeatMath.average(rows.compactMap { $0.number("lost_revenue_goal_pct") }),
+            sales: sales,
+            post: sum(rows, "post_sub_oos_foregone"),
+            refund: sum(rows, "refund_lost"),
+            missed: sum(rows, "missed_sales")
+        )
+    }
+}
+
+private enum LostRevenueRollupBuilder {
+    static func grain(for filters: DashboardFilters) -> LaborRollupGrain? {
+        LaborRollupBuilder.grain(for: filters)
+    }
+
+    static func source(from all: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
+        let stores = all.filter {
+            $0.textPayload["lost_grain"] != "market" && !$0.storeNumber.isEmpty
+        }
+        if !filters.division.isEmpty || !filters.region.isEmpty {
+            return stores.filter { filters.includesDivision($0.division) }
+        }
+        if !filters.district.isEmpty {
+            let divisions = Set(
+                stores.filter { HeartbeatMath.matches($0.district, filters.district) }.map(\.division)
+            )
+            return stores.filter { divisions.contains($0.division) }
+        }
+        if !filters.om.isEmpty {
+            let divisions = Set(
+                stores.filter { HeartbeatMath.matches($0.operationsOM, filters.om) }.map(\.division)
+            )
+            return stores.filter { divisions.contains($0.division) }
+        }
+        return stores
+    }
+
+    static func rows(from stores: [MetricRow], grain: LaborRollupGrain) -> [LostRevenueRollupRow] {
+        var buckets: [String: [MetricRow]] = [:]
+        for row in stores {
+            let key: String
+            switch grain {
+            case .division:
+                key = row.division.isEmpty ? "Unassigned" : row.division
+            case .district:
+                key = row.district.isEmpty ? "Unassigned" : row.district
+            case .store:
+                key = HeartbeatMath.canonicalStore(row.storeNumber)
+            }
+            guard !key.isEmpty else { continue }
+            buckets[key, default: []].append(row)
+        }
+        var result: [LostRevenueRollupRow] = []
+        result.reserveCapacity(buckets.count)
+        for (key, group) in buckets {
+            let packed = LostRevenueMath.pack(group)
+            let label: String
+            switch grain {
+            case .division, .district:
+                label = key
+            case .store:
+                let division = group.first?.division ?? ""
+                label = division.isEmpty ? key : "\(key)  |  \(division)"
+            }
+            result.append(
+                LostRevenueRollupRow(
+                    id: key,
+                    label: label,
+                    storeCount: packed.storeCount,
+                    lost: packed.lost,
+                    pct: packed.pct,
+                    goal: packed.goal,
+                    sales: packed.sales,
+                    post: packed.post,
+                    refund: packed.refund,
+                    missed: packed.missed
+                )
+            )
+        }
+        return result.sorted { ($0.lost ?? -1) > ($1.lost ?? -1) }
+    }
+}
+
+private struct LostRevenueLineSnap: Identifiable, Equatable {
+    let id: UUID
+    let storeNumber: String
+    let label: String
+    let district: String
+    let om: String
+    let lost: String
+    let pct: String
+    let goal: String
+    let sales: String
+    let post: String
+    let refund: String
+    let missed: String
+    let health: Health
+    let lostValue: Double
+    let pctValue: Double
+    let goalValue: Double
+    let salesValue: Double
+    let postValue: Double
+    let refundValue: Double
+    let missedValue: Double
+
+    init(_ row: MetricRow) {
+        id = row.id
+        storeNumber = row.storeNumber
+        label = row.division.isEmpty
+            ? (row.storeNumber.isEmpty ? "—" : row.storeNumber)
+            : "\(row.storeNumber)  |  \(row.division)"
+        district = row.district
+        om = row.operationsOM
+        let lostNum = row.number("lost_revenue")
+        let pctNum = row.number("lost_revenue_pct")
+        let goalNum = row.number("lost_revenue_goal_pct")
+        let salesNum = row.number("ecomm_sales")
+        let postNum = row.number("post_sub_oos_foregone")
+        let refundNum = row.number("refund_lost")
+        let missedNum = row.number("missed_sales")
+        lost = HeartbeatFormat.moneyShort(lostNum)
+        pct = HeartbeatFormat.pct(pctNum)
+        goal = HeartbeatFormat.pct(goalNum)
+        sales = HeartbeatFormat.moneyShort(salesNum)
+        post = HeartbeatFormat.moneyShort(postNum)
+        refund = HeartbeatFormat.moneyShort(refundNum)
+        missed = HeartbeatFormat.moneyShort(missedNum)
+        health = HeartbeatMath.lostRevenueHealth(pct: pctNum)
+        lostValue = lostNum ?? -1
+        pctValue = pctNum ?? -1
+        goalValue = goalNum ?? -1
+        salesValue = salesNum ?? -1
+        postValue = postNum ?? -1
+        refundValue = refundNum ?? -1
+        missedValue = missedNum ?? -1
+    }
+}
+
+private struct LostRevenueCheapLine: View, Equatable {
+    let snap: LostRevenueLineSnap
+    let expanded: Bool
+
+    var body: some View {
+        HStack(spacing: 6) {
+            HStack(spacing: 4) {
+                Text(snap.label)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(AppTheme.text)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(AppTheme.blue)
+            }
+            .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            cell(snap.lost, snap.health)
+            cell(snap.pct, snap.health)
+            cell(snap.goal, .none, brand: true)
+            cell(snap.sales, .none, brand: true)
+            cell(snap.post, .none)
+            cell(snap.refund, .none)
+            cell(snap.missed, .none)
+            Text(snap.health.label.uppercased())
+                .font(.caption.weight(.heavy))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .foregroundStyle(Color.white)
+                .background(pill(snap.health), in: Capsule())
+                .frame(width: 88, alignment: .trailing)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func cell(_ value: String, _ health: Health, brand: Bool = false) -> some View {
+        Text(value)
+            .font(.subheadline.weight(.bold).monospacedDigit())
+            .foregroundStyle(brand ? AppTheme.blue : ink(health))
+            .lineLimit(1)
+            .minimumScaleFactor(0.55)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .padding(.vertical, 6)
+            .padding(.horizontal, 6)
+            .background(brand ? AppTheme.blueSoft : wash(health), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private func ink(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.text
+        }
+    }
+
+    private func wash(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.okSoft
+        case .watch: return AppTheme.warnSoft
+        case .risk: return AppTheme.badSoft
+        case .none: return Color.clear
+        }
+    }
+
+    private func pill(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.textTertiary
+        }
+    }
+}
+
+private struct LostRevenueMetricLine: View, Equatable {
+    let label: String
+    var count: Int? = nil
+    let lost: Double?
+    let pct: Double?
+    let goal: Double?
+    let sales: Double?
+    let post: Double?
+    let refund: Double?
+    let missed: Double?
+
+    var body: some View {
+        let health = HeartbeatMath.lostRevenueHealth(pct: pct)
+        HStack(spacing: 6) {
+            Text(label)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(AppTheme.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            if let count {
+                Text(HeartbeatFormat.num(Double(count)))
+                    .font(.subheadline.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .frame(width: 58, alignment: .trailing)
+            }
+            cell(HeartbeatFormat.moneyShort(lost), health)
+            cell(HeartbeatFormat.pct(pct), health)
+            cell(HeartbeatFormat.pct(goal), .none, brand: true)
+            cell(HeartbeatFormat.moneyShort(sales), .none, brand: true)
+            cell(HeartbeatFormat.moneyShort(post), .none)
+            cell(HeartbeatFormat.moneyShort(refund), .none)
+            cell(HeartbeatFormat.moneyShort(missed), .none)
+            HealthBadge(health: health, prominent: true, compact: true)
+                .frame(width: 88, alignment: .trailing)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func cell(_ value: String, _ health: Health, brand: Bool = false) -> some View {
+        Text(value)
+            .font(.subheadline.weight(.bold).monospacedDigit())
+            .foregroundStyle(brand ? AppTheme.blue : ink(health))
+            .lineLimit(1)
+            .minimumScaleFactor(0.55)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .padding(.vertical, 6)
+            .padding(.horizontal, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(brand ? AppTheme.blueSoft : wash(health))
+            )
+    }
+
+    private func ink(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.text
+        }
+    }
+
+    private func wash(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.okSoft
+        case .watch: return AppTheme.warnSoft
+        case .risk: return AppTheme.badSoft
+        case .none: return Color.clear
+        }
+    }
+}
+
+struct LostRevenueMetricHeader: View {
+    let label: String
+    var showCount: Bool = false
+    var active: String? = nil
+    var ascending: Bool = false
+    var onSelect: ((String) -> Void)? = nil
+
+    var body: some View {
+        HStack(spacing: 6) {
+            head(label, key: "label", alignment: .leading)
+                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            if showCount {
+                head("Stores", key: "count", alignment: .trailing)
+                    .frame(width: 58, alignment: .trailing)
+            }
+            head("Lost $", key: "lost")
+            head("Lost %", key: "pct")
+            head("Goal %", key: "goal")
+            head("eComm $", key: "sales")
+            head("Post Sub", key: "post")
+            head("Refund", key: "refund")
+            head("Missed", key: "missed")
+            head("Status", key: "status", alignment: .trailing)
+                .frame(width: 88, alignment: .trailing)
+        }
+        .font(.caption2.weight(.semibold))
+        .tracking(0.4)
+        .lineLimit(1)
+        .minimumScaleFactor(0.65)
+    }
+
+    private func head(_ title: String, key: String, alignment: Alignment = .trailing) -> some View {
+        let selected = active == key
+        let content = HStack(spacing: 3) {
+            Text(title.uppercased())
+            if selected {
+                Image(systemName: ascending ? "chevron.up" : "chevron.down")
+                    .font(.caption2.weight(.bold))
+            }
+        }
+        .foregroundStyle(selected ? AppTheme.blue : AppTheme.textTertiary)
+        .frame(maxWidth: alignment == .leading ? nil : .infinity, alignment: alignment)
+        .contentShape(Rectangle())
+        return Group {
+            if let onSelect {
+                Button { onSelect(key) } label: { content }
+                    .buttonStyle(.plain)
+            } else {
+                content
+            }
+        }
+    }
+}
+
+struct LostRevenueStickyStoreHeader: View {
+    @EnvironmentObject private var pin: LaborHeaderPin
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Store")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(AppTheme.blue)
+                Text("\(HeartbeatFormat.num(Double(pin.storeCount))) stores")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.textSecondary)
+                Spacer()
+            }
+            LostRevenueMetricHeader(
+                label: "Store",
+                showCount: false,
+                active: pin.active,
+                ascending: pin.ascending,
+                onSelect: { pin.onSelect?($0) }
+            )
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .padding(.bottom, 8)
+        .background(AppTheme.bg)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(AppTheme.cardBorder)
+                .frame(height: 1)
+        }
+    }
+}
+
+struct LostRevenueRollupTable: View {
+    @EnvironmentObject private var store: HeartbeatStore
+    @EnvironmentObject private var headerPin: LaborHeaderPin
+
+    private var expanded: Bool { headerPin.rollupExpanded }
+
+    var body: some View {
+        if let grain, !summary.isEmpty {
+            VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
+                Button {
+                    headerPin.rollupExpanded.toggle()
+                } label: {
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(grain.title)
+                                .font(.title3.weight(.bold))
+                                .foregroundStyle(AppTheme.blue)
+                            Text("\(summary.count) \(grain.columnTitle.lowercased())\(summary.count == 1 ? "" : "s")  ·  tap to \(expanded ? "collapse" : "expand")")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(AppTheme.textSecondary)
+                        }
+                        Spacer()
+                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(AppTheme.blue)
+                            .frame(width: 36, height: 36)
+                            .background(AppTheme.blueSoft, in: Circle())
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                if expanded {
+                    LostRevenueMetricHeader(label: grain.columnTitle, showCount: grain != .store)
+                    ForEach(summary) { row in
+                        LostRevenueMetricLine(
+                            label: row.label,
+                            count: grain == .store ? nil : row.storeCount,
+                            lost: row.lost,
+                            pct: row.pct,
+                            goal: row.goal,
+                            sales: row.sales,
+                            post: row.post,
+                            refund: row.refund,
+                            missed: row.missed
+                        )
+                    }
+                }
+            }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                    .fill(AppTheme.card)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                    .stroke(AppTheme.cardBorder, lineWidth: 1)
+            )
+        }
+    }
+
+    private var grain: LaborRollupGrain? {
+        LostRevenueRollupBuilder.grain(for: store.filters)
+    }
+
+    private var summary: [LostRevenueRollupRow] {
+        guard let grain else { return [] }
+        let source = LostRevenueRollupBuilder.source(from: store.displayRows(for: .lostRevenue), filters: store.filters)
+        return LostRevenueRollupBuilder.rows(from: source, grain: grain)
+    }
+}
+
+struct LostRevenueTable: View {
+    @EnvironmentObject private var headerPin: LaborHeaderPin
+    let rows: [MetricRow]
+
+    private enum Column: String, CaseIterable, Identifiable {
+        case store, lost, pct, goal, sales, post, refund, missed, status
+        var id: String { rawValue }
+        var key: String {
+            switch self {
+            case .store: return "label"
+            case .lost: return "lost"
+            case .pct: return "pct"
+            case .goal: return "goal"
+            case .sales: return "sales"
+            case .post: return "post"
+            case .refund: return "refund"
+            case .missed: return "missed"
+            case .status: return "status"
+            }
+        }
+    }
+
+    @State private var sort = Column.lost
+    @State private var ascending = false
+    @State private var snaps: [LostRevenueLineSnap] = []
+    @State private var openStore: String?
+
+    private var expanded: Bool { headerPin.storesExpanded }
+
+    var body: some View {
+        if rows.isEmpty {
+            Section {
+                EmptyHint(
+                    symbol: "chart.line.downtrend.xyaxis",
+                    title: "No stores in this view",
+                    detail: "Tap Total lost revenue to see every store, or pick another callout."
+                )
+                .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 20, trailing: 20))
+                .listRowSeparator(.hidden)
+                .listRowBackground(AppTheme.bg)
+            }
+        } else {
+            Section {
+                Button {
+                    let next = !headerPin.storesExpanded
+                    headerPin.storesExpanded = next
+                    headerPin.tableOpen = next
+                    if !next { headerPin.pinned = false }
+                    if next { rebuildOrder(sort: sort, ascending: ascending) }
+                } label: {
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Store")
+                                .font(.title3.weight(.bold))
+                                .foregroundStyle(AppTheme.blue)
+                            Text("\(HeartbeatFormat.num(Double(rows.count))) stores  ·  tap to \(expanded ? "collapse" : "expand")")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(AppTheme.textSecondary)
+                        }
+                        Spacer()
+                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(AppTheme.blue)
+                            .frame(width: 36, height: 36)
+                            .background(AppTheme.blueSoft, in: Circle())
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                        .fill(AppTheme.card)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                        .stroke(AppTheme.cardBorder, lineWidth: 1)
+                )
+                .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: expanded ? 4 : 20, trailing: 20))
+                .listRowSeparator(.hidden)
+                .listRowBackground(AppTheme.bg)
+                .onAppear {
+                    headerPin.tableOpen = headerPin.storesExpanded
+                    headerPin.storeCount = rows.count
+                    headerPin.active = sort.key
+                    headerPin.ascending = ascending
+                    headerPin.onSelect = applyHeaderSort
+                }
+            }
+            if expanded {
+                Section {
+                    LostRevenueMetricHeader(
+                        label: "Store",
+                        showCount: false,
+                        active: sort.key,
+                        ascending: ascending,
+                        onSelect: applyHeaderSort
+                    )
+                    .background(
+                        GeometryReader { geo in
+                            Color.clear.preference(
+                                key: LaborHeaderMinYKey.self,
+                                value: (geo.frame(in: .global).minY / 12).rounded() * 12
+                            )
+                        }
+                    )
+                    .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(AppTheme.bg)
+                    ForEach(snaps) { snap in
+                        LostRevenueStoreRow(
+                            snap: snap,
+                            expanded: openStore == snap.storeNumber,
+                            onToggle: {
+                                openStore = openStore == snap.storeNumber ? nil : snap.storeNumber
+                            }
+                        )
+                        .listRowInsets(EdgeInsets(top: 2, leading: 20, bottom: 2, trailing: 20))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(AppTheme.bg)
+                    }
+                }
+                .transaction { $0.animation = nil }
+                .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
+                .onChange(of: rows.count) { _, _ in
+                    rebuildOrder(sort: sort, ascending: ascending)
+                    headerPin.storeCount = rows.count
+                }
+                .onChange(of: rows.first?.storeNumber) { _, _ in
+                    rebuildOrder(sort: sort, ascending: ascending)
+                    headerPin.storeCount = rows.count
+                }
+            }
+        }
+    }
+
+    private func applyHeaderSort(_ key: String) {
+        let column = Column.allCases.first { $0.key == key } ?? .lost
+        let nextAscending = sort == column ? !ascending : column == .store
+        sort = column
+        ascending = nextAscending
+        headerPin.active = column.key
+        headerPin.ascending = nextAscending
+        rebuildOrder(sort: column, ascending: nextAscending)
+    }
+
+    private func rebuildOrder(sort: Column, ascending: Bool) {
+        snaps = rows.sorted { lhs, rhs in
+            let result = compare(lhs, rhs, sort: sort)
+            return ascending ? result == .orderedAscending : result == .orderedDescending
+        }.map(LostRevenueLineSnap.init)
+    }
+
+    private func compare(_ lhs: MetricRow, _ rhs: MetricRow, sort: Column) -> ComparisonResult {
+        switch sort {
+        case .store:
+            if let a = Int(lhs.storeNumber), let b = Int(rhs.storeNumber) {
+                return a == b ? .orderedSame : (a < b ? .orderedAscending : .orderedDescending)
+            }
+            return lhs.storeNumber.localizedStandardCompare(rhs.storeNumber)
+        case .lost:
+            return numberOrder(lhs.number("lost_revenue"), rhs.number("lost_revenue"))
+        case .pct:
+            return numberOrder(lhs.number("lost_revenue_pct"), rhs.number("lost_revenue_pct"))
+        case .goal:
+            return numberOrder(lhs.number("lost_revenue_goal_pct"), rhs.number("lost_revenue_goal_pct"))
+        case .sales:
+            return numberOrder(lhs.number("ecomm_sales"), rhs.number("ecomm_sales"))
+        case .post:
+            return numberOrder(lhs.number("post_sub_oos_foregone"), rhs.number("post_sub_oos_foregone"))
+        case .refund:
+            return numberOrder(lhs.number("refund_lost"), rhs.number("refund_lost"))
+        case .missed:
+            return numberOrder(lhs.number("missed_sales"), rhs.number("missed_sales"))
+        case .status:
+            let a = healthRank(HeartbeatMath.lostRevenueHealth(lhs))
+            let b = healthRank(HeartbeatMath.lostRevenueHealth(rhs))
+            if a == b { return numberOrder(lhs.number("lost_revenue_pct"), rhs.number("lost_revenue_pct")) }
+            return a < b ? .orderedAscending : .orderedDescending
+        }
+    }
+
+    private func numberOrder(_ a: Double?, _ b: Double?) -> ComparisonResult {
+        let lhs = a ?? -1
+        let rhs = b ?? -1
+        if lhs == rhs { return .orderedSame }
+        return lhs < rhs ? .orderedAscending : .orderedDescending
+    }
+
+    private func healthRank(_ health: Health) -> Int {
+        switch health {
+        case .risk: return 0
+        case .watch: return 1
+        case .good: return 2
+        case .none: return 3
+        }
+    }
+}
+
+private struct LostRevenueStoreRow: View {
+    let snap: LostRevenueLineSnap
+    let expanded: Bool
+    let onToggle: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
+            Button(action: onToggle) {
+                LostRevenueCheapLine(snap: snap, expanded: expanded)
+                    .equatable()
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if expanded {
+                LostRevenueStoreExpand(snap: snap)
+            }
+        }
+    }
+}
+
+private struct LostRevenueStoreExpand: View {
+    let snap: LostRevenueLineSnap
+
+    private var chips: [(String, String, Health, Bool)] {
+        [
+            ("Lost $", snap.lost, snap.health, false),
+            ("Lost %", snap.pct, snap.health, false),
+            ("FY2026 Goal", snap.goal, .none, true),
+            ("eComm sales", snap.sales, .none, true),
+            ("Post Sub OOS", snap.post, .none, false),
+            ("Refund", snap.refund, .none, false),
+            ("Missed sales", snap.missed, .none, false),
+        ]
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("District \(snap.district.isEmpty ? "—" : snap.district)  ·  \(snap.om.isEmpty ? "—" : snap.om)")
+                .font(.subheadline)
+                .foregroundStyle(AppTheme.textSecondary)
+            chipGrid
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(AppTheme.card.opacity(0.9))
+        )
+    }
+
+    private var chipGrid: some View {
+        let rows = stride(from: 0, to: chips.count, by: 4).map { Array(chips[$0..<min($0 + 4, chips.count)]) }
+        return VStack(spacing: 8) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                HStack(spacing: 8) {
+                    ForEach(Array(row.enumerated()), id: \.offset) { _, item in
+                        metric(item.0, item.1, item.2, brand: item.3)
+                    }
+                    if row.count < 4 {
+                        ForEach(0..<(4 - row.count), id: \.self) { _ in
+                            Color.clear.frame(maxWidth: .infinity)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func metric(_ name: String, _ value: String, _ health: Health, brand: Bool) -> some View {
+        VStack(spacing: 4) {
+            Text(name)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(AppTheme.textTertiary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            Text(value)
+                .font(.title3.weight(.bold).monospacedDigit())
+                .foregroundStyle(brand ? AppTheme.blue : ink(health))
+                .lineLimit(1)
+                .minimumScaleFactor(0.65)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(brand ? AppTheme.blueSoft : wash(health))
+        )
+    }
+
+    private func ink(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.text
+        }
+    }
+
+    private func wash(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.okSoft
+        case .watch: return AppTheme.warnSoft
+        case .risk: return AppTheme.badSoft
+        case .none: return AppTheme.card
+        }
+    }
+}
+
 struct ScheduleTable: View {
     let rows: [MetricRow]
 

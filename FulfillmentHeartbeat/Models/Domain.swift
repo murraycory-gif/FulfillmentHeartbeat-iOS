@@ -1696,6 +1696,14 @@ enum HeartbeatFormat {
         return "$" + (formatter.string(from: NSNumber(value: value)) ?? "0")
     }
 
+    static func moneyShort(_ value: Double?) -> String {
+        guard let value else { return "—" }
+        if abs(value) >= 1_000_000 {
+            return String(format: "$%.2fM", value / 1_000_000)
+        }
+        return money(value.rounded())
+    }
+
     static func headline(_ summary: SectionSummary) -> String {
         summary.headlineText
     }
@@ -1844,6 +1852,15 @@ struct StoreCellViewModel {
 }
 
 enum LaborFocus: String, CaseIterable, Identifiable {
+    case all
+    case healthy
+    case watch
+    case risk
+
+    var id: String { rawValue }
+}
+
+enum LostRevenueFocus: String, CaseIterable, Identifiable {
     case all
     case healthy
     case watch

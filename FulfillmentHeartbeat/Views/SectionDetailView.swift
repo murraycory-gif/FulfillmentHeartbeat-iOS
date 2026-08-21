@@ -12,6 +12,7 @@ struct SectionDetailView: View {
     @State private var prepFocus: PrepFocus = .all
     @State private var fiveStarFocus: FiveStarFocus = .all
     @State private var laborFocus: LaborFocus = .all
+    @State private var lostRevenueFocus: LostRevenueFocus = .all
 
     private var summary: SectionSummary { store.summary(for: section) }
     private var snapshots: [MetricRow] { store.displayRows(for: section) }
@@ -60,10 +61,13 @@ struct SectionDetailView: View {
                 }
                 LaborTable(rows: laborRows)
             } else if section == .lostRevenue {
-                StoreTable(
-                    section: section,
-                    rows: snapshots.filter { $0.textPayload["lost_grain"] != "market" && !$0.storeNumber.isEmpty }
-                )
+                Section {
+                    LostRevenueRollupTable()
+                        .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(AppTheme.bg)
+                }
+                LostRevenueTable(rows: lostRevenueRows)
             } else {
                 StoreTable(section: section, rows: snapshots)
             }
@@ -88,13 +92,18 @@ struct SectionDetailView: View {
             laborHeaderPin.updatePin(headerMinY: minY)
         }
         .overlay(alignment: .top) {
-            if section == .labor && laborHeaderPin.storesExpanded && laborHeaderPin.pinned {
-                LaborStickyStoreHeader()
-                    .environmentObject(laborHeaderPin)
+            if laborHeaderPin.storesExpanded && laborHeaderPin.pinned {
+                if section == .labor {
+                    LaborStickyStoreHeader()
+                        .environmentObject(laborHeaderPin)
+                } else if section == .lostRevenue {
+                    LostRevenueStickyStoreHeader()
+                        .environmentObject(laborHeaderPin)
+                }
             }
         }
         .onAppear {
-            if section == .labor {
+            if section == .labor || section == .lostRevenue {
                 laborHeaderPin.openOnPageEnter()
             }
         }
@@ -158,6 +167,8 @@ struct SectionDetailView: View {
 
             if section == .labor {
                 laborStatusTiles
+            } else if section == .lostRevenue {
+                lostRevenueStatusTiles
             } else {
                 LazyVGrid(
                     columns: Array(repeating: GridItem(.flexible(minimum: 140), spacing: 14), count: 5),
@@ -177,8 +188,6 @@ struct SectionDetailView: View {
                         pickerStatusTiles
                     } else if section == .prepNotReady {
                         prepStatusTiles
-                    } else if section == .lostRevenue {
-                        lostRevenueStatusTiles
                     } else {
                         HubCard {
                             VStack(alignment: .leading, spacing: 8) {
@@ -328,6 +337,20 @@ struct SectionDetailView: View {
         }
     }
 
+    private var lostRevenueRows: [MetricRow] {
+        let scored = snapshots.filter { $0.textPayload["lost_grain"] != "market" && !$0.storeNumber.isEmpty }
+        switch lostRevenueFocus {
+        case .all:
+            return scored
+        case .healthy:
+            return scored.filter { HeartbeatMath.lostRevenueHealth($0) == .good }
+        case .watch:
+            return scored.filter { HeartbeatMath.lostRevenueHealth($0) == .watch }
+        case .risk:
+            return scored.filter { HeartbeatMath.lostRevenueHealth($0) == .risk }
+        }
+    }
+
     private var prepRows: [MetricRow] {
         let scored = snapshots.filter { $0.number("pnr_rate_pct") != nil }
         switch prepFocus {
@@ -417,12 +440,47 @@ struct SectionDetailView: View {
         let rows = snapshots.filter { $0.textPayload["lost_grain"] != "market" && !$0.storeNumber.isEmpty }
         let dollars = summary.headline
         let pct = summary.lostRevenuePct
-        let sales = rows.compactMap { $0.number("ecomm_sales") }.reduce(0, +)
-        let atRisk = rows.filter { HeartbeatMath.lostRevenueHealth($0) == .risk }.count
-        callout("Total lost revenue", HeartbeatFormat.money(dollars), "Total Opportunity", summary.health)
-        callout("Lost revenue %", HeartbeatFormat.pct(pct), "Total Opportunity", summary.health)
-        callout("eComm sales", HeartbeatFormat.money(sales > 0 ? sales : nil), "In this filter", .none, brand: true)
-        callout("At risk", HeartbeatFormat.num(Double(atRisk)), "Stores over 5%", atRisk == 0 ? .good : .risk, unit: "stores")
+        let healthy = rows.filter { HeartbeatMath.lostRevenueHealth($0) == .good }.count
+        let watch = rows.filter { HeartbeatMath.lostRevenueHealth($0) == .watch }.count
+        let risk = rows.filter { HeartbeatMath.lostRevenueHealth($0) == .risk }.count
+        let sales: Double? = {
+            if !store.filters.isActive, let market = store.lostRevenueMarketRow() {
+                return market.number("ecomm_sales")
+            }
+            let sum = rows.compactMap { $0.number("ecomm_sales") }.reduce(0, +)
+            return rows.isEmpty ? nil : sum
+        }()
+        let goalPct: Double? = {
+            if !store.filters.isActive, let market = store.lostRevenueMarketRow() {
+                return market.number("lost_revenue_goal_pct")
+            }
+            let goal = rows.compactMap { $0.number("lost_revenue_goal") }.reduce(0, +)
+            let sumSales = rows.compactMap { $0.number("ecomm_sales") }.reduce(0, +)
+            return sumSales > 0 ? goal / sumSales * 100 : nil
+        }()
+        let post = rows.compactMap { $0.number("post_sub_oos_foregone") }.reduce(0, +)
+        VStack(spacing: 14) {
+            HStack(spacing: 14) {
+                callout("Total lost revenue", HeartbeatFormat.money(dollars), "Total Opportunity", summary.health, selected: lostRevenueFocus == .all) {
+                    lostRevenueFocus = .all
+                }
+                callout("Healthy", HeartbeatFormat.num(Double(healthy)), "3% or better", .good, unit: "stores", selected: lostRevenueFocus == .healthy) {
+                    lostRevenueFocus = .healthy
+                }
+                callout("Watch", HeartbeatFormat.num(Double(watch)), "3.01% to 5%", watch == 0 ? .good : .watch, unit: "stores", selected: lostRevenueFocus == .watch) {
+                    lostRevenueFocus = .watch
+                }
+                callout("At Risk", HeartbeatFormat.num(Double(risk)), "Stores over 5%", risk == 0 ? .good : .risk, unit: "stores", selected: lostRevenueFocus == .risk) {
+                    lostRevenueFocus = .risk
+                }
+            }
+            HStack(spacing: 12) {
+                callout("Lost revenue %", HeartbeatFormat.pct(pct), "Total Opportunity", summary.health)
+                callout("eComm sales", HeartbeatFormat.money(sales), "In this filter", .none, brand: true)
+                callout("FY2026 Goal", HeartbeatFormat.pct(goalPct), "Lost revenue goal", .none, brand: true)
+                callout("Post Sub OOS", HeartbeatFormat.money(rows.isEmpty ? nil : post), "Foregone revenue", .none)
+            }
+        }
     }
 
     @ViewBuilder

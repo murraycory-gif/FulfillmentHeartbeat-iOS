@@ -230,6 +230,8 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(filtered.storeCount, 1)
         XCTAssertEqual(HeartbeatMath.lostRevenueHealth(portland), .risk)
         XCTAssertEqual(HeartbeatMath.lostRevenueHealth(jewel), .watch)
+        XCTAssertEqual(HeartbeatFormat.moneyShort(13_522_827.21), "$13.52M")
+        XCTAssertEqual(HeartbeatFormat.moneyShort(1_100), "$1,100")
     }
 }
 

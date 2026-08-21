@@ -187,6 +187,11 @@ enum SampleMarket {
                         "ecomm_sales": sales.rounded(2),
                         "lost_revenue": lost,
                         "lost_revenue_pct": (lostRate * 100).rounded(2),
+                        "lost_revenue_goal": (lost * 0.62).rounded(2),
+                        "lost_revenue_goal_pct": (lostRate * 62).rounded(2),
+                        "post_sub_oos_foregone": (lost * 0.55).rounded(2),
+                        "refund_lost": (lost * 0.22).rounded(2),
+                        "missed_sales": (lost * 0.14).rounded(2),
                     ],
                     textPayload: ["lost_grain": "store", "district": store.district]
                 ))
