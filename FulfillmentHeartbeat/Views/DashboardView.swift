@@ -6,59 +6,20 @@ struct DashboardView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var pushedSection: MetricSection?
     @State private var showError = false
-    @State private var showLayoutGallery = false
 
     var body: some View {
         List {
             Section {
                 VStack(spacing: 16) {
                     PageHeadline(lead: "Fulfillment Heartbeat", accent: "Dashboard")
-                    Button {
-                        showLayoutGallery = true
-                    } label: {
-                        HStack(spacing: 12) {
-                            Image(systemName: "square.grid.3x3.fill")
-                                .font(.title3.weight(.semibold))
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text("Preview more dashboard layouts")
-                                    .font(.headline.weight(.bold))
-                                Text("New: E Exception  ·  F Health board  ·  G Briefing  ·  H Spotlight")
-                                    .font(.subheadline)
-                                    .foregroundStyle(.white.opacity(0.85))
-                            }
-                            Spacer()
-                            Text("Open")
-                                .font(.subheadline.weight(.bold))
-                            Image(systemName: "chevron.right")
-                                .font(.headline.weight(.semibold))
-                        }
-                        .foregroundStyle(.white)
-                        .padding(16)
-                        .background(AppTheme.blue, in: RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
-                    }
-                    .buttonStyle(.plain)
                     if store.summaries.contains(where: { $0.health == .risk || $0.health == .watch }) {
                         FulfillmentChecklistCard()
                     }
                     if let lost = store.summaries.first(where: { $0.section == .lostRevenue }) {
-                        LostRevenueDashCard(summary: lost) {
-                            if sizeClass == .regular {
-                                router.open(section: .lostRevenue)
-                            } else {
-                                pushedSection = .lostRevenue
-                            }
-                        }
+                        DashLostBanner(summary: lost) { open(.lostRevenue) }
                     }
-                    LazyVGrid(columns: columns, spacing: 16) {
-                        ForEach(store.summaries.filter { $0.section != .lostRevenue }) { summary in
-                            SectionCard(summary: summary) {
-                                if sizeClass == .regular {
-                                    router.open(section: summary.section)
-                                } else {
-                                    pushedSection = summary.section
-                                }
-                            }
-                        }
+                    DashBriefingList(cards: briefingCards) { section in
+                        open(section)
                     }
                 }
                 .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
@@ -107,252 +68,139 @@ struct DashboardView: View {
         .onChange(of: showError) { _, presented in
             if !presented { store.errorMessage = nil }
         }
-        .fullScreenCover(isPresented: $showLayoutGallery) {
-            DashboardLayoutGallery(isPresented: $showLayoutGallery)
-                .environmentObject(store)
-        }
     }
 
-    private var columns: [GridItem] {
+    private var briefingCards: [SectionSummary] {
+        MetricSection.dashboardCards
+            .filter { $0 != .lostRevenue }
+            .compactMap { section in store.summaries.first(where: { $0.section == section }) }
+    }
+
+    private func open(_ section: MetricSection) {
         if sizeClass == .regular {
-            return [
-                GridItem(.flexible(), spacing: 16),
-                GridItem(.flexible(), spacing: 16),
-            ]
+            router.open(section: section)
+        } else {
+            pushedSection = section
         }
-        return [GridItem(.flexible())]
     }
 }
 
-struct SectionCard: View {
+private func dashInk(_ health: Health) -> Color {
+    switch health {
+    case .good: return AppTheme.ok
+    case .watch: return AppTheme.warn
+    case .risk: return AppTheme.bad
+    case .none: return AppTheme.text
+    }
+}
+
+private func dashWash(_ health: Health) -> Color {
+    switch health {
+    case .good: return AppTheme.okSoft
+    case .watch: return AppTheme.warnSoft
+    case .risk: return AppTheme.badSoft
+    case .none: return AppTheme.card
+    }
+}
+
+struct DashLostBanner: View {
     let summary: SectionSummary
     let action: () -> Void
-    @State private var pulseOn = false
 
     var body: some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .top) {
-                    HStack(spacing: 8) {
-                        Text(summary.section == .pickPath ? "Pick Path Compliance" : summary.section.title)
-                            .font(.title3.weight(.bold))
-                            .foregroundStyle(AppTheme.text)
-                        UpdatedStamp(date: summary.lastUploadedAt)
-                    }
-                    Spacer()
-                    if summary.health != .none {
-                        HealthBadge(health: summary.health, prominent: true)
-                    }
+            HStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 2) {
+                    (Text("Loss Revenue ") + Text("ScoreCard").foregroundStyle(AppTheme.blue))
+                        .font(.headline.weight(.bold))
+                    Text("Total Lost Revenue (Total Opportunity)")
+                        .font(.subheadline)
+                        .foregroundStyle(AppTheme.textSecondary)
                 }
-                if summary.section == .scheduleQuality {
-                    schedulePair
-                } else {
+                Spacer(minLength: 8)
+                VStack(alignment: .trailing, spacing: 2) {
                     Text(summary.headlineText)
-                        .font(.system(size: 36, weight: .semibold, design: .rounded).monospacedDigit())
-                        .foregroundStyle(ink)
-                    Text(summary.headlineLabel)
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(AppTheme.text)
+                        .font(.title.weight(.bold).monospacedDigit())
+                        .foregroundStyle(dashInk(summary.health))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                    Text("Dollars")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppTheme.textSecondary)
                 }
-                Spacer(minLength: 0)
-                HStack {
-                    Spacer()
-                    Image(systemName: "arrow.up.right")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(ink)
-                        .frame(width: 40, height: 40)
-                        .background(Color.white.opacity(0.65), in: RoundedRectangle(cornerRadius: AppTheme.radiusS, style: .continuous))
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(HeartbeatFormat.pct(summary.lostRevenuePct))
+                        .font(.title.weight(.bold).monospacedDigit())
+                        .foregroundStyle(dashInk(summary.health))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                    Text("Lost %")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppTheme.textSecondary)
                 }
+                HealthBadge(health: summary.health, prominent: true)
+                Image(systemName: "chevron.right")
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(AppTheme.textTertiary)
             }
-            .padding(20)
-            .frame(maxWidth: .infinity, minHeight: 220, maxHeight: 220, alignment: .topLeading)
-            .background(
-                RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                    .fill(fill)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                    .stroke(stroke, lineWidth: shouldPulse ? 2.4 : 1)
-                    .opacity(shouldPulse ? (pulseOn ? 1 : 0.22) : 1)
-            )
+            .padding(16)
+            .background(dashWash(summary.health), in: RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
         }
         .buttonStyle(.plain)
-        .onAppear {
-            guard shouldPulse else { return }
-            pulseOn = false
-            withAnimation(.easeInOut(duration: 1.05).repeatForever(autoreverses: true)) {
-                pulseOn = true
-            }
-        }
-    }
-
-    private var schedulePair: some View {
-        HStack(spacing: 16) {
-            scheduleStat("Under Scheduled", summary.underScheduledCount)
-            scheduleStat("Over Scheduled", summary.overScheduledCount)
-        }
-    }
-
-    private func scheduleStat(_ title: String, _ count: Int) -> some View {
-        let health: Health = count == 0 ? .good : .risk
-        return VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Text(HeartbeatFormat.num(Double(count)))
-                    .font(.system(size: 36, weight: .semibold, design: .rounded).monospacedDigit())
-                    .foregroundStyle(health == .risk ? AppTheme.bad : AppTheme.ok)
-                Text("stores")
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(health == .risk ? AppTheme.bad : AppTheme.text)
-            }
-            Text(title)
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(AppTheme.text)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var shouldPulse: Bool {
-        summary.health == .risk || summary.health == .watch
-    }
-
-    private var fill: Color {
-        switch summary.health {
-        case .good: return AppTheme.okSoft
-        case .watch: return AppTheme.warnSoft
-        case .risk: return AppTheme.badSoft
-        case .none: return AppTheme.card
-        }
-    }
-
-    private var stroke: Color {
-        switch summary.health {
-        case .good: return AppTheme.ok.opacity(0.28)
-        case .watch: return AppTheme.warn
-        case .risk: return AppTheme.bad
-        case .none: return AppTheme.cardBorder
-        }
-    }
-
-    private var ink: Color {
-        switch summary.health {
-        case .good: return AppTheme.ok
-        case .watch: return AppTheme.warn
-        case .risk: return AppTheme.bad
-        case .none: return AppTheme.blue
-        }
     }
 }
 
-struct LostRevenueDashCard: View {
-    let summary: SectionSummary
-    let action: () -> Void
-    @State private var pulseOn = false
+struct DashBriefingList: View {
+    let cards: [SectionSummary]
+    let action: (MetricSection) -> Void
 
     var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .top) {
-                    HStack(spacing: 8) {
-                        (Text("Loss Revenue ") + Text("ScoreCard").foregroundStyle(AppTheme.blue))
-                            .font(.title3.weight(.bold))
-                        UpdatedStamp(date: summary.lastUploadedAt)
-                    }
-                    Spacer()
-                    if summary.health != .none {
-                        HealthBadge(health: summary.health, prominent: true)
-                    }
-                }
-                HStack(spacing: 24) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(summary.headlineText)
-                            .font(.system(size: 36, weight: .semibold, design: .rounded).monospacedDigit())
-                            .foregroundStyle(ink)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.55)
-                        Text("Total Lost Revenue (Total Opportunity)")
+        VStack(spacing: 0) {
+            ForEach(Array(cards.enumerated()), id: \.element.id) { index, card in
+                if index > 0 { Divider().opacity(0.35) }
+                Button {
+                    action(card.section)
+                } label: {
+                    HStack(spacing: 14) {
+                        Image(systemName: card.section.symbol)
                             .font(.title3.weight(.semibold))
-                            .foregroundStyle(AppTheme.text)
-                            .lineLimit(2)
-                            .minimumScaleFactor(0.8)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(HeartbeatFormat.pct(summary.lostRevenuePct))
-                            .font(.system(size: 36, weight: .semibold, design: .rounded).monospacedDigit())
-                            .foregroundStyle(ink)
+                            .foregroundStyle(dashInk(card.health))
+                            .frame(width: 36)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(card.section == .pickPath ? "Pick Path Compliance" : card.section.title)
+                                .font(.headline.weight(.bold))
+                                .foregroundStyle(AppTheme.text)
+                            HStack(spacing: 8) {
+                                Text(card.headlineLabel)
+                                    .font(.subheadline)
+                                    .foregroundStyle(AppTheme.textSecondary)
+                                UpdatedStamp(date: card.lastUploadedAt)
+                            }
+                        }
+                        Spacer(minLength: 8)
+                        Text(card.headlineText)
+                            .font(.title2.weight(.bold).monospacedDigit())
+                            .foregroundStyle(dashInk(card.health))
                             .lineLimit(1)
-                            .minimumScaleFactor(0.55)
-                        Text("Total Lost Revenue % (Total Opportunity)")
-                            .font(.title3.weight(.semibold))
-                            .foregroundStyle(AppTheme.text)
-                            .lineLimit(2)
-                            .minimumScaleFactor(0.8)
+                            .minimumScaleFactor(0.6)
+                        HealthBadge(health: card.health, prominent: true, compact: true)
+                        Image(systemName: "chevron.right")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(AppTheme.textTertiary)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 14)
+                    .padding(.horizontal, 4)
+                    .contentShape(Rectangle())
                 }
-                Spacer(minLength: 0)
-                HStack {
-                    Spacer()
-                    Image(systemName: "arrow.up.right")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(ink)
-                        .frame(width: 40, height: 40)
-                        .background(Color.white.opacity(0.65), in: RoundedRectangle(cornerRadius: AppTheme.radiusS, style: .continuous))
-                }
-            }
-            .padding(20)
-            .frame(maxWidth: .infinity, minHeight: 220, maxHeight: 220, alignment: .topLeading)
-            .background(
-                RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                    .fill(fill)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                    .stroke(stroke, lineWidth: shouldPulse ? 2.4 : 1)
-                    .opacity(shouldPulse ? (pulseOn ? 1 : 0.22) : 1)
-            )
-        }
-        .buttonStyle(.plain)
-        .onAppear {
-            guard shouldPulse else { return }
-            pulseOn = false
-            withAnimation(.easeInOut(duration: 1.05).repeatForever(autoreverses: true)) {
-                pulseOn = true
+                .buttonStyle(.plain)
             }
         }
-    }
-
-    private var shouldPulse: Bool {
-        summary.health == .risk || summary.health == .watch
-    }
-
-    private var fill: Color {
-        switch summary.health {
-        case .good: return AppTheme.okSoft
-        case .watch: return AppTheme.warnSoft
-        case .risk: return AppTheme.badSoft
-        case .none: return AppTheme.card
-        }
-    }
-
-    private var stroke: Color {
-        switch summary.health {
-        case .good: return AppTheme.ok.opacity(0.28)
-        case .watch: return AppTheme.warn
-        case .risk: return AppTheme.bad
-        case .none: return AppTheme.cardBorder
-        }
-    }
-
-    private var ink: Color {
-        switch summary.health {
-        case .good: return AppTheme.ok
-        case .watch: return AppTheme.warn
-        case .risk: return AppTheme.bad
-        case .none: return AppTheme.blue
-        }
+        .padding(16)
+        .background(AppTheme.card, in: RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                .stroke(AppTheme.cardBorder, lineWidth: 1)
+        )
     }
 }
 
