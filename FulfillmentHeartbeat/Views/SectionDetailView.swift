@@ -51,6 +51,12 @@ struct SectionDetailView: View {
             } else if section == .prepNotReady {
                 PrepTable(rows: prepRows)
             } else if section == .fiveStar {
+                Section {
+                    FiveStarRollupTable()
+                        .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(AppTheme.bg)
+                }
                 FiveStarTable(rows: fiveStarRows)
             } else if section == .labor {
                 Section {
@@ -99,11 +105,14 @@ struct SectionDetailView: View {
                 } else if section == .lostRevenue {
                     LostRevenueStickyStoreHeader()
                         .environmentObject(laborHeaderPin)
+                } else if section == .fiveStar {
+                    FiveStarStickyStoreHeader()
+                        .environmentObject(laborHeaderPin)
                 }
             }
         }
         .onAppear {
-            if section == .labor || section == .lostRevenue {
+            if section == .labor || section == .lostRevenue || section == .fiveStar {
                 laborHeaderPin.openOnPageEnter()
             }
         }

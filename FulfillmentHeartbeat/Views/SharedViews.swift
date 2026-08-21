@@ -1670,25 +1670,32 @@ struct PrepStoreCard: View {
 }
 
 struct FiveStarTable: View {
+    @EnvironmentObject private var headerPin: LaborHeaderPin
     let rows: [MetricRow]
 
     private enum Column: String, CaseIterable, Identifiable {
-        case store, rating, flash, presub, status
+        case store, rating, flash, presub, coe, ott, oth, status
         var id: String { rawValue }
-        var title: String {
+        var key: String {
             switch self {
-            case .store: return "Store"
-            case .rating: return "Rating"
-            case .flash: return "Flash"
-            case .presub: return "Presubs"
-            case .status: return "Status"
+            case .store: return "label"
+            case .rating: return "rating"
+            case .flash: return "flash"
+            case .presub: return "presub"
+            case .coe: return "coe"
+            case .ott: return "ott"
+            case .oth: return "oth"
+            case .status: return "status"
             }
         }
     }
 
     @State private var sort = Column.rating
-    @State private var ascending = false
-    @State private var ordered: [MetricRow] = []
+    @State private var ascending = true
+    @State private var snaps: [FiveStarLineSnap] = []
+    @State private var openStore: String?
+
+    private var expanded: Bool { headerPin.storesExpanded }
 
     var body: some View {
         if rows.isEmpty {
@@ -1704,65 +1711,114 @@ struct FiveStarTable: View {
             }
         } else {
             Section {
-                HStack {
-                    Text("\(HeartbeatFormat.num(Double(rows.count))) stores")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(AppTheme.textSecondary)
-                    Spacer()
-                }
-                .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
-                .listRowSeparator(.hidden)
-                .listRowBackground(AppTheme.bg)
-            }
-            Section {
-                HStack(spacing: 12) {
-                    ForEach(Column.allCases) { column in
-                        Button {
-                            let nextSort = sort == column ? sort : column
-                            let nextAscending = sort == column ? !ascending : column == .store
-                            sort = nextSort
-                            ascending = nextAscending
-                            rebuildOrder(sort: nextSort, ascending: nextAscending)
-                        } label: {
-                            HStack(spacing: 4) {
-                                Text(column.title.uppercased())
-                                    .font(.caption2.weight(.semibold))
-                                    .tracking(0.5)
-                                if sort == column {
-                                    Image(systemName: ascending ? "chevron.up" : "chevron.down")
-                                        .font(.caption2.weight(.bold))
-                                }
-                            }
-                            .foregroundStyle(sort == column ? AppTheme.blue : AppTheme.textTertiary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
+                Button {
+                    let next = !headerPin.storesExpanded
+                    headerPin.storesExpanded = next
+                    headerPin.tableOpen = next
+                    if !next { headerPin.pinned = false }
+                    if next { rebuildOrder(sort: sort, ascending: ascending) }
+                } label: {
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Store")
+                                .font(.title3.weight(.bold))
+                                .foregroundStyle(AppTheme.blue)
+                            Text("\(HeartbeatFormat.num(Double(rows.count))) stores  ·  tap to \(expanded ? "collapse" : "expand")")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(AppTheme.textSecondary)
                         }
-                        .buttonStyle(.plain)
+                        Spacer()
+                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(AppTheme.blue)
+                            .frame(width: 36, height: 36)
+                            .background(AppTheme.blueSoft, in: Circle())
                     }
+                    .contentShape(Rectangle())
                 }
-                .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 4, trailing: 20))
+                .buttonStyle(.plain)
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                        .fill(AppTheme.card)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                        .stroke(AppTheme.cardBorder, lineWidth: 1)
+                )
+                .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: expanded ? 4 : 20, trailing: 20))
                 .listRowSeparator(.hidden)
                 .listRowBackground(AppTheme.bg)
-
-                ForEach(ordered) { row in
-                    FiveStarStoreCard(row: row)
-                        .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
+                .onAppear {
+                    headerPin.tableOpen = headerPin.storesExpanded
+                    headerPin.storeCount = rows.count
+                    headerPin.active = sort.key
+                    headerPin.ascending = ascending
+                    headerPin.onSelect = applyHeaderSort
+                }
+            }
+            if expanded {
+                Section {
+                    FiveStarMetricHeader(
+                        label: "Store",
+                        showCount: false,
+                        active: sort.key,
+                        ascending: ascending,
+                        onSelect: applyHeaderSort
+                    )
+                    .background(
+                        GeometryReader { geo in
+                            Color.clear.preference(
+                                key: LaborHeaderMinYKey.self,
+                                value: (geo.frame(in: .global).minY / 12).rounded() * 12
+                            )
+                        }
+                    )
+                    .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(AppTheme.bg)
+                    ForEach(snaps) { snap in
+                        FiveStarStoreRow(
+                            snap: snap,
+                            expanded: openStore == snap.storeNumber,
+                            onToggle: {
+                                openStore = openStore == snap.storeNumber ? nil : snap.storeNumber
+                            }
+                        )
+                        .listRowInsets(EdgeInsets(top: 2, leading: 20, bottom: 2, trailing: 20))
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.bg)
+                    }
+                }
+                .transaction { $0.animation = nil }
+                .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
+                .onChange(of: rows.count) { _, _ in
+                    rebuildOrder(sort: sort, ascending: ascending)
+                    headerPin.storeCount = rows.count
+                }
+                .onChange(of: rows.first?.storeNumber) { _, _ in
+                    rebuildOrder(sort: sort, ascending: ascending)
+                    headerPin.storeCount = rows.count
                 }
             }
-            .transaction { $0.animation = nil }
-            .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
-            .onChange(of: rows.count) { _, _ in rebuildOrder(sort: sort, ascending: ascending) }
-            .onChange(of: rows.first?.storeNumber) { _, _ in rebuildOrder(sort: sort, ascending: ascending) }
         }
     }
 
+    private func applyHeaderSort(_ key: String) {
+        let column = Column.allCases.first { $0.key == key } ?? .rating
+        let nextAscending = sort == column ? !ascending : column == .store
+        sort = column
+        ascending = nextAscending
+        headerPin.active = column.key
+        headerPin.ascending = nextAscending
+        rebuildOrder(sort: column, ascending: nextAscending)
+    }
+
     private func rebuildOrder(sort: Column, ascending: Bool) {
-        ordered = rows.sorted { lhs, rhs in
+        snaps = rows.sorted { lhs, rhs in
             let result = compare(lhs, rhs, sort: sort)
             return ascending ? result == .orderedAscending : result == .orderedDescending
-        }
+        }.map(FiveStarLineSnap.init)
     }
 
     private func compare(_ lhs: MetricRow, _ rhs: MetricRow, sort: Column) -> ComparisonResult {
@@ -1778,6 +1834,12 @@ struct FiveStarTable: View {
             return numberOrder(lhs.number("flash_pct"), rhs.number("flash_pct"))
         case .presub:
             return numberOrder(lhs.number("presub_pct"), rhs.number("presub_pct"))
+        case .coe:
+            return numberOrder(lhs.number("coe_pct"), rhs.number("coe_pct"))
+        case .ott:
+            return numberOrder(lhs.number("ott_pct"), rhs.number("ott_pct"))
+        case .oth:
+            return numberOrder(lhs.number("oth5_pct"), rhs.number("oth5_pct"))
         case .status:
             let a = healthRank(HeartbeatMath.health(for: .fiveStar, row: lhs))
             let b = healthRank(HeartbeatMath.health(for: .fiveStar, row: rhs))
@@ -1799,6 +1861,557 @@ struct FiveStarTable: View {
         case .watch: return 1
         case .good: return 2
         case .none: return 3
+        }
+    }
+}
+
+private struct FiveStarRollupRow: Identifiable {
+    let id: String
+    let label: String
+    let storeCount: Int
+    let rating: Double?
+    let flash: Double?
+    let presub: Double?
+    let coe: Double?
+    let ott: Double?
+    let oth: Double?
+
+    var health: Health { HeartbeatMath.band(rating, good: 4.5, watch: HeartbeatMath.fiveStarPass) }
+}
+
+private enum FiveStarRollupBuilder {
+    static func grain(for filters: DashboardFilters) -> LaborRollupGrain? {
+        LaborRollupBuilder.grain(for: filters)
+    }
+
+    static func source(from all: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
+        let stores = all.filter { !$0.storeNumber.isEmpty }
+        if !filters.division.isEmpty || !filters.region.isEmpty {
+            return stores.filter { filters.includesDivision($0.division) }
+        }
+        if !filters.district.isEmpty {
+            let divisions = Set(
+                stores.filter { HeartbeatMath.matches($0.district, filters.district) }.map(\.division)
+            )
+            return stores.filter { divisions.contains($0.division) }
+        }
+        if !filters.om.isEmpty {
+            let divisions = Set(
+                stores.filter { HeartbeatMath.matches($0.operationsOM, filters.om) }.map(\.division)
+            )
+            return stores.filter { divisions.contains($0.division) }
+        }
+        return stores
+    }
+
+    static func rows(from stores: [MetricRow], grain: LaborRollupGrain) -> [FiveStarRollupRow] {
+        var buckets: [String: [MetricRow]] = [:]
+        for row in stores {
+            let key: String
+            switch grain {
+            case .division:
+                key = row.division.isEmpty ? "Unassigned" : row.division
+            case .district:
+                key = row.district.isEmpty ? "Unassigned" : row.district
+            case .store:
+                key = HeartbeatMath.canonicalStore(row.storeNumber)
+            }
+            guard !key.isEmpty else { continue }
+            buckets[key, default: []].append(row)
+        }
+        var result: [FiveStarRollupRow] = []
+        result.reserveCapacity(buckets.count)
+        for (key, group) in buckets {
+            let label: String
+            switch grain {
+            case .division, .district:
+                label = key
+            case .store:
+                let division = group.first?.division ?? ""
+                label = division.isEmpty ? key : "\(key)  |  \(division)"
+            }
+            result.append(
+                FiveStarRollupRow(
+                    id: key,
+                    label: label,
+                    storeCount: group.count,
+                    rating: HeartbeatMath.average(group.compactMap { $0.number("star_rating") }),
+                    flash: HeartbeatMath.average(group.compactMap { $0.number("flash_pct") }),
+                    presub: HeartbeatMath.average(group.compactMap { $0.number("presub_pct") }),
+                    coe: HeartbeatMath.average(group.compactMap { $0.number("coe_pct") }),
+                    ott: HeartbeatMath.average(group.compactMap { $0.number("ott_pct") }),
+                    oth: HeartbeatMath.average(group.compactMap { $0.number("oth5_pct") })
+                )
+            )
+        }
+        return result.sorted { ($0.rating ?? 99) < ($1.rating ?? 99) }
+    }
+}
+
+private struct FiveStarLineSnap: Identifiable, Equatable {
+    let id: UUID
+    let storeNumber: String
+    let label: String
+    let district: String
+    let om: String
+    let rating: String
+    let flash: String
+    let presub: String
+    let coe: String
+    let ott: String
+    let oth: String
+    let health: Health
+    let ratingHealth: Health
+    let flashHealth: Health
+    let presubHealth: Health
+    let coeHealth: Health
+    let ottHealth: Health
+    let othHealth: Health
+    let ratingValue: Double
+    let flashValue: Double
+    let presubValue: Double
+    let coeValue: Double
+    let ottValue: Double
+    let othValue: Double
+
+    init(_ row: MetricRow) {
+        id = row.id
+        storeNumber = row.storeNumber
+        label = row.division.isEmpty
+            ? (row.storeNumber.isEmpty ? "—" : row.storeNumber)
+            : "\(row.storeNumber)  |  \(row.division)"
+        district = row.district
+        om = row.operationsOM
+        let ratingNum = row.number("star_rating")
+        let flashNum = row.number("flash_pct")
+        let presubNum = row.number("presub_pct")
+        let coeNum = row.number("coe_pct")
+        let ottNum = row.number("ott_pct")
+        let othNum = row.number("oth5_pct")
+        rating = HeartbeatFormat.stars(ratingNum)
+        flash = HeartbeatFormat.pct(flashNum)
+        presub = HeartbeatFormat.pct(presubNum)
+        coe = HeartbeatFormat.pct(coeNum)
+        ott = HeartbeatFormat.pct(ottNum)
+        oth = HeartbeatFormat.pct(othNum)
+        health = HeartbeatMath.fiveStarHealth(row)
+        ratingHealth = health
+        flashHealth = HeartbeatMath.flashStar(row).health
+        presubHealth = HeartbeatMath.presubStar(row).health
+        coeHealth = HeartbeatMath.coeStar(row).health
+        ottHealth = HeartbeatMath.ottStar(row).health
+        othHealth = HeartbeatMath.othStar(row).health
+        ratingValue = ratingNum ?? -1
+        flashValue = flashNum ?? -1
+        presubValue = presubNum ?? -1
+        coeValue = coeNum ?? -1
+        ottValue = ottNum ?? -1
+        othValue = othNum ?? -1
+    }
+}
+
+private struct FiveStarCheapLine: View, Equatable {
+    let snap: FiveStarLineSnap
+    let expanded: Bool
+
+    var body: some View {
+        HStack(spacing: 6) {
+            HStack(spacing: 4) {
+                Text(snap.label)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(AppTheme.text)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(AppTheme.blue)
+            }
+            .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            cell(snap.rating, snap.ratingHealth)
+            cell(snap.flash, snap.flashHealth)
+            cell(snap.presub, snap.presubHealth)
+            cell(snap.coe, snap.coeHealth)
+            cell(snap.ott, snap.ottHealth)
+            cell(snap.oth, snap.othHealth)
+            Text(snap.health.label.uppercased())
+                .font(.caption.weight(.heavy))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .foregroundStyle(Color.white)
+                .background(pill(snap.health), in: Capsule())
+                .frame(width: 88, alignment: .trailing)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func cell(_ value: String, _ health: Health) -> some View {
+        Text(value)
+            .font(.subheadline.weight(.bold).monospacedDigit())
+            .foregroundStyle(ink(health))
+            .lineLimit(1)
+            .minimumScaleFactor(0.55)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .padding(.vertical, 6)
+            .padding(.horizontal, 6)
+            .background(wash(health), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private func ink(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.text
+        }
+    }
+
+    private func wash(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.okSoft
+        case .watch: return AppTheme.warnSoft
+        case .risk: return AppTheme.badSoft
+        case .none: return Color.clear
+        }
+    }
+
+    private func pill(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.textTertiary
+        }
+    }
+}
+
+private struct FiveStarMetricLine: View, Equatable {
+    let label: String
+    var count: Int? = nil
+    let rating: Double?
+    let flash: Double?
+    let presub: Double?
+    let coe: Double?
+    let ott: Double?
+    let oth: Double?
+
+    var body: some View {
+        let health = HeartbeatMath.band(rating, good: 4.5, watch: HeartbeatMath.fiveStarPass)
+        HStack(spacing: 6) {
+            Text(label)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(AppTheme.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            if let count {
+                Text(HeartbeatFormat.num(Double(count)))
+                    .font(.subheadline.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .frame(width: 58, alignment: .trailing)
+            }
+            cell(HeartbeatFormat.stars(rating), health)
+            cell(HeartbeatFormat.pct(flash), HeartbeatMath.starMark(value: flash, full: 75, half: 55).health)
+            cell(HeartbeatFormat.pct(presub), HeartbeatMath.starMark(value: presub, full: 5, half: 6, invert: true).health)
+            cell(HeartbeatFormat.pct(coe), HeartbeatMath.starMark(value: coe, full: 20, half: 0).health)
+            cell(HeartbeatFormat.pct(ott), HeartbeatMath.starMark(value: ott, full: 95, half: 90).health)
+            cell(HeartbeatFormat.pct(oth), HeartbeatMath.starMark(value: oth, full: 92, half: 78).health)
+            HealthBadge(health: health, prominent: true, compact: true)
+                .frame(width: 88, alignment: .trailing)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func cell(_ value: String, _ health: Health) -> some View {
+        Text(value)
+            .font(.subheadline.weight(.bold).monospacedDigit())
+            .foregroundStyle(ink(health))
+            .lineLimit(1)
+            .minimumScaleFactor(0.55)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .padding(.vertical, 6)
+            .padding(.horizontal, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(wash(health))
+            )
+    }
+
+    private func ink(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.text
+        }
+    }
+
+    private func wash(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.okSoft
+        case .watch: return AppTheme.warnSoft
+        case .risk: return AppTheme.badSoft
+        case .none: return Color.clear
+        }
+    }
+}
+
+struct FiveStarMetricHeader: View {
+    let label: String
+    var showCount: Bool = false
+    var active: String? = nil
+    var ascending: Bool = false
+    var onSelect: ((String) -> Void)? = nil
+
+    var body: some View {
+        HStack(spacing: 6) {
+            head(label, key: "label", alignment: .leading)
+                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            if showCount {
+                head("Stores", key: "count", alignment: .trailing)
+                    .frame(width: 58, alignment: .trailing)
+            }
+            head("Rating", key: "rating")
+            head("Flash", key: "flash")
+            head("Presubs", key: "presub")
+            head("COE", key: "coe")
+            head("OTT", key: "ott")
+            head("OTH 5%", key: "oth")
+            head("Status", key: "status", alignment: .trailing)
+                .frame(width: 88, alignment: .trailing)
+        }
+        .font(.caption2.weight(.semibold))
+        .tracking(0.4)
+        .lineLimit(1)
+        .minimumScaleFactor(0.65)
+    }
+
+    private func head(_ title: String, key: String, alignment: Alignment = .trailing) -> some View {
+        let selected = active == key
+        let content = HStack(spacing: 3) {
+            Text(title.uppercased())
+            if selected {
+                Image(systemName: ascending ? "chevron.up" : "chevron.down")
+                    .font(.caption2.weight(.bold))
+            }
+        }
+        .foregroundStyle(selected ? AppTheme.blue : AppTheme.textTertiary)
+        .frame(maxWidth: alignment == .leading ? nil : .infinity, alignment: alignment)
+        .contentShape(Rectangle())
+        return Group {
+            if let onSelect {
+                Button { onSelect(key) } label: { content }
+                    .buttonStyle(.plain)
+            } else {
+                content
+            }
+        }
+    }
+}
+
+struct FiveStarStickyStoreHeader: View {
+    @EnvironmentObject private var pin: LaborHeaderPin
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Store")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(AppTheme.blue)
+                Text("\(HeartbeatFormat.num(Double(pin.storeCount))) stores")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.textSecondary)
+                Spacer()
+            }
+            FiveStarMetricHeader(
+                label: "Store",
+                showCount: false,
+                active: pin.active,
+                ascending: pin.ascending,
+                onSelect: { pin.onSelect?($0) }
+            )
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .padding(.bottom, 8)
+        .background(AppTheme.bg)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(AppTheme.cardBorder)
+                .frame(height: 1)
+        }
+    }
+}
+
+struct FiveStarRollupTable: View {
+    @EnvironmentObject private var store: HeartbeatStore
+    @EnvironmentObject private var headerPin: LaborHeaderPin
+
+    private var expanded: Bool { headerPin.rollupExpanded }
+
+    var body: some View {
+        if let grain, !summary.isEmpty {
+            VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
+                Button {
+                    headerPin.rollupExpanded.toggle()
+                } label: {
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(grain.title)
+                                .font(.title3.weight(.bold))
+                                .foregroundStyle(AppTheme.blue)
+                            Text("\(summary.count) \(grain.columnTitle.lowercased())\(summary.count == 1 ? "" : "s")  ·  tap to \(expanded ? "collapse" : "expand")")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(AppTheme.textSecondary)
+                        }
+                        Spacer()
+                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(AppTheme.blue)
+                            .frame(width: 36, height: 36)
+                            .background(AppTheme.blueSoft, in: Circle())
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                if expanded {
+                    FiveStarMetricHeader(label: grain.columnTitle, showCount: grain != .store)
+                    ForEach(summary) { row in
+                        FiveStarMetricLine(
+                            label: row.label,
+                            count: grain == .store ? nil : row.storeCount,
+                            rating: row.rating,
+                            flash: row.flash,
+                            presub: row.presub,
+                            coe: row.coe,
+                            ott: row.ott,
+                            oth: row.oth
+                        )
+                    }
+                }
+            }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                    .fill(AppTheme.card)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                    .stroke(AppTheme.cardBorder, lineWidth: 1)
+            )
+        }
+    }
+
+    private var grain: LaborRollupGrain? {
+        FiveStarRollupBuilder.grain(for: store.filters)
+    }
+
+    private var summary: [FiveStarRollupRow] {
+        guard let grain else { return [] }
+        let source = FiveStarRollupBuilder.source(from: store.displayRows(for: .fiveStar), filters: store.filters)
+        return FiveStarRollupBuilder.rows(from: source, grain: grain)
+    }
+}
+
+private struct FiveStarStoreRow: View {
+    let snap: FiveStarLineSnap
+    let expanded: Bool
+    let onToggle: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
+            Button(action: onToggle) {
+                FiveStarCheapLine(snap: snap, expanded: expanded)
+                    .equatable()
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if expanded {
+                FiveStarStoreExpand(snap: snap)
+            }
+        }
+    }
+}
+
+private struct FiveStarStoreExpand: View {
+    let snap: FiveStarLineSnap
+
+    private var chips: [(String, String, Health)] {
+        [
+            ("Rating", snap.rating, snap.ratingHealth),
+            ("Flash", snap.flash, snap.flashHealth),
+            ("Presubs", snap.presub, snap.presubHealth),
+            ("COE", snap.coe, snap.coeHealth),
+            ("OTT", snap.ott, snap.ottHealth),
+            ("OTH 5%", snap.oth, snap.othHealth),
+        ]
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("District \(snap.district.isEmpty ? "—" : snap.district)  ·  \(snap.om.isEmpty ? "—" : snap.om)")
+                .font(.subheadline)
+                .foregroundStyle(AppTheme.textSecondary)
+            chipGrid
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(AppTheme.card.opacity(0.9))
+        )
+    }
+
+    private var chipGrid: some View {
+        let rows = stride(from: 0, to: chips.count, by: 3).map { Array(chips[$0..<min($0 + 3, chips.count)]) }
+        return VStack(spacing: 8) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                HStack(spacing: 8) {
+                    ForEach(Array(row.enumerated()), id: \.offset) { _, item in
+                        metric(item.0, item.1, item.2)
+                    }
+                }
+            }
+        }
+    }
+
+    private func metric(_ name: String, _ value: String, _ health: Health) -> some View {
+        VStack(spacing: 4) {
+            Text(name)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(AppTheme.textTertiary)
+                .lineLimit(1)
+            Text(value)
+                .font(.title3.weight(.bold).monospacedDigit())
+                .foregroundStyle(ink(health))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            HealthBadge(health: health)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(wash(health))
+        )
+    }
+
+    private func ink(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.text
+        }
+    }
+
+    private func wash(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.okSoft
+        case .watch: return AppTheme.warnSoft
+        case .risk: return AppTheme.badSoft
+        case .none: return AppTheme.card
         }
     }
 }
