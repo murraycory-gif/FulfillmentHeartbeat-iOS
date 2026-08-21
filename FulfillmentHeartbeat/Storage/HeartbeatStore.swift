@@ -148,36 +148,58 @@ final class HeartbeatStore: ObservableObject {
 
     func pickerPage(focus: PickerFocus, sort: PickerSort, ascending: Bool, limit: Int) -> [MetricRow] {
         let pickers = filteredLatest[.pickerScorecard] ?? []
-        let source = pickerIndex[focus] ?? []
-        let idxs: [Int]
-        switch sort {
-        case .pph:
-            if ascending {
-                idxs = Array(source.prefix(limit))
-            } else {
-                idxs = Array(source.suffix(limit).reversed())
-            }
-        case .name:
-            var ordered = source
-            ordered.sort {
-                let order = pickers[$0].shopperName.localizedStandardCompare(pickers[$1].shopperName)
-                return ascending ? order == .orderedAscending : order == .orderedDescending
-            }
-            idxs = Array(ordered.prefix(limit))
-        case .store:
-            var ordered = source
-            ordered.sort {
-                let order: ComparisonResult
-                if let a = Int(pickers[$0].storeNumber), let b = Int(pickers[$1].storeNumber) {
-                    order = a == b ? .orderedSame : (a < b ? .orderedAscending : .orderedDescending)
-                } else {
-                    order = pickers[$0].storeNumber.localizedStandardCompare(pickers[$1].storeNumber)
-                }
-                return ascending ? order == .orderedAscending : order == .orderedDescending
-            }
-            idxs = Array(ordered.prefix(limit))
+        var idxs = pickerIndex[focus] ?? []
+        idxs.sort { lhs, rhs in
+            let result = comparePickers(pickers[lhs], pickers[rhs], sort: sort)
+            return ascending ? result == .orderedAscending : result == .orderedDescending
+        }
+        if idxs.count > limit {
+            idxs = Array(idxs.prefix(limit))
         }
         return idxs.map { pickers[$0] }
+    }
+
+    private func comparePickers(_ lhs: MetricRow, _ rhs: MetricRow, sort: PickerSort) -> ComparisonResult {
+        switch sort {
+        case .pph:
+            return pickerNumberOrder(lhs.number("pph"), rhs.number("pph"))
+        case .presub:
+            return pickerNumberOrder(lhs.number("presub_pct"), rhs.number("presub_pct"))
+        case .oos:
+            return pickerNumberOrder(lhs.number("oos_pct"), rhs.number("oos_pct"))
+        case .ott:
+            return pickerNumberOrder(lhs.number("ott_pct"), rhs.number("ott_pct"))
+        case .oth5:
+            return pickerNumberOrder(lhs.number("oth5_pct"), rhs.number("oth5_pct"))
+        case .name:
+            return lhs.shopperName.localizedStandardCompare(rhs.shopperName)
+        case .store:
+            if let a = Int(lhs.storeNumber), let b = Int(rhs.storeNumber) {
+                return a == b ? .orderedSame : (a < b ? .orderedAscending : .orderedDescending)
+            }
+            return lhs.storeNumber.localizedStandardCompare(rhs.storeNumber)
+        case .status:
+            let a = pickerHealthRank(HeartbeatMath.pickerHealth(lhs))
+            let b = pickerHealthRank(HeartbeatMath.pickerHealth(rhs))
+            if a == b { return pickerNumberOrder(lhs.number("pph"), rhs.number("pph")) }
+            return a < b ? .orderedAscending : .orderedDescending
+        }
+    }
+
+    private func pickerNumberOrder(_ a: Double?, _ b: Double?) -> ComparisonResult {
+        let lhs = a ?? 9_999
+        let rhs = b ?? 9_999
+        if lhs == rhs { return .orderedSame }
+        return lhs < rhs ? .orderedAscending : .orderedDescending
+    }
+
+    private func pickerHealthRank(_ health: Health) -> Int {
+        switch health {
+        case .risk: return 0
+        case .watch: return 1
+        case .good: return 2
+        case .none: return 3
+        }
     }
 
     private func rebuildPickerIndex(_ pickers: [MetricRow]) {

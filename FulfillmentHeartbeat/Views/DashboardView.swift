@@ -332,26 +332,34 @@ struct PickerHighlightsPanel: View {
     var onSelectOpportunity: () -> Void = {}
     var onSelectStrong: () -> Void = {}
     @State private var expanded = true
+    @State private var openShopper: String?
 
     private var board: HeartbeatMath.PickerBoard {
         store.pickerBoard
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: expanded ? 14 : 0) {
             Button {
-                withAnimation(.easeInOut(duration: 0.2)) { expanded.toggle() }
+                expanded.toggle()
             } label: {
-                HStack(spacing: 8) {
-                    Text("Top Opportunity Pickers")
-                        .font(.title3.weight(.bold))
-                        .foregroundStyle(AppTheme.bad)
-                    Text("|")
-                        .font(.title3.weight(.bold))
-                        .foregroundStyle(AppTheme.textTertiary)
-                    Text("Pickers Doing Well")
-                        .font(.title3.weight(.bold))
-                        .foregroundStyle(AppTheme.ok)
+                HStack(spacing: 10) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 8) {
+                            Text("Top Opportunity Pickers")
+                                .font(.title3.weight(.bold))
+                                .foregroundStyle(AppTheme.bad)
+                            Text("|")
+                                .font(.title3.weight(.bold))
+                                .foregroundStyle(AppTheme.textTertiary)
+                            Text("Pickers Doing Well")
+                                .font(.title3.weight(.bold))
+                                .foregroundStyle(AppTheme.ok)
+                        }
+                        Text("15+ orders  ·  tap to \(expanded ? "collapse" : "expand")")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(AppTheme.textSecondary)
+                    }
                     Spacer()
                     Image(systemName: expanded ? "chevron.up" : "chevron.down")
                         .font(.headline.weight(.semibold))
@@ -359,6 +367,7 @@ struct PickerHighlightsPanel: View {
                         .frame(width: 36, height: 36)
                         .background(AppTheme.blueSoft, in: Circle())
                 }
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
 
@@ -389,15 +398,15 @@ struct PickerHighlightsPanel: View {
                 }
             }
         }
-        .padding(20)
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
                 .fill(AppTheme.card)
-                .overlay(
-                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                        .stroke(AppTheme.cardBorder, lineWidth: 1)
-                )
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                .stroke(AppTheme.cardBorder, lineWidth: 1)
         )
     }
 
@@ -409,29 +418,35 @@ struct PickerHighlightsPanel: View {
         tone: Health,
         action: @escaping () -> Void
     ) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(tone == .risk ? AppTheme.bad : AppTheme.ok)
-                Text(subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(AppTheme.textSecondary)
+        VStack(alignment: .leading, spacing: 10) {
+            Button(action: action) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(tone == .risk ? AppTheme.bad : AppTheme.ok)
+                    Text(subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(AppTheme.textSecondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
+            .buttonStyle(.plain)
             if rows.isEmpty {
                 Text(empty)
                     .font(.subheadline)
                     .foregroundStyle(AppTheme.textSecondary)
                     .padding(.vertical, 8)
             } else {
+                PickerMetricHeader(label: "Shopper")
                 ForEach(rows) { row in
-                    Button(action: action) {
-                        PickerShopperCard(row: row, place: divisionLabel(for: row))
-                    }
-                    .buttonStyle(.plain)
-                    if row.id != rows.last?.id {
-                        Divider().opacity(0.28)
-                    }
+                    PickerStoreRow(
+                        snap: PickerLineSnap(row, division: divisionLabel(for: row)),
+                        expanded: openShopper == row.id.uuidString,
+                        onToggle: {
+                            openShopper = openShopper == row.id.uuidString ? nil : row.id.uuidString
+                        }
+                    )
                 }
             }
         }
@@ -439,11 +454,11 @@ struct PickerHighlightsPanel: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
-                .fill(tone == .risk ? AppTheme.badSoft.opacity(0.55) : AppTheme.okSoft.opacity(0.55))
+                .fill(tone == .risk ? AppTheme.badSoft.opacity(0.45) : AppTheme.okSoft.opacity(0.45))
         )
         .overlay(
             RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
-                .stroke(tone == .risk ? AppTheme.bad : AppTheme.ok, lineWidth: 2)
+                .stroke(tone == .risk ? AppTheme.bad : AppTheme.ok, lineWidth: 1.5)
         )
     }
 

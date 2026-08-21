@@ -7398,65 +7398,511 @@ private struct PPHStoreExpand: View {
     }
 }
 
-struct PickerShopperCard: View {
-    let row: MetricRow
-    var place: String
+struct PickerScoreTable: View {
+    @EnvironmentObject private var store: HeartbeatStore
+    @EnvironmentObject private var headerPin: LaborHeaderPin
+    var focus: PickerFocus = .all
+
+    private enum Column: String, CaseIterable, Identifiable {
+        case shopper, pph, presub, oos, ott, oth5, status
+        var id: String { rawValue }
+        var key: String {
+            switch self {
+            case .shopper: return "label"
+            case .pph: return "pph"
+            case .presub: return "presub"
+            case .oos: return "oos"
+            case .ott: return "ott"
+            case .oth5: return "oth5"
+            case .status: return "status"
+            }
+        }
+        var sort: PickerSort {
+            switch self {
+            case .shopper: return .name
+            case .pph: return .pph
+            case .presub: return .presub
+            case .oos: return .oos
+            case .ott: return .ott
+            case .oth5: return .oth5
+            case .status: return .status
+            }
+        }
+    }
+
+    @State private var sort = Column.pph
+    @State private var ascending = true
+    @State private var limit = 150
+    @State private var snaps: [PickerLineSnap] = []
+    @State private var openShopper: String?
+
+    private var expanded: Bool { headerPin.storesExpanded }
+    private var total: Int { store.pickerCount(for: focus) }
 
     var body: some View {
-        let health = HeartbeatMath.pickerHealth(row)
-        let metrics = HeartbeatMath.pickerMetricReadout(row)
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(row.shopperName)
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(AppTheme.text)
-                if !row.storeNumber.isEmpty {
-                    Text("|")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(AppTheme.textTertiary)
-                    Text("Store \(row.storeNumber)")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(AppTheme.textSecondary)
+        if total == 0 {
+            Section {
+                EmptyHint(
+                    symbol: "person.2",
+                    title: "No shoppers in \(focus.title.lowercased())",
+                    detail: "Tap another callout above, or upload the weekly Picker Scorecard."
+                )
+                .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 20, trailing: 20))
+                .listRowSeparator(.hidden)
+                .listRowBackground(AppTheme.bg)
+            }
+        } else {
+            Section {
+                Button {
+                    let next = !headerPin.storesExpanded
+                    headerPin.storesExpanded = next
+                    headerPin.tableOpen = next
+                    if !next { headerPin.pinned = false }
+                    if next { rebuildPage() }
+                } label: {
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Shopper")
+                                .font(.title3.weight(.bold))
+                                .foregroundStyle(AppTheme.blue)
+                            Text(pageCaption + "  ·  tap to \(expanded ? "collapse" : "expand")")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(AppTheme.textSecondary)
+                        }
+                        Spacer()
+                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(AppTheme.blue)
+                            .frame(width: 36, height: 36)
+                            .background(AppTheme.blueSoft, in: Circle())
+                    }
+                    .contentShape(Rectangle())
                 }
-                Spacer()
-                if !place.isEmpty, place != row.storeNumber {
-                    Text(place)
-                        .font(.subheadline)
-                        .foregroundStyle(AppTheme.textSecondary)
+                .buttonStyle(.plain)
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                        .fill(AppTheme.card)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                        .stroke(AppTheme.cardBorder, lineWidth: 1)
+                )
+                .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: expanded ? 4 : 20, trailing: 20))
+                .listRowSeparator(.hidden)
+                .listRowBackground(AppTheme.bg)
+                .onAppear {
+                    headerPin.tableOpen = headerPin.storesExpanded
+                    headerPin.storeCount = total
+                    headerPin.active = sort.key
+                    headerPin.ascending = ascending
+                    headerPin.onSelect = applyHeaderSort
+                    rebuildPage()
+                }
+                .onChange(of: focus) { _, _ in
+                    limit = 150
+                    openShopper = nil
+                    rebuildPage()
+                }
+                .onChange(of: store.filterStamp) { _, _ in
+                    limit = 150
+                    rebuildPage()
+                }
+                .onChange(of: total) { _, _ in
+                    rebuildPage()
                 }
             }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 78), spacing: 8)], spacing: 8) {
-                ForEach(metrics, id: \.name) { metric in
-                    VStack(spacing: 3) {
-                        Text(metric.name)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(AppTheme.textTertiary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                        Text(metric.value)
-                            .font(.headline.weight(.bold).monospacedDigit())
-                            .foregroundStyle(ink(metric.health))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 8)
-                    .padding(.horizontal, 4)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .fill(wash(metric.health))
+            if expanded {
+                Section {
+                    PickerMetricHeader(
+                        label: "Shopper",
+                        active: sort.key,
+                        ascending: ascending,
+                        onSelect: applyHeaderSort
                     )
+                    .background(
+                        GeometryReader { geo in
+                            Color.clear.preference(
+                                key: LaborHeaderMinYKey.self,
+                                value: (geo.frame(in: .global).minY / 12).rounded() * 12
+                            )
+                        }
+                    )
+                    .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(AppTheme.bg)
+                    ForEach(snaps) { snap in
+                        PickerStoreRow(
+                            snap: snap,
+                            expanded: openShopper == snap.id.uuidString,
+                            onToggle: {
+                                openShopper = openShopper == snap.id.uuidString ? nil : snap.id.uuidString
+                            }
+                        )
+                        .listRowInsets(EdgeInsets(top: 2, leading: 20, bottom: 2, trailing: 20))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(AppTheme.bg)
+                    }
+                    if snaps.count < total {
+                        Button {
+                            limit += 150
+                            rebuildPage()
+                        } label: {
+                            Text("Show more · \(snaps.count) of \(HeartbeatFormat.num(Double(total)))")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(AppTheme.blue)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                        }
+                        .buttonStyle(.plain)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 16, trailing: 20))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(AppTheme.bg)
+                    }
+                }
+                .transaction { $0.animation = nil }
+            }
+        }
+    }
+
+    private var pageCaption: String {
+        if snaps.count < total {
+            return "Showing \(snaps.count) of \(HeartbeatFormat.num(Double(total))) · \(focus.title)"
+        }
+        return "\(HeartbeatFormat.num(Double(total))) shoppers · \(focus.title)"
+    }
+
+    private func applyHeaderSort(_ key: String) {
+        let column = Column.allCases.first { $0.key == key } ?? .pph
+        let nextAscending = sort == column ? !ascending : column.sort.defaultAscending
+        sort = column
+        ascending = nextAscending
+        headerPin.active = column.key
+        headerPin.ascending = nextAscending
+        rebuildPage()
+    }
+
+    private func rebuildPage() {
+        headerPin.storeCount = total
+        snaps = store.pickerPage(focus: focus, sort: sort.sort, ascending: ascending, limit: limit).map {
+            PickerLineSnap($0, division: place(for: $0))
+        }
+    }
+
+    private func place(for row: MetricRow) -> String {
+        let division = row.division.isEmpty ? store.identity(forStore: row.storeNumber).division : row.division
+        return division
+    }
+}
+
+struct PickerLineSnap: Identifiable, Equatable {
+    let id: UUID
+    let shopperKey: String
+    let storeNumber: String
+    let label: String
+    let division: String
+    let pph: String
+    let presub: String
+    let oos: String
+    let ott: String
+    let oth5: String
+    let hours: String
+    let subs: String
+    let orders: String
+    let dug: String
+    let refund: String
+    let othElig: String
+    let coe: String
+    let health: Health
+    let pphHealth: Health
+    let presubHealth: Health
+    let oosHealth: Health
+    let ottHealth: Health
+    let oth5Health: Health
+    let refundHealth: Health
+    let othEligHealth: Health
+    let coeHealth: Health
+
+    init(_ row: MetricRow, division: String) {
+        id = row.id
+        shopperKey = row.shopperKey
+        storeNumber = row.storeNumber
+        let store = row.storeNumber.isEmpty ? "" : "Store \(row.storeNumber)"
+        label = store.isEmpty ? row.shopperName : "\(row.shopperName)  |  \(store)"
+        self.division = division
+        pph = HeartbeatFormat.num(row.number("pph"), digits: 1)
+        presub = HeartbeatFormat.pct(row.number("presub_pct"))
+        oos = HeartbeatFormat.pct(row.number("oos_pct"))
+        ott = HeartbeatFormat.pct(row.number("ott_pct"))
+        oth5 = HeartbeatFormat.pct(row.number("oth5_pct"))
+        hours = HeartbeatFormat.num(row.number("pick_hours"), digits: 1)
+        subs = HeartbeatFormat.num(row.number("subs"))
+        orders = HeartbeatFormat.num(row.number("orders"))
+        dug = HeartbeatFormat.num(row.number("dug_orders"))
+        refund = HeartbeatFormat.money(row.number("refund_amt"))
+        othElig = HeartbeatFormat.pct(row.number("oth_elig_pct"))
+        coe = HeartbeatFormat.pct(row.number("coe_pct"))
+        health = HeartbeatMath.pickerHealth(row)
+        pphHealth = row.number("pph") == nil ? .none : HeartbeatMath.pphHealth(row)
+        presubHealth = row.number("presub_pct") == nil ? .none : HeartbeatMath.presubStar(row).health
+        oosHealth = row.number("oos_pct") == nil ? .none : HeartbeatMath.oosStar(row).health
+        ottHealth = row.number("ott_pct") == nil ? .none : HeartbeatMath.ottStar(row).health
+        oth5Health = row.number("oth5_pct") == nil ? .none : HeartbeatMath.othStar(row).health
+        refundHealth = HeartbeatMath.refundHealth(row)
+        othEligHealth = row.number("oth_elig_pct") == nil ? .none : HeartbeatMath.othEligStar(row).health
+        coeHealth = row.number("coe_pct") == nil ? .none : HeartbeatMath.coeStar(row).health
+    }
+}
+
+private struct PickerCheapLine: View, Equatable {
+    let snap: PickerLineSnap
+    let expanded: Bool
+
+    var body: some View {
+        HStack(spacing: 6) {
+            HStack(spacing: 4) {
+                Text(snap.label)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(AppTheme.text)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(AppTheme.blue)
+            }
+            .frame(minWidth: 148, maxWidth: 220, alignment: .leading)
+            cell(snap.pph, snap.pphHealth)
+            cell(snap.presub, snap.presubHealth)
+            cell(snap.oos, snap.oosHealth)
+            cell(snap.ott, snap.ottHealth)
+            cell(snap.oth5, snap.oth5Health)
+            Text(snap.health.label.uppercased())
+                .font(.caption.weight(.heavy))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .foregroundStyle(Color.white)
+                .background(pill(snap.health), in: Capsule())
+                .frame(width: 88, alignment: .trailing)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func cell(_ value: String, _ health: Health) -> some View {
+        Text(value)
+            .font(.subheadline.weight(.bold).monospacedDigit())
+            .foregroundStyle(ink(health))
+            .lineLimit(1)
+            .minimumScaleFactor(0.55)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .padding(.vertical, 6)
+            .padding(.horizontal, 6)
+            .background(wash(health), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private func ink(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.text
+        }
+    }
+
+    private func wash(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.okSoft
+        case .watch: return AppTheme.warnSoft
+        case .risk: return AppTheme.badSoft
+        case .none: return Color.clear
+        }
+    }
+
+    private func pill(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.textTertiary
+        }
+    }
+}
+
+struct PickerMetricHeader: View {
+    let label: String
+    var active: String? = nil
+    var ascending: Bool = false
+    var onSelect: ((String) -> Void)? = nil
+
+    var body: some View {
+        HStack(spacing: 6) {
+            head(label, key: "label", alignment: .leading)
+                .frame(minWidth: 148, maxWidth: 220, alignment: .leading)
+            head("PPH", key: "pph")
+            head("Presub", key: "presub")
+            head("OOS", key: "oos")
+            head("OTT", key: "ott")
+            head("OTH5", key: "oth5")
+            head("Status", key: "status", alignment: .trailing)
+                .frame(width: 88, alignment: .trailing)
+        }
+        .font(.caption2.weight(.semibold))
+        .tracking(0.4)
+        .lineLimit(1)
+        .minimumScaleFactor(0.65)
+    }
+
+    private func head(_ title: String, key: String, alignment: Alignment = .trailing) -> some View {
+        let selected = active == key
+        let content = HStack(spacing: 3) {
+            Text(title.uppercased())
+            if selected {
+                Image(systemName: ascending ? "chevron.up" : "chevron.down")
+                    .font(.caption2.weight(.bold))
+            }
+        }
+        .foregroundStyle(selected ? AppTheme.blue : AppTheme.textTertiary)
+        .frame(maxWidth: alignment == .leading ? nil : .infinity, alignment: alignment)
+        .contentShape(Rectangle())
+        return Group {
+            if let onSelect {
+                Button { onSelect(key) } label: { content }
+                    .buttonStyle(.plain)
+            } else {
+                content
+            }
+        }
+    }
+}
+
+struct PickerStickyStoreHeader: View {
+    @EnvironmentObject private var pin: LaborHeaderPin
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("Shopper")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(AppTheme.blue)
+                Text("\(HeartbeatFormat.num(Double(pin.storeCount))) shoppers")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.textSecondary)
+                Spacer()
+            }
+            PickerMetricHeader(
+                label: "Shopper",
+                active: pin.active,
+                ascending: pin.ascending,
+                onSelect: { pin.onSelect?($0) }
+            )
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .padding(.bottom, 8)
+        .background(AppTheme.bg)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(AppTheme.cardBorder)
+                .frame(height: 1)
+        }
+    }
+}
+
+struct PickerStoreRow: View {
+    let snap: PickerLineSnap
+    let expanded: Bool
+    let onToggle: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
+            Button(action: onToggle) {
+                PickerCheapLine(snap: snap, expanded: expanded)
+                    .equatable()
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if expanded {
+                PickerStoreExpand(snap: snap)
+            }
+        }
+    }
+}
+
+struct PickerStoreExpand: View {
+    let snap: PickerLineSnap
+
+    private var chips: [(String, String, Health, Bool)] {
+        [
+            ("PPH", snap.pph, snap.pphHealth, false),
+            ("Presub", snap.presub, snap.presubHealth, false),
+            ("OOS", snap.oos, snap.oosHealth, false),
+            ("OTT", snap.ott, snap.ottHealth, false),
+            ("OTH5", snap.oth5, snap.oth5Health, false),
+            ("OTH Elig", snap.othElig, snap.othEligHealth, false),
+            ("Hours", snap.hours, .none, false),
+            ("Subs", snap.subs, .none, false),
+            ("Orders", snap.orders, .none, false),
+            ("DUG", snap.dug, .none, false),
+            ("COE", snap.coe, snap.coeHealth, false),
+            ("Refund", snap.refund, snap.refundHealth, false),
+        ]
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(metaLine)
+                .font(.subheadline)
+                .foregroundStyle(AppTheme.textSecondary)
+            chipGrid
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(AppTheme.card.opacity(0.9))
+        )
+    }
+
+    private var metaLine: String {
+        let store = snap.storeNumber.isEmpty ? "—" : snap.storeNumber
+        let division = snap.division.isEmpty ? "—" : snap.division
+        return "Store \(store)  ·  \(division)"
+    }
+
+    private var chipGrid: some View {
+        let rows = stride(from: 0, to: chips.count, by: 6).map { Array(chips[$0..<min($0 + 6, chips.count)]) }
+        return VStack(spacing: 8) {
+            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                HStack(spacing: 8) {
+                    ForEach(Array(row.enumerated()), id: \.offset) { _, item in
+                        metric(item.0, item.1, item.2, brand: item.3)
+                    }
                 }
             }
         }
-        .padding(14)
+    }
+
+    private func metric(_ name: String, _ value: String, _ health: Health, brand: Bool) -> some View {
+        VStack(spacing: 4) {
+            Text(name)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(AppTheme.textTertiary)
+                .lineLimit(1)
+            Text(value)
+                .font(.title3.weight(.bold).monospacedDigit())
+                .foregroundStyle(brand ? AppTheme.blue : ink(health))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            if !brand, health != .none {
+                HealthBadge(health: health)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
         .background(
-            RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
-                .fill(wash(health).opacity(0.55))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
-                .stroke(ink(health).opacity(0.35), lineWidth: 1.5)
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(brand ? AppTheme.blueSoft : wash(health))
         )
     }
 
@@ -7476,108 +7922,6 @@ struct PickerShopperCard: View {
         case .risk: return AppTheme.badSoft
         case .none: return AppTheme.card
         }
-    }
-}
-
-struct PickerScoreTable: View {
-    @EnvironmentObject private var store: HeartbeatStore
-    var focus: PickerFocus = .all
-
-    @State private var sort = PickerSort.pph
-    @State private var ascending = true
-    @State private var limit = 150
-
-    private var total: Int { store.pickerCount(for: focus) }
-    private var page: [MetricRow] {
-        store.pickerPage(focus: focus, sort: sort, ascending: ascending, limit: limit)
-    }
-
-    var body: some View {
-        Section {
-            HStack {
-                Text(pageCaption)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(AppTheme.textSecondary)
-                Spacer()
-                Menu {
-                    ForEach(PickerSort.allCases) { option in
-                        Button {
-                            if sort == option {
-                                ascending.toggle()
-                            } else {
-                                sort = option
-                                ascending = option != .pph
-                            }
-                        } label: {
-                            if sort == option {
-                                Label(option.title, systemImage: ascending ? "chevron.up" : "chevron.down")
-                            } else {
-                                Text(option.title)
-                            }
-                        }
-                    }
-                } label: {
-                    Label("Sort \(sort.title)", systemImage: "arrow.up.arrow.down")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(AppTheme.blue)
-                }
-            }
-            .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 4, trailing: 20))
-            .listRowSeparator(.hidden)
-            .listRowBackground(AppTheme.bg)
-            .onChange(of: focus) { _, _ in
-                limit = 150
-            }
-        }
-
-        if total == 0 {
-            Section {
-                EmptyHint(
-                    symbol: "person.2",
-                    title: "No shoppers in \(focus.title.lowercased())",
-                    detail: "Tap another callout above, or upload the weekly Picker Scorecard."
-                )
-                .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 20, trailing: 20))
-                .listRowSeparator(.hidden)
-                .listRowBackground(AppTheme.bg)
-            }
-        } else {
-            Section {
-                ForEach(page) { row in
-                    PickerShopperCard(row: row, place: place(for: row))
-                        .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.bg)
-                }
-                if page.count < total {
-                    Button {
-                        limit += 150
-                    } label: {
-                        Text("Show more · \(page.count) of \(HeartbeatFormat.num(Double(total)))")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(AppTheme.blue)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                    }
-                    .buttonStyle(.plain)
-                    .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 16, trailing: 20))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(AppTheme.bg)
-                }
-            }
-        }
-    }
-
-    private var pageCaption: String {
-        if page.count < total {
-            return "Showing \(page.count) of \(HeartbeatFormat.num(Double(total))) · \(focus.title)"
-        }
-        return "Showing \(HeartbeatFormat.num(Double(total))) · \(focus.title)"
-    }
-
-    private func place(for row: MetricRow) -> String {
-        let division = row.division.isEmpty ? store.identity(forStore: row.storeNumber).division : row.division
-        return division
     }
 }
 

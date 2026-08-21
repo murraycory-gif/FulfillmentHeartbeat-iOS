@@ -153,11 +153,14 @@ struct SectionDetailView: View {
                 } else if section == .pph {
                     PPHStickyStoreHeader()
                         .environmentObject(laborHeaderPin)
+                } else if section == .pickerScorecard {
+                    PickerStickyStoreHeader()
+                        .environmentObject(laborHeaderPin)
                 }
             }
         }
         .onAppear {
-            if section == .labor || section == .lostRevenue || section == .fiveStar || section == .pickPath || section == .prepNotReady || section == .dynacap || section == .scheduleQuality || section == .pph {
+            if section == .labor || section == .lostRevenue || section == .fiveStar || section == .pickPath || section == .prepNotReady || section == .dynacap || section == .scheduleQuality || section == .pph || section == .pickerScorecard {
                 laborHeaderPin.openOnPageEnter()
             }
         }

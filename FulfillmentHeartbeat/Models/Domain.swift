@@ -2006,14 +2006,26 @@ enum PickerFocus: String, CaseIterable, Identifiable {
 }
 
 enum PickerSort: String, CaseIterable, Identifiable {
-    case pph, name, store
+    case pph, presub, oos, ott, oth5, name, store, status
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .pph: return "PPH"
+        case .presub: return "Presub"
+        case .oos: return "OOS"
+        case .ott: return "OTT"
+        case .oth5: return "OTH5"
         case .name: return "Picker"
         case .store: return "Store"
+        case .status: return "Status"
+        }
+    }
+
+    var defaultAscending: Bool {
+        switch self {
+        case .name, .store, .pph, .ott, .oth5, .status: return true
+        case .presub, .oos: return false
         }
     }
 }
