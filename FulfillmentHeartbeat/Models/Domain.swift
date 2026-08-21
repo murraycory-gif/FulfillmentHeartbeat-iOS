@@ -494,7 +494,9 @@ enum HeartbeatMath {
             let number = canonicalStore(row.storeNumber)
             if ignoredStores.contains(number) { continue }
             var current = map[number] ?? StoreIdentity(division: "", district: "", om: "", name: nil)
-            if current.division.isEmpty, !row.division.isEmpty { current.division = row.division }
+            if current.division.isEmpty, !row.division.isEmpty {
+                current.division = MarketRegion.canonicalName(row.division)
+            }
             if current.district.isEmpty, !row.district.isEmpty { current.district = row.district }
             if current.om.isEmpty, !row.operationsOM.isEmpty { current.om = row.operationsOM }
             if current.name == nil, let name = row.storeName, !name.isEmpty { current.name = name }
@@ -627,7 +629,10 @@ enum HeartbeatMath {
             }
             return MetricRow(
                 section: row.section,
-                division: known?.division.isEmpty == false ? known!.division : row.division,
+                division: {
+                    if let known = known?.division, !known.isEmpty { return MarketRegion.canonicalName(known) }
+                    return MarketRegion.canonicalName(row.division)
+                }(),
                 operationsOM: known?.om.isEmpty == false ? known!.om : row.operationsOM,
                 storeNumber: number,
                 storeName: row.storeName ?? known?.name,
@@ -1581,8 +1586,21 @@ enum MarketRegion: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    var displayDivisions: [String] {
+        var seen = Set<String>()
+        var out: [String] = []
+        for name in divisions {
+            let canonical = Self.canonicalName(name)
+            if seen.insert(HeartbeatMath.normalize(canonical)).inserted {
+                out.append(canonical)
+            }
+        }
+        return out
+    }
+
     func contains(_ division: String) -> Bool {
         divisions.contains { Self.matchesDivision(division, $0) }
+            || divisions.contains { Self.matchesDivision(Self.canonicalName(division), $0) }
     }
 
     static func containing(_ division: String) -> MarketRegion? {
@@ -1595,6 +1613,25 @@ enum MarketRegion: String, CaseIterable, Identifiable, Sendable {
                 lhs.replacingOccurrences(of: "-", with: " "),
                 rhs.replacingOccurrences(of: "-", with: " ")
             )
+    }
+
+    static func canonicalName(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return trimmed }
+        let spaced = HeartbeatMath.normalize(trimmed.replacingOccurrences(of: "-", with: " "))
+        if spaced == "mid atlantic" { return "Mid-Atlantic" }
+        if spaced == "united" || spaced.hasPrefix("united ") { return "United" }
+        return trimmed
+    }
+
+    static func companyDivisions(for filters: DashboardFilters) -> [String] {
+        if !filters.division.isEmpty {
+            return [canonicalName(filters.division)]
+        }
+        if let region = MarketRegion(rawValue: filters.region) {
+            return region.displayDivisions
+        }
+        return allCases.flatMap(\.displayDivisions)
     }
 }
 

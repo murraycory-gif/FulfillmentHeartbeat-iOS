@@ -1198,7 +1198,7 @@ private enum PickPathRollupBuilder {
             let key: String
             switch grain {
             case .division:
-                key = row.division.isEmpty ? "Unassigned" : row.division
+                key = row.division.isEmpty ? "Unassigned" : MarketRegion.canonicalName(row.division)
             case .district:
                 key = row.district.isEmpty ? "Unassigned" : row.district
             case .store:
@@ -1558,7 +1558,14 @@ struct PickPathRollupTable: View {
     private var summary: [PickPathRollupRow] {
         guard let grain else { return [] }
         let source = PickPathRollupBuilder.source(from: store.displayRows(for: .pickPath), filters: store.filters)
-        return PickPathRollupBuilder.rows(from: source, grain: grain)
+        var rows = PickPathRollupBuilder.rows(from: source, grain: grain)
+        if grain == .division {
+            for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
+                rows.append(PickPathRollupRow(id: extra.name, label: extra.name, storeCount: extra.storeCount, path: nil, pph: nil, orders: nil))
+            }
+            rows.sort { ($0.path ?? 999) < ($1.path ?? 999) }
+        }
+        return rows
     }
 }
 
@@ -2193,7 +2200,7 @@ private enum PrepRollupBuilder {
             let key: String
             switch grain {
             case .division:
-                key = row.division.isEmpty ? "Unassigned" : row.division
+                key = row.division.isEmpty ? "Unassigned" : MarketRegion.canonicalName(row.division)
             case .district:
                 key = row.district.isEmpty ? "Unassigned" : row.district
             case .store:
@@ -2532,7 +2539,14 @@ struct PrepRollupTable: View {
     private var summary: [PrepRollupRow] {
         guard let grain else { return [] }
         let source = PrepRollupBuilder.source(from: store.displayRows(for: .prepNotReady), filters: store.filters)
-        return PrepRollupBuilder.rows(from: source, grain: grain)
+        var rows = PrepRollupBuilder.rows(from: source, grain: grain)
+        if grain == .division {
+            for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
+                rows.append(PrepRollupRow(id: extra.name, label: extra.name, storeCount: extra.storeCount, pnr: nil))
+            }
+            rows.sort { ($0.pnr ?? -1) > ($1.pnr ?? -1) }
+        }
+        return rows
     }
 }
 
@@ -2835,7 +2849,10 @@ private struct FiveStarRollupRow: Identifiable {
     let ott: Double?
     let oth: Double?
 
-    var health: Health { HeartbeatMath.band(rating, good: 4.5, watch: HeartbeatMath.fiveStarPass) }
+    var health: Health {
+        guard rating != nil else { return .none }
+        return HeartbeatMath.band(rating, good: 4.5, watch: HeartbeatMath.fiveStarPass)
+    }
 }
 
 private enum FiveStarRollupBuilder {
@@ -2869,7 +2886,7 @@ private enum FiveStarRollupBuilder {
             let key: String
             switch grain {
             case .division:
-                key = row.division.isEmpty ? "Unassigned" : row.division
+                key = row.division.isEmpty ? "Unassigned" : MarketRegion.canonicalName(row.division)
             case .district:
                 key = row.district.isEmpty ? "Unassigned" : row.district
             case .store:
@@ -3056,7 +3073,7 @@ private struct FiveStarMetricLine: View, Equatable {
     let oth: Double?
 
     var body: some View {
-        let health = HeartbeatMath.band(rating, good: 4.5, watch: HeartbeatMath.fiveStarPass)
+        let health = rating == nil ? Health.none : HeartbeatMath.band(rating, good: 4.5, watch: HeartbeatMath.fiveStarPass)
         HStack(spacing: 6) {
             Text(label)
                 .font(.subheadline.weight(.semibold))
@@ -3269,7 +3286,26 @@ struct FiveStarRollupTable: View {
     private var summary: [FiveStarRollupRow] {
         guard let grain else { return [] }
         let source = FiveStarRollupBuilder.source(from: store.displayRows(for: .fiveStar), filters: store.filters)
-        return FiveStarRollupBuilder.rows(from: source, grain: grain)
+        var rows = FiveStarRollupBuilder.rows(from: source, grain: grain)
+        if grain == .division {
+            for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
+                rows.append(
+                    FiveStarRollupRow(
+                        id: extra.name,
+                        label: extra.name,
+                        storeCount: extra.storeCount,
+                        rating: nil,
+                        flash: nil,
+                        presub: nil,
+                        coe: nil,
+                        ott: nil,
+                        oth: nil
+                    )
+                )
+            }
+            rows.sort { ($0.rating ?? 99) < ($1.rating ?? 99) }
+        }
+        return rows
     }
 }
 
@@ -3493,6 +3529,26 @@ private enum LaborRollupGrain {
     }
 }
 
+private enum RollupMarketFill {
+    static func missingDivisions(
+        present: [String],
+        markets: [HeartbeatMath.MarketStore],
+        filters: DashboardFilters
+    ) -> [(name: String, storeCount: Int)] {
+        let seen = Set(present.map { HeartbeatMath.normalize(MarketRegion.canonicalName($0)) })
+        let counts = Dictionary(
+            grouping: markets,
+            by: { MarketRegion.canonicalName($0.division) }
+        )
+        .filter { !$0.key.isEmpty }
+        .mapValues(\.count)
+        return MarketRegion.companyDivisions(for: filters).compactMap { name in
+            guard !seen.contains(HeartbeatMath.normalize(name)) else { return nil }
+            return (name: name, storeCount: counts[name] ?? 0)
+        }
+    }
+}
+
 private struct LaborRollupRow: Identifiable {
     let id: String
     let label: String
@@ -3547,7 +3603,7 @@ private enum LaborRollupBuilder {
             let key: String
             switch grain {
             case .division:
-                key = row.division.isEmpty ? "Unassigned" : row.division
+                key = row.division.isEmpty ? "Unassigned" : MarketRegion.canonicalName(row.division)
             case .district:
                 key = row.district.isEmpty ? "Unassigned" : row.district
             case .store:
@@ -4023,7 +4079,27 @@ struct LaborRollupTable: View {
     private var summary: [LaborRollupRow] {
         guard let grain else { return [] }
         let source = LaborRollupBuilder.source(from: store.displayRows(for: .labor), filters: store.filters)
-        return LaborRollupBuilder.rows(from: source, grain: grain)
+        var rows = LaborRollupBuilder.rows(from: source, grain: grain)
+        if grain == .division {
+            for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
+                rows.append(
+                    LaborRollupRow(
+                        id: extra.name,
+                        label: extra.name,
+                        storeCount: extra.storeCount,
+                        tva: nil,
+                        cost: nil,
+                        act: nil,
+                        efficiency: nil,
+                        uplh: nil,
+                        wage: nil,
+                        aiv: nil
+                    )
+                )
+            }
+            rows.sort { ($0.tva ?? -999) > ($1.tva ?? -999) }
+        }
+        return rows
     }
 }
 
@@ -4605,7 +4681,7 @@ private enum LostRevenueRollupBuilder {
             let key: String
             switch grain {
             case .division:
-                key = row.division.isEmpty ? "Unassigned" : row.division
+                key = row.division.isEmpty ? "Unassigned" : MarketRegion.canonicalName(row.division)
             case .district:
                 key = row.district.isEmpty ? "Unassigned" : row.district
             case .store:
@@ -5005,7 +5081,27 @@ struct LostRevenueRollupTable: View {
     private var summary: [LostRevenueRollupRow] {
         guard let grain else { return [] }
         let source = LostRevenueRollupBuilder.source(from: store.displayRows(for: .lostRevenue), filters: store.filters)
-        return LostRevenueRollupBuilder.rows(from: source, grain: grain)
+        var rows = LostRevenueRollupBuilder.rows(from: source, grain: grain)
+        if grain == .division {
+            for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
+                rows.append(
+                    LostRevenueRollupRow(
+                        id: extra.name,
+                        label: extra.name,
+                        storeCount: extra.storeCount,
+                        lost: nil,
+                        pct: nil,
+                        goal: nil,
+                        sales: nil,
+                        post: nil,
+                        refund: nil,
+                        missed: nil
+                    )
+                )
+            }
+            rows.sort { ($0.lost ?? -1) > ($1.lost ?? -1) }
+        }
+        return rows
     }
 }
 

@@ -233,5 +233,20 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(HeartbeatFormat.moneyShort(13_522_827.21), "$13.52M")
         XCTAssertEqual(HeartbeatFormat.moneyShort(1_100), "$1,100")
     }
+
+    func testCanonicalDivisionMapsUnitedAndCompanyMarketsIncludeUnited() {
+        XCTAssertEqual(MarketRegion.canonicalName("United"), "United")
+        XCTAssertEqual(MarketRegion.canonicalName("United Texas"), "United")
+        XCTAssertEqual(MarketRegion.canonicalName("united supermarkets"), "United")
+        XCTAssertEqual(MarketRegion.canonicalName("Mid Atlantic"), "Mid-Atlantic")
+        XCTAssertEqual(MarketRegion.canonicalName("Jewel Osco"), "Jewel Osco")
+        XCTAssertTrue(MarketRegion.south.contains("United Texas"))
+        let all = MarketRegion.companyDivisions(for: DashboardFilters())
+        XCTAssertEqual(all.count, 12)
+        XCTAssertTrue(all.contains("United"))
+        XCTAssertFalse(all.contains("Mid Atlantic"))
+        let south = MarketRegion.companyDivisions(for: DashboardFilters(region: "South Region", division: "", district: "", om: "", store: ""))
+        XCTAssertEqual(south, ["Southern", "United", "Southwest"])
+    }
 }
 
