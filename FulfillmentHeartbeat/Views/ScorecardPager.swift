@@ -124,12 +124,39 @@ struct ScorecardPager: UIViewControllerRepresentable {
         func prefetch(around dest: HubDestination) {
             let items = HubDestination.sectionItems
             guard let index = items.firstIndex(of: dest) else { return }
+            trimCache(around: index)
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                for item in [index + 1, index - 1] where items.indices.contains(item) {
+                for offset in [1, -1] {
+                    let item = index + offset
+                    guard items.indices.contains(item) else { continue }
+                    let next = items[item]
+                    if next == .diagnostics || next == .checklist { continue }
+                    _ = self.host(for: next)
+                }
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+                guard let self else { return }
+                guard self.displayed == dest else { return }
+                for offset in [1, -1] {
+                    let item = index + offset
+                    guard items.indices.contains(item) else { continue }
                     _ = self.host(for: items[item])
                 }
             }
+        }
+
+        private func trimCache(around index: Int) {
+            let items = HubDestination.sectionItems
+            var keep = Set<HubDestination>()
+            for offset in -1...1 {
+                let i = index + offset
+                if items.indices.contains(i) {
+                    keep.insert(items[i])
+                }
+            }
+            if cache.count <= keep.count { return }
+            cache = cache.filter { keep.contains($0.key) }
         }
 
         private func resetScroll(_ pager: UIPageViewController) {

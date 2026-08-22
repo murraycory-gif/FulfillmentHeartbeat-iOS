@@ -2,12 +2,26 @@ import SwiftUI
 
 struct DiagnosticView: View {
     @EnvironmentObject private var store: HeartbeatStore
+    @State private var board = DiagnosticSnapshot.empty
+    @State private var builtStamp = -1
 
     var body: some View {
         DiagnosticPage(
-            board: DiagnosticBoard.build(store: store),
+            board: board,
             filterSummary: store.filters.summary
         )
+        .onAppear { rebuildIfNeeded() }
+        .onChange(of: store.filterStamp) { _, _ in
+            builtStamp = -1
+            rebuildIfNeeded()
+        }
+    }
+
+    private func rebuildIfNeeded() {
+        let stamp = store.filterStamp
+        guard builtStamp != stamp else { return }
+        builtStamp = stamp
+        board = DiagnosticBoard.build(store: store)
     }
 }
 

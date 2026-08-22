@@ -1070,6 +1070,7 @@ struct PickPathTable: View {
     @State private var ascending = true
     @State private var snaps: [PickPathLineSnap] = []
     @State private var openStore: String?
+    @State private var limit = 150
 
     private var expanded: Bool { headerPin.storesExpanded }
 
@@ -1139,7 +1140,7 @@ struct PickPathTable: View {
                     .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
                     .listRowSeparator(.hidden)
                     .listRowBackground(AppTheme.tableFill)
-                    ForEach(snaps) { snap in
+                    ForEach(Array(snaps.prefix(limit))) { snap in
                         PickPathStoreRow(
                             snap: snap,
                             expanded: openStore == snap.storeNumber,
@@ -1151,10 +1152,26 @@ struct PickPathTable: View {
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.tableFill)
                     }
+                    if snaps.count > limit {
+                        Button {
+                            limit += 150
+                        } label: {
+                            Text("Show more · \(min(limit, snaps.count)) of \(HeartbeatFormat.num(Double(snaps.count)))")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(AppTheme.blue)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                        }
+                        .buttonStyle(.plain)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 16, trailing: 20))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(AppTheme.tableFill)
+                    }
                 }
                 .transaction { $0.animation = nil }
                 .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
                 .onChange(of: rows.count) { _, _ in
+                    limit = 150
                     rebuildOrder(sort: sort, ascending: ascending)
                     headerPin.storeCount = rows.count
                 }
@@ -1845,6 +1862,7 @@ struct DynacapTable: View {
     @State private var ascending = false
     @State private var snaps: [DynacapLineSnap] = []
     @State private var openStore: String?
+    @State private var limit = 150
 
     private var expanded: Bool { headerPin.storesExpanded }
 
@@ -1914,7 +1932,7 @@ struct DynacapTable: View {
                     .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
                     .listRowSeparator(.hidden)
                     .listRowBackground(AppTheme.tableFill)
-                    ForEach(snaps) { snap in
+                    ForEach(Array(snaps.prefix(limit))) { snap in
                         DynacapStoreRow(
                             snap: snap,
                             expanded: openStore == snap.storeNumber,
@@ -1926,10 +1944,26 @@ struct DynacapTable: View {
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.tableFill)
                     }
+                    if snaps.count > limit {
+                        Button {
+                            limit += 150
+                        } label: {
+                            Text("Show more · \(min(limit, snaps.count)) of \(HeartbeatFormat.num(Double(snaps.count)))")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(AppTheme.blue)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                        }
+                        .buttonStyle(.plain)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 16, trailing: 20))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(AppTheme.tableFill)
+                    }
                 }
                 .transaction { $0.animation = nil }
                 .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
                 .onChange(of: rows.count) { _, _ in
+                    limit = 150
                     rebuildOrder(sort: sort, ascending: ascending)
                     headerPin.storeCount = rows.count
                 }
@@ -2509,6 +2543,7 @@ struct PrepTable: View {
     @State private var ascending = false
     @State private var snaps: [PrepLineSnap] = []
     @State private var openStore: String?
+    @State private var limit = 150
 
     private var expanded: Bool { headerPin.storesExpanded }
 
@@ -2578,7 +2613,7 @@ struct PrepTable: View {
                     .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
                     .listRowSeparator(.hidden)
                     .listRowBackground(AppTheme.tableFill)
-                    ForEach(snaps) { snap in
+                    ForEach(Array(snaps.prefix(limit))) { snap in
                         PrepStoreRow(
                             snap: snap,
                             expanded: openStore == snap.storeNumber,
@@ -2590,10 +2625,26 @@ struct PrepTable: View {
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.tableFill)
                     }
+                    if snaps.count > limit {
+                        Button {
+                            limit += 150
+                        } label: {
+                            Text("Show more · \(min(limit, snaps.count)) of \(HeartbeatFormat.num(Double(snaps.count)))")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(AppTheme.blue)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                        }
+                        .buttonStyle(.plain)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 16, trailing: 20))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(AppTheme.tableFill)
+                    }
                 }
                 .transaction { $0.animation = nil }
                 .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
                 .onChange(of: rows.count) { _, _ in
+                    limit = 150
                     rebuildOrder(sort: sort, ascending: ascending)
                     headerPin.storeCount = rows.count
                 }
@@ -3162,6 +3213,7 @@ struct FiveStarTable: View {
     @State private var ascending = true
     @State private var snaps: [FiveStarLineSnap] = []
     @State private var openStore: String?
+    @State private var limit = 150
 
     private var expanded: Bool { headerPin.storesExpanded }
 
@@ -3231,7 +3283,7 @@ struct FiveStarTable: View {
                     .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
                     .listRowSeparator(.hidden)
                     .listRowBackground(AppTheme.tableFill)
-                    ForEach(snaps) { snap in
+                    ForEach(Array(snaps.prefix(limit))) { snap in
                         FiveStarStoreRow(
                             snap: snap,
                             expanded: openStore == snap.storeNumber,
@@ -3243,10 +3295,26 @@ struct FiveStarTable: View {
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.tableFill)
                     }
+                    if snaps.count > limit {
+                        Button {
+                            limit += 150
+                        } label: {
+                            Text("Show more · \(min(limit, snaps.count)) of \(HeartbeatFormat.num(Double(snaps.count)))")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(AppTheme.blue)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                        }
+                        .buttonStyle(.plain)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 16, trailing: 20))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(AppTheme.tableFill)
+                    }
                 }
                 .transaction { $0.animation = nil }
                 .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
                 .onChange(of: rows.count) { _, _ in
+                    limit = 150
                     rebuildOrder(sort: sort, ascending: ascending)
                     headerPin.storeCount = rows.count
                 }
@@ -4370,8 +4438,8 @@ struct LaborListTopKey: PreferenceKey {
 }
 
 final class LaborHeaderPin: ObservableObject {
-    @Published var tableOpen = true
-    @Published var storesExpanded = true
+    @Published var tableOpen = false
+    @Published var storesExpanded = false
     @Published var rollupExpanded = true
     @Published var pinned = false
     @Published var active = "tva"
@@ -4381,9 +4449,9 @@ final class LaborHeaderPin: ObservableObject {
     var onSelect: ((String) -> Void)?
 
     func openOnPageEnter() {
-        storesExpanded = true
+        storesExpanded = false
         rollupExpanded = true
-        tableOpen = true
+        tableOpen = false
         pinned = false
     }
 
@@ -4609,6 +4677,7 @@ struct LaborTable: View {
     @State private var ascending = false
     @State private var snaps: [LaborLineSnap] = []
     @State private var openStore: String?
+    @State private var limit = 150
 
     private var expanded: Bool { headerPin.storesExpanded }
 
@@ -4678,7 +4747,7 @@ struct LaborTable: View {
                     .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
                     .listRowSeparator(.hidden)
                     .listRowBackground(AppTheme.tableFill)
-                    ForEach(snaps) { snap in
+                    ForEach(Array(snaps.prefix(limit))) { snap in
                         LaborStoreRow(
                             snap: snap,
                             expanded: openStore == snap.storeNumber,
@@ -4690,10 +4759,26 @@ struct LaborTable: View {
                             .listRowSeparator(.hidden)
                             .listRowBackground(AppTheme.tableFill)
                     }
+                    if snaps.count > limit {
+                        Button {
+                            limit += 150
+                        } label: {
+                            Text("Show more · \(min(limit, snaps.count)) of \(HeartbeatFormat.num(Double(snaps.count)))")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(AppTheme.blue)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                        }
+                        .buttonStyle(.plain)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 16, trailing: 20))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(AppTheme.tableFill)
+                    }
                 }
                 .transaction { $0.animation = nil }
                 .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
                 .onChange(of: rows.count) { _, _ in
+                    limit = 150
                     rebuildOrder(sort: sort, ascending: ascending)
                     headerPin.storeCount = rows.count
                 }
@@ -5573,6 +5658,7 @@ struct LostRevenueTable: View {
     @State private var ascending = false
     @State private var snaps: [LostRevenueLineSnap] = []
     @State private var openStore: String?
+    @State private var limit = 150
 
     private var expanded: Bool { headerPin.storesExpanded }
 
@@ -5642,7 +5728,7 @@ struct LostRevenueTable: View {
                     .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
                     .listRowSeparator(.hidden)
                     .listRowBackground(AppTheme.tableFill)
-                    ForEach(snaps) { snap in
+                    ForEach(Array(snaps.prefix(limit))) { snap in
                         LostRevenueStoreRow(
                             snap: snap,
                             expanded: openStore == snap.storeNumber,
@@ -5654,10 +5740,26 @@ struct LostRevenueTable: View {
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.tableFill)
                     }
+                    if snaps.count > limit {
+                        Button {
+                            limit += 150
+                        } label: {
+                            Text("Show more · \(min(limit, snaps.count)) of \(HeartbeatFormat.num(Double(snaps.count)))")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(AppTheme.blue)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                        }
+                        .buttonStyle(.plain)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 16, trailing: 20))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(AppTheme.tableFill)
+                    }
                 }
                 .transaction { $0.animation = nil }
                 .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
                 .onChange(of: rows.count) { _, _ in
+                    limit = 150
                     rebuildOrder(sort: sort, ascending: ascending)
                     headerPin.storeCount = rows.count
                 }
@@ -5863,6 +5965,7 @@ struct ScheduleTable: View {
     @State private var ascending = true
     @State private var snaps: [ScheduleLineSnap] = []
     @State private var openStore: String?
+    @State private var limit = 150
 
     private var expanded: Bool { headerPin.storesExpanded }
 
@@ -5932,7 +6035,7 @@ struct ScheduleTable: View {
                     .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
                     .listRowSeparator(.hidden)
                     .listRowBackground(AppTheme.tableFill)
-                    ForEach(snaps) { snap in
+                    ForEach(Array(snaps.prefix(limit))) { snap in
                         ScheduleStoreRow(
                             snap: snap,
                             expanded: openStore == snap.storeNumber,
@@ -5944,10 +6047,26 @@ struct ScheduleTable: View {
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.tableFill)
                     }
+                    if snaps.count > limit {
+                        Button {
+                            limit += 150
+                        } label: {
+                            Text("Show more · \(min(limit, snaps.count)) of \(HeartbeatFormat.num(Double(snaps.count)))")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(AppTheme.blue)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                        }
+                        .buttonStyle(.plain)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 16, trailing: 20))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(AppTheme.tableFill)
+                    }
                 }
                 .transaction { $0.animation = nil }
                 .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
                 .onChange(of: rows.count) { _, _ in
+                    limit = 150
                     rebuildOrder(sort: sort, ascending: ascending)
                     headerPin.storeCount = rows.count
                 }
@@ -6572,6 +6691,7 @@ struct PPHTable: View {
     @State private var ascending = true
     @State private var snaps: [PPHLineSnap] = []
     @State private var openStore: String?
+    @State private var limit = 150
 
     private var expanded: Bool { headerPin.storesExpanded }
 
@@ -6641,7 +6761,7 @@ struct PPHTable: View {
                     .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
                     .listRowSeparator(.hidden)
                     .listRowBackground(AppTheme.tableFill)
-                    ForEach(snaps) { snap in
+                    ForEach(Array(snaps.prefix(limit))) { snap in
                         PPHStoreRow(
                             snap: snap,
                             expanded: openStore == snap.storeNumber,
@@ -6653,10 +6773,26 @@ struct PPHTable: View {
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.tableFill)
                     }
+                    if snaps.count > limit {
+                        Button {
+                            limit += 150
+                        } label: {
+                            Text("Show more · \(min(limit, snaps.count)) of \(HeartbeatFormat.num(Double(snaps.count)))")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(AppTheme.blue)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                        }
+                        .buttonStyle(.plain)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 16, trailing: 20))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(AppTheme.tableFill)
+                    }
                 }
                 .transaction { $0.animation = nil }
                 .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
                 .onChange(of: rows.count) { _, _ in
+                    limit = 150
                     rebuildOrder(sort: sort, ascending: ascending)
                     headerPin.storeCount = rows.count
                 }
@@ -7423,7 +7559,7 @@ struct PickerScoreTable: View {
                     .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
                     .listRowSeparator(.hidden)
                     .listRowBackground(AppTheme.tableFill)
-                    ForEach(snaps) { snap in
+                    ForEach(Array(snaps.prefix(limit))) { snap in
                         PickerStoreRow(
                             snap: snap,
                             expanded: openShopper == snap.id.uuidString,

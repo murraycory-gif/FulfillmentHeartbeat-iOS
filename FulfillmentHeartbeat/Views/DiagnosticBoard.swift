@@ -456,4 +456,13 @@ struct DiagnosticSnapshot {
     var markets: [DiagnosticUnit]
     var districts: [DiagnosticUnit]
     var stores: [DiagnosticUnit]
+
+    static let empty = DiagnosticSnapshot(
+        filterFindings: [],
+        riskStoreCount: 0,
+        regions: [],
+        markets: [],
+        districts: [],
+        stores: []
+    )
 }
