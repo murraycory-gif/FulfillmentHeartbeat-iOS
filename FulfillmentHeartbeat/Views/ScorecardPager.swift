@@ -19,7 +19,7 @@ struct ScorecardPager: UIViewControllerRepresentable {
         )
         pager.delegate = context.coordinator
         pager.dataSource = context.coordinator
-        pager.view.backgroundColor = UIColor(red: 0.96, green: 0.97, blue: 0.99, alpha: 1)
+        pager.view.backgroundColor = AppTheme.uiBg
         context.coordinator.attach(pager)
         let dest = router.current == .upload ? .dashboard : router.current
         context.coordinator.snap(to: dest, animated: false)
@@ -54,8 +54,18 @@ struct ScorecardPager: UIViewControllerRepresentable {
         init(dest: HubDestination, rootView: AnyView) {
             self.dest = dest
             super.init(rootView: rootView)
-            view.backgroundColor = UIColor(red: 0.96, green: 0.97, blue: 0.99, alpha: 1)
+            view.backgroundColor = AppTheme.uiBg
             view.clipsToBounds = true
+        }
+
+        override func viewDidLoad() {
+            super.viewDidLoad()
+            view.backgroundColor = AppTheme.uiBg
+        }
+
+        override func viewWillLayoutSubviews() {
+            super.viewWillLayoutSubviews()
+            view.backgroundColor = AppTheme.uiBg
         }
 
         @available(*, unavailable)
@@ -84,6 +94,7 @@ struct ScorecardPager: UIViewControllerRepresentable {
             if let existing = cache[dest] { return existing }
             let root = page(dest)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(AppTheme.bg.ignoresSafeArea())
             let host = PageHost(dest: dest, rootView: AnyView(root))
             cache[dest] = host
             return host

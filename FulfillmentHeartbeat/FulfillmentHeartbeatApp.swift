@@ -5,14 +5,16 @@ import UIKit
 struct FulfillmentHeartbeatApp: App {
     @StateObject private var store = HeartbeatStore()
 
-    private let launchUI = UIColor(red: 0.96, green: 0.97, blue: 0.99, alpha: 1)
-    private let launch = Color(red: 0.96, green: 0.97, blue: 0.99)
+    private let launchUI = AppTheme.uiBg
+    private let launch = AppTheme.bg
 
     init() {
         UIWindow.appearance().backgroundColor = launchUI
+        UITableView.appearance().backgroundColor = launchUI
+        UICollectionView.appearance().backgroundColor = launchUI
         let nav = UINavigationBarAppearance()
         nav.configureWithTransparentBackground()
-        nav.backgroundColor = UIColor(red: 0.96, green: 0.97, blue: 0.99, alpha: 1)
+        nav.backgroundColor = launchUI
         nav.largeTitleTextAttributes = [
             .foregroundColor: UIColor(red: 0.08, green: 0.10, blue: 0.16, alpha: 1),
             .font: UIFont.systemFont(ofSize: 34, weight: .semibold),

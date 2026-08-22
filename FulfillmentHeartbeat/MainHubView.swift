@@ -237,6 +237,7 @@ struct MainHubView: View {
                 .ignoresSafeArea(edges: .bottom)
             }
         }
+        .background(AppTheme.bg.ignoresSafeArea())
         .hubChrome(
             showBack: router.current != .dashboard,
             showsFilters: router.current != .upload

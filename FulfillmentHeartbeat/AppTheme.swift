@@ -1,12 +1,15 @@
 import SwiftUI
+import UIKit
 
-/// EnviroMap light paper: cool white surfaces, brand blue, quiet type.
+/// EnviroMap light paper: HUB canvas #F5F7FC, brand blue, quiet type.
 enum AppTheme {
     static let blue = Color(hex: "3A69EA")
     static let blueSoft = Color(hex: "E8EEFE")
     static let blueDeep = Color(hex: "1E4BC8")
 
-    static let bg = Color(red: 0.96, green: 0.97, blue: 0.99)
+    /// Same canvas as the HUB app.
+    static let bg = Color(hex: "F5F7FC")
+    static let uiBg = UIColor(red: 245 / 255, green: 247 / 255, blue: 252 / 255, alpha: 1)
     static let card = Color.white
     static let cardBorder = Color.black.opacity(0.06)
 
