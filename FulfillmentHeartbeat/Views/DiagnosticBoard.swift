@@ -171,6 +171,7 @@ struct DiagnosticPulse {
     var lost: Double
 }
 
+@MainActor
 enum DiagnosticBoard {
     static func build(store: HeartbeatStore) -> DiagnosticSnapshot {
         let pulses = makePulses(store)
