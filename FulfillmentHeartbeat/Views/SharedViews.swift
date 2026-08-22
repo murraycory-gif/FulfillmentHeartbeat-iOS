@@ -20,6 +20,45 @@ struct HubCard<Content: View>: View {
     }
 }
 
+struct HubBanner: View {
+    var icon: String
+    var title: String
+    var accessory: String? = nil
+    var clipped: Bool = true
+
+    var body: some View {
+        let bar = HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.title2.weight(.semibold))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.title2.weight(.bold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                if let accessory, !accessory.isEmpty {
+                    Text(accessory)
+                        .font(.subheadline.weight(.semibold))
+                        .opacity(0.9)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+            }
+            Spacer(minLength: 8)
+        }
+        .foregroundStyle(Color.white)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 13)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppTheme.blue)
+
+        if clipped {
+            bar.clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
+        } else {
+            bar
+        }
+    }
+}
+
 struct HubPanel<Content: View>: View {
     var icon: String
     var title: String
@@ -28,26 +67,7 @@ struct HubPanel<Content: View>: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                Image(systemName: icon)
-                    .font(.title3.weight(.semibold))
-                Text(title)
-                    .font(.title3.weight(.bold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                Spacer(minLength: 8)
-                if let accessory, !accessory.isEmpty {
-                    Text(accessory)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                }
-            }
-            .foregroundStyle(Color.white)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 13)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(AppTheme.blue)
-
+            HubBanner(icon: icon, title: title, accessory: accessory, clipped: false)
             content
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(14)

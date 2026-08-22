@@ -170,30 +170,16 @@ struct SectionDetailView: View {
     private var pageIntro: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
-                if section == .pickerScorecard {
-                    PageHeadline(lead: "Picker", accent: "ScoreCard", blurb: section.blurb)
-                } else if section == .labor {
-                    PageHeadline(lead: "Labor", accent: "ScoreCard", blurb: section.blurb)
-                } else if section == .pph {
-                    PageHeadline(lead: "PPH Pure Picks Per Hour", accent: "ScoreCard", blurb: section.blurb)
-                } else if section == .scheduleQuality {
-                    PageHeadline(lead: "Schedule Quality", accent: "ScoreCard", blurb: section.blurb)
-                } else if section == .dynacap {
-                    PageHeadline(lead: "Dynacap Settings", accent: "ScoreCard", blurb: section.blurb)
-                } else if section == .prepNotReady {
-                    PageHeadline(lead: "Prep Not Ready", accent: "ScoreCard", blurb: section.blurb)
-                } else if section == .pickPath {
-                    PageHeadline(lead: "Pick Path Compliance", accent: "ScoreCard", blurb: section.blurb)
-                } else if section == .fiveStar {
-                    PageHeadline(lead: "5 Star", accent: "ScoreCard", blurb: section.blurb)
-                } else if section == .lostRevenue {
-                    PageHeadline(lead: "Loss Revenue", accent: "ScoreCard", blurb: section.blurb)
-                } else {
-                    PageHeadline(
-                        lead: section == .pickPath ? "Pick Path Compliance" : section.title,
-                        blurb: section.blurb
-                    )
-                }
+                HubBanner(
+                    icon: section.symbol,
+                    title: section.bannerTitle,
+                    accessory: store.filters.summary
+                )
+                Text(section.blurb)
+                    .font(.subheadline)
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .padding(.top, 6)
+                    .padding(.horizontal, 4)
             }
 
             if section == .labor, store.laborNeedsReload() {

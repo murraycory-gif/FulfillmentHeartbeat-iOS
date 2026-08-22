@@ -74,6 +74,20 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         }
     }
 
+    var bannerTitle: String {
+        switch self {
+        case .fiveStar: return "5 Star ScoreCard"
+        case .pickPath, .pickPathPicker: return "Pick Path Compliance ScoreCard"
+        case .prepNotReady: return "Prep Not Ready ScoreCard"
+        case .dynacap: return "Dynacap Settings ScoreCard"
+        case .scheduleQuality: return "Schedule Quality ScoreCard"
+        case .pph: return "PPH Pure Picks Per Hour"
+        case .labor: return "Labor ScoreCard"
+        case .pickerScorecard: return "Picker ScoreCard"
+        case .lostRevenue: return "Loss Revenue ScoreCard"
+        }
+    }
+
     var symbol: String {
         switch self {
         case .fiveStar: return "star.fill"
