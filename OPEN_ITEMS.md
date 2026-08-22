@@ -9,3 +9,4 @@
 | FH-005 | Med | Open | Compact iPhone table polish (foundation already runs) |
 | FH-006 | Low | Open | App Store screenshots + Fastlane snapshot |
 | FH-007 | Low | Open | Widget (section health + at-risk store count) |
+| FH-008 | High | Open | Build `Heartbeat Master.xlsx` using tab names in [MASTER_LOAD.md](MASTER_LOAD.md) |
