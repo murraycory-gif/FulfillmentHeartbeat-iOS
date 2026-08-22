@@ -24,7 +24,11 @@ struct UploadView: View {
                     enabled: !store.isImporting,
                     importing: store.isImporting && importTarget == nil,
                     label: store.importLabel,
-                    onPick: beginMasterImport
+                    linkedName: store.linkedMasterName,
+                    lastLoaded: store.linkedMasterLoadedAt,
+                    onReload: { store.reloadLinkedMaster() },
+                    onPick: beginMasterImport,
+                    onUnlink: { store.unlinkMasterFile() }
                 )
                 Text("Or load one KPI")
                     .font(.title3.weight(.bold))
@@ -130,7 +134,7 @@ struct UploadView: View {
             do {
                 let file = try HeartbeatFilePicker.readPickedFile(url)
                 if master || section == nil {
-                    store.importMasterWorkbook(data: file.data, filename: file.name)
+                    store.importMasterWorkbook(data: file.data, filename: file.name, sourceURL: url)
                 } else if let section {
                     store.importWorkbook(data: file.data, filename: file.name, section: section)
                 }
@@ -154,53 +158,103 @@ struct MasterLoadPanel: View {
     var enabled: Bool
     var importing: Bool
     var label: String?
+    var linkedName: String?
+    var lastLoaded: Date?
+    var onReload: () -> Void
     var onPick: () -> Void
+    var onUnlink: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
             HubBanner(
                 icon: "square.stack.3d.up.fill",
                 title: "Master load",
-                accessory: "One shared .xlsx  ·  every sheet  ·  every scorecard",
+                accessory: linkedName.map { "Linked  ·  \($0)" } ?? "One shared .xlsx  ·  every sheet  ·  every scorecard",
                 clipped: false
             )
             VStack(alignment: .leading, spacing: 14) {
-                Text("Put all the weekly exports in one workbook — one tab per KPI — and pick that file from iCloud or OneDrive. We map the sheets and replace every scorecard they match.")
+                Text(linkedName == nil
+                     ? "Choose the shared workbook once from iCloud or OneDrive. After that, Reload pulls the latest from that same file."
+                     : "Reload grabs the latest from the linked iCloud or OneDrive file. Choose file still lets you pick a different workbook.")
                     .font(.subheadline)
                     .foregroundStyle(AppTheme.textSecondary)
+
+                if linkedName != nil {
+                    Button(action: onReload) {
+                        VStack(spacing: 8) {
+                            Image(systemName: "arrow.clockwise.icloud.fill")
+                                .font(.system(size: 26, weight: .semibold))
+                                .foregroundStyle(AppTheme.blue)
+                            Text(importing ? (label ?? "Reloading master workbook…") : "Reload shared file")
+                                .font(.headline.weight(.semibold))
+                                .foregroundStyle(AppTheme.text)
+                            Text(reloadCaption)
+                                .font(.caption)
+                                .foregroundStyle(AppTheme.textTertiary)
+                            Text(importing ? "Loading" : "Reload")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 10)
+                                .background(AppTheme.blue, in: Capsule(style: .continuous))
+                                .padding(.top, 4)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 22)
+                        .padding(.horizontal, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
+                                .fill(AppTheme.blueSoft)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
+                                .strokeBorder(AppTheme.blue.opacity(0.35), lineWidth: 1.5)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!enabled)
+                }
+
                 Button(action: onPick) {
-                    VStack(spacing: 8) {
+                    HStack(spacing: 10) {
                         Image(systemName: "square.and.arrow.up.on.square")
-                            .font(.system(size: 26, weight: .semibold))
+                            .font(.title3.weight(.semibold))
                             .foregroundStyle(AppTheme.blue)
-                        Text(importing ? (label ?? "Reading master workbook…") : "Choose the shared master file")
-                            .font(.headline.weight(.semibold))
-                            .foregroundStyle(AppTheme.text)
-                        Text(".xlsx with a sheet for each KPI")
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.textTertiary)
-                        Text(importing ? "Loading" : "Choose file")
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(linkedName == nil ? "Choose the shared master file" : "Choose a different file")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(AppTheme.text)
+                            Text(".xlsx with a sheet for each KPI")
+                                .font(.caption)
+                                .foregroundStyle(AppTheme.textTertiary)
+                        }
+                        Spacer(minLength: 0)
+                        Text("Choose file")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.white)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 10)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
                             .background(AppTheme.blue, in: Capsule(style: .continuous))
-                            .padding(.top, 4)
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 22)
-                    .padding(.horizontal, 12)
+                    .padding(14)
                     .background(
                         RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
-                            .fill(AppTheme.blueSoft)
+                            .fill(linkedName == nil ? AppTheme.blueSoft : AppTheme.bg)
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
-                            .strokeBorder(AppTheme.blue.opacity(0.35), lineWidth: 1.5)
+                            .strokeBorder(AppTheme.blue.opacity(0.28), lineWidth: 1.5)
                     )
                 }
                 .buttonStyle(.plain)
                 .disabled(!enabled)
+
+                if linkedName != nil {
+                    Button("Unlink shared file", action: onUnlink)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(AppTheme.bad)
+                        .disabled(!enabled)
+                }
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -211,6 +265,13 @@ struct MasterLoadPanel: View {
             RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
                 .stroke(AppTheme.blue, lineWidth: 2.5)
         )
+    }
+
+    private var reloadCaption: String {
+        if let lastLoaded {
+            return "Last loaded \(HeartbeatFormat.updated(lastLoaded))  ·  pulls the latest export"
+        }
+        return "Pulls the latest export from the linked file"
     }
 }
 

@@ -20,10 +20,13 @@ final class HeartbeatStore: ObservableObject {
     @Published var waitingForFileSection: MetricSection?
     @Published private(set) var isReady = false
     @Published private(set) var filterStamp = 0
+    @Published private(set) var linkedMasterName: String?
+    @Published private(set) var linkedMasterLoadedAt: Date?
 
     private let fileManager: FileManager
     private let snapshotURL: URL
     private let checklistURL: URL
+    private let masterLinkURL: URL
     private var hydrating = false
     private var pendingExternalData: Data?
     @Published private(set) var checklistRecipients: [String] = []
@@ -52,6 +55,7 @@ final class HeartbeatStore: ObservableObject {
     private var pphPickersByStore: [String: [MetricRow]] = [:]
     private var laborWeeksByStore: [String: [MetricRow]] = [:]
     private var unfilteredPulse: FilterPulse?
+    private var masterBookmark: Data?
 
     init(rootURL: URL? = nil) {
         fileManager = .default
@@ -61,11 +65,13 @@ final class HeartbeatStore: ObservableObject {
         }
         snapshotURL = root.appendingPathComponent("heartbeat.json")
         checklistURL = root.appendingPathComponent("checklist.json")
+        masterLinkURL = root.appendingPathComponent("master-link.json")
         rows = []
         uploads = []
         seeded = false
         filters = DashboardFilters()
         loadChecklist()
+        loadMasterLink()
         load()
     }
 
@@ -883,7 +889,10 @@ final class HeartbeatStore: ObservableObject {
                     waitingForFileSection = nil
                     await runImport(data: file.data, filename: file.name, section: section)
                 } else {
-                    await runMasterImport(data: file.data, filename: file.name, fallbackToPicker: true)
+                    let ok = await runMasterImport(data: file.data, filename: file.name, fallbackToPicker: true)
+                    if ok {
+                        rememberMasterFile(url: url, filename: file.name)
+                    }
                 }
             } catch {
                 errorMessage = error.localizedDescription
@@ -944,9 +953,94 @@ final class HeartbeatStore: ObservableObject {
         Task { await runImport(data: data, filename: filename, section: section) }
     }
 
-    func importMasterWorkbook(data: Data, filename: String) {
+    func importMasterWorkbook(data: Data, filename: String, sourceURL: URL? = nil) {
         _ = saveToDocuments(data, filename: filename)
-        Task { await runMasterImport(data: data, filename: filename, fallbackToPicker: false) }
+        Task {
+            let ok = await runMasterImport(data: data, filename: filename, fallbackToPicker: false)
+            if ok {
+                rememberMasterFile(url: sourceURL, filename: filename)
+            }
+        }
+    }
+
+    func reloadLinkedMaster() {
+        Task { await runLinkedMasterReload() }
+    }
+
+    func unlinkMasterFile() {
+        masterBookmark = nil
+        linkedMasterName = nil
+        linkedMasterLoadedAt = nil
+        try? fileManager.removeItem(at: masterLinkURL)
+    }
+
+    private func runLinkedMasterReload() async {
+        guard let bookmark = masterBookmark else {
+            errorMessage = "Link a shared master file first with Choose file."
+            return
+        }
+        guard !isImporting else { return }
+        isImporting = true
+        importLabel = "Opening linked master file…"
+        errorMessage = nil
+        do {
+            var stale = false
+            let url = try URL(resolvingBookmarkData: bookmark, options: [], relativeTo: nil, bookmarkDataIsStale: &stale)
+            let accessed = url.startAccessingSecurityScopedResource()
+            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+            importLabel = "Downloading \(linkedMasterName ?? url.lastPathComponent)…"
+            let file = try HeartbeatFilePicker.readPickedFile(url)
+            isImporting = false
+            importLabel = nil
+            _ = saveToDocuments(file.data, filename: file.name)
+            let ok = await runMasterImport(data: file.data, filename: file.name, fallbackToPicker: false)
+            if ok {
+                rememberMasterFile(url: url, filename: file.name)
+            }
+        } catch {
+            isImporting = false
+            importLabel = nil
+            errorMessage = "Could not reach the linked file. Open it in Files so iCloud or OneDrive finishes downloading, then tap Reload — or Choose file again."
+        }
+    }
+
+    private func rememberMasterFile(url: URL?, filename: String) {
+        linkedMasterName = filename
+        linkedMasterLoadedAt = Date()
+        if let url {
+            let accessed = url.startAccessingSecurityScopedResource()
+            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+            if let data = try? url.bookmarkData(options: [], includingResourceValuesForKeys: nil, relativeTo: nil) {
+                masterBookmark = data
+            }
+        }
+        persistMasterLink()
+    }
+
+    private func loadMasterLink() {
+        guard let data = try? Data(contentsOf: masterLinkURL),
+              let record = try? JSONDecoder().decode(MasterLinkRecord.self, from: data)
+        else { return }
+        masterBookmark = record.bookmark
+        linkedMasterName = record.filename
+        linkedMasterLoadedAt = record.lastLoadedAt
+    }
+
+    private func persistMasterLink() {
+        guard let bookmark = masterBookmark, let name = linkedMasterName else {
+            try? fileManager.removeItem(at: masterLinkURL)
+            return
+        }
+        let record = MasterLinkRecord(filename: name, bookmark: bookmark, lastLoadedAt: linkedMasterLoadedAt)
+        if let data = try? JSONEncoder().encode(record) {
+            try? data.write(to: masterLinkURL, options: [.atomic])
+        }
+    }
+
+    private struct MasterLinkRecord: Codable {
+        var filename: String
+        var bookmark: Data
+        var lastLoadedAt: Date?
     }
 
     private func runImport(data: Data, filename: String, section: MetricSection) async {
@@ -1005,8 +1099,8 @@ final class HeartbeatStore: ObservableObject {
         persist()
     }
 
-    private func runMasterImport(data: Data, filename: String, fallbackToPicker: Bool) async {
-        guard !isImporting else { return }
+    private func runMasterImport(data: Data, filename: String, fallbackToPicker: Bool) async -> Bool {
+        guard !isImporting else { return false }
         isImporting = true
         importLabel = "Reading master workbook…"
         errorMessage = nil
@@ -1048,18 +1142,22 @@ final class HeartbeatStore: ObservableObject {
             let names = loaded.joined(separator: ", ")
             statusMessage = "Master load: \(loaded.count) scorecard\(loaded.count == 1 ? "" : "s") from \(filename) — \(names). Filters cleared so the new files are in view."
             persist()
+            isImporting = false
+            importLabel = nil
+            return true
         } catch {
             if fallbackToPicker {
                 pendingExternalData = data
                 pendingExternalName = filename
                 isImporting = false
                 importLabel = nil
-                return
+                return false
             }
             errorMessage = error.localizedDescription
         }
         isImporting = false
         importLabel = nil
+        return false
     }
 
     func clearSection(_ section: MetricSection) {
