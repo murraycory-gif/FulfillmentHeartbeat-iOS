@@ -8109,18 +8109,18 @@ struct FulfillmentChecklistCard: View {
     }
 
     private func compactStat(_ label: String, _ value: String, _ ink: Color, _ wash: Color) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 8) {
             Text(value)
-                .font(.headline.monospacedDigit())
+                .font(.system(size: 28, weight: .bold, design: .rounded).monospacedDigit())
                 .foregroundStyle(ink)
             Text(label)
-                .font(.caption.weight(.semibold))
+                .font(.title3.weight(.semibold))
                 .foregroundStyle(AppTheme.textSecondary)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
         .frame(maxWidth: .infinity)
-        .background(wash, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(wash, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private func visibleItems(for section: MetricSection) -> [ChecklistDriverItem] {

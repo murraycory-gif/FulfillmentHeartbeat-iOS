@@ -165,9 +165,8 @@ struct DashLostBanner: View {
 
     private var riskLine: String {
         let risk = HeartbeatFormat.num(Double(summary.riskCount))
-        let total = HeartbeatFormat.num(Double(summary.storeCount))
-        if summary.riskCount == 0 { return "0 of \(total) stores at risk" }
-        return "\(risk) of \(total) stores at risk"
+        if summary.riskCount == 0 { return "0 stores at risk" }
+        return "\(risk) stores at risk"
     }
 }
 
@@ -230,9 +229,8 @@ struct DashBriefingList: View {
             return card.riskCount == 0 ? "0 pickers at risk" : "\(n) pickers at risk"
         }
         let risk = HeartbeatFormat.num(Double(card.riskCount))
-        let total = HeartbeatFormat.num(Double(card.storeCount))
-        if card.riskCount == 0 { return "0 of \(total) stores at risk" }
-        return "\(risk) of \(total) stores at risk"
+        if card.riskCount == 0 { return "0 stores at risk" }
+        return "\(risk) stores at risk"
     }
 }
 
