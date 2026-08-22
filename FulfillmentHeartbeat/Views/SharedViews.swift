@@ -8122,28 +8122,36 @@ struct FulfillmentChecklistCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(spacing: 0) {
             header
-            if expanded {
+            VStack(alignment: .leading, spacing: 12) {
                 visibilityStrip
-                VStack(spacing: 8) {
-                    ForEach(MetricSection.checklistSections) { section in
-                        sectionBlock(section)
+                if expanded {
+                    VStack(spacing: 8) {
+                        ForEach(MetricSection.checklistSections) { section in
+                            sectionBlock(section)
+                        }
                     }
+                    sendBar
                 }
-                sendBar
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(fill)
+            .overlay {
+                if pulseHealth == .risk || pulseHealth == .watch {
+                    RoundedRectangle(cornerRadius: 0, style: .continuous)
+                        .stroke(stroke, lineWidth: 3)
+                        .opacity(pulseOn ? 1 : 0.18)
+                        .padding(3)
+                        .allowsHitTesting(false)
+                }
             }
         }
-        .padding(18)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                .fill(fill)
-        )
+        .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                .stroke(stroke, lineWidth: pulseHealth == .none ? 1 : 2.4)
-                .opacity(pulseHealth == .none ? 1 : (pulseOn ? 1 : 0.22))
+                .stroke(AppTheme.blue, lineWidth: 2.5)
         )
         .onAppear {
             guard pulseHealth == .risk || pulseHealth == .watch else { return }
@@ -8207,43 +8215,40 @@ struct FulfillmentChecklistCard: View {
         Button {
             withAnimation(.easeInOut(duration: 0.2)) { expanded.toggle() }
         } label: {
-            HStack(alignment: .center, spacing: 12) {
-                Text("Heartbeat")
+            HStack(alignment: .center, spacing: 10) {
+                Image(systemName: "checklist")
+                    .font(.title3.weight(.semibold))
+                Text("Operational Heartbeat Checklist")
                     .font(.title3.weight(.bold))
-                    .foregroundStyle(AppTheme.text)
-                Text("|")
-                    .font(.title3.weight(.bold))
-                    .foregroundStyle(AppTheme.textTertiary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
                 Text("ACTION ITEMS")
-                    .font(.subheadline.weight(.heavy))
+                    .font(.caption.weight(.heavy))
                     .tracking(0.4)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
                     .foregroundStyle(Color.white)
                     .background(AppTheme.bad, in: Capsule(style: .continuous))
-                    .shadow(color: AppTheme.bad.opacity(0.35), radius: 6, y: 2)
                 Text("\(store.checklistOpenCount) OPEN")
-                    .font(.title3.weight(.heavy))
+                    .font(.caption.weight(.heavy))
                     .tracking(0.4)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
                     .foregroundStyle(Color.white)
                     .background(
                         store.checklistOpenCount > 0 ? AppTheme.bad : AppTheme.ok,
                         in: Capsule(style: .continuous)
                     )
-                    .shadow(
-                        color: (store.checklistOpenCount > 0 ? AppTheme.bad : AppTheme.ok).opacity(0.35),
-                        radius: 6,
-                        y: 2
-                    )
-                Spacer()
+                Spacer(minLength: 8)
                 Image(systemName: expanded ? "chevron.up" : "chevron.down")
                     .font(.headline.weight(.semibold))
-                    .foregroundStyle(AppTheme.blue)
-                    .frame(width: 36, height: 36)
-                    .background(AppTheme.blueSoft, in: Circle())
             }
+            .foregroundStyle(Color.white)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 13)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(AppTheme.blue)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
