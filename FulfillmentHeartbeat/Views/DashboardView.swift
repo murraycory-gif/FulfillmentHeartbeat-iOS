@@ -213,7 +213,7 @@ struct DashBriefingList: View {
             }
         }
         .padding(16)
-        .background(AppTheme.card, in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous))
+        .background(AppTheme.tableFill, in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
                 .stroke(AppTheme.blue, lineWidth: 1.5)
@@ -285,10 +285,10 @@ struct PickerHighlightsPanel: View {
                 }
                 .padding(16)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(AppTheme.card)
+                .background(AppTheme.tableFill)
             }
         }
-        .background(AppTheme.card)
+        .background(AppTheme.tableFill)
         .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)

@@ -11,6 +11,8 @@ enum AppTheme {
     static let bg = Color(hex: "F5F7FC")
     static let uiBg = UIColor(red: 245 / 255, green: 247 / 255, blue: 252 / 255, alpha: 1)
     static let card = Color.white
+    /// HUB table interior — light blue wash inside the outlined boxes.
+    static let tableFill = Color(hex: "EEF2FB")
     static let cardBorder = Color.black.opacity(0.06)
 
     static let text = Color(red: 0.08, green: 0.10, blue: 0.16)

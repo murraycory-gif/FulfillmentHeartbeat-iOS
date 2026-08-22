@@ -149,10 +149,10 @@ private struct DiagnosticChrome<Content: View>: View {
                 }
                 .padding(16)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(AppTheme.card)
+                .background(AppTheme.tableFill)
             }
         }
-        .background(AppTheme.card)
+        .background(AppTheme.tableFill)
         .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)

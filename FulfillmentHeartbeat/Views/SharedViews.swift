@@ -71,7 +71,7 @@ struct HubPanel<Content: View>: View {
             content
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(14)
-                .background(AppTheme.card)
+                .background(AppTheme.tableFill)
         }
         .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
         .overlay(
@@ -1611,7 +1611,7 @@ struct PickPathRollupTable: View {
                     .padding(16)
                 }
             }
-            .background(AppTheme.card)
+            .background(AppTheme.tableFill)
             .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
@@ -2366,7 +2366,7 @@ struct DynacapRollupTable: View {
                     .padding(16)
                 }
             }
-            .background(AppTheme.card)
+            .background(AppTheme.tableFill)
             .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
@@ -3015,7 +3015,7 @@ struct PrepRollupTable: View {
                     .padding(16)
                 }
             }
-            .background(AppTheme.card)
+            .background(AppTheme.tableFill)
             .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
@@ -3736,7 +3736,7 @@ struct FiveStarRollupTable: View {
                     .padding(16)
                 }
             }
-            .background(AppTheme.card)
+            .background(AppTheme.tableFill)
             .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
@@ -4526,7 +4526,7 @@ struct LaborRollupTable: View {
                     .padding(16)
                 }
                 }
-                .background(AppTheme.card)
+                .background(AppTheme.tableFill)
                 .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
@@ -5502,7 +5502,7 @@ struct LostRevenueRollupTable: View {
                     .padding(16)
                 }
             }
-            .background(AppTheme.card)
+            .background(AppTheme.tableFill)
             .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
@@ -6413,7 +6413,7 @@ struct ScheduleRollupTable: View {
                     .padding(16)
                 }
             }
-            .background(AppTheme.card)
+            .background(AppTheme.tableFill)
             .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
@@ -7083,7 +7083,7 @@ struct PPHRollupTable: View {
                     .padding(16)
                 }
             }
-            .background(AppTheme.card)
+            .background(AppTheme.tableFill)
             .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
@@ -8056,7 +8056,7 @@ struct FulfillmentChecklistCard: View {
         case .good: return AppTheme.okSoft
         case .watch: return AppTheme.warnSoft
         case .risk: return AppTheme.badSoft
-        case .none: return AppTheme.card
+        case .none: return AppTheme.tableFill
         }
     }
 
