@@ -1,7 +1,10 @@
 import Foundation
 
 enum DiagnosticGrain: String {
-    case region, market, district, store
+    case region
+    case market
+    case district
+    case store
 
     var title: String {
         switch self {
@@ -160,45 +163,48 @@ struct DiagnosticPlaybook {
     }
 }
 
-struct DiagnosticBoard {
-    var filterFindings: [DiagnosticFinding]
-    var riskStoreCount: Int
-    var regions: [DiagnosticUnit]
-    var markets: [DiagnosticUnit]
-    var districts: [DiagnosticUnit]
-    var stores: [DiagnosticUnit]
+struct DiagnosticPulse {
+    var storeNumber: String
+    var division: String
+    var district: String
+    var findings: [DiagnosticFinding]
+    var lost: Double
+}
 
-    static func build(store: HeartbeatStore) -> DiagnosticBoard {
+enum DiagnosticBoard {
+    static func build(store: HeartbeatStore) -> DiagnosticSnapshot {
         let pulses = makePulses(store)
-        let atRisk = pulses.filter { !$0.findings.isEmpty }
-        return DiagnosticBoard(
+        var atRisk: [DiagnosticPulse] = []
+        for pulse in pulses {
+            if !pulse.findings.isEmpty {
+                atRisk.append(pulse)
+            }
+        }
+        return DiagnosticSnapshot(
             filterFindings: makeFilterFindings(atRisk, store: store),
             riskStoreCount: atRisk.count,
-            regions: makeRegions(pulses),
-            markets: makeMarkets(pulses),
-            districts: makeDistricts(pulses),
+            regions: rollup(pulses, by: .region),
+            markets: rollup(pulses, by: .market),
+            districts: rollup(pulses, by: .district),
             stores: makeStores(atRisk)
         )
     }
 
-    private struct Pulse {
-        var store: HeartbeatMath.MarketStore
-        var findings: [DiagnosticFinding]
-        var lost: Double
-    }
-
-    private static func makePulses(_ store: HeartbeatStore) -> [Pulse] {
+    private static func makePulses(_ store: HeartbeatStore) -> [DiagnosticPulse] {
         let roster = store.marketStores()
         var rowByStore: [MetricSection: [String: MetricRow]] = [:]
         var pickerRisk: [String: String] = [:]
 
-        for section in MetricSection.dashboardCards {
+        let sections = MetricSection.dashboardCards
+        for i in 0..<sections.count {
+            let section = sections[i]
             let rows = store.displayRows(for: section)
             if section == .pickerScorecard {
                 var grouped: [String: Int] = [:]
                 for row in rows {
                     if HeartbeatMath.pickerHealth(row) == .risk {
-                        grouped[row.storeNumber, default: 0] += 1
+                        let current = grouped[row.storeNumber] ?? 0
+                        grouped[row.storeNumber] = current + 1
                     }
                 }
                 for (number, count) in grouped {
@@ -218,92 +224,192 @@ struct DiagnosticBoard {
             rowByStore[section] = map
         }
 
-        var out: [Pulse] = []
-        out.reserveCapacity(roster.count)
+        var out: [DiagnosticPulse] = []
         for unit in roster {
             var findings: [DiagnosticFinding] = []
             var lost = 0.0
             if let text = pickerRisk[unit.storeNumber] {
                 findings.append(DiagnosticFinding(section: .pickerScorecard, storeCount: 1, valueText: text))
             }
-            for section in MetricSection.dashboardCards {
+            for i in 0..<sections.count {
+                let section = sections[i]
                 if section == .pickerScorecard { continue }
-                guard let row = rowByStore[section]?[unit.storeNumber] else { continue }
+                guard let rows = rowByStore[section], let row = rows[unit.storeNumber] else { continue }
                 if HeartbeatMath.health(for: section, row: row) != .risk { continue }
                 if section == .lostRevenue {
                     lost = row.number("lost_revenue") ?? 0
                 }
                 findings.append(DiagnosticFinding(section: section, storeCount: 1, valueText: callout(section, row)))
             }
-            out.append(Pulse(store: unit, findings: findings, lost: lost))
+            out.append(
+                DiagnosticPulse(
+                    storeNumber: unit.storeNumber,
+                    division: unit.division,
+                    district: unit.district,
+                    findings: findings,
+                    lost: lost
+                )
+            )
         }
         return out
     }
 
-    private static func makeFilterFindings(_ atRisk: [Pulse], store: HeartbeatStore) -> [DiagnosticFinding] {
+    private static func makeFilterFindings(_ atRisk: [DiagnosticPulse], store: HeartbeatStore) -> [DiagnosticFinding] {
         var result: [DiagnosticFinding] = []
-        for section in MetricSection.dashboardCards {
+        let sections = MetricSection.dashboardCards
+        for i in 0..<sections.count {
+            let section = sections[i]
             var count = 0
             for pulse in atRisk {
-                for finding in pulse.findings where finding.section == section {
-                    count += 1
-                    break
+                var hit = false
+                for finding in pulse.findings {
+                    if finding.section == section {
+                        hit = true
+                        break
+                    }
                 }
+                if hit { count += 1 }
             }
             if count == 0 { continue }
+            let summary = store.summary(for: section)
             result.append(
-                DiagnosticFinding(
-                    section: section,
-                    storeCount: count,
-                    valueText: store.summary(for: section).headlineText
-                )
+                DiagnosticFinding(section: section, storeCount: count, valueText: summary.headlineText)
             )
         }
         return result
     }
 
-    private static func makeRegions(_ pulses: [Pulse]) -> [DiagnosticUnit] {
-        group(pulses, key: { pulse in
-            MarketRegion.containing(pulse.store.division)?.rawValue ?? "Unassigned region"
-        }, title: { key, _ in key })
-    }
-
-    private static func makeMarkets(_ pulses: [Pulse]) -> [DiagnosticUnit] {
-        group(pulses, key: { pulse in
-            HeartbeatMath.normalize(pulse.store.division).isEmpty ? "Unknown market" : pulse.store.division
-        }, title: { key, _ in MarketRegion.canonicalName(key) })
-    }
-
-    private static func makeDistricts(_ pulses: [Pulse]) -> [DiagnosticUnit] {
-        group(pulses, key: { pulse in
-            let district = pulse.store.district.trimmingCharacters(in: .whitespacesAndNewlines)
-            return district.isEmpty ? "Unassigned district" : district
-        }, title: { key, group in
-            let market = group.first.map { MarketRegion.canonicalName($0.store.division) } ?? ""
-            if market.isEmpty { return key }
-            return "\(key)  ·  \(market)"
-        })
-    }
-
-    private static func makeStores(_ atRisk: [Pulse]) -> [DiagnosticUnit] {
-        let sorted = atRisk.sorted { lhs, rhs in
-            if lhs.findings.count != rhs.findings.count {
-                return lhs.findings.count > rhs.findings.count
-            }
-            return lhs.lost > rhs.lost
+    private static func rollup(_ pulses: [DiagnosticPulse], by grain: DiagnosticGrain) -> [DiagnosticUnit] {
+        var buckets: [String: [DiagnosticPulse]] = [:]
+        for pulse in pulses {
+            let id = bucketKey(pulse, grain: grain)
+            var list = buckets[id] ?? []
+            list.append(pulse)
+            buckets[id] = list
         }
         var units: [DiagnosticUnit] = []
-        units.reserveCapacity(sorted.count)
-        for pulse in sorted {
-            let market = MarketRegion.canonicalName(pulse.store.division)
-            var district = ""
-            if !pulse.store.district.isEmpty {
-                district = " · \(pulse.store.district)"
+        for (id, list) in buckets {
+            var risk: [DiagnosticPulse] = []
+            for pulse in list {
+                if !pulse.findings.isEmpty {
+                    risk.append(pulse)
+                }
+            }
+            var counts: [MetricSection: Int] = [:]
+            for pulse in risk {
+                for finding in pulse.findings {
+                    let current = counts[finding.section] ?? 0
+                    counts[finding.section] = current + 1
+                }
+            }
+            var findings: [DiagnosticFinding] = []
+            let sections = MetricSection.dashboardCards
+            for i in 0..<sections.count {
+                let section = sections[i]
+                if let count = counts[section], count > 0 {
+                    findings.append(
+                        DiagnosticFinding(
+                            section: section,
+                            storeCount: count,
+                            valueText: "\(HeartbeatFormat.num(Double(count))) stores"
+                        )
+                    )
+                }
+            }
+            let ranked = risk.sorted { lhs, rhs in
+                if lhs.findings.count == rhs.findings.count {
+                    return lhs.lost > rhs.lost
+                }
+                return lhs.findings.count > rhs.findings.count
+            }
+            var worst: [String] = []
+            var n = 0
+            for pulse in ranked {
+                if n >= 6 { break }
+                worst.append(pulse.storeNumber)
+                n += 1
+            }
+            var lost = 0.0
+            for pulse in list {
+                lost += pulse.lost
             }
             units.append(
                 DiagnosticUnit(
-                    id: "store-\(pulse.store.storeNumber)",
-                    title: pulse.store.storeNumber,
+                    id: id,
+                    title: bucketTitle(id, list: list, grain: grain),
+                    subtitle: "\(HeartbeatFormat.num(Double(risk.count))) of \(HeartbeatFormat.num(Double(list.count))) stores at risk",
+                    storeCount: list.count,
+                    riskStoreCount: risk.count,
+                    lostDollars: lost,
+                    findings: findings,
+                    worstStores: worst
+                )
+            )
+        }
+        units.sort { lhs, rhs in
+            if lhs.riskStoreCount == rhs.riskStoreCount {
+                return lhs.lostDollars > rhs.lostDollars
+            }
+            return lhs.riskStoreCount > rhs.riskStoreCount
+        }
+        return units
+    }
+
+    private static func bucketKey(_ pulse: DiagnosticPulse, grain: DiagnosticGrain) -> String {
+        switch grain {
+        case .region:
+            if let region = MarketRegion.containing(pulse.division) {
+                return region.rawValue
+            }
+            return "Unassigned region"
+        case .market:
+            if HeartbeatMath.normalize(pulse.division).isEmpty {
+                return "Unknown market"
+            }
+            return pulse.division
+        case .district:
+            let district = pulse.district.trimmingCharacters(in: .whitespacesAndNewlines)
+            if district.isEmpty {
+                return "Unassigned district"
+            }
+            return district
+        case .store:
+            return pulse.storeNumber
+        }
+    }
+
+    private static func bucketTitle(_ id: String, list: [DiagnosticPulse], grain: DiagnosticGrain) -> String {
+        if grain == .market {
+            return MarketRegion.canonicalName(id)
+        }
+        if grain == .district {
+            let market = list.first.map { MarketRegion.canonicalName($0.division) } ?? ""
+            if market.isEmpty {
+                return id
+            }
+            return "\(id)  ·  \(market)"
+        }
+        return id
+    }
+
+    private static func makeStores(_ atRisk: [DiagnosticPulse]) -> [DiagnosticUnit] {
+        let sorted = atRisk.sorted { lhs, rhs in
+            if lhs.findings.count == rhs.findings.count {
+                return lhs.lost > rhs.lost
+            }
+            return lhs.findings.count > rhs.findings.count
+        }
+        var units: [DiagnosticUnit] = []
+        for pulse in sorted {
+            let market = MarketRegion.canonicalName(pulse.division)
+            var district = ""
+            if !pulse.district.isEmpty {
+                district = " · \(pulse.district)"
+            }
+            units.append(
+                DiagnosticUnit(
+                    id: "store-\(pulse.storeNumber)",
+                    title: pulse.storeNumber,
                     subtitle: "\(market)\(district)  ·  \(pulse.findings.count) at-risk metrics",
                     storeCount: 1,
                     riskStoreCount: 1,
@@ -316,77 +422,12 @@ struct DiagnosticBoard {
         return units
     }
 
-    private static func group(
-        _ pulses: [Pulse],
-        key: (Pulse) -> String,
-        title: (String, [Pulse]) -> String
-    ) -> [DiagnosticUnit] {
-        var buckets: [String: [Pulse]] = [:]
-        for pulse in pulses {
-            let id = key(pulse)
-            buckets[id, default: []].append(pulse)
-        }
-        var units: [DiagnosticUnit] = []
-        for (id, group) in buckets {
-            let risk = group.filter { !$0.findings.isEmpty }
-            var counts: [MetricSection: Int] = [:]
-            for pulse in risk {
-                for finding in pulse.findings {
-                    counts[finding.section, default: 0] += 1
-                }
-            }
-            var findings: [DiagnosticFinding] = []
-            for section in MetricSection.dashboardCards {
-                if let count = counts[section], count > 0 {
-                    findings.append(
-                        DiagnosticFinding(
-                            section: section,
-                            storeCount: count,
-                            valueText: "\(HeartbeatFormat.num(Double(count))) stores"
-                        )
-                    )
-                }
-            }
-            let ranked = risk.sorted { lhs, rhs in
-                if lhs.findings.count != rhs.findings.count {
-                    return lhs.findings.count > rhs.findings.count
-                }
-                return lhs.lost > rhs.lost
-            }
-            var worst: [String] = []
-            for pulse in ranked.prefix(6) {
-                worst.append(pulse.store.storeNumber)
-            }
-            var lost = 0.0
-            for pulse in group {
-                lost += pulse.lost
-            }
-            units.append(
-                DiagnosticUnit(
-                    id: id,
-                    title: title(id, group),
-                    subtitle: "\(HeartbeatFormat.num(Double(risk.count))) of \(HeartbeatFormat.num(Double(group.count))) stores at risk",
-                    storeCount: group.count,
-                    riskStoreCount: risk.count,
-                    lostDollars: lost,
-                    findings: findings,
-                    worstStores: worst
-                )
-            )
-        }
-        units.sort { lhs, rhs in
-            if lhs.riskStoreCount != rhs.riskStoreCount {
-                return lhs.riskStoreCount > rhs.riskStoreCount
-            }
-            return lhs.lostDollars > rhs.lostDollars
-        }
-        return units
-    }
-
     private static func callout(_ section: MetricSection, _ row: MetricRow) -> String {
         switch section {
         case .lostRevenue:
-            return "\(HeartbeatFormat.money(row.number("lost_revenue")))  \(HeartbeatFormat.pct(row.number("lost_revenue_pct")))"
+            let dollars = HeartbeatFormat.money(row.number("lost_revenue"))
+            let pct = HeartbeatFormat.pct(row.number("lost_revenue_pct"))
+            return "\(dollars)  \(pct)"
         case .fiveStar:
             return HeartbeatFormat.stars(row.number("star_rating"))
         case .pickPath, .pickPathPicker:
@@ -405,4 +446,13 @@ struct DiagnosticBoard {
             return "Opportunity pickers"
         }
     }
+}
+
+struct DiagnosticSnapshot {
+    var filterFindings: [DiagnosticFinding]
+    var riskStoreCount: Int
+    var regions: [DiagnosticUnit]
+    var markets: [DiagnosticUnit]
+    var districts: [DiagnosticUnit]
+    var stores: [DiagnosticUnit]
 }

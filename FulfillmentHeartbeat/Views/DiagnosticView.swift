@@ -13,7 +13,7 @@ struct DiagnosticView: View {
 
 private struct DiagnosticPage: View {
     @EnvironmentObject private var router: HubRouter
-    let board: DiagnosticBoard
+    let board: DiagnosticSnapshot
     let filterSummary: String
     @State private var openPlaybook: MetricSection?
     @State private var openUnit: String?
