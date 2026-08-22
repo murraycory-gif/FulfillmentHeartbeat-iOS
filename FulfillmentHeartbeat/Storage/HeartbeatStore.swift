@@ -883,8 +883,7 @@ final class HeartbeatStore: ObservableObject {
                     waitingForFileSection = nil
                     await runImport(data: file.data, filename: file.name, section: section)
                 } else {
-                    pendingExternalData = file.data
-                    pendingExternalName = file.name
+                    await runMasterImport(data: file.data, filename: file.name, fallbackToPicker: true)
                 }
             } catch {
                 errorMessage = error.localizedDescription
@@ -945,6 +944,11 @@ final class HeartbeatStore: ObservableObject {
         Task { await runImport(data: data, filename: filename, section: section) }
     }
 
+    func importMasterWorkbook(data: Data, filename: String) {
+        _ = saveToDocuments(data, filename: filename)
+        Task { await runMasterImport(data: data, filename: filename, fallbackToPicker: false) }
+    }
+
     private func runImport(data: Data, filename: String, section: MetricSection) async {
         guard !isImporting else { return }
         isImporting = true
@@ -999,6 +1003,63 @@ final class HeartbeatStore: ObservableObject {
             statusMessage = "Imported \(incoming.count) rows · \(stores) stores into \(section.title). Filters cleared so the new file is in view."
         }
         persist()
+    }
+
+    private func runMasterImport(data: Data, filename: String, fallbackToPicker: Bool) async {
+        guard !isImporting else { return }
+        isImporting = true
+        importLabel = "Reading master workbook…"
+        errorMessage = nil
+        do {
+            let sheets = try await Task.detached(priority: .userInitiated) {
+                try WorkbookParser.parseMaster(data: data, filename: filename)
+            }.value
+            importLabel = "Updating \(sheets.count) scorecards…"
+            var nextRows = rows
+            var nextUploads = uploads
+            var loaded: [String] = []
+            for sheet in sheets {
+                let incoming = sheet.rows.map { $0.asRow(section: sheet.section) }
+                nextRows.removeAll { $0.section == sheet.section }
+                nextRows.append(contentsOf: incoming)
+                nextUploads.removeAll { $0.section == sheet.section }
+                nextUploads.insert(
+                    UploadRecord(
+                        section: sheet.section,
+                        filename: "\(filename) · \(sheet.sheetName)",
+                        rowCount: incoming.count,
+                        validation: Self.importAudit(section: sheet.section, rows: incoming)
+                    ),
+                    at: 0
+                )
+                loaded.append(sheet.section.short)
+            }
+            let caches = await Task.detached(priority: .userInitiated) {
+                PulseCaches.build(rows: nextRows, filters: DashboardFilters(), uploads: nextUploads)
+            }.value
+            hydrating = true
+            rows = nextRows
+            uploads = nextUploads
+            filters = DashboardFilters()
+            install(caches)
+            hydrating = false
+            seeded = true
+            lastImportedSection = sheets.first?.section
+            let names = loaded.joined(separator: ", ")
+            statusMessage = "Master load: \(loaded.count) scorecard\(loaded.count == 1 ? "" : "s") from \(filename) — \(names). Filters cleared so the new files are in view."
+            persist()
+        } catch {
+            if fallbackToPicker {
+                pendingExternalData = data
+                pendingExternalName = filename
+                isImporting = false
+                importLabel = nil
+                return
+            }
+            errorMessage = error.localizedDescription
+        }
+        isImporting = false
+        importLabel = nil
     }
 
     func clearSection(_ section: MetricSection) {

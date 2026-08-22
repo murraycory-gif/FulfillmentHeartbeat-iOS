@@ -62,6 +62,31 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertEqual(WorkbookParser.normHeader("Store #"), "store")
     }
 
+    func testMasterSheetNames() {
+        XCTAssertEqual(WorkbookParser.section(fromSheetName: "Lost Revenue"), .lostRevenue)
+        XCTAssertEqual(WorkbookParser.section(fromSheetName: "Loss Revenue ScoreCard"), .lostRevenue)
+        XCTAssertEqual(WorkbookParser.section(fromSheetName: "5 Star"), .fiveStar)
+        XCTAssertEqual(WorkbookParser.section(fromSheetName: "Pick Path Picker"), .pickPathPicker)
+        XCTAssertEqual(WorkbookParser.section(fromSheetName: "Pick Path"), .pickPath)
+        XCTAssertEqual(WorkbookParser.section(fromSheetName: "Prep Not Ready"), .prepNotReady)
+        XCTAssertEqual(WorkbookParser.section(fromSheetName: "Dynacap"), .dynacap)
+        XCTAssertEqual(WorkbookParser.section(fromSheetName: "Schedule Quality"), .scheduleQuality)
+        XCTAssertEqual(WorkbookParser.section(fromSheetName: "PPH"), .pph)
+        XCTAssertEqual(WorkbookParser.section(fromSheetName: "Labor"), .labor)
+        XCTAssertEqual(WorkbookParser.section(fromSheetName: "Picker ScoreCard"), .pickerScorecard)
+        XCTAssertNil(WorkbookParser.section(fromSheetName: "Sheet1"))
+    }
+
+    func testClassifiesTemplateRows() throws {
+        for section in MetricSection.uploadOrder {
+            let csv = SampleMarket.templateCSV(for: section)
+            let rows = WorkbookParser.parseCSV(csv)
+            XCTAssertFalse(rows.isEmpty, section.rawValue)
+            let classified = WorkbookParser.classifySheet(name: "Sheet1", rows: rows)
+            XCTAssertEqual(classified, section, section.rawValue)
+        }
+    }
+
     func testTemplateCSVRoundTrip() throws {
         for section in MetricSection.allCases {
             let csv = SampleMarket.templateCSV(for: section)

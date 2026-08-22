@@ -7,6 +7,7 @@ struct UploadView: View {
     @EnvironmentObject private var router: HubRouter
     @State private var showImporter = false
     @State private var importTarget: MetricSection?
+    @State private var masterImport = false
     @State private var exportItem: ExportItem?
     @State private var showStatus = false
     @State private var showError = false
@@ -14,9 +15,21 @@ struct UploadView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                VStack(alignment: .leading, spacing: 4) {
-                    PageHeadline(lead: "Upload", accent: "Workbooks", blurb: "One Excel file for each section. Choose file and pick it from iCloud Drive or OneDrive.")
-                }
+                HubBanner(
+                    icon: HubDestination.upload.symbol,
+                    title: "Upload Workbooks",
+                    accessory: store.isImporting ? (store.importLabel ?? "Loading…") : store.filters.summary
+                )
+                MasterLoadPanel(
+                    enabled: !store.isImporting,
+                    importing: store.isImporting && importTarget == nil,
+                    label: store.importLabel,
+                    onPick: beginMasterImport
+                )
+                Text("Or load one KPI")
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(AppTheme.text)
+                    .padding(.top, 4)
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 16)], spacing: 16) {
                     ForEach(MetricSection.uploadOrder) { section in
@@ -37,7 +50,7 @@ struct UploadView: View {
                     }
                 }
 
-                Text("Headers can be flexible — Division, Operations OM, and Store Number are picked up automatically. Use Link to pull the raw Power BI export.")
+                Text("Master load reads every sheet in one .xlsx. Name the tabs Lost Revenue, 5 Star, Pick Path, Path Picker, Prep, Dynacap, Schedule, PPH, Labor, and Picker ScoreCard — or leave the Power BI headers and we will map them. Individual cards still replace one KPI at a time.")
                     .font(.subheadline)
                     .foregroundStyle(AppTheme.textSecondary)
             }
@@ -93,22 +106,34 @@ struct UploadView: View {
         }
     }
 
+    private func beginMasterImport() {
+        importTarget = nil
+        masterImport = true
+        showImporter = true
+    }
+
     private func beginImport(_ section: MetricSection) {
         importTarget = section
+        masterImport = false
         showImporter = true
     }
 
     private func handleImport(_ result: Result<[URL], Error>) {
         let section = importTarget
+        let master = masterImport
         importTarget = nil
+        masterImport = false
         showImporter = false
-        guard let section else { return }
         switch result {
         case .success(let urls):
             guard let url = urls.first else { return }
             do {
                 let file = try HeartbeatFilePicker.readPickedFile(url)
-                store.importWorkbook(data: file.data, filename: file.name, section: section)
+                if master || section == nil {
+                    store.importMasterWorkbook(data: file.data, filename: file.name)
+                } else if let section {
+                    store.importWorkbook(data: file.data, filename: file.name, section: section)
+                }
             } catch {
                 store.errorMessage = error.localizedDescription
             }
@@ -116,12 +141,76 @@ struct UploadView: View {
             store.errorMessage = error.localizedDescription
         }
     }
-
     private static var workbookTypes: [UTType] {
         var types: [UTType] = [.item, .data, .commaSeparatedText, .spreadsheet]
         if let xlsx = UTType(filenameExtension: "xlsx") { types.insert(xlsx, at: 0) }
         if let csv = UTType(filenameExtension: "csv") { types.append(csv) }
         return types
+    }
+}
+
+
+struct MasterLoadPanel: View {
+    var enabled: Bool
+    var importing: Bool
+    var label: String?
+    var onPick: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HubBanner(
+                icon: "square.stack.3d.up.fill",
+                title: "Master load",
+                accessory: "One shared .xlsx  ·  every sheet  ·  every scorecard",
+                clipped: false
+            )
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Put all the weekly exports in one workbook — one tab per KPI — and pick that file from iCloud or OneDrive. We map the sheets and replace every scorecard they match.")
+                    .font(.subheadline)
+                    .foregroundStyle(AppTheme.textSecondary)
+                Button(action: onPick) {
+                    VStack(spacing: 8) {
+                        Image(systemName: "square.and.arrow.up.on.square")
+                            .font(.system(size: 26, weight: .semibold))
+                            .foregroundStyle(AppTheme.blue)
+                        Text(importing ? (label ?? "Reading master workbook…") : "Choose the shared master file")
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(AppTheme.text)
+                        Text(".xlsx with a sheet for each KPI")
+                            .font(.caption)
+                            .foregroundStyle(AppTheme.textTertiary)
+                        Text(importing ? "Loading" : "Choose file")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                            .background(AppTheme.blue, in: Capsule(style: .continuous))
+                            .padding(.top, 4)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 22)
+                    .padding(.horizontal, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
+                            .fill(AppTheme.blueSoft)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
+                            .strokeBorder(AppTheme.blue.opacity(0.35), lineWidth: 1.5)
+                    )
+                }
+                .buttonStyle(.plain)
+                .disabled(!enabled)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(AppTheme.tableFill)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                .stroke(AppTheme.blue, lineWidth: 2.5)
+        )
     }
 }
 

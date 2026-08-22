@@ -82,6 +82,103 @@ enum WorkbookParser {
         throw ParseError.unreadable
     }
 
+    struct ParsedSheet {
+        var section: MetricSection
+        var sheetName: String
+        var rows: [ParsedWorkbookRow]
+    }
+
+    static func parseMaster(data: Data, filename: String) throws -> [ParsedSheet] {
+        let ext = (filename as NSString).pathExtension.lowercased()
+        if ext == "csv" || ext == "txt" || looksLikeCSV(data) {
+            throw ParseError.unsupported
+        }
+        guard ext == "xlsx" || data.starts(with: [0x50, 0x4B]) else { throw ParseError.unsupported }
+        guard let zip = ZipArchive(data: data) else { throw ParseError.unreadable }
+        let strings = zip.file(named: "xl/sharedStrings.xml").flatMap { String(data: $0, encoding: .utf8) }.map(SharedStrings.parse) ?? []
+        let titles = sheetTitles(from: zip)
+        let paths = zip.worksheetPaths()
+        if paths.isEmpty { throw ParseError.unreadable }
+
+        var found: [MetricSection: ParsedSheet] = [:]
+        for (index, path) in paths.enumerated() {
+            guard let sheet = zip.file(named: path) else { continue }
+            let title = index < titles.count ? titles[index] : "Sheet \(index + 1)"
+            let matrix = SheetXML.parse(data: sheet, strings: strings)
+            var parsed = rows(from: matrix)
+            if parsed.isEmpty {
+                let labor = parseLaborSheet(data: sheet, strings: strings)
+                if !labor.isEmpty { parsed = labor }
+            }
+            guard !parsed.isEmpty else { continue }
+            guard let section = classifySheet(name: title, rows: parsed) else { continue }
+            if let existing = found[section], existing.rows.count >= parsed.count { continue }
+            found[section] = ParsedSheet(section: section, sheetName: title, rows: parsed)
+        }
+        let sheets = MetricSection.uploadOrder.compactMap { found[$0] }
+        if sheets.isEmpty { throw ParseError.empty }
+        return sheets
+    }
+
+    static func classifySheet(name: String, rows: [ParsedWorkbookRow]) -> MetricSection? {
+        if let fromRows = section(fromRows: rows) { return fromRows }
+        return section(fromSheetName: name)
+    }
+
+    static func section(fromSheetName raw: String) -> MetricSection? {
+        let name = raw.lowercased()
+            .replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: "-", with: " ")
+        if name.contains("lost") && name.contains("revenue") { return .lostRevenue }
+        if name.contains("loss") && name.contains("revenue") { return .lostRevenue }
+        if name.contains("picker") && (name.contains("score") || name.contains("card") || name.contains("shopper")) {
+            return .pickerScorecard
+        }
+        if (name.contains("pick path") || name.contains("path compliance"))
+            && (name.contains("picker") || name.contains("employee") || name.contains("shopper")) {
+            return .pickPathPicker
+        }
+        if name.contains("path picker") { return .pickPathPicker }
+        if name.contains("pick path") || name.contains("path compliance") { return .pickPath }
+        if name.contains("prep") { return .prepNotReady }
+        if name.contains("dynacap") || name.contains("capacity") { return .dynacap }
+        if name.contains("schedule") { return .scheduleQuality }
+        if name.contains("5 star") || name.contains("five star") || name.contains("star rating") { return .fiveStar }
+        if name.contains("pph") || name.contains("pure pick") { return .pph }
+        if name.contains("labor") { return .labor }
+        if name.contains("picker") || name.contains("shopper") { return .pickerScorecard }
+        return nil
+    }
+
+    static func section(fromRows rows: [ParsedWorkbookRow]) -> MetricSection? {
+        let sample = rows.prefix(12)
+        var keys = Set<String>()
+        var text = Set<String>()
+        for row in sample {
+            keys.formUnion(row.payload.keys)
+            text.formUnion(row.textPayload.keys)
+        }
+        if keys.contains("lost_revenue") { return .lostRevenue }
+        if keys.contains("target_vs_actual_pct") || keys.contains("earned_hrs") { return .labor }
+        if keys.contains("pnr_rate_pct") { return .prepNotReady }
+        if keys.contains("star_rating") || keys.contains("flash_pct") { return .fiveStar }
+        if keys.contains("schedule_efficiency_pct") { return .scheduleQuality }
+        if keys.contains("dynacap_rate") { return .dynacap }
+        if keys.contains("compliance_pct") && (text.contains("employee") || text.contains("employee_alternate_id") || text.contains("shopper_id")) {
+            return .pickPathPicker
+        }
+        if text.contains("shopper_id") || text.contains("shopper_name") { return .pickerScorecard }
+        if keys.contains("compliance_pct") { return .pickPath }
+        if keys.contains("pph") { return .pph }
+        return nil
+    }
+
+    private static func sheetTitles(from zip: ZipArchive) -> [String] {
+        guard let data = zip.file(named: "xl/workbook.xml"),
+              let xml = String(data: data, encoding: .utf8) else { return [] }
+        return matches(in: xml, pattern: #"<sheet[^>]*name="([^"]+)""#)
+    }
+
     private static func looksLikeCSV(_ data: Data) -> Bool {
         guard let sample = String(data: data.prefix(200), encoding: .utf8) else { return false }
         return sample.contains(",") && !data.starts(with: [0x50, 0x4B])
@@ -2208,6 +2305,18 @@ final class ZipArchive {
 
     func file(named name: String) -> Data? {
         files[name]
+    }
+
+    func worksheetPaths() -> [String] {
+        files.keys
+            .filter { $0.hasPrefix("xl/worksheets/") && $0.hasSuffix(".xml") }
+            .sorted { sheetIndex($0) < sheetIndex($1) }
+    }
+
+    private func sheetIndex(_ path: String) -> Int {
+        let digits = path.compactMap(\.wholeNumberValue)
+        let value = digits.reduce(0) { $0 * 10 + $1 }
+        return value == 0 ? 999 : value
     }
 
     private func nextLocalOrCentral(_ bytes: [UInt8], from start: Int) -> Int? {
