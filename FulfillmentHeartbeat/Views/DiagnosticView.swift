@@ -356,7 +356,7 @@ private struct DiagnosticFindingBlock: View {
             DiagnosticCopyBlock(play: play)
         }
         .padding(10)
-        .background(AppTheme.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(AppTheme.tableFill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
 

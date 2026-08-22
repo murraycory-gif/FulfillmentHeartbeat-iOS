@@ -107,7 +107,7 @@ private func dashWash(_ health: Health) -> Color {
     case .good: return AppTheme.okSoft
     case .watch: return AppTheme.warnSoft
     case .risk: return AppTheme.badSoft
-    case .none: return AppTheme.card
+    case .none: return AppTheme.tableFill
     }
 }
 

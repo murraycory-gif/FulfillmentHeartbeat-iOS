@@ -11,10 +11,10 @@ struct HubCard<Content: View>: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                    .fill(AppTheme.card)
+                    .fill(AppTheme.tableFill)
                     .overlay(
                         RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                            .stroke(AppTheme.cardBorder, lineWidth: 1)
+                            .stroke(AppTheme.blue, lineWidth: 2.5)
                     )
             )
     }
@@ -1102,6 +1102,7 @@ struct PickPathTable: View {
                         )
                 }
                 .buttonStyle(.plain)
+                .background(AppTheme.tableFill)
                 .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
@@ -1137,7 +1138,7 @@ struct PickPathTable: View {
                     )
                     .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
                     .listRowSeparator(.hidden)
-                    .listRowBackground(AppTheme.bg)
+                    .listRowBackground(AppTheme.tableFill)
                     ForEach(snaps) { snap in
                         PickPathStoreRow(
                             snap: snap,
@@ -1148,7 +1149,7 @@ struct PickPathTable: View {
                         )
                         .listRowInsets(EdgeInsets(top: 2, leading: 20, bottom: 2, trailing: 20))
                         .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.bg)
+                        .listRowBackground(AppTheme.tableFill)
                     }
                 }
                 .transaction { $0.animation = nil }
@@ -1876,6 +1877,7 @@ struct DynacapTable: View {
                         )
                 }
                 .buttonStyle(.plain)
+                .background(AppTheme.tableFill)
                 .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
@@ -1911,7 +1913,7 @@ struct DynacapTable: View {
                     )
                     .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
                     .listRowSeparator(.hidden)
-                    .listRowBackground(AppTheme.bg)
+                    .listRowBackground(AppTheme.tableFill)
                     ForEach(snaps) { snap in
                         DynacapStoreRow(
                             snap: snap,
@@ -1922,7 +1924,7 @@ struct DynacapTable: View {
                         )
                         .listRowInsets(EdgeInsets(top: 2, leading: 20, bottom: 2, trailing: 20))
                         .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.bg)
+                        .listRowBackground(AppTheme.tableFill)
                     }
                 }
                 .transaction { $0.animation = nil }
@@ -2539,6 +2541,7 @@ struct PrepTable: View {
                         )
                 }
                 .buttonStyle(.plain)
+                .background(AppTheme.tableFill)
                 .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
@@ -2574,7 +2577,7 @@ struct PrepTable: View {
                     )
                     .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
                     .listRowSeparator(.hidden)
-                    .listRowBackground(AppTheme.bg)
+                    .listRowBackground(AppTheme.tableFill)
                     ForEach(snaps) { snap in
                         PrepStoreRow(
                             snap: snap,
@@ -2585,7 +2588,7 @@ struct PrepTable: View {
                         )
                         .listRowInsets(EdgeInsets(top: 2, leading: 20, bottom: 2, trailing: 20))
                         .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.bg)
+                        .listRowBackground(AppTheme.tableFill)
                     }
                 }
                 .transaction { $0.animation = nil }
@@ -3191,6 +3194,7 @@ struct FiveStarTable: View {
                         )
                 }
                 .buttonStyle(.plain)
+                .background(AppTheme.tableFill)
                 .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
@@ -3226,7 +3230,7 @@ struct FiveStarTable: View {
                     )
                     .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
                     .listRowSeparator(.hidden)
-                    .listRowBackground(AppTheme.bg)
+                    .listRowBackground(AppTheme.tableFill)
                     ForEach(snaps) { snap in
                         FiveStarStoreRow(
                             snap: snap,
@@ -3237,7 +3241,7 @@ struct FiveStarTable: View {
                         )
                         .listRowInsets(EdgeInsets(top: 2, leading: 20, bottom: 2, trailing: 20))
                         .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.bg)
+                        .listRowBackground(AppTheme.tableFill)
                     }
                 }
                 .transaction { $0.animation = nil }
@@ -4637,6 +4641,7 @@ struct LaborTable: View {
                         )
                 }
                 .buttonStyle(.plain)
+                .background(AppTheme.tableFill)
                 .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
@@ -4672,7 +4677,7 @@ struct LaborTable: View {
                     )
                     .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
                     .listRowSeparator(.hidden)
-                    .listRowBackground(AppTheme.bg)
+                    .listRowBackground(AppTheme.tableFill)
                     ForEach(snaps) { snap in
                         LaborStoreRow(
                             snap: snap,
@@ -4683,7 +4688,7 @@ struct LaborTable: View {
                         )
                             .listRowInsets(EdgeInsets(top: 2, leading: 20, bottom: 2, trailing: 20))
                             .listRowSeparator(.hidden)
-                            .listRowBackground(AppTheme.bg)
+                            .listRowBackground(AppTheme.tableFill)
                     }
                 }
                 .transaction { $0.animation = nil }
@@ -5600,6 +5605,7 @@ struct LostRevenueTable: View {
                         )
                 }
                 .buttonStyle(.plain)
+                .background(AppTheme.tableFill)
                 .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
@@ -5635,7 +5641,7 @@ struct LostRevenueTable: View {
                     )
                     .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
                     .listRowSeparator(.hidden)
-                    .listRowBackground(AppTheme.bg)
+                    .listRowBackground(AppTheme.tableFill)
                     ForEach(snaps) { snap in
                         LostRevenueStoreRow(
                             snap: snap,
@@ -5646,7 +5652,7 @@ struct LostRevenueTable: View {
                         )
                         .listRowInsets(EdgeInsets(top: 2, leading: 20, bottom: 2, trailing: 20))
                         .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.bg)
+                        .listRowBackground(AppTheme.tableFill)
                     }
                 }
                 .transaction { $0.animation = nil }
@@ -5889,6 +5895,7 @@ struct ScheduleTable: View {
                         )
                 }
                 .buttonStyle(.plain)
+                .background(AppTheme.tableFill)
                 .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
@@ -5924,7 +5931,7 @@ struct ScheduleTable: View {
                     )
                     .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
                     .listRowSeparator(.hidden)
-                    .listRowBackground(AppTheme.bg)
+                    .listRowBackground(AppTheme.tableFill)
                     ForEach(snaps) { snap in
                         ScheduleStoreRow(
                             snap: snap,
@@ -5935,7 +5942,7 @@ struct ScheduleTable: View {
                         )
                         .listRowInsets(EdgeInsets(top: 2, leading: 20, bottom: 2, trailing: 20))
                         .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.bg)
+                        .listRowBackground(AppTheme.tableFill)
                     }
                 }
                 .transaction { $0.animation = nil }
@@ -6597,6 +6604,7 @@ struct PPHTable: View {
                         )
                 }
                 .buttonStyle(.plain)
+                .background(AppTheme.tableFill)
                 .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
@@ -6632,7 +6640,7 @@ struct PPHTable: View {
                     )
                     .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
                     .listRowSeparator(.hidden)
-                    .listRowBackground(AppTheme.bg)
+                    .listRowBackground(AppTheme.tableFill)
                     ForEach(snaps) { snap in
                         PPHStoreRow(
                             snap: snap,
@@ -6643,7 +6651,7 @@ struct PPHTable: View {
                         )
                         .listRowInsets(EdgeInsets(top: 2, leading: 20, bottom: 2, trailing: 20))
                         .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.bg)
+                        .listRowBackground(AppTheme.tableFill)
                     }
                 }
                 .transaction { $0.animation = nil }
@@ -7365,6 +7373,7 @@ struct PickerScoreTable: View {
                         )
                 }
                 .buttonStyle(.plain)
+                .background(AppTheme.tableFill)
                 .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
@@ -7413,7 +7422,7 @@ struct PickerScoreTable: View {
                     )
                     .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
                     .listRowSeparator(.hidden)
-                    .listRowBackground(AppTheme.bg)
+                    .listRowBackground(AppTheme.tableFill)
                     ForEach(snaps) { snap in
                         PickerStoreRow(
                             snap: snap,
@@ -7425,7 +7434,7 @@ struct PickerScoreTable: View {
                         )
                         .listRowInsets(EdgeInsets(top: 2, leading: 20, bottom: 2, trailing: 20))
                         .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.bg)
+                        .listRowBackground(AppTheme.tableFill)
                     }
                     if snaps.count < total {
                         Button {
@@ -7441,7 +7450,7 @@ struct PickerScoreTable: View {
                         .buttonStyle(.plain)
                         .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 16, trailing: 20))
                         .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.bg)
+                        .listRowBackground(AppTheme.tableFill)
                     }
                 }
                 .transaction { $0.animation = nil }
