@@ -12,19 +12,20 @@ struct DiagnosticView: View {
     var body: some View {
         List {
             Section {
-                HubBanner(
-                    icon: HubDestination.diagnostics.symbol,
-                    title: "Operational Diagnostic",
-                    accessory: store.filters.summary
-                )
-                Text("At-risk drivers in this filter, why they lose sales and hurt the customer, and the action set to correct them.")
-                    .font(.subheadline)
-                    .foregroundStyle(AppTheme.textSecondary)
-                    .padding(.top, 6)
-                    .padding(.horizontal, 4)
-                    .listRowInsets(EdgeInsets(top: 16, leading: 20, bottom: 8, trailing: 20))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(AppTheme.bg)
+                VStack(alignment: .leading, spacing: 8) {
+                    HubBanner(
+                        icon: HubDestination.diagnostics.symbol,
+                        title: "Operational Diagnostic",
+                        accessory: store.filters.summary
+                    )
+                    Text("At-risk drivers in this filter, why they lose sales and hurt the customer, and the action set to correct them.")
+                        .font(.subheadline)
+                        .foregroundStyle(AppTheme.textSecondary)
+                        .padding(.horizontal, 4)
+                }
+                .listRowInsets(EdgeInsets(top: 16, leading: 20, bottom: 8, trailing: 20))
+                .listRowSeparator(.hidden)
+                .listRowBackground(AppTheme.bg)
             }
 
             Section {
@@ -34,7 +35,7 @@ struct DiagnosticView: View {
                     .listRowBackground(AppTheme.bg)
             }
 
-            ForEach(DiagnosticGrain.rollups) { grain in
+            ForEach(DiagnosticGrain.rollups, id: \.self) { grain in
                 Section {
                     grainPanel(grain)
                         .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
@@ -267,7 +268,7 @@ struct DiagnosticView: View {
             labeledBlock("Why this hurts the customer", play.experience, compact: compact)
             VStack(alignment: .leading, spacing: 4) {
                 Text("Action set")
-                    .font((compact ? Font.caption : Font.subheadline).weight(.heavy))
+                    .font(compact ? .caption.weight(.heavy) : .subheadline.weight(.heavy))
                     .foregroundStyle(AppTheme.blue)
                     .tracking(0.3)
                 ForEach(Array(play.actions.enumerated()), id: \.offset) { index, step in
@@ -284,13 +285,13 @@ struct DiagnosticView: View {
         }
     }
 
-    private func labeledBlock(_ title: String, _ body: String, compact: Bool) -> some View {
+    private func labeledBlock(_ title: String, _ detail: String, compact: Bool) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title)
-                .font((compact ? Font.caption : Font.subheadline).weight(.heavy))
+                .font(compact ? .caption.weight(.heavy) : .subheadline.weight(.heavy))
                 .foregroundStyle(AppTheme.blue)
                 .tracking(0.3)
-            Text(body)
+            Text(detail)
                 .font(.subheadline)
                 .foregroundStyle(AppTheme.text)
         }
@@ -365,6 +366,12 @@ private struct DiagnosticUnit: Identifiable {
     var worstStores: [String]
 }
 
+private struct DiagnosticStorePulse {
+    var store: HeartbeatMath.MarketStore
+    var findings: [DiagnosticFinding]
+    var lost: Double
+}
+
 private struct DiagnosticBoard {
     var filterFindings: [DiagnosticFinding]
     var riskStoreCount: Int
@@ -413,13 +420,7 @@ private struct DiagnosticBoard {
             rowByStore[section] = map
         }
 
-        struct StorePulse {
-            var store: HeartbeatMath.MarketStore
-            var findings: [DiagnosticFinding]
-            var lost: Double
-        }
-
-        var pulses: [StorePulse] = []
+        var pulses: [DiagnosticStorePulse] = []
         pulses.reserveCapacity(roster.count)
         for unit in roster {
             var findings: [DiagnosticFinding] = []
@@ -450,15 +451,15 @@ private struct DiagnosticBoard {
                     )
                 )
             }
-            pulses.append(StorePulse(store: unit, findings: findings, lost: lost))
+            pulses.append(DiagnosticStorePulse(store: unit, findings: findings, lost: lost))
         }
 
         let atRisk = pulses.filter { !$0.findings.isEmpty }
 
         func rollup(
-            key: (StorePulse) -> String,
-            title: (String, [StorePulse]) -> String,
-            subtitle: ([StorePulse]) -> String
+            key: (DiagnosticStorePulse) -> String,
+            title: (String, [DiagnosticStorePulse]) -> String,
+            subtitle: ([DiagnosticStorePulse]) -> String
         ) -> [DiagnosticUnit] {
             let grouped = Dictionary(grouping: pulses, by: key)
             return grouped.keys.sorted { lhs, rhs in

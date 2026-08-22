@@ -61,7 +61,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         case .labor: return .labor
         case .pickerScorecard: return .pickerScorecard
         case .lostRevenue: return .lostRevenue
-        default: return nil
+        case .dashboard, .diagnostics, .upload: return nil
         }
     }
 
