@@ -227,45 +227,20 @@ struct MainHubView: View {
                 UploadView()
                     .id("upload-\(store.filterStamp)")
             } else {
-                TabView(selection: swipeSelection) {
-                    ForEach(HubDestination.sectionItems) { dest in
-                        swipePage(dest)
-                            .tag(dest)
-                    }
+                ScorecardPager(router: router, filterStamp: store.filterStamp) { dest in
+                    AnyView(
+                        page(for: dest)
+                            .environmentObject(store)
+                            .environmentObject(router)
+                    )
                 }
-                .tabViewStyle(.page(indexDisplayMode: .never))
-                .background(AppTheme.bg)
+                .ignoresSafeArea(edges: .bottom)
             }
         }
         .hubChrome(
             showBack: router.current != .dashboard,
             showsFilters: router.current != .upload
         )
-    }
-
-    private var swipeSelection: Binding<HubDestination> {
-        Binding(
-            get: {
-                HubDestination.sectionItems.contains(router.current) ? router.current : .dashboard
-            },
-            set: { router.open($0) }
-        )
-    }
-
-    @ViewBuilder
-    private func swipePage(_ dest: HubDestination) -> some View {
-        let items = HubDestination.sectionItems
-        let index = items.firstIndex(of: dest) ?? 0
-        let current = items.firstIndex(of: router.current) ?? 0
-        Group {
-            if abs(index - current) <= 1 {
-                page(for: dest)
-            } else {
-                AppTheme.bg
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .id("\(dest.rawValue)-\(store.filterStamp)")
     }
 
     @ViewBuilder

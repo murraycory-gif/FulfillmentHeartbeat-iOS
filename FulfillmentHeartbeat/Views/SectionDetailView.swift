@@ -13,6 +13,7 @@ struct SectionDetailView: View {
     @State private var fiveStarFocus: FiveStarFocus = .all
     @State private var laborFocus: LaborFocus = .all
     @State private var lostRevenueFocus: LostRevenueFocus = .all
+    @State private var showTables = false
 
     private var summary: SectionSummary { store.summary(for: section) }
     private var snapshots: [MetricRow] { store.displayRows(for: section) }
@@ -30,81 +31,99 @@ struct SectionDetailView: View {
             }
 
             if section == .pickerScorecard {
-                Section {
-                    PickerHighlightsPanel(
-                        onSelectOpportunity: { pickerFocus = .opportunity },
-                        onSelectStrong: { pickerFocus = .strong }
-                    )
-                    .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(AppTheme.bg)
+                if showTables {
+                    Section {
+                        PickerHighlightsPanel(
+                            onSelectOpportunity: { pickerFocus = .opportunity },
+                            onSelectStrong: { pickerFocus = .strong }
+                        )
+                        .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(AppTheme.bg)
+                    }
+                    PickerScoreTable(focus: pickerFocus)
                 }
-                PickerScoreTable(focus: pickerFocus)
             } else if section == .pickPath {
-                Section {
-                    PickPathRollupTable()
-                        .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.bg)
+                if showTables {
+                    Section {
+                        PickPathRollupTable()
+                            .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(AppTheme.bg)
+                    }
+                    PickPathTable(rows: pickPathRows)
                 }
-                PickPathTable(rows: pickPathRows)
             } else if section == .dynacap {
-                Section {
-                    DynacapRollupTable()
-                        .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.bg)
+                if showTables {
+                    Section {
+                        DynacapRollupTable()
+                            .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(AppTheme.bg)
+                    }
+                    DynacapTable(rows: dynacapRows)
                 }
-                DynacapTable(rows: dynacapRows)
             } else if section == .pph {
-                Section {
-                    PPHRollupTable()
-                        .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.bg)
+                if showTables {
+                    Section {
+                        PPHRollupTable()
+                            .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(AppTheme.bg)
+                    }
+                    PPHTable(rows: pphRows)
                 }
-                PPHTable(rows: pphRows)
             } else if section == .scheduleQuality {
-                Section {
-                    ScheduleRollupTable()
-                        .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.bg)
+                if showTables {
+                    Section {
+                        ScheduleRollupTable()
+                            .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(AppTheme.bg)
+                    }
+                    ScheduleTable(rows: scheduleRows)
                 }
-                ScheduleTable(rows: scheduleRows)
             } else if section == .prepNotReady {
-                Section {
-                    PrepRollupTable()
-                        .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.bg)
+                if showTables {
+                    Section {
+                        PrepRollupTable()
+                            .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(AppTheme.bg)
+                    }
+                    PrepTable(rows: prepRows)
                 }
-                PrepTable(rows: prepRows)
             } else if section == .fiveStar {
-                Section {
-                    FiveStarRollupTable()
-                        .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.bg)
+                if showTables {
+                    Section {
+                        FiveStarRollupTable()
+                            .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(AppTheme.bg)
+                    }
+                    FiveStarTable(rows: fiveStarRows)
                 }
-                FiveStarTable(rows: fiveStarRows)
             } else if section == .labor {
-                Section {
-                    LaborRollupTable()
-                        .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.bg)
+                if showTables {
+                    Section {
+                        LaborRollupTable()
+                            .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(AppTheme.bg)
+                    }
+                    LaborTable(rows: laborRows)
                 }
-                LaborTable(rows: laborRows)
             } else if section == .lostRevenue {
-                Section {
-                    LostRevenueRollupTable()
-                        .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.bg)
+                if showTables {
+                    Section {
+                        LostRevenueRollupTable()
+                            .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(AppTheme.bg)
+                    }
+                    LostRevenueTable(rows: lostRevenueRows)
                 }
-                LostRevenueTable(rows: lostRevenueRows)
-            } else {
+            } else if showTables {
                 StoreTable(section: section, rows: snapshots)
             }
         }
@@ -160,8 +179,12 @@ struct SectionDetailView: View {
             }
         }
         .onAppear {
-            if section == .labor || section == .lostRevenue || section == .fiveStar || section == .pickPath || section == .prepNotReady || section == .dynacap || section == .scheduleQuality || section == .pph || section == .pickerScorecard {
-                laborHeaderPin.openOnPageEnter()
+            guard !showTables else { return }
+            DispatchQueue.main.async {
+                showTables = true
+                if section == .labor || section == .lostRevenue || section == .fiveStar || section == .pickPath || section == .prepNotReady || section == .dynacap || section == .scheduleQuality || section == .pph || section == .pickerScorecard {
+                    laborHeaderPin.openOnPageEnter()
+                }
             }
         }
     }
