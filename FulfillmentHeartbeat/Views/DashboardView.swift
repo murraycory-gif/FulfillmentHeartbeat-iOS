@@ -244,74 +244,56 @@ struct PickerHighlightsPanel: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: expanded ? 14 : 0) {
+        VStack(spacing: 0) {
             Button {
                 expanded.toggle()
             } label: {
-                HStack(spacing: 10) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack(spacing: 8) {
-                            Text("Top Opportunity Pickers")
-                                .font(.title3.weight(.bold))
-                                .foregroundStyle(AppTheme.bad)
-                            Text("|")
-                                .font(.title3.weight(.bold))
-                                .foregroundStyle(AppTheme.textTertiary)
-                            Text("Pickers Doing Well")
-                                .font(.title3.weight(.bold))
-                                .foregroundStyle(AppTheme.ok)
-                        }
-                        Text("15+ orders  ·  tap to \(expanded ? "collapse" : "expand")")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(AppTheme.textSecondary)
-                    }
-                    Spacer()
-                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                        .font(.headline.weight(.semibold))
-                        .foregroundStyle(AppTheme.blue)
-                        .frame(width: 36, height: 36)
-                        .background(AppTheme.blueSoft, in: Circle())
-                }
-                .contentShape(Rectangle())
+                HubTableHeader(
+                    icon: "person.2.fill",
+                    title: "Top Opportunity Pickers",
+                    accessory: "Pickers Doing Well  ·  15+ orders  ·  tap to \(expanded ? "collapse" : "expand")",
+                    expanded: expanded
+                )
             }
             .buttonStyle(.plain)
 
             if expanded {
-                if board.shopperCount == 0 {
-                    Text("Upload a picker score card workbook to rank opportunity and strong shoppers.")
-                        .font(.subheadline)
-                        .foregroundStyle(AppTheme.textSecondary)
-                } else {
-                    HStack(alignment: .top, spacing: 16) {
-                        shopperColumn(
-                            title: "Top opportunity",
-                            subtitle: "15+ orders · underperforming vs the metric mix",
-                            rows: board.opportunity,
-                            empty: "No opportunity shoppers in this filter.",
-                            tone: .risk,
-                            action: onSelectOpportunity
-                        )
-                        shopperColumn(
-                            title: "Doing well",
-                            subtitle: "15+ orders · hitting the metric mix",
-                            rows: board.strong,
-                            empty: "No strong shoppers in this filter.",
-                            tone: .good,
-                            action: onSelectStrong
-                        )
+                Group {
+                    if board.shopperCount == 0 {
+                        Text("Upload a picker score card workbook to rank opportunity and strong shoppers.")
+                            .font(.subheadline)
+                            .foregroundStyle(AppTheme.textSecondary)
+                    } else {
+                        HStack(alignment: .top, spacing: 16) {
+                            shopperColumn(
+                                title: "Top opportunity",
+                                subtitle: "15+ orders · underperforming vs the metric mix",
+                                rows: board.opportunity,
+                                empty: "No opportunity shoppers in this filter.",
+                                tone: .risk,
+                                action: onSelectOpportunity
+                            )
+                            shopperColumn(
+                                title: "Doing well",
+                                subtitle: "15+ orders · hitting the metric mix",
+                                rows: board.strong,
+                                empty: "No strong shoppers in this filter.",
+                                tone: .good,
+                                action: onSelectStrong
+                            )
+                        }
                     }
                 }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(AppTheme.card)
             }
         }
-        .padding(16)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                .fill(AppTheme.card)
-        )
+        .background(AppTheme.card)
+        .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                .stroke(AppTheme.cardBorder, lineWidth: 1)
+                .stroke(AppTheme.blue, lineWidth: 2.5)
         )
     }
 
