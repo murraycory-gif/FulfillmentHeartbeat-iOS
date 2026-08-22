@@ -96,18 +96,6 @@ final class HubRouter: ObservableObject {
         destination = .from(section: section)
     }
 
-    /// Swipe through Dashboard + scorecards only. Upload/Settings is never in this path.
-    func openAdjacent(_ delta: Int) {
-        guard destination != .upload else { return }
-        let items = HubDestination.sectionItems
-        guard let index = items.firstIndex(of: destination) else { return }
-        let next = index + delta
-        guard items.indices.contains(next) else { return }
-        withAnimation(.easeInOut(duration: 0.22)) {
-            destination = items[next]
-        }
-    }
-
     func toggleSidebar() {
         sidebarNonce += 1
     }
@@ -235,9 +223,19 @@ struct MainHubView: View {
     @ViewBuilder
     private var detail: some View {
         NavigationStack {
-            page(for: router.current)
-                .id("\(router.current.rawValue)-\(store.filterStamp)")
-                .simultaneousGesture(pageSwipe)
+            if router.current == .upload {
+                UploadView()
+                    .id("upload-\(store.filterStamp)")
+            } else {
+                TabView(selection: swipeSelection) {
+                    ForEach(HubDestination.sectionItems) { dest in
+                        swipePage(dest)
+                            .tag(dest)
+                    }
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                .background(AppTheme.bg)
+            }
         }
         .hubChrome(
             showBack: router.current != .dashboard,
@@ -245,19 +243,29 @@ struct MainHubView: View {
         )
     }
 
-    private var pageSwipe: some Gesture {
-        DragGesture(minimumDistance: 50)
-            .onEnded { value in
-                guard router.current != .upload else { return }
-                let width = value.translation.width
-                let height = value.translation.height
-                guard abs(width) > 80, abs(width) > abs(height) * 1.4 else { return }
-                if width > 0 {
-                    router.openAdjacent(1)
-                } else {
-                    router.openAdjacent(-1)
-                }
+    private var swipeSelection: Binding<HubDestination> {
+        Binding(
+            get: {
+                HubDestination.sectionItems.contains(router.current) ? router.current : .dashboard
+            },
+            set: { router.open($0) }
+        )
+    }
+
+    @ViewBuilder
+    private func swipePage(_ dest: HubDestination) -> some View {
+        let items = HubDestination.sectionItems
+        let index = items.firstIndex(of: dest) ?? 0
+        let current = items.firstIndex(of: router.current) ?? 0
+        Group {
+            if abs(index - current) <= 1 {
+                page(for: dest)
+            } else {
+                AppTheme.bg
             }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .id("\(dest.rawValue)-\(store.filterStamp)")
     }
 
     @ViewBuilder
