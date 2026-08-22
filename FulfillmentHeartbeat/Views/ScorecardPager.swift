@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// Native paging between Dashboard and scorecards. Caches pages so the next swipe is already drawn.
+/// Native paging between Dashboard and scorecards. Sidebar taps jump; swipes page.
 struct ScorecardPager: UIViewControllerRepresentable {
     @ObservedObject var router: HubRouter
     var filterStamp: Int
@@ -17,14 +17,13 @@ struct ScorecardPager: UIViewControllerRepresentable {
             navigationOrientation: .horizontal,
             options: nil
         )
-        pager.dataSource = context.coordinator
         pager.delegate = context.coordinator
+        pager.dataSource = context.coordinator
         pager.view.backgroundColor = UIColor(red: 0.96, green: 0.97, blue: 0.99, alpha: 1)
-        let start = context.coordinator.host(for: router.current == .upload ? .dashboard : router.current)
-        pager.setViewControllers([start], direction: .forward, animated: false)
-        context.coordinator.displayed = start.dest
         context.coordinator.attach(pager)
-        context.coordinator.prefetch(around: start.dest)
+        let dest = router.current == .upload ? .dashboard : router.current
+        context.coordinator.snap(to: dest, animated: false)
+        context.coordinator.prefetch(around: dest)
         return pager
     }
 
@@ -32,31 +31,20 @@ struct ScorecardPager: UIViewControllerRepresentable {
         let coordinator = context.coordinator
         coordinator.page = page
         coordinator.router = router
+        coordinator.attach(pager)
 
         if coordinator.filterStamp != filterStamp {
             coordinator.filterStamp = filterStamp
             coordinator.cache.removeAll()
             let dest = router.current == .upload ? .dashboard : router.current
-            let host = coordinator.host(for: dest)
-            pager.setViewControllers([host], direction: .forward, animated: false)
-            coordinator.displayed = dest
+            coordinator.snap(to: dest, animated: false)
             coordinator.prefetch(around: dest)
             return
         }
 
-        guard !coordinator.isAnimating else { return }
         let dest = router.current
         guard dest != .upload, dest != coordinator.displayed else { return }
-        let items = HubDestination.sectionItems
-        let from = items.firstIndex(of: coordinator.displayed) ?? 0
-        let to = items.firstIndex(of: dest) ?? 0
-        let host = coordinator.host(for: dest)
-        pager.setViewControllers(
-            [host],
-            direction: to >= from ? .forward : .reverse,
-            animated: abs(to - from) == 1
-        )
-        coordinator.displayed = dest
+        coordinator.snap(to: dest, animated: false)
         coordinator.prefetch(around: dest)
     }
 
@@ -80,7 +68,6 @@ struct ScorecardPager: UIViewControllerRepresentable {
         var filterStamp: Int
         var cache: [HubDestination: PageHost] = [:]
         var displayed: HubDestination = .dashboard
-        var isAnimating = false
         private weak var pager: UIPageViewController?
 
         init(page: @escaping (HubDestination) -> AnyView, router: HubRouter, filterStamp: Int) {
@@ -102,14 +89,34 @@ struct ScorecardPager: UIViewControllerRepresentable {
             return host
         }
 
+        func snap(to dest: HubDestination, animated: Bool) {
+            guard let pager else { return }
+            let host = host(for: dest)
+            displayed = dest
+            pager.dataSource = nil
+            pager.setViewControllers([host], direction: .forward, animated: false)
+            pager.dataSource = self
+            resetScroll(pager)
+            pager.view.layoutIfNeeded()
+        }
+
         func prefetch(around dest: HubDestination) {
             let items = HubDestination.sectionItems
             guard let index = items.firstIndex(of: dest) else { return }
-            let neighbors = [index + 1, index - 1, index + 2]
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                for item in neighbors where items.indices.contains(item) {
+                for item in [index + 1, index - 1] where items.indices.contains(item) {
                     _ = self.host(for: items[item])
+                }
+            }
+        }
+
+        private func resetScroll(_ pager: UIPageViewController) {
+            for sub in pager.view.subviews {
+                guard let scroll = sub as? UIScrollView else { continue }
+                let width = scroll.bounds.width
+                if width > 0, scroll.contentSize.width >= width * 2 {
+                    scroll.contentOffset = CGPoint(x: width, y: 0)
                 }
             }
         }
@@ -136,27 +143,20 @@ struct ScorecardPager: UIViewControllerRepresentable {
 
         func pageViewController(
             _ pageViewController: UIPageViewController,
-            willTransitionTo pendingViewControllers: [UIViewController]
-        ) {
-            isAnimating = true
-            if let host = pendingViewControllers.first as? PageHost {
-                prefetch(around: host.dest)
-            }
-        }
-
-        func pageViewController(
-            _ pageViewController: UIPageViewController,
             didFinishAnimating finished: Bool,
             previousViewControllers: [UIViewController],
             transitionCompleted completed: Bool
         ) {
-            isAnimating = false
-            guard completed, let host = pageViewController.viewControllers?.first as? PageHost else { return }
+            let current = (completed ? pageViewController.viewControllers?.first : previousViewControllers.first) as? PageHost
+            guard let host = current ?? pageViewController.viewControllers?.first as? PageHost else { return }
             displayed = host.dest
+            resetScroll(pageViewController)
             if router.destination != host.dest {
                 router.open(host.dest)
             }
-            prefetch(around: host.dest)
+            if completed {
+                prefetch(around: host.dest)
+            }
         }
     }
 }
