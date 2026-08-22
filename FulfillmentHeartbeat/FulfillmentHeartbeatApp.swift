@@ -11,6 +11,7 @@ struct FulfillmentHeartbeatApp: App {
     init() {
         UIWindow.appearance().backgroundColor = launchUI
         UITableView.appearance().backgroundColor = launchUI
+        UITableViewCell.appearance().backgroundColor = launchUI
         UICollectionView.appearance().backgroundColor = launchUI
         let nav = UINavigationBarAppearance()
         nav.configureWithTransparentBackground()

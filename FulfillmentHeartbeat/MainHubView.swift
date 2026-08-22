@@ -226,6 +226,7 @@ struct MainHubView: View {
             if router.current == .upload {
                 UploadView()
                     .id("upload-\(store.filterStamp)")
+                    .hubPageCanvas()
             } else {
                 ScorecardPager(router: router, filterStamp: store.filterStamp) { dest in
                     AnyView(
@@ -248,12 +249,12 @@ struct MainHubView: View {
     private func page(for dest: HubDestination) -> some View {
         switch dest {
         case .dashboard:
-            DashboardView()
+            DashboardView().hubPageCanvas()
         case .upload:
-            UploadView()
+            UploadView().hubPageCanvas()
         case .fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pph, .labor, .pickerScorecard, .lostRevenue:
             if let section = dest.section {
-                SectionDetailView(section: section)
+                SectionDetailView(section: section).hubPageCanvas()
             }
         }
     }

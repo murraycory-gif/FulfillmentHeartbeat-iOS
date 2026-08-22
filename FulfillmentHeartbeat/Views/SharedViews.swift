@@ -7827,6 +7827,8 @@ struct HubChromeModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(AppTheme.bg.ignoresSafeArea())
             .navigationBarTitleDisplayMode(.inline)
             .navigationTitle("")
             .tint(AppTheme.blue)
@@ -7889,6 +7891,12 @@ struct HubBrandBar: View {
 extension View {
     func hubChrome(showBack: Bool = false, showsFilters: Bool = false) -> some View {
         modifier(HubChromeModifier(showBack: showBack, showsFilters: showsFilters))
+    }
+
+    func hubPageCanvas() -> some View {
+        self
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .background(AppTheme.bg.ignoresSafeArea())
     }
 }
 

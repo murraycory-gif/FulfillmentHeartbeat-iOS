@@ -63,9 +63,19 @@ struct ScorecardPager: UIViewControllerRepresentable {
             view.backgroundColor = AppTheme.uiBg
         }
 
+        override func viewDidAppear(_ animated: Bool) {
+            super.viewDidAppear(animated)
+            paintCanvas()
+        }
+
         override func viewWillLayoutSubviews() {
             super.viewWillLayoutSubviews()
+            paintCanvas()
+        }
+
+        private func paintCanvas() {
             view.backgroundColor = AppTheme.uiBg
+            view.subviews.forEach { $0.backgroundColor = AppTheme.uiBg }
         }
 
         @available(*, unavailable)
