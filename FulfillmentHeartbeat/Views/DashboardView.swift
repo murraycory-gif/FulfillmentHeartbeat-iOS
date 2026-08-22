@@ -11,7 +11,11 @@ struct DashboardView: View {
         List {
             Section {
                 VStack(spacing: 16) {
-                    PageHeadline(lead: "Fulfillment Heartbeat", accent: "Dashboard")
+                    HubBanner(
+                        icon: HubDestination.dashboard.symbol,
+                        title: "Fulfillment Heartbeat Dashboard",
+                        accessory: store.filters.summary
+                    )
                     if store.summaries.contains(where: { $0.health == .risk || $0.health == .watch }) {
                         FulfillmentChecklistCard()
                     }
