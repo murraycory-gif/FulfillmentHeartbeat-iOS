@@ -81,6 +81,40 @@ struct HubPanel<Content: View>: View {
     }
 }
 
+struct HubTableHeader: View {
+    var icon: String
+    var title: String
+    var accessory: String
+    var expanded: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.title3.weight(.semibold))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.title3.weight(.bold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                Text(accessory)
+                    .font(.subheadline.weight(.semibold))
+                    .opacity(0.9)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+            }
+            Spacer(minLength: 8)
+            Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                .font(.headline.weight(.semibold))
+        }
+        .foregroundStyle(Color.white)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 13)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppTheme.blue)
+        .contentShape(Rectangle())
+    }
+}
+
 struct PickerScoreCardTitle: View {
     var font: Font = .title2.weight(.semibold)
 
@@ -1060,33 +1094,18 @@ struct PickPathTable: View {
                     if !next { headerPin.pinned = false }
                     if next { rebuildOrder(sort: sort, ascending: ascending) }
                 } label: {
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Store")
-                                .font(.title3.weight(.bold))
-                                .foregroundStyle(AppTheme.blue)
-                            Text("\(HeartbeatFormat.num(Double(rows.count))) stores  ·  tap to \(expanded ? "collapse" : "expand")")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(AppTheme.textSecondary)
-                        }
-                        Spacer()
-                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                            .font(.headline.weight(.semibold))
-                            .foregroundStyle(AppTheme.blue)
-                            .frame(width: 36, height: 36)
-                            .background(AppTheme.blueSoft, in: Circle())
-                    }
-                    .contentShape(Rectangle())
+                    HubTableHeader(
+                            icon: "storefront.fill",
+                            title: "Store",
+                            accessory: "\(HeartbeatFormat.num(Double(rows.count))) stores  ·  tap to \(expanded ? "collapse" : "expand")",
+                            expanded: expanded
+                        )
                 }
                 .buttonStyle(.plain)
-                .padding(16)
-                .background(
-                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                        .fill(AppTheme.card)
-                )
+                .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                        .stroke(AppTheme.cardBorder, lineWidth: 1)
+                        .stroke(AppTheme.blue, lineWidth: 2.5)
                 )
                 .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: expanded ? 4 : 20, trailing: 20))
                 .listRowSeparator(.hidden)
@@ -1568,26 +1587,16 @@ struct PickPathRollupTable: View {
                 Button {
                     headerPin.rollupExpanded.toggle()
                 } label: {
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(grain.title)
-                                .font(.title3.weight(.bold))
-                                .foregroundStyle(AppTheme.blue)
-                            Text("\(summary.count) \(grain.columnTitle.lowercased())\(summary.count == 1 ? "" : "s")  ·  tap to \(expanded ? "collapse" : "expand")")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(AppTheme.textSecondary)
-                        }
-                        Spacer()
-                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                            .font(.headline.weight(.semibold))
-                            .foregroundStyle(AppTheme.blue)
-                            .frame(width: 36, height: 36)
-                            .background(AppTheme.blueSoft, in: Circle())
-                    }
-                    .contentShape(Rectangle())
+                    HubTableHeader(
+                            icon: grain.symbol,
+                            title: grain.title,
+                            accessory: "\(summary.count) \(grain.columnTitle.lowercased())\(summary.count == 1 ? "" : "s")  ·  tap to \(expanded ? "collapse" : "expand")",
+                            expanded: expanded
+                        )
                 }
                 .buttonStyle(.plain)
                 if expanded {
+                    VStack(alignment: .leading, spacing: 10) {
                     PickPathMetricHeader(label: grain.columnTitle, showCount: grain != .store)
                     ForEach(summary) { row in
                         PickPathMetricLine(
@@ -1598,16 +1607,15 @@ struct PickPathRollupTable: View {
                             orders: row.orders
                         )
                     }
+                                    }
+                    .padding(16)
                 }
             }
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                    .fill(AppTheme.card)
-            )
+            .background(AppTheme.card)
+            .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                    .stroke(AppTheme.cardBorder, lineWidth: 1)
+                    .stroke(AppTheme.blue, lineWidth: 2.5)
             )
         }
     }
@@ -1860,33 +1868,18 @@ struct DynacapTable: View {
                     if !next { headerPin.pinned = false }
                     if next { rebuildOrder(sort: sort, ascending: ascending) }
                 } label: {
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Store")
-                                .font(.title3.weight(.bold))
-                                .foregroundStyle(AppTheme.blue)
-                            Text("\(HeartbeatFormat.num(Double(rows.count))) stores  ·  tap to \(expanded ? "collapse" : "expand")")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(AppTheme.textSecondary)
-                        }
-                        Spacer()
-                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                            .font(.headline.weight(.semibold))
-                            .foregroundStyle(AppTheme.blue)
-                            .frame(width: 36, height: 36)
-                            .background(AppTheme.blueSoft, in: Circle())
-                    }
-                    .contentShape(Rectangle())
+                    HubTableHeader(
+                            icon: "storefront.fill",
+                            title: "Store",
+                            accessory: "\(HeartbeatFormat.num(Double(rows.count))) stores  ·  tap to \(expanded ? "collapse" : "expand")",
+                            expanded: expanded
+                        )
                 }
                 .buttonStyle(.plain)
-                .padding(16)
-                .background(
-                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                        .fill(AppTheme.card)
-                )
+                .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                        .stroke(AppTheme.cardBorder, lineWidth: 1)
+                        .stroke(AppTheme.blue, lineWidth: 2.5)
                 )
                 .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: expanded ? 4 : 20, trailing: 20))
                 .listRowSeparator(.hidden)
@@ -2350,26 +2343,16 @@ struct DynacapRollupTable: View {
                 Button {
                     headerPin.rollupExpanded.toggle()
                 } label: {
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(grain.title)
-                                .font(.title3.weight(.bold))
-                                .foregroundStyle(AppTheme.blue)
-                            Text("\(summary.count) \(grain.columnTitle.lowercased())\(summary.count == 1 ? "" : "s")  ·  tap to \(expanded ? "collapse" : "expand")")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(AppTheme.textSecondary)
-                        }
-                        Spacer()
-                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                            .font(.headline.weight(.semibold))
-                            .foregroundStyle(AppTheme.blue)
-                            .frame(width: 36, height: 36)
-                            .background(AppTheme.blueSoft, in: Circle())
-                    }
-                    .contentShape(Rectangle())
+                    HubTableHeader(
+                            icon: grain.symbol,
+                            title: grain.title,
+                            accessory: "\(summary.count) \(grain.columnTitle.lowercased())\(summary.count == 1 ? "" : "s")  ·  tap to \(expanded ? "collapse" : "expand")",
+                            expanded: expanded
+                        )
                 }
                 .buttonStyle(.plain)
                 if expanded {
+                    VStack(alignment: .leading, spacing: 10) {
                     DynacapMetricHeader(label: grain.columnTitle, showCount: grain != .store)
                     ForEach(summary) { row in
                         DynacapMetricLine(
@@ -2379,16 +2362,15 @@ struct DynacapRollupTable: View {
                             util: row.util
                         )
                     }
+                                    }
+                    .padding(16)
                 }
             }
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                    .fill(AppTheme.card)
-            )
+            .background(AppTheme.card)
+            .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                    .stroke(AppTheme.cardBorder, lineWidth: 1)
+                    .stroke(AppTheme.blue, lineWidth: 2.5)
             )
         }
     }
@@ -2549,33 +2531,18 @@ struct PrepTable: View {
                     if !next { headerPin.pinned = false }
                     if next { rebuildOrder(sort: sort, ascending: ascending) }
                 } label: {
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Store")
-                                .font(.title3.weight(.bold))
-                                .foregroundStyle(AppTheme.blue)
-                            Text("\(HeartbeatFormat.num(Double(rows.count))) stores  ·  tap to \(expanded ? "collapse" : "expand")")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(AppTheme.textSecondary)
-                        }
-                        Spacer()
-                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                            .font(.headline.weight(.semibold))
-                            .foregroundStyle(AppTheme.blue)
-                            .frame(width: 36, height: 36)
-                            .background(AppTheme.blueSoft, in: Circle())
-                    }
-                    .contentShape(Rectangle())
+                    HubTableHeader(
+                            icon: "storefront.fill",
+                            title: "Store",
+                            accessory: "\(HeartbeatFormat.num(Double(rows.count))) stores  ·  tap to \(expanded ? "collapse" : "expand")",
+                            expanded: expanded
+                        )
                 }
                 .buttonStyle(.plain)
-                .padding(16)
-                .background(
-                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                        .fill(AppTheme.card)
-                )
+                .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                        .stroke(AppTheme.cardBorder, lineWidth: 1)
+                        .stroke(AppTheme.blue, lineWidth: 2.5)
                 )
                 .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: expanded ? 4 : 20, trailing: 20))
                 .listRowSeparator(.hidden)
@@ -3026,26 +2993,16 @@ struct PrepRollupTable: View {
                 Button {
                     headerPin.rollupExpanded.toggle()
                 } label: {
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(grain.title)
-                                .font(.title3.weight(.bold))
-                                .foregroundStyle(AppTheme.blue)
-                            Text("\(summary.count) \(grain.columnTitle.lowercased())\(summary.count == 1 ? "" : "s")  ·  tap to \(expanded ? "collapse" : "expand")")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(AppTheme.textSecondary)
-                        }
-                        Spacer()
-                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                            .font(.headline.weight(.semibold))
-                            .foregroundStyle(AppTheme.blue)
-                            .frame(width: 36, height: 36)
-                            .background(AppTheme.blueSoft, in: Circle())
-                    }
-                    .contentShape(Rectangle())
+                    HubTableHeader(
+                            icon: grain.symbol,
+                            title: grain.title,
+                            accessory: "\(summary.count) \(grain.columnTitle.lowercased())\(summary.count == 1 ? "" : "s")  ·  tap to \(expanded ? "collapse" : "expand")",
+                            expanded: expanded
+                        )
                 }
                 .buttonStyle(.plain)
                 if expanded {
+                    VStack(alignment: .leading, spacing: 10) {
                     PrepMetricHeader(label: grain.columnTitle, showCount: grain != .store)
                     ForEach(summary) { row in
                         PrepMetricLine(
@@ -3054,16 +3011,15 @@ struct PrepRollupTable: View {
                             pnr: row.pnr
                         )
                     }
+                                    }
+                    .padding(16)
                 }
             }
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                    .fill(AppTheme.card)
-            )
+            .background(AppTheme.card)
+            .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                    .stroke(AppTheme.cardBorder, lineWidth: 1)
+                    .stroke(AppTheme.blue, lineWidth: 2.5)
             )
         }
     }
@@ -3227,33 +3183,18 @@ struct FiveStarTable: View {
                     if !next { headerPin.pinned = false }
                     if next { rebuildOrder(sort: sort, ascending: ascending) }
                 } label: {
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Store")
-                                .font(.title3.weight(.bold))
-                                .foregroundStyle(AppTheme.blue)
-                            Text("\(HeartbeatFormat.num(Double(rows.count))) stores  ·  tap to \(expanded ? "collapse" : "expand")")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(AppTheme.textSecondary)
-                        }
-                        Spacer()
-                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                            .font(.headline.weight(.semibold))
-                            .foregroundStyle(AppTheme.blue)
-                            .frame(width: 36, height: 36)
-                            .background(AppTheme.blueSoft, in: Circle())
-                    }
-                    .contentShape(Rectangle())
+                    HubTableHeader(
+                            icon: "storefront.fill",
+                            title: "Store",
+                            accessory: "\(HeartbeatFormat.num(Double(rows.count))) stores  ·  tap to \(expanded ? "collapse" : "expand")",
+                            expanded: expanded
+                        )
                 }
                 .buttonStyle(.plain)
-                .padding(16)
-                .background(
-                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                        .fill(AppTheme.card)
-                )
+                .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                        .stroke(AppTheme.cardBorder, lineWidth: 1)
+                        .stroke(AppTheme.blue, lineWidth: 2.5)
                 )
                 .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: expanded ? 4 : 20, trailing: 20))
                 .listRowSeparator(.hidden)
@@ -3768,26 +3709,16 @@ struct FiveStarRollupTable: View {
                 Button {
                     headerPin.rollupExpanded.toggle()
                 } label: {
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(grain.title)
-                                .font(.title3.weight(.bold))
-                                .foregroundStyle(AppTheme.blue)
-                            Text("\(summary.count) \(grain.columnTitle.lowercased())\(summary.count == 1 ? "" : "s")  ·  tap to \(expanded ? "collapse" : "expand")")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(AppTheme.textSecondary)
-                        }
-                        Spacer()
-                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                            .font(.headline.weight(.semibold))
-                            .foregroundStyle(AppTheme.blue)
-                            .frame(width: 36, height: 36)
-                            .background(AppTheme.blueSoft, in: Circle())
-                    }
-                    .contentShape(Rectangle())
+                    HubTableHeader(
+                            icon: grain.symbol,
+                            title: grain.title,
+                            accessory: "\(summary.count) \(grain.columnTitle.lowercased())\(summary.count == 1 ? "" : "s")  ·  tap to \(expanded ? "collapse" : "expand")",
+                            expanded: expanded
+                        )
                 }
                 .buttonStyle(.plain)
                 if expanded {
+                    VStack(alignment: .leading, spacing: 10) {
                     FiveStarMetricHeader(label: grain.columnTitle, showCount: grain != .store)
                     ForEach(summary) { row in
                         FiveStarMetricLine(
@@ -3801,16 +3732,15 @@ struct FiveStarRollupTable: View {
                             oth: row.oth
                         )
                     }
+                                    }
+                    .padding(16)
                 }
             }
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                    .fill(AppTheme.card)
-            )
+            .background(AppTheme.card)
+            .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                    .stroke(AppTheme.cardBorder, lineWidth: 1)
+                    .stroke(AppTheme.blue, lineWidth: 2.5)
             )
         }
     }
@@ -4053,6 +3983,14 @@ private enum LaborRollupGrain {
         case .division: return "Markets"
         case .district: return "By district"
         case .store: return "Store"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .division: return "map.fill"
+        case .district: return "square.grid.2x2.fill"
+        case .store: return "storefront.fill"
         }
     }
 
@@ -4560,26 +4498,16 @@ struct LaborRollupTable: View {
                     Button {
                         headerPin.rollupExpanded.toggle()
                     } label: {
-                        HStack(spacing: 10) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(grain.title)
-                                    .font(.title3.weight(.bold))
-                                    .foregroundStyle(AppTheme.blue)
-                                Text("\(summary.count) \(grain.columnTitle.lowercased())\(summary.count == 1 ? "" : "s")  ·  tap to \(expanded ? "collapse" : "expand")")
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(AppTheme.textSecondary)
-                            }
-                            Spacer()
-                            Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                                .font(.headline.weight(.semibold))
-                                .foregroundStyle(AppTheme.blue)
-                                .frame(width: 36, height: 36)
-                                .background(AppTheme.blueSoft, in: Circle())
-                        }
-                        .contentShape(Rectangle())
+                        HubTableHeader(
+                            icon: grain.symbol,
+                            title: grain.title,
+                            accessory: "\(summary.count) \(grain.columnTitle.lowercased())\(summary.count == 1 ? "" : "s")  ·  tap to \(expanded ? "collapse" : "expand")",
+                            expanded: expanded
+                        )
                     }
                     .buttonStyle(.plain)
                     if expanded {
+                    VStack(alignment: .leading, spacing: 10) {
                         LaborMetricHeader(label: grain.columnTitle, showCount: grain != .store)
                         ForEach(summary) { row in
                             LaborMetricLine(
@@ -4594,16 +4522,15 @@ struct LaborRollupTable: View {
                                 aiv: row.aiv
                             )
                         }
-                    }
+                                        }
+                    .padding(16)
                 }
-                .padding(16)
-                .background(
-                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                        .fill(AppTheme.card)
-                )
+                }
+                .background(AppTheme.card)
+                .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                        .stroke(AppTheme.cardBorder, lineWidth: 1)
+                        .stroke(AppTheme.blue, lineWidth: 2.5)
                 )
         }
     }
@@ -4702,33 +4629,18 @@ struct LaborTable: View {
                     if !next { headerPin.pinned = false }
                     if next { rebuildOrder(sort: sort, ascending: ascending) }
                 } label: {
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Store")
-                                .font(.title3.weight(.bold))
-                                .foregroundStyle(AppTheme.blue)
-                            Text("\(HeartbeatFormat.num(Double(rows.count))) stores  ·  tap to \(expanded ? "collapse" : "expand")")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(AppTheme.textSecondary)
-                        }
-                        Spacer()
-                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                            .font(.headline.weight(.semibold))
-                            .foregroundStyle(AppTheme.blue)
-                            .frame(width: 36, height: 36)
-                            .background(AppTheme.blueSoft, in: Circle())
-                    }
-                    .contentShape(Rectangle())
+                    HubTableHeader(
+                            icon: "storefront.fill",
+                            title: "Store",
+                            accessory: "\(HeartbeatFormat.num(Double(rows.count))) stores  ·  tap to \(expanded ? "collapse" : "expand")",
+                            expanded: expanded
+                        )
                 }
                 .buttonStyle(.plain)
-                .padding(16)
-                .background(
-                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                        .fill(AppTheme.card)
-                )
+                .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                        .stroke(AppTheme.cardBorder, lineWidth: 1)
+                        .stroke(AppTheme.blue, lineWidth: 2.5)
                 )
                 .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: expanded ? 4 : 20, trailing: 20))
                 .listRowSeparator(.hidden)
@@ -5562,26 +5474,16 @@ struct LostRevenueRollupTable: View {
                 Button {
                     headerPin.rollupExpanded.toggle()
                 } label: {
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(grain.title)
-                                .font(.title3.weight(.bold))
-                                .foregroundStyle(AppTheme.blue)
-                            Text("\(summary.count) \(grain.columnTitle.lowercased())\(summary.count == 1 ? "" : "s")  ·  tap to \(expanded ? "collapse" : "expand")")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(AppTheme.textSecondary)
-                        }
-                        Spacer()
-                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                            .font(.headline.weight(.semibold))
-                            .foregroundStyle(AppTheme.blue)
-                            .frame(width: 36, height: 36)
-                            .background(AppTheme.blueSoft, in: Circle())
-                    }
-                    .contentShape(Rectangle())
+                    HubTableHeader(
+                            icon: grain.symbol,
+                            title: grain.title,
+                            accessory: "\(summary.count) \(grain.columnTitle.lowercased())\(summary.count == 1 ? "" : "s")  ·  tap to \(expanded ? "collapse" : "expand")",
+                            expanded: expanded
+                        )
                 }
                 .buttonStyle(.plain)
                 if expanded {
+                    VStack(alignment: .leading, spacing: 10) {
                     LostRevenueMetricHeader(label: grain.columnTitle, showCount: grain != .store)
                     ForEach(summary) { row in
                         LostRevenueMetricLine(
@@ -5596,16 +5498,15 @@ struct LostRevenueRollupTable: View {
                             missed: row.missed
                         )
                     }
+                                    }
+                    .padding(16)
                 }
             }
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                    .fill(AppTheme.card)
-            )
+            .background(AppTheme.card)
+            .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                    .stroke(AppTheme.cardBorder, lineWidth: 1)
+                    .stroke(AppTheme.blue, lineWidth: 2.5)
             )
         }
     }
@@ -5691,33 +5592,18 @@ struct LostRevenueTable: View {
                     if !next { headerPin.pinned = false }
                     if next { rebuildOrder(sort: sort, ascending: ascending) }
                 } label: {
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Store")
-                                .font(.title3.weight(.bold))
-                                .foregroundStyle(AppTheme.blue)
-                            Text("\(HeartbeatFormat.num(Double(rows.count))) stores  ·  tap to \(expanded ? "collapse" : "expand")")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(AppTheme.textSecondary)
-                        }
-                        Spacer()
-                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                            .font(.headline.weight(.semibold))
-                            .foregroundStyle(AppTheme.blue)
-                            .frame(width: 36, height: 36)
-                            .background(AppTheme.blueSoft, in: Circle())
-                    }
-                    .contentShape(Rectangle())
+                    HubTableHeader(
+                            icon: "storefront.fill",
+                            title: "Store",
+                            accessory: "\(HeartbeatFormat.num(Double(rows.count))) stores  ·  tap to \(expanded ? "collapse" : "expand")",
+                            expanded: expanded
+                        )
                 }
                 .buttonStyle(.plain)
-                .padding(16)
-                .background(
-                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                        .fill(AppTheme.card)
-                )
+                .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                        .stroke(AppTheme.cardBorder, lineWidth: 1)
+                        .stroke(AppTheme.blue, lineWidth: 2.5)
                 )
                 .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: expanded ? 4 : 20, trailing: 20))
                 .listRowSeparator(.hidden)
@@ -5995,33 +5881,18 @@ struct ScheduleTable: View {
                     if !next { headerPin.pinned = false }
                     if next { rebuildOrder(sort: sort, ascending: ascending) }
                 } label: {
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Store")
-                                .font(.title3.weight(.bold))
-                                .foregroundStyle(AppTheme.blue)
-                            Text("\(HeartbeatFormat.num(Double(rows.count))) stores  ·  tap to \(expanded ? "collapse" : "expand")")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(AppTheme.textSecondary)
-                        }
-                        Spacer()
-                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                            .font(.headline.weight(.semibold))
-                            .foregroundStyle(AppTheme.blue)
-                            .frame(width: 36, height: 36)
-                            .background(AppTheme.blueSoft, in: Circle())
-                    }
-                    .contentShape(Rectangle())
+                    HubTableHeader(
+                            icon: "storefront.fill",
+                            title: "Store",
+                            accessory: "\(HeartbeatFormat.num(Double(rows.count))) stores  ·  tap to \(expanded ? "collapse" : "expand")",
+                            expanded: expanded
+                        )
                 }
                 .buttonStyle(.plain)
-                .padding(16)
-                .background(
-                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                        .fill(AppTheme.card)
-                )
+                .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                        .stroke(AppTheme.cardBorder, lineWidth: 1)
+                        .stroke(AppTheme.blue, lineWidth: 2.5)
                 )
                 .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: expanded ? 4 : 20, trailing: 20))
                 .listRowSeparator(.hidden)
@@ -6518,26 +6389,16 @@ struct ScheduleRollupTable: View {
                 Button {
                     headerPin.rollupExpanded.toggle()
                 } label: {
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(grain.title)
-                                .font(.title3.weight(.bold))
-                                .foregroundStyle(AppTheme.blue)
-                            Text("\(summary.count) \(grain.columnTitle.lowercased())\(summary.count == 1 ? "" : "s")  ·  tap to \(expanded ? "collapse" : "expand")")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(AppTheme.textSecondary)
-                        }
-                        Spacer()
-                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                            .font(.headline.weight(.semibold))
-                            .foregroundStyle(AppTheme.blue)
-                            .frame(width: 36, height: 36)
-                            .background(AppTheme.blueSoft, in: Circle())
-                    }
-                    .contentShape(Rectangle())
+                    HubTableHeader(
+                            icon: grain.symbol,
+                            title: grain.title,
+                            accessory: "\(summary.count) \(grain.columnTitle.lowercased())\(summary.count == 1 ? "" : "s")  ·  tap to \(expanded ? "collapse" : "expand")",
+                            expanded: expanded
+                        )
                 }
                 .buttonStyle(.plain)
                 if expanded {
+                    VStack(alignment: .leading, spacing: 10) {
                     ScheduleMetricHeader(label: grain.columnTitle, showCount: grain != .store)
                     ForEach(summary) { row in
                         ScheduleMetricLine(
@@ -6548,16 +6409,15 @@ struct ScheduleRollupTable: View {
                             over: row.over
                         )
                     }
+                                    }
+                    .padding(16)
                 }
             }
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                    .fill(AppTheme.card)
-            )
+            .background(AppTheme.card)
+            .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                    .stroke(AppTheme.cardBorder, lineWidth: 1)
+                    .stroke(AppTheme.blue, lineWidth: 2.5)
             )
         }
     }
@@ -6729,33 +6589,18 @@ struct PPHTable: View {
                     if !next { headerPin.pinned = false }
                     if next { rebuildOrder(sort: sort, ascending: ascending) }
                 } label: {
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Store")
-                                .font(.title3.weight(.bold))
-                                .foregroundStyle(AppTheme.blue)
-                            Text("\(HeartbeatFormat.num(Double(rows.count))) stores  ·  tap to \(expanded ? "collapse" : "expand")")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(AppTheme.textSecondary)
-                        }
-                        Spacer()
-                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                            .font(.headline.weight(.semibold))
-                            .foregroundStyle(AppTheme.blue)
-                            .frame(width: 36, height: 36)
-                            .background(AppTheme.blueSoft, in: Circle())
-                    }
-                    .contentShape(Rectangle())
+                    HubTableHeader(
+                            icon: "storefront.fill",
+                            title: "Store",
+                            accessory: "\(HeartbeatFormat.num(Double(rows.count))) stores  ·  tap to \(expanded ? "collapse" : "expand")",
+                            expanded: expanded
+                        )
                 }
                 .buttonStyle(.plain)
-                .padding(16)
-                .background(
-                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                        .fill(AppTheme.card)
-                )
+                .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                        .stroke(AppTheme.cardBorder, lineWidth: 1)
+                        .stroke(AppTheme.blue, lineWidth: 2.5)
                 )
                 .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: expanded ? 4 : 20, trailing: 20))
                 .listRowSeparator(.hidden)
@@ -7215,26 +7060,16 @@ struct PPHRollupTable: View {
                 Button {
                     headerPin.rollupExpanded.toggle()
                 } label: {
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(grain.title)
-                                .font(.title3.weight(.bold))
-                                .foregroundStyle(AppTheme.blue)
-                            Text("\(summary.count) \(grain.columnTitle.lowercased())\(summary.count == 1 ? "" : "s")  ·  tap to \(expanded ? "collapse" : "expand")")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(AppTheme.textSecondary)
-                        }
-                        Spacer()
-                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                            .font(.headline.weight(.semibold))
-                            .foregroundStyle(AppTheme.blue)
-                            .frame(width: 36, height: 36)
-                            .background(AppTheme.blueSoft, in: Circle())
-                    }
-                    .contentShape(Rectangle())
+                    HubTableHeader(
+                            icon: grain.symbol,
+                            title: grain.title,
+                            accessory: "\(summary.count) \(grain.columnTitle.lowercased())\(summary.count == 1 ? "" : "s")  ·  tap to \(expanded ? "collapse" : "expand")",
+                            expanded: expanded
+                        )
                 }
                 .buttonStyle(.plain)
                 if expanded {
+                    VStack(alignment: .leading, spacing: 10) {
                     PPHMetricHeader(label: grain.columnTitle, showCount: grain != .store)
                     ForEach(summary) { row in
                         PPHMetricLine(
@@ -7244,16 +7079,15 @@ struct PPHRollupTable: View {
                             pickers: row.pickers
                         )
                     }
+                                    }
+                    .padding(16)
                 }
             }
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                    .fill(AppTheme.card)
-            )
+            .background(AppTheme.card)
+            .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                    .stroke(AppTheme.cardBorder, lineWidth: 1)
+                    .stroke(AppTheme.blue, lineWidth: 2.5)
             )
         }
     }
@@ -7523,33 +7357,18 @@ struct PickerScoreTable: View {
                     if !next { headerPin.pinned = false }
                     if next { rebuildPage() }
                 } label: {
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Shopper")
-                                .font(.title3.weight(.bold))
-                                .foregroundStyle(AppTheme.blue)
-                            Text(pageCaption + "  ·  tap to \(expanded ? "collapse" : "expand")")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(AppTheme.textSecondary)
-                        }
-                        Spacer()
-                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                            .font(.headline.weight(.semibold))
-                            .foregroundStyle(AppTheme.blue)
-                            .frame(width: 36, height: 36)
-                            .background(AppTheme.blueSoft, in: Circle())
-                    }
-                    .contentShape(Rectangle())
+                    HubTableHeader(
+                            icon: "person.2.fill",
+                            title: "Shopper",
+                            accessory: pageCaption + "  ·  tap to \(expanded ? "collapse" : "expand")",
+                            expanded: expanded
+                        )
                 }
                 .buttonStyle(.plain)
-                .padding(16)
-                .background(
-                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                        .fill(AppTheme.card)
-                )
+                .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                        .stroke(AppTheme.cardBorder, lineWidth: 1)
+                        .stroke(AppTheme.blue, lineWidth: 2.5)
                 )
                 .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: expanded ? 4 : 20, trailing: 20))
                 .listRowSeparator(.hidden)
