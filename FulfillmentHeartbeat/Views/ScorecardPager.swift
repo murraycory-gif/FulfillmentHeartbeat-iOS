@@ -35,10 +35,6 @@ struct ScorecardPager: UIViewControllerRepresentable {
 
         if coordinator.filterStamp != filterStamp {
             coordinator.filterStamp = filterStamp
-            coordinator.cache.removeAll()
-            let dest = router.current == .upload ? .dashboard : router.current
-            coordinator.snap(to: dest, animated: false)
-            coordinator.prefetch(around: dest)
             return
         }
 
@@ -61,21 +57,6 @@ struct ScorecardPager: UIViewControllerRepresentable {
         override func viewDidLoad() {
             super.viewDidLoad()
             view.backgroundColor = AppTheme.uiBg
-        }
-
-        override func viewDidAppear(_ animated: Bool) {
-            super.viewDidAppear(animated)
-            paintCanvas()
-        }
-
-        override func viewWillLayoutSubviews() {
-            super.viewWillLayoutSubviews()
-            paintCanvas()
-        }
-
-        private func paintCanvas() {
-            view.backgroundColor = AppTheme.uiBg
-            view.subviews.forEach { $0.backgroundColor = AppTheme.uiBg }
         }
 
         @available(*, unavailable)

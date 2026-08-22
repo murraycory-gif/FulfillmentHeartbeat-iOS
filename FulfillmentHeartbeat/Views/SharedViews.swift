@@ -1050,6 +1050,7 @@ struct StoreTable: View {
 
 struct PickPathTable: View {
     @EnvironmentObject private var headerPin: LaborHeaderPin
+    @EnvironmentObject private var store: HeartbeatStore
     let rows: [MetricRow]
 
     private enum Column: String, CaseIterable, Identifiable {
@@ -1170,6 +1171,11 @@ struct PickPathTable: View {
                 }
                 .transaction { $0.animation = nil }
                 .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
+                .onChange(of: store.filterStamp) { _, _ in
+                    limit = 150
+                    rebuildOrder(sort: sort, ascending: ascending)
+                    headerPin.storeCount = rows.count
+                }
                 .onChange(of: rows.count) { _, _ in
                     limit = 150
                     rebuildOrder(sort: sort, ascending: ascending)
@@ -1842,6 +1848,7 @@ private struct PickPathStoreExpand: View {
 
 struct DynacapTable: View {
     @EnvironmentObject private var headerPin: LaborHeaderPin
+    @EnvironmentObject private var store: HeartbeatStore
     let rows: [MetricRow]
 
     private enum Column: String, CaseIterable, Identifiable {
@@ -1962,6 +1969,11 @@ struct DynacapTable: View {
                 }
                 .transaction { $0.animation = nil }
                 .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
+                .onChange(of: store.filterStamp) { _, _ in
+                    limit = 150
+                    rebuildOrder(sort: sort, ascending: ascending)
+                    headerPin.storeCount = rows.count
+                }
                 .onChange(of: rows.count) { _, _ in
                     limit = 150
                     rebuildOrder(sort: sort, ascending: ascending)
@@ -2523,6 +2535,7 @@ private struct DynacapStoreExpand: View {
 
 struct PrepTable: View {
     @EnvironmentObject private var headerPin: LaborHeaderPin
+    @EnvironmentObject private var store: HeartbeatStore
     let rows: [MetricRow]
 
     private enum Column: String, CaseIterable, Identifiable {
@@ -2643,6 +2656,11 @@ struct PrepTable: View {
                 }
                 .transaction { $0.animation = nil }
                 .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
+                .onChange(of: store.filterStamp) { _, _ in
+                    limit = 150
+                    rebuildOrder(sort: sort, ascending: ascending)
+                    headerPin.storeCount = rows.count
+                }
                 .onChange(of: rows.count) { _, _ in
                     limit = 150
                     rebuildOrder(sort: sort, ascending: ascending)
@@ -3190,6 +3208,7 @@ private struct PrepStoreExpand: View {
 
 struct FiveStarTable: View {
     @EnvironmentObject private var headerPin: LaborHeaderPin
+    @EnvironmentObject private var store: HeartbeatStore
     let rows: [MetricRow]
 
     private enum Column: String, CaseIterable, Identifiable {
@@ -3313,6 +3332,11 @@ struct FiveStarTable: View {
                 }
                 .transaction { $0.animation = nil }
                 .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
+                .onChange(of: store.filterStamp) { _, _ in
+                    limit = 150
+                    rebuildOrder(sort: sort, ascending: ascending)
+                    headerPin.storeCount = rows.count
+                }
                 .onChange(of: rows.count) { _, _ in
                     limit = 150
                     rebuildOrder(sort: sort, ascending: ascending)
@@ -4640,6 +4664,7 @@ struct LaborRollupTable: View {
 
 struct LaborTable: View {
     @EnvironmentObject private var headerPin: LaborHeaderPin
+    @EnvironmentObject private var store: HeartbeatStore
     let rows: [MetricRow]
 
     private enum Column: String, CaseIterable, Identifiable {
@@ -4777,6 +4802,11 @@ struct LaborTable: View {
                 }
                 .transaction { $0.animation = nil }
                 .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
+                .onChange(of: store.filterStamp) { _, _ in
+                    limit = 150
+                    rebuildOrder(sort: sort, ascending: ascending)
+                    headerPin.storeCount = rows.count
+                }
                 .onChange(of: rows.count) { _, _ in
                     limit = 150
                     rebuildOrder(sort: sort, ascending: ascending)
@@ -5634,6 +5664,7 @@ struct LostRevenueRollupTable: View {
 
 struct LostRevenueTable: View {
     @EnvironmentObject private var headerPin: LaborHeaderPin
+    @EnvironmentObject private var store: HeartbeatStore
     let rows: [MetricRow]
 
     private enum Column: String, CaseIterable, Identifiable {
@@ -5758,6 +5789,11 @@ struct LostRevenueTable: View {
                 }
                 .transaction { $0.animation = nil }
                 .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
+                .onChange(of: store.filterStamp) { _, _ in
+                    limit = 150
+                    rebuildOrder(sort: sort, ascending: ascending)
+                    headerPin.storeCount = rows.count
+                }
                 .onChange(of: rows.count) { _, _ in
                     limit = 150
                     rebuildOrder(sort: sort, ascending: ascending)
@@ -5944,6 +5980,7 @@ private struct LostRevenueStoreExpand: View {
 
 struct ScheduleTable: View {
     @EnvironmentObject private var headerPin: LaborHeaderPin
+    @EnvironmentObject private var store: HeartbeatStore
     let rows: [MetricRow]
 
     private enum Column: String, CaseIterable, Identifiable {
@@ -6065,6 +6102,11 @@ struct ScheduleTable: View {
                 }
                 .transaction { $0.animation = nil }
                 .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
+                .onChange(of: store.filterStamp) { _, _ in
+                    limit = 150
+                    rebuildOrder(sort: sort, ascending: ascending)
+                    headerPin.storeCount = rows.count
+                }
                 .onChange(of: rows.count) { _, _ in
                     limit = 150
                     rebuildOrder(sort: sort, ascending: ascending)
@@ -6791,6 +6833,11 @@ struct PPHTable: View {
                 }
                 .transaction { $0.animation = nil }
                 .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
+                .onChange(of: store.filterStamp) { _, _ in
+                    limit = 150
+                    rebuildOrder(sort: sort, ascending: ascending)
+                    headerPin.storeCount = rows.count
+                }
                 .onChange(of: rows.count) { _, _ in
                     limit = 150
                     rebuildOrder(sort: sort, ascending: ascending)

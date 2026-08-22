@@ -98,19 +98,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func displayRows(for section: MetricSection) -> [MetricRow] {
-        let latest = filteredLatest[section] ?? []
-        if section == .pickerScorecard { return latest }
-        if !latest.isEmpty { return latest }
-        return filteredMarket.map { store in
-            MetricRow(
-                section: section,
-                division: store.division,
-                operationsOM: store.om,
-                storeNumber: store.storeNumber,
-                payload: [:],
-                textPayload: ["district": store.district, "placeholder": "1"]
-            )
-        }
+        filteredLatest[section] ?? []
     }
 
     func summary(for section: MetricSection) -> SectionSummary {
@@ -678,9 +666,9 @@ final class HeartbeatStore: ObservableObject {
 
     private func escape(_ value: String) -> String {
         value
-            .replacingOccurrences(of: "&", with: "&")
-            .replacingOccurrences(of: "<", with: "<")
-            .replacingOccurrences(of: ">", with: ">")
+            .replacingOccurrences(of: "&", with: "\u{0026}amp;")
+            .replacingOccurrences(of: "<", with: "\u{0026}lt;")
+            .replacingOccurrences(of: ">", with: "\u{0026}gt;")
     }
 
     private static func isEmail(_ value: String) -> Bool {
