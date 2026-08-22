@@ -7945,6 +7945,8 @@ struct HideSystemSidebarToggle: UIViewRepresentable {
 
 struct FulfillmentChecklistCard: View {
     @EnvironmentObject private var store: HeartbeatStore
+    var showsHeader: Bool = true
+    var startsExpanded: Bool = false
     @State private var expanded = false
     @State private var openSection: MetricSection?
     @State private var commentingID: String?
@@ -7970,10 +7972,12 @@ struct FulfillmentChecklistCard: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
+            if showsHeader {
+                header
+            }
             VStack(alignment: .leading, spacing: 12) {
                 visibilityStrip
-                if expanded {
+                if expanded || !showsHeader {
                     VStack(spacing: 8) {
                         ForEach(MetricSection.checklistSections) { section in
                             sectionBlock(section)
@@ -8001,6 +8005,13 @@ struct FulfillmentChecklistCard: View {
                 .stroke(AppTheme.blue, lineWidth: 2.5)
         )
         .onAppear {
+            if startsExpanded {
+                expanded = true
+            }
+            if openSection == nil {
+                openSection = MetricSection.checklistSections.first { store.summary(for: $0).health == .risk }
+                    ?? MetricSection.checklistSections.first { store.summary(for: $0).health == .watch }
+            }
             guard pulseHealth == .risk || pulseHealth == .watch else { return }
             pulseOn = false
             withAnimation(.easeInOut(duration: 1.05).repeatForever(autoreverses: true)) {

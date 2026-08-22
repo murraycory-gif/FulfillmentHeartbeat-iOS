@@ -16,9 +16,6 @@ struct DashboardView: View {
                         title: "Fulfillment Heartbeat Dashboard",
                         accessory: store.filters.summary
                     )
-                    if store.summaries.contains(where: { $0.health == .risk || $0.health == .watch }) {
-                        FulfillmentChecklistCard()
-                    }
                     HubPanel(
                         icon: "waveform.path.ecg",
                         title: "Operational Heartbeat"
