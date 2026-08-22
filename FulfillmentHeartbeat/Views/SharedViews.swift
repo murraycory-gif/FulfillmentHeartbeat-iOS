@@ -20,6 +20,47 @@ struct HubCard<Content: View>: View {
     }
 }
 
+struct HubPanel<Content: View>: View {
+    var icon: String
+    var title: String
+    var accessory: String? = nil
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 10) {
+                Image(systemName: icon)
+                    .font(.title3.weight(.semibold))
+                Text(title)
+                    .font(.title3.weight(.bold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Spacer(minLength: 8)
+                if let accessory, !accessory.isEmpty {
+                    Text(accessory)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                }
+            }
+            .foregroundStyle(Color.white)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 13)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(AppTheme.blue)
+
+            content
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(14)
+                .background(AppTheme.card)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                .stroke(AppTheme.blue, lineWidth: 2.5)
+        )
+    }
+}
+
 struct PickerScoreCardTitle: View {
     var font: Font = .title2.weight(.semibold)
 

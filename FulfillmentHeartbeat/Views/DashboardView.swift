@@ -15,11 +15,18 @@ struct DashboardView: View {
                     if store.summaries.contains(where: { $0.health == .risk || $0.health == .watch }) {
                         FulfillmentChecklistCard()
                     }
-                    if let lost = store.summaries.first(where: { $0.section == .lostRevenue }) {
-                        DashLostBanner(summary: lost) { open(.lostRevenue) }
-                    }
-                    DashBriefingList(cards: briefingCards) { section in
-                        open(section)
+                    HubPanel(
+                        icon: "waveform.path.ecg",
+                        title: "Operational Heartbeat"
+                    ) {
+                        VStack(spacing: 12) {
+                            if let lost = store.summaries.first(where: { $0.section == .lostRevenue }) {
+                                DashLostBanner(summary: lost) { open(.lostRevenue) }
+                            }
+                            DashBriefingList(cards: briefingCards) { section in
+                                open(section)
+                            }
+                        }
                     }
                 }
                 .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
@@ -196,10 +203,10 @@ struct DashBriefingList: View {
             }
         }
         .padding(16)
-        .background(AppTheme.card, in: RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
+        .background(AppTheme.card, in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                .stroke(AppTheme.cardBorder, lineWidth: 1)
+            RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
+                .stroke(AppTheme.blue, lineWidth: 1.5)
         )
     }
 }

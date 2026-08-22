@@ -2,9 +2,9 @@ import SwiftUI
 
 /// EnviroMap light paper: cool white surfaces, brand blue, quiet type.
 enum AppTheme {
-    static let blue = Color(red: 0.15, green: 0.42, blue: 0.95)
-    static let blueSoft = Color(red: 0.88, green: 0.92, blue: 1.0)
-    static let blueDeep = Color(red: 0.08, green: 0.28, blue: 0.72)
+    static let blue = Color(hex: "3A69EA")
+    static let blueSoft = Color(hex: "E8EEFE")
+    static let blueDeep = Color(hex: "1E4BC8")
 
     static let bg = Color(red: 0.96, green: 0.97, blue: 0.99)
     static let card = Color.white
