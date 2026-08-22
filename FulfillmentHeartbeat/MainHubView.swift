@@ -2,6 +2,7 @@ import SwiftUI
 
 enum HubDestination: String, CaseIterable, Identifiable, Hashable {
     case dashboard
+    case diagnostics
     case upload
     case fiveStar
     case pickPath
@@ -18,6 +19,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
     var title: String {
         switch self {
         case .dashboard: return "Dashboard"
+        case .diagnostics: return "Diagnostic"
         case .upload: return "Upload"
         case .fiveStar: return MetricSection.fiveStar.title
         case .pickPath: return MetricSection.pickPath.title
@@ -34,6 +36,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
     var symbol: String {
         switch self {
         case .dashboard: return "square.grid.2x2.fill"
+        case .diagnostics: return "stethoscope"
         case .upload: return "square.and.arrow.up"
         case .fiveStar: return MetricSection.fiveStar.symbol
         case .pickPath: return MetricSection.pickPath.symbol
@@ -76,7 +79,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
-    static var sectionItems: [HubDestination] { [.dashboard, .lostRevenue, .fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pph, .labor, .pickerScorecard] }
+    static var sectionItems: [HubDestination] { [.dashboard, .diagnostics, .lostRevenue, .fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pph, .labor, .pickerScorecard] }
     static var settingsItems: [HubDestination] { [.upload] }
     static var primaryTabs: [HubDestination] { [.dashboard, .upload] }
     static var metricItems: [HubDestination] { [.lostRevenue, .fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pph, .labor, .pickerScorecard] }
@@ -250,6 +253,8 @@ struct MainHubView: View {
         switch dest {
         case .dashboard:
             DashboardView().hubPageCanvas()
+        case .diagnostics:
+            DiagnosticView().hubPageCanvas()
         case .upload:
             UploadView().hubPageCanvas()
         case .fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pph, .labor, .pickerScorecard, .lostRevenue:
