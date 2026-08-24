@@ -555,7 +555,7 @@ struct FilterSheet: View {
                     title: focus.title,
                     prompt: focus.prompt,
                     allLabel: focus.allLabel,
-                    selection: selection(for: focus),
+                    selection: draft.values(for: focus),
                     options: store.filterChoices(focus: focus, draft: draft),
                     onChange: { apply($0, to: focus) }
                 )
@@ -584,7 +584,6 @@ struct FilterSheet: View {
             .alert("Would you like to save your filters?", isPresented: $confirmLeave) {
                 Button("Save") { saveAndClose() }
                 Button("Don't Save", role: .destructive) {
-                    store.commitFilters(original)
                     dismiss()
                 }
                 Button("Keep editing", role: .cancel) {}
@@ -636,7 +635,7 @@ struct FilterSheet: View {
                     .foregroundStyle(AppTheme.textTertiary)
                 Text(display(for: item))
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(selection(for: item).isEmpty ? AppTheme.textSecondary : AppTheme.blue)
+                    .foregroundStyle(draft.values(for: item).isEmpty ? AppTheme.textSecondary : AppTheme.blue)
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -655,61 +654,28 @@ struct FilterSheet: View {
     }
 
     private var focusPicker: some View {
-        Text("Search or tap a row in \(focus.title)")
+        Text("Search or tap rows in \(focus.title). Select more than one.")
             .font(.subheadline)
             .foregroundStyle(AppTheme.textSecondary)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func selection(for focus: FilterFocus) -> String {
-        switch focus {
-        case .region: return draft.region
-        case .division: return draft.division
-        case .district: return draft.district
-        case .om: return draft.om
-        case .store: return draft.store
-        }
-    }
-
     private func display(for focus: FilterFocus) -> String {
-        let value = selection(for: focus)
-        return value.isEmpty ? focus.allLabel : value
+        let values = draft.values(for: focus)
+        if values.isEmpty { return focus.allLabel }
+        if values.count == 1 { return values[0] }
+        if values.count == 2 { return values.joined(separator: ", ") }
+        return "\(values[0]) + \(values.count - 1) more"
     }
 
     private func apply(_ value: String, to focus: FilterFocus) {
         var next = draft
-        switch focus {
-        case .region:
-            next = DashboardFilters(region: value, division: "", district: "", om: "", store: "")
-        case .division:
-            next.division = value
-            next.district = ""
-            next.om = ""
-            next.store = ""
-            if value.isEmpty {
-                // keep region
-            } else if let match = MarketRegion.containing(value) {
-                next.region = match.rawValue
-            }
-        case .district:
-            next.district = value
-            next.om = ""
-            next.store = ""
-        case .om:
-            next.om = value
-            next.store = ""
-        case .store:
-            next.store = value
-        }
+        next.toggle(value, in: focus)
         applyDraft(next)
     }
 
     private func applyDraft(_ next: DashboardFilters) {
         draft = next
-        Task { @MainActor in
-            await Task.yield()
-            store.commitFilters(next)
-        }
     }
 }
 
@@ -717,7 +683,7 @@ struct FilterColumn: View {
     let title: String
     let prompt: String
     let allLabel: String
-    let selection: String
+    let selection: [String]
     let options: [(id: String, label: String)]
     let onChange: (String) -> Void
     @State private var query = ""
@@ -730,6 +696,11 @@ struct FilterColumn: View {
             $0.label.localizedCaseInsensitiveContains(trimmed)
                 || $0.id.localizedCaseInsensitiveContains(trimmed)
         }
+    }
+
+    private func isSelected(_ id: String) -> Bool {
+        if id.isEmpty { return selection.isEmpty }
+        return selection.contains { HeartbeatMath.matches($0, id) }
     }
 
     var body: some View {
@@ -764,25 +735,23 @@ struct FilterColumn: View {
                     .stroke(focused ? AppTheme.blue : AppTheme.cardBorder, lineWidth: focused ? 2 : 1)
             )
 
-            Text(query.isEmpty ? "\(options.count) options · scroll or tap" : "\(filtered.count) of \(options.count) match")
+            Text(selection.isEmpty
+                 ? "\(options.count) options · tap to select more than one"
+                 : "\(selection.count) selected · \(query.isEmpty ? "\(options.count) options" : "\(filtered.count) of \(options.count) match")")
                 .font(.caption)
                 .foregroundStyle(AppTheme.textTertiary)
 
             List {
                 row(id: "", label: allLabel, selected: selection.isEmpty) {
                     onChange("")
-                    query = ""
-                    focused = false
                 }
                 .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
                 .listRowSeparator(.hidden)
                 .listRowBackground(Color.clear)
 
                 ForEach(filtered, id: \.id) { item in
-                    row(id: item.id, label: item.label, selected: item.id == selection) {
+                    row(id: item.id, label: item.label, selected: isSelected(item.id)) {
                         onChange(item.id)
-                        query = ""
-                        focused = false
                     }
                     .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
                     .listRowSeparator(.hidden)
@@ -812,6 +781,18 @@ struct FilterColumn: View {
         )
     }
 
+    private func applyExactOrFirst() {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        if let exact = filtered.first(where: { HeartbeatMath.matches($0.id, trimmed) || HeartbeatMath.matches($0.label, trimmed) }) {
+            onChange(exact.id)
+        } else if let first = filtered.first {
+            onChange(first.id)
+        }
+        query = ""
+        focused = false
+    }
+
     private func row(id: String, label: String, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             HStack(spacing: 10) {
@@ -820,11 +801,9 @@ struct FilterColumn: View {
                     .foregroundStyle(selected ? AppTheme.blueDeep : AppTheme.text)
                     .multilineTextAlignment(.leading)
                 Spacer(minLength: 0)
-                if selected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.title3)
-                        .foregroundStyle(AppTheme.blue)
-                }
+                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .foregroundStyle(selected ? AppTheme.blue : AppTheme.cardBorder)
             }
             .padding(.horizontal, 14)
             .padding(.vertical, 14)
@@ -835,25 +814,6 @@ struct FilterColumn: View {
             )
         }
         .buttonStyle(.plain)
-    }
-
-    private func applyExactOrFirst() {
-        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty {
-            onChange("")
-            return
-        }
-        if let exact = options.first(where: { $0.id.compare(trimmed, options: [.caseInsensitive, .numeric]) == .orderedSame }) {
-            onChange(exact.id)
-            query = ""
-            focused = false
-            return
-        }
-        if filtered.count == 1 {
-            onChange(filtered[0].id)
-            query = ""
-            focused = false
-        }
     }
 }
 
@@ -1283,13 +1243,13 @@ private enum PickPathRollupBuilder {
         }
         if !filters.district.isEmpty {
             let divisions = Set(
-                stores.filter { HeartbeatMath.matches($0.district, filters.district) }.map(\.division)
+                stores.filter { filters.includesDistrict($0.district) }.map(\.division)
             )
             return stores.filter { divisions.contains($0.division) }
         }
         if !filters.om.isEmpty {
             let divisions = Set(
-                stores.filter { HeartbeatMath.matches($0.operationsOM, filters.om) }.map(\.division)
+                stores.filter { filters.includesOM($0.operationsOM) }.map(\.division)
             )
             return stores.filter { divisions.contains($0.division) }
         }
@@ -2075,13 +2035,13 @@ private enum DynacapRollupBuilder {
         }
         if !filters.district.isEmpty {
             let divisions = Set(
-                stores.filter { HeartbeatMath.matches($0.district, filters.district) }.map(\.division)
+                stores.filter { filters.includesDistrict($0.district) }.map(\.division)
             )
             return stores.filter { divisions.contains($0.division) }
         }
         if !filters.om.isEmpty {
             let divisions = Set(
-                stores.filter { HeartbeatMath.matches($0.operationsOM, filters.om) }.map(\.division)
+                stores.filter { filters.includesOM($0.operationsOM) }.map(\.division)
             )
             return stores.filter { divisions.contains($0.division) }
         }
@@ -2756,13 +2716,13 @@ private enum PrepRollupBuilder {
         }
         if !filters.district.isEmpty {
             let divisions = Set(
-                stores.filter { HeartbeatMath.matches($0.district, filters.district) }.map(\.division)
+                stores.filter { filters.includesDistrict($0.district) }.map(\.division)
             )
             return stores.filter { divisions.contains($0.division) }
         }
         if !filters.om.isEmpty {
             let divisions = Set(
-                stores.filter { HeartbeatMath.matches($0.operationsOM, filters.om) }.map(\.division)
+                stores.filter { filters.includesOM($0.operationsOM) }.map(\.division)
             )
             return stores.filter { divisions.contains($0.division) }
         }
@@ -3440,13 +3400,13 @@ private enum FiveStarRollupBuilder {
         }
         if !filters.district.isEmpty {
             let divisions = Set(
-                stores.filter { HeartbeatMath.matches($0.district, filters.district) }.map(\.division)
+                stores.filter { filters.includesDistrict($0.district) }.map(\.division)
             )
             return stores.filter { divisions.contains($0.division) }
         }
         if !filters.om.isEmpty {
             let divisions = Set(
-                stores.filter { HeartbeatMath.matches($0.operationsOM, filters.om) }.map(\.division)
+                stores.filter { filters.includesOM($0.operationsOM) }.map(\.division)
             )
             return stores.filter { divisions.contains($0.division) }
         }
@@ -4153,13 +4113,13 @@ private enum LaborRollupBuilder {
         }
         if !filters.district.isEmpty {
             let divisions = Set(
-                stores.filter { HeartbeatMath.matches($0.district, filters.district) }.map(\.division)
+                stores.filter { filters.includesDistrict($0.district) }.map(\.division)
             )
             return stores.filter { divisions.contains($0.division) }
         }
         if !filters.om.isEmpty {
             let divisions = Set(
-                stores.filter { HeartbeatMath.matches($0.operationsOM, filters.om) }.map(\.division)
+                stores.filter { filters.includesOM($0.operationsOM) }.map(\.division)
             )
             return stores.filter { divisions.contains($0.division) }
         }
@@ -5230,13 +5190,13 @@ private enum LostRevenueRollupBuilder {
         }
         if !filters.district.isEmpty {
             let divisions = Set(
-                stores.filter { HeartbeatMath.matches($0.district, filters.district) }.map(\.division)
+                stores.filter { filters.includesDistrict($0.district) }.map(\.division)
             )
             return stores.filter { divisions.contains($0.division) }
         }
         if !filters.om.isEmpty {
             let divisions = Set(
-                stores.filter { HeartbeatMath.matches($0.operationsOM, filters.om) }.map(\.division)
+                stores.filter { filters.includesOM($0.operationsOM) }.map(\.division)
             )
             return stores.filter { divisions.contains($0.division) }
         }
@@ -6225,13 +6185,13 @@ private enum ScheduleRollupBuilder {
         }
         if !filters.district.isEmpty {
             let divisions = Set(
-                stores.filter { HeartbeatMath.matches($0.district, filters.district) }.map(\.division)
+                stores.filter { filters.includesDistrict($0.district) }.map(\.division)
             )
             return stores.filter { divisions.contains($0.division) }
         }
         if !filters.om.isEmpty {
             let divisions = Set(
-                stores.filter { HeartbeatMath.matches($0.operationsOM, filters.om) }.map(\.division)
+                stores.filter { filters.includesOM($0.operationsOM) }.map(\.division)
             )
             return stores.filter { divisions.contains($0.division) }
         }
@@ -6936,13 +6896,13 @@ private enum PPHRollupBuilder {
         }
         if !filters.district.isEmpty {
             let divisions = Set(
-                stores.filter { HeartbeatMath.matches($0.district, filters.district) }.map(\.division)
+                stores.filter { filters.includesDistrict($0.district) }.map(\.division)
             )
             return stores.filter { divisions.contains($0.division) }
         }
         if !filters.om.isEmpty {
             let divisions = Set(
-                stores.filter { HeartbeatMath.matches($0.operationsOM, filters.om) }.map(\.division)
+                stores.filter { filters.includesOM($0.operationsOM) }.map(\.division)
             )
             return stores.filter { divisions.contains($0.division) }
         }

@@ -330,13 +330,12 @@ enum HeartbeatMath {
     ) -> [MetricRow] {
         filtered(
             rows,
-            division: filters.division,
-            district: filters.district,
-            om: filters.om,
-            store: filters.store,
+            divisions: filters.selectedDivisions,
+            districts: filters.districts,
+            oms: filters.oms,
+            stores: filters.stores,
             relaxUnknown: relaxUnknown,
-            universe: universe,
-            region: filters.region
+            universe: universe
         )
     }
 
@@ -350,8 +349,6 @@ enum HeartbeatMath {
         universe: [MetricRow]? = nil,
         region: String = ""
     ) -> [MetricRow] {
-        let pool = universe ?? rows
-        let roster = storeRoster(pool)
         let divisionValues: [String]
         if !division.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             divisionValues = [division]
@@ -360,23 +357,50 @@ enum HeartbeatMath {
         } else {
             divisionValues = []
         }
-        let divisionStores = storeSet(in: pool, roster: roster, values: divisionValues, relax: relaxUnknown) { $0.division }
-        let districtStores = storeSet(in: pool, roster: roster, values: district.isEmpty ? [] : [district], relax: relaxUnknown) { $0.district }
-        let omStores = storeSet(in: pool, roster: roster, values: om.isEmpty ? [] : [om], relax: relaxUnknown) { $0.om }
-        let storeFilter = usableFilter(store, in: pool.map(\.storeNumber), relax: relaxUnknown)
+        return filtered(
+            rows,
+            divisions: divisionValues,
+            districts: district.isEmpty ? [] : [district],
+            oms: om.isEmpty ? [] : [om],
+            stores: store.isEmpty ? [] : [store],
+            relaxUnknown: relaxUnknown,
+            universe: universe
+        )
+    }
+
+    static func filtered(
+        _ rows: [MetricRow],
+        divisions: [String],
+        districts: [String],
+        oms: [String],
+        stores: [String],
+        relaxUnknown: Bool,
+        universe: [MetricRow]? = nil
+    ) -> [MetricRow] {
+        let pool = universe ?? rows
+        let roster = storeRoster(pool)
+        let divisionStores = storeSet(in: pool, roster: roster, values: divisions, relax: relaxUnknown) { $0.division }
+        let districtStores = storeSet(in: pool, roster: roster, values: districts, relax: relaxUnknown) { $0.district }
+        let omStores = storeSet(in: pool, roster: roster, values: oms, relax: relaxUnknown) { $0.om }
+        let storeValues = stores
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
 
         return rows.filter { row in
             let identity = resolvedIdentity(row, roster: roster)
-            if let divisionStores, !belongs(row.storeNumber, to: divisionStores, identity: identity.division, values: divisionValues) {
+            if let divisionStores, !belongs(row.storeNumber, to: divisionStores, identity: identity.division, values: divisions) {
                 return false
             }
-            if let districtStores, !belongs(row.storeNumber, to: districtStores, identity: identity.district, values: [district]) {
+            if let districtStores, !belongs(row.storeNumber, to: districtStores, identity: identity.district, values: districts) {
                 return false
             }
-            if let omStores, !belongs(row.storeNumber, to: omStores, identity: identity.om, values: [om]) {
+            if let omStores, !belongs(row.storeNumber, to: omStores, identity: identity.om, values: oms) {
                 return false
             }
-            if let storeFilter, !matches(row.storeNumber, storeFilter) { return false }
+            if !storeValues.isEmpty {
+                let hit = storeValues.contains { matches(row.storeNumber, $0) }
+                if !hit { return relaxUnknown ? true : false }
+            }
             return true
         }
     }
@@ -455,11 +479,7 @@ enum HeartbeatMath {
     }
 
     static func marketBoard(_ rows: [MetricRow], filters: DashboardFilters) -> [MarketStore] {
-        marketBoard(rows, division: filters.division, district: filters.district, om: filters.om, store: filters.store, region: filters.region)
-    }
-
-    static func marketBoard(_ rows: [MetricRow], division: String, district: String, om: String, store: String, region: String = "") -> [MarketStore] {
-        let matched = filtered(rows, division: division, district: district, om: om, store: store, relaxUnknown: false, universe: rows, region: region)
+        let matched = filtered(rows, filters: filters, relaxUnknown: false, universe: rows)
         let roster = storeRoster(rows)
         var pph: [String: Double] = [:]
         for row in latestPerStore(matched.filter { $0.section == .pph }) {
@@ -1527,14 +1547,35 @@ struct ChecklistDriverGroup: Identifiable, Equatable {
 }
 
 struct DashboardFilters: Equatable, Codable {
-    var region = ""
-    var division = ""
-    var district = ""
-    var om = ""
-    var store = ""
+    var regions: [String] = []
+    var divisions: [String] = []
+    var districts: [String] = []
+    var oms: [String] = []
+    var stores: [String] = []
+
+    var region: String {
+        get { regions.first ?? "" }
+        set { regions = Self.wrap(newValue) }
+    }
+    var division: String {
+        get { divisions.first ?? "" }
+        set { divisions = Self.wrap(newValue) }
+    }
+    var district: String {
+        get { districts.first ?? "" }
+        set { districts = Self.wrap(newValue) }
+    }
+    var om: String {
+        get { oms.first ?? "" }
+        set { oms = Self.wrap(newValue) }
+    }
+    var store: String {
+        get { stores.first ?? "" }
+        set { stores = Self.wrap(newValue) }
+    }
 
     var isActive: Bool {
-        !region.isEmpty || !division.isEmpty || !district.isEmpty || !om.isEmpty || !store.isEmpty
+        !regions.isEmpty || !divisions.isEmpty || !districts.isEmpty || !oms.isEmpty || !stores.isEmpty
     }
 
     var summary: String {
@@ -1543,43 +1584,174 @@ struct DashboardFilters: Equatable, Codable {
 
     var summaryParts: [(text: String, active: Bool)] {
         [
-            (region.isEmpty ? "All regions" : region, !region.isEmpty),
-            (division.isEmpty ? "All divisions" : division, !division.isEmpty),
-            (district.isEmpty ? "All districts" : "District \(district)", !district.isEmpty),
-            (om.isEmpty ? "All OMs" : om, !om.isEmpty),
-            (store.isEmpty ? "All stores" : store, !store.isEmpty),
+            (label(regions, empty: "All regions"), !regions.isEmpty),
+            (label(divisions, empty: "All divisions"), !divisions.isEmpty),
+            (label(districts, empty: "All districts", prefix: "District "), !districts.isEmpty),
+            (label(oms, empty: "All OMs"), !oms.isEmpty),
+            (label(stores, empty: "All stores"), !stores.isEmpty),
         ]
     }
 
     func includesDivision(_ value: String) -> Bool {
-        if !division.isEmpty { return MarketRegion.matchesDivision(value, division) }
-        if let region = MarketRegion(rawValue: region) { return region.contains(value) }
+        if !divisions.isEmpty {
+            return divisions.contains { MarketRegion.matchesDivision(value, $0) }
+        }
+        if !regions.isEmpty {
+            return regions.contains { MarketRegion(rawValue: $0)?.contains(value) == true }
+        }
         return true
     }
 
-    var regionDivisions: [String] {
-        MarketRegion(rawValue: region)?.divisions ?? []
+    func includesDistrict(_ value: String) -> Bool {
+        if districts.isEmpty { return true }
+        return districts.contains { HeartbeatMath.matches(value, $0) }
     }
 
-    enum CodingKeys: String, CodingKey { case region, division, district, om, store }
+    func includesOM(_ value: String) -> Bool {
+        if oms.isEmpty { return true }
+        return oms.contains { HeartbeatMath.matches(value, $0) }
+    }
+
+    func includesStore(_ value: String) -> Bool {
+        if stores.isEmpty { return true }
+        return stores.contains { HeartbeatMath.matches(value, $0) || HeartbeatMath.matches(HeartbeatMath.canonicalStore(value), HeartbeatMath.canonicalStore($0)) }
+    }
+
+    var regionDivisions: [String] {
+        regions.flatMap { MarketRegion(rawValue: $0)?.divisions ?? [] }
+    }
+
+    var selectedDivisions: [String] {
+        if !divisions.isEmpty { return divisions }
+        return regionDivisions
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case region, division, district, om, store
+        case regions, divisions, districts, oms, stores
+    }
 
     init() {}
 
     init(region: String = "", division: String, district: String, om: String, store: String) {
-        self.region = region
-        self.division = division
-        self.district = district
-        self.om = om
-        self.store = store
+        self.regions = Self.wrap(region)
+        self.divisions = Self.wrap(division)
+        self.districts = Self.wrap(district)
+        self.oms = Self.wrap(om)
+        self.stores = Self.wrap(store)
+    }
+
+    init(regions: [String] = [], divisions: [String] = [], districts: [String] = [], oms: [String] = [], stores: [String] = []) {
+        self.regions = regions
+        self.divisions = divisions
+        self.districts = districts
+        self.oms = oms
+        self.stores = stores
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        region = try c.decodeIfPresent(String.self, forKey: .region) ?? ""
-        division = try c.decodeIfPresent(String.self, forKey: .division) ?? ""
-        district = try c.decodeIfPresent(String.self, forKey: .district) ?? ""
-        om = try c.decodeIfPresent(String.self, forKey: .om) ?? ""
-        store = try c.decodeIfPresent(String.self, forKey: .store) ?? ""
+        regions = Self.decodeList(c, array: .regions, scalar: .region)
+        divisions = Self.decodeList(c, array: .divisions, scalar: .division)
+        districts = Self.decodeList(c, array: .districts, scalar: .district)
+        oms = Self.decodeList(c, array: .oms, scalar: .om)
+        stores = Self.decodeList(c, array: .stores, scalar: .store)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(regions, forKey: .regions)
+        try c.encode(divisions, forKey: .divisions)
+        try c.encode(districts, forKey: .districts)
+        try c.encode(oms, forKey: .oms)
+        try c.encode(stores, forKey: .stores)
+        try c.encode(region, forKey: .region)
+        try c.encode(division, forKey: .division)
+        try c.encode(district, forKey: .district)
+        try c.encode(om, forKey: .om)
+        try c.encode(store, forKey: .store)
+    }
+
+    mutating func toggle(_ value: String, in focus: FilterFocus) {
+        if value.isEmpty {
+            clear(focus)
+            prune()
+            return
+        }
+        switch focus {
+        case .region: regions = Self.toggle(value, in: regions)
+        case .division: divisions = Self.toggle(value, in: divisions)
+        case .district: districts = Self.toggle(value, in: districts)
+        case .om: oms = Self.toggle(value, in: oms)
+        case .store: stores = Self.toggle(value, in: stores)
+        }
+        prune()
+    }
+
+    mutating func clear(_ focus: FilterFocus) {
+        switch focus {
+        case .region:
+            regions = []
+        case .division:
+            divisions = []
+        case .district:
+            districts = []
+        case .om:
+            oms = []
+        case .store:
+            stores = []
+        }
+        prune()
+    }
+
+    private mutating func prune() {
+        if !regions.isEmpty {
+            divisions = divisions.filter { value in
+                regions.contains { MarketRegion(rawValue: $0)?.contains(value) == true }
+            }
+        }
+        if !divisions.isEmpty || !regions.isEmpty {
+            // children stay until Save rebuilds options; keep selected values even if list shrinks
+        }
+    }
+
+    func values(for focus: FilterFocus) -> [String] {
+        switch focus {
+        case .region: return regions
+        case .division: return divisions
+        case .district: return districts
+        case .om: return oms
+        case .store: return stores
+        }
+    }
+
+    private static func wrap(_ value: String) -> [String] {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? [] : [trimmed]
+    }
+
+    private static func toggle(_ value: String, in current: [String]) -> [String] {
+        if current.contains(where: { HeartbeatMath.matches($0, value) }) {
+            return current.filter { !HeartbeatMath.matches($0, value) }
+        }
+        return current + [value]
+    }
+
+    private static func decodeList(_ c: KeyedDecodingContainer<CodingKeys>, array: CodingKeys, scalar: CodingKeys) -> [String] {
+        if let values = try? c.decode([String].self, forKey: array) {
+            return values.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        }
+        if let value = try? c.decode(String.self, forKey: scalar) {
+            return wrap(value)
+        }
+        return []
+    }
+
+    private static func label(_ values: [String], empty: String, prefix: String = "") -> String {
+        if values.isEmpty { return empty }
+        if values.count == 1 { return prefix + values[0] }
+        if values.count == 2 { return "\(prefix)\(values[0]), \(values[1])" }
+        return "\(prefix)\(values[0]) + \(values.count - 1) more"
     }
 }
 
@@ -1639,11 +1811,18 @@ enum MarketRegion: String, CaseIterable, Identifiable, Sendable {
     }
 
     static func companyDivisions(for filters: DashboardFilters) -> [String] {
-        if !filters.division.isEmpty {
-            return [canonicalName(filters.division)]
+        if !filters.divisions.isEmpty {
+            return filters.divisions.map { canonicalName($0) }
         }
-        if let region = MarketRegion(rawValue: filters.region) {
-            return region.displayDivisions
+        if !filters.regions.isEmpty {
+            var seen = Set<String>()
+            var out: [String] = []
+            for region in filters.regions.compactMap({ MarketRegion(rawValue: $0) }) {
+                for name in region.displayDivisions where seen.insert(HeartbeatMath.normalize(name)).inserted {
+                    out.append(name)
+                }
+            }
+            return out
         }
         return allCases.flatMap(\.displayDivisions)
     }

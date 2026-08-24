@@ -803,8 +803,10 @@ final class HeartbeatStore: ObservableObject {
             return MarketRegion.allCases.map { (id: $0.rawValue, label: $0.rawValue) }
         case .division:
             let all = cachedDivisions
-            if let region = MarketRegion(rawValue: draft.region) {
-                return pairs(all.filter { region.contains($0) })
+            if !draft.regions.isEmpty {
+                return pairs(all.filter { value in
+                    draft.regions.contains { MarketRegion(rawValue: $0)?.contains(value) == true }
+                })
             }
             return pairs(all)
         case .district:
@@ -820,7 +822,7 @@ final class HeartbeatStore: ObservableObject {
             return pairs(
                 roster.values
                     .filter { draft.includesDivision($0.division) }
-                    .filter { draft.district.isEmpty || HeartbeatMath.matches($0.district, draft.district) }
+                    .filter { draft.includesDistrict($0.district) }
                     .map(\.om)
                     .filter { value in
                         !value.isEmpty && value.rangeOfCharacter(from: .letters) != nil
@@ -832,8 +834,8 @@ final class HeartbeatStore: ObservableObject {
             var seen: [String: String] = [:]
             for (number, identity) in roster {
                 if !draft.includesDivision(identity.division) { continue }
-                if !draft.district.isEmpty, !HeartbeatMath.matches(identity.district, draft.district) { continue }
-                if !draft.om.isEmpty, !HeartbeatMath.matches(identity.om, draft.om) { continue }
+                if !draft.includesDistrict(identity.district) { continue }
+                if !draft.includesOM(identity.om) { continue }
                 if seen[number] == nil { seen[number] = identity.name ?? "" }
             }
             return seen.keys.sorted(by: HeartbeatFormat.storeOrder).map { number in
@@ -1342,7 +1344,7 @@ final class HeartbeatStore: ObservableObject {
             .sorted()
         cachedOMs = roster.values
             .filter { filters.includesDivision($0.division) }
-            .filter { filters.district.isEmpty || HeartbeatMath.matches($0.district, filters.district) }
+            .filter { filters.includesDistrict($0.district) }
             .map(\.om)
             .filter { value in
                 !value.isEmpty && value.rangeOfCharacter(from: .letters) != nil
@@ -1352,8 +1354,8 @@ final class HeartbeatStore: ObservableObject {
         var seen: [String: String?] = [:]
         for (number, identity) in roster {
             if !filters.includesDivision(identity.division) { continue }
-            if !filters.district.isEmpty, !HeartbeatMath.matches(identity.district, filters.district) { continue }
-            if !filters.om.isEmpty, !HeartbeatMath.matches(identity.om, filters.om) { continue }
+            if !filters.includesDistrict(identity.district) { continue }
+            if !filters.includesOM(identity.om) { continue }
             if seen[number] == nil { seen[number] = identity.name }
         }
         cachedStores = seen.keys.sorted(by: HeartbeatFormat.storeOrder).map { ($0, seen[$0] ?? nil) }
@@ -1366,9 +1368,9 @@ final class HeartbeatStore: ObservableObject {
         var allowed: Set<String> = []
         for (number, identity) in roster {
             if !filters.includesDivision(identity.division) { continue }
-            if !filters.district.isEmpty, !HeartbeatMath.matches(identity.district, filters.district) { continue }
-            if !filters.om.isEmpty, !HeartbeatMath.matches(identity.om, filters.om) { continue }
-            if !filters.store.isEmpty, !HeartbeatMath.matches(number, filters.store) { continue }
+            if !filters.includesDistrict(identity.district) { continue }
+            if !filters.includesOM(identity.om) { continue }
+            if !filters.includesStore(number) { continue }
             allowed.insert(number)
         }
         return allowed
@@ -1577,7 +1579,7 @@ private struct PulseCaches {
             .sorted()
         let oms = roster.values
             .filter { filters.includesDivision($0.division) }
-            .filter { filters.district.isEmpty || HeartbeatMath.matches($0.district, filters.district) }
+            .filter { filters.includesDistrict($0.district) }
             .map(\.om)
             .filter { value in !value.isEmpty && value.rangeOfCharacter(from: .letters) != nil }
             .uniqued()
@@ -1585,8 +1587,8 @@ private struct PulseCaches {
         var seen: [String: String?] = [:]
         for (number, identity) in roster {
             if !filters.includesDivision(identity.division) { continue }
-            if !filters.district.isEmpty, !HeartbeatMath.matches(identity.district, filters.district) { continue }
-            if !filters.om.isEmpty, !HeartbeatMath.matches(identity.om, filters.om) { continue }
+            if !filters.includesDistrict(identity.district) { continue }
+            if !filters.includesOM(identity.om) { continue }
             if seen[number] == nil { seen[number] = identity.name }
         }
         let stores = seen.keys.sorted(by: HeartbeatFormat.storeOrder).map { ($0, seen[$0] ?? nil) }
@@ -1634,9 +1636,9 @@ private struct PulseCaches {
         var allowed: Set<String> = []
         for (number, identity) in roster {
             if !filters.includesDivision(identity.division) { continue }
-            if !filters.district.isEmpty, !HeartbeatMath.matches(identity.district, filters.district) { continue }
-            if !filters.om.isEmpty, !HeartbeatMath.matches(identity.om, filters.om) { continue }
-            if !filters.store.isEmpty, !HeartbeatMath.matches(number, filters.store) { continue }
+            if !filters.includesDistrict(identity.district) { continue }
+            if !filters.includesOM(identity.om) { continue }
+            if !filters.includesStore(number) { continue }
             allowed.insert(number)
         }
         return allowed
