@@ -1679,11 +1679,11 @@ struct DashboardFilters: Equatable, Codable {
             return
         }
         switch focus {
-        case .region: regions = Self.toggle(value, in: regions)
-        case .division: divisions = Self.toggle(value, in: divisions)
-        case .district: districts = Self.toggle(value, in: districts)
-        case .om: oms = Self.toggle(value, in: oms)
-        case .store: stores = Self.toggle(value, in: stores)
+        case .region: regions = Self.toggled(value, in: regions)
+        case .division: divisions = Self.toggled(value, in: divisions)
+        case .district: districts = Self.toggled(value, in: districts)
+        case .om: oms = Self.toggled(value, in: oms)
+        case .store: stores = Self.toggled(value, in: stores)
         }
         prune()
     }
@@ -1730,7 +1730,7 @@ struct DashboardFilters: Equatable, Codable {
         return trimmed.isEmpty ? [] : [trimmed]
     }
 
-    private static func toggle(_ value: String, in current: [String]) -> [String] {
+    private static func toggled(_ value: String, in current: [String]) -> [String] {
         if current.contains(where: { HeartbeatMath.matches($0, value) }) {
             return current.filter { !HeartbeatMath.matches($0, value) }
         }
