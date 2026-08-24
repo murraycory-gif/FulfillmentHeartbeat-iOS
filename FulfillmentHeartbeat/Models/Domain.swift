@@ -1546,6 +1546,54 @@ struct ChecklistDriverGroup: Identifiable, Equatable {
     var id: String { title }
 }
 
+enum FilterFocus: String, Sendable {
+    case region
+    case division
+    case district
+    case om
+    case store
+
+    var title: String {
+        switch self {
+        case .region: return "Region"
+        case .division: return "Division"
+        case .district: return "District"
+        case .om: return "Operations manager"
+        case .store: return "Store #"
+        }
+    }
+
+    var chipTitle: String {
+        switch self {
+        case .region: return "Region"
+        case .division: return "Division"
+        case .district: return "District"
+        case .om: return "OM"
+        case .store: return "Store"
+        }
+    }
+
+    var prompt: String {
+        switch self {
+        case .region: return "Type a region"
+        case .division: return "Type a division"
+        case .district: return "Type a district"
+        case .om: return "Type an OM name"
+        case .store: return "Type a store number"
+        }
+    }
+
+    var allLabel: String {
+        switch self {
+        case .region: return "All regions"
+        case .division: return "All divisions"
+        case .district: return "All districts"
+        case .om: return "All operations managers"
+        case .store: return "All stores"
+        }
+    }
+}
+
 struct DashboardFilters: Equatable, Codable {
     var regions: [String] = []
     var divisions: [String] = []
@@ -1630,8 +1678,6 @@ struct DashboardFilters: Equatable, Codable {
         case region, division, district, om, store
         case regions, divisions, districts, oms, stores
     }
-
-    init() {}
 
     init(region: String = "", division: String, district: String, om: String, store: String) {
         self.regions = Self.wrap(region)
@@ -1825,54 +1871,6 @@ enum MarketRegion: String, CaseIterable, Identifiable, Sendable {
             return out
         }
         return allCases.flatMap(\.displayDivisions)
-    }
-}
-
-enum FilterFocus: String, Sendable {
-    case region
-    case division
-    case district
-    case om
-    case store
-
-    var title: String {
-        switch self {
-        case .region: return "Region"
-        case .division: return "Division"
-        case .district: return "District"
-        case .om: return "Operations manager"
-        case .store: return "Store #"
-        }
-    }
-
-    var chipTitle: String {
-        switch self {
-        case .region: return "Region"
-        case .division: return "Division"
-        case .district: return "District"
-        case .om: return "OM"
-        case .store: return "Store"
-        }
-    }
-
-    var prompt: String {
-        switch self {
-        case .region: return "Type a region"
-        case .division: return "Type a division"
-        case .district: return "Type a district"
-        case .om: return "Type an OM name"
-        case .store: return "Type a store number"
-        }
-    }
-
-    var allLabel: String {
-        switch self {
-        case .region: return "All regions"
-        case .division: return "All divisions"
-        case .district: return "All districts"
-        case .om: return "All operations managers"
-        case .store: return "All stores"
-        }
     }
 }
 
