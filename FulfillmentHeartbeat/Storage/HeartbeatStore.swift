@@ -601,6 +601,9 @@ final class HeartbeatStore: ObservableObject {
                 for item in group.items {
                     let action = checklistItem(for: item, section: section)
                     lines.append("• \(item.title) · \(item.subtitle) · \(item.value) · \(item.health.label)")
+                    if !item.broken.isEmpty { lines.append("  Broken: \(item.broken)") }
+                    if !item.shoppers.isEmpty { lines.append("  Shoppers: \(item.shoppers)") }
+                    if !item.action.isEmpty { lines.append("  Action: \(item.action)") }
                     lines.append("  Status: \(action.status.label) · \(HeartbeatFormat.stamp(action.updatedAt))")
                     if !action.comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         lines.append("  Comments: \(action.comment)")
@@ -658,6 +661,15 @@ final class HeartbeatStore: ObservableObject {
                     <span class="pill \(item.health.rawValue)">\(escape(item.health.label))</span></div>
                     <div class="meta">\(escape(item.subtitle)) · \(escape(action.status.label)) · \(escape(HeartbeatFormat.stamp(action.updatedAt)))</div>
                     """
+                    if !item.broken.isEmpty {
+                        html += "<div class=\"meta\"><b>Broken:</b> \(escape(item.broken))</div>"
+                    }
+                    if !item.shoppers.isEmpty {
+                        html += "<div class=\"meta\"><b>Shoppers:</b> \(escape(item.shoppers))</div>"
+                    }
+                    if !item.action.isEmpty {
+                        html += "<div class=\"meta\"><b>Action:</b> \(escape(item.action))</div>"
+                    }
                     if !action.comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         html += "<div class=\"comment\">\(escape(action.comment))</div>"
                     }
@@ -690,15 +702,13 @@ final class HeartbeatStore: ObservableObject {
         for section in MetricSection.dashboardCards {
             let rows = HeartbeatMath.topOpportunityStores(section: section, rows: latest[section] ?? [], limit: 10)
             let items = rows.map { row -> ChecklistDriverItem in
-                let cell = StoreCellViewModel.make(section: section, row: row)
-                let health = HeartbeatMath.health(for: section, row: row)
                 let division = row.division.isEmpty ? identity(forStore: row.storeNumber).division : row.division
-                return ChecklistDriverItem(
-                    id: "store-\(HeartbeatMath.canonicalStore(row.storeNumber))",
-                    title: "Store \(row.storeNumber)",
-                    subtitle: division.isEmpty ? "Store" : division,
-                    value: cell.primary,
-                    health: health
+                return HeartbeatMath.makeChecklistItem(
+                    section: section,
+                    row: row,
+                    division: division,
+                    pickers: latest[.pickerScorecard] ?? [],
+                    pathPickers: latest[.pickPathPicker] ?? []
                 )
             }
             if !items.isEmpty {
@@ -723,7 +733,10 @@ final class HeartbeatStore: ObservableObject {
                         title: row.shopperName,
                         subtitle: "\(row.storeNumber)\(division.isEmpty ? "" : " · \(division)")",
                         value: value,
-                        health: HeartbeatMath.pickerHealth(row)
+                        health: HeartbeatMath.pickerHealth(row),
+                        broken: "Broken KPI: \(board.metric) \(value)  ·  \(HeartbeatMath.pickerOpportunityText(row))",
+                        shoppers: row.shopperName,
+                        action: "Coach \(row.shopperName) on \(board.metric) this week, side-by-side, then keep them off peak until it holds."
                     )
                 }
             )
@@ -1660,15 +1673,13 @@ private struct PulseCaches {
         for section in MetricSection.dashboardCards {
             let rows = HeartbeatMath.topOpportunityStores(section: section, rows: latest[section] ?? [], limit: 10)
             let items = rows.map { row -> ChecklistDriverItem in
-                let cell = StoreCellViewModel.make(section: section, row: row)
-                let health = HeartbeatMath.health(for: section, row: row)
                 let division = row.division.isEmpty ? identity(roster, store: row.storeNumber).division : row.division
-                return ChecklistDriverItem(
-                    id: "store-\(HeartbeatMath.canonicalStore(row.storeNumber))",
-                    title: "Store \(row.storeNumber)",
-                    subtitle: division.isEmpty ? "Store" : division,
-                    value: cell.primary,
-                    health: health
+                return HeartbeatMath.makeChecklistItem(
+                    section: section,
+                    row: row,
+                    division: division,
+                    pickers: latest[.pickerScorecard] ?? [],
+                    pathPickers: latest[.pickPathPicker] ?? []
                 )
             }
             if !items.isEmpty {
@@ -1693,7 +1704,10 @@ private struct PulseCaches {
                         title: row.shopperName,
                         subtitle: "\(row.storeNumber)\(division.isEmpty ? "" : " · \(division)")",
                         value: value,
-                        health: HeartbeatMath.pickerHealth(row)
+                        health: HeartbeatMath.pickerHealth(row),
+                        broken: "Broken KPI: \(board.metric) \(value)  ·  \(HeartbeatMath.pickerOpportunityText(row))",
+                        shoppers: row.shopperName,
+                        action: "Coach \(row.shopperName) on \(board.metric) this week, side-by-side, then keep them off peak until it holds."
                     )
                 }
             )

@@ -8411,6 +8411,15 @@ struct FulfillmentChecklistCard: View {
                 }
                 .buttonStyle(.plain)
             }
+            if !item.broken.isEmpty {
+                diagnosisLine("Broken KPI", item.broken, AppTheme.bad)
+            }
+            if !item.shoppers.isEmpty {
+                diagnosisLine("Shoppers to coach", item.shoppers, AppTheme.blueDeep)
+            }
+            if !item.action.isEmpty {
+                diagnosisLine("Action", item.action, AppTheme.text)
+            }
             if showComment {
                 TextField("Note for follow up", text: commentBinding(item, section: section), axis: .vertical)
                     .textFieldStyle(.plain)
@@ -8422,6 +8431,21 @@ struct FulfillmentChecklistCard: View {
         }
         .padding(14)
         .background(AppTheme.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private func diagnosisLine(_ label: String, _ text: String, _ ink: Color) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label.uppercased())
+                .font(.caption.weight(.bold))
+                .tracking(0.4)
+                .foregroundStyle(AppTheme.textTertiary)
+            Text(text)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(ink)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 2)
     }
 
     private func sectionWash(_ health: Health) -> Color {
