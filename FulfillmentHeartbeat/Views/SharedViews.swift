@@ -1649,15 +1649,10 @@ private struct PathShopperSnap: Identifiable {
     var presub: Double?
     var oos: Double?
     var pph: Double?
-}
 
-private struct PickPathStoreExpand: View {
-    @EnvironmentObject private var store: HeartbeatStore
-    let snap: PickPathLineSnap
-
-    private var pickers: [PathShopperSnap] {
+    static func grouped(store: HeartbeatStore, storeNumber: String) -> [PathShopperSnap] {
         var byKey: [String: PathShopperSnap] = [:]
-        for row in store.pickPathPickers(forStore: snap.storeNumber) {
+        for row in store.pickPathPickers(forStore: storeNumber) {
             let key = row.shopperKey
             byKey[key] = PathShopperSnap(
                 id: key,
@@ -1668,7 +1663,7 @@ private struct PickPathStoreExpand: View {
                 pph: row.number("pph")
             )
         }
-        for row in store.pphPickers(forStore: snap.storeNumber) {
+        for row in store.pphPickers(forStore: storeNumber) {
             let key = row.shopperKey
             if var existing = byKey[key] {
                 existing.presub = row.number("presub_pct")
@@ -1694,41 +1689,17 @@ private struct PickPathStoreExpand: View {
             return $0.name.localizedStandardCompare($1.name) == .orderedAscending
         }
     }
+}
 
-    private var chips: [(String, String, Health)] {
-        [
-            ("Pick Path", snap.path, snap.pathHealth),
-            ("Avg PPH", snap.pph, snap.pphHealth),
-            ("Orders", snap.orders, .none),
-        ]
+private struct PathShopperTable: View {
+    @EnvironmentObject private var store: HeartbeatStore
+    let storeNumber: String
+
+    private var pickers: [PathShopperSnap] {
+        PathShopperSnap.grouped(store: store, storeNumber: storeNumber)
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("District \(snap.district.isEmpty ? "—" : snap.district)  ·  \(snap.om.isEmpty ? "—" : snap.om)")
-                .font(.subheadline)
-                .foregroundStyle(AppTheme.textSecondary)
-            chipGrid
-            pickerBlock
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(AppTheme.card.opacity(0.9))
-        )
-    }
-
-    private var chipGrid: some View {
-        HStack(spacing: 8) {
-            ForEach(Array(chips.enumerated()), id: \.offset) { _, item in
-                metric(item.0, item.1, item.2)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var pickerBlock: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(pickers.isEmpty ? "Shoppers" : "Shoppers  ·  \(pickers.count)")
                 .font(.subheadline.weight(.bold))
@@ -1797,27 +1768,6 @@ private struct PickPathStoreExpand: View {
         return values.max { (ranks[$0] ?? 0) < (ranks[$1] ?? 0) } ?? .none
     }
 
-    private func metric(_ name: String, _ value: String, _ health: Health) -> some View {
-        VStack(spacing: 4) {
-            Text(name)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(AppTheme.textTertiary)
-                .lineLimit(1)
-            Text(value)
-                .font(.title3.weight(.bold).monospacedDigit())
-                .foregroundStyle(ink(health))
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-            HealthBadge(health: health)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(wash(health))
-        )
-    }
-
     private func cell(_ value: String, _ health: Health) -> some View {
         Text(value)
             .font(.subheadline.weight(.bold).monospacedDigit())
@@ -1854,6 +1804,82 @@ private struct PickPathStoreExpand: View {
         case .watch: return AppTheme.warn
         case .risk: return AppTheme.bad
         case .none: return AppTheme.textTertiary
+        }
+    }
+}
+
+private struct PickPathStoreExpand: View {
+    @EnvironmentObject private var store: HeartbeatStore
+    let snap: PickPathLineSnap
+
+    private var chips: [(String, String, Health)] {
+        [
+            ("Pick Path", snap.path, snap.pathHealth),
+            ("Avg PPH", snap.pph, snap.pphHealth),
+            ("Orders", snap.orders, .none),
+        ]
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("District \(snap.district.isEmpty ? "—" : snap.district)  ·  \(snap.om.isEmpty ? "—" : snap.om)")
+                .font(.subheadline)
+                .foregroundStyle(AppTheme.textSecondary)
+            chipGrid
+            PathShopperTable(storeNumber: snap.storeNumber)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(AppTheme.card.opacity(0.9))
+        )
+    }
+
+    private var chipGrid: some View {
+        HStack(spacing: 8) {
+            ForEach(Array(chips.enumerated()), id: \.offset) { _, item in
+                metric(item.0, item.1, item.2)
+            }
+        }
+    }
+
+    private func metric(_ name: String, _ value: String, _ health: Health) -> some View {
+        VStack(spacing: 4) {
+            Text(name)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(AppTheme.textTertiary)
+                .lineLimit(1)
+            Text(value)
+                .font(.title3.weight(.bold).monospacedDigit())
+                .foregroundStyle(ink(health))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            HealthBadge(health: health)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(wash(health))
+        )
+    }
+
+    private func ink(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.text
+        }
+    }
+
+    private func wash(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.okSoft
+        case .watch: return AppTheme.warnSoft
+        case .risk: return AppTheme.badSoft
+        case .none: return AppTheme.card
         }
     }
 }
@@ -8603,6 +8629,9 @@ struct FulfillmentChecklistCard: View {
                 if !item.action.isEmpty {
                     diagnosisLine("Action", item.action, AppTheme.text)
                 }
+            }
+            if item.id.hasPrefix("store-") {
+                PathShopperTable(storeNumber: String(item.id.dropFirst(6)))
             }
             if showComment {
                 TextField("Note for follow up", text: commentBinding(item, section: section), axis: .vertical)
