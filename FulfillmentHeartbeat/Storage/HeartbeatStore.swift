@@ -707,8 +707,7 @@ final class HeartbeatStore: ObservableObject {
                     section: section,
                     row: row,
                     division: division,
-                    pickers: latest[.pickerScorecard] ?? [],
-                    pathPickers: latest[.pickPathPicker] ?? []
+                    latest: latest
                 )
             }
             if !items.isEmpty {
@@ -734,9 +733,20 @@ final class HeartbeatStore: ObservableObject {
                         subtitle: "\(row.storeNumber)\(division.isEmpty ? "" : " · \(division)")",
                         value: value,
                         health: HeartbeatMath.pickerHealth(row),
-                        broken: "Broken KPI: \(board.metric) \(value)  ·  \(HeartbeatMath.pickerOpportunityText(row))",
+                        broken: "\(board.metric) \(value)",
                         shoppers: row.shopperName,
-                        action: "Coach \(row.shopperName) on \(board.metric) this week, side-by-side, then keep them off peak until it holds."
+                        action: "Coach \(row.shopperName) on \(board.metric) this week, side-by-side, then keep them off peak until it holds.",
+                        findings: [
+                            ChecklistFinding(
+                                name: board.metric,
+                                value: value,
+                                need: "on goal",
+                                health: HeartbeatMath.pickerHealth(row),
+                                fact: HeartbeatMath.pickerOpportunityText(row),
+                                shoppers: row.shopperName,
+                                action: "Coach \(row.shopperName) on \(board.metric) this week, side-by-side, then keep them off peak until it holds."
+                            )
+                        ]
                     )
                 }
             )
@@ -1678,8 +1688,7 @@ private struct PulseCaches {
                     section: section,
                     row: row,
                     division: division,
-                    pickers: latest[.pickerScorecard] ?? [],
-                    pathPickers: latest[.pickPathPicker] ?? []
+                    latest: latest
                 )
             }
             if !items.isEmpty {
@@ -1705,9 +1714,20 @@ private struct PulseCaches {
                         subtitle: "\(row.storeNumber)\(division.isEmpty ? "" : " · \(division)")",
                         value: value,
                         health: HeartbeatMath.pickerHealth(row),
-                        broken: "Broken KPI: \(board.metric) \(value)  ·  \(HeartbeatMath.pickerOpportunityText(row))",
+                        broken: "\(board.metric) \(value)",
                         shoppers: row.shopperName,
-                        action: "Coach \(row.shopperName) on \(board.metric) this week, side-by-side, then keep them off peak until it holds."
+                        action: "Coach \(row.shopperName) on \(board.metric) this week, side-by-side, then keep them off peak until it holds.",
+                        findings: [
+                            ChecklistFinding(
+                                name: board.metric,
+                                value: value,
+                                need: "on goal",
+                                health: HeartbeatMath.pickerHealth(row),
+                                fact: HeartbeatMath.pickerOpportunityText(row),
+                                shoppers: row.shopperName,
+                                action: "Coach \(row.shopperName) on \(board.metric) this week, side-by-side, then keep them off peak until it holds."
+                            )
+                        ]
                     )
                 }
             )

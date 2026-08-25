@@ -1343,224 +1343,6 @@ enum HeartbeatMath {
             .map { $0 }
     }
 
-    static func makeChecklistItem(
-        section: MetricSection,
-        row: MetricRow,
-        division: String,
-        pickers: [MetricRow],
-        pathPickers: [MetricRow]
-    ) -> ChecklistDriverItem {
-        let cell = StoreCellViewModel.make(section: section, row: row)
-        let store = canonicalStore(row.storeNumber)
-        let storePickers = pickers.filter { canonicalStore($0.storeNumber) == store && isRealPicker($0) }
-        let storePath = pathPickers.filter { canonicalStore($0.storeNumber) == store && isRealPicker($0) }
-        let note = diagnose(section: section, row: row, pickers: storePickers, pathPickers: storePath)
-        return ChecklistDriverItem(
-            id: "store-\(store)",
-            title: "Store \(row.storeNumber)",
-            subtitle: division.isEmpty ? "Store" : division,
-            value: cell.primary,
-            health: health(for: section, row: row),
-            broken: note.broken,
-            shoppers: note.shoppers,
-            action: note.action
-        )
-    }
-
-    private struct ChecklistNote {
-        var broken: String
-        var shoppers: String
-        var action: String
-    }
-
-    private static func diagnose(
-        section: MetricSection,
-        row: MetricRow,
-        pickers: [MetricRow],
-        pathPickers: [MetricRow]
-    ) -> ChecklistNote {
-        let hits = brokenKPIs(section: section, row: row)
-        let broken = hits.isEmpty
-            ? "Score is off goal — open the scorecard for the full mix."
-            : hits.map { "\($0.name) \($0.value)  (need \($0.need))" }.joined(separator: "  ·  ")
-        let names = coachNames(hits: hits, pickers: pickers, pathPickers: pathPickers)
-        let shoppers = names.isEmpty
-            ? (pickers.isEmpty && pathPickers.isEmpty
-               ? "No shopper names in the picker file for this store."
-               : "No one shopper is the outlier — this is a store process miss.")
-            : names.joined(separator: "  ·  ")
-        return ChecklistNote(broken: broken, shoppers: shoppers, action: actionLine(section: section, hits: hits, names: names, row: row))
-    }
-
-    private struct KPIHit {
-        var name: String
-        var value: String
-        var need: String
-        var health: Health
-        var coach: String
-    }
-
-    private static func brokenKPIs(section: MetricSection, row: MetricRow) -> [KPIHit] {
-        var hits: [KPIHit] = []
-        func add(_ name: String, _ value: String, _ need: String, _ health: Health, _ coach: String) {
-            if health == .risk || health == .watch {
-                hits.append(KPIHit(name: name, value: value, need: need, health: health, coach: coach))
-            }
-        }
-        switch section {
-        case .fiveStar:
-            if row.number("flash_pct") != nil || row.number("flash_star") != nil {
-                add("Flash", HeartbeatFormat.pct(row.number("flash_pct")), "≥ 75%", flashStar(row).health, "flash")
-            }
-            if row.number("presub_pct") != nil || row.number("presub_star") != nil {
-                add("Presub", HeartbeatFormat.pct(row.number("presub_pct")), "< 5%", presubStar(row).health, "presub")
-            }
-            if row.number("ott_pct") != nil || row.number("ott_star") != nil {
-                add("OTT", HeartbeatFormat.pct(row.number("ott_pct")), "≥ 95%", ottStar(row).health, "ott")
-            }
-            if row.number("oth5_pct") != nil || row.number("oth5_star") != nil {
-                add("OTH5", HeartbeatFormat.pct(row.number("oth5_pct")), "≥ 92%", othStar(row).health, "oth")
-            }
-            if row.number("oos_pct") != nil || row.number("oos_star") != nil {
-                add("OOS", HeartbeatFormat.pct(row.number("oos_pct")), "< 3%", oosStar(row).health, "oos")
-            }
-            if row.number("oth_elig_pct") != nil {
-                add("OTH Elig", HeartbeatFormat.pct(row.number("oth_elig_pct")), "≥ 95%", othEligStar(row).health, "ott")
-            }
-            if hits.isEmpty {
-                add("Star rating", HeartbeatFormat.stars(row.number("star_rating")), "≥ 4.50", fiveStarHealth(row), "presub")
-            }
-        case .pickPath, .pickPathPicker:
-            add("Path compliance", HeartbeatFormat.pct(row.number("compliance_pct")), "≥ 90%", band(row.number("compliance_pct"), good: pickPathGoal, watch: pickPathRisk), "path")
-        case .prepNotReady:
-            add("Prep not ready", HeartbeatFormat.pct(row.number("pnr_rate_pct")), "< 2.5%", health(for: .prepNotReady, row: row), "")
-        case .dynacap:
-            add("Dynacap rate", HeartbeatFormat.num(row.number("dynacap_rate", "pieces_per_hour"), digits: 1), "≥ 70", health(for: .dynacap, row: row), "")
-        case .scheduleQuality:
-            add("Under-scheduled", HeartbeatFormat.pct(row.number("under_schedule_pct", "under_scheduled")), "≤ 5%", varianceHealth(row.number("under_schedule_pct", "under_scheduled")), "")
-            add("Over-scheduled", HeartbeatFormat.pct(row.number("over_schedule_pct", "over_scheduled")), "≤ 5%", varianceHealth(row.number("over_schedule_pct", "over_scheduled")), "")
-            add("Efficiency", HeartbeatFormat.pct(row.number("schedule_efficiency_pct")), "≥ \(Int(scheduleGoal))%", band(row.number("schedule_efficiency_pct"), good: scheduleGoal, watch: scheduleWatch), "")
-        case .pph:
-            add("PPH", HeartbeatFormat.num(row.number("pph"), digits: 1), "≥ \(Int(pphGoal))", pphHealth(row), "pph")
-        case .labor:
-            add("Schedule efficiency", HeartbeatFormat.pct(row.number("schedule_efficiency_pct")), "≥ \(Int(scheduleGoal))%", health(for: .labor, row: row), "")
-        case .lostRevenue:
-            add("Lost revenue", HeartbeatFormat.money(row.number("lost_revenue")), "under 5% of eComm", health(for: .lostRevenue, row: row), "presub")
-            if let pct = row.number("lost_revenue_pct") {
-                add("Lost %", HeartbeatFormat.pct(pct), "< 5%", health(for: .lostRevenue, row: row), "oos")
-            }
-        case .pickerScorecard:
-            for flag in pickerFlags(row) where flag.health == .risk || flag.health == .watch {
-                hits.append(KPIHit(name: flag.name, value: "", need: "on goal", health: flag.health, coach: flag.name.lowercased()))
-            }
-        }
-        return hits
-    }
-
-    private static func coachNames(hits: [KPIHit], pickers: [MetricRow], pathPickers: [MetricRow]) -> [String] {
-        let keys = Set(hits.map(\.coach).filter { !$0.isEmpty })
-        var lines: [String] = []
-        var seen = Set<String>()
-        func addPicker(_ row: MetricRow, tags: [String]) {
-            let name = row.shopperName.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !name.isEmpty, seen.insert(name.lowercased()).inserted else { return }
-            let tag = tags.prefix(3).joined(separator: " · ")
-            lines.append(tag.isEmpty ? name : "\(name)  \(tag)")
-        }
-        if keys.contains("path") {
-            for row in pathPickers.sorted(by: { ($0.number("compliance_pct") ?? 101) < ($1.number("compliance_pct") ?? 101) }).prefix(3) {
-                let health = band(row.number("compliance_pct"), good: pickPathGoal, watch: pickPathRisk)
-                if health == .risk || health == .watch {
-                    addPicker(row, tags: ["Path \(HeartbeatFormat.pct(row.number("compliance_pct")))"])
-                }
-            }
-        }
-        let ranked = pickers.sorted { lhs, rhs in
-            let a = pickerFlags(lhs).filter { $0.health == .risk }.count
-            let b = pickerFlags(rhs).filter { $0.health == .risk }.count
-            if a != b { return a > b }
-            return (lhs.number("orders") ?? 0) > (rhs.number("orders") ?? 0)
-        }
-        for row in ranked {
-            var tags: [String] = []
-            if keys.contains("presub"), presubStar(row).health != .good {
-                tags.append("Presub \(HeartbeatFormat.pct(row.number("presub_pct")))")
-            }
-            if keys.contains("ott"), ottStar(row).health != .good {
-                tags.append("OTT \(HeartbeatFormat.pct(row.number("ott_pct")))")
-            }
-            if keys.contains("oth"), othStar(row).health != .good {
-                tags.append("OTH5 \(HeartbeatFormat.pct(row.number("oth5_pct")))")
-            }
-            if keys.contains("oos"), oosStar(row).health != .good {
-                tags.append("OOS \(HeartbeatFormat.pct(row.number("oos_pct")))")
-            }
-            if keys.contains("pph"), pphHealth(row) != .good {
-                tags.append("PPH \(HeartbeatFormat.num(row.number("pph"), digits: 1))")
-            }
-            if keys.contains("flash"), pickerHealth(row) != .good {
-                tags.append(pickerOpportunityText(row))
-            }
-            if !tags.isEmpty {
-                addPicker(row, tags: tags)
-            }
-            if lines.count == 3 { break }
-        }
-        return lines
-    }
-
-    private static func actionLine(section: MetricSection, hits: [KPIHit], names: [String], row: MetricRow) -> String {
-        let people = names.map { $0.components(separatedBy: "  ").first ?? $0 }.prefix(3)
-        let who = people.joined(separator: ", ")
-        let keys = Set(hits.map(\.coach))
-        var parts: [String] = []
-        if keys.contains("flash") {
-            parts.append("Reset Flash at the huddle until Flash is 75%+.")
-        }
-        if keys.contains("presub") {
-            parts.append(who.isEmpty
-                ? "Only offer a true like-for-like substitution, then confirm."
-                : "Coach \(who) on like-for-like substitutions until Presub is under 5%.")
-        }
-        if keys.contains("ott") || keys.contains("oth") {
-            parts.append(who.isEmpty
-                ? "Protect the pickup window. Walk OTT and OTH5 on the floor this week."
-                : "Walk \(who) on on-time picks and keep eligible orders in the hour.")
-        }
-        if keys.contains("oos") {
-            parts.append("Own out-of-stocks in the daily huddle until OOS is under 3%.")
-        }
-        if keys.contains("path") {
-            parts.append(who.isEmpty
-                ? "Retrain every shopper under 80% on the path map this week."
-                : "Retrain \(who) on the pick path this week, on the floor.")
-        }
-        if keys.contains("pph") {
-            parts.append(who.isEmpty
-                ? "Fix path and staging. Pull non-pick work off pickers during the wave."
-                : "Pair \(who) with a strong picker for two shifts, then re-measure PPH.")
-        }
-        if section == .prepNotReady {
-            parts.append("Align bakery, deli, and meat to the pick wave. Escalate if PNR stays over 2.5%.")
-        }
-        if section == .dynacap {
-            parts.append("Set pickup and delivery to the recommended values — no local overrides.")
-        }
-        if section == .scheduleQuality {
-            parts.append("Rebuild the week wherever under or over is above 5%. Match coverage to the demand curve.")
-        }
-        if section == .labor {
-            parts.append("Get Target vs Actual under 3%. Use earned hours as the daily target.")
-        }
-        if section == .lostRevenue {
-            parts.append("Pull the top lost-item categories and own them in the huddle until lost revenue is under 5%.")
-        }
-        if parts.isEmpty {
-            parts.append("Open the scorecard, fix the off-goal mix, and close this item when the store is back to green.")
-        }
-        return parts.prefix(2).joined(separator: " ")
-    }
-
     static func topPickersByMetric(_ rows: [MetricRow], limit: Int = 10) -> [PickerMetricBoard] {
         var pph: [(score: Double, row: MetricRow)] = []
         var presub: [(score: Double, row: MetricRow)] = []
@@ -1732,6 +1514,17 @@ struct ChecklistFile: Codable {
     var recipients: [String]
 }
 
+struct ChecklistFinding: Identifiable, Equatable {
+    var name: String
+    var value: String
+    var need: String
+    var health: Health
+    var fact: String
+    var shoppers: String
+    var action: String
+    var id: String { name }
+}
+
 struct ChecklistDriverItem: Identifiable, Equatable {
     var id: String
     var title: String
@@ -1741,6 +1534,7 @@ struct ChecklistDriverItem: Identifiable, Equatable {
     var broken: String = ""
     var shoppers: String = ""
     var action: String = ""
+    var findings: [ChecklistFinding] = []
 }
 
 struct ChecklistDriverGroup: Identifiable, Equatable {

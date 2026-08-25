@@ -1,0 +1,469 @@
+import Foundation
+
+extension HeartbeatMath {
+    static func makeChecklistItem(
+        section: MetricSection,
+        row: MetricRow,
+        division: String,
+        latest: [MetricSection: [MetricRow]]
+    ) -> ChecklistDriverItem {
+        let cell = StoreCellViewModel.make(section: section, row: row)
+        let store = canonicalStore(row.storeNumber)
+        let findings = diagnoseStore(section: section, row: row, store: store, latest: latest)
+        return ChecklistDriverItem(
+            id: "store-\(store)",
+            title: "Store \(row.storeNumber)",
+            subtitle: division.isEmpty ? "Store" : division,
+            value: cell.primary,
+            health: health(for: section, row: row),
+            broken: findings.map { "\($0.name) \($0.value) (need \($0.need))" }.joined(separator: "  ·  "),
+            shoppers: findings.map(\.shoppers).filter { !$0.isEmpty }.joined(separator: "  ·  "),
+            action: findings.map(\.action).joined(separator: " "),
+            findings: findings
+        )
+    }
+
+    private static func rowForStore(_ latest: [MetricSection: [MetricRow]], _ section: MetricSection, _ store: String) -> MetricRow? {
+        latest[section]?.first { canonicalStore($0.storeNumber) == store }
+    }
+
+    private static func pickersForStore(_ latest: [MetricSection: [MetricRow]], _ store: String) -> [MetricRow] {
+        (latest[.pickerScorecard] ?? []).filter { canonicalStore($0.storeNumber) == store && isRealPicker($0) }
+    }
+
+    private static func pathPickersForStore(_ latest: [MetricSection: [MetricRow]], _ store: String) -> [MetricRow] {
+        (latest[.pickPathPicker] ?? []).filter { canonicalStore($0.storeNumber) == store && isRealPicker($0) }
+    }
+
+    private static func diagnoseStore(
+        section: MetricSection,
+        row: MetricRow,
+        store: String,
+        latest: [MetricSection: [MetricRow]]
+    ) -> [ChecklistFinding] {
+        let labor = rowForStore(latest, .labor, store)
+        let schedule = rowForStore(latest, .scheduleQuality, store)
+        let path = rowForStore(latest, .pickPath, store)
+        let pph = rowForStore(latest, .pph, store)
+        let prep = rowForStore(latest, .prepNotReady, store)
+        let pickers = pickersForStore(latest, store)
+        let pathPickers = pathPickersForStore(latest, store)
+        switch section {
+        case .fiveStar:
+            return diagnoseFiveStar(row, labor: labor, schedule: schedule, path: path, pph: pph, prep: prep, pickers: pickers)
+        case .pickPath, .pickPathPicker:
+            return diagnosePath(path ?? row, pph: pph, pathPickers: pathPickers)
+        case .pph:
+            return diagnosePPH(pph ?? row, path: path, labor: labor, pickers: pickers)
+        case .labor:
+            return diagnoseLabor(labor ?? row, schedule: schedule, pph: pph)
+        case .scheduleQuality:
+            return diagnoseSchedule(schedule ?? row, labor: labor)
+        case .prepNotReady:
+            return diagnosePrep(rowForStore(latest, .prepNotReady, store) ?? row)
+        case .dynacap:
+            return diagnoseDynacap(row, labor: labor, pph: pph)
+        case .lostRevenue:
+            return diagnoseLost(row, pickers: pickers)
+        case .pickerScorecard:
+            return []
+        }
+    }
+
+    private static func diagnoseFiveStar(
+        _ row: MetricRow,
+        labor: MetricRow?,
+        schedule: MetricRow?,
+        path: MetricRow?,
+        pph: MetricRow?,
+        prep: MetricRow?,
+        pickers: [MetricRow]
+    ) -> [ChecklistFinding] {
+        var out: [ChecklistFinding] = []
+        if row.number("flash_pct") != nil || row.number("flash_star") != nil, flashStar(row).health != .good {
+            out.append(flashFinding(row, labor: labor, schedule: schedule, path: path, pph: pph, prep: prep))
+        }
+        if row.number("presub_pct") != nil || row.number("presub_star") != nil, presubStar(row).health != .good {
+            out.append(presubFinding(row, pickers: pickers))
+        }
+        if row.number("ott_pct") != nil || row.number("ott_star") != nil, ottStar(row).health != .good {
+            out.append(ottFinding(row, labor: labor, schedule: schedule, path: path, pph: pph, prep: prep, pickers: pickers))
+        }
+        if row.number("oth5_pct") != nil || row.number("oth5_star") != nil, othStar(row).health != .good {
+            out.append(othFinding(row, labor: labor, schedule: schedule, pickers: pickers))
+        }
+        if row.number("oos_pct") != nil || row.number("oos_star") != nil, oosStar(row).health != .good {
+            out.append(oosFinding(row, pickers: pickers))
+        }
+        if out.isEmpty {
+            out.append(ChecklistFinding(
+                name: "Star rating",
+                value: HeartbeatFormat.stars(row.number("star_rating")),
+                need: "≥ 4.50",
+                health: fiveStarHealth(row),
+                fact: "Overall rating is off goal. Open 5 Star for the component mix.",
+                shoppers: "",
+                action: "Walk Flash, Presub, OTT, and OTH5 on this store today and close the lowest star first."
+            ))
+        }
+        return out
+    }
+
+    private static func staffingFacts(labor: MetricRow?, schedule: MetricRow?) -> [String] {
+        var facts: [String] = []
+        let under = schedule?.number("under_schedule_pct", "under_scheduled")
+        let over = schedule?.number("over_schedule_pct", "over_scheduled") ?? labor?.number("over_schedule_pct")
+        let tva = labor?.number("target_vs_actual_pct")
+        let sch = labor?.number("sch_hrs")
+        let act = labor?.number("act_hrs")
+        let earned = labor?.number("earned_hrs")
+        if let under, under > scheduleVarianceWatch {
+            facts.append("Under-scheduled \(HeartbeatFormat.pct(under)) — the map is short at peak.")
+        }
+        if let over, over > scheduleVarianceWatch {
+            facts.append("Over-scheduled \(HeartbeatFormat.pct(over)) — hours sit on the clock at the wrong time.")
+        }
+        if let sch, let act, sch > 0 {
+            let miss = sch - act
+            let missPct = miss / sch * 100
+            if missPct >= 8 {
+                facts.append("Sch \(HeartbeatFormat.num(sch, digits: 1)) hrs vs punch \(HeartbeatFormat.num(act, digits: 1)) hrs — \(HeartbeatFormat.num(miss, digits: 1)) scheduled hours never punched (\(HeartbeatFormat.pct(missPct))). That is call-offs / no-shows, not a missing-schedule problem.")
+            } else if missPct <= -8 {
+                facts.append("Punch \(HeartbeatFormat.num(act, digits: 1)) hrs vs sch \(HeartbeatFormat.num(sch, digits: 1)) hrs — crew is overpunching \(HeartbeatFormat.pct(-missPct)).")
+            }
+        }
+        if let tva {
+            if tva > laborWatch {
+                facts.append("Tgt vs Act \(HeartbeatFormat.pct(tva)) over target — cost is high.")
+            } else if tva < -laborWatch {
+                facts.append("Tgt vs Act \(HeartbeatFormat.pct(tva)) under target — punch is light versus the plan.")
+            }
+        }
+        if let earned, let act, earned > 0 {
+            let util = act / earned * 100
+            if util < 90 {
+                facts.append("Punched \(HeartbeatFormat.num(act, digits: 1)) hrs vs earned \(HeartbeatFormat.num(earned, digits: 1)) — utilization \(HeartbeatFormat.pct(util)). Demand is there; people are not.")
+            }
+        }
+        return facts
+    }
+
+    private static func flashFinding(
+        _ row: MetricRow,
+        labor: MetricRow?,
+        schedule: MetricRow?,
+        path: MetricRow?,
+        pph: MetricRow?,
+        prep: MetricRow?
+    ) -> ChecklistFinding {
+        let value = row.number("flash_pct")
+        var facts = ["Flash is \(HeartbeatFormat.pct(value)). Goal is 75% for a full star."]
+        facts.append(contentsOf: staffingFacts(labor: labor, schedule: schedule))
+        if let pphRow = pph, let pphValue = pphRow.number("pph"), pphHealth(pphRow) != .good {
+            facts.append("PPH \(HeartbeatFormat.num(pphValue, digits: 1)) vs \(Int(pphGoal)) — the crew that did punch cannot clear the wave.")
+        }
+        if let path, let compliance = path.number("compliance_pct"), band(compliance, good: pickPathGoal, watch: pickPathRisk) != .good {
+            facts.append("Path \(HeartbeatFormat.pct(compliance)) vs 90% — pickers are off-path so Flash slots collapse even if bodies are in the building.")
+        }
+        if let prep, let pnr = prep.number("pnr_rate_pct"), health(for: .prepNotReady, row: prep) != .good {
+            facts.append("Prep not ready \(HeartbeatFormat.pct(pnr)) — pickers wait on bakery/deli/meat and Flash dies.")
+        }
+        let under = schedule?.number("under_schedule_pct", "under_scheduled") ?? 0
+        let sch = labor?.number("sch_hrs") ?? 0
+        let act = labor?.number("act_hrs") ?? 0
+        let missPct = sch > 0 ? (sch - act) / sch * 100 : 0
+        let over = schedule?.number("over_schedule_pct", "over_scheduled") ?? labor?.number("over_schedule_pct") ?? 0
+        let action: String
+        if missPct >= 8 {
+            action = "Audit eComm call-offs and no-shows. \(HeartbeatFormat.num(sch - act, digits: 1)) scheduled hours never punched — do not add hours until the people on the schedule actually show up."
+        } else if under > scheduleVarianceWatch {
+            action = "Rebuild the map into order-drop windows. Under-scheduled \(HeartbeatFormat.pct(under)) is why Flash is \(HeartbeatFormat.pct(value))."
+        } else if over > scheduleVarianceWatch {
+            action = "Do not add hours. Over-scheduled \(HeartbeatFormat.pct(over)) and Flash is still \(HeartbeatFormat.pct(value)) — move coverage to pickup peaks."
+        } else {
+            action = "Stand a Flash huddle at every order-drop window until Flash holds 75%+. Protect the first 15 minutes of the wave."
+        }
+        return ChecklistFinding(
+            name: "Flash",
+            value: HeartbeatFormat.pct(value),
+            need: "≥ 75%",
+            health: flashStar(row).health,
+            fact: facts.joined(separator: " "),
+            shoppers: "",
+            action: action
+        )
+    }
+
+    private static func presubFinding(_ row: MetricRow, pickers: [MetricRow]) -> ChecklistFinding {
+        let value = row.number("presub_pct")
+        let names = namedPickers(pickers, failing: { presubStar($0).health != .good })
+            .map { "\($0.shopperName)  Presub \(HeartbeatFormat.pct($0.number("presub_pct")))" }
+        var facts = ["Presub is \(HeartbeatFormat.pct(value)). Goal is under 5%."]
+        if row.number("oos_pct") != nil, oosStar(row).health != .good {
+            facts.append("OOS \(HeartbeatFormat.pct(row.number("oos_pct"))) is feeding substitutions — inventory is part of this, not only picker skill.")
+        }
+        let who = names.prefix(3).map { $0.components(separatedBy: "  ").first ?? $0 }.joined(separator: ", ")
+        let action = who.isEmpty
+            ? "Only offer a true like-for-like, then confirm. Walk the last 20 substitutions on this store today."
+            : "Coach \(who) side-by-side on substitutions until Presub is under 5%."
+        return ChecklistFinding(
+            name: "Presub",
+            value: HeartbeatFormat.pct(value),
+            need: "< 5%",
+            health: presubStar(row).health,
+            fact: facts.joined(separator: " "),
+            shoppers: names.prefix(3).joined(separator: "  ·  "),
+            action: action
+        )
+    }
+
+    private static func ottFinding(
+        _ row: MetricRow,
+        labor: MetricRow?,
+        schedule: MetricRow?,
+        path: MetricRow?,
+        pph: MetricRow?,
+        prep: MetricRow?,
+        pickers: [MetricRow]
+    ) -> ChecklistFinding {
+        let value = row.number("ott_pct")
+        let names = namedPickers(pickers, failing: { ottStar($0).health != .good })
+            .map { "\($0.shopperName)  OTT \(HeartbeatFormat.pct($0.number("ott_pct")))" }
+        var facts = ["OTT is \(HeartbeatFormat.pct(value)). Goal is 95%."]
+        facts.append(contentsOf: staffingFacts(labor: labor, schedule: schedule).prefix(2))
+        if let pph, let pphValue = pph.number("pph"), pphHealth(pph) != .good {
+            facts.append("PPH \(HeartbeatFormat.num(pphValue, digits: 1)) is stretching shops past the window.")
+        }
+        if let path, let compliance = path.number("compliance_pct"), band(compliance, good: pickPathGoal, watch: pickPathRisk) != .good {
+            facts.append("Path \(HeartbeatFormat.pct(compliance)) — off-path shops miss the pickup time.")
+        }
+        if let prep, let pnr = prep.number("pnr_rate_pct"), pnr > pnrWatch {
+            facts.append("Prep not ready \(HeartbeatFormat.pct(pnr)) is holding bags.")
+        }
+        let who = names.prefix(3).map { $0.components(separatedBy: "  ").first ?? $0 }.joined(separator: ", ")
+        let action = who.isEmpty
+            ? "Protect the pickup window. Stage complete orders 15 minutes early until OTT holds 95%."
+            : "Walk \(who) on on-time staging. Do not start a new shop inside 20 minutes of a due time."
+        return ChecklistFinding(
+            name: "OTT",
+            value: HeartbeatFormat.pct(value),
+            need: "≥ 95%",
+            health: ottStar(row).health,
+            fact: facts.joined(separator: " "),
+            shoppers: names.prefix(3).joined(separator: "  ·  "),
+            action: action
+        )
+    }
+
+    private static func othFinding(
+        _ row: MetricRow,
+        labor: MetricRow?,
+        schedule: MetricRow?,
+        pickers: [MetricRow]
+    ) -> ChecklistFinding {
+        let value = row.number("oth5_pct")
+        let names = namedPickers(pickers, failing: { othStar($0).health != .good })
+            .map { "\($0.shopperName)  OTH5 \(HeartbeatFormat.pct($0.number("oth5_pct")))" }
+        var facts = ["OTH5 is \(HeartbeatFormat.pct(value)). Goal is 92%."]
+        facts.append(contentsOf: staffingFacts(labor: labor, schedule: schedule).prefix(2))
+        let who = names.prefix(3).map { $0.components(separatedBy: "  ").first ?? $0 }.joined(separator: ", ")
+        let action = who.isEmpty
+            ? "Keep eligible orders in the hour they were promised. Do not park them for the next wave."
+            : "Coach \(who) to finish eligible orders in-hour. No new shop until the due-hour board is clear."
+        return ChecklistFinding(
+            name: "OTH5",
+            value: HeartbeatFormat.pct(value),
+            need: "≥ 92%",
+            health: othStar(row).health,
+            fact: facts.joined(separator: " "),
+            shoppers: names.prefix(3).joined(separator: "  ·  "),
+            action: action
+        )
+    }
+
+    private static func oosFinding(_ row: MetricRow, pickers: [MetricRow]) -> ChecklistFinding {
+        let value = row.number("oos_pct")
+        let names = namedPickers(pickers, failing: { oosStar($0).health != .good })
+            .map { "\($0.shopperName)  OOS \(HeartbeatFormat.pct($0.number("oos_pct")))" }
+        let who = names.prefix(3).map { $0.components(separatedBy: "  ").first ?? $0 }.joined(separator: ", ")
+        let action = who.isEmpty
+            ? "Own top OOS items in the huddle. Check backroom before you mark out."
+            : "Walk \(who) on look-time, and pull this store's top OOS items with grocery today."
+        return ChecklistFinding(
+            name: "OOS",
+            value: HeartbeatFormat.pct(value),
+            need: "< 3%",
+            health: oosStar(row).health,
+            fact: "OOS is \(HeartbeatFormat.pct(value)). Goal is under 3%. This is backroom and shelf availability first, picker look-time second.",
+            shoppers: names.prefix(3).joined(separator: "  ·  "),
+            action: action
+        )
+    }
+
+    private static func diagnosePath(_ row: MetricRow, pph: MetricRow?, pathPickers: [MetricRow]) -> [ChecklistFinding] {
+        let value = row.number("compliance_pct")
+        let names = pathPickers
+            .sorted { ($0.number("compliance_pct") ?? 101) < ($1.number("compliance_pct") ?? 101) }
+            .filter { band($0.number("compliance_pct"), good: pickPathGoal, watch: pickPathRisk) != .good }
+            .prefix(3)
+            .map { "\($0.shopperName)  Path \(HeartbeatFormat.pct($0.number("compliance_pct")))" }
+        var facts = ["Path compliance is \(HeartbeatFormat.pct(value)). Goal is 90%."]
+        if let pph, let pphValue = pph.number("pph"), pphHealth(pph) != .good {
+            facts.append("PPH \(HeartbeatFormat.num(pphValue, digits: 1)) moves with path — off-path shops burn minutes.")
+        }
+        let who = names.map { $0.components(separatedBy: "  ").first ?? $0 }.joined(separator: ", ")
+        let action = who.isEmpty
+            ? "Retrain every shopper under 80% this week on the floor with the path map."
+            : "Retrain \(who) on the path map this week. Managers walk two low-compliance pickers per shift."
+        return [ChecklistFinding(
+            name: "Path compliance",
+            value: HeartbeatFormat.pct(value),
+            need: "≥ 90%",
+            health: band(value, good: pickPathGoal, watch: pickPathRisk),
+            fact: facts.joined(separator: " "),
+            shoppers: names.joined(separator: "  ·  "),
+            action: action
+        )]
+    }
+
+    private static func diagnosePPH(_ row: MetricRow, path: MetricRow?, labor: MetricRow?, pickers: [MetricRow]) -> [ChecklistFinding] {
+        let value = row.number("pph")
+        let names = namedPickers(pickers, failing: { pphHealth($0) != .good })
+            .map { "\($0.shopperName)  PPH \(HeartbeatFormat.num($0.number("pph"), digits: 1))" }
+        var facts = ["PPH is \(HeartbeatFormat.num(value, digits: 1)). Goal is \(Int(pphGoal))."]
+        facts.append(contentsOf: staffingFacts(labor: labor, schedule: nil).prefix(1))
+        if let path, let compliance = path.number("compliance_pct"), band(compliance, good: pickPathGoal, watch: pickPathRisk) != .good {
+            facts.append("Path \(HeartbeatFormat.pct(compliance)) is dragging PPH.")
+        }
+        let who = names.prefix(3).map { $0.components(separatedBy: "  ").first ?? $0 }.joined(separator: ", ")
+        let action = who.isEmpty
+            ? "Fix path and staging. Pull non-pick work off pickers during the wave until PPH holds \(Int(pphGoal))."
+            : "Pair \(who) with a strong picker for two shifts. Pull non-pick work off them during the wave."
+        return [ChecklistFinding(
+            name: "PPH",
+            value: HeartbeatFormat.num(value, digits: 1),
+            need: "≥ \(Int(pphGoal))",
+            health: pphHealth(row),
+            fact: facts.joined(separator: " "),
+            shoppers: names.prefix(3).joined(separator: "  ·  "),
+            action: action
+        )]
+    }
+
+    private static func diagnoseLabor(_ row: MetricRow, schedule: MetricRow?, pph: MetricRow?) -> [ChecklistFinding] {
+        let tva = row.number("target_vs_actual_pct")
+        var facts = staffingFacts(labor: row, schedule: schedule)
+        if let pph, let pphValue = pph.number("pph"), pphHealth(pph) != .good {
+            facts.append("PPH \(HeartbeatFormat.num(pphValue, digits: 1)) — hours are not turning into picks.")
+        }
+        let sch = row.number("sch_hrs") ?? 0
+        let act = row.number("act_hrs") ?? 0
+        let missPct = sch > 0 ? (sch - act) / sch * 100 : 0
+        let action: String
+        if missPct >= 8 {
+            action = "Hours are scheduled and not punched. Run the no-show / call-off list before you change the map."
+        } else if (tva ?? 0) > laborWatch {
+            action = "Get Tgt vs Act under 3%. Do not add hours — move them to the peak."
+        } else {
+            action = "Use earned hours as the daily target, not scheduled hours."
+        }
+        return [ChecklistFinding(
+            name: "Tgt vs Act",
+            value: HeartbeatFormat.pct(tva),
+            need: "≤ 0% healthy · ≤ 3% watch",
+            health: laborHealth(tva),
+            fact: facts.isEmpty ? "Labor is off the Target vs Actual goal." : facts.joined(separator: " "),
+            shoppers: "",
+            action: action
+        )]
+    }
+
+    private static func diagnoseSchedule(_ row: MetricRow, labor: MetricRow?) -> [ChecklistFinding] {
+        var out: [ChecklistFinding] = []
+        let under = row.number("under_schedule_pct", "under_scheduled")
+        let over = row.number("over_schedule_pct", "over_scheduled")
+        if let under, varianceHealth(under) != .good {
+            out.append(ChecklistFinding(
+                name: "Under-scheduled",
+                value: HeartbeatFormat.pct(under),
+                need: "≤ 5%",
+                health: varianceHealth(under),
+                fact: "Under-scheduled \(HeartbeatFormat.pct(under)). Peak windows do not have enough people on the map.",
+                shoppers: "",
+                action: "Rebuild the week into order-drop and pickup peaks. Do not leave holes on Friday and Sunday."
+            ))
+        }
+        if let over, varianceHealth(over) != .good {
+            out.append(ChecklistFinding(
+                name: "Over-scheduled",
+                value: HeartbeatFormat.pct(over),
+                need: "≤ 5%",
+                health: varianceHealth(over),
+                fact: "Over-scheduled \(HeartbeatFormat.pct(over)). Hours are paid at the wrong time.",
+                shoppers: "",
+                action: "Cut or move those hours to the demand curve. Extra coverage off-peak does not buy Flash or OTT."
+            ))
+        }
+        if out.isEmpty {
+            out.append(ChecklistFinding(
+                name: "Schedule efficiency",
+                value: HeartbeatFormat.pct(row.number("schedule_efficiency_pct")),
+                need: "≥ \(Int(scheduleGoal))%",
+                health: band(row.number("schedule_efficiency_pct"), good: scheduleGoal, watch: scheduleWatch),
+                fact: staffingFacts(labor: labor, schedule: row).joined(separator: " "),
+                shoppers: "",
+                action: "Match coverage to the demand curve, not last week's habit."
+            ))
+        }
+        return out
+    }
+
+    private static func diagnosePrep(_ row: MetricRow) -> [ChecklistFinding] {
+        [ChecklistFinding(
+            name: "Prep not ready",
+            value: HeartbeatFormat.pct(row.number("pnr_rate_pct")),
+            need: "< \(HeartbeatFormat.num(pnrWatch, digits: 1))%",
+            health: health(for: .prepNotReady, row: row),
+            fact: "Prep not ready is \(HeartbeatFormat.pct(row.number("pnr_rate_pct"))). Bakery, deli, or meat is late to the pick wave, so shops stall and DUG slips.",
+            shoppers: "",
+            action: "Run a 30-minute prep-ready board for bakery, deli, and meat. Escalate any department over 2.5% the same day."
+        )]
+    }
+
+    private static func diagnoseDynacap(_ row: MetricRow, labor: MetricRow?, pph: MetricRow?) -> [ChecklistFinding] {
+        var facts = ["Dynacap rate is \(HeartbeatFormat.num(row.number("dynacap_rate", "pieces_per_hour"), digits: 1))."]
+        facts.append(contentsOf: staffingFacts(labor: labor, schedule: nil).prefix(1))
+        if let pph, let pphValue = pph.number("pph"), pphHealth(pph) != .good {
+            facts.append("PPH \(HeartbeatFormat.num(pphValue, digits: 1)) — do not cut the cap to hide a labor or path problem.")
+        }
+        return [ChecklistFinding(
+            name: "Dynacap rate",
+            value: HeartbeatFormat.num(row.number("dynacap_rate", "pieces_per_hour"), digits: 1),
+            need: "≥ \(Int(dynacapGoal))",
+            health: health(for: .dynacap, row: row),
+            fact: facts.joined(separator: " "),
+            shoppers: "",
+            action: "Set pickup and delivery to the recommended values. Do not lower Dynacap to hide Flash, path, or PPH."
+        )]
+    }
+
+    private static func diagnoseLost(_ row: MetricRow, pickers: [MetricRow]) -> [ChecklistFinding] {
+        let names = namedPickers(pickers, failing: { presubStar($0).health != .good || oosStar($0).health != .good })
+            .map { "\($0.shopperName)  \(pickerOpportunityText($0))" }
+        return [ChecklistFinding(
+            name: "Lost revenue",
+            value: HeartbeatFormat.money(row.number("lost_revenue")),
+            need: "under 5% of eComm",
+            health: lostRevenueHealth(row),
+            fact: "Lost revenue \(HeartbeatFormat.money(row.number("lost_revenue"))) · \(HeartbeatFormat.pct(row.number("lost_revenue_pct"))) of eComm. Misses, refunds, and substitutions are demand this store already had.",
+            shoppers: names.prefix(3).joined(separator: "  ·  "),
+            action: "Pull the top lost-item categories for this store and own them in the huddle. Pair OOS and presub coaching with the pickers driving the leak."
+        )]
+    }
+
+    private static func namedPickers(_ pickers: [MetricRow], failing: (MetricRow) -> Bool) -> [MetricRow] {
+        pickers
+            .filter(failing)
+            .sorted { ($0.number("orders") ?? 0) > ($1.number("orders") ?? 0) }
+    }
+}

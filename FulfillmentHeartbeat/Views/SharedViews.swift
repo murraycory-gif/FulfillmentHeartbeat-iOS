@@ -8411,14 +8411,22 @@ struct FulfillmentChecklistCard: View {
                 }
                 .buttonStyle(.plain)
             }
-            if !item.broken.isEmpty {
-                diagnosisLine("Broken KPI", item.broken, AppTheme.bad)
-            }
-            if !item.shoppers.isEmpty {
-                diagnosisLine("Shoppers to coach", item.shoppers, AppTheme.blueDeep)
-            }
-            if !item.action.isEmpty {
-                diagnosisLine("Action", item.action, AppTheme.text)
+            if !item.findings.isEmpty {
+                VStack(spacing: 8) {
+                    ForEach(item.findings) { finding in
+                        findingCard(finding)
+                    }
+                }
+            } else {
+                if !item.broken.isEmpty {
+                    diagnosisLine("Broken KPI", item.broken, AppTheme.bad)
+                }
+                if !item.shoppers.isEmpty {
+                    diagnosisLine("Shoppers to coach", item.shoppers, AppTheme.blueDeep)
+                }
+                if !item.action.isEmpty {
+                    diagnosisLine("Action", item.action, AppTheme.text)
+                }
             }
             if showComment {
                 TextField("Note for follow up", text: commentBinding(item, section: section), axis: .vertical)
@@ -8431,6 +8439,43 @@ struct FulfillmentChecklistCard: View {
         }
         .padding(14)
         .background(AppTheme.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private func findingCard(_ finding: ChecklistFinding) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(finding.name)
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(headlineColor(finding.health))
+                Text(finding.value)
+                    .font(.subheadline.weight(.bold).monospacedDigit())
+                    .foregroundStyle(headlineColor(finding.health))
+                Text("need \(finding.need)")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.textTertiary)
+                Spacer(minLength: 0)
+            }
+            Text(finding.fact)
+                .font(.subheadline)
+                .foregroundStyle(AppTheme.text)
+                .fixedSize(horizontal: false, vertical: true)
+            if !finding.shoppers.isEmpty {
+                Text("Shoppers to coach: \(finding.shoppers)")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(AppTheme.blueDeep)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Text(finding.action)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(AppTheme.text)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(sectionWash(finding.health).opacity(0.7))
+        )
     }
 
     private func diagnosisLine(_ label: String, _ text: String, _ ink: Color) -> some View {
