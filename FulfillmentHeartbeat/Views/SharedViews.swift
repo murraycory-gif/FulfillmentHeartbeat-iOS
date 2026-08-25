@@ -1649,8 +1649,13 @@ private struct PathShopperSnap: Identifiable {
     var presub: Double?
     var oos: Double?
     var pph: Double?
+}
 
-    static func grouped(store: HeartbeatStore, storeNumber: String) -> [PathShopperSnap] {
+private struct PathShopperTable: View {
+    @EnvironmentObject private var store: HeartbeatStore
+    let storeNumber: String
+
+    private var pickers: [PathShopperSnap] {
         var byKey: [String: PathShopperSnap] = [:]
         for row in store.pickPathPickers(forStore: storeNumber) {
             let key = row.shopperKey
@@ -1689,14 +1694,6 @@ private struct PathShopperSnap: Identifiable {
             return $0.name.localizedStandardCompare($1.name) == .orderedAscending
         }
     }
-}
-
-private struct PathShopperTable: View {
-    @EnvironmentObject private var store: HeartbeatStore
-    let storeNumber: String
-
-    private var pickers: [PathShopperSnap] {
-        PathShopperSnap.grouped(store: store, storeNumber: storeNumber)
     }
 
     var body: some View {
