@@ -27,6 +27,7 @@ final class HeartbeatStore: ObservableObject {
     private let snapshotURL: URL
     private let checklistURL: URL
     private let masterLinkURL: URL
+    private let filtersURL: URL
     private var hydrating = false
     private var pendingExternalData: Data?
     @Published private(set) var checklistRecipients: [String] = []
@@ -67,6 +68,7 @@ final class HeartbeatStore: ObservableObject {
         snapshotURL = root.appendingPathComponent("heartbeat.json")
         checklistURL = root.appendingPathComponent("checklist.json")
         masterLinkURL = root.appendingPathComponent("master-link.json")
+        filtersURL = root.appendingPathComponent("filters.json")
         rows = []
         uploads = []
         seeded = false
@@ -204,6 +206,12 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func rebuildPickerIndex(_ pickers: [MetricRow]) {
+        let built = pickerIndexValues(pickers)
+        pickerIndex = built.index
+        pickerFocusHealth = built.health
+    }
+
+    private func pickerIndexValues(_ pickers: [MetricRow]) -> (index: [PickerFocus: [Int]], health: [PickerFocus: Health]) {
         var buckets: [PickerFocus: [Int]] = [:]
         var worst: [PickerFocus: Health] = [:]
         for focus in PickerFocus.allCases {
@@ -304,11 +312,16 @@ final class HeartbeatStore: ObservableObject {
         buckets[.oos]?.sort(by: byNumber("oos_pct", invert: true))
         buckets[.refund]?.sort(by: byNumber("refund_amt", invert: true))
 
-        pickerIndex = buckets
-        pickerFocusHealth = worst
+        return (buckets, worst)
     }
 
     private func rebuildPickPathPickerIndex(scorecard: [MetricRow]) {
+        let built = pickPathIndexValues(scorecard: scorecard, pathRows: latestBySection[.pickPathPicker] ?? [])
+        pickPathByShopper = built.byShopper
+        pickPathPickersByStore = built.buckets
+    }
+
+    private func pickPathIndexValues(scorecard: [MetricRow], pathRows: [MetricRow]) -> (buckets: [String: [MetricRow]], byShopper: [String: MetricRow]) {
         var storesByShopper: [String: Set<String>] = [:]
         for row in scorecard {
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
@@ -319,7 +332,7 @@ final class HeartbeatStore: ObservableObject {
         }
         var byShopper: [String: MetricRow] = [:]
         var buckets: [String: [MetricRow]] = [:]
-        for row in latestBySection[.pickPathPicker] ?? [] {
+        for row in pathRows {
             for alias in HeartbeatMath.shopperAliases(row) {
                 byShopper[alias] = row
             }
@@ -338,11 +351,14 @@ final class HeartbeatStore: ObservableObject {
                 ($0.number("compliance_pct") ?? 999) < ($1.number("compliance_pct") ?? 999)
             }
         }
-        pickPathByShopper = byShopper
-        pickPathPickersByStore = buckets
+        return (buckets, byShopper)
     }
 
     private func rebuildPPHPickerIndex(scorecard: [MetricRow]) {
+        pphPickersByStore = pphIndexValues(scorecard)
+    }
+
+    private func pphIndexValues(_ scorecard: [MetricRow]) -> [String: [MetricRow]] {
         var buckets: [String: [MetricRow]] = [:]
         buckets.reserveCapacity(512)
         for row in scorecard where row.number("pph") != nil {
@@ -353,7 +369,7 @@ final class HeartbeatStore: ObservableObject {
         for store in buckets.keys {
             buckets[store]?.sort { ($0.number("pph") ?? 999) < ($1.number("pph") ?? 999) }
         }
-        pphPickersByStore = buckets
+        return buckets
     }
 
     func laborWeekIds() -> [String] {
@@ -833,7 +849,7 @@ final class HeartbeatStore: ObservableObject {
     func commitFilters(_ next: DashboardFilters) {
         if filters == next { return }
         filters = next
-        persist()
+        persistFilters()
     }
 
     func filterChoices(focus: FilterFocus, draft: DashboardFilters) -> [(id: String, label: String)] {
@@ -1271,10 +1287,7 @@ final class HeartbeatStore: ObservableObject {
     private func applyFilters() {
         if !filters.isActive, let pulse = unfilteredPulse {
             install(pulse)
-            objectWillChange.send()
-            Task { @MainActor in
-                filterStamp += 1
-            }
+            filterStamp += 1
             return
         }
 
@@ -1324,10 +1337,8 @@ final class HeartbeatStore: ObservableObject {
         if !filters.isActive {
             unfilteredPulse = snapshotPulse()
         }
-        objectWillChange.send()
-        Task { @MainActor in
-            filterStamp += 1
-        }
+        filterStamp += 1
+        warmUnfilteredPulse()
     }
 
     private struct FilterPulse {
@@ -1362,6 +1373,55 @@ final class HeartbeatStore: ObservableObject {
             stores: cachedStores,
             summaries: cachedSummaries
         )
+    }
+
+    private func pulse(from caches: PulseCaches) -> FilterPulse {
+        let pickers = caches.filteredLatest[.pickerScorecard] ?? []
+        let picker = pickerIndexValues(pickers)
+        let path = pickPathIndexValues(scorecard: pickers, pathRows: caches.latestBySection[.pickPathPicker] ?? [])
+        return FilterPulse(
+            filteredLatest: caches.filteredLatest,
+            pickerBoard: caches.cachedPickerBoard,
+            pickerIndex: picker.index,
+            pickerFocusHealth: picker.health,
+            pickPathPickersByStore: path.buckets,
+            pickPathByShopper: path.byShopper,
+            pphPickersByStore: pphIndexValues(pickers),
+            checklistGroups: caches.cachedChecklistGroups,
+            market: caches.filteredMarket,
+            districts: caches.cachedDistricts,
+            oms: caches.cachedOMs,
+            stores: caches.cachedStores,
+            summaries: caches.cachedSummaries
+        )
+    }
+
+    private func warmUnfilteredPulse() {
+        guard unfilteredPulse == nil else { return }
+        if !filters.isActive {
+            unfilteredPulse = snapshotPulse()
+            return
+        }
+        let latest = latestBySection
+        let rosterCopy = roster
+        let uploadsCopy = uploads
+        let laborMarket = laborMarketRow()
+        let lostMarket = lostRevenueMarketRow()
+        Task.detached(priority: .utility) {
+            let caches = PulseCaches.refilter(
+                latest: latest,
+                roster: rosterCopy,
+                filters: DashboardFilters(),
+                uploads: uploadsCopy,
+                laborMarket: laborMarket,
+                lostRevenueMarket: lostMarket
+            )
+            await MainActor.run {
+                if self.unfilteredPulse == nil {
+                    self.unfilteredPulse = self.pulse(from: caches)
+                }
+            }
+        }
     }
 
     private func install(_ pulse: FilterPulse) {
@@ -1429,23 +1489,30 @@ final class HeartbeatStore: ObservableObject {
             return
         }
         let url = snapshotURL
+        let filterFile = filtersURL
         Task.detached(priority: .userInitiated) {
             do {
                 let data = try Data(contentsOf: url)
                 let decoder = JSONDecoder()
                 decoder.dateDecodingStrategy = .iso8601
                 let decoded = try decoder.decode(HeartbeatSnapshot.self, from: data)
-                let caches = PulseCaches.build(rows: decoded.rows, filters: decoded.filters, uploads: decoded.uploads)
+                var loadedFilters = decoded.filters
+                if let overlay = try? Data(contentsOf: filterFile),
+                   let saved = try? JSONDecoder().decode(DashboardFilters.self, from: overlay) {
+                    loadedFilters = saved
+                }
+                let caches = PulseCaches.build(rows: decoded.rows, filters: loadedFilters, uploads: decoded.uploads)
                 try? await Task.sleep(nanoseconds: 120_000_000)
                 await MainActor.run {
                     self.hydrating = true
                     self.rows = decoded.rows
                     self.uploads = decoded.uploads.sorted { $0.uploadedAt > $1.uploadedAt }
                     self.seeded = decoded.seeded
-                    self.filters = decoded.filters
+                    self.filters = loadedFilters
                     self.install(caches)
                     self.hydrating = false
                     self.isReady = true
+                    self.warmUnfilteredPulse()
                 }
             } catch {
                 await MainActor.run {
@@ -1488,6 +1555,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func persist() {
+        persistFilters()
         let snapshot = HeartbeatSnapshot(
             rows: rows,
             uploads: uploads,
@@ -1504,6 +1572,17 @@ final class HeartbeatStore: ObservableObject {
             } catch {
                 // Keep the in-memory pulse; the next successful save will replace this file.
             }
+        }
+    }
+
+    private func persistFilters() {
+        let current = filters
+        let url = filtersURL
+        Task.detached(priority: .utility) {
+            do {
+                let data = try JSONEncoder().encode(current)
+                try data.write(to: url, options: [.atomic])
+            } catch {}
         }
     }
 
