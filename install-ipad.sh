@@ -40,14 +40,16 @@ if [ -z "$APP" ] || [ ! -d "$APP" ]; then
 fi
 
 wait_for_ipad() {
+  want="${1:-}"
   tries=0
-  while [ "$tries" -lt 12 ]; do
+  while [ "$tries" -lt 20 ]; do
     JSON="${TMPDIR:-/tmp}/heartbeat-devices.json"
     if xcrun devicectl list devices --json-output "$JSON" >/dev/null 2>&1; then
-      FOUND=$(python3 - "$JSON" <<'PY'
-import json, sys
+      FOUND=$(WANT="$want" python3 - "$JSON" <<'PY'
+import json, os, sys
 data = json.load(open(sys.argv[1]))
 devices = data.get("result", {}).get("devices", []) or data.get("devices", [])
+want = os.environ.get("WANT", "").strip().lower()
 for device in devices:
     hardware = device.get("hardwareProperties") or {}
     props = device.get("deviceProperties") or {}
@@ -58,8 +60,11 @@ for device in devices:
     tunnel = str(conn.get("tunnelState") or "").lower()
     transport = str(conn.get("transportType") or "").lower()
     pairing = str(conn.get("pairingState") or "").lower()
+    state = str(props.get("bootState") or conn.get("localHostReachability") or "").lower()
     is_ipad = "iPad" in name or "iPad" in marketing or str(hardware.get("deviceType") or "").startswith("iPad")
     if not is_ipad:
+        continue
+    if want and ident.lower() != want:
         continue
     available = tunnel in ("connected", "ready") or transport in ("wired", "localnetwork", "wifi")
     if available and pairing in ("paired", "pairable", ""):
@@ -71,14 +76,26 @@ PY
 ) && { echo "$FOUND"; return 0; }
     fi
     tries=$((tries + 1))
-    echo "Waiting for the iPad… unplug, unlock, plug back in ($tries/12)"
+    echo "Waiting for the iPad… unlock it, unplug, plug back in, tap Trust ($tries/20)" >&2
     sleep 3
   done
   return 1
 }
 
 UDID="${DEVICE_UDID:-}"
-if [ -z "$UDID" ]; then
+if [ -n "$UDID" ]; then
+  echo "Looking for iPad $UDID ..."
+  READY=$(wait_for_ipad "$UDID" || true)
+  if [ -z "${READY:-}" ]; then
+    echo "iPad $UDID is still unavailable."
+    xcrun devicectl list devices || true
+    echo ""
+    echo "Unlock the iPad, leave it on the Home Screen, unplug the cable, plug it back in, tap Trust, then rerun:"
+    echo "  SKIP_BUILD=1 DEVICE_UDID=$UDID ./install-ipad.sh"
+    exit 1
+  fi
+  UDID="$READY"
+else
   UDID=$(wait_for_ipad || true)
 fi
 
