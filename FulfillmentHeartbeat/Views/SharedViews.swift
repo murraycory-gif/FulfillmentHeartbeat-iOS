@@ -1694,7 +1694,6 @@ private struct PathShopperTable: View {
             return $0.name.localizedStandardCompare($1.name) == .orderedAscending
         }
     }
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
