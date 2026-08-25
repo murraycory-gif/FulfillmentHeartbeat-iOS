@@ -1812,12 +1812,13 @@ struct DynacapTable: View {
     let rows: [MetricRow]
 
     private enum Column: String, CaseIterable, Identifiable {
-        case store, rate, goal, util, status
+        case store, rate, pph, goal, util, status
         var id: String { rawValue }
         var key: String {
             switch self {
             case .store: return "label"
             case .rate: return "rate"
+            case .pph: return "pph"
             case .goal: return "goal"
             case .util: return "util"
             case .status: return "status"
@@ -1958,13 +1959,19 @@ struct DynacapTable: View {
     }
 
     private func rebuildOrder(sort: Column, ascending: Bool) {
+        var pphByStore: [String: Double] = [:]
+        for row in store.latest(for: .pph) {
+            if let pph = row.number("pph") {
+                pphByStore[HeartbeatMath.canonicalStore(row.storeNumber)] = pph
+            }
+        }
         snaps = rows.sorted { lhs, rhs in
-            let result = compare(lhs, rhs, sort: sort)
+            let result = compare(lhs, rhs, sort: sort, pphByStore: pphByStore)
             return ascending ? result == .orderedAscending : result == .orderedDescending
-        }.map(DynacapLineSnap.init)
+        }.map { DynacapLineSnap($0, storePPH: pphByStore[HeartbeatMath.canonicalStore($0.storeNumber)]) }
     }
 
-    private func compare(_ lhs: MetricRow, _ rhs: MetricRow, sort: Column) -> ComparisonResult {
+    private func compare(_ lhs: MetricRow, _ rhs: MetricRow, sort: Column, pphByStore: [String: Double]) -> ComparisonResult {
         switch sort {
         case .store:
             if let a = Int(lhs.storeNumber), let b = Int(rhs.storeNumber) {
@@ -1973,6 +1980,11 @@ struct DynacapTable: View {
             return lhs.storeNumber.localizedStandardCompare(rhs.storeNumber)
         case .rate, .goal:
             return numberOrder(DynacapMath.rate(lhs), DynacapMath.rate(rhs))
+        case .pph:
+            return numberOrder(
+                pphByStore[HeartbeatMath.canonicalStore(lhs.storeNumber)],
+                pphByStore[HeartbeatMath.canonicalStore(rhs.storeNumber)]
+            )
         case .util:
             return numberOrder(lhs.number("utilization_pct"), rhs.number("utilization_pct"))
         case .status:
@@ -2011,6 +2023,11 @@ private enum DynacapMath {
         guard value != nil else { return .none }
         return HeartbeatMath.band(value, good: HeartbeatMath.dynacapGoal, watch: HeartbeatMath.dynacapRisk)
     }
+
+    static func pphHealth(_ value: Double?) -> Health {
+        guard value != nil else { return .none }
+        return HeartbeatMath.band(value, good: HeartbeatMath.pphGoal, watch: HeartbeatMath.pphRisk)
+    }
 }
 
 private struct DynacapRollupRow: Identifiable {
@@ -2018,6 +2035,7 @@ private struct DynacapRollupRow: Identifiable {
     let label: String
     let storeCount: Int
     let rate: Double?
+    let pph: Double?
     let util: Double?
 
     var health: Health { DynacapMath.rateHealth(rate) }
@@ -2048,7 +2066,7 @@ private enum DynacapRollupBuilder {
         return stores
     }
 
-    static func rows(from stores: [MetricRow], grain: LaborRollupGrain) -> [DynacapRollupRow] {
+    static func rows(from stores: [MetricRow], grain: LaborRollupGrain, pphByStore: [String: Double]) -> [DynacapRollupRow] {
         var buckets: [String: [MetricRow]] = [:]
         for row in stores {
             let key: String
@@ -2080,6 +2098,7 @@ private enum DynacapRollupBuilder {
                     label: label,
                     storeCount: group.count,
                     rate: HeartbeatMath.average(group.compactMap(DynacapMath.rate)),
+                    pph: HeartbeatMath.average(group.compactMap { pphByStore[HeartbeatMath.canonicalStore($0.storeNumber)] }),
                     util: HeartbeatMath.average(group.compactMap { $0.number("utilization_pct") })
                 )
             )
@@ -2095,12 +2114,15 @@ private struct DynacapLineSnap: Identifiable, Equatable {
     let district: String
     let om: String
     let rate: String
+    let pph: String
     let util: String
     let health: Health
+    let pphHealth: Health
     let rateValue: Double
+    let pphValue: Double
     let utilValue: Double
 
-    init(_ row: MetricRow) {
+    init(_ row: MetricRow, storePPH: Double?) {
         id = row.id
         storeNumber = row.storeNumber
         label = row.division.isEmpty
@@ -2111,9 +2133,12 @@ private struct DynacapLineSnap: Identifiable, Equatable {
         let rateNum = DynacapMath.rate(row)
         let utilNum = row.number("utilization_pct")
         rate = HeartbeatFormat.num(rateNum, digits: 1)
+        pph = HeartbeatFormat.num(storePPH, digits: 1)
         util = HeartbeatFormat.pct(utilNum)
         health = HeartbeatMath.health(for: .dynacap, row: row)
+        pphHealth = DynacapMath.pphHealth(storePPH)
         rateValue = rateNum ?? -1
+        pphValue = storePPH ?? -1
         utilValue = utilNum ?? -1
     }
 }
@@ -2136,6 +2161,7 @@ private struct DynacapCheapLine: View, Equatable {
             }
             .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
             cell(snap.rate, snap.health)
+            cell(snap.pph, snap.pphHealth)
             cell(DynacapMath.goalText, .none, brand: true)
             cell(snap.util, .none)
             Text(snap.health.label.uppercased())
@@ -2195,6 +2221,7 @@ private struct DynacapMetricLine: View, Equatable {
     let label: String
     var count: Int? = nil
     let rate: Double?
+    let pph: Double?
     let util: Double?
 
     var body: some View {
@@ -2213,6 +2240,7 @@ private struct DynacapMetricLine: View, Equatable {
                     .frame(width: 58, alignment: .trailing)
             }
             cell(HeartbeatFormat.num(rate, digits: 1), health)
+            cell(HeartbeatFormat.num(pph, digits: 1), DynacapMath.pphHealth(pph))
             cell(DynacapMath.goalText, .none, brand: true)
             cell(HeartbeatFormat.pct(util), .none)
             HealthBadge(health: health, prominent: true, compact: true)
@@ -2271,6 +2299,7 @@ struct DynacapMetricHeader: View {
                     .frame(width: 58, alignment: .trailing)
             }
             head("Pieces / hr", key: "rate")
+            head("Store PPH", key: "pph")
             head("Goal", key: "goal")
             head("Utilization", key: "util")
             head("Status", key: "status", alignment: .trailing)
@@ -2367,6 +2396,7 @@ struct DynacapRollupTable: View {
                             label: row.label,
                             count: grain == .store ? nil : row.storeCount,
                             rate: row.rate,
+                            pph: row.pph,
                             util: row.util
                         )
                     }
@@ -2390,10 +2420,16 @@ struct DynacapRollupTable: View {
     private var summary: [DynacapRollupRow] {
         guard let grain else { return [] }
         let source = DynacapRollupBuilder.source(from: store.displayRows(for: .dynacap), filters: store.filters)
-        var rows = DynacapRollupBuilder.rows(from: source, grain: grain)
+        var pphByStore: [String: Double] = [:]
+        for row in store.latest(for: .pph) {
+            if let pph = row.number("pph") {
+                pphByStore[HeartbeatMath.canonicalStore(row.storeNumber)] = pph
+            }
+        }
+        var rows = DynacapRollupBuilder.rows(from: source, grain: grain, pphByStore: pphByStore)
         if grain == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
-                rows.append(DynacapRollupRow(id: extra.name, label: extra.name, storeCount: extra.storeCount, rate: nil, util: nil))
+                rows.append(DynacapRollupRow(id: extra.name, label: extra.name, storeCount: extra.storeCount, rate: nil, pph: nil, util: nil))
             }
             rows.sort { ($0.rate ?? 999) < ($1.rate ?? 999) }
         }
@@ -2422,11 +2458,19 @@ private struct DynacapStoreRow: View {
 }
 
 private struct DynacapStoreExpand: View {
+    @EnvironmentObject private var store: HeartbeatStore
     let snap: DynacapLineSnap
+
+    private var pickers: [MetricRow] {
+        store.pphPickers(forStore: snap.storeNumber).sorted {
+            ($0.number("pph") ?? 999) < ($1.number("pph") ?? 999)
+        }
+    }
 
     private var chips: [(String, String, Health, Bool)] {
         [
             ("Pieces / hr", snap.rate, snap.health, false),
+            ("Store PPH", snap.pph, snap.pphHealth, false),
             ("Goal", DynacapMath.goalText, .none, true),
             ("Utilization", snap.util, .none, false),
         ]
@@ -2442,6 +2486,7 @@ private struct DynacapStoreExpand: View {
                     metric(item.0, item.1, item.2, brand: item.3)
                 }
             }
+            pickerBlock
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -2449,6 +2494,76 @@ private struct DynacapStoreExpand: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(AppTheme.card.opacity(0.9))
         )
+    }
+
+    @ViewBuilder
+    private var pickerBlock: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(pickers.isEmpty ? "Shoppers · PPH" : "Shoppers · PPH  ·  \(pickers.count)")
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(AppTheme.text)
+            if pickers.isEmpty {
+                Text("Upload Picker ScoreCard so shoppers for this store show here with their Pure PPH.")
+                    .font(.subheadline)
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .padding(.vertical, 6)
+            } else {
+                HStack(spacing: 6) {
+                    Text("SHOPPER")
+                        .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                    Text("SHOPPER PPH")
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    Text("ORDERS")
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    Text("HOURS")
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    Text("STATUS")
+                        .frame(width: 88, alignment: .trailing)
+                }
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(AppTheme.textTertiary)
+                .tracking(0.4)
+                ForEach(pickers) { picker in
+                    pickerLine(picker)
+                }
+            }
+        }
+    }
+
+    private func pickerLine(_ picker: MetricRow) -> some View {
+        let health = HeartbeatMath.pphHealth(picker)
+        return HStack(spacing: 6) {
+            Text(picker.shopperName)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(AppTheme.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            cell(HeartbeatFormat.num(picker.number("pph"), digits: 1), health)
+            cell(HeartbeatFormat.num(picker.number("orders")), .none)
+            cell(HeartbeatFormat.num(picker.number("pick_hours"), digits: 1), .none)
+            Text(health.label.uppercased())
+                .font(.caption.weight(.heavy))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 5)
+                .foregroundStyle(Color.white)
+                .background(pill(health), in: Capsule())
+                .frame(width: 88, alignment: .trailing)
+        }
+    }
+
+    private func cell(_ value: String, _ health: Health) -> some View {
+        Text(value)
+            .font(.subheadline.weight(.bold).monospacedDigit())
+            .foregroundStyle(ink(health))
+            .lineLimit(1)
+            .minimumScaleFactor(0.55)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .padding(.vertical, 6)
+            .padding(.horizontal, 6)
+            .background(wash(health), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
     private func metric(_ name: String, _ value: String, _ health: Health, brand: Bool) -> some View {
@@ -2489,6 +2604,15 @@ private struct DynacapStoreExpand: View {
         case .watch: return AppTheme.warnSoft
         case .risk: return AppTheme.badSoft
         case .none: return AppTheme.card
+        }
+    }
+
+    private func pill(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.textTertiary
         }
     }
 }
