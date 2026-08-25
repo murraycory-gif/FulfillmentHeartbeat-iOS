@@ -1645,124 +1645,224 @@ private struct PickPathStoreRow: View {
 private struct PathShopperSnap: Identifiable {
     let id: String
     var name: String
-    var path: Double?
-    var presub: Double?
-    var oos: Double?
-    var pph: Double?
+    var path: Double? = nil
+    var presub: Double? = nil
+    var oos: Double? = nil
+    var pph: Double? = nil
+    var ott: Double? = nil
+    var flash: Double? = nil
+    var oth5: Double? = nil
+    var coe: Double? = nil
+    var refund: Double? = nil
+    var orders: Double? = nil
+    var hours: Double? = nil
+}
+
+private enum ShopperMetric: String, CaseIterable, Hashable {
+    case path, pph, presub, oos, ott, flash, oth5, coe, refund, orders, hours
+
+    var title: String {
+        switch self {
+        case .path: return "PICK PATH"
+        case .pph: return "PPH"
+        case .presub: return "PRESUB"
+        case .oos: return "OOS%"
+        case .ott: return "OTT"
+        case .flash: return "FLASH"
+        case .oth5: return "OTH5"
+        case .coe: return "COE"
+        case .refund: return "REFUND"
+        case .orders: return "ORDERS"
+        case .hours: return "HOURS"
+        }
+    }
+
+    static func columns(for section: MetricSection) -> [ShopperMetric]? {
+        switch section {
+        case .fiveStar: return [.ott, .flash, .oth5, .coe, .presub, .oos]
+        case .pickPath, .pickPathPicker: return [.path, .presub, .oos, .pph]
+        case .pph, .dynacap: return [.pph, .orders, .hours]
+        case .lostRevenue: return [.refund, .presub, .oos, .pph]
+        case .labor: return [.pph, .hours, .orders]
+        case .prepNotReady, .scheduleQuality, .pickerScorecard: return nil
+        }
+    }
 }
 
 private struct PathShopperTable: View {
     @EnvironmentObject private var store: HeartbeatStore
     let storeNumber: String
+    var section: MetricSection = .pickPath
+
+    private var columns: [ShopperMetric] { ShopperMetric.columns(for: section) ?? [] }
 
     private var pickers: [PathShopperSnap] {
+        guard !columns.isEmpty else { return [] }
         var byKey: [String: PathShopperSnap] = [:]
-        func merge(_ row: MetricRow, path: Double?, presub: Double?, oos: Double?, pph: Double?) {
-            let aliases = HeartbeatMath.shopperAliases(row)
-            let key = aliases.first ?? HeartbeatMath.canonicalShopper(row.shopperKey)
-            guard !key.isEmpty else { return }
-            if var existing = byKey[key] {
-                if existing.path == nil { existing.path = path }
-                if existing.presub == nil { existing.presub = presub }
-                if existing.oos == nil { existing.oos = oos }
-                if existing.pph == nil { existing.pph = pph }
-                if existing.name.isEmpty { existing.name = row.shopperName }
-                byKey[key] = existing
-            } else {
-                byKey[key] = PathShopperSnap(
-                    id: key,
-                    name: row.shopperName,
-                    path: path,
-                    presub: presub,
-                    oos: oos,
-                    pph: pph
-                )
-            }
+        func key(for row: MetricRow) -> String {
+            HeartbeatMath.shopperAliases(row).first ?? HeartbeatMath.canonicalShopper(row.shopperKey)
         }
-        for row in store.pickPathPickers(forStore: storeNumber) {
-            merge(row, path: row.number("compliance_pct"), presub: nil, oos: nil, pph: row.number("pph"))
+        func merge(_ row: MetricRow, path: Double? = nil) {
+            let id = key(for: row)
+            guard !id.isEmpty else { return }
+            var snap = byKey[id] ?? PathShopperSnap(id: id, name: row.shopperName)
+            if snap.name.isEmpty { snap.name = row.shopperName }
+            if snap.path == nil { snap.path = path ?? row.number("compliance_pct") }
+            if snap.presub == nil { snap.presub = row.number("presub_pct") }
+            if snap.oos == nil { snap.oos = row.number("oos_pct") }
+            if snap.pph == nil { snap.pph = row.number("pph") }
+            if snap.ott == nil { snap.ott = row.number("ott_pct") }
+            if snap.flash == nil { snap.flash = row.number("flash_pct") }
+            if snap.oth5 == nil { snap.oth5 = row.number("oth5_pct") }
+            if snap.coe == nil { snap.coe = row.number("coe_pct") }
+            if snap.refund == nil { snap.refund = row.number("refund_amt") }
+            if snap.orders == nil { snap.orders = row.number("orders") }
+            if snap.hours == nil { snap.hours = row.number("pick_hours") }
+            byKey[id] = snap
+        }
+        if section == .pickPath || section == .pickPathPicker {
+            for row in store.pickPathPickers(forStore: storeNumber) {
+                merge(row, path: row.number("compliance_pct"))
+            }
         }
         for row in store.pphPickers(forStore: storeNumber) {
             let pathRow = store.pickPathPicker(forShopper: row.shopperKey)
                 ?? store.pickPathPicker(forShopper: row.shopperName)
                 ?? store.pickPathPicker(forShopper: row.shopperId ?? "")
-            merge(
-                row,
-                path: pathRow?.number("compliance_pct"),
-                presub: row.number("presub_pct"),
-                oos: row.number("oos_pct"),
-                pph: row.number("pph") ?? pathRow?.number("pph")
-            )
+            merge(row, path: pathRow?.number("compliance_pct"))
+            if let pathRow { merge(pathRow, path: pathRow.number("compliance_pct")) }
         }
         return byKey.values.sorted {
-            let a = $0.path ?? 999
-            let b = $1.path ?? 999
+            let a = sortValue($0)
+            let b = sortValue($1)
             if a != b { return a < b }
             return $0.name.localizedStandardCompare($1.name) == .orderedAscending
         }
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(pickers.isEmpty ? "Shoppers" : "Shoppers  ·  \(pickers.count)")
-                .font(.subheadline.weight(.bold))
-                .foregroundStyle(AppTheme.text)
-            if pickers.isEmpty {
-                Text("Upload Pick Path Compliance Picker and Picker ScoreCard to see shoppers for this store.")
-                    .font(.subheadline)
-                    .foregroundStyle(AppTheme.textSecondary)
-                    .padding(.vertical, 6)
-            } else {
-                HStack(spacing: 6) {
-                    Text("SHOPPER")
-                        .frame(minWidth: 120, maxWidth: 170, alignment: .leading)
-                    Text("PICK PATH")
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                    Text("PRESUB")
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                    Text("OOS%")
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                    Text("PPH")
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                    Text("STATUS")
-                        .frame(width: 78, alignment: .trailing)
-                }
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(AppTheme.textTertiary)
-                .tracking(0.4)
-                ForEach(pickers) { picker in
-                    pickerLine(picker)
+        if columns.isEmpty {
+            EmptyView()
+        } else {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(pickers.isEmpty ? "Shoppers" : "Shoppers  ·  \(pickers.count)")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(AppTheme.text)
+                if pickers.isEmpty {
+                    Text(emptyDetail)
+                        .font(.subheadline)
+                        .foregroundStyle(AppTheme.textSecondary)
+                        .padding(.vertical, 6)
+                } else {
+                    HStack(spacing: 6) {
+                        Text("SHOPPER")
+                            .frame(minWidth: 110, maxWidth: 160, alignment: .leading)
+                        ForEach(columns, id: \.self) { metric in
+                            Text(metric.title)
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+                        }
+                        Text("STATUS")
+                            .frame(width: 72, alignment: .trailing)
+                    }
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(AppTheme.textTertiary)
+                    .tracking(0.4)
+                    ForEach(pickers) { picker in
+                        pickerLine(picker)
+                    }
                 }
             }
         }
     }
 
+    private var emptyDetail: String {
+        if section == .pickPath || section == .pickPathPicker {
+            return "Upload Pick Path Compliance Picker and Picker ScoreCard to see shoppers for this store."
+        }
+        return "Upload Picker ScoreCard to see shoppers for this store."
+    }
+
     private func pickerLine(_ picker: PathShopperSnap) -> some View {
-        let pathHealth = picker.path == nil ? Health.none : PickPathMath.pathHealth(picker.path)
-        let presubHealth = picker.presub == nil ? Health.none : HeartbeatMath.starMark(value: picker.presub, full: 5, half: 6, invert: true).health
-        let oosHealth = picker.oos == nil ? Health.none : HeartbeatMath.starMark(value: picker.oos, full: 3, half: 5, invert: true).health
-        let pphHealth = picker.pph == nil ? Health.none : PickPathMath.pphHealth(picker.pph)
-        let health = worstHealth([pathHealth, presubHealth, oosHealth, pphHealth])
+        let scores = columns.map { health(of: $0, in: picker) }
+        let overall = worstHealth(scores)
         return HStack(spacing: 6) {
             Text(picker.name)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .frame(minWidth: 120, maxWidth: 170, alignment: .leading)
-            cell(HeartbeatFormat.pct(picker.path), pathHealth)
-            cell(HeartbeatFormat.pct(picker.presub), presubHealth)
-            cell(HeartbeatFormat.pct(picker.oos), oosHealth)
-            cell(HeartbeatFormat.num(picker.pph, digits: 1), pphHealth)
-            Text(health.label.uppercased())
+                .frame(minWidth: 110, maxWidth: 160, alignment: .leading)
+            ForEach(columns, id: \.self) { metric in
+                cell(display(metric, picker), health(of: metric, in: picker))
+            }
+            Text(overall.label.uppercased())
                 .font(.caption.weight(.heavy))
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 5)
                 .foregroundStyle(Color.white)
-                .background(pill(health), in: Capsule())
-                .frame(width: 78, alignment: .trailing)
+                .background(pill(overall), in: Capsule())
+                .frame(width: 72, alignment: .trailing)
+        }
+    }
+
+    private func value(_ metric: ShopperMetric, _ picker: PathShopperSnap) -> Double? {
+        switch metric {
+        case .path: return picker.path
+        case .pph: return picker.pph
+        case .presub: return picker.presub
+        case .oos: return picker.oos
+        case .ott: return picker.ott
+        case .flash: return picker.flash
+        case .oth5: return picker.oth5
+        case .coe: return picker.coe
+        case .refund: return picker.refund
+        case .orders: return picker.orders
+        case .hours: return picker.hours
+        }
+    }
+
+    private func display(_ metric: ShopperMetric, _ picker: PathShopperSnap) -> String {
+        let raw = value(metric, picker)
+        switch metric {
+        case .pph, .hours: return HeartbeatFormat.num(raw, digits: 1)
+        case .orders: return HeartbeatFormat.num(raw)
+        case .refund: return HeartbeatFormat.money(raw)
+        default: return HeartbeatFormat.pct(raw)
+        }
+    }
+
+    private func health(of metric: ShopperMetric, in picker: PathShopperSnap) -> Health {
+        let raw = value(metric, picker)
+        guard raw != nil else { return .none }
+        switch metric {
+        case .path: return PickPathMath.pathHealth(raw)
+        case .pph: return PickPathMath.pphHealth(raw)
+        case .presub: return HeartbeatMath.starMark(value: raw, full: 5, half: 6, invert: true).health
+        case .oos: return HeartbeatMath.starMark(value: raw, full: 3, half: 5, invert: true).health
+        case .ott: return HeartbeatMath.starMark(value: raw, full: 95, half: 90).health
+        case .flash: return HeartbeatMath.starMark(value: raw, full: 75, half: 55).health
+        case .oth5: return HeartbeatMath.starMark(value: raw, full: 92, half: 78).health
+        case .coe: return HeartbeatMath.starMark(value: raw, full: 20, half: 0).health
+        case .refund:
+            if (raw ?? 0) <= 0 { return .good }
+            if (raw ?? 0) <= 20 { return .watch }
+            return .risk
+        case .orders, .hours: return .none
+        }
+    }
+
+    private func sortValue(_ picker: PathShopperSnap) -> Double {
+        switch section {
+        case .fiveStar:
+            return picker.ott ?? picker.oth5 ?? picker.presub ?? 999
+        case .lostRevenue:
+            return -(picker.refund ?? -1)
+        case .pph, .dynacap, .labor:
+            return picker.pph ?? 999
+        default:
+            return picker.path ?? 999
         }
     }
 
@@ -1776,10 +1876,10 @@ private struct PathShopperTable: View {
             .font(.subheadline.weight(.bold).monospacedDigit())
             .foregroundStyle(ink(health))
             .lineLimit(1)
-            .minimumScaleFactor(0.55)
+            .minimumScaleFactor(0.5)
             .frame(maxWidth: .infinity, alignment: .trailing)
             .padding(.vertical, 6)
-            .padding(.horizontal, 6)
+            .padding(.horizontal, 4)
             .background(wash(health), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
@@ -8634,7 +8734,7 @@ struct FulfillmentChecklistCard: View {
                 }
             }
             if item.id.hasPrefix("store-") {
-                PathShopperTable(storeNumber: String(item.id.dropFirst(6)))
+                PathShopperTable(storeNumber: String(item.id.dropFirst(6)), section: section)
             }
             if showComment {
                 TextField("Note for follow up", text: commentBinding(item, section: section), axis: .vertical)
