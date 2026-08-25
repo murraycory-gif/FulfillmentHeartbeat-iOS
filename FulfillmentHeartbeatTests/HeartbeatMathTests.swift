@@ -142,6 +142,32 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(boards.contains { $0.metric == "PPH" && $0.rows.contains(where: { $0.storeNumber == "606" }) })
     }
 
+    func testShopperAliasesJoinPathAndScorecardIDs() {
+        XCTAssertEqual(HeartbeatMath.canonicalShopper("LMEN-219"), "lmen219")
+        XCTAssertEqual(HeartbeatMath.canonicalShopper("LMEN 219"), "lmen219")
+        XCTAssertEqual(HeartbeatMath.canonicalShopper("EFINI00"), "efini00")
+        let scorecard = MetricRow(
+            section: .pickerScorecard,
+            division: "10",
+            operationsOM: "A",
+            storeNumber: "322",
+            payload: ["pph": 45.4, "presub_pct": 2.78],
+            textPayload: ["shopper_id": "LMEN-219", "shopper_name": "LMEN-219"]
+        )
+        let path = MetricRow(
+            section: .pickPathPicker,
+            division: "",
+            operationsOM: "",
+            storeNumber: "",
+            payload: ["compliance_pct": 61.0, "pph": 45.4],
+            textPayload: ["shopper_id": "LMEN219", "shopper_name": "LMEN219"]
+        )
+        let aliases = Set(HeartbeatMath.shopperAliases(scorecard))
+        XCTAssertFalse(aliases.isDisjoint(with: HeartbeatMath.shopperAliases(path)))
+        let merged = HeartbeatMath.latestPerShopper([path, scorecard])
+        XCTAssertEqual(merged.count, 2)
+    }
+
     @MainActor
     func testChecklistReadyAfterEveryKPIHasStatus() {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)

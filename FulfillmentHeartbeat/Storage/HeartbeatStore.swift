@@ -52,6 +52,7 @@ final class HeartbeatStore: ObservableObject {
     private var pickerIndex: [PickerFocus: [Int]] = [:]
     private var pickerFocusHealth: [PickerFocus: Health] = [:]
     private var pickPathPickersByStore: [String: [MetricRow]] = [:]
+    private var pickPathByShopper: [String: MetricRow] = [:]
     private var pphPickersByStore: [String: [MetricRow]] = [:]
     private var laborWeeksByStore: [String: [MetricRow]] = [:]
     private var unfilteredPulse: FilterPulse?
@@ -130,6 +131,10 @@ final class HeartbeatStore: ObservableObject {
 
     func pickPathPickers(forStore store: String) -> [MetricRow] {
         pickPathPickersByStore[HeartbeatMath.canonicalStore(store)] ?? []
+    }
+
+    func pickPathPicker(forShopper raw: String) -> MetricRow? {
+        pickPathByShopper[HeartbeatMath.canonicalShopper(raw)]
     }
 
     func pickerCount(for focus: PickerFocus) -> Int {
@@ -304,22 +309,36 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func rebuildPickPathPickerIndex(scorecard: [MetricRow]) {
-        var shopperStore: [String: String] = [:]
+        var storesByShopper: [String: Set<String>] = [:]
         for row in scorecard {
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
             guard !store.isEmpty else { continue }
-            shopperStore[row.shopperKey] = store
+            for alias in HeartbeatMath.shopperAliases(row) {
+                storesByShopper[alias, default: []].insert(store)
+            }
         }
+        var byShopper: [String: MetricRow] = [:]
         var buckets: [String: [MetricRow]] = [:]
         for row in latestBySection[.pickPathPicker] ?? [] {
-            guard let store = shopperStore[row.shopperKey] else { continue }
-            buckets[store, default: []].append(row)
+            for alias in HeartbeatMath.shopperAliases(row) {
+                byShopper[alias] = row
+            }
+            var targets = Set<String>()
+            let ownStore = HeartbeatMath.canonicalStore(row.storeNumber)
+            if !ownStore.isEmpty { targets.insert(ownStore) }
+            for alias in HeartbeatMath.shopperAliases(row) {
+                targets.formUnion(storesByShopper[alias] ?? [])
+            }
+            for store in targets {
+                buckets[store, default: []].append(row)
+            }
         }
         for store in buckets.keys {
             buckets[store]?.sort {
                 ($0.number("compliance_pct") ?? 999) < ($1.number("compliance_pct") ?? 999)
             }
         }
+        pickPathByShopper = byShopper
         pickPathPickersByStore = buckets
     }
 
@@ -1317,6 +1336,7 @@ final class HeartbeatStore: ObservableObject {
         var pickerIndex: [PickerFocus: [Int]]
         var pickerFocusHealth: [PickerFocus: Health]
         var pickPathPickersByStore: [String: [MetricRow]]
+        var pickPathByShopper: [String: MetricRow]
         var pphPickersByStore: [String: [MetricRow]]
         var checklistGroups: [MetricSection: [ChecklistDriverGroup]]
         var market: [HeartbeatMath.MarketStore]
@@ -1333,6 +1353,7 @@ final class HeartbeatStore: ObservableObject {
             pickerIndex: pickerIndex,
             pickerFocusHealth: pickerFocusHealth,
             pickPathPickersByStore: pickPathPickersByStore,
+            pickPathByShopper: pickPathByShopper,
             pphPickersByStore: pphPickersByStore,
             checklistGroups: cachedChecklistGroups,
             market: filteredMarket,
@@ -1349,6 +1370,7 @@ final class HeartbeatStore: ObservableObject {
         pickerIndex = pulse.pickerIndex
         pickerFocusHealth = pulse.pickerFocusHealth
         pickPathPickersByStore = pulse.pickPathPickersByStore
+        pickPathByShopper = pulse.pickPathByShopper
         pphPickersByStore = pulse.pphPickersByStore
         cachedChecklistGroups = pulse.checklistGroups
         filteredMarket = pulse.market

@@ -32,7 +32,13 @@ extension HeartbeatMath {
     }
 
     private static func pathPickersForStore(_ latest: [MetricSection: [MetricRow]], _ store: String) -> [MetricRow] {
-        (latest[.pickPathPicker] ?? []).filter { canonicalStore($0.storeNumber) == store && isRealPicker($0) }
+        let scorecard = pickersForStore(latest, store)
+        let aliases = Set(scorecard.flatMap(shopperAliases))
+        return (latest[.pickPathPicker] ?? []).filter { row in
+            guard isRealPicker(row) else { return false }
+            if canonicalStore(row.storeNumber) == store { return true }
+            return shopperAliases(row).contains { aliases.contains($0) }
+        }
     }
 
     private static func diagnoseStore(

@@ -303,7 +303,7 @@ enum HeartbeatMath {
     static func latestPerShopper(_ rows: [MetricRow]) -> [MetricRow] {
         var map: [String: MetricRow] = [:]
         for row in rows {
-            let key = "\(row.storeNumber)|\(row.shopperKey)"
+            let key = "\(row.storeNumber)|\(canonicalShopper(row.shopperKey))"
             if let existing = map[key] {
                 if (row.recordedOn ?? "") > (existing.recordedOn ?? "") {
                     map[key] = row
@@ -316,6 +316,22 @@ enum HeartbeatMath {
             if $0.storeNumber == $1.storeNumber { return $0.shopperName < $1.shopperName }
             return $0.storeNumber < $1.storeNumber
         }
+    }
+
+    static func canonicalShopper(_ raw: String) -> String {
+        raw.lowercased().filter { $0.isLetter || $0.isNumber }
+    }
+
+    static func shopperAliases(_ row: MetricRow) -> [String] {
+        var seen = Set<String>()
+        var keys: [String] = []
+        for raw in [row.shopperKey, row.shopperId ?? "", row.shopperName] {
+            let key = canonicalShopper(raw)
+            if !key.isEmpty, seen.insert(key).inserted {
+                keys.append(key)
+            }
+        }
+        return keys
     }
 
     static func filtered(_ rows: [MetricRow], division: String, district: String, om: String, store: String) -> [MetricRow] {
