@@ -18,7 +18,7 @@ Create one sheet per KPI. Use these tab names:
 |---|---|---|
 | 1 | `Lost Revenue` | Loss Revenue |
 | 2 | `5 Star` | 5 Star Metrics |
-| 3 | `Pick Path` | Pick Path Compliance Store |
+| 3 | `Pick Path` | Pick Path Compliance |
 | 4 | `Path Picker` | Pick Path Compliance Picker |
 | 5 | `Prep Not Ready` | Prep Not Ready |
 | 6 | `Dynacap` | Dynacap Setting |

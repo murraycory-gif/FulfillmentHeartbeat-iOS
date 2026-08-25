@@ -17,7 +17,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
     var title: String {
         switch self {
         case .fiveStar: return "5 Star Metrics"
-        case .pickPath: return "Pick Path Compliance Store"
+        case .pickPath: return "Pick Path Compliance"
         case .pickPathPicker: return "Pick Path Compliance Picker"
         case .prepNotReady: return "Prep Not Ready"
         case .dynacap: return "Dynacap Setting"
@@ -32,7 +32,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
     var short: String {
         switch self {
         case .fiveStar: return "5 Star"
-        case .pickPath: return "Path Store"
+        case .pickPath: return "Pick Path Compliance"
         case .pickPathPicker: return "Path Picker"
         case .prepNotReady: return "Prep NR"
         case .dynacap: return "Dynacap"

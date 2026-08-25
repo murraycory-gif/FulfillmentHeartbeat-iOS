@@ -1642,13 +1642,56 @@ private struct PickPathStoreRow: View {
     }
 }
 
+private struct PathShopperSnap: Identifiable {
+    let id: String
+    var name: String
+    var path: Double?
+    var presub: Double?
+    var oos: Double?
+    var pph: Double?
+}
+
 private struct PickPathStoreExpand: View {
     @EnvironmentObject private var store: HeartbeatStore
     let snap: PickPathLineSnap
 
-    private var pickers: [MetricRow] {
-        store.pickPathPickers(forStore: snap.storeNumber).sorted {
-            ($0.number("compliance_pct") ?? 999) < ($1.number("compliance_pct") ?? 999)
+    private var pickers: [PathShopperSnap] {
+        var byKey: [String: PathShopperSnap] = [:]
+        for row in store.pickPathPickers(forStore: snap.storeNumber) {
+            let key = row.shopperKey
+            byKey[key] = PathShopperSnap(
+                id: key,
+                name: row.shopperName,
+                path: row.number("compliance_pct"),
+                presub: nil,
+                oos: nil,
+                pph: row.number("pph")
+            )
+        }
+        for row in store.pphPickers(forStore: snap.storeNumber) {
+            let key = row.shopperKey
+            if var existing = byKey[key] {
+                existing.presub = row.number("presub_pct")
+                existing.oos = row.number("oos_pct")
+                if existing.pph == nil { existing.pph = row.number("pph") }
+                if existing.name.isEmpty { existing.name = row.shopperName }
+                byKey[key] = existing
+            } else {
+                byKey[key] = PathShopperSnap(
+                    id: key,
+                    name: row.shopperName,
+                    path: nil,
+                    presub: row.number("presub_pct"),
+                    oos: row.number("oos_pct"),
+                    pph: row.number("pph")
+                )
+            }
+        }
+        return byKey.values.sorted {
+            let a = $0.path ?? 999
+            let b = $1.path ?? 999
+            if a != b { return a < b }
+            return $0.name.localizedStandardCompare($1.name) == .orderedAscending
         }
     }
 
@@ -1687,7 +1730,7 @@ private struct PickPathStoreExpand: View {
     @ViewBuilder
     private var pickerBlock: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(pickers.isEmpty ? "Pickers" : "Pickers  ·  \(pickers.count)")
+            Text(pickers.isEmpty ? "Shoppers" : "Shoppers  ·  \(pickers.count)")
                 .font(.subheadline.weight(.bold))
                 .foregroundStyle(AppTheme.text)
             if pickers.isEmpty {
@@ -1697,16 +1740,18 @@ private struct PickPathStoreExpand: View {
                     .padding(.vertical, 6)
             } else {
                 HStack(spacing: 6) {
-                    Text("PICKER")
-                        .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                    Text("SHOPPER")
+                        .frame(minWidth: 120, maxWidth: 170, alignment: .leading)
                     Text("PICK PATH")
                         .frame(maxWidth: .infinity, alignment: .trailing)
-                    Text("AVG PPH")
+                    Text("PRESUB")
                         .frame(maxWidth: .infinity, alignment: .trailing)
-                    Text("ORDERS")
+                    Text("OOS%")
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    Text("PPH")
                         .frame(maxWidth: .infinity, alignment: .trailing)
                     Text("STATUS")
-                        .frame(width: 88, alignment: .trailing)
+                        .frame(width: 78, alignment: .trailing)
                 }
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(AppTheme.textTertiary)
@@ -1718,21 +1763,23 @@ private struct PickPathStoreExpand: View {
         }
     }
 
-    private func pickerLine(_ picker: MetricRow) -> some View {
-        let health = HeartbeatMath.health(for: .pickPathPicker, row: picker)
-        let path = picker.number("compliance_pct")
-        let pph = picker.number("pph")
-        let orders = PickPathMath.orders(picker)
+    private func pickerLine(_ picker: PathShopperSnap) -> some View {
+        let pathHealth = picker.path == nil ? Health.none : PickPathMath.pathHealth(picker.path)
+        let presubHealth = picker.presub == nil ? Health.none : HeartbeatMath.starMark(value: picker.presub, full: 5, half: 6, invert: true).health
+        let oosHealth = picker.oos == nil ? Health.none : HeartbeatMath.starMark(value: picker.oos, full: 3, half: 5, invert: true).health
+        let pphHealth = picker.pph == nil ? Health.none : PickPathMath.pphHealth(picker.pph)
+        let health = worstHealth([pathHealth, presubHealth, oosHealth, pphHealth])
         return HStack(spacing: 6) {
-            Text(picker.shopperName)
+            Text(picker.name)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
-            cell(HeartbeatFormat.pct(path), health)
-            cell(HeartbeatFormat.num(pph, digits: 1), PickPathMath.pphHealth(pph))
-            cell(HeartbeatFormat.num(orders), .none)
+                .frame(minWidth: 120, maxWidth: 170, alignment: .leading)
+            cell(HeartbeatFormat.pct(picker.path), pathHealth)
+            cell(HeartbeatFormat.pct(picker.presub), presubHealth)
+            cell(HeartbeatFormat.pct(picker.oos), oosHealth)
+            cell(HeartbeatFormat.num(picker.pph, digits: 1), pphHealth)
             Text(health.label.uppercased())
                 .font(.caption.weight(.heavy))
                 .lineLimit(1)
@@ -1741,8 +1788,13 @@ private struct PickPathStoreExpand: View {
                 .padding(.vertical, 5)
                 .foregroundStyle(Color.white)
                 .background(pill(health), in: Capsule())
-                .frame(width: 88, alignment: .trailing)
+                .frame(width: 78, alignment: .trailing)
         }
+    }
+
+    private func worstHealth(_ values: [Health]) -> Health {
+        let ranks: [Health: Int] = [.none: 0, .good: 1, .watch: 2, .risk: 3]
+        return values.max { (ranks[$0] ?? 0) < (ranks[$1] ?? 0) } ?? .none
     }
 
     private func metric(_ name: String, _ value: String, _ health: Health) -> some View {
