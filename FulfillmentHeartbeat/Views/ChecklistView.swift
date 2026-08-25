@@ -14,7 +14,7 @@ struct ChecklistView: View {
                         title: "Operational Heartbeat Checklist",
                         accessory: accessory
                     )
-                    Text("Action items for at-risk and watch metrics in this filter. Work them in order, then swipe to Diagnostic.")
+                    Text("Action items for at-risk and watch metrics in this filter. Work them in order.")
                         .font(.subheadline)
                         .foregroundStyle(AppTheme.textSecondary)
                         .padding(.horizontal, 4)

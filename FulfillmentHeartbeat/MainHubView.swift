@@ -13,7 +13,6 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
     case pickerScorecard
     case lostRevenue
     case checklist
-    case diagnostics
 
     var id: String { rawValue }
 
@@ -21,7 +20,6 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .dashboard: return "Dashboard"
         case .checklist: return "Checklist"
-        case .diagnostics: return "Diagnostic"
         case .upload: return "Upload"
         case .fiveStar: return MetricSection.fiveStar.title
         case .pickPath: return MetricSection.pickPath.title
@@ -39,7 +37,6 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .dashboard: return "square.grid.2x2.fill"
         case .checklist: return "checklist"
-        case .diagnostics: return "stethoscope"
         case .upload: return "square.and.arrow.up"
         case .fiveStar: return MetricSection.fiveStar.symbol
         case .pickPath: return MetricSection.pickPath.symbol
@@ -64,7 +61,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         case .labor: return .labor
         case .pickerScorecard: return .pickerScorecard
         case .lostRevenue: return .lostRevenue
-        case .dashboard, .checklist, .diagnostics, .upload: return nil
+        case .dashboard, .checklist, .upload: return nil
         }
     }
 
@@ -82,7 +79,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
-    static var sectionItems: [HubDestination] { [.dashboard, .lostRevenue, .fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pickerScorecard, .pph, .labor, .checklist, .diagnostics] }
+    static var sectionItems: [HubDestination] { [.dashboard, .lostRevenue, .fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pickerScorecard, .pph, .labor, .checklist] }
     static var settingsItems: [HubDestination] { [.upload] }
     static var primaryTabs: [HubDestination] { [.dashboard, .upload] }
     static var metricItems: [HubDestination] { [.lostRevenue, .fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pickerScorecard, .pph, .labor] }
@@ -258,8 +255,6 @@ struct MainHubView: View {
             DashboardView().hubPageCanvas()
         case .checklist:
             ChecklistView().hubPageCanvas()
-        case .diagnostics:
-            DiagnosticView().hubPageCanvas()
         case .upload:
             UploadView().hubPageCanvas()
         case .fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pph, .labor, .pickerScorecard, .lostRevenue:
