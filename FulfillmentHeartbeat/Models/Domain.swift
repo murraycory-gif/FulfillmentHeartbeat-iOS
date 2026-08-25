@@ -319,7 +319,12 @@ enum HeartbeatMath {
     }
 
     static func filtered(_ rows: [MetricRow], division: String, district: String, om: String, store: String) -> [MetricRow] {
-        filtered(rows, division: division, district: district, om: om, store: store, relaxUnknown: false, universe: nil, region: "")
+        var filters = DashboardFilters()
+        filters.division = division
+        filters.district = district
+        filters.om = om
+        filters.store = store
+        return filtered(rows, filters: filters, relaxUnknown: false, universe: nil)
     }
 
     static func filtered(
@@ -328,80 +333,30 @@ enum HeartbeatMath {
         relaxUnknown: Bool = false,
         universe: [MetricRow]? = nil
     ) -> [MetricRow] {
-        filtered(
-            rows,
-            divisions: filters.selectedDivisions,
-            districts: filters.districts,
-            oms: filters.oms,
-            stores: filters.stores,
-            relaxUnknown: relaxUnknown,
-            universe: universe
-        )
-    }
-
-    static func filtered(
-        _ rows: [MetricRow],
-        division: String,
-        district: String,
-        om: String,
-        store: String,
-        relaxUnknown: Bool,
-        universe: [MetricRow]? = nil,
-        region: String = ""
-    ) -> [MetricRow] {
-        let divisionValues: [String]
-        if !division.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            divisionValues = [division]
-        } else if let market = MarketRegion(rawValue: region) {
-            divisionValues = market.divisions
-        } else {
-            divisionValues = []
-        }
-        return filtered(
-            rows,
-            divisions: divisionValues,
-            districts: district.isEmpty ? [] : [district],
-            oms: om.isEmpty ? [] : [om],
-            stores: store.isEmpty ? [] : [store],
-            relaxUnknown: relaxUnknown,
-            universe: universe
-        )
-    }
-
-    static func filtered(
-        _ rows: [MetricRow],
-        divisions: [String],
-        districts: [String],
-        oms: [String],
-        stores: [String],
-        relaxUnknown: Bool,
-        universe: [MetricRow]? = nil
-    ) -> [MetricRow] {
         let pool = universe ?? rows
         let roster = storeRoster(pool)
-        let divisionStores = storeSet(in: pool, roster: roster, values: divisions, relax: relaxUnknown) { $0.division }
-        let districtStores = storeSet(in: pool, roster: roster, values: districts, relax: relaxUnknown) { $0.district }
-        let omStores = storeSet(in: pool, roster: roster, values: oms, relax: relaxUnknown) { $0.om }
-        let storeValues = stores
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
+        let divisionValues = filters.selectedDivisions
+        let districtValues = filters.districts
+        let omValues = filters.oms
+        let storeValues = filters.stores.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let divisionStores = storeSet(in: pool, roster: roster, values: divisionValues, relax: relaxUnknown) { $0.division }
+        let districtStores = storeSet(in: pool, roster: roster, values: districtValues, relax: relaxUnknown) { $0.district }
+        let omStores = storeSet(in: pool, roster: roster, values: omValues, relax: relaxUnknown) { $0.om }
 
         return rows.filter { row in
             let identity = resolvedIdentity(row, roster: roster)
-            if let divisionStores, !belongs(row.storeNumber, to: divisionStores, identity: identity.division, values: divisions) {
+            if let divisionStores, !belongs(row.storeNumber, to: divisionStores, identity: identity.division, values: divisionValues) {
                 return false
             }
-            if let districtStores, !belongs(row.storeNumber, to: districtStores, identity: identity.district, values: districts) {
+            if let districtStores, !belongs(row.storeNumber, to: districtStores, identity: identity.district, values: districtValues) {
                 return false
             }
-            if let omStores, !belongs(row.storeNumber, to: omStores, identity: identity.om, values: oms) {
+            if let omStores, !belongs(row.storeNumber, to: omStores, identity: identity.om, values: omValues) {
                 return false
             }
-            if !storeValues.isEmpty {
-                let hit = storeValues.contains { matches(row.storeNumber, $0) }
-                if !hit { return relaxUnknown ? true : false }
-            }
-            return true
+            if storeValues.isEmpty { return true }
+            let matched = storeValues.contains { matches(row.storeNumber, $0) }
+            return matched || relaxUnknown
         }
     }
 
@@ -1697,11 +1652,11 @@ struct DashboardFilters: Equatable, Codable {
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        regions = Self.decodeList(c, array: .regions, scalar: .region)
-        divisions = Self.decodeList(c, array: .divisions, scalar: .division)
-        districts = Self.decodeList(c, array: .districts, scalar: .district)
-        oms = Self.decodeList(c, array: .oms, scalar: .om)
-        stores = Self.decodeList(c, array: .stores, scalar: .store)
+        regions = Self.readList(c, arrayKey: .regions, scalarKey: .region)
+        divisions = Self.readList(c, arrayKey: .divisions, scalarKey: .division)
+        districts = Self.readList(c, arrayKey: .districts, scalarKey: .district)
+        oms = Self.readList(c, arrayKey: .oms, scalarKey: .om)
+        stores = Self.readList(c, arrayKey: .stores, scalarKey: .store)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -1711,11 +1666,6 @@ struct DashboardFilters: Equatable, Codable {
         try c.encode(districts, forKey: .districts)
         try c.encode(oms, forKey: .oms)
         try c.encode(stores, forKey: .stores)
-        try c.encode(region, forKey: .region)
-        try c.encode(division, forKey: .division)
-        try c.encode(district, forKey: .district)
-        try c.encode(om, forKey: .om)
-        try c.encode(store, forKey: .store)
     }
 
     mutating func toggle(_ value: String, in focus: FilterFocus) {
@@ -1783,11 +1733,15 @@ struct DashboardFilters: Equatable, Codable {
         return current + [value]
     }
 
-    private static func decodeList(_ c: KeyedDecodingContainer<CodingKeys>, array: CodingKeys, scalar: CodingKeys) -> [String] {
-        if let values = try? c.decode([String].self, forKey: array) {
+    private static func readList(
+        _ c: KeyedDecodingContainer<CodingKeys>,
+        arrayKey: CodingKeys,
+        scalarKey: CodingKeys
+    ) -> [String] {
+        if let values = try? c.decode([String].self, forKey: arrayKey) {
             return values.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
         }
-        if let value = try? c.decode(String.self, forKey: scalar) {
+        if let value = try? c.decode(String.self, forKey: scalarKey) {
             return wrap(value)
         }
         return []
