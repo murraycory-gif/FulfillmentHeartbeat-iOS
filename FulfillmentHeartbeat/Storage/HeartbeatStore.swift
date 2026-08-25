@@ -1290,6 +1290,40 @@ final class HeartbeatStore: ObservableObject {
             filterStamp += 1
             return
         }
+        if !filters.isActive {
+            applyFiltersNow()
+            return
+        }
+        let latest = latestBySection
+        let rosterCopy = roster
+        let uploadsCopy = uploads
+        let current = filters
+        let laborMarket = laborMarketRow()
+        let lostMarket = lostRevenueMarketRow()
+        Task.detached(priority: .userInitiated) {
+            let caches = PulseCaches.refilter(
+                latest: latest,
+                roster: rosterCopy,
+                filters: current,
+                uploads: uploadsCopy,
+                laborMarket: laborMarket,
+                lostRevenueMarket: lostMarket
+            )
+            await MainActor.run {
+                guard self.filters == current else { return }
+                self.install(self.pulse(from: caches))
+                self.filterStamp += 1
+                self.warmUnfilteredPulse()
+            }
+        }
+    }
+
+    private func applyFiltersNow() {
+        if !filters.isActive, let pulse = unfilteredPulse {
+            install(pulse)
+            filterStamp += 1
+            return
+        }
 
         let universe = latestUniverse
         var nextLatest: [MetricSection: [MetricRow]] = [:]
@@ -1502,7 +1536,6 @@ final class HeartbeatStore: ObservableObject {
                     loadedFilters = saved
                 }
                 let caches = PulseCaches.build(rows: decoded.rows, filters: loadedFilters, uploads: decoded.uploads)
-                try? await Task.sleep(nanoseconds: 120_000_000)
                 await MainActor.run {
                     self.hydrating = true
                     self.rows = decoded.rows

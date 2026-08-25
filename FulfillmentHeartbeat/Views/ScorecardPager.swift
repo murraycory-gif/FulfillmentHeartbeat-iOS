@@ -122,7 +122,9 @@ struct ScorecardPager: UIViewControllerRepresentable {
                 for offset in [1, -1] {
                     let item = index + offset
                     guard items.indices.contains(item) else { continue }
-                    _ = self.host(for: items[item])
+                    let next = items[item]
+                    if next == .checklist { continue }
+                    _ = self.host(for: next)
                 }
             }
         }

@@ -1693,6 +1693,7 @@ private struct PathShopperTable: View {
     @EnvironmentObject private var store: HeartbeatStore
     let storeNumber: String
     var section: MetricSection = .pickPath
+    @State private var limit = 12
 
     private var columns: [ShopperMetric] { ShopperMetric.columns(for: section) ?? [] }
 
@@ -1767,8 +1768,20 @@ private struct PathShopperTable: View {
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(AppTheme.textTertiary)
                     .tracking(0.4)
-                    ForEach(pickers) { picker in
+                    ForEach(pickers.prefix(limit)) { picker in
                         pickerLine(picker)
+                    }
+                    if pickers.count > limit {
+                        Button {
+                            limit = pickers.count
+                        } label: {
+                            Text("Show all \(pickers.count) shoppers")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(AppTheme.blue)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 6)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
             }

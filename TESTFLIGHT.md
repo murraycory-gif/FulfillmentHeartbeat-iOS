@@ -1,74 +1,109 @@
-# Share Fulfillment Heartbeat with testers
+# TestFlight — invite the people you choose
 
-Use **TestFlight**. People you invite install the TestFlight app, get Heartbeat
-on their iPad, and tap **Update** whenever you ship a new build. You keep
-building in Xcode the same way you do today.
+Testers install **TestFlight** from the App Store, then Heartbeat. They tap **Update** when you ship a new build. They do not need Xcode or git.
 
-## One-time setup (you)
+Current app: **Heartbeat** · bundle `com.corymurray.FulfillmentHeartbeat` · version **1.0** · team `M7FL68Q43A`.
 
-1. In Xcode, open `FulfillmentHeartbeat.xcworkspace`.
-2. Select the **FulfillmentHeartbeat** target → **Signing & Capabilities**.
-3. Confirm **Automatically manage signing** and your **Team**.
-4. Product menu → **Archive**.
-5. When Organizer opens, click **Distribute App** → **App Store Connect** → **Upload**.
-6. On [App Store Connect](https://appstoreconnect.apple.com):
-   - **Apps** → **+** → New App (first time only)
-   - Name: **Fulfillment Heartbeat**
-   - Bundle ID: `com.corymurray.FulfillmentHeartbeat`
-   - Open the app → **TestFlight** tab
+---
 
-Wait until the build finishes processing (usually 5–15 minutes). Status becomes **Ready to Test**.
+## 1. Create the app in App Store Connect (first time only)
 
-## Invite people you choose
+1. Open [App Store Connect](https://appstoreconnect.apple.com) with your Apple Developer account.
+2. **Apps** → **+** → **New App**.
+3. Platform: **iOS**. Name: **Fulfillment Heartbeat**.
+4. Bundle ID: **com.corymurray.FulfillmentHeartbeat** (must match Xcode).
+5. SKU: `fulfillment-heartbeat` (internal, not shown to testers).
+6. User Access: **Full Access**.
 
-### Internal (fastest — your store team, same Apple org)
+If the app already exists, skip this.
 
-1. App Store Connect → **Users and Access** → add their Apple ID email.
-2. Role: **Developer** or **Marketing** is enough.
-3. TestFlight → **Internal Testing** → add them to a group (create **Ops testers**).
-4. They get an email. On the iPad they install **TestFlight** from the App Store,
-   accept, and install **Heartbeat**.
+---
 
-### External (anyone with an Apple ID, not on your team)
+## 2. Archive and upload from your Mac
 
-1. TestFlight → **External Testing** → new group.
-2. Add emails.
-3. The **first** external build needs a short “What to Test” note and Apple’s
-   Beta App Review (usually a day). After that, later builds can skip review.
+```bash
+cd ~/Developer/FulfillmentHeartbeat-iOS
+git pull origin main
+open FulfillmentHeartbeat.xcworkspace
+```
 
-They only see the app if you add them. You can remove someone anytime.
+In Xcode:
 
-## Ship an update later
+1. Target **FulfillmentHeartbeat** → **Signing & Capabilities**.
+2. **Automatically manage signing** · Team = your team (`M7FL68Q43A`).
+3. Scheme **FulfillmentHeartbeat** · Any iOS Device (or **Generic iOS Device**).
+4. **Product → Archive**.
+5. Organizer → **Distribute App** → **App Store Connect** → **Upload**.
+6. Leave “Upload your app’s symbols” on. Upload.
 
-Every time you want testers to get new work:
+Wait 5–15 minutes. App Store Connect → the app → **TestFlight**. Build status becomes **Ready to Test**.
 
-1. Pull latest: `cd ~/Developer/FulfillmentHeartbeat-iOS && ./update.sh`
-2. Confirm the **build ID** in the top-right of the app (example: `HB-0818.4  1.0 (4)`).
-3. Bump the build number if you haven’t already (Xcode target → General → Build).
-4. **Product → Archive** → **Distribute App** → Upload.
-5. In TestFlight, add that new build to the tester group.
+Export compliance is already answered in the app (`ITSAppUsesNonExemptEncryption = false`). You should not get a missing-compliance hold.
 
-Testers open **TestFlight** and tap **Update**. They do **not** need Xcode or git.
-
-Ask them to tell you the build ID in the top-right if something looks old.
-
-## What testers need
-
-- An iPad (or iPhone) signed into their Apple ID
-- The **TestFlight** app
-- The email invite you sent
-
-Their data stays on their device. Uploading a workbook on your iPad does not
-change theirs.
-
-## Fastlane (optional)
-
-If you already use Fastlane on this Mac:
+Optional Fastlane upload (same result):
 
 ```bash
 cd ~/Developer/FulfillmentHeartbeat-iOS
 bundle exec fastlane beta
 ```
 
-That archives and uploads. You still add testers in App Store Connect.
-You need either an App Store Connect API key or to sign in when Fastlane asks.
+---
+
+## 3. Invite only the people you pick
+
+### Internal (fastest — same Apple Developer org)
+
+Use this for store/ops people you already trust and who can be added to your Apple team.
+
+1. App Store Connect → **Users and Access** → **+**.
+2. Enter their **Apple ID email**.
+3. Role: **Marketing** is enough (they cannot change the app).
+4. TestFlight → **Internal Testing** → create group **Ops testers**.
+5. Add those users to the group and add the latest build.
+6. They get an email → install **TestFlight** on the iPad → Accept → Install **Heartbeat**.
+
+Internal testers get new builds as soon as processing finishes. No Apple review.
+
+### External (anyone with an Apple ID — not on your team)
+
+Use this for people you do not want on the developer account.
+
+1. TestFlight → **External Testing** → **+** group, name **Heartbeat testers**.
+2. Add the build.
+3. First external build: fill **What to Test** (short) and submit **Beta App Review** (usually hours, sometimes a day). Later builds on the same version often skip review.
+4. Add emails, or share a **public link** (you can turn the link off anytime).
+
+They only see the app if you add them. Remove anyone from the group to cut access.
+
+**What to Test** (paste this on the first external build):
+
+> Fulfillment Heartbeat for iPad. Load the master workbook or individual KPI sheets. Check Dashboard, filters (multi-select + Clear), swipe between scorecards, and the Operational Heartbeat Checklist. Confirm store tables and shopper expand match the files you uploaded.
+
+---
+
+## 4. What you send each tester
+
+```
+Install TestFlight from the App Store on your iPad.
+Open the invite email (or tap the TestFlight link I sent).
+Accept, then Install Heartbeat.
+Upload your KPI files (or the master workbook) in Upload.
+Top-right stamp should read HB-0821.57  1.0 (172) after this build.
+Tell me that stamp if something looks old.
+```
+
+Their data stays on their device. Your iPad files do not sync to theirs.
+
+---
+
+## 5. Ship the next build
+
+```bash
+cd ~/Developer/FulfillmentHeartbeat-iOS
+git pull origin main
+open FulfillmentHeartbeat.xcworkspace
+```
+
+**Product → Archive** → Upload. Add the new build to the tester group. Testers open TestFlight → **Update**.
+
+Ask them for the top-right stamp if a bug report might be on an old build.
