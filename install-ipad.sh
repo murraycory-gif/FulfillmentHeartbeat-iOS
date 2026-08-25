@@ -15,14 +15,22 @@ echo "Unlock the iPad, keep it awake, and leave it on the Home Screen."
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
   echo "Building for device..."
   rm -rf "$DERIVED"
-  xcodebuild \
+  LOG="${TMPDIR:-/tmp}/heartbeat-build.log"
+  if ! xcodebuild \
     -workspace "$WORKSPACE" \
     -scheme "$SCHEME" \
     -configuration Debug \
     -destination 'generic/platform=iOS' \
     -derivedDataPath "$DERIVED" \
     -allowProvisioningUpdates \
-    build
+    build > "$LOG" 2>&1; then
+    echo ""
+    echo "----- Swift errors -----"
+    grep -E "error:|fatal error:" "$LOG" | sed 's/^[[:space:]]*//' || tail -80 "$LOG"
+    echo "----- end errors -----"
+    echo "Full log: $LOG"
+    exit 1
+  fi
 fi
 
 APP=$(find "$DERIVED/Build/Products" -name 'FulfillmentHeartbeat.app' -print -quit 2>/dev/null || true)
@@ -93,4 +101,4 @@ xcrun devicectl device process launch --device "$UDID" "$BUNDLE_ID" || true
 
 echo ""
 echo "Tap the Heartbeat icon if it did not come forward."
-echo "Top-right stamp should match FulfillmentHeartbeat/BuildStamp.swift (currently HB-0821.44)."
+echo "Top-right stamp should match FulfillmentHeartbeat/BuildStamp.swift (currently HB-0821.45)."

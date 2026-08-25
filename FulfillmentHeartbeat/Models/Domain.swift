@@ -319,12 +319,7 @@ enum HeartbeatMath {
     }
 
     static func filtered(_ rows: [MetricRow], division: String, district: String, om: String, store: String) -> [MetricRow] {
-        var filters = DashboardFilters()
-        filters.division = division
-        filters.district = district
-        filters.om = om
-        filters.store = store
-        return filtered(rows, filters: filters, relaxUnknown: false, universe: nil)
+        filtered(rows, division: division, district: district, om: om, store: store, relaxUnknown: false, universe: nil, region: "")
     }
 
     static func filtered(
@@ -333,12 +328,41 @@ enum HeartbeatMath {
         relaxUnknown: Bool = false,
         universe: [MetricRow]? = nil
     ) -> [MetricRow] {
+        filtered(
+            rows,
+            division: filters.division,
+            district: filters.district,
+            om: filters.om,
+            store: filters.store,
+            relaxUnknown: relaxUnknown,
+            universe: universe,
+            region: filters.region
+        )
+    }
+
+    static func filtered(
+        _ rows: [MetricRow],
+        division: String,
+        district: String,
+        om: String,
+        store: String,
+        relaxUnknown: Bool,
+        universe: [MetricRow]? = nil,
+        region: String = ""
+    ) -> [MetricRow] {
         let pool = universe ?? rows
         let roster = storeRoster(pool)
-        let divisionValues = filters.selectedDivisions
-        let districtValues = filters.districts
-        let omValues = filters.oms
-        let storeValues = filters.stores.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let selectedDivisions = DashboardFilters.parts(division)
+        let selectedRegions = DashboardFilters.parts(region)
+        let divisionValues: [String]
+        if !selectedDivisions.isEmpty {
+            divisionValues = selectedDivisions
+        } else {
+            divisionValues = selectedRegions.flatMap { MarketRegion(rawValue: $0)?.divisions ?? [] }
+        }
+        let districtValues = DashboardFilters.parts(district)
+        let omValues = DashboardFilters.parts(om)
+        let storeValues = DashboardFilters.parts(store)
         let divisionStores = storeSet(in: pool, roster: roster, values: divisionValues, relax: relaxUnknown) { $0.division }
         let districtStores = storeSet(in: pool, roster: roster, values: districtValues, relax: relaxUnknown) { $0.district }
         let omStores = storeSet(in: pool, roster: roster, values: omValues, relax: relaxUnknown) { $0.om }
@@ -355,8 +379,7 @@ enum HeartbeatMath {
                 return false
             }
             if storeValues.isEmpty { return true }
-            let matched = storeValues.contains { matches(row.storeNumber, $0) }
-            return matched || relaxUnknown
+            return storeValues.contains { matches(row.storeNumber, $0) } || relaxUnknown
         }
     }
 
@@ -434,7 +457,11 @@ enum HeartbeatMath {
     }
 
     static func marketBoard(_ rows: [MetricRow], filters: DashboardFilters) -> [MarketStore] {
-        let matched = filtered(rows, filters: filters, relaxUnknown: false, universe: rows)
+        marketBoard(rows, division: filters.division, district: filters.district, om: filters.om, store: filters.store, region: filters.region)
+    }
+
+    static func marketBoard(_ rows: [MetricRow], division: String, district: String, om: String, store: String, region: String = "") -> [MarketStore] {
+        let matched = filtered(rows, division: division, district: district, om: om, store: store, relaxUnknown: false, universe: rows, region: region)
         let roster = storeRoster(rows)
         var pph: [String: Double] = [:]
         for row in latestPerStore(matched.filter { $0.section == .pph }) {
@@ -1501,84 +1528,15 @@ struct ChecklistDriverGroup: Identifiable, Equatable {
     var id: String { title }
 }
 
-enum FilterFocus: String, Sendable {
-    case region
-    case division
-    case district
-    case om
-    case store
-
-    var title: String {
-        switch self {
-        case .region: return "Region"
-        case .division: return "Division"
-        case .district: return "District"
-        case .om: return "Operations manager"
-        case .store: return "Store #"
-        }
-    }
-
-    var chipTitle: String {
-        switch self {
-        case .region: return "Region"
-        case .division: return "Division"
-        case .district: return "District"
-        case .om: return "OM"
-        case .store: return "Store"
-        }
-    }
-
-    var prompt: String {
-        switch self {
-        case .region: return "Type a region"
-        case .division: return "Type a division"
-        case .district: return "Type a district"
-        case .om: return "Type an OM name"
-        case .store: return "Type a store number"
-        }
-    }
-
-    var allLabel: String {
-        switch self {
-        case .region: return "All regions"
-        case .division: return "All divisions"
-        case .district: return "All districts"
-        case .om: return "All operations managers"
-        case .store: return "All stores"
-        }
-    }
-}
-
 struct DashboardFilters: Equatable, Codable {
-    var regions: [String] = []
-    var divisions: [String] = []
-    var districts: [String] = []
-    var oms: [String] = []
-    var stores: [String] = []
-
-    var region: String {
-        get { regions.first ?? "" }
-        set { regions = Self.wrap(newValue) }
-    }
-    var division: String {
-        get { divisions.first ?? "" }
-        set { divisions = Self.wrap(newValue) }
-    }
-    var district: String {
-        get { districts.first ?? "" }
-        set { districts = Self.wrap(newValue) }
-    }
-    var om: String {
-        get { oms.first ?? "" }
-        set { oms = Self.wrap(newValue) }
-    }
-    var store: String {
-        get { stores.first ?? "" }
-        set { stores = Self.wrap(newValue) }
-    }
+    var region = ""
+    var division = ""
+    var district = ""
+    var om = ""
+    var store = ""
 
     var isActive: Bool {
-        !regions.isEmpty || !divisions.isEmpty || !districts.isEmpty || !oms.isEmpty || !stores.isEmpty
+        !region.isEmpty || !division.isEmpty || !district.isEmpty || !om.isEmpty || !store.isEmpty
     }
 
     var summary: String {
@@ -1587,171 +1545,87 @@ struct DashboardFilters: Equatable, Codable {
 
     var summaryParts: [(text: String, active: Bool)] {
         [
-            (label(regions, empty: "All regions"), !regions.isEmpty),
-            (label(divisions, empty: "All divisions"), !divisions.isEmpty),
-            (label(districts, empty: "All districts", prefix: "District "), !districts.isEmpty),
-            (label(oms, empty: "All OMs"), !oms.isEmpty),
-            (label(stores, empty: "All stores"), !stores.isEmpty),
+            (Self.display(region, empty: "All regions"), !region.isEmpty),
+            (Self.display(division, empty: "All divisions"), !division.isEmpty),
+            (Self.display(district, empty: "All districts", prefix: "District "), !district.isEmpty),
+            (Self.display(om, empty: "All OMs"), !om.isEmpty),
+            (Self.display(store, empty: "All stores"), !store.isEmpty),
         ]
     }
 
     func includesDivision(_ value: String) -> Bool {
-        if !divisions.isEmpty {
-            return divisions.contains { MarketRegion.matchesDivision(value, $0) }
+        let selected = Self.parts(division)
+        if !selected.isEmpty {
+            return selected.contains { MarketRegion.matchesDivision(value, $0) }
         }
-        if !regions.isEmpty {
-            return regions.contains { MarketRegion(rawValue: $0)?.contains(value) == true }
+        let selectedRegions = Self.parts(region)
+        if !selectedRegions.isEmpty {
+            return selectedRegions.contains { MarketRegion(rawValue: $0)?.contains(value) == true }
         }
         return true
     }
 
     func includesDistrict(_ value: String) -> Bool {
-        if districts.isEmpty { return true }
-        return districts.contains { HeartbeatMath.matches(value, $0) }
+        let selected = Self.parts(district)
+        if selected.isEmpty { return true }
+        return selected.contains { HeartbeatMath.matches(value, $0) }
     }
 
     func includesOM(_ value: String) -> Bool {
-        if oms.isEmpty { return true }
-        return oms.contains { HeartbeatMath.matches(value, $0) }
+        let selected = Self.parts(om)
+        if selected.isEmpty { return true }
+        return selected.contains { HeartbeatMath.matches(value, $0) }
     }
 
     func includesStore(_ value: String) -> Bool {
-        if stores.isEmpty { return true }
-        return stores.contains { HeartbeatMath.matches(value, $0) || HeartbeatMath.matches(HeartbeatMath.canonicalStore(value), HeartbeatMath.canonicalStore($0)) }
+        let selected = Self.parts(store)
+        if selected.isEmpty { return true }
+        return selected.contains {
+            HeartbeatMath.matches(value, $0) || HeartbeatMath.matches(HeartbeatMath.canonicalStore(value), HeartbeatMath.canonicalStore($0))
+        }
     }
 
     var regionDivisions: [String] {
-        regions.flatMap { MarketRegion(rawValue: $0)?.divisions ?? [] }
+        Self.parts(region).flatMap { MarketRegion(rawValue: $0)?.divisions ?? [] }
     }
 
-    var selectedDivisions: [String] {
-        if !divisions.isEmpty { return divisions }
-        return regionDivisions
+    var regions: [String] { Self.parts(region) }
+    var divisions: [String] { Self.parts(division) }
+    var districts: [String] { Self.parts(district) }
+    var oms: [String] { Self.parts(om) }
+    var stores: [String] { Self.parts(store) }
+
+    static func parts(_ raw: String) -> [String] {
+        raw.split(separator: "\n").map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
     }
 
-    enum CodingKeys: String, CodingKey {
-        case region, division, district, om, store
-        case regions, divisions, districts, oms, stores
+    static func display(_ raw: String, empty: String, prefix: String = "") -> String {
+        let values = parts(raw)
+        if values.isEmpty { return empty }
+        if values.count == 1 { return prefix + values[0] }
+        if values.count == 2 { return prefix + values[0] + ", " + values[1] }
+        return prefix + values[0] + " + \(values.count - 1) more"
     }
+
+    enum CodingKeys: String, CodingKey { case region, division, district, om, store }
+
+    init() {}
 
     init(region: String = "", division: String, district: String, om: String, store: String) {
-        self.regions = Self.wrap(region)
-        self.divisions = Self.wrap(division)
-        self.districts = Self.wrap(district)
-        self.oms = Self.wrap(om)
-        self.stores = Self.wrap(store)
-    }
-
-    init(regions: [String] = [], divisions: [String] = [], districts: [String] = [], oms: [String] = [], stores: [String] = []) {
-        self.regions = regions
-        self.divisions = divisions
-        self.districts = districts
-        self.oms = oms
-        self.stores = stores
+        self.region = region
+        self.division = division
+        self.district = district
+        self.om = om
+        self.store = store
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
-        regions = Self.readList(c, arrayKey: .regions, scalarKey: .region)
-        divisions = Self.readList(c, arrayKey: .divisions, scalarKey: .division)
-        districts = Self.readList(c, arrayKey: .districts, scalarKey: .district)
-        oms = Self.readList(c, arrayKey: .oms, scalarKey: .om)
-        stores = Self.readList(c, arrayKey: .stores, scalarKey: .store)
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var c = encoder.container(keyedBy: CodingKeys.self)
-        try c.encode(regions, forKey: .regions)
-        try c.encode(divisions, forKey: .divisions)
-        try c.encode(districts, forKey: .districts)
-        try c.encode(oms, forKey: .oms)
-        try c.encode(stores, forKey: .stores)
-    }
-
-    mutating func toggle(_ value: String, in focus: FilterFocus) {
-        if value.isEmpty {
-            clear(focus)
-            prune()
-            return
-        }
-        switch focus {
-        case .region: regions = Self.toggled(value, in: regions)
-        case .division: divisions = Self.toggled(value, in: divisions)
-        case .district: districts = Self.toggled(value, in: districts)
-        case .om: oms = Self.toggled(value, in: oms)
-        case .store: stores = Self.toggled(value, in: stores)
-        }
-        prune()
-    }
-
-    mutating func clear(_ focus: FilterFocus) {
-        switch focus {
-        case .region:
-            regions = []
-        case .division:
-            divisions = []
-        case .district:
-            districts = []
-        case .om:
-            oms = []
-        case .store:
-            stores = []
-        }
-        prune()
-    }
-
-    private mutating func prune() {
-        if !regions.isEmpty {
-            divisions = divisions.filter { value in
-                regions.contains { MarketRegion(rawValue: $0)?.contains(value) == true }
-            }
-        }
-        if !divisions.isEmpty || !regions.isEmpty {
-            // children stay until Save rebuilds options; keep selected values even if list shrinks
-        }
-    }
-
-    func values(for focus: FilterFocus) -> [String] {
-        switch focus {
-        case .region: return regions
-        case .division: return divisions
-        case .district: return districts
-        case .om: return oms
-        case .store: return stores
-        }
-    }
-
-    private static func wrap(_ value: String) -> [String] {
-        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? [] : [trimmed]
-    }
-
-    private static func toggled(_ value: String, in current: [String]) -> [String] {
-        if current.contains(where: { HeartbeatMath.matches($0, value) }) {
-            return current.filter { !HeartbeatMath.matches($0, value) }
-        }
-        return current + [value]
-    }
-
-    private static func readList(
-        _ c: KeyedDecodingContainer<CodingKeys>,
-        arrayKey: CodingKeys,
-        scalarKey: CodingKeys
-    ) -> [String] {
-        if let values = try? c.decode([String].self, forKey: arrayKey) {
-            return values.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        }
-        if let value = try? c.decode(String.self, forKey: scalarKey) {
-            return wrap(value)
-        }
-        return []
-    }
-
-    private static func label(_ values: [String], empty: String, prefix: String = "") -> String {
-        if values.isEmpty { return empty }
-        if values.count == 1 { return prefix + values[0] }
-        if values.count == 2 { return "\(prefix)\(values[0]), \(values[1])" }
-        return "\(prefix)\(values[0]) + \(values.count - 1) more"
+        region = try c.decodeIfPresent(String.self, forKey: .region) ?? ""
+        division = try c.decodeIfPresent(String.self, forKey: .division) ?? ""
+        district = try c.decodeIfPresent(String.self, forKey: .district) ?? ""
+        om = try c.decodeIfPresent(String.self, forKey: .om) ?? ""
+        store = try c.decodeIfPresent(String.self, forKey: .store) ?? ""
     }
 }
 
@@ -1811,20 +1685,118 @@ enum MarketRegion: String, CaseIterable, Identifiable, Sendable {
     }
 
     static func companyDivisions(for filters: DashboardFilters) -> [String] {
-        if !filters.divisions.isEmpty {
-            return filters.divisions.map { canonicalName($0) }
+        let selectedDivisions = DashboardFilters.parts(filters.division)
+        if !selectedDivisions.isEmpty {
+            return selectedDivisions.map { canonicalName($0) }
         }
-        if !filters.regions.isEmpty {
-            var seen = Set<String>()
+        let selectedRegions = DashboardFilters.parts(filters.region)
+        if !selectedRegions.isEmpty {
+            var seen: Set<String> = []
             var out: [String] = []
-            for region in filters.regions.compactMap({ MarketRegion(rawValue: $0) }) {
-                for name in region.displayDivisions where seen.insert(HeartbeatMath.normalize(name)).inserted {
-                    out.append(name)
+            for region in selectedRegions.compactMap({ MarketRegion(rawValue: $0) }) {
+                for name in region.displayDivisions {
+                    if seen.insert(HeartbeatMath.normalize(name)).inserted {
+                        out.append(name)
+                    }
                 }
             }
             return out
         }
         return allCases.flatMap(\.displayDivisions)
+    }
+}
+
+enum FilterFocus: String, Sendable {
+    case region
+    case division
+    case district
+    case om
+    case store
+
+    var title: String {
+        switch self {
+        case .region: return "Region"
+        case .division: return "Division"
+        case .district: return "District"
+        case .om: return "Operations manager"
+        case .store: return "Store #"
+        }
+    }
+
+    var chipTitle: String {
+        switch self {
+        case .region: return "Region"
+        case .division: return "Division"
+        case .district: return "District"
+        case .om: return "OM"
+        case .store: return "Store"
+        }
+    }
+
+    var prompt: String {
+        switch self {
+        case .region: return "Type a region"
+        case .division: return "Type a division"
+        case .district: return "Type a district"
+        case .om: return "Type an OM name"
+        case .store: return "Type a store number"
+        }
+    }
+
+    var allLabel: String {
+        switch self {
+        case .region: return "All regions"
+        case .division: return "All divisions"
+        case .district: return "All districts"
+        case .om: return "All operations managers"
+        case .store: return "All stores"
+        }
+    }
+}
+
+extension DashboardFilters {
+    func values(for focus: FilterFocus) -> [String] {
+        switch focus {
+        case .region: return Self.parts(region)
+        case .division: return Self.parts(division)
+        case .district: return Self.parts(district)
+        case .om: return Self.parts(om)
+        case .store: return Self.parts(store)
+        }
+    }
+
+    mutating func toggle(_ value: String, in focus: FilterFocus) {
+        if value.isEmpty {
+            switch focus {
+            case .region: region = ""
+            case .division: division = ""
+            case .district: district = ""
+            case .om: om = ""
+            case .store: store = ""
+            }
+            return
+        }
+        var current = values(for: focus)
+        if current.contains(where: { HeartbeatMath.matches($0, value) }) {
+            current.removeAll { HeartbeatMath.matches($0, value) }
+        } else {
+            current.append(value)
+        }
+        let joined = current.joined(separator: "\n")
+        switch focus {
+        case .region:
+            region = joined
+            let allowed = regionDivisions
+            if !division.isEmpty {
+                division = Self.parts(division).filter { name in
+                    allowed.contains { MarketRegion.matchesDivision(name, $0) }
+                }.joined(separator: "\n")
+            }
+        case .division: division = joined
+        case .district: district = joined
+        case .om: om = joined
+        case .store: store = joined
+        }
     }
 }
 
