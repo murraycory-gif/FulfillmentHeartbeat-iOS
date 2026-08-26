@@ -355,9 +355,9 @@ enum PulseMail {
 
     private static func esc(_ value: String) -> String {
         value
-            .replacingOccurrences(of: "&", with: "&")
-            .replacingOccurrences(of: "<", with: "<")
-            .replacingOccurrences(of: ">", with: ">")
-            .replacingOccurrences(of: "\"", with: """)
+            .replacingOccurrences(of: "&", with: "\u{0026}amp;")
+            .replacingOccurrences(of: "<", with: "\u{0026}lt;")
+            .replacingOccurrences(of: ">", with: "\u{0026}gt;")
+            .replacingOccurrences(of: "\"", with: "\u{0026}quot;")
     }
 }
