@@ -107,6 +107,11 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(remapped["schedule_efficiency_pct"] ?? 0, 93.1, accuracy: 0.05)
         XCTAssertEqual(remapped["under_schedule_pct"] ?? 0, 6.1, accuracy: 0.05)
         XCTAssertEqual(remapped["over_schedule_pct"] ?? 0, 1.4, accuracy: 0.05)
+
+        let staffing = HeartbeatMath.remapSchedulePayload([
+            "staffingefficiencypctpchvstgt": 0.887,
+        ])
+        XCTAssertEqual(staffing["staffing_efficiency_pct"] ?? 0, 88.7, accuracy: 0.05)
     }
 
     func testFiveStarFileParsesAndUsesPosterBands() {
