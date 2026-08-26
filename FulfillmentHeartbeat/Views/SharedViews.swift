@@ -514,6 +514,10 @@ final class ECGPulseUIView: UIView {
 struct FilterBar: View {
     @EnvironmentObject private var store: HeartbeatStore
     @State private var showingFilters = false
+    @State private var showingMail = false
+    @State private var buildingMail = false
+    @State private var mailPacket: PulseMail.Packet?
+    @State private var mailError: String?
 
     var body: some View {
         HStack(spacing: 8) {
@@ -522,6 +526,20 @@ struct FilterBar: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(AppTheme.blue)
             }
+            Button {
+                composePulseMail()
+            } label: {
+                if buildingMail {
+                    ProgressView()
+                        .tint(.white)
+                        .controlSize(.small)
+                        .padding(.horizontal, 6)
+                } else {
+                    Label("Email", systemImage: "envelope.fill")
+                }
+            }
+            .buttonStyle(BrandButtonStyle())
+            .disabled(buildingMail)
             Button {
                 showingFilters = true
             } label: {
@@ -532,6 +550,47 @@ struct FilterBar: View {
         .fullScreenCover(isPresented: $showingFilters) {
             FilterSheet()
                 .environmentObject(store)
+        }
+        .sheet(isPresented: $showingMail) {
+            if let mailPacket {
+                MailComposeView(
+                    recipients: [],
+                    subject: mailPacket.subject,
+                    html: mailPacket.html,
+                    plain: mailPacket.plain
+                ) { result in
+                    showingMail = false
+                    if result == .failed {
+                        mailError = "Mail didn’t send. Check that this iPad has a Mail account, or copy the recap."
+                    }
+                }
+            }
+        }
+        .alert("Couldn’t send", isPresented: Binding(
+            get: { mailError != nil },
+            set: { if !$0 { mailError = nil } }
+        )) {
+            Button("Copy recap") {
+                UIPasteboard.general.string = mailPacket?.plain
+                mailError = nil
+            }
+            Button("OK", role: .cancel) { mailError = nil }
+        } message: {
+            Text(mailError ?? "")
+        }
+    }
+
+    private func composePulseMail() {
+        guard !buildingMail else { return }
+        buildingMail = true
+        let snap = store.pulseMailSnapshot()
+        Task.detached(priority: .userInitiated) {
+            let packet = PulseMail.make(snap)
+            await MainActor.run {
+                mailPacket = packet
+                buildingMail = false
+                showingMail = true
+            }
         }
     }
 }

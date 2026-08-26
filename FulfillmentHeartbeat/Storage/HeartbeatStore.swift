@@ -1682,6 +1682,34 @@ final class HeartbeatStore: ObservableObject {
         }
     }
 
+    func pulseMailSnapshot() -> PulseMail.Snapshot {
+        var pickerCounts: [String: Int] = [:]
+        for row in displayRows(for: .pph) {
+            let key = HeartbeatMath.canonicalStore(row.storeNumber)
+            pickerCounts[key] = pphPickerCount(forStore: key)
+        }
+        var rows: [MetricSection: [MetricRow]] = [:]
+        for section in PulseMail.pageOrder {
+            rows[section] = displayRows(for: section)
+        }
+        let grain: String?
+        if !filters.store.isEmpty {
+            grain = nil
+        } else if !filters.division.isEmpty || !filters.district.isEmpty || !filters.om.isEmpty {
+            grain = "district"
+        } else {
+            grain = "division"
+        }
+        return PulseMail.Snapshot(
+            filterSummary: filters.summary,
+            grain: grain,
+            summaries: summaries,
+            rows: rows,
+            pickerCounts: pickerCounts,
+            generatedAt: Date()
+        )
+    }
+
     private func persistChecklist() {
         let file = ChecklistFile(items: checklistByKey, recipients: checklistRecipients)
         let url = checklistURL
