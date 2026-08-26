@@ -4,6 +4,7 @@ import UIKit
 @main
 struct FulfillmentHeartbeatApp: App {
     @StateObject private var store = HeartbeatStore()
+    @Environment(\.scenePhase) private var scenePhase
 
     private let launchUI = AppTheme.uiBg
     private let launch = AppTheme.bg
@@ -38,6 +39,11 @@ struct FulfillmentHeartbeatApp: App {
             }
             .background(launch.ignoresSafeArea())
             .preferredColorScheme(.light)
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .inactive || phase == .background {
+                    store.flush()
+                }
+            }
             .onAppear {
                 UIApplication.shared.connectedScenes
                     .compactMap { $0 as? UIWindowScene }

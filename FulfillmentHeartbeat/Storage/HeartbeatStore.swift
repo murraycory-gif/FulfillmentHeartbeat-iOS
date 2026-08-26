@@ -926,6 +926,10 @@ final class HeartbeatStore: ObservableObject {
         persist()
     }
 
+    func flush() {
+        persistBlocking()
+    }
+
     func inboxWorkbooks() -> [URL] {
         harvestInbox()
         let docs = documentsURL
@@ -1156,7 +1160,7 @@ final class HeartbeatStore: ObservableObject {
         } else {
             statusMessage = "Imported \(incoming.count) rows · \(stores) stores into \(section.title). Filters cleared so the new file is in view."
         }
-        persist()
+        await persistNow()
     }
 
     private func runMasterImport(data: Data, filename: String, fallbackToPicker: Bool) async -> Bool {
@@ -1201,7 +1205,7 @@ final class HeartbeatStore: ObservableObject {
             lastImportedSection = sheets.first?.section
             let names = loaded.joined(separator: ", ")
             statusMessage = "Master load: \(loaded.count) scorecard\(loaded.count == 1 ? "" : "s") from \(filename) — \(names). Filters cleared so the new files are in view."
-            persist()
+            await persistNow()
             isImporting = false
             importLabel = nil
             return true
@@ -1588,6 +1592,10 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func persist() {
+        Task { await persistNow() }
+    }
+
+    private func persistNow() async {
         persistFilters()
         let snapshot = HeartbeatSnapshot(
             rows: rows,
@@ -1596,15 +1604,42 @@ final class HeartbeatStore: ObservableObject {
             filters: filters
         )
         let url = snapshotURL
-        Task.detached(priority: .utility) {
-            do {
+        let root = url.deletingLastPathComponent()
+        do {
+            try await Task.detached(priority: .userInitiated) {
+                let fm = FileManager.default
+                if !fm.fileExists(atPath: root.path) {
+                    try fm.createDirectory(at: root, withIntermediateDirectories: true)
+                }
                 let encoder = JSONEncoder()
                 encoder.dateEncodingStrategy = .iso8601
                 let data = try encoder.encode(snapshot)
                 try data.write(to: url, options: [.atomic])
-            } catch {
-                // Keep the in-memory pulse; the next successful save will replace this file.
+            }.value
+        } catch {
+            errorMessage = "Pulse did not save: \(error.localizedDescription). Keep Heartbeat open until the import finishes."
+        }
+    }
+
+    private func persistBlocking() {
+        persistFilters()
+        let snapshot = HeartbeatSnapshot(
+            rows: rows,
+            uploads: uploads,
+            seeded: seeded,
+            filters: filters
+        )
+        let root = snapshotURL.deletingLastPathComponent()
+        do {
+            if !fileManager.fileExists(atPath: root.path) {
+                try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
             }
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            let data = try encoder.encode(snapshot)
+            try data.write(to: snapshotURL, options: [.atomic])
+        } catch {
+            errorMessage = "Pulse did not save: \(error.localizedDescription)"
         }
     }
 
