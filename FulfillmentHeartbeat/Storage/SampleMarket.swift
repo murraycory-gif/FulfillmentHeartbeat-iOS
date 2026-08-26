@@ -114,6 +114,7 @@ enum SampleMarket {
                     recordedOn: date,
                     payload: [
                         "schedule_efficiency_pct": efficiency.rounded(1),
+                        "staffing_efficiency_pct": clamp(efficiency + jitter(index + 41, 4), 76, 99).rounded(1),
                         "over_schedule_pct": max(0, (2 + jitter(index + 27, 6))).rounded(1),
                         "under_schedule_pct": max(0, (1.5 + jitter(index + 33, 5))).rounded(1),
                     ]

@@ -1032,8 +1032,9 @@ enum HeartbeatMath {
         let under = varianceHealth(row.number("under_schedule_pct", "under_scheduled"))
         let over = varianceHealth(row.number("over_schedule_pct", "over_scheduled"))
         let efficiency = band(row.number("schedule_efficiency_pct"), good: scheduleGoal, watch: scheduleWatch)
+        let staffing = band(row.number("staffing_efficiency_pct"), good: scheduleGoal, watch: scheduleWatch)
         let ranks: [Health: Int] = [.none: 0, .good: 1, .watch: 2, .risk: 3]
-        return [under, over, efficiency].max { (ranks[$0] ?? 0) < (ranks[$1] ?? 0) } ?? .watch
+        return [under, over, efficiency, staffing].max { (ranks[$0] ?? 0) < (ranks[$1] ?? 0) } ?? .watch
     }
 
     static func pphHealth(_ row: MetricRow) -> Health {

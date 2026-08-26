@@ -6262,12 +6262,13 @@ struct ScheduleTable: View {
     let rows: [MetricRow]
 
     private enum Column: String, CaseIterable, Identifiable {
-        case store, efficiency, goal, under, over, status
+        case store, efficiency, staffing, goal, under, over, status
         var id: String { rawValue }
         var key: String {
             switch self {
             case .store: return "label"
             case .efficiency: return "efficiency"
+            case .staffing: return "staffing"
             case .goal: return "goal"
             case .under: return "under"
             case .over: return "over"
@@ -6424,6 +6425,8 @@ struct ScheduleTable: View {
             return lhs.storeNumber.localizedStandardCompare(rhs.storeNumber)
         case .efficiency, .goal:
             return numberOrder(ScheduleMath.efficiency(lhs), ScheduleMath.efficiency(rhs))
+        case .staffing:
+            return numberOrder(ScheduleMath.staffing(lhs), ScheduleMath.staffing(rhs))
         case .under:
             return numberOrder(ScheduleMath.under(lhs), ScheduleMath.under(rhs))
         case .over:
@@ -6460,6 +6463,10 @@ private enum ScheduleMath {
         row.number("schedule_efficiency_pct")
     }
 
+    static func staffing(_ row: MetricRow) -> Double? {
+        row.number("staffing_efficiency_pct")
+    }
+
     static func under(_ row: MetricRow) -> Double? {
         row.number("under_schedule_pct", "under_scheduled")
     }
@@ -6472,6 +6479,10 @@ private enum ScheduleMath {
         guard value != nil else { return .none }
         return HeartbeatMath.band(value, good: HeartbeatMath.scheduleGoal, watch: HeartbeatMath.scheduleWatch)
     }
+
+    static func staffingHealth(_ value: Double?) -> Health {
+        efficiencyHealth(value)
+    }
 }
 
 private struct ScheduleRollupRow: Identifiable {
@@ -6479,6 +6490,7 @@ private struct ScheduleRollupRow: Identifiable {
     let label: String
     let storeCount: Int
     let efficiency: Double?
+    let staffing: Double?
     let under: Double?
     let over: Double?
 
@@ -6486,8 +6498,9 @@ private struct ScheduleRollupRow: Identifiable {
         let underHealth = HeartbeatMath.varianceHealth(under)
         let overHealth = HeartbeatMath.varianceHealth(over)
         let efficiencyHealth = ScheduleMath.efficiencyHealth(efficiency)
+        let staffingHealth = ScheduleMath.staffingHealth(staffing)
         let ranks: [Health: Int] = [.none: 0, .good: 1, .watch: 2, .risk: 3]
-        return [underHealth, overHealth, efficiencyHealth].max { (ranks[$0] ?? 0) < (ranks[$1] ?? 0) } ?? .none
+        return [underHealth, overHealth, efficiencyHealth, staffingHealth].max { (ranks[$0] ?? 0) < (ranks[$1] ?? 0) } ?? .none
     }
 }
 
@@ -6497,7 +6510,7 @@ private enum ScheduleRollupBuilder {
     }
 
     static func source(from all: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
-        let stores = all.filter { !$0.storeNumber.isEmpty && ScheduleMath.efficiency($0) != nil }
+        let stores = all.filter { !$0.storeNumber.isEmpty && (ScheduleMath.efficiency($0) != nil || ScheduleMath.staffing($0) != nil) }
         if !filters.division.isEmpty || !filters.region.isEmpty {
             return stores.filter { filters.includesDivision($0.division) }
         }
@@ -6548,6 +6561,7 @@ private enum ScheduleRollupBuilder {
                     label: label,
                     storeCount: group.count,
                     efficiency: HeartbeatMath.average(group.compactMap(ScheduleMath.efficiency)),
+                    staffing: HeartbeatMath.average(group.compactMap(ScheduleMath.staffing)),
                     under: HeartbeatMath.average(group.compactMap(ScheduleMath.under)),
                     over: HeartbeatMath.average(group.compactMap(ScheduleMath.over))
                 )
@@ -6564,13 +6578,16 @@ private struct ScheduleLineSnap: Identifiable, Equatable {
     let district: String
     let om: String
     let efficiency: String
+    let staffing: String
     let under: String
     let over: String
     let health: Health
     let efficiencyHealth: Health
+    let staffingHealth: Health
     let underHealth: Health
     let overHealth: Health
     let efficiencyValue: Double
+    let staffingValue: Double
     let underValue: Double
     let overValue: Double
 
@@ -6583,16 +6600,20 @@ private struct ScheduleLineSnap: Identifiable, Equatable {
         district = row.district
         om = row.operationsOM
         let efficiencyNum = ScheduleMath.efficiency(row)
+        let staffingNum = ScheduleMath.staffing(row)
         let underNum = ScheduleMath.under(row)
         let overNum = ScheduleMath.over(row)
         efficiency = HeartbeatFormat.pct(efficiencyNum)
+        staffing = HeartbeatFormat.pct(staffingNum)
         under = HeartbeatFormat.pct(underNum)
         over = HeartbeatFormat.pct(overNum)
         health = HeartbeatMath.health(for: .scheduleQuality, row: row)
         efficiencyHealth = ScheduleMath.efficiencyHealth(efficiencyNum)
+        staffingHealth = ScheduleMath.staffingHealth(staffingNum)
         underHealth = HeartbeatMath.varianceHealth(underNum)
         overHealth = HeartbeatMath.varianceHealth(overNum)
         efficiencyValue = efficiencyNum ?? -1
+        staffingValue = staffingNum ?? -1
         underValue = underNum ?? -1
         overValue = overNum ?? -1
     }
@@ -6616,6 +6637,7 @@ private struct ScheduleCheapLine: View, Equatable {
             }
             .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
             cell(snap.efficiency, snap.efficiencyHealth)
+            cell(snap.staffing, snap.staffingHealth)
             cell(ScheduleMath.goalText, .none, brand: true)
             cell(snap.under, snap.underHealth)
             cell(snap.over, snap.overHealth)
@@ -6676,11 +6698,12 @@ private struct ScheduleMetricLine: View, Equatable {
     let label: String
     var count: Int? = nil
     let efficiency: Double?
+    let staffing: Double?
     let under: Double?
     let over: Double?
 
     var body: some View {
-        let health = ScheduleRollupRow(id: label, label: label, storeCount: count ?? 0, efficiency: efficiency, under: under, over: over).health
+        let health = ScheduleRollupRow(id: label, label: label, storeCount: count ?? 0, efficiency: efficiency, staffing: staffing, under: under, over: over).health
         HStack(spacing: 6) {
             Text(label)
                 .font(.subheadline.weight(.semibold))
@@ -6695,6 +6718,7 @@ private struct ScheduleMetricLine: View, Equatable {
                     .frame(width: 58, alignment: .trailing)
             }
             cell(HeartbeatFormat.pct(efficiency), ScheduleMath.efficiencyHealth(efficiency))
+            cell(HeartbeatFormat.pct(staffing), ScheduleMath.staffingHealth(staffing))
             cell(ScheduleMath.goalText, .none, brand: true)
             cell(HeartbeatFormat.pct(under), HeartbeatMath.varianceHealth(under))
             cell(HeartbeatFormat.pct(over), HeartbeatMath.varianceHealth(over))
@@ -6754,6 +6778,7 @@ struct ScheduleMetricHeader: View {
                     .frame(width: 58, alignment: .trailing)
             }
             head("Efficiency", key: "efficiency")
+            head("Staffing % (Pch vs Tgt)", key: "staffing")
             head("Goal", key: "goal")
             head("Under", key: "under")
             head("Over", key: "over")
@@ -6762,8 +6787,8 @@ struct ScheduleMetricHeader: View {
         }
         .font(.caption2.weight(.semibold))
         .tracking(0.4)
-        .lineLimit(1)
-        .minimumScaleFactor(0.65)
+        .lineLimit(2)
+        .minimumScaleFactor(0.5)
     }
 
     private func head(_ title: String, key: String, alignment: Alignment = .trailing) -> some View {
@@ -6851,6 +6876,7 @@ struct ScheduleRollupTable: View {
                             label: row.label,
                             count: grain == .store ? nil : row.storeCount,
                             efficiency: row.efficiency,
+                            staffing: row.staffing,
                             under: row.under,
                             over: row.over
                         )
@@ -6878,7 +6904,7 @@ struct ScheduleRollupTable: View {
         var rows = ScheduleRollupBuilder.rows(from: source, grain: grain)
         if grain == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
-                rows.append(ScheduleRollupRow(id: extra.name, label: extra.name, storeCount: extra.storeCount, efficiency: nil, under: nil, over: nil))
+                rows.append(ScheduleRollupRow(id: extra.name, label: extra.name, storeCount: extra.storeCount, efficiency: nil, staffing: nil, under: nil, over: nil))
             }
             rows.sort { ($0.efficiency ?? 999) < ($1.efficiency ?? 999) }
         }
@@ -6912,6 +6938,7 @@ private struct ScheduleStoreExpand: View {
     private var chips: [(String, String, Health, Bool)] {
         [
             ("Efficiency", snap.efficiency, snap.efficiencyHealth, false),
+            ("Staffing % (Pch vs Tgt)", snap.staffing, snap.staffingHealth, false),
             ("Goal", ScheduleMath.goalText, .none, true),
             ("Under", snap.under, snap.underHealth, false),
             ("Over", snap.over, snap.overHealth, false),

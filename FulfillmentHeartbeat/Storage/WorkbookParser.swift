@@ -1511,6 +1511,8 @@ enum WorkbookParser {
             key = "under_schedule_pct"
         } else if key.contains("overschedule") {
             key = "over_schedule_pct"
+        } else if key.contains("staffingeffic") {
+            key = "staffing_efficiency_pct"
         } else if key.contains("scheduleeffic") {
             key = "schedule_efficiency_pct"
         } else if key.contains("underadherence") {

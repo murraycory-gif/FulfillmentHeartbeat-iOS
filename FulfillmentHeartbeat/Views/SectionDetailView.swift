@@ -311,6 +311,7 @@ struct SectionDetailView: View {
         case .scheduleQuality:
             return [
                 ("Efficiency", HeartbeatFormat.pct(avg("schedule_efficiency_pct"))),
+                ("Staffing %", HeartbeatFormat.pct(avg("staffing_efficiency_pct"))),
                 ("Over scheduled", HeartbeatFormat.num(rows.reduce(0) { $0 + ($1.number("over_scheduled") ?? 0) })),
                 ("Under scheduled", HeartbeatFormat.num(rows.reduce(0) { $0 + ($1.number("under_scheduled") ?? 0) })),
             ]
