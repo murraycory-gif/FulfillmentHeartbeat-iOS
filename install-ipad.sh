@@ -12,33 +12,6 @@ DERIVED="${TMPDIR:-/tmp}/HeartbeatDeviceBuild"
 
 echo "Unlock the iPad, keep it awake, and leave it on the Home Screen."
 
-if [ "${SKIP_BUILD:-0}" != "1" ]; then
-  echo "Building for device..."
-  rm -rf "$DERIVED"
-  LOG="${TMPDIR:-/tmp}/heartbeat-build.log"
-  if ! xcodebuild \
-    -workspace "$WORKSPACE" \
-    -scheme "$SCHEME" \
-    -configuration Debug \
-    -destination 'generic/platform=iOS' \
-    -derivedDataPath "$DERIVED" \
-    -allowProvisioningUpdates \
-    build > "$LOG" 2>&1; then
-    echo ""
-    echo "----- Swift errors -----"
-    grep -E "error:|fatal error:" "$LOG" | sed 's/^[[:space:]]*//' || tail -80 "$LOG"
-    echo "----- end errors -----"
-    echo "Full log: $LOG"
-    exit 1
-  fi
-fi
-
-APP=$(find "$DERIVED/Build/Products" -name 'FulfillmentHeartbeat.app' -print -quit 2>/dev/null || true)
-if [ -z "$APP" ] || [ ! -d "$APP" ]; then
-  echo "No built app found. Run without SKIP_BUILD=1 first."
-  exit 1
-fi
-
 wait_for_ipad() {
   want="${1:-}"
   tries=0
@@ -60,7 +33,6 @@ for device in devices:
     tunnel = str(conn.get("tunnelState") or "").lower()
     transport = str(conn.get("transportType") or "").lower()
     pairing = str(conn.get("pairingState") or "").lower()
-    state = str(props.get("bootState") or conn.get("localHostReachability") or "").lower()
     is_ipad = "iPad" in name or "iPad" in marketing or str(hardware.get("deviceType") or "").startswith("iPad")
     if not is_ipad:
         continue
@@ -90,8 +62,7 @@ if [ -n "$UDID" ]; then
     echo "iPad $UDID is still unavailable."
     xcrun devicectl list devices || true
     echo ""
-    echo "Unlock the iPad, leave it on the Home Screen, unplug the cable, plug it back in, tap Trust, then rerun:"
-    echo "  SKIP_BUILD=1 DEVICE_UDID=$UDID ./install-ipad.sh"
+    echo "Unlock the iPad, leave it on the Home Screen, unplug the cable, plug it back in, tap Trust, then rerun."
     exit 1
   fi
   UDID="$READY"
@@ -105,11 +76,46 @@ if [ -z "${UDID:-}" ]; then
   exit 1
 fi
 
+if [ "${SKIP_BUILD:-0}" != "1" ]; then
+  echo "Building for this iPad ($UDID)..."
+  rm -rf "$DERIVED"
+  LOG="${TMPDIR:-/tmp}/heartbeat-build.log"
+  if ! xcodebuild \
+    -workspace "$WORKSPACE" \
+    -scheme "$SCHEME" \
+    -configuration Debug \
+    -destination "id=$UDID" \
+    -derivedDataPath "$DERIVED" \
+    -allowProvisioningUpdates \
+    -allowProvisioningDeviceRegistration \
+    build > "$LOG" 2>&1; then
+    echo ""
+    echo "----- Swift errors -----"
+    grep -E "error:|fatal error:" "$LOG" | sed 's/^[[:space:]]*//' || tail -80 "$LOG"
+    echo "----- end errors -----"
+    echo "Full log: $LOG"
+    exit 1
+  fi
+fi
+
+APP=$(find "$DERIVED/Build/Products" -name 'FulfillmentHeartbeat.app' -print -quit 2>/dev/null || true)
+if [ -z "$APP" ] || [ ! -d "$APP" ]; then
+  echo "No built app found. Run without SKIP_BUILD=1 first."
+  exit 1
+fi
+
 echo "Installing on $UDID ..."
 if ! xcrun devicectl device install app --device "$UDID" "$APP"; then
   echo ""
   echo "Install failed. Connected devices:"
   xcrun devicectl list devices || true
+  echo ""
+  echo "If you see provisioning / integrity errors:"
+  echo "  1. Delete Heartbeat from the iPad Home Screen."
+  echo "  2. Settings → General → VPN & Device Management → tap your Apple ID → Trust."
+  echo "  3. Unlock the iPad, leave it on the Home Screen."
+  echo "  4. Rerun (do not use SKIP_BUILD=1):"
+  echo "       DEVICE_UDID=$UDID ./install-ipad.sh"
   exit 1
 fi
 
