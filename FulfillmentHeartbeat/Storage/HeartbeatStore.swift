@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 @MainActor
 final class HeartbeatStore: ObservableObject {
@@ -58,6 +59,7 @@ final class HeartbeatStore: ObservableObject {
     private var laborWeeksByStore: [String: [MetricRow]] = [:]
     private var unfilteredPulse: FilterPulse?
     private var masterBookmark: Data?
+    private var lifetimeObservers: [NSObjectProtocol] = []
 
     init(rootURL: URL? = nil) {
         fileManager = .default
@@ -76,12 +78,38 @@ final class HeartbeatStore: ObservableObject {
         loadChecklist()
         loadMasterLink()
         load()
+        watchAppLifecycle()
+    }
+
+    private func watchAppLifecycle() {
+        let flush: (Notification) -> Void = { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.persistBlocking()
+            }
+        }
+        lifetimeObservers = [
+            NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main, using: flush),
+            NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main, using: flush),
+            NotificationCenter.default.addObserver(forName: UIApplication.willTerminateNotification, object: nil, queue: .main, using: flush),
+        ]
     }
 
     private static func defaultRoot() -> URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? FileManager.default.temporaryDirectory
-        return base.appendingPathComponent("FulfillmentHeartbeat", isDirectory: true)
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Pulse", isDirectory: true)
+    }
+
+    private static func legacySnapshotURLs() -> [URL] {
+        let fm = FileManager.default
+        var roots: [URL] = []
+        if let app = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+            roots.append(app.appendingPathComponent("FulfillmentHeartbeat", isDirectory: true))
+        }
+        roots.append(
+            fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("FulfillmentHeartbeat", isDirectory: true)
+        )
+        return roots.map { $0.appendingPathComponent("heartbeat.json") }
     }
 
     func rows(for section: MetricSection, relaxUnknown: Bool = false) -> [MetricRow] {
@@ -1520,31 +1548,32 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func load() {
-        guard fileManager.fileExists(atPath: snapshotURL.path) else {
+        let candidates = [snapshotURL] + Self.legacySnapshotURLs()
+        guard let url = candidates.first(where: { fileManager.fileExists(atPath: $0.path) }) else {
             rebuildIndex()
             applyFilters()
             isReady = true
             return
         }
-        let url = snapshotURL
         let filterFile = filtersURL
+        let dest = snapshotURL
         Task.detached(priority: .userInitiated) {
             do {
-                let data = try Data(contentsOf: url)
-                let decoder = JSONDecoder()
-                decoder.dateDecodingStrategy = .iso8601
-                let decoded = try decoder.decode(HeartbeatSnapshot.self, from: data)
+                let decoded = try PulseDisk.read(from: url)
                 var loadedFilters = decoded.filters
                 if let overlay = try? Data(contentsOf: filterFile),
                    let saved = try? JSONDecoder().decode(DashboardFilters.self, from: overlay) {
                     loadedFilters = saved
                 }
                 let caches = PulseCaches.build(rows: decoded.rows, filters: loadedFilters, uploads: decoded.uploads)
+                if url != dest {
+                    try? PulseDisk.write(decoded, to: dest)
+                }
                 await MainActor.run {
                     self.hydrating = true
                     self.rows = decoded.rows
                     self.uploads = decoded.uploads.sorted { $0.uploadedAt > $1.uploadedAt }
-                    self.seeded = decoded.seeded
+                    self.seeded = decoded.seeded || !decoded.rows.isEmpty
                     self.filters = loadedFilters
                     self.install(caches)
                     self.hydrating = false
@@ -1554,6 +1583,8 @@ final class HeartbeatStore: ObservableObject {
             } catch {
                 await MainActor.run {
                     self.errorMessage = "Could not load saved pulse: \(error.localizedDescription)"
+                    self.rebuildIndex()
+                    self.applyFilters()
                     self.isReady = true
                 }
             }
@@ -1604,17 +1635,9 @@ final class HeartbeatStore: ObservableObject {
             filters: filters
         )
         let url = snapshotURL
-        let root = url.deletingLastPathComponent()
         do {
             try await Task.detached(priority: .userInitiated) {
-                let fm = FileManager.default
-                if !fm.fileExists(atPath: root.path) {
-                    try fm.createDirectory(at: root, withIntermediateDirectories: true)
-                }
-                let encoder = JSONEncoder()
-                encoder.dateEncodingStrategy = .iso8601
-                let data = try encoder.encode(snapshot)
-                try data.write(to: url, options: [.atomic])
+                try PulseDisk.write(snapshot, to: url)
             }.value
         } catch {
             errorMessage = "Pulse did not save: \(error.localizedDescription). Keep Heartbeat open until the import finishes."
@@ -1629,15 +1652,8 @@ final class HeartbeatStore: ObservableObject {
             seeded: seeded,
             filters: filters
         )
-        let root = snapshotURL.deletingLastPathComponent()
         do {
-            if !fileManager.fileExists(atPath: root.path) {
-                try fileManager.createDirectory(at: root, withIntermediateDirectories: true)
-            }
-            let encoder = JSONEncoder()
-            encoder.dateEncodingStrategy = .iso8601
-            let data = try encoder.encode(snapshot)
-            try data.write(to: snapshotURL, options: [.atomic])
+            try PulseDisk.write(snapshot, to: snapshotURL)
         } catch {
             errorMessage = "Pulse did not save: \(error.localizedDescription)"
         }
@@ -1677,6 +1693,48 @@ final class HeartbeatStore: ObservableObject {
                 try data.write(to: url, options: [.atomic])
             } catch {}
         }
+    }
+}
+
+private enum PulseDisk {
+    static func write(_ snapshot: HeartbeatSnapshot, to url: URL) throws {
+        let root = url.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        var clean = snapshot
+        clean.rows = snapshot.rows.map { row in
+            var next = row
+            next.payload = row.payload.filter { $0.value.isFinite }
+            return next
+        }
+        clean.seeded = snapshot.seeded || !clean.rows.isEmpty
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.nonConformingFloatEncodingStrategy = .convertToString(
+            positiveInfinity: "inf",
+            negativeInfinity: "-inf",
+            nan: "nan"
+        )
+        let data = try encoder.encode(clean)
+        guard data.count > 20 else {
+            throw NSError(domain: "Heartbeat", code: 1, userInfo: [NSLocalizedDescriptionKey: "Save produced an empty pulse file."])
+        }
+        try data.write(to: url, options: [.atomic, .noFileProtection])
+        let verify = try Data(contentsOf: url, options: [.mappedIfSafe])
+        guard verify.count == data.count else {
+            throw NSError(domain: "Heartbeat", code: 2, userInfo: [NSLocalizedDescriptionKey: "Saved pulse file did not verify."])
+        }
+    }
+
+    static func read(from url: URL) throws -> HeartbeatSnapshot {
+        let data = try Data(contentsOf: url, options: [.mappedIfSafe])
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        decoder.nonConformingFloatDecodingStrategy = .convertFromString(
+            positiveInfinity: "inf",
+            negativeInfinity: "-inf",
+            nan: "nan"
+        )
+        return try decoder.decode(HeartbeatSnapshot.self, from: data)
     }
 }
 

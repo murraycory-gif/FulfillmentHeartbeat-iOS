@@ -1837,6 +1837,23 @@ struct HeartbeatSnapshot: Codable {
     var uploads: [UploadRecord]
     var seeded: Bool
     var filters: DashboardFilters
+
+    enum CodingKeys: String, CodingKey { case rows, uploads, seeded, filters }
+
+    init(rows: [MetricRow], uploads: [UploadRecord], seeded: Bool, filters: DashboardFilters) {
+        self.rows = rows
+        self.uploads = uploads
+        self.seeded = seeded
+        self.filters = filters
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        rows = try c.decodeIfPresent([MetricRow].self, forKey: .rows) ?? []
+        uploads = try c.decodeIfPresent([UploadRecord].self, forKey: .uploads) ?? []
+        seeded = try c.decodeIfPresent(Bool.self, forKey: .seeded) ?? !rows.isEmpty
+        filters = try c.decodeIfPresent(DashboardFilters.self, forKey: .filters) ?? DashboardFilters()
+    }
 }
 
 enum HeartbeatFormat {
