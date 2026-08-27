@@ -6,29 +6,25 @@ struct ChecklistView: View {
     private var openCount: Int { store.checklistOpenCount }
 
     var body: some View {
-        List {
-            Section {
-                VStack(alignment: .leading, spacing: 12) {
-                    HubBanner(
-                        icon: HubDestination.checklist.symbol,
-                        title: "Operational Heartbeat Checklist",
-                        accessory: accessory
-                    )
-                    Text("Action items for at-risk and watch metrics in this filter. Work them in order.")
-                        .font(.subheadline)
-                        .foregroundStyle(AppTheme.textSecondary)
-                        .padding(.horizontal, 4)
-                    FulfillmentChecklistCard(showsHeader: false, startsExpanded: true)
-                }
-                .listRowInsets(EdgeInsets(top: 16, leading: 20, bottom: 16, trailing: 20))
-                .listRowSeparator(.hidden)
-                .listRowBackground(AppTheme.bg)
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 12) {
+                HubBanner(
+                    icon: HubDestination.checklist.symbol,
+                    title: "Operational Heartbeat Checklist",
+                    accessory: accessory
+                )
+                Text("Action items for at-risk and watch metrics in this filter. Work them in order.")
+                    .font(.subheadline)
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .padding(.horizontal, 4)
+                FulfillmentChecklistCard(showsHeader: false, startsExpanded: true)
             }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            .padding(.bottom, 28)
         }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
+        .scrollIndicators(.hidden)
         .background(AppTheme.bg.ignoresSafeArea())
-        .environment(\.defaultMinListRowHeight, 1)
     }
 
     private var accessory: String {

@@ -487,7 +487,7 @@ struct BeatingHeartbeatMark: View {
     var showsWordmark: Bool = true
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { context in
+        TimelineView(.animation(minimumInterval: 1.0 / 15.0, paused: false)) { context in
             let cycle = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.08)
             let head = CGFloat(cycle / 1.08)
             let lineWidth = height * 0.11
@@ -8780,6 +8780,35 @@ struct HideSystemSidebarToggle: UIViewRepresentable {
     }
 }
 
+struct ChecklistShopperDisclosure: View {
+    let storeNumber: String
+    var section: MetricSection
+    @State private var open = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button {
+                open.toggle()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "person.2.fill")
+                    Text(open ? "Hide shoppers" : "Show shoppers")
+                    Spacer(minLength: 0)
+                    Image(systemName: open ? "chevron.up" : "chevron.down")
+                }
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(AppTheme.blue)
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if open {
+                PathShopperTable(storeNumber: storeNumber, section: section)
+            }
+        }
+    }
+}
+
 struct FulfillmentChecklistCard: View {
     @EnvironmentObject private var store: HeartbeatStore
     var showsHeader: Bool = true
@@ -8809,7 +8838,7 @@ struct FulfillmentChecklistCard: View {
             VStack(alignment: .leading, spacing: 12) {
                 visibilityStrip
                 if expanded || !showsHeader {
-                    VStack(spacing: 12) {
+                    LazyVStack(spacing: 12) {
                         ForEach(MetricSection.checklistSections) { section in
                             sectionBlock(section)
                         }
@@ -8992,7 +9021,7 @@ struct FulfillmentChecklistCard: View {
             }
             .buttonStyle(.plain)
             if isOpen {
-                VStack(alignment: .leading, spacing: 10) {
+                LazyVStack(alignment: .leading, spacing: 10) {
                     if items.isEmpty {
                         Text("Nothing to action in this filter.")
                             .font(.subheadline)
@@ -9084,7 +9113,10 @@ struct FulfillmentChecklistCard: View {
                 }
             }
             if item.id.hasPrefix("store-") {
-                PathShopperTable(storeNumber: String(item.id.dropFirst(6)), section: section)
+                ChecklistShopperDisclosure(
+                    storeNumber: String(item.id.dropFirst(6)),
+                    section: section
+                )
             }
             if showComment {
                 TextField("Note for follow up", text: commentBinding(item, section: section), axis: .vertical)

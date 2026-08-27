@@ -106,19 +106,8 @@ struct ScorecardPager: UIViewControllerRepresentable {
             let items = HubDestination.sectionItems
             guard let index = items.firstIndex(of: dest) else { return }
             trimCache(around: index)
-            DispatchQueue.main.async { [weak self] in
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { [weak self] in
                 guard let self else { return }
-                for offset in [1, -1] {
-                    let item = index + offset
-                    guard items.indices.contains(item) else { continue }
-                    let next = items[item]
-                    if next == .checklist { continue }
-                    _ = self.host(for: next)
-                }
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
-                guard let self else { return }
-                guard self.displayed == dest else { return }
                 for offset in [1, -1] {
                     let item = index + offset
                     guard items.indices.contains(item) else { continue }

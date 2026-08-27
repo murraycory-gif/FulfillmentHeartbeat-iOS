@@ -54,19 +54,69 @@ enum AppTheme {
     }
 }
 
-/// Isolated AT RISK pulse — TimelineView so it cannot leak animation to sibling cards.
+/// Isolated AT RISK pulse — Core Animation, so SwiftUI does not re-render the page.
 struct RiskPulseRing: View {
     var cornerRadius: CGFloat = 16
     var lineWidth: CGFloat = 2.5
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 20.0, paused: false)) { context in
-            let phase = 0.5 + 0.5 * sin(context.date.timeIntervalSinceReferenceDate * (.pi / 1.05))
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .stroke(AppTheme.bad.opacity(0.28 + 0.67 * phase), lineWidth: lineWidth)
-                .shadow(color: AppTheme.bad.opacity(0.10 + 0.18 * phase), radius: 6 + 6 * phase, y: 3)
+        RiskPulseLayer(cornerRadius: cornerRadius, lineWidth: lineWidth)
+            .allowsHitTesting(false)
+    }
+}
+
+private struct RiskPulseLayer: UIViewRepresentable {
+    var cornerRadius: CGFloat
+    var lineWidth: CGFloat
+
+    func makeUIView(context: Context) -> PulseView {
+        PulseView()
+    }
+
+    func updateUIView(_ view: PulseView, context: Context) {
+        view.apply(cornerRadius: cornerRadius, lineWidth: lineWidth)
+    }
+
+    final class PulseView: UIView {
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            isUserInteractionEnabled = false
+            backgroundColor = .clear
+            layer.borderColor = UIColor(red: 220 / 255, green: 38 / 255, blue: 38 / 255, alpha: 1).cgColor
+            layer.cornerCurve = .continuous
+            layer.shadowColor = UIColor(red: 220 / 255, green: 38 / 255, blue: 38 / 255, alpha: 1).cgColor
+            layer.shadowOffset = CGSize(width: 0, height: 3)
         }
-        .allowsHitTesting(false)
+
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+        func apply(cornerRadius: CGFloat, lineWidth: CGFloat) {
+            layer.cornerRadius = cornerRadius
+            layer.borderWidth = lineWidth
+            layer.shadowRadius = 8
+            startIfNeeded()
+        }
+
+        private func startIfNeeded() {
+            guard layer.animation(forKey: "riskPulse") == nil else { return }
+            let opacity = CABasicAnimation(keyPath: "opacity")
+            opacity.fromValue = 0.28
+            opacity.toValue = 0.95
+            opacity.duration = 1.05
+            opacity.autoreverses = true
+            opacity.repeatCount = .infinity
+            opacity.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            layer.add(opacity, forKey: "riskPulse")
+
+            let glow = CABasicAnimation(keyPath: "shadowOpacity")
+            glow.fromValue = 0.10
+            glow.toValue = 0.28
+            glow.duration = 1.05
+            glow.autoreverses = true
+            glow.repeatCount = .infinity
+            glow.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            layer.add(glow, forKey: "riskGlow")
+        }
     }
 }
 
