@@ -9078,7 +9078,7 @@ struct FulfillmentChecklistCard: View {
                     .frame(minWidth: 72, alignment: .trailing)
                 Spacer(minLength: 8)
                 HStack(spacing: 8) {
-                    ForEach([ChecklistStatus.addressed, .followUp, .notCovered]) { status in
+                    ForEach([ChecklistStatus.addressed, .followUp]) { status in
                         statusChip(status, selected: action.status == status) {
                             store.setChecklistStatus(status, for: item, section: section)
                         }
@@ -9105,11 +9105,18 @@ struct FulfillmentChecklistCard: View {
                 if !item.broken.isEmpty {
                     diagnosisLine("Broken KPI", item.broken, AppTheme.bad)
                 }
-                if !item.shoppers.isEmpty {
-                    diagnosisLine("Shoppers to coach", item.shoppers, AppTheme.blueDeep)
-                }
                 if !item.action.isEmpty {
                     diagnosisLine("Action", item.action, AppTheme.text)
+                }
+            }
+            if !item.people.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Shoppers")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(AppTheme.text)
+                    ForEach(item.people) { person in
+                        shopperActionRow(person, storeItem: item, section: section)
+                    }
                 }
             }
             if item.id.hasPrefix("store-") {
@@ -9148,12 +9155,6 @@ struct FulfillmentChecklistCard: View {
                 .font(.subheadline)
                 .foregroundStyle(AppTheme.text)
                 .fixedSize(horizontal: false, vertical: true)
-            if !finding.shoppers.isEmpty {
-                Text("Shoppers to coach: \(finding.shoppers)")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(AppTheme.blueDeep)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
             Text(finding.action)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(AppTheme.text)
@@ -9162,6 +9163,56 @@ struct FulfillmentChecklistCard: View {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .tableRowCard(health: finding.health)
+    }
+
+    private func shopperActionRow(_ person: ChecklistShopper, storeItem: ChecklistDriverItem, section: MetricSection) -> some View {
+        let item = storeItem.shopperItem(person)
+        let action = store.checklistItem(for: item, section: section)
+        let showComment = commentingID == item.id || !action.comment.isEmpty
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(person.name)
+                        .font(.headline.weight(.bold))
+                        .foregroundStyle(AppTheme.text)
+                    Text(person.issues.joined(separator: "  ·  "))
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(headlineColor(person.health))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                HStack(spacing: 8) {
+                    ForEach([ChecklistStatus.addressed, .followUp]) { status in
+                        statusChip(status, selected: action.status == status) {
+                            store.setChecklistStatus(status, for: item, section: section)
+                        }
+                    }
+                }
+                Button {
+                    withAnimation { commentingID = showComment && commentingID == item.id ? nil : item.id }
+                } label: {
+                    Image(systemName: action.comment.isEmpty ? "text.bubble" : "text.bubble.fill")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(action.comment.isEmpty ? AppTheme.textTertiary : AppTheme.blue)
+                        .frame(width: 44, height: 44)
+                        .background(AppTheme.blueSoft.opacity(action.comment.isEmpty ? 0.45 : 1), in: Circle())
+                }
+                .buttonStyle(.plain)
+            }
+            Text(person.action)
+                .font(.subheadline)
+                .foregroundStyle(AppTheme.text)
+                .fixedSize(horizontal: false, vertical: true)
+            if showComment {
+                TextField("Note for \(person.name)", text: commentBinding(item, section: section), axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .font(.body)
+                    .lineLimit(1...4)
+                    .padding(12)
+                    .background(AppTheme.bg, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
+        }
+        .tableRowCard(health: person.health)
     }
 
     private func diagnosisLine(_ label: String, _ text: String, _ ink: Color) -> some View {
@@ -9190,7 +9241,7 @@ struct FulfillmentChecklistCard: View {
 
     private func statusChip(_ status: ChecklistStatus, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(status.shortLabel)
+            Text(status.label)
                 .font(.subheadline.weight(.semibold))
                 .padding(.horizontal, 14)
                 .frame(minHeight: 44)

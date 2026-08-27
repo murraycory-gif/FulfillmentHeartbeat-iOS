@@ -19,7 +19,8 @@ extension HeartbeatMath {
             broken: findings.map { "\($0.name) \($0.value) (need \($0.need))" }.joined(separator: "  ·  "),
             shoppers: findings.map(\.shoppers).filter { !$0.isEmpty }.joined(separator: "  ·  "),
             action: findings.map(\.action).joined(separator: " "),
-            findings: findings
+            findings: findings,
+            people: checklistPeople(section: section, store: store, latest: latest)
         )
     }
 
@@ -471,5 +472,115 @@ extension HeartbeatMath {
         pickers
             .filter(failing)
             .sorted { ($0.number("orders") ?? 0) > ($1.number("orders") ?? 0) }
+    }
+
+    private static func checklistPeople(
+        section: MetricSection,
+        store: String,
+        latest: [MetricSection: [MetricRow]]
+    ) -> [ChecklistShopper] {
+        var byID: [String: (row: MetricRow, issues: [(String, String, Health)])] = [:]
+        func add(_ row: MetricRow, _ issues: [(String, String, Health)]) {
+            guard isRealPicker(row) else { return }
+            let weak = issues.filter { $0.2 == .risk || $0.2 == .watch }
+            guard !weak.isEmpty else { return }
+            let id = canonicalShopper(row.shopperKey.isEmpty ? row.shopperName : row.shopperKey)
+            guard !id.isEmpty else { return }
+            if var existing = byID[id] {
+                for issue in weak where !existing.issues.contains(where: { $0.0 == issue.0 }) {
+                    existing.issues.append(issue)
+                }
+                byID[id] = existing
+            } else {
+                byID[id] = (row, weak)
+            }
+        }
+
+        switch section {
+        case .pickPath, .pickPathPicker:
+            for row in pathPickersForStore(latest, store) {
+                let path = row.number("compliance_pct")
+                add(row, [("Path", HeartbeatFormat.pct(path), band(path, good: pickPathGoal, watch: pickPathRisk))])
+            }
+            for row in pickersForStore(latest, store) {
+                add(row, pickerMetricReadout(row).filter { ["PPH", "Presub", "OOS"].contains($0.name) }.map { ($0.name, $0.value, $0.health) })
+            }
+        case .fiveStar:
+            for row in pickersForStore(latest, store) {
+                add(row, pickerMetricReadout(row).filter { ["OTT", "Presub", "OOS", "OTH5", "COE", "OTH Elig"].contains($0.name) }.map { ($0.name, $0.value, $0.health) })
+            }
+        case .lostRevenue:
+            for row in pickersForStore(latest, store) {
+                add(row, pickerMetricReadout(row).filter { ["Presub", "OOS", "Refund", "PPH"].contains($0.name) }.map { ($0.name, $0.value, $0.health) })
+            }
+        case .pph, .dynacap, .labor:
+            for row in pickersForStore(latest, store) {
+                add(row, pickerMetricReadout(row).filter { $0.name == "PPH" }.map { ($0.name, $0.value, $0.health) })
+            }
+        default:
+            break
+        }
+
+        return byID.values
+            .map { entry in
+                let health: Health = entry.issues.contains(where: { $0.2 == .risk }) ? .risk : .watch
+                let name = entry.row.shopperName.isEmpty ? entry.row.shopperId ?? entry.row.shopperKey : entry.row.shopperName
+                return ChecklistShopper(
+                    id: canonicalShopper(entry.row.shopperKey.isEmpty ? name : entry.row.shopperKey),
+                    name: name,
+                    issues: entry.issues.map { "\($0.0) \($0.1)" },
+                    action: shopperAction(name: name, issues: entry.issues),
+                    health: health
+                )
+            }
+            .sorted { lhs, rhs in
+                if lhs.health != rhs.health { return healthRank(lhs.health) > healthRank(rhs.health) }
+                return lhs.name < rhs.name
+            }
+            .prefix(8)
+            .map { $0 }
+    }
+
+    private static func healthRank(_ health: Health) -> Int {
+        switch health {
+        case .risk: return 3
+        case .watch: return 2
+        case .good: return 1
+        case .none: return 0
+        }
+    }
+
+    private static func shopperAction(name: String, issues: [(String, String, Health)]) -> String {
+        let names = Set(issues.map(\.0))
+        var parts: [String] = []
+        if names.contains("Presub") {
+            parts.append("Walk substitutions side-by-side — like-for-like only, then confirm.")
+        }
+        if names.contains("OOS") {
+            parts.append("Check the backroom before a mark-out. Own this shopper's top OOS items in the huddle.")
+        }
+        if names.contains("PPH") {
+            parts.append("Pair with a strong picker for two shifts. Pull non-pick work off them during the wave.")
+        }
+        if names.contains("OTT") {
+            parts.append("Do not start a new shop inside 20 minutes of a due time. Stage complete orders 15 minutes early.")
+        }
+        if names.contains("OTH5") || names.contains("OTH Elig") {
+            parts.append("Finish eligible orders in-hour. No new shop until the due-hour board is clear.")
+        }
+        if names.contains("COE") {
+            parts.append("Slow down at checkout — scan accuracy over speed until COE holds.")
+        }
+        if names.contains("Path") {
+            parts.append("Retrain on the path map this week. Manager walks two shops with them on the floor.")
+        }
+        if names.contains("Refund") {
+            parts.append("Audit this shopper's refunds. Recover the found item before a refund is offered.")
+        }
+        if parts.isEmpty {
+            let list = issues.map(\.0).joined(separator: ", ")
+            return "Coach \(name) on \(list) this week, side-by-side, then keep them off peak until it holds."
+        }
+        return parts.joined(separator: " ")
     }
 }

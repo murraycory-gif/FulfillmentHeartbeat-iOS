@@ -1542,6 +1542,14 @@ struct ChecklistFinding: Identifiable, Equatable {
     var id: String { name }
 }
 
+struct ChecklistShopper: Identifiable, Equatable {
+    var id: String
+    var name: String
+    var issues: [String]
+    var action: String
+    var health: Health
+}
+
 struct ChecklistDriverItem: Identifiable, Equatable {
     var id: String
     var title: String
@@ -1552,6 +1560,18 @@ struct ChecklistDriverItem: Identifiable, Equatable {
     var shoppers: String = ""
     var action: String = ""
     var findings: [ChecklistFinding] = []
+    var people: [ChecklistShopper] = []
+
+    func shopperItem(_ person: ChecklistShopper) -> ChecklistDriverItem {
+        ChecklistDriverItem(
+            id: "\(id)|ldap|\(person.id)",
+            title: person.name,
+            subtitle: title,
+            value: person.issues.joined(separator: " · "),
+            health: person.health,
+            action: person.action
+        )
+    }
 }
 
 struct ChecklistDriverGroup: Identifiable, Equatable {

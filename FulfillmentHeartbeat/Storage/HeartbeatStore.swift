@@ -621,17 +621,18 @@ final class HeartbeatStore: ObservableObject {
         var count = 0
         for section in MetricSection.checklistSections {
             var seen = Set<String>()
-            var shown = 0
             for group in cachedChecklistGroups[section] ?? [] {
                 for item in group.items {
                     guard seen.insert(item.title + "|" + item.subtitle).inserted else { continue }
                     if !checklistItem(for: item, section: section).status.isClosed {
                         count += 1
                     }
-                    shown += 1
-                    if shown == 5 { break }
+                    for person in item.people {
+                        if !checklistItem(for: item.shopperItem(person), section: section).status.isClosed {
+                            count += 1
+                        }
+                    }
                 }
-                if shown == 5 { break }
             }
         }
         return count
@@ -671,6 +672,14 @@ final class HeartbeatStore: ObservableObject {
                     lines.append("  Status: \(action.status.label) · \(HeartbeatFormat.stamp(action.updatedAt))")
                     if !action.comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         lines.append("  Comments: \(action.comment)")
+                    }
+                    for person in item.people {
+                        let personAction = checklistItem(for: item.shopperItem(person), section: section)
+                        lines.append("    LDAP \(person.name) · \(person.issues.joined(separator: " · ")) · \(personAction.status.label)")
+                        lines.append("    Action: \(person.action)")
+                        if !personAction.comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            lines.append("    Comments: \(personAction.comment)")
+                        }
                     }
                 }
             }
@@ -736,6 +745,20 @@ final class HeartbeatStore: ObservableObject {
                     }
                     if !action.comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         html += "<div class=\"comment\">\(escape(action.comment))</div>"
+                    }
+                    for person in item.people {
+                        let personAction = checklistItem(for: item.shopperItem(person), section: section)
+                        html += """
+                        <div class="row">
+                        <div class="title">LDAP \(escape(person.name))
+                        <span class="pill \(person.health.rawValue)">\(escape(person.health.label))</span></div>
+                        <div class="meta">\(escape(person.issues.joined(separator: " · "))) · \(escape(personAction.status.label))</div>
+                        <div class="meta"><b>Action:</b> \(escape(person.action))</div>
+                        """
+                        if !personAction.comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            html += "<div class=\"comment\">\(escape(personAction.comment))</div>"
+                        }
+                        html += "</div>"
                     }
                     html += "</div>"
                 }
