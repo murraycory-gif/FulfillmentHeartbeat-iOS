@@ -248,7 +248,11 @@ private extension View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(dashWash(health))
+                    .fill(Color.white)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(dashWash(health).opacity(0.42))
+                    }
             }
             .overlay(alignment: .leading) {
                 Capsule()
