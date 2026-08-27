@@ -8790,7 +8790,7 @@ struct HubBrandBar: View {
         .padding(.bottom, 12)
         .frame(maxWidth: .infinity)
         .background(AppTheme.bg)
-        .sheet(isPresented: $showAssist) {
+        .fullScreenCover(isPresented: $showAssist) {
             HeartbeatAssistSheet()
                 .environmentObject(store)
                 .environmentObject(router)
