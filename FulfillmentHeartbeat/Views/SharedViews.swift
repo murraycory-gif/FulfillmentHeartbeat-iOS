@@ -8762,14 +8762,14 @@ struct HubBrandBar: View {
                         }
                     }
                     Spacer(minLength: 8)
-                    Text(BuildStamp.label)
-                        .font(.caption2.weight(.semibold).monospaced())
-                        .foregroundStyle(AppTheme.textTertiary)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(AppTheme.card, in: Capsule(style: .continuous))
-                        .overlay(Capsule(style: .continuous).stroke(AppTheme.cardBorder, lineWidth: 1))
-                        .accessibilityLabel("Build \(BuildStamp.label)")
+                    HubChromePill(
+                        title: "Assist",
+                        symbol: "waveform.path.ecg",
+                        showsChevron: false
+                    ) {
+                        showAssist = true
+                    }
+                    .accessibilityLabel("Heartbeat Assist, build \(BuildStamp.label)")
                 }
                 BeatingHeartbeatMark(height: markHeight, showsTrace: true)
                     .allowsHitTesting(false)
@@ -8780,13 +8780,6 @@ struct HubBrandBar: View {
                 DayGreeting(font: greetingFont)
                     .layoutPriority(1)
                 Spacer(minLength: 8)
-                HubChromePill(
-                    title: "Assist",
-                    symbol: "waveform.path.ecg",
-                    showsChevron: false
-                ) {
-                    showAssist = true
-                }
                 if showsFilters {
                     FilterBar()
                 }
