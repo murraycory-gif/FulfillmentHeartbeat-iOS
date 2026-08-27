@@ -150,6 +150,7 @@ struct DashLostBanner: View {
 }
 
 struct DashBriefingList: View {
+    @EnvironmentObject private var store: HeartbeatStore
     let cards: [SectionSummary]
     let action: (MetricSection) -> Void
 
@@ -159,33 +160,80 @@ struct DashBriefingList: View {
                 Button {
                     action(card.section)
                 } label: {
-                    HStack(spacing: 16) {
-                        DashCardGlyph(symbol: card.section.symbol, health: card.health)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(card.section == .pickPath ? "Pick Path Compliance" : card.section.title)
-                                .font(.title2.weight(.bold))
-                                .foregroundStyle(AppTheme.text)
-                            Text(card.headlineLabel)
-                                .font(.title3)
-                                .foregroundStyle(AppTheme.textSecondary)
-                            Text(riskLine(for: card))
-                                .font(.title3.weight(.bold))
-                                .foregroundStyle(dashInk(card.riskCount == 0 ? .good : .risk))
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack(spacing: 16) {
+                            DashCardGlyph(symbol: card.section.symbol, health: card.health)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(card.section == .pickPath ? "Pick Path Compliance" : card.section.title)
+                                    .font(.title2.weight(.bold))
+                                    .foregroundStyle(AppTheme.text)
+                                Text(card.headlineLabel)
+                                    .font(.title3)
+                                    .foregroundStyle(AppTheme.textSecondary)
+                                Text(riskLine(for: card))
+                                    .font(.title3.weight(.bold))
+                                    .foregroundStyle(dashInk(card.riskCount == 0 ? .good : .risk))
+                            }
+                            Spacer(minLength: 8)
+                            Text(card.headlineText)
+                                .font(.system(size: 32, weight: .bold, design: .rounded).monospacedDigit())
+                                .foregroundStyle(dashInk(card.health))
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.55)
+                            HealthBadge(health: card.health, prominent: true)
+                            Image(systemName: "chevron.right")
+                                .font(.title3.weight(.semibold))
+                                .foregroundStyle(AppTheme.textTertiary)
                         }
-                        Spacer(minLength: 8)
-                        Text(card.headlineText)
-                            .font(.system(size: 32, weight: .bold, design: .rounded).monospacedDigit())
-                            .foregroundStyle(dashInk(card.health))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.55)
-                        HealthBadge(health: card.health, prominent: true)
-                        Image(systemName: "chevron.right")
-                            .font(.title3.weight(.semibold))
-                            .foregroundStyle(AppTheme.textTertiary)
+                        if card.section == .fiveStar {
+                            fiveStarFlags
+                        }
                     }
                     .modifier(DashCardChrome(health: card.health))
                 }
                 .buttonStyle(DashLiftStyle())
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var fiveStarFlags: some View {
+        let flags = HeartbeatMath.fiveStarActionFlags(store.displayRows(for: .fiveStar))
+        if !flags.isEmpty {
+            HStack(spacing: 8) {
+                ForEach(flags) { flag in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(flag.name)
+                            .font(.subheadline.weight(.bold))
+                            .foregroundStyle(AppTheme.text)
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text(flag.value)
+                                .font(.title3.weight(.bold).monospacedDigit())
+                                .foregroundStyle(dashInk(flag.health))
+                            HealthBadge(health: flag.health, prominent: true, compact: true)
+                        }
+                        Text(flag.stores == 1 ? "1 store" : "\(flag.stores) stores")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(AppTheme.textSecondary)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color.white.opacity(0.72))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(dashWash(flag.health).opacity(0.55))
+                            }
+                    )
+                    .overlay(alignment: .leading) {
+                        Capsule()
+                            .fill(dashInk(flag.health))
+                            .frame(width: 4)
+                            .padding(.vertical, 8)
+                    }
+                }
             }
         }
     }

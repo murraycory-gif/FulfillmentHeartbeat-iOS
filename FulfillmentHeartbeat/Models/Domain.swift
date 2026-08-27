@@ -1015,6 +1015,52 @@ enum HeartbeatMath {
         componentStar(row, starKey: "oth5_star", pctKey: "oth5_pct", full: 92, half: 78)
     }
 
+    struct FiveStarFlag: Identifiable, Equatable {
+        var id: String { name }
+        let name: String
+        let value: String
+        let health: Health
+        let stores: Int
+    }
+
+    static func fiveStarActionFlags(_ rows: [MetricRow]) -> [FiveStarFlag] {
+        let specs: [(name: String, key: String, mark: (MetricRow) -> StarMark)] = [
+            ("OTT", "ott_pct", ottStar),
+            ("Flash", "flash_pct", flashStar),
+            ("Presubs", "presub_pct", presubStar),
+            ("COE", "coe_pct", coeStar),
+            ("OTH 5%", "oth5_pct", othStar),
+        ]
+        var flags: [FiveStarFlag] = []
+        flags.reserveCapacity(specs.count)
+        for spec in specs {
+            var worst = Health.none
+            var action = 0
+            var values: [Double] = []
+            values.reserveCapacity(rows.count)
+            for row in rows {
+                guard let value = row.number(spec.key) else { continue }
+                values.append(value)
+                let health = spec.mark(row).health
+                if health.needsAction {
+                    action += 1
+                    if health == .risk { worst = .risk }
+                    else if worst != .risk { worst = .watch }
+                }
+            }
+            guard action > 0, worst.needsAction else { continue }
+            flags.append(
+                FiveStarFlag(
+                    name: spec.name,
+                    value: HeartbeatFormat.pct(average(values)),
+                    health: worst,
+                    stores: action
+                )
+            )
+        }
+        return flags
+    }
+
     static func oosStar(_ row: MetricRow) -> StarMark {
         componentStar(row, starKey: "oos_star", pctKey: "oos_pct", full: 3, half: 5, invert: true)
     }
