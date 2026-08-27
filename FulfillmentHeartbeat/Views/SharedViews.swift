@@ -8922,56 +8922,50 @@ struct FulfillmentChecklistCard: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            if showsHeader {
-                header
-            }
-            VStack(alignment: .leading, spacing: 14) {
+        if showsHeader {
+            compactCard
+        } else {
+            pageScroll
+        }
+    }
+
+    private var pageScroll: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 14) {
+                HubBanner(
+                    icon: HubDestination.checklist.symbol,
+                    title: "Operational Heartbeat Checklist",
+                    accessory: "\(store.filters.summary)  ·  \(store.checklistOpenCount) open"
+                )
+                Text("Action items for at-risk and watch metrics in this filter. Work them in order.")
+                    .font(.subheadline)
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .padding(.horizontal, 4)
                 visibilityStrip
-                if expanded || !showsHeader {
-                    LazyVStack(spacing: 14) {
-                        ForEach(MetricSection.checklistSections) { section in
-                            sectionBlock(section)
+                ForEach(MetricSection.checklistSections) { section in
+                    sectionHeader(section)
+                    if openSections.contains(section) {
+                        ForEach(Array(visibleItems(for: section).enumerated()), id: \.element.id) { index, item in
+                            issueRow(item, section: section, rank: index + 1)
                         }
                     }
-                    sendBar
                 }
+                sendBar
             }
-            .padding(showsHeader ? 16 : 0)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(showsHeader ? AppTheme.bg : Color.clear)
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            .padding(.bottom, 36)
         }
-        .modifier(ChecklistCardClip(enabled: showsHeader))
+        .scrollIndicators(.hidden)
+        .background(AppTheme.bg.ignoresSafeArea())
         .onAppear {
-            if startsExpanded {
-                expanded = true
-            }
+            expanded = true
             if openSections.isEmpty {
                 openSections = Set(MetricSection.checklistSections)
             }
         }
-        .onChange(of: expanded) { _, isOpen in
-            if isOpen, openSections.isEmpty {
-                openSections = Set(MetricSection.checklistSections)
-            }
-        }
-        .sheet(isPresented: $showingMail) {
-            MailComposeView(
-                recipients: store.checklistRecipients,
-                subject: store.checklistEmailSubject(),
-                html: store.checklistEmailHTML(),
-                plain: store.checklistEmailText()
-            ) { result in
-                showingMail = false
-                if result == .failed {
-                    mailError = "Mail didn’t send. Check that this iPad has a Mail account, or copy the recap."
-                }
-            }
-        }
-        .alert("Couldn’t send", isPresented: Binding(
-            get: { mailError != nil },
-            set: { if !$0 { mailError = nil } }
-        )) {
+        .sheet(isPresented: $showingMail, content: mailSheet)
+        .alert("Couldn’t send", isPresented: mailErrorBinding) {
             Button("Copy recap") {
                 UIPasteboard.general.string = store.checklistEmailText()
                 mailError = nil
@@ -8980,6 +8974,62 @@ struct FulfillmentChecklistCard: View {
         } message: {
             Text(mailError ?? "")
         }
+    }
+
+    private var compactCard: some View {
+        VStack(spacing: 0) {
+            header
+            if expanded {
+                VStack(alignment: .leading, spacing: 14) {
+                    visibilityStrip
+                    ForEach(MetricSection.checklistSections) { section in
+                        sectionHeader(section)
+                        if openSections.contains(section) {
+                            ForEach(Array(visibleItems(for: section).enumerated()), id: \.element.id) { index, item in
+                                issueRow(item, section: section, rank: index + 1)
+                            }
+                        }
+                    }
+                    sendBar
+                }
+                .padding(16)
+            }
+        }
+        .modifier(ChecklistCardClip(enabled: true))
+        .onAppear {
+            if startsExpanded { expanded = true }
+        }
+        .sheet(isPresented: $showingMail, content: mailSheet)
+        .alert("Couldn’t send", isPresented: mailErrorBinding) {
+            Button("Copy recap") {
+                UIPasteboard.general.string = store.checklistEmailText()
+                mailError = nil
+            }
+            Button("OK", role: .cancel) { mailError = nil }
+        } message: {
+            Text(mailError ?? "")
+        }
+    }
+
+    private func mailSheet() -> some View {
+        MailComposeView(
+            recipients: store.checklistRecipients,
+            subject: store.checklistEmailSubject(),
+            html: store.checklistEmailHTML(),
+            plain: store.checklistEmailText()
+        ) { result in
+            showingMail = false
+            if result == .failed {
+                mailError = "Mail didn’t send. Check that this iPad has a Mail account, or copy the recap."
+            }
+        }
+    }
+
+    private var mailErrorBinding: Binding<Bool> {
+        Binding(
+            get: { mailError != nil },
+            set: { if !$0 { mailError = nil } }
+        )
     }
 
     private var header: some View {
@@ -9090,49 +9140,35 @@ struct FulfillmentChecklistCard: View {
         return items.filter { $0.health.needsAction }
     }
 
-    private func sectionBlock(_ section: MetricSection) -> some View {
+    private func sectionHeader(_ section: MetricSection) -> some View {
         let summary = store.summary(for: section)
         let items = visibleItems(for: section)
         let isOpen = openSections.contains(section)
         return Group {
-            if items.isEmpty {
-                EmptyView()
-            } else {
-                VStack(alignment: .leading, spacing: 0) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.18)) {
-                    if isOpen {
-                        openSections.remove(section)
-                    } else {
-                        openSections.insert(section)
+            if !items.isEmpty {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        if isOpen {
+                            openSections.remove(section)
+                        } else {
+                            openSections.insert(section)
+                        }
+                        commentingID = nil
                     }
-                    commentingID = nil
+                } label: {
+                    HubTableHeader(
+                        icon: section.symbol,
+                        title: section.title,
+                        accessory: sectionAccessory(summary: summary, count: items.count, expanded: isOpen),
+                        expanded: isOpen
+                    )
                 }
-            } label: {
-                HubTableHeader(
-                    icon: section.symbol,
-                    title: section.title,
-                    accessory: sectionAccessory(summary: summary, count: items.count, expanded: isOpen),
-                    expanded: isOpen
+                .buttonStyle(.plain)
+                .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                        .stroke(AppTheme.blue, lineWidth: 2.5)
                 )
-            }
-            .buttonStyle(.plain)
-            if isOpen {
-                VStack(alignment: .leading, spacing: 10) {
-                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                        issueRow(item, section: section, rank: index + 1)
-                    }
-                }
-                .padding(16)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(AppTheme.tableFill)
-            }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                .stroke(AppTheme.blue, lineWidth: 2.5)
-        )
             }
         }
     }

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SectionDetailView: View {
     @EnvironmentObject private var store: HeartbeatStore
+    @EnvironmentObject private var router: HubRouter
     @StateObject private var laborHeaderPin = LaborHeaderPin()
     let section: MetricSection
     @State private var pickerFocus: PickerFocus = .all
@@ -179,11 +180,23 @@ struct SectionDetailView: View {
             }
         }
         .onAppear {
-            guard !showTables else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
-                showTables = true
-                laborHeaderPin.openOnPageEnter()
-            }
+            armTablesIfActive()
+        }
+        .onChange(of: router.current) { _, _ in
+            armTablesIfActive()
+        }
+    }
+
+    private var isActivePage: Bool {
+        router.current.section == section
+    }
+
+    private func armTablesIfActive() {
+        guard isActivePage, !showTables else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            guard isActivePage else { return }
+            showTables = true
+            laborHeaderPin.openOnPageEnter()
         }
     }
 

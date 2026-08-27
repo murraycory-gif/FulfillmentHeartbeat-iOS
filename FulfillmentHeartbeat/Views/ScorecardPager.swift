@@ -20,6 +20,8 @@ struct ScorecardPager: UIViewControllerRepresentable {
         pager.delegate = context.coordinator
         pager.dataSource = context.coordinator
         pager.view.backgroundColor = AppTheme.uiBg
+        pager.view.clipsToBounds = true
+        pager.view.layer.masksToBounds = true
         context.coordinator.attach(pager)
         let dest = router.current == .upload ? .dashboard : router.current
         context.coordinator.snap(to: dest, animated: false)
@@ -55,6 +57,16 @@ struct ScorecardPager: UIViewControllerRepresentable {
         override func viewDidLoad() {
             super.viewDidLoad()
             view.backgroundColor = AppTheme.uiBg
+            view.clipsToBounds = true
+            view.layer.masksToBounds = true
+        }
+
+        override func viewDidLayoutSubviews() {
+            super.viewDidLayoutSubviews()
+            view.clipsToBounds = true
+            if let bounds = view.superview?.bounds, bounds.width > 0 {
+                view.frame = bounds
+            }
         }
 
         @available(*, unavailable)

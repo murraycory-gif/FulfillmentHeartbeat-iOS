@@ -300,6 +300,7 @@ struct MainHubView: View {
                             .environmentObject(router)
                     )
                 }
+                .clipped()
                 .ignoresSafeArea(edges: .bottom)
             }
         }
