@@ -8814,7 +8814,7 @@ struct FulfillmentChecklistCard: View {
             VStack(alignment: .leading, spacing: 12) {
                 visibilityStrip
                 if expanded || !showsHeader {
-                    VStack(spacing: 8) {
+                    VStack(spacing: 12) {
                         ForEach(MetricSection.checklistSections) { section in
                             sectionBlock(section)
                         }
@@ -8822,21 +8822,17 @@ struct FulfillmentChecklistCard: View {
                     sendBar
                 }
             }
-            .padding(16)
+            .padding(showsHeader ? 16 : 0)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(fill)
-            .overlay {
-                if pulseHealth == .risk {
-                    RiskPulseRing(cornerRadius: 0, lineWidth: 3)
-                        .padding(3)
-                }
-            }
+            .background(showsHeader ? AppTheme.bg : Color.clear)
         }
         .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                .stroke(AppTheme.blue, lineWidth: 2.5)
-        )
+        .overlay {
+            if showsHeader {
+                RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                    .stroke(AppTheme.blue, lineWidth: 2.5)
+            }
+        }
         .onAppear {
             if startsExpanded {
                 expanded = true
@@ -8985,64 +8981,52 @@ struct FulfillmentChecklistCard: View {
         let summary = store.summary(for: section)
         let items = visibleItems(for: section)
         let isOpen = openSection == section
-        return VStack(alignment: .leading, spacing: 8) {
+        return VStack(alignment: .leading, spacing: 0) {
             Button {
                 withAnimation(.easeInOut(duration: 0.18)) {
                     openSection = isOpen ? nil : section
                     commentingID = nil
                 }
             } label: {
-                HStack(spacing: 10) {
-                    Circle()
-                        .fill(headlineColor(summary.health))
-                        .frame(width: 8, height: 8)
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack(spacing: 8) {
-                            Text(section.short)
-                                .font(.headline)
-                                .foregroundStyle(AppTheme.text)
-                            HealthBadge(health: summary.health)
-                        }
-                        if !isOpen {
-                            Text(previewLine(for: items))
-                                .font(.subheadline)
-                                .foregroundStyle(AppTheme.textSecondary)
-                                .lineLimit(1)
-                        }
-                    }
-                    Spacer()
-                    Text(summary.headlineText)
-                        .font(.title2.weight(.bold).monospacedDigit())
-                        .foregroundStyle(headlineColor(summary.health))
-                    Image(systemName: isOpen ? "chevron.up" : "chevron.down")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(AppTheme.textTertiary)
-                        .frame(width: 28, height: 28)
-                }
+                HubTableHeader(
+                    icon: section.symbol,
+                    title: section.title,
+                    accessory: sectionAccessory(summary: summary, count: items.count, expanded: isOpen),
+                    expanded: isOpen
+                )
             }
             .buttonStyle(.plain)
-
             if isOpen {
-                if items.isEmpty {
-                    Text("Nothing to action in this filter.")
-                        .font(.subheadline)
-                        .foregroundStyle(AppTheme.textSecondary)
-                } else {
-                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                        issueRow(item, section: section, rank: index + 1)
+                VStack(alignment: .leading, spacing: 8) {
+                    if items.isEmpty {
+                        Text("Nothing to action in this filter.")
+                            .font(.subheadline)
+                            .foregroundStyle(AppTheme.textSecondary)
+                    } else {
+                        ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                            issueRow(item, section: section, rank: index + 1)
+                        }
                     }
                 }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(AppTheme.tableFill)
             }
         }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
-                .fill(sectionWash(summary.health))
-        )
+        .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
-                .stroke(headlineColor(summary.health).opacity(summary.health == .none ? 0.12 : 0.28), lineWidth: 1)
+            RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                .stroke(AppTheme.blue, lineWidth: 2.5)
         )
+    }
+
+    private func sectionAccessory(summary: SectionSummary, count: Int, expanded: Bool) -> String {
+        let health = summary.health == .none ? "No data" : summary.health.label.uppercased()
+        let noun = summary.section == .pickerScorecard
+            ? (count == 1 ? "picker" : "pickers")
+            : (count == 1 ? "store" : "stores")
+        let status = count == 0 ? "No issues" : "\(count) \(noun)"
+        return "\(health)  ·  \(status)  ·  tap to \(expanded ? "collapse" : "expand")"
     }
 
     private func issueRow(_ item: ChecklistDriverItem, section: MetricSection, rank: Int) -> some View {
