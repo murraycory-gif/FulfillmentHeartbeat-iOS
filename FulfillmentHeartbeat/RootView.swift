@@ -53,14 +53,9 @@ struct LaunchSplashView: View {
             VStack(spacing: 22) {
                 BeatingHeartbeatMark(height: 88, showsTrace: true)
 
-                VStack(spacing: 4) {
-                    Text("Fulfillment")
-                        .font(.system(size: 30, weight: .semibold))
-                        .foregroundStyle(AppTheme.text)
-                    Text("Heartbeat")
-                        .font(.system(size: 30, weight: .semibold))
-                        .foregroundStyle(AppTheme.blue)
-                }
+                Text("Heartbeat")
+                    .font(.system(size: 28, weight: .semibold))
+                    .foregroundStyle(Color(hex: "00A9E0"))
 
                 if isLoading {
                     ProgressView()

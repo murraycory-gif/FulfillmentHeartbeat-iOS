@@ -452,66 +452,39 @@ struct LogoECGShape: Shape {
     }
 }
 
-struct AlbertsonsMark: View {
+struct FulfillmentWordmark: View {
     var height: CGFloat = 44
 
     var body: some View {
-        Canvas { context, size in
-            let w = size.width
-            let h = size.height
-            func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
-                CGPoint(x: x * w, y: y * h)
-            }
-            let dark = Color(hex: "003DA5")
-            let light = Color(hex: "00A9E0")
-
-            var left = Path()
-            left.move(to: pt(0.08, 0.90))
-            left.addQuadCurve(to: pt(0.00, 0.74), control: pt(0.00, 0.90))
-            left.addLine(to: pt(0.36, 0.08))
-            left.addLine(to: pt(0.54, 0.08))
-            left.addLine(to: pt(0.32, 0.50))
-            left.addLine(to: pt(0.20, 0.74))
-            left.addQuadCurve(to: pt(0.08, 0.90), control: pt(0.10, 0.94))
-            left.closeSubpath()
-            context.fill(left, with: .color(dark))
-
-            var right = Path()
-            right.move(to: pt(0.50, 0.08))
-            right.addLine(to: pt(0.68, 0.08))
-            right.addLine(to: pt(1.00, 0.74))
-            right.addQuadCurve(to: pt(0.86, 0.90), control: pt(1.02, 0.88))
-            right.addLine(to: pt(0.72, 0.90))
-            right.addLine(to: pt(0.50, 0.46))
-            right.closeSubpath()
-            context.fill(right, with: .color(light))
-
-            func leaf(from origin: CGPoint, angle: CGFloat, length: CGFloat, girth: CGFloat) {
-                var path = Path()
-                let tip = CGPoint(x: origin.x + cos(angle) * length, y: origin.y + sin(angle) * length)
-                let a = CGPoint(x: origin.x + cos(angle + .pi / 2) * girth, y: origin.y + sin(angle + .pi / 2) * girth)
-                let b = CGPoint(x: origin.x + cos(angle - .pi / 2) * girth, y: origin.y + sin(angle - .pi / 2) * girth)
-                path.move(to: origin)
-                path.addQuadCurve(to: tip, control: CGPoint(x: a.x + cos(angle) * length * 0.45, y: a.y + sin(angle) * length * 0.45))
-                path.addQuadCurve(to: origin, control: CGPoint(x: b.x + cos(angle) * length * 0.45, y: b.y + sin(angle) * length * 0.45))
-                path.closeSubpath()
-                context.fill(path, with: .color(dark))
-            }
-
-            let hub = pt(0.42, 0.60)
-            leaf(from: hub, angle: -.pi / 2, length: h * 0.17, girth: w * 0.075)
-            leaf(from: hub, angle: .pi * 0.78, length: h * 0.16, girth: w * 0.07)
-            leaf(from: hub, angle: .pi * 0.22, length: h * 0.16, girth: w * 0.07)
+        HStack(alignment: .firstTextBaseline, spacing: 0) {
+            Text("Fulfill")
+                .foregroundStyle(Color(hex: "003DA5"))
+            Text("ment")
+                .foregroundStyle(Color(hex: "00A9E0"))
         }
-        .frame(width: height * 1.12, height: height)
-        .accessibilityLabel("Albertsons")
+        .font(.system(size: height * 0.48, weight: .bold, design: .default))
+        .tracking(-0.8)
+        .overlay(alignment: .bottom) {
+            Capsule()
+                .fill(
+                    LinearGradient(
+                        colors: [Color(hex: "003DA5"), Color(hex: "00A9E0")],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .frame(height: max(2, height * 0.045))
+                .offset(y: height * 0.08)
+        }
+        .padding(.bottom, height * 0.10)
+        .accessibilityLabel("Fulfillment")
     }
 }
 
 struct BeatingHeartbeatMark: View {
     var height: CGFloat = 52
     var showsTrace: Bool = true
-    var showsAlbertsons: Bool = true
+    var showsWordmark: Bool = true
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { context in
@@ -519,8 +492,8 @@ struct BeatingHeartbeatMark: View {
             let head = CGFloat(cycle / 1.08)
             let lineWidth = height * 0.11
             HStack(alignment: .center, spacing: height * 0.16) {
-                if showsAlbertsons {
-                    AlbertsonsMark(height: height * 0.92)
+                if showsWordmark {
+                    FulfillmentWordmark(height: height)
                 }
                 ZStack(alignment: .leading) {
                     if showsTrace {
@@ -587,7 +560,7 @@ struct BeatingHeartbeatMark: View {
             }
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Albertsons Fulfillment Heartbeat")
+        .accessibilityLabel("Fulfillment Heartbeat")
     }
 }
 
@@ -620,7 +593,7 @@ struct HubNavLogo: View {
     var height: CGFloat = 32
 
     var body: some View {
-        BeatingHeartbeatMark(height: height, showsTrace: pulse, showsAlbertsons: pulse)
+        BeatingHeartbeatMark(height: height, showsTrace: pulse, showsWordmark: pulse)
     }
 }
 
