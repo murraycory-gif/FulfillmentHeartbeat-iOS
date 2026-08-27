@@ -5,6 +5,7 @@ import UIKit
 struct UploadView: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var router: HubRouter
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var showImporter = false
     @State private var importTarget: MetricSection?
     @State private var masterImport = false
@@ -35,7 +36,7 @@ struct UploadView: View {
                     .foregroundStyle(AppTheme.text)
                     .padding(.top, 4)
 
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 320), spacing: 16)], spacing: 16) {
+                LazyVGrid(columns: uploadColumns, spacing: 16) {
                     ForEach(MetricSection.uploadOrder) { section in
                         UploadPanel(
                             section: section,
@@ -51,6 +52,7 @@ struct UploadView: View {
                             },
                             onClear: { store.clearSection(section) }
                         )
+                        .frame(maxWidth: .infinity, minHeight: 428, maxHeight: .infinity, alignment: .top)
                     }
                 }
 
@@ -108,6 +110,16 @@ struct UploadView: View {
         .onChange(of: showError) { _, presented in
             if !presented { store.errorMessage = nil }
         }
+    }
+
+    private var uploadColumns: [GridItem] {
+        if sizeClass == .compact {
+            return [GridItem(.flexible(), spacing: 16)]
+        }
+        return [
+            GridItem(.flexible(), spacing: 16),
+            GridItem(.flexible(), spacing: 16),
+        ]
     }
 
     private func beginMasterImport() {
@@ -298,11 +310,14 @@ struct UploadPanel: View {
                         Text(section.blurb)
                             .font(.caption)
                             .foregroundStyle(AppTheme.textSecondary)
+                            .lineLimit(2)
+                            .frame(minHeight: 32, alignment: .topLeading)
                         Text(section == .pickPathPicker
                              ? "Shows pickers under each store on Pick Path"
                              : "Updates the \(section.short) card on the dashboard")
                             .font(.caption.weight(.medium))
                             .foregroundStyle(AppTheme.blue)
+                            .lineLimit(2)
                     }
                     Spacer(minLength: 0)
                 }
@@ -310,6 +325,8 @@ struct UploadPanel: View {
                 Text("Expects \(section.expectedMetrics)")
                     .font(.caption)
                     .foregroundStyle(AppTheme.textTertiary)
+                    .lineLimit(2)
+                    .frame(minHeight: 32, alignment: .topLeading)
 
                 Button(action: onPick) {
                     VStack(spacing: 8) {
@@ -319,9 +336,12 @@ struct UploadPanel: View {
                         Text("Choose file from iCloud or OneDrive")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(AppTheme.text)
+                            .multilineTextAlignment(.center)
                         Text(".xlsx or .csv · replaces current \(section.short) data")
                             .font(.caption)
                             .foregroundStyle(AppTheme.textTertiary)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
                         Text("Choose file")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.white)
@@ -330,8 +350,8 @@ struct UploadPanel: View {
                             .background(AppTheme.blue, in: Capsule(style: .continuous))
                             .padding(.top, 4)
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 22)
+                    .frame(maxWidth: .infinity, minHeight: 148)
+                    .padding(.vertical, 18)
                     .padding(.horizontal, 12)
                     .background(
                         RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
@@ -358,12 +378,15 @@ struct UploadPanel: View {
                                 Text(validation)
                                     .font(.caption.weight(.semibold))
                                     .foregroundStyle(AppTheme.text)
-                                    .fixedSize(horizontal: false, vertical: true)
+                                    .lineLimit(2)
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                     } else {
-                        Spacer(minLength: 0)
+                        Text("No file loaded")
+                            .font(.subheadline)
+                            .foregroundStyle(AppTheme.textTertiary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     if let source = section.sourceLink {
                         Button("Link") {
@@ -380,9 +403,13 @@ struct UploadPanel: View {
                             .foregroundStyle(AppTheme.bad)
                     }
                 }
+                .frame(minHeight: 52, alignment: .center)
+
+                Spacer(minLength: 0)
 
                 UpdatedStamp(date: upload?.uploadedAt, wide: true)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
     }
 

@@ -548,13 +548,14 @@ struct BeatingHeartbeatMark: View {
 }
 
 struct DayGreeting: View {
-    var font: Font = .system(size: 34, weight: .bold)
+    var font: Font = .system(size: 30, weight: .bold, design: .default)
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
             let part = Self.part(at: context.date)
             (Text("Good ").foregroundStyle(AppTheme.text) + Text(part).foregroundStyle(AppTheme.blue))
                 .font(font)
+                .tracking(-0.8)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .accessibilityLabel("Good \(part)")
@@ -8794,9 +8795,7 @@ struct HubBrandBar: View {
     }
 
     private var greetingFont: Font {
-        sizeClass == .regular
-            ? .system(size: 36, weight: .bold)
-            : .system(size: 26, weight: .bold)
+        .system(size: markHeight * 0.48, weight: .bold, design: .default)
     }
 }
 
