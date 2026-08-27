@@ -55,7 +55,7 @@ struct LaunchSplashView: View {
 
                 Text("Heartbeat")
                     .font(.system(size: 28, weight: .semibold))
-                    .foregroundStyle(Color(hex: "00A9E0"))
+                    .foregroundStyle(AppTheme.blue)
 
                 if isLoading {
                     ProgressView()

@@ -229,22 +229,61 @@ struct MainHubView: View {
     }
 
     private func sidebarRow(_ item: HubDestination) -> some View {
-        Button {
+        let health = navHealth(for: item)
+        let selected = router.destination == item
+        return Button {
             router.open(item)
         } label: {
-            Label(item.title, systemImage: item.symbol)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 6)
-                .contentShape(Rectangle())
+            HStack(spacing: 10) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(AppTheme.healthWash(health))
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(AppTheme.healthInk(health).opacity(0.18), lineWidth: 1)
+                    Image(systemName: item.symbol)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(AppTheme.healthInk(health))
+                }
+                .frame(width: 28, height: 28)
+                Text(item.title)
+                    .font(.body.weight(selected ? .semibold : .regular))
+                    .foregroundStyle(selected ? AppTheme.blue : AppTheme.text)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .foregroundStyle(router.destination == item ? AppTheme.blueDeep : AppTheme.text)
         .listRowBackground(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(router.destination == item ? AppTheme.blueSoft : Color.clear)
+                .fill(selected ? AppTheme.healthWash(health).opacity(0.85) : Color.clear)
         )
         .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
     }
+
+    private func navHealth(for dest: HubDestination) -> Health {
+        switch dest {
+        case .upload:
+            return .none
+        case .dashboard, .checklist:
+            return store.summaries.map(\.health).max(by: { healthRank($0) < healthRank($1) }) ?? .none
+        default:
+            guard let section = dest.section else { return .none }
+            return store.summary(for: section).health
+        }
+    }
+
+    private func healthRank(_ health: Health) -> Int {
+        switch health {
+        case .none: return 0
+        case .good: return 1
+        case .watch: return 2
+        case .risk: return 3
+        }
+    }
+
 
     @ViewBuilder
     private var detail: some View {

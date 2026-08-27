@@ -3,11 +3,14 @@ import UIKit
 
 /// EnviroMap light paper: HUB canvas #F5F7FC, brand blue, quiet type.
 enum AppTheme {
-    static let blue = Color(hex: "3A69EA")
-    static let blueSoft = Color(hex: "E8EEFE")
-    static let blueDeep = Color(hex: "1E4BC8")
+    /// Darker Albertsons blue — Fulfillment title, UI chrome, and all blue text.
+    static let blue = Color(hex: "003DA5")
+    static let blueSoft = Color(hex: "DCE6F4")
+    static let blueDeep = Color(hex: "003DA5")
     /// Darker Albertsons blue — heart fill.
     static let heart = Color(hex: "003DA5")
+    /// Lighter Albertsons blue — ECG pulse and "ment" in the wordmark.
+    static let pulse = Color(hex: "00A9E0")
 
     /// Same canvas as the HUB app.
     static let bg = Color(hex: "F5F7FC")
@@ -31,6 +34,24 @@ enum AppTheme {
     static let radiusL: CGFloat = 20
     static let radiusM: CGFloat = 14
     static let radiusS: CGFloat = 10
+
+    static func healthInk(_ health: Health) -> Color {
+        switch health {
+        case .good: return ok
+        case .watch: return warn
+        case .risk: return bad
+        case .none: return text
+        }
+    }
+
+    static func healthWash(_ health: Health) -> Color {
+        switch health {
+        case .good: return okSoft
+        case .watch: return warnSoft
+        case .risk: return badSoft
+        case .none: return tableFill
+        }
+    }
 }
 
 extension Color {

@@ -53,8 +53,8 @@ enum PulseMail {
         .wrap{max-width:1100px;margin:0 auto}
         h1{font-size:22px;margin:0 0 4px}
         .sub{color:#5C677A;font-size:13px;margin:0 0 18px}
-        .page{background:#fff;border:2.5px solid #3A69EA;border-radius:16px;overflow:hidden;margin:0 0 18px}
-        .banner{background:#3A69EA;color:#fff;padding:12px 16px;font-weight:700;font-size:18px}
+        .page{background:#fff;border:2.5px solid #003DA5;border-radius:16px;overflow:hidden;margin:0 0 18px}
+        .banner{background:#003DA5;color:#fff;padding:12px 16px;font-weight:700;font-size:18px}
         .banner small{display:block;font-weight:600;opacity:.9;font-size:12px;margin-top:2px}
         .pad{padding:14px 16px}
         .kpis{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px}

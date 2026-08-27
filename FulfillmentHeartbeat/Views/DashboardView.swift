@@ -88,23 +88,9 @@ struct DashboardView: View {
     }
 }
 
-private func dashInk(_ health: Health) -> Color {
-    switch health {
-    case .good: return AppTheme.ok
-    case .watch: return AppTheme.warn
-    case .risk: return AppTheme.bad
-    case .none: return AppTheme.text
-    }
-}
+private func dashInk(_ health: Health) -> Color { AppTheme.healthInk(health) }
 
-private func dashWash(_ health: Health) -> Color {
-    switch health {
-    case .good: return AppTheme.okSoft
-    case .watch: return AppTheme.warnSoft
-    case .risk: return AppTheme.badSoft
-    case .none: return AppTheme.tableFill
-    }
-}
+private func dashWash(_ health: Health) -> Color { AppTheme.healthWash(health) }
 
 struct DashLostBanner: View {
     let summary: SectionSummary

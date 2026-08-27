@@ -500,13 +500,13 @@ struct BeatingHeartbeatMark: View {
                         ZStack {
                             LogoECGShape()
                                 .stroke(
-                                    AppTheme.blue.opacity(0.22),
+                                    AppTheme.pulse.opacity(0.22),
                                     style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round)
                                 )
                             LogoECGShape()
                                 .trim(from: 0, to: max(0.02, head))
                                 .stroke(
-                                    AppTheme.blue,
+                                    AppTheme.pulse,
                                     style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round)
                                 )
                         }
