@@ -150,6 +150,8 @@ enum Health: String, Codable, Equatable {
         case .none: return "No data"
         }
     }
+
+    var needsAction: Bool { self == .risk || self == .watch }
 }
 
 struct MetricRow: Identifiable, Codable, Hashable {

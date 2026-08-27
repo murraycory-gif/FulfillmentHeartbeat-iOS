@@ -797,14 +797,15 @@ final class HeartbeatStore: ObservableObject {
                     latest: latest
                 )
             }
+            .filter { $0.health.needsAction }
             if !items.isEmpty {
                 groups[section] = [ChecklistDriverGroup(title: "Top \(items.count) opportunity stores", items: items)]
             }
         }
-        let pickerGroups = HeartbeatMath.topPickersByMetric(latest[.pickerScorecard] ?? [], limit: 10).map { board -> ChecklistDriverGroup in
-            ChecklistDriverGroup(
-                title: "Top \(board.rows.count) \(board.metric)",
-                items: board.rows.map { row in
+        let pickerGroups = HeartbeatMath.topPickersByMetric(latest[.pickerScorecard] ?? [], limit: 10).compactMap { board -> ChecklistDriverGroup? in
+            let items = board.rows.compactMap { row -> ChecklistDriverItem? in
+                    let health = HeartbeatMath.pickerHealth(row)
+                    guard health.needsAction else { return nil }
                     let division = row.division.isEmpty ? identity(forStore: row.storeNumber).division : row.division
                     let value: String
                     switch board.metric {
@@ -819,7 +820,7 @@ final class HeartbeatStore: ObservableObject {
                         title: row.shopperName,
                         subtitle: "\(row.storeNumber)\(division.isEmpty ? "" : " · \(division)")",
                         value: value,
-                        health: HeartbeatMath.pickerHealth(row),
+                        health: health,
                         broken: "\(board.metric) \(value)",
                         shoppers: row.shopperName,
                         action: "Coach \(row.shopperName) on \(board.metric) this week, side-by-side, then keep them off peak until it holds.",
@@ -828,7 +829,7 @@ final class HeartbeatStore: ObservableObject {
                                 name: board.metric,
                                 value: value,
                                 need: "on goal",
-                                health: HeartbeatMath.pickerHealth(row),
+                                health: health,
                                 fact: HeartbeatMath.pickerOpportunityText(row),
                                 shoppers: row.shopperName,
                                 action: "Coach \(row.shopperName) on \(board.metric) this week, side-by-side, then keep them off peak until it holds."
@@ -836,7 +837,8 @@ final class HeartbeatStore: ObservableObject {
                         ]
                     )
                 }
-            )
+            guard !items.isEmpty else { return nil }
+            return ChecklistDriverGroup(title: "Top \(items.count) \(board.metric)", items: items)
         }
         if !pickerGroups.isEmpty {
             groups[.pickerScorecard] = pickerGroups
@@ -2100,14 +2102,15 @@ private struct PulseCaches {
                     latest: latest
                 )
             }
+            .filter { $0.health.needsAction }
             if !items.isEmpty {
                 groups[section] = [ChecklistDriverGroup(title: "Top \(items.count) opportunity stores", items: items)]
             }
         }
-        let pickerGroups = HeartbeatMath.topPickersByMetric(latest[.pickerScorecard] ?? [], limit: 10).map { board -> ChecklistDriverGroup in
-            ChecklistDriverGroup(
-                title: "Top \(board.rows.count) \(board.metric)",
-                items: board.rows.map { row in
+        let pickerGroups = HeartbeatMath.topPickersByMetric(latest[.pickerScorecard] ?? [], limit: 10).compactMap { board -> ChecklistDriverGroup? in
+            let items = board.rows.compactMap { row -> ChecklistDriverItem? in
+                    let health = HeartbeatMath.pickerHealth(row)
+                    guard health.needsAction else { return nil }
                     let division = row.division.isEmpty ? identity(roster, store: row.storeNumber).division : row.division
                     let value: String
                     switch board.metric {
@@ -2122,7 +2125,7 @@ private struct PulseCaches {
                         title: row.shopperName,
                         subtitle: "\(row.storeNumber)\(division.isEmpty ? "" : " · \(division)")",
                         value: value,
-                        health: HeartbeatMath.pickerHealth(row),
+                        health: health,
                         broken: "\(board.metric) \(value)",
                         shoppers: row.shopperName,
                         action: "Coach \(row.shopperName) on \(board.metric) this week, side-by-side, then keep them off peak until it holds.",
@@ -2131,7 +2134,7 @@ private struct PulseCaches {
                                 name: board.metric,
                                 value: value,
                                 need: "on goal",
-                                health: HeartbeatMath.pickerHealth(row),
+                                health: health,
                                 fact: HeartbeatMath.pickerOpportunityText(row),
                                 shoppers: row.shopperName,
                                 action: "Coach \(row.shopperName) on \(board.metric) this week, side-by-side, then keep them off peak until it holds."
@@ -2139,7 +2142,8 @@ private struct PulseCaches {
                         ]
                     )
                 }
-            )
+            guard !items.isEmpty else { return nil }
+            return ChecklistDriverGroup(title: "Top \(items.count) \(board.metric)", items: items)
         }
         if !pickerGroups.isEmpty {
             groups[.pickerScorecard] = pickerGroups

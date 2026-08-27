@@ -10,17 +10,29 @@ extension HeartbeatMath {
         let cell = StoreCellViewModel.make(section: section, row: row)
         let store = canonicalStore(row.storeNumber)
         let findings = diagnoseStore(section: section, row: row, store: store, latest: latest)
+            .filter { $0.health.needsAction }
+        let people = checklistPeople(section: section, store: store, latest: latest)
+            .filter { $0.health.needsAction }
+        let itemHealth: Health = {
+            if findings.contains(where: { $0.health == .risk }) || people.contains(where: { $0.health == .risk }) {
+                return .risk
+            }
+            if findings.contains(where: { $0.health == .watch }) || people.contains(where: { $0.health == .watch }) {
+                return .watch
+            }
+            return health(for: section, row: row)
+        }()
         return ChecklistDriverItem(
             id: "store-\(store)",
             title: "Store \(row.storeNumber)",
             subtitle: division.isEmpty ? "Store" : division,
             value: cell.primary,
-            health: health(for: section, row: row),
+            health: itemHealth,
             broken: findings.map { "\($0.name) \($0.value) (need \($0.need))" }.joined(separator: "  ·  "),
             shoppers: findings.map(\.shoppers).filter { !$0.isEmpty }.joined(separator: "  ·  "),
             action: findings.map(\.action).joined(separator: " "),
             findings: findings,
-            people: checklistPeople(section: section, store: store, latest: latest)
+            people: people
         )
     }
 
@@ -466,15 +478,7 @@ extension HeartbeatMath {
             raw: Double?
         ) {
             guard let raw else { return }
-            let include: Bool
-            if name.hasPrefix("Total Lost Revenue") {
-                include = true
-            } else if health == .risk || health == .watch {
-                include = true
-            } else {
-                include = raw > 0
-            }
-            guard include else { return }
+            guard health.needsAction else { return }
             out.append(ChecklistFinding(
                 name: name,
                 value: value,
@@ -616,17 +620,6 @@ extension HeartbeatMath {
             raw: killPct
         )
 
-        if out.isEmpty {
-            out.append(ChecklistFinding(
-                name: "Lost revenue",
-                value: HeartbeatFormat.money(lost),
-                need: "under 5% of eComm",
-                health: lostHealth,
-                fact: "Lost revenue \(HeartbeatFormat.money(lost)) · \(HeartbeatFormat.pct(lostPct)) of eComm.",
-                shoppers: "",
-                action: "Pull the lost-revenue mix for this store and own the largest bucket in the huddle."
-            ))
-        }
         return out
     }
 

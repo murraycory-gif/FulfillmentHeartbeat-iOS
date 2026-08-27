@@ -8941,24 +8941,30 @@ struct FulfillmentChecklistCard: View {
 
     private var visibilityStrip: some View {
         HStack(spacing: 10) {
-            calloutCard(
-                title: "At Risk",
-                value: "\(riskCount)",
-                detail: riskCount == 1 ? "1 KPI below goal" : "\(riskCount) KPIs below goal",
-                health: riskCount > 0 ? .risk : .good
-            )
-            calloutCard(
-                title: "Watch",
-                value: "\(watchCount)",
-                detail: watchCount == 1 ? "1 KPI on the line" : "\(watchCount) KPIs on the line",
-                health: watchCount > 0 ? .watch : .good
-            )
-            calloutCard(
-                title: "Open",
-                value: "\(store.checklistOpenCount)",
-                detail: store.checklistOpenCount == 1 ? "1 action still open" : "\(store.checklistOpenCount) actions still open",
-                health: store.checklistOpenCount > 0 ? .watch : .good
-            )
+            if riskCount > 0 {
+                calloutCard(
+                    title: "At Risk",
+                    value: "\(riskCount)",
+                    detail: riskCount == 1 ? "1 KPI below goal" : "\(riskCount) KPIs below goal",
+                    health: .risk
+                )
+            }
+            if watchCount > 0 {
+                calloutCard(
+                    title: "Watch",
+                    value: "\(watchCount)",
+                    detail: watchCount == 1 ? "1 KPI on the line" : "\(watchCount) KPIs on the line",
+                    health: .watch
+                )
+            }
+            if store.checklistOpenCount > 0 {
+                calloutCard(
+                    title: "Open",
+                    value: "\(store.checklistOpenCount)",
+                    detail: store.checklistOpenCount == 1 ? "1 action still open" : "\(store.checklistOpenCount) actions still open",
+                    health: .watch
+                )
+            }
         }
     }
 
@@ -8994,14 +9000,18 @@ struct FulfillmentChecklistCard: View {
                 }
             }
         }
-        return items
+        return items.filter { $0.health.needsAction }
     }
 
     private func sectionBlock(_ section: MetricSection) -> some View {
         let summary = store.summary(for: section)
         let items = visibleItems(for: section)
         let isOpen = openSections.contains(section)
-        return VStack(alignment: .leading, spacing: 0) {
+        return Group {
+            if items.isEmpty {
+                EmptyView()
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
             Button {
                 withAnimation(.easeInOut(duration: 0.18)) {
                     if isOpen {
