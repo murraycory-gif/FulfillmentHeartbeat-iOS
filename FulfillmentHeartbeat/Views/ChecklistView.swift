@@ -7,7 +7,7 @@ struct ChecklistView: View {
 
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 14) {
                 HubBanner(
                     icon: HubDestination.checklist.symbol,
                     title: "Operational Heartbeat Checklist",
@@ -21,9 +21,10 @@ struct ChecklistView: View {
             }
             .padding(.horizontal, 20)
             .padding(.top, 16)
-            .padding(.bottom, 28)
+            .padding(.bottom, 36)
         }
         .scrollIndicators(.hidden)
+        .scrollClipDisabled(true)
         .background(AppTheme.bg.ignoresSafeArea())
     }
 

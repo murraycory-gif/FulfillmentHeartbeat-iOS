@@ -8780,6 +8780,23 @@ struct HideSystemSidebarToggle: UIViewRepresentable {
     }
 }
 
+struct ChecklistCardClip: ViewModifier {
+    var enabled: Bool
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content
+                .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                        .stroke(AppTheme.blue, lineWidth: 2.5)
+                }
+        } else {
+            content
+        }
+    }
+}
+
 struct ChecklistShopperDisclosure: View {
     let storeNumber: String
     var section: MetricSection
@@ -8835,10 +8852,10 @@ struct FulfillmentChecklistCard: View {
             if showsHeader {
                 header
             }
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 14) {
                 visibilityStrip
                 if expanded || !showsHeader {
-                    LazyVStack(spacing: 12) {
+                    VStack(spacing: 14) {
                         ForEach(MetricSection.checklistSections) { section in
                             sectionBlock(section)
                         }
@@ -8850,13 +8867,7 @@ struct FulfillmentChecklistCard: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(showsHeader ? AppTheme.bg : Color.clear)
         }
-        .clipShape(RoundedRectangle(cornerRadius: showsHeader ? AppTheme.radiusL : 0, style: .continuous))
-        .overlay {
-            if showsHeader {
-                RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                    .stroke(AppTheme.blue, lineWidth: 2.5)
-            }
-        }
+        .modifier(ChecklistCardClip(enabled: showsHeader))
         .onAppear {
             if startsExpanded {
                 expanded = true
@@ -8940,7 +8951,7 @@ struct FulfillmentChecklistCard: View {
     }
 
     private var visibilityStrip: some View {
-        HStack(spacing: 10) {
+        HStack(alignment: .top, spacing: 10) {
             if riskCount > 0 {
                 calloutCard(
                     title: "At Risk",
@@ -8966,6 +8977,8 @@ struct FulfillmentChecklistCard: View {
                 )
             }
         }
+        .padding(.top, 4)
+        .padding(.bottom, 2)
     }
 
     private func calloutCard(title: String, value: String, detail: String, health: Health) -> some View {
@@ -9031,15 +9044,9 @@ struct FulfillmentChecklistCard: View {
             }
             .buttonStyle(.plain)
             if isOpen {
-                LazyVStack(alignment: .leading, spacing: 10) {
-                    if items.isEmpty {
-                        Text("Nothing to action in this filter.")
-                            .font(.subheadline)
-                            .foregroundStyle(AppTheme.textSecondary)
-                    } else {
-                        ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                            issueRow(item, section: section, rank: index + 1)
-                        }
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                        issueRow(item, section: section, rank: index + 1)
                     }
                 }
                 .padding(16)
