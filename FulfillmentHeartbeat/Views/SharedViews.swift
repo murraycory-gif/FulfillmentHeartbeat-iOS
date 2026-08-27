@@ -8741,9 +8741,11 @@ struct HubChromeModifier: ViewModifier {
 
 struct HubBrandBar: View {
     @EnvironmentObject private var router: HubRouter
+    @EnvironmentObject private var store: HeartbeatStore
     @Environment(\.horizontalSizeClass) private var sizeClass
     var showBack: Bool
     var showsFilters: Bool
+    @State private var showAssist = false
 
     var body: some View {
         VStack(spacing: 10) {
@@ -8778,6 +8780,13 @@ struct HubBrandBar: View {
                 DayGreeting(font: greetingFont)
                     .layoutPriority(1)
                 Spacer(minLength: 8)
+                HubChromePill(
+                    title: "Assist",
+                    symbol: "waveform.path.ecg",
+                    showsChevron: false
+                ) {
+                    showAssist = true
+                }
                 if showsFilters {
                     FilterBar()
                 }
@@ -8788,7 +8797,11 @@ struct HubBrandBar: View {
         .padding(.bottom, 12)
         .frame(maxWidth: .infinity)
         .background(AppTheme.bg)
-    }
+        .sheet(isPresented: $showAssist) {
+            HeartbeatAssistSheet()
+                .environmentObject(store)
+                .environmentObject(router)
+        }
 
     private var markHeight: CGFloat {
         sizeClass == .regular ? 62 : 44
