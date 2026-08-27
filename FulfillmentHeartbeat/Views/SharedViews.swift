@@ -8850,7 +8850,7 @@ struct FulfillmentChecklistCard: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(showsHeader ? AppTheme.bg : Color.clear)
         }
-        .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: showsHeader ? AppTheme.radiusL : 0, style: .continuous))
         .overlay {
             if showsHeader {
                 RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
@@ -8969,24 +8969,24 @@ struct FulfillmentChecklistCard: View {
     }
 
     private func calloutCard(title: String, value: String, detail: String, health: Health) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 8) {
                 Text(title)
-                    .font(.headline.weight(.bold))
+                    .font(.title3.weight(.bold))
                     .foregroundStyle(AppTheme.text)
                     .lineLimit(1)
-                Spacer(minLength: 0)
+                Spacer(minLength: 4)
                 HealthBadge(health: health, prominent: true, compact: true)
             }
             Text(value)
-                .font(.system(size: 34, weight: .semibold, design: .rounded).monospacedDigit())
+                .font(.system(size: 36, weight: .semibold, design: .rounded).monospacedDigit())
                 .foregroundStyle(AppTheme.healthInk(health))
             Text(detail)
-                .font(.subheadline)
+                .font(.subheadline.weight(.medium))
                 .foregroundStyle(AppTheme.textSecondary)
-                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(maxWidth: .infinity, minHeight: 108, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 124, alignment: .topLeading)
         .tableRowCard(health: health)
     }
 
@@ -9154,26 +9154,32 @@ struct FulfillmentChecklistCard: View {
         let action = store.checklistItem(for: item, section: section)
         let showComment = commentingID == item.id || !action.comment.isEmpty
         return VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .center, spacing: 8) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(finding.name)
-                        .font(.subheadline.weight(.bold))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(finding.name)
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(headlineColor(finding.health))
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(finding.value)
+                        .font(.title3.weight(.bold).monospacedDigit())
                         .foregroundStyle(headlineColor(finding.health))
-                    HStack(spacing: 8) {
-                        Text(finding.value)
-                            .font(.subheadline.weight(.bold).monospacedDigit())
-                            .foregroundStyle(headlineColor(finding.health))
-                        Text("need \(finding.need)")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(AppTheme.textTertiary)
-                    }
+                    Text("need \(finding.need)")
+                        .font(.subheadline)
+                        .foregroundStyle(AppTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-                Spacer(minLength: 8)
-                HStack(spacing: 8) {
-                    ForEach([ChecklistStatus.addressed, .followUp]) { status in
-                        statusChip(status, selected: action.status == status) {
-                            store.setChecklistStatus(status, for: item, section: section)
-                        }
+            }
+            Text(finding.fact)
+                .font(.subheadline)
+                .foregroundStyle(AppTheme.text)
+                .fixedSize(horizontal: false, vertical: true)
+            Text(finding.action)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(AppTheme.text)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 8) {
+                ForEach([ChecklistStatus.addressed, .followUp]) { status in
+                    statusChip(status, selected: action.status == status) {
+                        store.setChecklistStatus(status, for: item, section: section)
                     }
                 }
                 Button {
@@ -9186,15 +9192,8 @@ struct FulfillmentChecklistCard: View {
                         .background(AppTheme.blueSoft.opacity(action.comment.isEmpty ? 0.45 : 1), in: Circle())
                 }
                 .buttonStyle(.plain)
+                Spacer(minLength: 0)
             }
-            Text(finding.fact)
-                .font(.subheadline)
-                .foregroundStyle(AppTheme.text)
-                .fixedSize(horizontal: false, vertical: true)
-            Text(finding.action)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(AppTheme.text)
-                .fixedSize(horizontal: false, vertical: true)
             if showComment {
                 TextField("Note for \(finding.name)", text: commentBinding(item, section: section), axis: .vertical)
                     .textFieldStyle(.plain)
@@ -9204,7 +9203,22 @@ struct FulfillmentChecklistCard: View {
                     .background(AppTheme.bg, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
         }
-        .tableRowCard(health: finding.health)
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(AppTheme.healthWash(finding.health).opacity(0.35))
+                }
+        }
+        .overlay(alignment: .leading) {
+            Capsule()
+                .fill(AppTheme.healthInk(finding.health))
+                .frame(width: 4)
+                .padding(.vertical, 10)
+        }
     }
 
     private func shopperActionRow(_ person: ChecklistShopper, storeItem: ChecklistDriverItem, section: MetricSection) -> some View {

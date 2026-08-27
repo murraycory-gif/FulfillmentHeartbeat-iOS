@@ -82,6 +82,7 @@ private struct RiskPulseLayer: UIViewRepresentable {
         override init(frame: CGRect) {
             super.init(frame: frame)
             isUserInteractionEnabled = false
+            isOpaque = false
             backgroundColor = .clear
             layer.borderColor = UIColor(red: 220 / 255, green: 38 / 255, blue: 38 / 255, alpha: 1).cgColor
             layer.cornerCurve = .continuous
