@@ -58,6 +58,7 @@ final class HeartbeatStore: ObservableObject {
     private var pphPickersByStore: [String: [MetricRow]] = [:]
     private var laborWeeksByStore: [String: [MetricRow]] = [:]
     private var unfilteredPulse: FilterPulse?
+    private var refilterTask: Task<Void, Never>?
     private var masterBookmark: Data?
     private var lifetimeObservers: [NSObjectProtocol] = []
 
@@ -1317,6 +1318,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func applyFilters() {
+        refilterTask?.cancel()
         if !filters.isActive, let pulse = unfilteredPulse {
             install(pulse)
             filterStamp += 1
@@ -1332,7 +1334,7 @@ final class HeartbeatStore: ObservableObject {
         let current = filters
         let laborMarket = laborMarketRow()
         let lostMarket = lostRevenueMarketRow()
-        Task.detached(priority: .userInitiated) {
+        refilterTask = Task.detached(priority: .userInitiated) {
             let caches = PulseCaches.refilter(
                 latest: latest,
                 roster: rosterCopy,
@@ -1341,11 +1343,11 @@ final class HeartbeatStore: ObservableObject {
                 laborMarket: laborMarket,
                 lostRevenueMarket: lostMarket
             )
+            guard !Task.isCancelled else { return }
             await MainActor.run {
-                guard self.filters == current else { return }
+                guard !Task.isCancelled, self.filters == current else { return }
                 self.install(self.pulse(from: caches))
                 self.filterStamp += 1
-                self.warmUnfilteredPulse()
             }
         }
     }
@@ -1442,17 +1444,14 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func pulse(from caches: PulseCaches) -> FilterPulse {
-        let pickers = caches.filteredLatest[.pickerScorecard] ?? []
-        let picker = pickerIndexValues(pickers)
-        let path = pickPathIndexValues(scorecard: pickers, pathRows: caches.latestBySection[.pickPathPicker] ?? [])
-        return FilterPulse(
+        FilterPulse(
             filteredLatest: caches.filteredLatest,
             pickerBoard: caches.cachedPickerBoard,
-            pickerIndex: picker.index,
-            pickerFocusHealth: picker.health,
-            pickPathPickersByStore: path.buckets,
-            pickPathByShopper: path.byShopper,
-            pphPickersByStore: pphIndexValues(pickers),
+            pickerIndex: caches.pickerIndex,
+            pickerFocusHealth: caches.pickerFocusHealth,
+            pickPathPickersByStore: caches.pickPathPickersByStore,
+            pickPathByShopper: caches.pickPathByShopper,
+            pphPickersByStore: caches.pphPickersByStore,
             checklistGroups: caches.cachedChecklistGroups,
             market: caches.filteredMarket,
             districts: caches.cachedDistricts,
@@ -1615,9 +1614,11 @@ final class HeartbeatStore: ObservableObject {
         cachedSummaries = caches.cachedSummaries
         cachedPickerBoard = caches.cachedPickerBoard
         cachedChecklistGroups = caches.cachedChecklistGroups
-        rebuildPickerIndex(caches.filteredLatest[.pickerScorecard] ?? [])
-        rebuildPickPathPickerIndex(scorecard: caches.filteredLatest[.pickerScorecard] ?? [])
-        rebuildPPHPickerIndex(scorecard: caches.filteredLatest[.pickerScorecard] ?? [])
+        pickerIndex = caches.pickerIndex
+        pickerFocusHealth = caches.pickerFocusHealth
+        pickPathPickersByStore = caches.pickPathPickersByStore
+        pickPathByShopper = caches.pickPathByShopper
+        pphPickersByStore = caches.pphPickersByStore
         rebuildLaborWeekIndex()
         objectWillChange.send()
     }
@@ -1778,6 +1779,11 @@ private struct PulseCaches {
     var cachedSummaries: [SectionSummary]
     var cachedPickerBoard: HeartbeatMath.PickerBoard
     var cachedChecklistGroups: [MetricSection: [ChecklistDriverGroup]]
+    var pickerIndex: [PickerFocus: [Int]]
+    var pickerFocusHealth: [PickerFocus: Health]
+    var pickPathPickersByStore: [String: [MetricRow]]
+    var pickPathByShopper: [String: MetricRow]
+    var pphPickersByStore: [String: [MetricRow]]
 
     static func build(rows: [MetricRow], filters: DashboardFilters, uploads: [UploadRecord]) -> PulseCaches {
         let identitySource = rows.filter {
@@ -1829,26 +1835,21 @@ private struct PulseCaches {
         laborMarket: MetricRow? = nil,
         lostRevenueMarket: MetricRow? = nil
     ) -> PulseCaches {
-        let universe = MetricSection.allCases
-            .filter { $0 != .pickerScorecard && $0 != .pickPathPicker }
-            .flatMap { latest[$0] ?? [] }
+        let allowed = pickerStoreSet(roster: roster, filters: filters)
         var nextLatest: [MetricSection: [MetricRow]] = [:]
-        for section in MetricSection.allCases where section != .pickerScorecard && section != .pickPathPicker {
-            nextLatest[section] = HeartbeatMath.filtered(
-                latest[section] ?? [],
-                filters: filters,
-                relaxUnknown: false,
-                universe: universe
-            )
-        }
-        let pickers = latest[.pickerScorecard] ?? []
-        if let allowed = pickerStoreSet(roster: roster, filters: filters) {
-            nextLatest[.pickerScorecard] = pickers.filter { allowed.contains(HeartbeatMath.canonicalStore($0.storeNumber)) }
+        nextLatest.reserveCapacity(latest.count)
+        if let allowed {
+            for (section, rows) in latest {
+                nextLatest[section] = rows.filter { allowed.contains(HeartbeatMath.canonicalStore($0.storeNumber)) }
+            }
         } else {
-            nextLatest[.pickerScorecard] = pickers
+            nextLatest = latest
         }
-        let pickerBoard = HeartbeatMath.pickerBoard(nextLatest[.pickerScorecard] ?? [])
-        let market = HeartbeatMath.marketBoard(universe, filters: filters)
+        let pickers = nextLatest[.pickerScorecard] ?? []
+        let pickerBoard = HeartbeatMath.pickerBoard(pickers)
+        let picker = pickerIndexValues(pickers)
+        let path = pickPathIndexValues(scorecard: pickers, pathRows: latest[.pickPathPicker] ?? [])
+        let pph = pphIndexValues(pickers)
         let districts = roster.values
             .filter { filters.includesDivision($0.division) }
             .map(\.district)
@@ -1864,12 +1865,34 @@ private struct PulseCaches {
             .sorted()
         var seen: [String: String?] = [:]
         for (number, identity) in roster {
+            if let allowed, !allowed.contains(number) { continue }
             if !filters.includesDivision(identity.division) { continue }
             if !filters.includesDistrict(identity.district) { continue }
             if !filters.includesOM(identity.om) { continue }
             if seen[number] == nil { seen[number] = identity.name }
         }
         let stores = seen.keys.sorted(by: HeartbeatFormat.storeOrder).map { ($0, seen[$0] ?? nil) }
+        var pphByStore: [String: Double] = [:]
+        for row in nextLatest[.pph] ?? [] {
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            if let value = row.number("pph") { pphByStore[store] = value }
+        }
+        var pathByStore: [String: Double] = [:]
+        for row in nextLatest[.pickPath] ?? [] {
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            if let value = row.number("compliance_pct") { pathByStore[store] = value }
+        }
+        let market = stores.map { item in
+            let identity = roster[item.0] ?? HeartbeatMath.StoreIdentity(division: "", district: "", om: "", name: nil)
+            return HeartbeatMath.MarketStore(
+                storeNumber: item.0,
+                division: identity.division,
+                district: identity.district,
+                om: identity.om,
+                pph: pphByStore[item.0],
+                compliance: pathByStore[item.0]
+            )
+        }
         let summaries = MetricSection.dashboardCards.map { section -> SectionSummary in
             var input = nextLatest[section] ?? []
             if section == .labor, !filters.isActive, let laborMarket {
@@ -1900,7 +1923,12 @@ private struct PulseCaches {
             cachedStores: stores,
             cachedSummaries: summaries,
             cachedPickerBoard: pickerBoard,
-            cachedChecklistGroups: checklistGroups(from: nextLatest, roster: roster)
+            cachedChecklistGroups: checklistGroups(from: nextLatest, roster: roster),
+            pickerIndex: picker.index,
+            pickerFocusHealth: picker.health,
+            pickPathPickersByStore: path.buckets,
+            pickPathByShopper: path.byShopper,
+            pphPickersByStore: pph
         )
     }
 
@@ -1920,6 +1948,109 @@ private struct PulseCaches {
             allowed.insert(number)
         }
         return allowed
+    }
+
+    private static func pickerIndexValues(_ pickers: [MetricRow]) -> (index: [PickerFocus: [Int]], health: [PickerFocus: Health]) {
+        var buckets: [PickerFocus: [Int]] = [:]
+        var worst: [PickerFocus: Health] = [:]
+        for focus in PickerFocus.allCases {
+            buckets[focus] = []
+            worst[focus] = Health.none
+        }
+        func note(_ focus: PickerFocus, _ health: Health) {
+            let ranks: [Health: Int] = [Health.none: 0, .good: 1, .watch: 2, .risk: 3]
+            if (ranks[health] ?? 0) > (ranks[worst[focus] ?? Health.none] ?? 0) {
+                worst[focus] = health
+            }
+        }
+        for (index, row) in pickers.enumerated() {
+            guard HeartbeatMath.isRealPicker(row) else { continue }
+            buckets[.all]?.append(index)
+            let volume = HeartbeatMath.pickerHasVolume(row)
+            let overall = HeartbeatMath.pickerHealth(row)
+            if volume && overall != .good {
+                buckets[.opportunity]?.append(index)
+                note(.opportunity, overall)
+            }
+            if volume && overall == .good {
+                buckets[.strong]?.append(index)
+                note(.strong, .good)
+            }
+            let pph = HeartbeatMath.pphHealth(row)
+            if row.number("pph") != nil, pph != .good {
+                buckets[.pph]?.append(index)
+                note(.pph, pph)
+            }
+            let presub = HeartbeatMath.presubStar(row).health
+            if row.number("presub_pct") != nil, presub != .good {
+                buckets[.presub]?.append(index)
+                note(.presub, presub)
+            }
+            let oth = HeartbeatMath.othStar(row).health
+            if row.number("oth5_pct") != nil, oth != .good {
+                buckets[.oth]?.append(index)
+                note(.oth, oth)
+            }
+            let coe = HeartbeatMath.coeStar(row).health
+            if row.number("coe_pct") != nil, coe != .good {
+                buckets[.coe]?.append(index)
+                note(.coe, coe)
+            }
+            let ott = HeartbeatMath.ottStar(row).health
+            if row.number("ott_pct") != nil, ott != .good {
+                buckets[.ott]?.append(index)
+                note(.ott, ott)
+            }
+            let oos = HeartbeatMath.oosStar(row).health
+            if row.number("oos_pct") != nil, oos != .good {
+                buckets[.oos]?.append(index)
+                note(.oos, oos)
+            }
+            let refund = HeartbeatMath.refundHealth(row)
+            if row.number("refund_amt") != nil, refund == .watch || refund == .risk {
+                buckets[.refund]?.append(index)
+                note(.refund, refund)
+            }
+        }
+        return (buckets, worst)
+    }
+
+    private static func pickPathIndexValues(scorecard: [MetricRow], pathRows: [MetricRow]) -> (buckets: [String: [MetricRow]], byShopper: [String: MetricRow]) {
+        var storesByShopper: [String: Set<String>] = [:]
+        for row in scorecard {
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            guard !store.isEmpty else { continue }
+            for alias in HeartbeatMath.shopperAliases(row) {
+                storesByShopper[alias, default: []].insert(store)
+            }
+        }
+        var byShopper: [String: MetricRow] = [:]
+        var buckets: [String: [MetricRow]] = [:]
+        for row in pathRows {
+            for alias in HeartbeatMath.shopperAliases(row) {
+                byShopper[alias] = row
+            }
+            var targets = Set<String>()
+            let ownStore = HeartbeatMath.canonicalStore(row.storeNumber)
+            if !ownStore.isEmpty { targets.insert(ownStore) }
+            for alias in HeartbeatMath.shopperAliases(row) {
+                targets.formUnion(storesByShopper[alias] ?? [])
+            }
+            for store in targets {
+                buckets[store, default: []].append(row)
+            }
+        }
+        return (buckets, byShopper)
+    }
+
+    private static func pphIndexValues(_ scorecard: [MetricRow]) -> [String: [MetricRow]] {
+        var buckets: [String: [MetricRow]] = [:]
+        for row in scorecard where row.number("pph") != nil {
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            guard !store.isEmpty else { continue }
+            buckets[store, default: []].append(row)
+        }
+        return buckets
     }
 
     private static func identity(

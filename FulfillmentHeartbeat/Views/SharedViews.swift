@@ -847,6 +847,7 @@ struct FilterSheet: View {
     @State private var draft = DashboardFilters()
     @State private var confirmLeave = false
     @State private var focus: FilterFocus = .region
+    @State private var options: [(id: String, label: String)] = []
 
     private var isDirty: Bool { draft != original }
 
@@ -860,7 +861,7 @@ struct FilterSheet: View {
                     prompt: focus.prompt,
                     allLabel: focus.allLabel,
                     selection: draft.values(for: focus),
-                    options: store.filterChoices(focus: focus, draft: draft),
+                    options: options,
                     onChange: { apply($0, to: focus) }
                 )
                 .id(focus)
@@ -900,6 +901,10 @@ struct FilterSheet: View {
             original = store.filters
             draft = store.filters
             focus = initialFocus
+            options = store.filterChoices(focus: initialFocus, draft: store.filters)
+        }
+        .onChange(of: focus) { _, next in
+            options = store.filterChoices(focus: next, draft: draft)
         }
     }
 
@@ -976,11 +981,15 @@ struct FilterSheet: View {
     private func apply(_ value: String, to focus: FilterFocus) {
         var next = draft
         next.toggle(value, in: focus)
-        applyDraft(next)
+        draft = next
+        if focus != .store {
+            options = store.filterChoices(focus: self.focus, draft: next)
+        }
     }
 
     private func applyDraft(_ next: DashboardFilters) {
         draft = next
+        options = store.filterChoices(focus: focus, draft: next)
     }
 }
 
@@ -1005,8 +1014,10 @@ struct FilterColumn: View {
 
     private func isSelected(_ id: String) -> Bool {
         if id.isEmpty { return selection.isEmpty }
-        return selection.contains { HeartbeatMath.matches($0, id) }
+        return selected.contains(id)
     }
+
+    private var selected: Set<String> { Set(selection) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
