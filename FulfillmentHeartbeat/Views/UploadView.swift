@@ -31,10 +31,10 @@ struct UploadView: View {
                     onPick: beginMasterImport,
                     onUnlink: { store.unlinkMasterFile() }
                 )
-                Text("Or load one KPI")
-                    .font(.title3.weight(.bold))
-                    .foregroundStyle(AppTheme.text)
-                    .padding(.top, 4)
+                HubBanner(
+                    icon: "square.and.arrow.up",
+                    title: "Or Add Individual KPI Data"
+                )
 
                 LazyVGrid(columns: uploadColumns, spacing: 16) {
                     ForEach(MetricSection.uploadOrder) { section in
