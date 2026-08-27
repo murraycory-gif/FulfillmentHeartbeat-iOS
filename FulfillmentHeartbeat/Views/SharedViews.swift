@@ -8875,24 +8875,6 @@ struct FulfillmentChecklistCard: View {
         }
     }
 
-    private var fill: Color {
-        switch pulseHealth {
-        case .good: return AppTheme.okSoft
-        case .watch: return AppTheme.warnSoft
-        case .risk: return AppTheme.badSoft
-        case .none: return AppTheme.tableFill
-        }
-    }
-
-    private var stroke: Color {
-        switch pulseHealth {
-        case .good: return AppTheme.ok.opacity(0.28)
-        case .watch: return AppTheme.warn
-        case .risk: return AppTheme.bad
-        case .none: return AppTheme.cardBorder
-        }
-    }
-
     private var header: some View {
         Button {
             withAnimation(.easeInOut(duration: 0.2)) { expanded.toggle() }
