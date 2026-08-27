@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import MessageUI
+import UniformTypeIdentifiers
 
 struct HubCard<Content: View>: View {
     @ViewBuilder var content: Content
@@ -460,13 +461,8 @@ struct BeatingHeartbeatMark: View {
             let cycle = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.08)
             let scale = Self.scale(at: cycle)
             let head = CGFloat(cycle / 1.08)
-            let lineWidth = height * 0.125
-            HStack(spacing: showsTrace ? -height * 0.16 : 0) {
-                HeartShape()
-                    .fill(AppTheme.heart)
-                    .frame(width: height, height: height)
-                    .scaleEffect(scale)
-                    .shadow(color: AppTheme.heart.opacity(0.22), radius: 8, y: 2)
+            let lineWidth = height * 0.13
+            ZStack(alignment: .center) {
                 if showsTrace {
                     ZStack {
                         LogoECGShape()
@@ -475,16 +471,60 @@ struct BeatingHeartbeatMark: View {
                                 style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round)
                             )
                         LogoECGShape()
-                            .trim(from: max(0, head - 0.22), to: min(1, head))
+                            .trim(from: max(0, head - 0.20), to: min(1, head))
                             .stroke(
-                                Color.white.opacity(0.95),
-                                style: StrokeStyle(lineWidth: lineWidth * 1.05, lineCap: .round, lineJoin: .round)
+                                Color.white.opacity(0.88),
+                                style: StrokeStyle(lineWidth: lineWidth * 0.55, lineCap: .round, lineJoin: .round)
                             )
                     }
-                    .frame(width: height * 1.28, height: height * 0.78)
-                    .offset(y: height * 0.02)
+                    .frame(width: height * 2.2, height: height * 0.84)
+                    .offset(x: height * 0.42)
                 }
+
+                HeartShape()
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color(hex: "2E6FD4"),
+                                AppTheme.heart,
+                                Color(hex: "00245F"),
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .overlay {
+                        HeartShape()
+                            .fill(
+                                RadialGradient(
+                                    colors: [
+                                        Color.white.opacity(0.38),
+                                        Color.white.opacity(0.06),
+                                        Color.clear,
+                                    ],
+                                    center: UnitPoint(x: 0.34, y: 0.26),
+                                    startRadius: 1,
+                                    endRadius: height * 0.62
+                                )
+                            )
+                    }
+                    .overlay {
+                        HeartShape()
+                            .stroke(
+                                LinearGradient(
+                                    colors: [Color.white.opacity(0.45), Color.white.opacity(0.05)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 1.2
+                            )
+                    }
+                    .shadow(color: Color.black.opacity(0.28), radius: 3, x: 1.2, y: 3)
+                    .shadow(color: AppTheme.heart.opacity(0.40), radius: 8, y: 3)
+                    .frame(width: height, height: height)
             }
+            .frame(width: showsTrace ? height * 2.45 : height, height: height)
+            .scaleEffect(scale)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Fulfillment Heartbeat")
@@ -683,9 +723,7 @@ struct FilterBar: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var showingFilters = false
     @State private var sheetFocus: FilterFocus = .region
-    @State private var showingShare = false
     @State private var buildingShare = false
-    @State private var sharePacket: PulseMail.Packet?
 
     var body: some View {
         HStack(spacing: 8) {
@@ -704,14 +742,6 @@ struct FilterBar: View {
         .fullScreenCover(isPresented: $showingFilters) {
             FilterSheet(initialFocus: sheetFocus)
                 .environmentObject(store)
-        }
-        .sheet(isPresented: $showingShare) {
-            if let sharePacket {
-                PulseShareSheet(packet: sharePacket) {
-                    showingShare = false
-                }
-                .ignoresSafeArea()
-            }
         }
     }
 
@@ -778,9 +808,8 @@ struct FilterBar: View {
         Task.detached(priority: .userInitiated) {
             let packet = PulseMail.make(snap)
             await MainActor.run {
-                sharePacket = packet
                 buildingShare = false
-                showingShare = true
+                PulseShare.present(packet)
             }
         }
     }
@@ -9241,20 +9270,20 @@ struct FlexibleEmailChips: View {
 
 final class PulseShareSource: NSObject, UIActivityItemSource {
     let subject: String
+    let html: String
     let plain: String
-    let htmlURL: URL?
+    let brief: String
 
     init(packet: PulseMail.Packet) {
         subject = packet.subject
+        html = packet.html
         plain = packet.plain
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Fulfillment Heartbeat.html")
-        try? packet.html.write(to: url, atomically: true, encoding: .utf8)
-        htmlURL = FileManager.default.fileExists(atPath: url.path) ? url : nil
+        brief = packet.brief
         super.init()
     }
 
     func activityViewControllerPlaceholderItem(_ activityViewController: UIActivityViewController) -> Any {
-        plain
+        brief
     }
 
     func activityViewController(
@@ -9262,17 +9291,16 @@ final class PulseShareSource: NSObject, UIActivityItemSource {
         itemForActivityType activityType: UIActivity.ActivityType?
     ) -> Any? {
         let raw = activityType?.rawValue ?? ""
+        if activityType == .mail {
+            return html
+        }
         if activityType == .message {
+            return "\(subject)\n\n\(brief)"
+        }
+        if raw.localizedCaseInsensitiveContains("note") {
             return "\(subject)\n\n\(plain)"
         }
-        if activityType == .mail
-            || raw.localizedCaseInsensitiveContains("gmail")
-            || raw.localizedCaseInsensitiveContains("outlook")
-            || raw.localizedCaseInsensitiveContains("microsoft")
-            || raw.localizedCaseInsensitiveContains("yahoo") {
-            return htmlURL ?? "\(subject)\n\n\(plain)"
-        }
-        return htmlURL ?? "\(subject)\n\n\(plain)"
+        return "\(subject)\n\n\(plain)"
     }
 
     func activityViewController(
@@ -9281,27 +9309,54 @@ final class PulseShareSource: NSObject, UIActivityItemSource {
     ) -> String {
         subject
     }
+
+    func activityViewController(
+        _ activityViewController: UIActivityViewController,
+        dataTypeIdentifierForActivityType activityType: UIActivity.ActivityType?
+    ) -> String {
+        if activityType == .mail {
+            return UTType.html.identifier
+        }
+        return UTType.plainText.identifier
+    }
 }
 
-struct PulseShareSheet: UIViewControllerRepresentable {
-    let packet: PulseMail.Packet
-    let onFinish: () -> Void
-
-    func makeUIViewController(context: Context) -> UIActivityViewController {
+enum PulseShare {
+    static func present(_ packet: PulseMail.Packet) {
         let source = PulseShareSource(packet: packet)
         let sheet = UIActivityViewController(activityItems: [source], applicationActivities: nil)
-        sheet.completionWithItemsHandler = { _, _, _, _ in
-            DispatchQueue.main.async { onFinish() }
-        }
-        return sheet
-    }
-
-    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {
-        if let popover = controller.popoverPresentationController, popover.sourceView == nil {
-            popover.sourceView = controller.view
-            popover.sourceRect = CGRect(x: controller.view.bounds.midX, y: 8, width: 1, height: 1)
+        sheet.excludedActivityTypes = [
+            .assignToContact,
+            .addToReadingList,
+            .print,
+            .saveToCameraRoll,
+        ]
+        guard let presenter = topController() else { return }
+        if let popover = sheet.popoverPresentationController {
+            popover.sourceView = presenter.view
+            popover.sourceRect = CGRect(
+                x: presenter.view.bounds.midX,
+                y: 72,
+                width: 1,
+                height: 1
+            )
             popover.permittedArrowDirections = []
         }
+        presenter.present(sheet, animated: true)
+    }
+
+    private static func topController() -> UIViewController? {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let window = scenes
+            .filter { $0.activationState == .foregroundActive }
+            .flatMap(\.windows)
+            .first(where: \.isKeyWindow)
+            ?? scenes.flatMap(\.windows).first { !$0.isHidden }
+        var top = window?.rootViewController
+        while let shown = top?.presentedViewController {
+            top = shown
+        }
+        return top
     }
 }
 

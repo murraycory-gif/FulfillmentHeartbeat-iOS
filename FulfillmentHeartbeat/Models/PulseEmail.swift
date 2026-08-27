@@ -5,6 +5,7 @@ enum PulseMail {
         let subject: String
         let html: String
         let plain: String
+        let brief: String
     }
 
     struct Snapshot {
@@ -23,7 +24,23 @@ enum PulseMail {
 
     static func make(_ snap: Snapshot) -> Packet {
         let subject = "Fulfillment Heartbeat — \(snap.filterSummary) — \(HeartbeatFormat.stamp(snap.generatedAt))"
-        return Packet(subject: subject, html: html(snap), plain: plain(snap))
+        return Packet(subject: subject, html: html(snap), plain: plain(snap), brief: brief(snap))
+    }
+
+    private static func brief(_ snap: Snapshot) -> String {
+        var lines = [
+            "Fulfillment Heartbeat",
+            snap.filterSummary,
+            HeartbeatFormat.stamp(snap.generatedAt),
+            "",
+            "DASHBOARD",
+        ]
+        for card in snap.summaries {
+            lines.append("\(card.section.title): \(card.headlineText) · \(card.health.label) · \(riskLine(card.section, card))")
+        }
+        lines.append("")
+        lines.append("Sent from Fulfillment Heartbeat")
+        return lines.joined(separator: "\n")
     }
 
     private static func html(_ snap: Snapshot) -> String {
