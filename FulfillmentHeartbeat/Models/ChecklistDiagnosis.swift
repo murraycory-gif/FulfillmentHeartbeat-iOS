@@ -455,17 +455,179 @@ extension HeartbeatMath {
     }
 
     private static func diagnoseLost(_ row: MetricRow, pickers: [MetricRow]) -> [ChecklistFinding] {
-        let names = namedPickers(pickers, failing: { presubStar($0).health != .good || oosStar($0).health != .good })
-            .map { "\($0.shopperName)  \(pickerOpportunityText($0))" }
-        return [ChecklistFinding(
-            name: "Lost revenue",
-            value: HeartbeatFormat.money(row.number("lost_revenue")),
+        var out: [ChecklistFinding] = []
+        func add(
+            name: String,
+            value: String,
+            need: String,
+            health: Health,
+            fact: String,
+            action: String,
+            raw: Double?
+        ) {
+            guard let raw else { return }
+            let include: Bool
+            if name.hasPrefix("Total Lost Revenue") {
+                include = true
+            } else if health == .risk || health == .watch {
+                include = true
+            } else {
+                include = raw > 0
+            }
+            guard include else { return }
+            out.append(ChecklistFinding(
+                name: name,
+                value: value,
+                need: need,
+                health: health,
+                fact: fact,
+                shoppers: "",
+                action: action
+            ))
+        }
+
+        let lost = row.number("lost_revenue")
+        let lostPct = row.number("lost_revenue_pct")
+        let lostHealth = lostRevenueHealth(pct: lostPct)
+        add(
+            name: "Total Lost Revenue",
+            value: HeartbeatFormat.money(lost),
             need: "under 5% of eComm",
-            health: lostRevenueHealth(row),
-            fact: "Lost revenue \(HeartbeatFormat.money(row.number("lost_revenue"))) · \(HeartbeatFormat.pct(row.number("lost_revenue_pct"))) of eComm. Misses, refunds, and substitutions are demand this store already had.",
-            shoppers: names.prefix(3).joined(separator: "  ·  "),
-            action: "Pull the top lost-item categories for this store and own them in the huddle. Pair OOS and presub coaching with the pickers driving the leak."
-        )]
+            health: lostHealth,
+            fact: "Total lost revenue (total opportunity) is \(HeartbeatFormat.money(lost)). This is demand the store already had and did not fulfill.",
+            action: "Own the mix in the huddle: post-sub OOS, fulfillment refunds, LDAP cancels, and kill switch. Work the largest dollar bucket first.",
+            raw: lost
+        )
+        add(
+            name: "Total Lost Revenue %",
+            value: HeartbeatFormat.pct(lostPct),
+            need: "≤ 3% healthy · ≤ 5% watch",
+            health: lostHealth,
+            fact: "Lost revenue is \(HeartbeatFormat.pct(lostPct)) of eComm sales. Goal is under 3%.",
+            action: "Get this store under 5% this week and 3% to hold. Start with the biggest dollar driver below.",
+            raw: lostPct
+        )
+
+        let post = row.number("post_sub_oos_foregone")
+        let postPct = row.number("post_sub_oos_foregone_pct")
+        let postHealth = lostRevenueHealth(pct: postPct)
+        add(
+            name: "Post Sub OOS Foregone Revenue",
+            value: HeartbeatFormat.money(post),
+            need: "drive to $0",
+            health: postPct == nil ? (post ?? 0) > 0 ? .risk : .good : postHealth,
+            fact: "Post-sub OOS foregone revenue (total opportunity) is \(HeartbeatFormat.money(post)). After a substitution, the original item still went unfilled.",
+            action: "Audit backroom and top OOS items before pickers mark out. Grocery owns the list; eComm owns look-time.",
+            raw: post
+        )
+        add(
+            name: "Post Sub OOS Foregone Revenue %",
+            value: HeartbeatFormat.pct(postPct),
+            need: "≤ 3%",
+            health: postHealth,
+            fact: "Post-sub OOS is \(HeartbeatFormat.pct(postPct)) of eComm. This is inventory and look-time, not a refund problem.",
+            action: "Walk the top OOS items with grocery today. Check the backroom before every mark-out.",
+            raw: postPct
+        )
+
+        let refund = row.number("refund_lost")
+        let refundPct = row.number("refund_lost_pct")
+        let refundHealth = lostRevenueHealth(pct: refundPct)
+        add(
+            name: "Refund $ Fulfillment Reasons",
+            value: HeartbeatFormat.money(refund),
+            need: "drive to $0",
+            health: refundPct == nil ? (refund ?? 0) > 0 ? .risk : .good : refundHealth,
+            fact: "Refund $ for fulfillment reasons (total opportunity) is \(HeartbeatFormat.money(refund)). These are refunds we caused in the shop, not the customer.",
+            action: "Audit fulfillment-reason refunds. Recover the found item and restage before a refund is offered.",
+            raw: refund
+        )
+        add(
+            name: "Refund $ Fulfillment Reasons %",
+            value: HeartbeatFormat.pct(refundPct),
+            need: "≤ 3%",
+            health: refundHealth,
+            fact: "Fulfillment refunds are \(HeartbeatFormat.pct(refundPct)) of eComm.",
+            action: "Cut fulfillment refunds. Coach found-item recovery and staging accuracy on this store.",
+            raw: refundPct
+        )
+
+        let capacity = row.number("reduced_capacity")
+        add(
+            name: "Total Reduced Capacity",
+            value: HeartbeatFormat.num(capacity, digits: 1),
+            need: "0",
+            health: (capacity ?? 0) > 0 ? .risk : .good,
+            fact: "Total reduced capacity is \(HeartbeatFormat.num(capacity, digits: 1)). Capacity was taken down on this store.",
+            action: "Confirm Dynacap and kill-switch settings are not hiding a labor or path problem. Put capacity back when the crew can hold the wave.",
+            raw: capacity
+        )
+
+        let cancelled = row.number("cancelled_lost")
+        let cancelledPct = row.number("cancelled_lost_pct")
+        let cancelledHealth = lostRevenueHealth(pct: cancelledPct)
+        add(
+            name: "Cancelled Orders LDAP Lost Sales",
+            value: HeartbeatFormat.money(cancelled),
+            need: "drive to $0",
+            health: cancelledPct == nil ? (cancelled ?? 0) > 0 ? .risk : .good : cancelledHealth,
+            fact: "Cancelled orders (LDAP driven) lost sales (total opportunity) is \(HeartbeatFormat.money(cancelled)). A shopper dropped these orders.",
+            action: "Pull the LDAP cancel list. Walk the cancel reason with that shopper before the next wave. Do not let LDAP cancels become the overflow valve.",
+            raw: cancelled
+        )
+        add(
+            name: "Cancelled Orders LDAP Lost Sales %",
+            value: HeartbeatFormat.pct(cancelledPct),
+            need: "≤ 3%",
+            health: cancelledHealth,
+            fact: "LDAP-driven cancels are \(HeartbeatFormat.pct(cancelledPct)) of eComm.",
+            action: "Stop LDAP-driven cancels. Managers review every cancel with the shopper the same day.",
+            raw: cancelledPct
+        )
+
+        let killOrders = row.number("kill_switch_orders")
+        add(
+            name: "Kill Switch Lost Orders",
+            value: HeartbeatFormat.num(killOrders),
+            need: "0 orders",
+            health: (killOrders ?? 0) > 0 ? .risk : .good,
+            fact: "Kill switch lost \(HeartbeatFormat.num(killOrders)) orders. The store turned demand off.",
+            action: "Review who flipped kill switch and whether coverage could have held the wave. Kill switch is last resort, not a labor tool.",
+            raw: killOrders
+        )
+        let killSales = row.number("kill_switch_lost")
+        add(
+            name: "Kill Switch Lost Sales",
+            value: HeartbeatFormat.money(killSales),
+            need: "$0",
+            health: (killSales ?? 0) > 0 ? .risk : .good,
+            fact: "Kill switch lost sales (using $90) (total opportunity) is \(HeartbeatFormat.money(killSales)).",
+            action: "Do not use kill switch as a labor workaround. Each flipped order is about $90 of demand we already had.",
+            raw: killSales
+        )
+        let killPct = row.number("kill_switch_pct")
+        add(
+            name: "Kill Switch %",
+            value: HeartbeatFormat.pct(killPct),
+            need: "0%",
+            health: (killPct ?? 0) > 0 ? .risk : lostRevenueHealth(pct: killPct),
+            fact: "Kill switch is \(HeartbeatFormat.pct(killPct)) of eComm (total opportunity).",
+            action: "Keep kill switch off unless safety or true capacity is blocked. Put the hours on the map instead.",
+            raw: killPct
+        )
+
+        if out.isEmpty {
+            out.append(ChecklistFinding(
+                name: "Lost revenue",
+                value: HeartbeatFormat.money(lost),
+                need: "under 5% of eComm",
+                health: lostHealth,
+                fact: "Lost revenue \(HeartbeatFormat.money(lost)) · \(HeartbeatFormat.pct(lostPct)) of eComm.",
+                shoppers: "",
+                action: "Pull the lost-revenue mix for this store and own the largest bucket in the huddle."
+            ))
+        }
+        return out
     }
 
     private static func namedPickers(_ pickers: [MetricRow], failing: (MetricRow) -> Bool) -> [MetricRow] {
@@ -508,10 +670,6 @@ extension HeartbeatMath {
         case .fiveStar:
             for row in pickersForStore(latest, store) {
                 add(row, pickerMetricReadout(row).filter { ["OTT", "Presub", "OOS", "OTH5", "COE", "OTH Elig"].contains($0.name) }.map { ($0.name, $0.value, $0.health) })
-            }
-        case .lostRevenue:
-            for row in pickersForStore(latest, store) {
-                add(row, pickerMetricReadout(row).filter { ["Presub", "OOS", "Refund", "PPH"].contains($0.name) }.map { ($0.name, $0.value, $0.health) })
             }
         case .pph, .dynacap, .labor:
             for row in pickersForStore(latest, store) {

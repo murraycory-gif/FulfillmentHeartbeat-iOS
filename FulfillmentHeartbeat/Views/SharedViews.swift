@@ -9119,7 +9119,7 @@ struct FulfillmentChecklistCard: View {
                     }
                 }
             }
-            if item.id.hasPrefix("store-") {
+            if item.id.hasPrefix("store-") && section != .lostRevenue {
                 ChecklistShopperDisclosure(
                     storeNumber: String(item.id.dropFirst(6)),
                     section: section

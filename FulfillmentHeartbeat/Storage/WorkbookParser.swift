@@ -528,7 +528,10 @@ enum WorkbookParser {
         if lower.contains("cancelled") && hasPct { return "cancelled_lost_pct" }
         if lower.contains("cancelled") { return "cancelled_lost" }
         if lower.contains("kill switch") && hasPct { return "kill_switch_pct" }
-        if lower.contains("kill switch") && lower.contains("lost sales") { return "kill_switch_lost" }
+        if lower.contains("kill switch") && lower.contains("lost order") { return "kill_switch_orders" }
+        if lower.contains("kill switch") && (lower.contains("lost sales") || lower.contains("$90")) { return "kill_switch_lost" }
+        if lower.contains("kill switch") { return "kill_switch_lost" }
+        if lower.contains("reduced capacity") { return "reduced_capacity" }
         return ""
     }
 
