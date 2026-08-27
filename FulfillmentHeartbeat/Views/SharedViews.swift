@@ -2135,6 +2135,7 @@ private struct PathShopperTable: View {
                 .background(pill(overall), in: Capsule())
                 .frame(width: 72, alignment: .trailing)
         }
+        .tableRowCard(health: overall)
     }
 
     private func value(_ metric: ShopperMetric, _ picker: PathShopperSnap) -> Double? {
@@ -8784,7 +8785,7 @@ struct FulfillmentChecklistCard: View {
     var showsHeader: Bool = true
     var startsExpanded: Bool = false
     @State private var expanded = false
-    @State private var openSection: MetricSection?
+    @State private var openSections: Set<MetricSection> = Set(MetricSection.checklistSections)
     @State private var commentingID: String?
     @State private var recipientDraft = ""
     @State private var showingMail = false
@@ -8798,12 +8799,6 @@ struct FulfillmentChecklistCard: View {
 
     private var watchCount: Int {
         store.summaries.filter { $0.health == .watch }.count
-    }
-
-    private var pulseHealth: Health {
-        if riskCount > 0 { return .risk }
-        if watchCount > 0 { return .watch }
-        return .none
     }
 
     var body: some View {
@@ -8837,15 +8832,13 @@ struct FulfillmentChecklistCard: View {
             if startsExpanded {
                 expanded = true
             }
-            if openSection == nil {
-                openSection = MetricSection.checklistSections.first { store.summary(for: $0).health == .risk }
-                    ?? MetricSection.checklistSections.first { store.summary(for: $0).health == .watch }
+            if openSections.isEmpty {
+                openSections = Set(MetricSection.checklistSections)
             }
         }
         .onChange(of: expanded) { _, isOpen in
-            if isOpen, openSection == nil {
-                openSection = MetricSection.checklistSections.first { store.summary(for: $0).health == .risk }
-                    ?? MetricSection.checklistSections.first { store.summary(for: $0).health == .watch }
+            if isOpen, openSections.isEmpty {
+                openSections = Set(MetricSection.checklistSections)
             }
         }
         .sheet(isPresented: $showingMail) {
@@ -8918,26 +8911,48 @@ struct FulfillmentChecklistCard: View {
     }
 
     private var visibilityStrip: some View {
-        HStack(spacing: 8) {
-            compactStat("At risk", "\(riskCount)", riskCount > 0 ? AppTheme.bad : AppTheme.ok, riskCount > 0 ? AppTheme.badSoft : AppTheme.okSoft)
-            compactStat("Watch", "\(watchCount)", watchCount > 0 ? AppTheme.warn : AppTheme.ok, watchCount > 0 ? AppTheme.warnSoft : AppTheme.okSoft)
-            compactStat("Open", "\(store.checklistOpenCount)", store.checklistOpenCount > 0 ? AppTheme.warn : AppTheme.ok, store.checklistOpenCount > 0 ? AppTheme.warnSoft : AppTheme.okSoft)
+        HStack(spacing: 10) {
+            calloutCard(
+                title: "At Risk",
+                value: "\(riskCount)",
+                detail: riskCount == 1 ? "1 KPI below goal" : "\(riskCount) KPIs below goal",
+                health: riskCount > 0 ? .risk : .good
+            )
+            calloutCard(
+                title: "Watch",
+                value: "\(watchCount)",
+                detail: watchCount == 1 ? "1 KPI on the line" : "\(watchCount) KPIs on the line",
+                health: watchCount > 0 ? .watch : .good
+            )
+            calloutCard(
+                title: "Open",
+                value: "\(store.checklistOpenCount)",
+                detail: store.checklistOpenCount == 1 ? "1 action still open" : "\(store.checklistOpenCount) actions still open",
+                health: store.checklistOpenCount > 0 ? .watch : .good
+            )
         }
     }
 
-    private func compactStat(_ label: String, _ value: String, _ ink: Color, _ wash: Color) -> some View {
-        HStack(spacing: 8) {
+    private func calloutCard(title: String, value: String, detail: String, health: Health) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text(title)
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(AppTheme.text)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                HealthBadge(health: health, prominent: true, compact: true)
+            }
             Text(value)
-                .font(.system(size: 28, weight: .bold, design: .rounded).monospacedDigit())
-                .foregroundStyle(ink)
-            Text(label)
-                .font(.title3.weight(.semibold))
+                .font(.system(size: 34, weight: .semibold, design: .rounded).monospacedDigit())
+                .foregroundStyle(AppTheme.healthInk(health))
+            Text(detail)
+                .font(.subheadline)
                 .foregroundStyle(AppTheme.textSecondary)
+                .lineLimit(2)
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        .frame(maxWidth: .infinity)
-        .background(wash, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .frame(maxWidth: .infinity, minHeight: 108, alignment: .leading)
+        .tableRowCard(health: health)
     }
 
     private func visibleItems(for section: MetricSection) -> [ChecklistDriverItem] {
@@ -8948,25 +8963,23 @@ struct FulfillmentChecklistCard: View {
                 if seen.insert(item.title + "|" + item.subtitle).inserted {
                     items.append(item)
                 }
-                if items.count == 5 { return items }
             }
         }
         return items
     }
 
-    private func previewLine(for items: [ChecklistDriverItem]) -> String {
-        if items.isEmpty { return "No issues in this filter" }
-        return items.prefix(3).map { "\($0.title.replacingOccurrences(of: "Store ", with: "#")) \($0.value)" }.joined(separator: "  ·  ")
-    }
-
     private func sectionBlock(_ section: MetricSection) -> some View {
         let summary = store.summary(for: section)
         let items = visibleItems(for: section)
-        let isOpen = openSection == section
+        let isOpen = openSections.contains(section)
         return VStack(alignment: .leading, spacing: 0) {
             Button {
                 withAnimation(.easeInOut(duration: 0.18)) {
-                    openSection = isOpen ? nil : section
+                    if isOpen {
+                        openSections.remove(section)
+                    } else {
+                        openSections.insert(section)
+                    }
                     commentingID = nil
                 }
             } label: {
@@ -8979,7 +8992,7 @@ struct FulfillmentChecklistCard: View {
             }
             .buttonStyle(.plain)
             if isOpen {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 10) {
                     if items.isEmpty {
                         Text("Nothing to action in this filter.")
                             .font(.subheadline)
@@ -9082,8 +9095,7 @@ struct FulfillmentChecklistCard: View {
                     .background(AppTheme.bg, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
         }
-        .padding(14)
-        .background(AppTheme.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .tableRowCard(health: item.health)
     }
 
     private func findingCard(_ finding: ChecklistFinding) -> some View {
@@ -9117,10 +9129,7 @@ struct FulfillmentChecklistCard: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(sectionWash(finding.health).opacity(0.7))
-        )
+        .tableRowCard(health: finding.health)
     }
 
     private func diagnosisLine(_ label: String, _ text: String, _ ink: Color) -> some View {
@@ -9136,15 +9145,6 @@ struct FulfillmentChecklistCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 2)
-    }
-
-    private func sectionWash(_ health: Health) -> Color {
-        switch health {
-        case .risk: return AppTheme.badSoft.opacity(0.45)
-        case .watch: return AppTheme.warnSoft.opacity(0.45)
-        case .good: return AppTheme.okSoft.opacity(0.35)
-        case .none: return AppTheme.bg
-        }
     }
 
     private func headlineColor(_ health: Health) -> Color {
