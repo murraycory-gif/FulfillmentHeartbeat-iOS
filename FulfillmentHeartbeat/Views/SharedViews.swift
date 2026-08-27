@@ -8802,6 +8802,7 @@ struct HubBrandBar: View {
                 .environmentObject(store)
                 .environmentObject(router)
         }
+    }
 
     private var markHeight: CGFloat {
         sizeClass == .regular ? 62 : 44
