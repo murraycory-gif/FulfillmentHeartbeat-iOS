@@ -404,28 +404,49 @@ struct HeartShape: Shape {
         let w = rect.width
         let h = rect.height
         var p = Path()
-        p.move(to: CGPoint(x: w * 0.50, y: h * 0.92))
+        p.move(to: CGPoint(x: w * 0.50, y: h * 0.90))
         p.addCurve(
-            to: CGPoint(x: w * 0.04, y: h * 0.34),
-            control1: CGPoint(x: w * 0.50, y: h * 0.78),
-            control2: CGPoint(x: 0, y: h * 0.58)
+            to: CGPoint(x: w * 0.05, y: h * 0.36),
+            control1: CGPoint(x: w * 0.50, y: h * 0.76),
+            control2: CGPoint(x: w * 0.00, y: h * 0.58)
         )
         p.addCurve(
-            to: CGPoint(x: w * 0.50, y: h * 0.28),
-            control1: CGPoint(x: w * 0.08, y: h * 0.02),
-            control2: CGPoint(x: w * 0.40, y: h * 0.08)
+            to: CGPoint(x: w * 0.50, y: h * 0.22),
+            control1: CGPoint(x: w * 0.10, y: h * 0.04),
+            control2: CGPoint(x: w * 0.38, y: h * 0.04)
         )
         p.addCurve(
-            to: CGPoint(x: w * 0.96, y: h * 0.34),
-            control1: CGPoint(x: w * 0.60, y: h * 0.08),
-            control2: CGPoint(x: w * 0.92, y: h * 0.02)
+            to: CGPoint(x: w * 0.95, y: h * 0.36),
+            control1: CGPoint(x: w * 0.62, y: h * 0.04),
+            control2: CGPoint(x: w * 0.90, y: h * 0.04)
         )
         p.addCurve(
-            to: CGPoint(x: w * 0.50, y: h * 0.92),
-            control1: CGPoint(x: w, y: h * 0.58),
-            control2: CGPoint(x: w * 0.50, y: h * 0.78)
+            to: CGPoint(x: w * 0.50, y: h * 0.90),
+            control1: CGPoint(x: w * 1.00, y: h * 0.58),
+            control2: CGPoint(x: w * 0.50, y: h * 0.76)
         )
         p.closeSubpath()
+        return p
+    }
+}
+
+/// App-icon ECG: short lead, sharp QRS, T-wave, long rounded tail.
+struct LogoECGShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        let w = rect.width
+        let h = rect.height
+        func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+            CGPoint(x: x * w, y: y * h)
+        }
+        var p = Path()
+        p.move(to: pt(0.00, 0.58))
+        p.addLine(to: pt(0.10, 0.58))
+        p.addLine(to: pt(0.16, 0.70))
+        p.addLine(to: pt(0.30, 0.06))
+        p.addLine(to: pt(0.42, 0.82))
+        p.addLine(to: pt(0.50, 0.58))
+        p.addQuadCurve(to: pt(0.70, 0.58), control: pt(0.60, 0.30))
+        p.addLine(to: pt(1.00, 0.58))
         return p
     }
 }
@@ -438,15 +459,30 @@ struct BeatingHeartbeatMark: View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { context in
             let cycle = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.08)
             let scale = Self.scale(at: cycle)
-            HStack(spacing: showsTrace ? -8 : 0) {
+            let head = CGFloat(cycle / 1.08)
+            let lineWidth = height * 0.125
+            HStack(spacing: showsTrace ? -height * 0.16 : 0) {
                 HeartShape()
                     .fill(AppTheme.heart)
-                    .frame(width: height * 0.94, height: height)
+                    .frame(width: height, height: height)
                     .scaleEffect(scale)
                     .shadow(color: AppTheme.heart.opacity(0.22), radius: 8, y: 2)
                 if showsTrace {
-                    HeartbeatTrace()
-                        .frame(width: max(120, height * 3.15), height: height * 0.58)
+                    ZStack {
+                        LogoECGShape()
+                            .stroke(
+                                AppTheme.blue,
+                                style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round)
+                            )
+                        LogoECGShape()
+                            .trim(from: max(0, head - 0.22), to: min(1, head))
+                            .stroke(
+                                Color.white.opacity(0.95),
+                                style: StrokeStyle(lineWidth: lineWidth * 1.05, lineCap: .round, lineJoin: .round)
+                            )
+                    }
+                    .frame(width: height * 1.28, height: height * 0.78)
+                    .offset(y: height * 0.02)
                 }
             }
         }
@@ -618,6 +654,8 @@ struct HubChromePill: View {
                     Image(systemName: symbol)
                 }
                 Text(title)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
                 if badge > 0 {
                     Text("\(badge)")
                         .font(.caption2.weight(.bold))
@@ -645,10 +683,9 @@ struct FilterBar: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var showingFilters = false
     @State private var sheetFocus: FilterFocus = .region
-    @State private var showingMail = false
-    @State private var buildingMail = false
-    @State private var mailPacket: PulseMail.Packet?
-    @State private var mailError: String?
+    @State private var showingShare = false
+    @State private var buildingShare = false
+    @State private var sharePacket: PulseMail.Packet?
 
     var body: some View {
         HStack(spacing: 8) {
@@ -668,32 +705,13 @@ struct FilterBar: View {
             FilterSheet(initialFocus: sheetFocus)
                 .environmentObject(store)
         }
-        .sheet(isPresented: $showingMail) {
-            if let mailPacket {
-                MailComposeView(
-                    recipients: [],
-                    subject: mailPacket.subject,
-                    html: mailPacket.html,
-                    plain: mailPacket.plain
-                ) { result in
-                    showingMail = false
-                    if result == .failed {
-                        mailError = "Mail didn’t send. Check that this iPad has a Mail account, or copy the recap."
-                    }
+        .sheet(isPresented: $showingShare) {
+            if let sharePacket {
+                PulseShareSheet(packet: sharePacket) {
+                    showingShare = false
                 }
+                .ignoresSafeArea()
             }
-        }
-        .alert("Couldn’t send", isPresented: Binding(
-            get: { mailError != nil },
-            set: { if !$0 { mailError = nil } }
-        )) {
-            Button("Copy recap") {
-                UIPasteboard.general.string = mailPacket?.plain
-                mailError = nil
-            }
-            Button("OK", role: .cancel) { mailError = nil }
-        } message: {
-            Text(mailError ?? "")
         }
     }
 
@@ -702,16 +720,15 @@ struct FilterBar: View {
             if sizeClass == .regular {
                 ForEach(FilterFocus.allCases) { focus in
                     HubChromePill(
-                        title: focus.chipTitle,
-                        symbol: focus.symbol,
-                        badge: store.filters.values(for: focus).count
+                        title: pillTitle(for: focus),
+                        symbol: focus.symbol
                     ) {
                         openFilters(focus)
                     }
                 }
             } else {
                 HubChromePill(
-                    title: "Filters",
+                    title: compactFilterTitle,
                     symbol: "line.3.horizontal.decrease",
                     badge: store.filters.isActive ? max(1, store.filters.summaryParts.filter { $0.active }.count) : 0
                 ) {
@@ -719,15 +736,34 @@ struct FilterBar: View {
                 }
             }
             HubChromePill(
-                title: "Email",
-                symbol: "envelope.fill",
+                title: "Share",
+                symbol: "square.and.arrow.up",
                 showsChevron: false,
-                spinning: buildingMail
+                spinning: buildingShare
             ) {
-                composePulseMail()
+                composePulseShare()
             }
-            .disabled(buildingMail)
+            .disabled(buildingShare)
         }
+    }
+
+    private func pillTitle(for focus: FilterFocus) -> String {
+        let values = store.filters.values(for: focus)
+        if values.isEmpty { return focus.chipTitle }
+        if values.count == 1 { return values[0] }
+        return "\(values[0]) +\(values.count - 1)"
+    }
+
+    private var compactFilterTitle: String {
+        let active = FilterFocus.allCases.compactMap { focus -> String? in
+            let values = store.filters.values(for: focus)
+            if values.isEmpty { return nil }
+            if values.count == 1 { return values[0] }
+            return "\(values[0]) +\(values.count - 1)"
+        }
+        if active.isEmpty { return "Filters" }
+        if active.count == 1 { return active[0] }
+        return active[0]
     }
 
     private func openFilters(_ focus: FilterFocus) {
@@ -735,16 +771,16 @@ struct FilterBar: View {
         showingFilters = true
     }
 
-    private func composePulseMail() {
-        guard !buildingMail else { return }
-        buildingMail = true
+    private func composePulseShare() {
+        guard !buildingShare else { return }
+        buildingShare = true
         let snap = store.pulseMailSnapshot()
         Task.detached(priority: .userInitiated) {
             let packet = PulseMail.make(snap)
             await MainActor.run {
-                mailPacket = packet
-                buildingMail = false
-                showingMail = true
+                sharePacket = packet
+                buildingShare = false
+                showingShare = true
             }
         }
     }
@@ -8605,7 +8641,7 @@ struct HubBrandBar: View {
     }
 
     private var markHeight: CGFloat {
-        sizeClass == .regular ? 54 : 40
+        sizeClass == .regular ? 62 : 44
     }
 
     private var greetingFont: Font {
@@ -9203,7 +9239,74 @@ struct FlexibleEmailChips: View {
     }
 }
 
+final class PulseShareSource: NSObject, UIActivityItemSource {
+    let subject: String
+    let plain: String
+    let htmlURL: URL?
+
+    init(packet: PulseMail.Packet) {
+        subject = packet.subject
+        plain = packet.plain
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Fulfillment Heartbeat.html")
+        try? packet.html.write(to: url, atomically: true, encoding: .utf8)
+        htmlURL = FileManager.default.fileExists(atPath: url.path) ? url : nil
+        super.init()
+    }
+
+    func activityViewControllerPlaceholderItem(_ activityViewController: UIActivityViewController) -> Any {
+        plain
+    }
+
+    func activityViewController(
+        _ activityViewController: UIActivityViewController,
+        itemForActivityType activityType: UIActivity.ActivityType?
+    ) -> Any? {
+        let raw = activityType?.rawValue ?? ""
+        if activityType == .message {
+            return "\(subject)\n\n\(plain)"
+        }
+        if activityType == .mail
+            || raw.localizedCaseInsensitiveContains("gmail")
+            || raw.localizedCaseInsensitiveContains("outlook")
+            || raw.localizedCaseInsensitiveContains("microsoft")
+            || raw.localizedCaseInsensitiveContains("yahoo") {
+            return htmlURL ?? "\(subject)\n\n\(plain)"
+        }
+        return htmlURL ?? "\(subject)\n\n\(plain)"
+    }
+
+    func activityViewController(
+        _ activityViewController: UIActivityViewController,
+        subjectForActivityType activityType: UIActivity.ActivityType?
+    ) -> String {
+        subject
+    }
+}
+
+struct PulseShareSheet: UIViewControllerRepresentable {
+    let packet: PulseMail.Packet
+    let onFinish: () -> Void
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        let source = PulseShareSource(packet: packet)
+        let sheet = UIActivityViewController(activityItems: [source], applicationActivities: nil)
+        sheet.completionWithItemsHandler = { _, _, _, _ in
+            DispatchQueue.main.async { onFinish() }
+        }
+        return sheet
+    }
+
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {
+        if let popover = controller.popoverPresentationController, popover.sourceView == nil {
+            popover.sourceView = controller.view
+            popover.sourceRect = CGRect(x: controller.view.bounds.midX, y: 8, width: 1, height: 1)
+            popover.permittedArrowDirections = []
+        }
+    }
+}
+
 struct MailComposeView: UIViewControllerRepresentable {
+
     let recipients: [String]
     let subject: String
     let html: String
