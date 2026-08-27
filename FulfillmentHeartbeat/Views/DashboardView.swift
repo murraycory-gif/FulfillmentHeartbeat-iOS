@@ -230,7 +230,6 @@ private struct DashLiftStyle: ButtonStyle {
 
 private struct DashCardChrome: ViewModifier {
     let health: Health
-    @State private var pulseOn = false
 
     func body(content: Content) -> some View {
         content
@@ -241,48 +240,26 @@ private struct DashCardChrome: ViewModifier {
                     .fill(Color.white)
                     .overlay {
                         RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(dashWash(health).opacity(washOpacity))
+                            .fill(dashWash(health).opacity(0.42))
                     }
             }
             .overlay(alignment: .leading) {
                 Capsule()
-                    .fill(dashInk(health).opacity(health == .risk ? (pulseOn ? 1 : 0.35) : 1))
+                    .fill(dashInk(health))
                     .frame(width: 5)
                     .padding(.vertical, 14)
             }
             .overlay {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(border, lineWidth: health == .risk ? 2.5 : 1)
-            }
-            .shadow(color: shadowColor, radius: health == .risk && pulseOn ? 14 : 10, y: 5)
-            .shadow(color: Color.black.opacity(0.04), radius: 2, y: 1)
-            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .onAppear {
-                guard health == .risk else { return }
-                pulseOn = false
-                withAnimation(.easeInOut(duration: 1.05).repeatForever(autoreverses: true)) {
-                    pulseOn = true
+                if health == .risk {
+                    RiskPulseRing(cornerRadius: 16, lineWidth: 2.5)
+                } else {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(Color.black.opacity(0.05), lineWidth: 1)
                 }
             }
-    }
-
-    private var washOpacity: Double {
-        if health == .risk { return pulseOn ? 0.62 : 0.28 }
-        return 0.42
-    }
-
-    private var border: Color {
-        if health == .risk {
-            return AppTheme.bad.opacity(pulseOn ? 0.95 : 0.22)
-        }
-        return Color.black.opacity(0.05)
-    }
-
-    private var shadowColor: Color {
-        if health == .risk {
-            return AppTheme.bad.opacity(pulseOn ? 0.28 : 0.08)
-        }
-        return Color.black.opacity(0.10)
+            .shadow(color: Color.black.opacity(0.10), radius: 10, y: 5)
+            .shadow(color: Color.black.opacity(0.04), radius: 2, y: 1)
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
 

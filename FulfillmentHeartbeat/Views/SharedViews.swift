@@ -8781,7 +8781,7 @@ struct FulfillmentChecklistCard: View {
     @State private var showingMail = false
     @State private var mailError: String?
 
-    @State private var pulseOn = false
+
 
     private var riskCount: Int {
         store.summaries.filter { $0.health == .risk }.count
@@ -8817,12 +8817,9 @@ struct FulfillmentChecklistCard: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(fill)
             .overlay {
-                if pulseHealth == .risk || pulseHealth == .watch {
-                    RoundedRectangle(cornerRadius: 0, style: .continuous)
-                        .stroke(stroke, lineWidth: 3)
-                        .opacity(pulseOn ? 1 : 0.18)
+                if pulseHealth == .risk {
+                    RiskPulseRing(cornerRadius: 0, lineWidth: 3)
                         .padding(3)
-                        .allowsHitTesting(false)
                 }
             }
         }
@@ -8838,11 +8835,6 @@ struct FulfillmentChecklistCard: View {
             if openSection == nil {
                 openSection = MetricSection.checklistSections.first { store.summary(for: $0).health == .risk }
                     ?? MetricSection.checklistSections.first { store.summary(for: $0).health == .watch }
-            }
-            guard pulseHealth == .risk || pulseHealth == .watch else { return }
-            pulseOn = false
-            withAnimation(.easeInOut(duration: 1.05).repeatForever(autoreverses: true)) {
-                pulseOn = true
             }
         }
         .onChange(of: expanded) { _, isOpen in

@@ -819,7 +819,6 @@ struct PickerFocusTile: View {
     var unit: String? = nil
     var compact: Bool = false
     var action: (() -> Void)? = nil
-    @State private var pulseOn = false
 
     var body: some View {
         Group {
@@ -831,13 +830,6 @@ struct PickerFocusTile: View {
             }
         }
         .frame(maxWidth: .infinity, minHeight: compact ? 148 : 176, maxHeight: compact ? 148 : 176)
-        .onAppear {
-            guard shouldPulse else { return }
-            pulseOn = false
-            withAnimation(.easeInOut(duration: 1.05).repeatForever(autoreverses: true)) {
-                pulseOn = true
-            }
-        }
     }
 
     private var tile: some View {
@@ -884,7 +876,7 @@ struct PickerFocusTile: View {
                 .fill(Color.white)
                 .overlay {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(wash.opacity(washOpacity))
+                        .fill(wash.opacity(0.42))
                 }
         }
         .overlay(alignment: .leading) {
@@ -894,11 +886,14 @@ struct PickerFocusTile: View {
                 .padding(.vertical, 12)
         }
         .overlay {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(stroke, lineWidth: selected || shouldPulse ? 2.5 : 1)
-                .opacity(shouldPulse && !selected ? (pulseOn ? 1 : 0.22) : 1)
+            if shouldPulse && !selected {
+                RiskPulseRing(cornerRadius: 16, lineWidth: 2.5)
+            } else {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(stroke, lineWidth: selected ? 2.5 : 1)
+            }
         }
-        .shadow(color: shadowColor, radius: shouldPulse && pulseOn ? 14 : 8, y: 4)
+        .shadow(color: Color.black.opacity(0.10), radius: 8, y: 4)
         .shadow(color: Color.black.opacity(0.04), radius: 2, y: 1)
     }
 
@@ -914,18 +909,13 @@ struct PickerFocusTile: View {
         }
     }
 
-    private var washOpacity: Double {
-        if health == .risk { return pulseOn ? 0.62 : 0.28 }
-        return 0.42
-    }
-
     private var stripe: Color {
         if selected { return AppTheme.blue }
         if brand { return AppTheme.blue }
         switch health {
         case .good: return AppTheme.ok
         case .watch: return AppTheme.warn
-        case .risk: return AppTheme.bad.opacity(pulseOn ? 1 : 0.35)
+        case .risk: return AppTheme.bad
         case .none: return AppTheme.blue.opacity(0.35)
         }
     }
@@ -939,13 +929,6 @@ struct PickerFocusTile: View {
         case .risk: return AppTheme.bad
         case .none: return Color.black.opacity(0.05)
         }
-    }
-
-    private var shadowColor: Color {
-        if health == .risk {
-            return AppTheme.bad.opacity(pulseOn ? 0.28 : 0.08)
-        }
-        return Color.black.opacity(0.10)
     }
 
     private var ink: Color {

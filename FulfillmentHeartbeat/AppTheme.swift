@@ -54,6 +54,22 @@ enum AppTheme {
     }
 }
 
+/// Isolated AT RISK pulse — TimelineView so it cannot leak animation to sibling cards.
+struct RiskPulseRing: View {
+    var cornerRadius: CGFloat = 16
+    var lineWidth: CGFloat = 2.5
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 20.0, paused: false)) { context in
+            let phase = 0.5 + 0.5 * sin(context.date.timeIntervalSinceReferenceDate * (.pi / 1.05))
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                .stroke(AppTheme.bad.opacity(0.28 + 0.67 * phase), lineWidth: lineWidth)
+                .shadow(color: AppTheme.bad.opacity(0.10 + 0.18 * phase), radius: 6 + 6 * phase, y: 3)
+        }
+        .allowsHitTesting(false)
+    }
+}
+
 extension Color {
     init(hex: String) {
         let cleaned = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
