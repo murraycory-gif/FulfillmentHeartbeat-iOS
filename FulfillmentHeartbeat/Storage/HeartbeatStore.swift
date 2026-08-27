@@ -627,6 +627,11 @@ final class HeartbeatStore: ObservableObject {
                     if !checklistItem(for: item, section: section).status.isClosed {
                         count += 1
                     }
+                    for finding in item.findings {
+                        if !checklistItem(for: item.findingItem(finding), section: section).status.isClosed {
+                            count += 1
+                        }
+                    }
                     for person in item.people {
                         if !checklistItem(for: item.shopperItem(person), section: section).status.isClosed {
                             count += 1

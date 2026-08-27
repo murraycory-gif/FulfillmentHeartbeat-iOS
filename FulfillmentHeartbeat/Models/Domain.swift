@@ -1574,6 +1574,17 @@ struct ChecklistDriverItem: Identifiable, Equatable {
             action: person.action
         )
     }
+
+    func findingItem(_ finding: ChecklistFinding) -> ChecklistDriverItem {
+        ChecklistDriverItem(
+            id: "\(id)|finding|\(finding.id)",
+            title: finding.name,
+            subtitle: title,
+            value: finding.value,
+            health: finding.health,
+            action: finding.action
+        )
+    }
 }
 
 struct ChecklistDriverGroup: Identifiable, Equatable {

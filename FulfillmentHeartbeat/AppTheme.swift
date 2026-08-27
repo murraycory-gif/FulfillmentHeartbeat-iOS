@@ -74,6 +74,7 @@ private struct RiskPulseLayer: UIViewRepresentable {
     }
 
     func updateUIView(_ view: PulseView, context: Context) {
+        view.isUserInteractionEnabled = false
         view.apply(cornerRadius: cornerRadius, lineWidth: lineWidth)
     }
 
@@ -143,12 +144,15 @@ struct TableRowChrome: ViewModifier {
                     .padding(.vertical, 10)
             }
             .overlay {
-                if health == .risk {
-                    RiskPulseRing(cornerRadius: 14, lineWidth: 2)
-                } else {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(Color.black.opacity(0.05), lineWidth: 1)
+                Group {
+                    if health == .risk {
+                        RiskPulseRing(cornerRadius: 14, lineWidth: 2)
+                    } else {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(Color.black.opacity(0.05), lineWidth: 1)
+                    }
                 }
+                .allowsHitTesting(false)
             }
             .shadow(color: Color.black.opacity(0.08), radius: 6, y: 3)
             .shadow(color: Color.black.opacity(0.03), radius: 1, y: 1)

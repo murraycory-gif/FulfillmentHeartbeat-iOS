@@ -9097,7 +9097,7 @@ struct FulfillmentChecklistCard: View {
                     }
                 }
                 Button {
-                    withAnimation { commentingID = showComment && commentingID == item.id ? nil : item.id }
+                    withAnimation { commentingID = commentingID == item.id && action.comment.isEmpty ? nil : item.id }
                 } label: {
                     Image(systemName: action.comment.isEmpty ? "text.bubble" : "text.bubble.fill")
                         .font(.body.weight(.semibold))
@@ -9107,10 +9107,18 @@ struct FulfillmentChecklistCard: View {
                 }
                 .buttonStyle(.plain)
             }
+            if showComment {
+                TextField("Note for follow up", text: commentBinding(item, section: section), axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .font(.body)
+                    .lineLimit(1...4)
+                    .padding(12)
+                    .background(AppTheme.bg, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
             if !item.findings.isEmpty {
                 VStack(spacing: 8) {
                     ForEach(item.findings) { finding in
-                        findingCard(finding)
+                        findingCard(finding, storeItem: item, section: section)
                     }
                 }
             } else {
@@ -9137,31 +9145,47 @@ struct FulfillmentChecklistCard: View {
                     section: section
                 )
             }
-            if showComment {
-                TextField("Note for follow up", text: commentBinding(item, section: section), axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .font(.body)
-                    .lineLimit(1...4)
-                    .padding(12)
-                    .background(AppTheme.bg, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            }
         }
         .tableRowCard(health: item.health)
     }
 
-    private func findingCard(_ finding: ChecklistFinding) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(finding.name)
-                    .font(.subheadline.weight(.bold))
-                    .foregroundStyle(headlineColor(finding.health))
-                Text(finding.value)
-                    .font(.subheadline.weight(.bold).monospacedDigit())
-                    .foregroundStyle(headlineColor(finding.health))
-                Text("need \(finding.need)")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(AppTheme.textTertiary)
-                Spacer(minLength: 0)
+    private func findingCard(_ finding: ChecklistFinding, storeItem: ChecklistDriverItem, section: MetricSection) -> some View {
+        let item = storeItem.findingItem(finding)
+        let action = store.checklistItem(for: item, section: section)
+        let showComment = commentingID == item.id || !action.comment.isEmpty
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 8) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(finding.name)
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(headlineColor(finding.health))
+                    HStack(spacing: 8) {
+                        Text(finding.value)
+                            .font(.subheadline.weight(.bold).monospacedDigit())
+                            .foregroundStyle(headlineColor(finding.health))
+                        Text("need \(finding.need)")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(AppTheme.textTertiary)
+                    }
+                }
+                Spacer(minLength: 8)
+                HStack(spacing: 8) {
+                    ForEach([ChecklistStatus.addressed, .followUp]) { status in
+                        statusChip(status, selected: action.status == status) {
+                            store.setChecklistStatus(status, for: item, section: section)
+                        }
+                    }
+                }
+                Button {
+                    withAnimation { commentingID = commentingID == item.id && action.comment.isEmpty ? nil : item.id }
+                } label: {
+                    Image(systemName: action.comment.isEmpty ? "text.bubble" : "text.bubble.fill")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(action.comment.isEmpty ? AppTheme.textTertiary : AppTheme.blue)
+                        .frame(width: 44, height: 44)
+                        .background(AppTheme.blueSoft.opacity(action.comment.isEmpty ? 0.45 : 1), in: Circle())
+                }
+                .buttonStyle(.plain)
             }
             Text(finding.fact)
                 .font(.subheadline)
@@ -9171,9 +9195,15 @@ struct FulfillmentChecklistCard: View {
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(AppTheme.text)
                 .fixedSize(horizontal: false, vertical: true)
+            if showComment {
+                TextField("Note for \(finding.name)", text: commentBinding(item, section: section), axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .font(.body)
+                    .lineLimit(1...4)
+                    .padding(12)
+                    .background(AppTheme.bg, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            }
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
         .tableRowCard(health: finding.health)
     }
 
