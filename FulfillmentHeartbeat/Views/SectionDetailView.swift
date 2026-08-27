@@ -180,11 +180,9 @@ struct SectionDetailView: View {
         }
         .onAppear {
             guard !showTables else { return }
-            DispatchQueue.main.async {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.28) {
                 showTables = true
-                if section == .labor || section == .lostRevenue || section == .fiveStar || section == .pickPath || section == .prepNotReady || section == .dynacap || section == .scheduleQuality || section == .pph || section == .pickerScorecard {
-                    laborHeaderPin.openOnPageEnter()
-                }
+                laborHeaderPin.openOnPageEnter()
             }
         }
     }

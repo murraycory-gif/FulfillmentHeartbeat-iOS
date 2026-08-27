@@ -487,77 +487,60 @@ struct BeatingHeartbeatMark: View {
     var showsWordmark: Bool = true
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 15.0, paused: false)) { context in
-            let cycle = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.08)
-            let head = CGFloat(cycle / 1.08)
-            let lineWidth = height * 0.11
-            HStack(alignment: .center, spacing: height * 0.16) {
-                if showsWordmark {
-                    FulfillmentWordmark(height: height)
-                }
-                ZStack(alignment: .leading) {
-                    if showsTrace {
-                        ZStack {
-                            LogoECGShape()
-                                .stroke(
-                                    AppTheme.pulse.opacity(0.22),
-                                    style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round)
-                                )
-                            LogoECGShape()
-                                .trim(from: 0, to: max(0.02, head))
-                                .stroke(
-                                    AppTheme.pulse,
-                                    style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round)
-                                )
-                        }
+        HStack(alignment: .center, spacing: height * 0.16) {
+            if showsWordmark {
+                FulfillmentWordmark(height: height)
+            }
+            ZStack(alignment: .leading) {
+                if showsTrace {
+                    LogoECGUI(lineWidth: height * 0.11)
                         .frame(width: height * 1.42, height: height * 0.70)
                         .offset(x: height * 0.88, y: height * 0.04)
-                    }
-
-                    HeartShape()
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    Color(hex: "2E6FD4"),
-                                    AppTheme.heart,
-                                    Color(hex: "00245F"),
-                                ],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .overlay {
-                            HeartShape()
-                                .fill(
-                                    RadialGradient(
-                                        colors: [
-                                            Color.white.opacity(0.38),
-                                            Color.white.opacity(0.06),
-                                            Color.clear,
-                                        ],
-                                        center: UnitPoint(x: 0.34, y: 0.26),
-                                        startRadius: 1,
-                                        endRadius: height * 0.62
-                                    )
-                                )
-                        }
-                        .overlay {
-                            HeartShape()
-                                .stroke(
-                                    LinearGradient(
-                                        colors: [Color.white.opacity(0.45), Color.white.opacity(0.05)],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    ),
-                                    lineWidth: 1.2
-                                )
-                        }
-                        .shadow(color: Color.black.opacity(0.28), radius: 3, x: 1.2, y: 3)
-                        .shadow(color: AppTheme.heart.opacity(0.40), radius: 8, y: 3)
-                        .frame(width: height, height: height)
+                        .allowsHitTesting(false)
                 }
-                .frame(width: showsTrace ? height * 2.32 : height, height: height, alignment: .leading)
+                HeartShape()
+                    .fill(
+                        LinearGradient(
+                            colors: [
+                                Color(hex: "2E6FD4"),
+                                AppTheme.heart,
+                                Color(hex: "00245F"),
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .overlay {
+                        HeartShape()
+                            .fill(
+                                RadialGradient(
+                                    colors: [
+                                        Color.white.opacity(0.38),
+                                        Color.white.opacity(0.06),
+                                        Color.clear,
+                                    ],
+                                    center: UnitPoint(x: 0.34, y: 0.26),
+                                    startRadius: 1,
+                                    endRadius: height * 0.62
+                                )
+                            )
+                    }
+                    .overlay {
+                        HeartShape()
+                            .stroke(
+                                LinearGradient(
+                                    colors: [Color.white.opacity(0.45), Color.white.opacity(0.05)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                ),
+                                lineWidth: 1.2
+                            )
+                    }
+                    .shadow(color: Color.black.opacity(0.28), radius: 3, x: 1.2, y: 3)
+                    .shadow(color: AppTheme.heart.opacity(0.40), radius: 8, y: 3)
+                    .frame(width: height, height: height)
             }
+            .frame(width: showsTrace ? height * 2.32 : height, height: height, alignment: .leading)
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Fulfillment Heartbeat")
@@ -602,6 +585,98 @@ struct HeartbeatTrace: View {
         ECGPulseView()
             .allowsHitTesting(false)
             .accessibilityHidden(true)
+    }
+}
+
+private struct LogoECGUI: UIViewRepresentable {
+    var lineWidth: CGFloat
+
+    func makeUIView(context: Context) -> LogoECGView {
+        let view = LogoECGView()
+        view.lineWidth = lineWidth
+        return view
+    }
+
+    func updateUIView(_ view: LogoECGView, context: Context) {
+        view.lineWidth = lineWidth
+    }
+}
+
+final class LogoECGView: UIView {
+    var lineWidth: CGFloat = 3 {
+        didSet {
+            track.lineWidth = lineWidth
+            pulse.lineWidth = lineWidth
+        }
+    }
+
+    private let track = CAShapeLayer()
+    private let pulse = CAShapeLayer()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isOpaque = false
+        backgroundColor = .clear
+        isUserInteractionEnabled = false
+        let color = UIColor(red: 0, green: 169 / 255, blue: 224 / 255, alpha: 1)
+        for layer in [track, pulse] {
+            layer.fillColor = nil
+            layer.lineCap = .round
+            layer.lineJoin = .round
+            layer.strokeColor = color.cgColor
+            self.layer.addSublayer(layer)
+        }
+        track.strokeColor = color.withAlphaComponent(0.22).cgColor
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let path = Self.logoPath(in: bounds)
+        track.frame = bounds
+        pulse.frame = bounds
+        track.path = path
+        pulse.path = path
+        start()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        window == nil ? pulse.removeAnimation(forKey: "beat") : start()
+    }
+
+    private func start() {
+        guard window != nil, bounds.width > 1, pulse.animation(forKey: "beat") == nil else { return }
+        let start = CABasicAnimation(keyPath: "strokeStart")
+        start.fromValue = 0
+        start.toValue = 0.86
+        let end = CABasicAnimation(keyPath: "strokeEnd")
+        end.fromValue = 0.14
+        end.toValue = 1
+        let group = CAAnimationGroup()
+        group.animations = [start, end]
+        group.duration = 1.08
+        group.repeatCount = .infinity
+        group.timingFunction = CAMediaTimingFunction(name: .linear)
+        group.isRemovedOnCompletion = false
+        pulse.add(group, forKey: "beat")
+    }
+
+    private static func logoPath(in rect: CGRect) -> CGPath {
+        let w = rect.width
+        let h = rect.height
+        func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint { CGPoint(x: x * w, y: y * h) }
+        let path = CGMutablePath()
+        path.move(to: pt(0.00, 0.58))
+        path.addLine(to: pt(0.10, 0.58))
+        path.addLine(to: pt(0.16, 0.70))
+        path.addLine(to: pt(0.30, 0.06))
+        path.addLine(to: pt(0.42, 0.82))
+        path.addLine(to: pt(0.50, 0.58))
+        path.addQuadCurve(to: pt(0.70, 0.58), control: pt(0.60, 0.30))
+        path.addLine(to: pt(1.00, 0.58))
+        return path
     }
 }
 
@@ -8855,7 +8930,7 @@ struct FulfillmentChecklistCard: View {
             VStack(alignment: .leading, spacing: 14) {
                 visibilityStrip
                 if expanded || !showsHeader {
-                    VStack(spacing: 14) {
+                    LazyVStack(spacing: 14) {
                         ForEach(MetricSection.checklistSections) { section in
                             sectionBlock(section)
                         }

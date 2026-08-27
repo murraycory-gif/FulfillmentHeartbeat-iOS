@@ -23,7 +23,6 @@ struct ScorecardPager: UIViewControllerRepresentable {
         context.coordinator.attach(pager)
         let dest = router.current == .upload ? .dashboard : router.current
         context.coordinator.snap(to: dest, animated: false)
-        context.coordinator.prefetch(around: dest)
         return pager
     }
 
@@ -41,7 +40,6 @@ struct ScorecardPager: UIViewControllerRepresentable {
         let dest = router.current
         guard dest != .upload, dest != coordinator.displayed else { return }
         coordinator.snap(to: dest, animated: false)
-        coordinator.prefetch(around: dest)
     }
 
     final class PageHost: UIHostingController<AnyView> {
@@ -99,23 +97,12 @@ struct ScorecardPager: UIViewControllerRepresentable {
             pager.setViewControllers([host], direction: .forward, animated: false)
             pager.dataSource = self
             resetScroll(pager)
-            pager.view.layoutIfNeeded()
         }
 
         func prefetch(around dest: HubDestination) {
             let items = HubDestination.sectionItems
             guard let index = items.firstIndex(of: dest) else { return }
             trimCache(around: index)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { [weak self] in
-                guard let self else { return }
-                for offset in [1, -1] {
-                    let item = index + offset
-                    guard items.indices.contains(item) else { continue }
-                    let next = items[item]
-                    if next == .checklist { continue }
-                    _ = self.host(for: next)
-                }
-            }
         }
 
         private func trimCache(around index: Int) {

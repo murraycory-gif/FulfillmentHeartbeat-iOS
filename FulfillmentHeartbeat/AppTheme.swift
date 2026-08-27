@@ -145,18 +145,10 @@ struct TableRowChrome: ViewModifier {
                     .padding(.vertical, 10)
             }
             .overlay {
-                Group {
-                    if health == .risk {
-                        RiskPulseRing(cornerRadius: 14, lineWidth: 2)
-                    } else {
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .stroke(Color.black.opacity(0.05), lineWidth: 1)
-                    }
-                }
-                .allowsHitTesting(false)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(health == .risk ? AppTheme.bad.opacity(0.7) : Color.black.opacity(0.05), lineWidth: health == .risk ? 1.5 : 1)
             }
-            .shadow(color: Color.black.opacity(0.08), radius: 6, y: 3)
-            .shadow(color: Color.black.opacity(0.03), radius: 1, y: 1)
+            .shadow(color: Color.black.opacity(0.05), radius: 3, y: 2)
     }
 }
 
