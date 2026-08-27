@@ -9052,6 +9052,8 @@ struct FulfillmentChecklistCard: View {
             RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
                 .stroke(AppTheme.blue, lineWidth: 2.5)
         )
+            }
+        }
     }
 
     private func sectionAccessory(summary: SectionSummary, count: Int, expanded: Bool) -> String {
