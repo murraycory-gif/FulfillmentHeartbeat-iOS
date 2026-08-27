@@ -127,9 +127,11 @@ struct MainHubView: View {
                     NavigationStack { DashboardView() }
                         .tabItem { Label("Dashboard", systemImage: HubDestination.dashboard.symbol) }
                         .tag(HubDestination.dashboard)
+                        .hubChrome(showsFilters: true)
                     NavigationStack { UploadView() }
                         .tabItem { Label("Upload", systemImage: HubDestination.upload.symbol) }
                         .tag(HubDestination.upload)
+                        .hubChrome(showsFilters: false)
                 }
             }
         }

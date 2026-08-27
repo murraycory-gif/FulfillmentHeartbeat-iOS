@@ -374,21 +374,117 @@ struct HubIconButton: View {
     let symbol: String
     var label: String = ""
     var emphasized: Bool = false
+    var chrome: Bool = false
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.body.weight(.semibold))
-                .foregroundStyle(emphasized ? Color.white : AppTheme.blue)
-                .frame(width: 40, height: 36)
-                .background(
-                    (emphasized ? AppTheme.blue : AppTheme.blueSoft),
-                    in: Capsule(style: .continuous)
-                )
+                .foregroundStyle(chrome || !emphasized ? AppTheme.blue : Color.white)
+                .frame(width: 40, height: chrome ? 40 : 36)
+                .background {
+                    if chrome {
+                        Circle()
+                            .fill(Color.white)
+                            .overlay(Circle().stroke(Color.black.opacity(0.08), lineWidth: 1))
+                    } else {
+                        Capsule(style: .continuous)
+                            .fill(emphasized ? AppTheme.blue : AppTheme.blueSoft)
+                    }
+                }
         }
         .buttonStyle(.plain)
         .accessibilityLabel(label.isEmpty ? symbol : label)
+    }
+}
+
+struct HeartShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        let w = rect.width
+        let h = rect.height
+        var p = Path()
+        p.move(to: CGPoint(x: w * 0.50, y: h * 0.92))
+        p.addCurve(
+            to: CGPoint(x: w * 0.04, y: h * 0.34),
+            control1: CGPoint(x: w * 0.50, y: h * 0.78),
+            control2: CGPoint(x: 0, y: h * 0.58)
+        )
+        p.addCurve(
+            to: CGPoint(x: w * 0.50, y: h * 0.28),
+            control1: CGPoint(x: w * 0.08, y: h * 0.02),
+            control2: CGPoint(x: w * 0.40, y: h * 0.08)
+        )
+        p.addCurve(
+            to: CGPoint(x: w * 0.96, y: h * 0.34),
+            control1: CGPoint(x: w * 0.60, y: h * 0.08),
+            control2: CGPoint(x: w * 0.92, y: h * 0.02)
+        )
+        p.addCurve(
+            to: CGPoint(x: w * 0.50, y: h * 0.92),
+            control1: CGPoint(x: w, y: h * 0.58),
+            control2: CGPoint(x: w * 0.50, y: h * 0.78)
+        )
+        p.closeSubpath()
+        return p
+    }
+}
+
+struct BeatingHeartbeatMark: View {
+    var height: CGFloat = 52
+    var showsTrace: Bool = true
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { context in
+            let cycle = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.08)
+            let scale = Self.scale(at: cycle)
+            HStack(spacing: showsTrace ? -8 : 0) {
+                HeartShape()
+                    .fill(AppTheme.heart)
+                    .frame(width: height * 0.94, height: height)
+                    .scaleEffect(scale)
+                    .shadow(color: AppTheme.heart.opacity(0.22), radius: 8, y: 2)
+                if showsTrace {
+                    HeartbeatTrace()
+                        .frame(width: max(120, height * 3.15), height: height * 0.58)
+                }
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Fulfillment Heartbeat")
+    }
+
+    private static func scale(at t: TimeInterval) -> CGFloat {
+        if t < 0.08 { return 1 }
+        if t < 0.16 { return 1 + CGFloat((t - 0.08) / 0.08) * 0.16 }
+        if t < 0.28 { return 1.16 - CGFloat((t - 0.16) / 0.12) * 0.16 }
+        if t < 0.36 { return 1 + CGFloat((t - 0.28) / 0.08) * 0.08 }
+        if t < 0.48 { return 1.08 - CGFloat((t - 0.36) / 0.12) * 0.08 }
+        return 1
+    }
+}
+
+struct DayGreeting: View {
+    var font: Font = .system(size: 34, weight: .bold)
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            let part = Self.part(at: context.date)
+            (Text("Good ").foregroundStyle(AppTheme.text) + Text(part).foregroundStyle(AppTheme.blue))
+                .font(font)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .accessibilityLabel("Good \(part)")
+        }
+    }
+
+    static func part(at date: Date) -> String {
+        let hour = Calendar.current.component(.hour, from: date)
+        switch hour {
+        case 5..<12: return "Morning"
+        case 12..<17: return "Afternoon"
+        default: return "Evening"
+        }
     }
 }
 
@@ -397,16 +493,7 @@ struct HubNavLogo: View {
     var height: CGFloat = 32
 
     var body: some View {
-        HStack(spacing: pulse ? -4 : 6) {
-            BrandMarkImage(height: height)
-            if pulse {
-                HeartbeatTrace()
-                    .frame(width: 168, height: max(22, height - 10))
-                    .offset(x: -2)
-                    .accessibilityHidden(true)
-            }
-        }
-        .accessibilityLabel("Fulfillment Heartbeat")
+        BeatingHeartbeatMark(height: height, showsTrace: pulse)
     }
 }
 
@@ -441,10 +528,11 @@ final class ECGPulseUIView: UIView {
         pulse.lineCap = .round
         track.lineJoin = .round
         pulse.lineJoin = .round
-        track.lineWidth = 2
-        pulse.lineWidth = 3
-        track.strokeColor = UIColor(red: 0.15, green: 0.42, blue: 0.95, alpha: 0.18).cgColor
-        pulse.strokeColor = UIColor(red: 0.15, green: 0.42, blue: 0.95, alpha: 1).cgColor
+        track.lineWidth = 2.4
+        pulse.lineWidth = 3.6
+        let light = UIColor(red: 58 / 255, green: 105 / 255, blue: 234 / 255, alpha: 1)
+        track.strokeColor = light.withAlphaComponent(0.20).cgColor
+        pulse.strokeColor = light.cgColor
         layer.addSublayer(track)
         layer.addSublayer(pulse)
     }
@@ -477,11 +565,11 @@ final class ECGPulseUIView: UIView {
         start.fromValue = 0
         start.toValue = 1
         let end = CABasicAnimation(keyPath: "strokeEnd")
-        end.fromValue = 0.18
-        end.toValue = 1.18
+        end.fromValue = 0.16
+        end.toValue = 1.16
         let group = CAAnimationGroup()
         group.animations = [start, end]
-        group.duration = 1.7
+        group.duration = 1.08
         group.repeatCount = .infinity
         group.timingFunction = CAMediaTimingFunction(name: .linear)
         group.isRemovedOnCompletion = false
@@ -492,28 +580,71 @@ final class ECGPulseUIView: UIView {
         let path = CGMutablePath()
         let mid = rect.height * 0.55
         let width = max(rect.width, 1)
-        let amp = rect.height * 0.36
+        let amp = rect.height * 0.42
         func point(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
             CGPoint(x: x * width, y: mid - y * amp)
         }
         path.move(to: point(0, 0))
-        path.addLine(to: point(0.06, 0))
-        path.addLine(to: point(0.10, 0.18))
-        path.addLine(to: point(0.16, 0))
-        path.addLine(to: point(0.20, -0.22))
-        path.addLine(to: point(0.28, 1.0))
-        path.addLine(to: point(0.34, -0.32))
-        path.addLine(to: point(0.40, 0))
-        path.addLine(to: point(0.50, 0.28))
-        path.addLine(to: point(0.58, 0))
+        path.addLine(to: point(0.08, 0))
+        path.addLine(to: point(0.14, 0.16))
+        path.addLine(to: point(0.20, 0))
+        path.addLine(to: point(0.26, -0.22))
+        path.addLine(to: point(0.34, 1.0))
+        path.addLine(to: point(0.42, -0.34))
+        path.addLine(to: point(0.48, 0))
+        path.addLine(to: point(0.60, 0.22))
+        path.addLine(to: point(0.70, 0))
         path.addLine(to: point(1.0, 0))
         return path
     }
 }
 
+struct HubChromePill: View {
+    let title: String
+    let symbol: String
+    var badge: Int = 0
+    var showsChevron: Bool = true
+    var spinning: Bool = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                if spinning {
+                    ProgressView()
+                        .tint(.white)
+                        .controlSize(.small)
+                } else {
+                    Image(systemName: symbol)
+                }
+                Text(title)
+                if badge > 0 {
+                    Text("\(badge)")
+                        .font(.caption2.weight(.bold))
+                        .padding(.horizontal, 5)
+                        .padding(.vertical, 1)
+                        .background(Color.white.opacity(0.22), in: Capsule())
+                }
+                if showsChevron {
+                    Image(systemName: "chevron.down")
+                        .font(.caption.weight(.bold))
+                }
+            }
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(AppTheme.blue, in: Capsule(style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 struct FilterBar: View {
     @EnvironmentObject private var store: HeartbeatStore
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var showingFilters = false
+    @State private var sheetFocus: FilterFocus = .region
     @State private var showingMail = false
     @State private var buildingMail = false
     @State private var mailPacket: PulseMail.Packet?
@@ -526,29 +657,15 @@ struct FilterBar: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(AppTheme.blue)
             }
-            Button {
-                composePulseMail()
-            } label: {
-                if buildingMail {
-                    ProgressView()
-                        .tint(.white)
-                        .controlSize(.small)
-                        .padding(.horizontal, 6)
-                } else {
-                    Label("Email", systemImage: "envelope.fill")
+            ViewThatFits(in: .horizontal) {
+                pills
+                ScrollView(.horizontal, showsIndicators: false) {
+                    pills
                 }
             }
-            .buttonStyle(BrandButtonStyle())
-            .disabled(buildingMail)
-            Button {
-                showingFilters = true
-            } label: {
-                Label("Filters", systemImage: "line.3.horizontal.decrease.circle.fill")
-            }
-            .buttonStyle(BrandButtonStyle())
         }
         .fullScreenCover(isPresented: $showingFilters) {
-            FilterSheet()
+            FilterSheet(initialFocus: sheetFocus)
                 .environmentObject(store)
         }
         .sheet(isPresented: $showingMail) {
@@ -580,6 +697,44 @@ struct FilterBar: View {
         }
     }
 
+    private var pills: some View {
+        HStack(spacing: 8) {
+            if sizeClass == .regular {
+                ForEach(FilterFocus.allCases) { focus in
+                    HubChromePill(
+                        title: focus.chipTitle,
+                        symbol: focus.symbol,
+                        badge: store.filters.values(for: focus).count
+                    ) {
+                        openFilters(focus)
+                    }
+                }
+            } else {
+                HubChromePill(
+                    title: "Filters",
+                    symbol: "line.3.horizontal.decrease",
+                    badge: store.filters.isActive ? max(1, store.filters.summaryParts.filter { $0.active }.count) : 0
+                ) {
+                    openFilters(.region)
+                }
+            }
+            HubChromePill(
+                title: "Email",
+                symbol: "envelope.fill",
+                showsChevron: false,
+                spinning: buildingMail
+            ) {
+                composePulseMail()
+            }
+            .disabled(buildingMail)
+        }
+    }
+
+    private func openFilters(_ focus: FilterFocus) {
+        sheetFocus = focus
+        showingFilters = true
+    }
+
     private func composePulseMail() {
         guard !buildingMail else { return }
         buildingMail = true
@@ -598,6 +753,7 @@ struct FilterBar: View {
 struct FilterSheet: View {
     @EnvironmentObject private var store: HeartbeatStore
     @Environment(\.dismiss) private var dismiss
+    var initialFocus: FilterFocus = .region
     @State private var original = DashboardFilters()
     @State private var draft = DashboardFilters()
     @State private var confirmLeave = false
@@ -654,6 +810,7 @@ struct FilterSheet: View {
         .onAppear {
             original = store.filters
             draft = store.filters
+            focus = initialFocus
         }
     }
 
@@ -8403,44 +8560,58 @@ struct HubBrandBar: View {
     var showsFilters: Bool
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            if sizeClass == .regular {
-                HubIconButton(symbol: "sidebar.left", label: "Menu", emphasized: true) {
-                    router.toggleSidebar()
+        VStack(spacing: 10) {
+            ZStack {
+                HStack(spacing: 10) {
+                    if sizeClass == .regular {
+                        HubIconButton(symbol: "sidebar.left", label: "Menu", chrome: true) {
+                            router.toggleSidebar()
+                        }
+                    }
+                    if showBack {
+                        HubIconButton(symbol: "chevron.left", label: "Dashboard", chrome: true) {
+                            router.open(.dashboard)
+                        }
+                    }
+                    Spacer(minLength: 8)
+                    Text(BuildStamp.label)
+                        .font(.caption2.weight(.semibold).monospaced())
+                        .foregroundStyle(AppTheme.textTertiary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(AppTheme.card, in: Capsule(style: .continuous))
+                        .overlay(Capsule(style: .continuous).stroke(AppTheme.cardBorder, lineWidth: 1))
+                        .accessibilityLabel("Build \(BuildStamp.label)")
+                }
+                BeatingHeartbeatMark(height: markHeight, showsTrace: true)
+                    .allowsHitTesting(false)
+            }
+            .frame(minHeight: markHeight + 8)
+
+            HStack(alignment: .center, spacing: 12) {
+                DayGreeting(font: greetingFont)
+                    .layoutPriority(1)
+                Spacer(minLength: 8)
+                if showsFilters {
+                    FilterBar()
                 }
             }
-            if showBack {
-                HubIconButton(symbol: "chevron.left", label: "Dashboard") {
-                    router.open(.dashboard)
-                }
-            }
-            HubNavLogo(pulse: true, height: markHeight)
-            Spacer(minLength: 8)
-            if showsFilters {
-                FilterBar()
-            }
-            Text(BuildStamp.label)
-                .font(.caption2.weight(.semibold).monospaced())
-                .foregroundStyle(AppTheme.textTertiary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(AppTheme.card, in: Capsule(style: .continuous))
-                .overlay(Capsule(style: .continuous).stroke(AppTheme.cardBorder, lineWidth: 1))
-                .accessibilityLabel("Build \(BuildStamp.label)")
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .frame(minHeight: 64)
+        .padding(.horizontal, 20)
+        .padding(.top, 6)
+        .padding(.bottom, 12)
+        .frame(maxWidth: .infinity)
         .background(AppTheme.bg)
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(AppTheme.cardBorder)
-                .frame(height: 1)
-        }
     }
 
     private var markHeight: CGFloat {
-        sizeClass == .regular ? 44 : 34
+        sizeClass == .regular ? 54 : 40
+    }
+
+    private var greetingFont: Font {
+        sizeClass == .regular
+            ? .system(size: 36, weight: .bold)
+            : .system(size: 26, weight: .bold)
     }
 }
 

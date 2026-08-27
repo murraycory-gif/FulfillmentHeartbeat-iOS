@@ -6,6 +6,8 @@ enum AppTheme {
     static let blue = Color(hex: "3A69EA")
     static let blueSoft = Color(hex: "E8EEFE")
     static let blueDeep = Color(hex: "1E4BC8")
+    /// Darker Albertsons blue — heart fill.
+    static let heart = Color(hex: "003DA5")
 
     /// Same canvas as the HUB app.
     static let bg = Color(hex: "F5F7FC")

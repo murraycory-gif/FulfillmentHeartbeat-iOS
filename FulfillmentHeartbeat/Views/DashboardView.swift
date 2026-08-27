@@ -11,11 +11,6 @@ struct DashboardView: View {
         List {
             Section {
                 VStack(spacing: 16) {
-                    HubBanner(
-                        icon: HubDestination.dashboard.symbol,
-                        title: "Fulfillment Heartbeat Dashboard",
-                        accessory: store.filters.summary
-                    )
                     HubPanel(
                         icon: "waveform.path.ecg",
                         title: "Operational Heartbeat"

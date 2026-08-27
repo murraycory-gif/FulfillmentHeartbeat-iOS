@@ -51,11 +51,7 @@ struct LaunchSplashView: View {
             AppTheme.bg.ignoresSafeArea()
 
             VStack(spacing: 22) {
-                BrandMarkImage(height: 120)
-                    .shadow(color: AppTheme.blue.opacity(0.18), radius: 16, y: 6)
-
-                HeartbeatTrace()
-                    .frame(width: 240, height: 40)
+                BeatingHeartbeatMark(height: 88, showsTrace: true)
 
                 VStack(spacing: 4) {
                     Text("Fulfillment")

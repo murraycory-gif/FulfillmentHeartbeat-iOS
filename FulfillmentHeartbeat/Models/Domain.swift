@@ -1738,12 +1738,24 @@ enum MarketRegion: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
-enum FilterFocus: String, Sendable {
+enum FilterFocus: String, CaseIterable, Identifiable, Sendable {
     case region
     case division
     case district
     case om
     case store
+
+    var id: String { rawValue }
+
+    var symbol: String {
+        switch self {
+        case .region: return "globe.americas.fill"
+        case .division: return "building.2.fill"
+        case .district: return "square.grid.2x2.fill"
+        case .om: return "person.2.fill"
+        case .store: return "storefront.fill"
+        }
+    }
 
     var title: String {
         switch self {
