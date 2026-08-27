@@ -452,91 +452,142 @@ struct LogoECGShape: Shape {
     }
 }
 
+struct AlbertsonsMark: View {
+    var height: CGFloat = 44
+
+    var body: some View {
+        Canvas { context, size in
+            let w = size.width
+            let h = size.height
+            func pt(_ x: CGFloat, _ y: CGFloat) -> CGPoint {
+                CGPoint(x: x * w, y: y * h)
+            }
+            let dark = Color(hex: "003DA5")
+            let light = Color(hex: "00A9E0")
+
+            var left = Path()
+            left.move(to: pt(0.08, 0.90))
+            left.addQuadCurve(to: pt(0.00, 0.74), control: pt(0.00, 0.90))
+            left.addLine(to: pt(0.36, 0.08))
+            left.addLine(to: pt(0.54, 0.08))
+            left.addLine(to: pt(0.32, 0.50))
+            left.addLine(to: pt(0.20, 0.74))
+            left.addQuadCurve(to: pt(0.08, 0.90), control: pt(0.10, 0.94))
+            left.closeSubpath()
+            context.fill(left, with: .color(dark))
+
+            var right = Path()
+            right.move(to: pt(0.50, 0.08))
+            right.addLine(to: pt(0.68, 0.08))
+            right.addLine(to: pt(1.00, 0.74))
+            right.addQuadCurve(to: pt(0.86, 0.90), control: pt(1.02, 0.88))
+            right.addLine(to: pt(0.72, 0.90))
+            right.addLine(to: pt(0.50, 0.46))
+            right.closeSubpath()
+            context.fill(right, with: .color(light))
+
+            func leaf(from origin: CGPoint, angle: CGFloat, length: CGFloat, girth: CGFloat) {
+                var path = Path()
+                let tip = CGPoint(x: origin.x + cos(angle) * length, y: origin.y + sin(angle) * length)
+                let a = CGPoint(x: origin.x + cos(angle + .pi / 2) * girth, y: origin.y + sin(angle + .pi / 2) * girth)
+                let b = CGPoint(x: origin.x + cos(angle - .pi / 2) * girth, y: origin.y + sin(angle - .pi / 2) * girth)
+                path.move(to: origin)
+                path.addQuadCurve(to: tip, control: CGPoint(x: a.x + cos(angle) * length * 0.45, y: a.y + sin(angle) * length * 0.45))
+                path.addQuadCurve(to: origin, control: CGPoint(x: b.x + cos(angle) * length * 0.45, y: b.y + sin(angle) * length * 0.45))
+                path.closeSubpath()
+                context.fill(path, with: .color(dark))
+            }
+
+            let hub = pt(0.42, 0.60)
+            leaf(from: hub, angle: -.pi / 2, length: h * 0.17, girth: w * 0.075)
+            leaf(from: hub, angle: .pi * 0.78, length: h * 0.16, girth: w * 0.07)
+            leaf(from: hub, angle: .pi * 0.22, length: h * 0.16, girth: w * 0.07)
+        }
+        .frame(width: height * 1.12, height: height)
+        .accessibilityLabel("Albertsons")
+    }
+}
+
 struct BeatingHeartbeatMark: View {
     var height: CGFloat = 52
     var showsTrace: Bool = true
+    var showsAlbertsons: Bool = true
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { context in
             let cycle = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.08)
-            let scale = Self.scale(at: cycle)
             let head = CGFloat(cycle / 1.08)
-            let lineWidth = height * 0.13
-            ZStack(alignment: .center) {
-                if showsTrace {
-                    ZStack {
-                        LogoECGShape()
-                            .stroke(
-                                AppTheme.blue,
-                                style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round)
-                            )
-                        LogoECGShape()
-                            .trim(from: max(0, head - 0.20), to: min(1, head))
-                            .stroke(
-                                Color.white.opacity(0.88),
-                                style: StrokeStyle(lineWidth: lineWidth * 0.55, lineCap: .round, lineJoin: .round)
-                            )
-                    }
-                    .frame(width: height * 2.2, height: height * 0.84)
-                    .offset(x: height * 0.42)
+            let lineWidth = height * 0.11
+            HStack(alignment: .center, spacing: height * 0.16) {
+                if showsAlbertsons {
+                    AlbertsonsMark(height: height * 0.92)
                 }
-
-                HeartShape()
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color(hex: "2E6FD4"),
-                                AppTheme.heart,
-                                Color(hex: "00245F"),
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .overlay {
-                        HeartShape()
-                            .fill(
-                                RadialGradient(
-                                    colors: [
-                                        Color.white.opacity(0.38),
-                                        Color.white.opacity(0.06),
-                                        Color.clear,
-                                    ],
-                                    center: UnitPoint(x: 0.34, y: 0.26),
-                                    startRadius: 1,
-                                    endRadius: height * 0.62
+                ZStack(alignment: .leading) {
+                    if showsTrace {
+                        ZStack {
+                            LogoECGShape()
+                                .stroke(
+                                    AppTheme.blue.opacity(0.22),
+                                    style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round)
                                 )
-                            )
+                            LogoECGShape()
+                                .trim(from: 0, to: max(0.02, head))
+                                .stroke(
+                                    AppTheme.blue,
+                                    style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round)
+                                )
+                        }
+                        .frame(width: height * 1.42, height: height * 0.70)
+                        .offset(x: height * 0.88, y: height * 0.04)
                     }
-                    .overlay {
-                        HeartShape()
-                            .stroke(
-                                LinearGradient(
-                                    colors: [Color.white.opacity(0.45), Color.white.opacity(0.05)],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ),
-                                lineWidth: 1.2
+
+                    HeartShape()
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color(hex: "2E6FD4"),
+                                    AppTheme.heart,
+                                    Color(hex: "00245F"),
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
                             )
-                    }
-                    .shadow(color: Color.black.opacity(0.28), radius: 3, x: 1.2, y: 3)
-                    .shadow(color: AppTheme.heart.opacity(0.40), radius: 8, y: 3)
-                    .frame(width: height, height: height)
+                        )
+                        .overlay {
+                            HeartShape()
+                                .fill(
+                                    RadialGradient(
+                                        colors: [
+                                            Color.white.opacity(0.38),
+                                            Color.white.opacity(0.06),
+                                            Color.clear,
+                                        ],
+                                        center: UnitPoint(x: 0.34, y: 0.26),
+                                        startRadius: 1,
+                                        endRadius: height * 0.62
+                                    )
+                                )
+                        }
+                        .overlay {
+                            HeartShape()
+                                .stroke(
+                                    LinearGradient(
+                                        colors: [Color.white.opacity(0.45), Color.white.opacity(0.05)],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    ),
+                                    lineWidth: 1.2
+                                )
+                        }
+                        .shadow(color: Color.black.opacity(0.28), radius: 3, x: 1.2, y: 3)
+                        .shadow(color: AppTheme.heart.opacity(0.40), radius: 8, y: 3)
+                        .frame(width: height, height: height)
+                }
+                .frame(width: showsTrace ? height * 2.32 : height, height: height, alignment: .leading)
             }
-            .frame(width: showsTrace ? height * 2.45 : height, height: height)
-            .scaleEffect(scale)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Fulfillment Heartbeat")
-    }
-
-    private static func scale(at t: TimeInterval) -> CGFloat {
-        if t < 0.08 { return 1 }
-        if t < 0.16 { return 1 + CGFloat((t - 0.08) / 0.08) * 0.16 }
-        if t < 0.28 { return 1.16 - CGFloat((t - 0.16) / 0.12) * 0.16 }
-        if t < 0.36 { return 1 + CGFloat((t - 0.28) / 0.08) * 0.08 }
-        if t < 0.48 { return 1.08 - CGFloat((t - 0.36) / 0.12) * 0.08 }
-        return 1
+        .accessibilityLabel("Albertsons Fulfillment Heartbeat")
     }
 }
 
@@ -569,7 +620,7 @@ struct HubNavLogo: View {
     var height: CGFloat = 32
 
     var body: some View {
-        BeatingHeartbeatMark(height: height, showsTrace: pulse)
+        BeatingHeartbeatMark(height: height, showsTrace: pulse, showsAlbertsons: pulse)
     }
 }
 
