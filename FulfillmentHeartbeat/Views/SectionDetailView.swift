@@ -825,7 +825,7 @@ struct PickerFocusTile: View {
         Group {
             if let action {
                 Button(action: action) { tile }
-                    .buttonStyle(.plain)
+                    .buttonStyle(CalloutLiftStyle())
             } else {
                 tile
             }
@@ -879,37 +879,73 @@ struct PickerFocusTile: View {
         }
         .padding(compact ? 12 : 16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(
-            RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                .fill(fill)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                .stroke(stroke, lineWidth: selected || shouldPulse ? 2.4 : 1)
+        .background {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.white)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(wash.opacity(washOpacity))
+                }
+        }
+        .overlay(alignment: .leading) {
+            Capsule()
+                .fill(stripe)
+                .frame(width: 5)
+                .padding(.vertical, 12)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(stroke, lineWidth: selected || shouldPulse ? 2.5 : 1)
                 .opacity(shouldPulse && !selected ? (pulseOn ? 1 : 0.22) : 1)
-        )
+        }
+        .shadow(color: shadowColor, radius: shouldPulse && pulseOn ? 14 : 8, y: 4)
+        .shadow(color: Color.black.opacity(0.04), radius: 2, y: 1)
     }
 
-    private var shouldPulse: Bool { health == .risk || health == .watch }
+    private var shouldPulse: Bool { health == .risk }
 
-    private var fill: Color {
+    private var wash: Color {
         if brand { return AppTheme.blueSoft }
         switch health {
         case .good: return AppTheme.okSoft
         case .watch: return AppTheme.warnSoft
         case .risk: return AppTheme.badSoft
-        case .none: return selected ? AppTheme.blueSoft : AppTheme.card
+        case .none: return selected ? AppTheme.blueSoft : Color.clear
+        }
+    }
+
+    private var washOpacity: Double {
+        if health == .risk { return pulseOn ? 0.62 : 0.28 }
+        return 0.42
+    }
+
+    private var stripe: Color {
+        if selected { return AppTheme.blue }
+        if brand { return AppTheme.blue }
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad.opacity(pulseOn ? 1 : 0.35)
+        case .none: return AppTheme.blue.opacity(0.35)
         }
     }
 
     private var stroke: Color {
-        if selected || brand { return AppTheme.blue.opacity(selected ? 1 : 0.35) }
+        if selected { return AppTheme.blue }
+        if brand { return AppTheme.blue.opacity(0.35) }
         switch health {
-        case .good: return AppTheme.ok.opacity(0.28)
-        case .watch: return AppTheme.warn
+        case .good: return Color.black.opacity(0.05)
+        case .watch: return AppTheme.warn.opacity(0.35)
         case .risk: return AppTheme.bad
-        case .none: return AppTheme.cardBorder
+        case .none: return Color.black.opacity(0.05)
         }
+    }
+
+    private var shadowColor: Color {
+        if health == .risk {
+            return AppTheme.bad.opacity(pulseOn ? 0.28 : 0.08)
+        }
+        return Color.black.opacity(0.10)
     }
 
     private var ink: Color {
@@ -920,6 +956,14 @@ struct PickerFocusTile: View {
         case .risk: return AppTheme.bad
         case .none: return AppTheme.text
         }
+    }
+}
+
+private struct CalloutLiftStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.988 : 1)
+            .animation(.easeOut(duration: 0.16), value: configuration.isPressed)
     }
 }
 
