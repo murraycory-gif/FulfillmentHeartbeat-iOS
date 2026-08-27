@@ -115,8 +115,9 @@ struct DashLostBanner: View {
             HStack(spacing: 16) {
                 DashCardGlyph(symbol: summary.section.symbol, health: summary.health)
                 VStack(alignment: .leading, spacing: 4) {
-                    (Text("Loss Revenue ") + Text("ScoreCard").foregroundStyle(AppTheme.blue))
+                    Text("Loss Revenue ScoreCard")
                         .font(.title2.weight(.bold))
+                        .foregroundStyle(AppTheme.text)
                     Text("Total Lost Revenue (Total Opportunity)")
                         .font(.title3.weight(.semibold))
                         .foregroundStyle(AppTheme.textSecondary)
@@ -150,7 +151,7 @@ struct DashLostBanner: View {
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(AppTheme.textTertiary)
             }
-            .dashCardChrome(health: summary.health)
+                    .modifier(DashCardChrome(health: summary.health))
         }
         .buttonStyle(DashLiftStyle())
     }
@@ -196,7 +197,7 @@ struct DashBriefingList: View {
                             .font(.title3.weight(.semibold))
                             .foregroundStyle(AppTheme.textTertiary)
                     }
-                    .dashCardChrome(health: card.health)
+                    .modifier(DashCardChrome(health: card.health))
                 }
                 .buttonStyle(DashLiftStyle())
             }
@@ -241,9 +242,12 @@ private struct DashLiftStyle: ButtonStyle {
     }
 }
 
-private extension View {
-    func dashCardChrome(health: Health) -> some View {
-        self
+private struct DashCardChrome: ViewModifier {
+    let health: Health
+    @State private var pulseOn = false
+
+    func body(content: Content) -> some View {
+        content
             .padding(18)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
@@ -251,22 +255,48 @@ private extension View {
                     .fill(Color.white)
                     .overlay {
                         RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(dashWash(health).opacity(0.42))
+                            .fill(dashWash(health).opacity(washOpacity))
                     }
             }
             .overlay(alignment: .leading) {
                 Capsule()
-                    .fill(dashInk(health))
+                    .fill(dashInk(health).opacity(health == .risk ? (pulseOn ? 1 : 0.35) : 1))
                     .frame(width: 5)
                     .padding(.vertical, 14)
             }
             .overlay {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(Color.black.opacity(0.05), lineWidth: 1)
+                    .stroke(border, lineWidth: health == .risk ? 2.5 : 1)
             }
-            .shadow(color: Color.black.opacity(0.10), radius: 10, y: 5)
+            .shadow(color: shadowColor, radius: health == .risk && pulseOn ? 14 : 10, y: 5)
             .shadow(color: Color.black.opacity(0.04), radius: 2, y: 1)
             .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .onAppear {
+                guard health == .risk else { return }
+                pulseOn = false
+                withAnimation(.easeInOut(duration: 1.05).repeatForever(autoreverses: true)) {
+                    pulseOn = true
+                }
+            }
+    }
+
+    private var washOpacity: Double {
+        if health == .risk { return pulseOn ? 0.62 : 0.28 }
+        return 0.42
+    }
+
+    private var border: Color {
+        if health == .risk {
+            return AppTheme.bad.opacity(pulseOn ? 0.95 : 0.22)
+        }
+        return Color.black.opacity(0.05)
+    }
+
+    private var shadowColor: Color {
+        if health == .risk {
+            return AppTheme.bad.opacity(pulseOn ? 0.28 : 0.08)
+        }
+        return Color.black.opacity(0.10)
     }
 }
 
