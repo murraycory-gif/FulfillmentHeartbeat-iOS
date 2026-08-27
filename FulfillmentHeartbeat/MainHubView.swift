@@ -86,10 +86,15 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
 }
 
 final class HubRouter: ObservableObject {
-    @Published var destination: HubDestination = .dashboard
+    @Published var destination: HubDestination
     @Published private(set) var sidebarNonce = 0
 
     var current: HubDestination { destination }
+
+    init() {
+        let welcomeDone = UserDefaults.standard.bool(forKey: "hb.coach.welcome.v1")
+        destination = welcomeDone ? .dashboard : .upload
+    }
 
     func open(_ dest: HubDestination) {
         destination = dest
@@ -108,6 +113,7 @@ struct MainHubView: View {
     @EnvironmentObject private var store: HeartbeatStore
     @Environment(\.horizontalSizeClass) private var sizeClass
     @StateObject private var router = HubRouter()
+    @StateObject private var coach = CoachGuide()
     @State private var columnVisibility: NavigationSplitViewVisibility = .detailOnly
 
     var body: some View {
@@ -136,13 +142,28 @@ struct MainHubView: View {
             }
         }
         .environmentObject(router)
-        .onChange(of: router.destination) { _, _ in
-            columnVisibility = .detailOnly
+        .environmentObject(coach)
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                coach.presentIfNeeded(for: router.current)
+            }
         }
+        .onChange(of: router.destination) { _, dest in
+            columnVisibility = .detailOnly
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                coach.presentIfNeeded(for: dest)
+            }
+        }
+
         .onChange(of: router.sidebarNonce) { _, _ in
             columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
         }
         .background(AppTheme.bg.ignoresSafeArea())
+        .overlay {
+            if coach.active != nil, !store.isImporting {
+                CoachOverlay(guide: coach)
+            }
+        }
         .overlay {
             if store.isImporting {
                 ZStack {
