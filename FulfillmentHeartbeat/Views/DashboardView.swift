@@ -113,6 +113,7 @@ struct DashLostBanner: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 16) {
+                DashCardGlyph(symbol: summary.section.symbol, health: summary.health)
                 VStack(alignment: .leading, spacing: 4) {
                     (Text("Loss Revenue ") + Text("ScoreCard").foregroundStyle(AppTheme.blue))
                         .font(.title2.weight(.bold))
@@ -149,10 +150,9 @@ struct DashLostBanner: View {
                     .font(.title3.weight(.semibold))
                     .foregroundStyle(AppTheme.textTertiary)
             }
-            .padding(18)
-            .background(dashWash(summary.health), in: RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
+            .dashCardChrome(health: summary.health)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(DashLiftStyle())
     }
 
     private var riskLine: String {
@@ -167,17 +167,13 @@ struct DashBriefingList: View {
     let action: (MetricSection) -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
-            ForEach(Array(cards.enumerated()), id: \.element.id) { index, card in
-                if index > 0 { Divider().opacity(0.35) }
+        VStack(spacing: 12) {
+            ForEach(cards) { card in
                 Button {
                     action(card.section)
                 } label: {
                     HStack(spacing: 16) {
-                        Image(systemName: card.section.symbol)
-                            .font(.title.weight(.semibold))
-                            .foregroundStyle(dashInk(card.health))
-                            .frame(width: 44)
+                        DashCardGlyph(symbol: card.section.symbol, health: card.health)
                         VStack(alignment: .leading, spacing: 4) {
                             Text(card.section == .pickPath ? "Pick Path Compliance" : card.section.title)
                                 .font(.title2.weight(.bold))
@@ -200,19 +196,11 @@ struct DashBriefingList: View {
                             .font(.title3.weight(.semibold))
                             .foregroundStyle(AppTheme.textTertiary)
                     }
-                    .padding(.vertical, 16)
-                    .padding(.horizontal, 6)
-                    .contentShape(Rectangle())
+                    .dashCardChrome(health: card.health)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(DashLiftStyle())
             }
         }
-        .padding(16)
-        .background(AppTheme.tableFill, in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
-                .stroke(AppTheme.blue, lineWidth: 1.5)
-        )
     }
 
     private func riskLine(for card: SectionSummary) -> String {
@@ -223,6 +211,58 @@ struct DashBriefingList: View {
         let risk = HeartbeatFormat.num(Double(card.riskCount))
         if card.riskCount == 0 { return "0 stores at risk" }
         return "\(risk) stores at risk"
+    }
+}
+
+private struct DashCardGlyph: View {
+    let symbol: String
+    let health: Health
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(dashWash(health))
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(dashInk(health).opacity(0.18), lineWidth: 1)
+            Image(systemName: symbol)
+                .font(.title.weight(.semibold))
+                .foregroundStyle(dashInk(health))
+        }
+        .frame(width: 56, height: 56)
+        .shadow(color: dashInk(health).opacity(0.16), radius: 4, y: 2)
+    }
+}
+
+private struct DashLiftStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.988 : 1)
+            .animation(.easeOut(duration: 0.16), value: configuration.isPressed)
+    }
+}
+
+private extension View {
+    func dashCardChrome(health: Health) -> some View {
+        self
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color.white)
+            }
+            .overlay(alignment: .leading) {
+                Capsule()
+                    .fill(dashInk(health))
+                    .frame(width: 5)
+                    .padding(.vertical, 14)
+            }
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(Color.black.opacity(0.05), lineWidth: 1)
+            }
+            .shadow(color: Color.black.opacity(0.10), radius: 10, y: 5)
+            .shadow(color: Color.black.opacity(0.04), radius: 2, y: 1)
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
 
