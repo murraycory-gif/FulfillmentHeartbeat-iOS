@@ -1425,7 +1425,7 @@ struct PickPathTable: View {
                                 openStore = openStore == snap.storeNumber ? nil : snap.storeNumber
                             }
                         )
-                        .listRowInsets(EdgeInsets(top: 2, leading: 20, bottom: 2, trailing: 20))
+                        .listRowInsets(EdgeInsets(top: 5, leading: 20, bottom: 5, trailing: 20))
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.tableFill)
                     }
@@ -1754,7 +1754,7 @@ private struct PickPathMetricLine: View, Equatable {
             HealthBadge(health: health, prominent: true, compact: true)
                 .frame(width: 88, alignment: .trailing)
         }
-        .padding(.vertical, 4)
+        .tableRowCard(health: health)
     }
 
     private func cell(_ value: String, _ health: Health) -> some View {
@@ -1955,6 +1955,7 @@ private struct PickPathStoreRow: View {
                 PickPathStoreExpand(snap: snap)
             }
         }
+        .tableRowCard(health: snap.health)
     }
 }
 
@@ -2418,7 +2419,7 @@ struct DynacapTable: View {
                                 openStore = openStore == snap.storeNumber ? nil : snap.storeNumber
                             }
                         )
-                        .listRowInsets(EdgeInsets(top: 2, leading: 20, bottom: 2, trailing: 20))
+                        .listRowInsets(EdgeInsets(top: 5, leading: 20, bottom: 5, trailing: 20))
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.tableFill)
                     }
@@ -2756,7 +2757,7 @@ private struct DynacapMetricLine: View, Equatable {
             HealthBadge(health: health, prominent: true, compact: true)
                 .frame(width: 88, alignment: .trailing)
         }
-        .padding(.vertical, 4)
+        .tableRowCard(health: health)
     }
 
     private func cell(_ value: String, _ health: Health, brand: Bool = false) -> some View {
@@ -2964,6 +2965,7 @@ private struct DynacapStoreRow: View {
                 DynacapStoreExpand(snap: snap)
             }
         }
+        .tableRowCard(health: snap.health)
     }
 }
 
@@ -3228,7 +3230,7 @@ struct PrepTable: View {
                                 openStore = openStore == snap.storeNumber ? nil : snap.storeNumber
                             }
                         )
-                        .listRowInsets(EdgeInsets(top: 2, leading: 20, bottom: 2, trailing: 20))
+                        .listRowInsets(EdgeInsets(top: 5, leading: 20, bottom: 5, trailing: 20))
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.tableFill)
                     }
@@ -3526,7 +3528,7 @@ private struct PrepMetricLine: View, Equatable {
             HealthBadge(health: health, prominent: true, compact: true)
                 .frame(width: 88, alignment: .trailing)
         }
-        .padding(.vertical, 4)
+        .tableRowCard(health: health)
     }
 
     private func cell(_ value: String, _ health: Health, brand: Bool = false) -> some View {
@@ -3725,6 +3727,7 @@ private struct PrepStoreRow: View {
                 PrepStoreExpand(snap: snap)
             }
         }
+        .tableRowCard(health: snap.health)
     }
 }
 
@@ -3904,7 +3907,7 @@ struct FiveStarTable: View {
                                 openStore = openStore == snap.storeNumber ? nil : snap.storeNumber
                             }
                         )
-                        .listRowInsets(EdgeInsets(top: 2, leading: 20, bottom: 2, trailing: 20))
+                        .listRowInsets(EdgeInsets(top: 5, leading: 20, bottom: 5, trailing: 20))
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.tableFill)
                     }
@@ -4263,7 +4266,7 @@ private struct FiveStarMetricLine: View, Equatable {
             HealthBadge(health: health, prominent: true, compact: true)
                 .frame(width: 88, alignment: .trailing)
         }
-        .padding(.vertical, 4)
+        .tableRowCard(health: health)
     }
 
     private func cell(_ value: String, _ health: Health) -> some View {
@@ -4482,6 +4485,7 @@ private struct FiveStarStoreRow: View {
                 FiveStarStoreExpand(snap: snap)
             }
         }
+        .tableRowCard(health: snap.health)
     }
 }
 
@@ -4989,7 +4993,7 @@ private struct LaborMetricLine: View, Equatable {
             HealthBadge(health: tvaHealth, prominent: true, compact: true)
                 .frame(width: 88, alignment: .trailing)
         }
-        .padding(.vertical, 4)
+        .tableRowCard(health: tvaHealth)
     }
 
     private func cell(_ value: String, _ health: Health, brand: Bool = false) -> some View {
@@ -5374,7 +5378,7 @@ struct LaborTable: View {
                                 openStore = openStore == snap.storeNumber ? nil : snap.storeNumber
                             }
                         )
-                            .listRowInsets(EdgeInsets(top: 2, leading: 20, bottom: 2, trailing: 20))
+                            .listRowInsets(EdgeInsets(top: 5, leading: 20, bottom: 5, trailing: 20))
                             .listRowSeparator(.hidden)
                             .listRowBackground(AppTheme.tableFill)
                     }
@@ -5513,6 +5517,7 @@ private struct LaborStoreRow: View {
                 )
             }
         }
+        .tableRowCard(health: snap.tvaHealth)
     }
 }
 
@@ -6051,7 +6056,7 @@ private struct LostRevenueMetricLine: View, Equatable {
             HealthBadge(health: health, prominent: true, compact: true)
                 .frame(width: 88, alignment: .trailing)
         }
-        .padding(.vertical, 4)
+        .tableRowCard(health: health)
     }
 
     private func cell(_ value: String, _ health: Health, brand: Bool = false) -> some View {
@@ -6361,7 +6366,7 @@ struct LostRevenueTable: View {
                                 openStore = openStore == snap.storeNumber ? nil : snap.storeNumber
                             }
                         )
-                        .listRowInsets(EdgeInsets(top: 2, leading: 20, bottom: 2, trailing: 20))
+                        .listRowInsets(EdgeInsets(top: 5, leading: 20, bottom: 5, trailing: 20))
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.tableFill)
                     }
@@ -6481,6 +6486,7 @@ private struct LostRevenueStoreRow: View {
                 LostRevenueStoreExpand(snap: snap)
             }
         }
+        .tableRowCard(health: snap.health)
     }
 }
 
@@ -6675,7 +6681,7 @@ struct ScheduleTable: View {
                                 openStore = openStore == snap.storeNumber ? nil : snap.storeNumber
                             }
                         )
-                        .listRowInsets(EdgeInsets(top: 2, leading: 20, bottom: 2, trailing: 20))
+                        .listRowInsets(EdgeInsets(top: 5, leading: 20, bottom: 5, trailing: 20))
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.tableFill)
                     }
@@ -7041,7 +7047,7 @@ private struct ScheduleMetricLine: View, Equatable {
             HealthBadge(health: health, prominent: true, compact: true)
                 .frame(width: 88, alignment: .trailing)
         }
-        .padding(.vertical, 4)
+        .tableRowCard(health: health)
     }
 
     private func cell(_ value: String, _ health: Health, brand: Bool = false) -> some View {
@@ -7245,6 +7251,7 @@ private struct ScheduleStoreRow: View {
                 ScheduleStoreExpand(snap: snap)
             }
         }
+        .tableRowCard(health: snap.health)
     }
 }
 
@@ -7432,7 +7439,7 @@ struct PPHTable: View {
                                 openStore = openStore == snap.storeNumber ? nil : snap.storeNumber
                             }
                         )
-                        .listRowInsets(EdgeInsets(top: 2, leading: 20, bottom: 2, trailing: 20))
+                        .listRowInsets(EdgeInsets(top: 5, leading: 20, bottom: 5, trailing: 20))
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.tableFill)
                     }
@@ -7739,7 +7746,7 @@ private struct PPHMetricLine: View, Equatable {
             HealthBadge(health: health, prominent: true, compact: true)
                 .frame(width: 88, alignment: .trailing)
         }
-        .padding(.vertical, 4)
+        .tableRowCard(health: health)
     }
 
     private func cell(_ value: String, _ health: Health, brand: Bool = false) -> some View {
@@ -7939,6 +7946,7 @@ private struct PPHStoreRow: View {
                 PPHStoreExpand(snap: snap)
             }
         }
+        .tableRowCard(health: snap.health)
     }
 }
 
@@ -8236,7 +8244,7 @@ struct PickerScoreTable: View {
                             },
                             showRefund: true
                         )
-                        .listRowInsets(EdgeInsets(top: 2, leading: 20, bottom: 2, trailing: 20))
+                        .listRowInsets(EdgeInsets(top: 5, leading: 20, bottom: 5, trailing: 20))
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.tableFill)
                     }
@@ -8533,6 +8541,7 @@ struct PickerStoreRow: View {
                 PickerStoreExpand(snap: snap)
             }
         }
+        .tableRowCard(health: snap.health)
     }
 }
 

@@ -70,6 +70,47 @@ struct RiskPulseRing: View {
     }
 }
 
+struct TableRowChrome: ViewModifier {
+    let health: Health
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color.white)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(AppTheme.healthWash(health).opacity(0.42))
+                    }
+            }
+            .overlay(alignment: .leading) {
+                Capsule()
+                    .fill(health == .none ? AppTheme.blue.opacity(0.35) : AppTheme.healthInk(health))
+                    .frame(width: 4)
+                    .padding(.vertical, 10)
+            }
+            .overlay {
+                if health == .risk {
+                    RiskPulseRing(cornerRadius: 14, lineWidth: 2)
+                } else {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(Color.black.opacity(0.05), lineWidth: 1)
+                }
+            }
+            .shadow(color: Color.black.opacity(0.08), radius: 6, y: 3)
+            .shadow(color: Color.black.opacity(0.03), radius: 1, y: 1)
+    }
+}
+
+extension View {
+    func tableRowCard(health: Health) -> some View {
+        modifier(TableRowChrome(health: health))
+    }
+}
+
 extension Color {
     init(hex: String) {
         let cleaned = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
