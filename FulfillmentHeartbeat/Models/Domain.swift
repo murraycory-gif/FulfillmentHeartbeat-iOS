@@ -1184,6 +1184,28 @@ enum HeartbeatMath {
         ]
     }
 
+    static func dynacapActionFlags(_ rows: [MetricRow]) -> [FiveStarFlag] {
+        let stores = rows.filter {
+            !isIgnoredStore($0.storeNumber) && $0.number("dynacap_rate", "pieces_per_hour") != nil
+        }
+        let atGoal = stores.filter { ($0.number("dynacap_rate", "pieces_per_hour") ?? 0) >= dynacapGoal }.count
+        let below60 = stores.filter { ($0.number("dynacap_rate", "pieces_per_hour") ?? .greatestFiniteMagnitude) < dynacapRisk }.count
+        return [
+            FiveStarFlag(
+                name: "At Goal",
+                value: "",
+                health: .good,
+                stores: atGoal
+            ),
+            FiveStarFlag(
+                name: "Below 60",
+                value: "",
+                health: below60 == 0 ? .good : .risk,
+                stores: below60
+            ),
+        ]
+    }
+
     static func oosStar(_ row: MetricRow) -> StarMark {
         componentStar(row, starKey: "oos_star", pctKey: "oos_pct", full: 3, half: 5, invert: true)
     }

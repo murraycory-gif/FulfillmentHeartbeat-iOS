@@ -192,6 +192,8 @@ struct DashBriefingList: View {
                             metricFlags(HeartbeatMath.scheduleActionFlags(store.displayRows(for: .scheduleQuality)))
                         } else if card.section == .pph {
                             metricFlags(HeartbeatMath.pphActionFlags(store.displayRows(for: .pph)))
+                        } else if card.section == .dynacap {
+                            metricFlags(HeartbeatMath.dynacapActionFlags(store.displayRows(for: .dynacap)))
                         } else if card.section == .labor {
                             let labor = HeartbeatMath.laborActionFlags(store.displayRows(for: .labor))
                             VStack(alignment: .leading, spacing: 8) {
