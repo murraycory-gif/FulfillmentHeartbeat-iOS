@@ -87,13 +87,18 @@ final class HeartbeatStore: ObservableObject {
     private func watchAppLifecycle() {
         let flush: (Notification) -> Void = { [weak self] _ in
             MainActor.assumeIsolated {
+                self?.persist()
+            }
+        }
+        let blocking: (Notification) -> Void = { [weak self] _ in
+            MainActor.assumeIsolated {
                 self?.persistBlocking()
             }
         }
         lifetimeObservers = [
             NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main, using: flush),
             NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main, using: flush),
-            NotificationCenter.default.addObserver(forName: UIApplication.willTerminateNotification, object: nil, queue: .main, using: flush),
+            NotificationCenter.default.addObserver(forName: UIApplication.willTerminateNotification, object: nil, queue: .main, using: blocking),
         ]
     }
 
@@ -988,7 +993,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func flush() {
-        persistBlocking()
+        persist()
     }
 
     func inboxWorkbooks() -> [URL] {

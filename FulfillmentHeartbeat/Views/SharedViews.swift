@@ -1443,6 +1443,7 @@ struct PickPathTable: View {
     @State private var snaps: [PickPathLineSnap] = []
     @State private var openStore: String?
     @State private var limit = 150
+    @State private var orderedCount = 0
 
     private var expanded: Bool { headerPin.storesExpanded }
 
@@ -1525,11 +1526,12 @@ struct PickPathTable: View {
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.tableFill)
                     }
-                    if snaps.count > limit {
+                    if orderedCount > snaps.count {
                         Button {
                             limit += 150
+                            rebuildOrder(sort: sort, ascending: ascending)
                         } label: {
-                            Text("Show more · \(min(limit, snaps.count)) of \(HeartbeatFormat.num(Double(snaps.count)))")
+                            Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(AppTheme.blue)
                                 .frame(maxWidth: .infinity)
@@ -1572,10 +1574,12 @@ struct PickPathTable: View {
     }
 
     private func rebuildOrder(sort: Column, ascending: Bool) {
-        snaps = rows.sorted { lhs, rhs in
+        let sorted = rows.sorted { lhs, rhs in
             let result = compare(lhs, rhs, sort: sort)
             return ascending ? result == .orderedAscending : result == .orderedDescending
-        }.map(PickPathLineSnap.init)
+        }
+        orderedCount = sorted.count
+        snaps = Array(sorted.prefix(limit)).map(PickPathLineSnap.init)
     }
 
     private func compare(_ lhs: MetricRow, _ rhs: MetricRow, sort: Column) -> ComparisonResult {
@@ -2489,6 +2493,7 @@ struct DynacapTable: View {
     @State private var snaps: [DynacapLineSnap] = []
     @State private var openStore: String?
     @State private var limit = 150
+    @State private var orderedCount = 0
 
     private var expanded: Bool { headerPin.storesExpanded }
 
@@ -2570,11 +2575,12 @@ struct DynacapTable: View {
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.tableFill)
                     }
-                    if snaps.count > limit {
+                    if orderedCount > snaps.count {
                         Button {
                             limit += 150
+                            rebuildOrder(sort: sort, ascending: ascending)
                         } label: {
-                            Text("Show more · \(min(limit, snaps.count)) of \(HeartbeatFormat.num(Double(snaps.count)))")
+                            Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(AppTheme.blue)
                                 .frame(maxWidth: .infinity)
@@ -2623,10 +2629,12 @@ struct DynacapTable: View {
                 pphByStore[HeartbeatMath.canonicalStore(row.storeNumber)] = pph
             }
         }
-        snaps = rows.sorted { lhs, rhs in
+        let sorted = rows.sorted { lhs, rhs in
             let result = compare(lhs, rhs, sort: sort, pphByStore: pphByStore)
             return ascending ? result == .orderedAscending : result == .orderedDescending
-        }.map { DynacapLineSnap($0, storePPH: pphByStore[HeartbeatMath.canonicalStore($0.storeNumber)]) }
+        }
+        orderedCount = sorted.count
+        snaps = Array(sorted.prefix(limit)).map { DynacapLineSnap($0, storePPH: pphByStore[HeartbeatMath.canonicalStore($0.storeNumber)]) }
     }
 
     private func compare(_ lhs: MetricRow, _ rhs: MetricRow, sort: Column, pphByStore: [String: Double]) -> ComparisonResult {
@@ -3300,6 +3308,7 @@ struct PrepTable: View {
     @State private var snaps: [PrepLineSnap] = []
     @State private var openStore: String?
     @State private var limit = 150
+    @State private var orderedCount = 0
 
     private var expanded: Bool { headerPin.storesExpanded }
 
@@ -3381,11 +3390,12 @@ struct PrepTable: View {
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.tableFill)
                     }
-                    if snaps.count > limit {
+                    if orderedCount > snaps.count {
                         Button {
                             limit += 150
+                            rebuildOrder(sort: sort, ascending: ascending)
                         } label: {
-                            Text("Show more · \(min(limit, snaps.count)) of \(HeartbeatFormat.num(Double(snaps.count)))")
+                            Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(AppTheme.blue)
                                 .frame(maxWidth: .infinity)
@@ -3428,10 +3438,12 @@ struct PrepTable: View {
     }
 
     private func rebuildOrder(sort: Column, ascending: Bool) {
-        snaps = rows.sorted { lhs, rhs in
+        let sorted = rows.sorted { lhs, rhs in
             let result = compare(lhs, rhs, sort: sort)
             return ascending ? result == .orderedAscending : result == .orderedDescending
-        }.map(PrepLineSnap.init)
+        }
+        orderedCount = sorted.count
+        snaps = Array(sorted.prefix(limit)).map(PrepLineSnap.init)
     }
 
     private func compare(_ lhs: MetricRow, _ rhs: MetricRow, sort: Column) -> ComparisonResult {
@@ -3977,6 +3989,7 @@ struct FiveStarTable: View {
     @State private var snaps: [FiveStarLineSnap] = []
     @State private var openStore: String?
     @State private var limit = 150
+    @State private var orderedCount = 0
 
     private var expanded: Bool { headerPin.storesExpanded }
 
@@ -4058,11 +4071,12 @@ struct FiveStarTable: View {
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.tableFill)
                     }
-                    if snaps.count > limit {
+                    if orderedCount > snaps.count {
                         Button {
                             limit += 150
+                            rebuildOrder(sort: sort, ascending: ascending)
                         } label: {
-                            Text("Show more · \(min(limit, snaps.count)) of \(HeartbeatFormat.num(Double(snaps.count)))")
+                            Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(AppTheme.blue)
                                 .frame(maxWidth: .infinity)
@@ -4105,10 +4119,12 @@ struct FiveStarTable: View {
     }
 
     private func rebuildOrder(sort: Column, ascending: Bool) {
-        snaps = rows.sorted { lhs, rhs in
+        let sorted = rows.sorted { lhs, rhs in
             let result = compare(lhs, rhs, sort: sort)
             return ascending ? result == .orderedAscending : result == .orderedDescending
-        }.map(FiveStarLineSnap.init)
+        }
+        orderedCount = sorted.count
+        snaps = Array(sorted.prefix(limit)).map(FiveStarLineSnap.init)
     }
 
     private func compare(_ lhs: MetricRow, _ rhs: MetricRow, sort: Column) -> ComparisonResult {
@@ -5448,6 +5464,7 @@ struct LaborTable: View {
     @State private var snaps: [LaborLineSnap] = []
     @State private var openStore: String?
     @State private var limit = 150
+    @State private var orderedCount = 0
 
     private var expanded: Bool { headerPin.storesExpanded }
 
@@ -5529,11 +5546,12 @@ struct LaborTable: View {
                             .listRowSeparator(.hidden)
                             .listRowBackground(AppTheme.tableFill)
                     }
-                    if snaps.count > limit {
+                    if orderedCount > snaps.count {
                         Button {
                             limit += 150
+                            rebuildOrder(sort: sort, ascending: ascending)
                         } label: {
-                            Text("Show more · \(min(limit, snaps.count)) of \(HeartbeatFormat.num(Double(snaps.count)))")
+                            Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(AppTheme.blue)
                                 .frame(maxWidth: .infinity)
@@ -5576,10 +5594,12 @@ struct LaborTable: View {
     }
 
     private func rebuildOrder(sort: Column, ascending: Bool) {
-        snaps = rows.sorted { lhs, rhs in
+        let sorted = rows.sorted { lhs, rhs in
             let result = compare(lhs, rhs, sort: sort)
             return ascending ? result == .orderedAscending : result == .orderedDescending
-        }.map(LaborLineSnap.init)
+        }
+        orderedCount = sorted.count
+        snaps = Array(sorted.prefix(limit)).map(LaborLineSnap.init)
     }
 
     private func compare(_ lhs: MetricRow, _ rhs: MetricRow, sort: Column) -> ComparisonResult {
@@ -6436,6 +6456,7 @@ struct LostRevenueTable: View {
     @State private var snaps: [LostRevenueLineSnap] = []
     @State private var openStore: String?
     @State private var limit = 150
+    @State private var orderedCount = 0
 
     private var expanded: Bool { headerPin.storesExpanded }
 
@@ -6517,11 +6538,12 @@ struct LostRevenueTable: View {
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.tableFill)
                     }
-                    if snaps.count > limit {
+                    if orderedCount > snaps.count {
                         Button {
                             limit += 150
+                            rebuildOrder(sort: sort, ascending: ascending)
                         } label: {
-                            Text("Show more · \(min(limit, snaps.count)) of \(HeartbeatFormat.num(Double(snaps.count)))")
+                            Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(AppTheme.blue)
                                 .frame(maxWidth: .infinity)
@@ -6564,10 +6586,12 @@ struct LostRevenueTable: View {
     }
 
     private func rebuildOrder(sort: Column, ascending: Bool) {
-        snaps = rows.sorted { lhs, rhs in
+        let sorted = rows.sorted { lhs, rhs in
             let result = compare(lhs, rhs, sort: sort)
             return ascending ? result == .orderedAscending : result == .orderedDescending
-        }.map(LostRevenueLineSnap.init)
+        }
+        orderedCount = sorted.count
+        snaps = Array(sorted.prefix(limit)).map(LostRevenueLineSnap.init)
     }
 
     private func compare(_ lhs: MetricRow, _ rhs: MetricRow, sort: Column) -> ComparisonResult {
@@ -6751,6 +6775,7 @@ struct ScheduleTable: View {
     @State private var snaps: [ScheduleLineSnap] = []
     @State private var openStore: String?
     @State private var limit = 150
+    @State private var orderedCount = 0
 
     private var expanded: Bool { headerPin.storesExpanded }
 
@@ -6832,11 +6857,12 @@ struct ScheduleTable: View {
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.tableFill)
                     }
-                    if snaps.count > limit {
+                    if orderedCount > snaps.count {
                         Button {
                             limit += 150
+                            rebuildOrder(sort: sort, ascending: ascending)
                         } label: {
-                            Text("Show more · \(min(limit, snaps.count)) of \(HeartbeatFormat.num(Double(snaps.count)))")
+                            Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(AppTheme.blue)
                                 .frame(maxWidth: .infinity)
@@ -6879,10 +6905,12 @@ struct ScheduleTable: View {
     }
 
     private func rebuildOrder(sort: Column, ascending: Bool) {
-        snaps = rows.sorted { lhs, rhs in
+        let sorted = rows.sorted { lhs, rhs in
             let result = compare(lhs, rhs, sort: sort)
             return ascending ? result == .orderedAscending : result == .orderedDescending
-        }.map(ScheduleLineSnap.init)
+        }
+        orderedCount = sorted.count
+        snaps = Array(sorted.prefix(limit)).map(ScheduleLineSnap.init)
     }
 
     private func compare(_ lhs: MetricRow, _ rhs: MetricRow, sort: Column) -> ComparisonResult {
@@ -7509,6 +7537,7 @@ struct PPHTable: View {
     @State private var snaps: [PPHLineSnap] = []
     @State private var openStore: String?
     @State private var limit = 150
+    @State private var orderedCount = 0
 
     private var expanded: Bool { headerPin.storesExpanded }
 
@@ -7590,11 +7619,12 @@ struct PPHTable: View {
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.tableFill)
                     }
-                    if snaps.count > limit {
+                    if orderedCount > snaps.count {
                         Button {
                             limit += 150
+                            rebuildOrder(sort: sort, ascending: ascending)
                         } label: {
-                            Text("Show more · \(min(limit, snaps.count)) of \(HeartbeatFormat.num(Double(snaps.count)))")
+                            Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(AppTheme.blue)
                                 .frame(maxWidth: .infinity)
@@ -7638,10 +7668,12 @@ struct PPHTable: View {
 
     private func rebuildOrder(sort: Column, ascending: Bool) {
         let counts = Dictionary(uniqueKeysWithValues: rows.map { ($0.storeNumber, store.pphPickerCount(forStore: $0.storeNumber)) })
-        snaps = rows.sorted { lhs, rhs in
+        let sorted = rows.sorted { lhs, rhs in
             let result = compare(lhs, rhs, sort: sort, counts: counts)
             return ascending ? result == .orderedAscending : result == .orderedDescending
-        }.map { PPHLineSnap($0, pickerCount: counts[$0.storeNumber] ?? 0) }
+        }
+        orderedCount = sorted.count
+        snaps = Array(sorted.prefix(limit)).map { PPHLineSnap($0, pickerCount: counts[$0.storeNumber] ?? 0) }
     }
 
     private func compare(_ lhs: MetricRow, _ rhs: MetricRow, sort: Column, counts: [String: Int]) -> ComparisonResult {
