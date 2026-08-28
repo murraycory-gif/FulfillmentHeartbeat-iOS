@@ -130,14 +130,16 @@ enum RecapRenderer {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("hb-recap", isDirectory: true)
         try? FileManager.default.removeItem(at: dir)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let tiles = stacked(images, maxHeight: 3600)
-        return tiles.enumerated().compactMap { index, image in
-            let scaled = scale(image, maxWidth: 1080)
+        return inlineImages(images).enumerated().compactMap { index, image in
             let url = dir.appendingPathComponent("heartbeat-page-\(index + 1).jpg")
-            guard let data = scaled.jpegData(compressionQuality: 0.72) else { return nil }
+            guard let data = image.jpegData(compressionQuality: 0.72) else { return nil }
             try? data.write(to: url, options: .atomic)
             return url
         }
+    }
+
+    static func inlineImages(_ images: [UIImage]) -> [UIImage] {
+        stacked(images, maxHeight: 7_200).map { scale($0, maxWidth: 1080) }
     }
 
     private static func stacked(_ images: [UIImage], maxHeight: CGFloat) -> [UIImage] {

@@ -1125,9 +1125,8 @@ struct ShareRecapCompose: View {
         let subject = packet.subject
         Task { @MainActor in
             let media = await RecapRenderer.render(html: html)
-            let jpegs = RecapRenderer.jpegFiles(media.images)
             preparing = false
-            PulseShare.presentOutlook(subject: subject, jpegURLs: jpegs)
+            PulseShare.presentOutlook(subject: subject, images: media.images)
         }
     }
 
@@ -10078,6 +10077,52 @@ final class OutlookShareActivity: UIActivity {
     }
 }
 
+final class OutlookBodyItem: NSObject, UIActivityItemSource {
+    let image: UIImage
+    let subject: String
+    let primary: Bool
+
+    init(image: UIImage, subject: String, primary: Bool) {
+        self.image = image
+        self.subject = subject
+        self.primary = primary
+        super.init()
+    }
+
+    func activityViewControllerPlaceholderItem(_ activityViewController: UIActivityViewController) -> Any {
+        image
+    }
+
+    func activityViewController(
+        _ activityViewController: UIActivityViewController,
+        itemForActivityType activityType: UIActivity.ActivityType?
+    ) -> Any? {
+        image
+    }
+
+    func activityViewController(
+        _ activityViewController: UIActivityViewController,
+        subjectForActivityType activityType: UIActivity.ActivityType?
+    ) -> String {
+        subject
+    }
+
+    func activityViewController(
+        _ activityViewController: UIActivityViewController,
+        dataTypeIdentifierForActivityType activityType: UIActivity.ActivityType?
+    ) -> String {
+        UTType.jpeg.identifier
+    }
+
+    func activityViewControllerLinkMetadata(_ activityViewController: UIActivityViewController) -> LPLinkMetadata? {
+        guard primary else { return nil }
+        let meta = LPLinkMetadata()
+        meta.title = subject
+        meta.imageProvider = NSItemProvider(object: image)
+        return meta
+    }
+}
+
 enum PulseShare {
     private static var jpegURLs: [URL] = []
     private static var jpegHTML: String = ""
@@ -10100,24 +10145,20 @@ enum PulseShare {
     }
 
     @MainActor
-    static func presentOutlook(subject: String, jpegURLs: [URL]) {
-        Self.jpegURLs = jpegURLs
-        if !jpegURLs.isEmpty {
-            let items: [[String: Any]] = jpegURLs.compactMap { url in
-                guard let data = try? Data(contentsOf: url) else { return nil }
-                return [UTType.jpeg.identifier: data]
-            }
-            if !items.isEmpty {
-                UIPasteboard.general.setItems(items, options: [:])
-            }
+    static func presentOutlook(subject: String, images: [UIImage]) {
+        let tiles = RecapRenderer.inlineImages(images)
+        if !tiles.isEmpty {
+            UIPasteboard.general.images = tiles
         }
         guard let presenter = topController(), presenter.view.window != nil else {
-            openOutlook(subject: subject, jpegURLs: jpegURLs)
+            openOutlook(subject: subject, jpegURLs: jpegFiles(tiles))
             return
         }
-        let payload: [Any] = jpegURLs.isEmpty ? [subject] : jpegURLs
+        let items: [Any] = tiles.enumerated().map { index, image in
+            OutlookBodyItem(image: image, subject: subject, primary: index == 0)
+        }
         let sheet = UIActivityViewController(
-            activityItems: payload,
+            activityItems: items.isEmpty ? [subject] : items,
             applicationActivities: nil
         )
         sheet.excludedActivityTypes = [
@@ -10126,6 +10167,7 @@ enum PulseShare {
             .print,
             .saveToCameraRoll,
             .markupAsPDF,
+            .copyToPasteboard,
         ]
         if let popover = sheet.popoverPresentationController {
             let view = presenter.view!
@@ -10134,6 +10176,10 @@ enum PulseShare {
             popover.permittedArrowDirections = []
         }
         presenter.present(sheet, animated: true)
+    }
+
+    private static func jpegFiles(_ images: [UIImage]) -> [URL] {
+        RecapRenderer.jpegFiles(images)
     }
 
     @MainActor
