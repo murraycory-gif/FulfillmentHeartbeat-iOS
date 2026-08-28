@@ -153,6 +153,7 @@ struct DashBriefingList: View {
     @EnvironmentObject private var store: HeartbeatStore
     let cards: [SectionSummary]
     let action: (MetricSection) -> Void
+    @State private var width: CGFloat = 980
 
     var body: some View {
         VStack(spacing: 12) {
@@ -198,13 +199,15 @@ struct DashBriefingList: View {
                 .buttonStyle(DashLiftStyle())
             }
         }
+        .readWidth($width)
     }
 
     @ViewBuilder
     private func metricFlags(_ flags: [HeartbeatMath.FiveStarFlag]) -> some View {
         if !flags.isEmpty {
+            let columns = HubLayout.flagColumns(count: flags.count, width: width)
             LazyVGrid(
-                columns: [GridItem(.adaptive(minimum: 150), spacing: 8)],
+                columns: HubLayout.grid(columns, spacing: 8, minWidth: 168),
                 alignment: .leading,
                 spacing: 8
             ) {
@@ -213,21 +216,28 @@ struct DashBriefingList: View {
                         Text(flag.name)
                             .font(.subheadline.weight(.bold))
                             .foregroundStyle(AppTheme.text)
-                        HStack(alignment: .center, spacing: 8) {
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                        HStack(spacing: 6) {
                             if !flag.value.isEmpty {
                                 Text(flag.value)
                                     .font(.title3.weight(.bold).monospacedDigit())
                                     .foregroundStyle(dashInk(flag.health == .none ? .good : flag.health))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.7)
                             }
                             if flag.stores > 0 || flag.value.isEmpty {
                                 Text(flag.stores == 1 ? "1 store" : "\(HeartbeatFormat.num(Double(flag.stores))) stores")
                                     .font(.subheadline.weight(.semibold))
                                     .foregroundStyle(flag.value.isEmpty ? dashInk(flag.health) : AppTheme.textSecondary)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.7)
                             }
                             if flag.health != .none {
                                 HealthBadge(health: flag.health, prominent: true, compact: true)
                             }
                         }
+                        .lineLimit(1)
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)

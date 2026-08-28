@@ -226,3 +226,49 @@ struct BrandButtonStyle: ButtonStyle {
             .animation(.easeOut(duration: 0.15), value: configuration.isPressed)
     }
 }
+
+enum HubLayout {
+    static func flagColumns(count: Int, width: CGFloat) -> Int {
+        guard count > 0 else { return 1 }
+        let chip = width >= 980 ? 210.0 : 188.0
+        return max(1, min(count, Int(max(width, chip) / chip)))
+    }
+
+    static func kpiColumns(width: CGFloat) -> Int {
+        if width >= 1100 { return 5 }
+        if width >= 860 { return 4 }
+        if width >= 640 { return 3 }
+        return 2
+    }
+
+    static func uploadColumns(width: CGFloat) -> Int {
+        width >= 720 ? 2 : 1
+    }
+
+    static func grid(_ count: Int, spacing: CGFloat = 12, minWidth: CGFloat = 140) -> [GridItem] {
+        Array(repeating: GridItem(.flexible(minimum: minWidth), spacing: spacing), count: max(1, count))
+    }
+}
+
+private struct HubWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        let next = nextValue()
+        if next > 0 { value = next }
+    }
+}
+
+extension View {
+    func readWidth(_ width: Binding<CGFloat>) -> some View {
+        background(
+            GeometryReader { geo in
+                Color.clear.preference(key: HubWidthKey.self, value: geo.size.width)
+            }
+        )
+        .onPreferenceChange(HubWidthKey.self) { value in
+            if value > 0, abs(value - width.wrappedValue) > 1 {
+                width.wrappedValue = value
+            }
+        }
+    }
+}

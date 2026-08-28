@@ -8776,12 +8776,24 @@ struct HubBrandBar: View {
             }
             .frame(minHeight: markHeight + 8)
 
-            HStack(alignment: .center, spacing: 12) {
-                DayGreeting(font: greetingFont)
-                    .layoutPriority(1)
-                Spacer(minLength: 8)
-                if showsFilters {
-                    FilterBar()
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .center, spacing: 12) {
+                    DayGreeting(font: greetingFont)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .layoutPriority(1)
+                    Spacer(minLength: 8)
+                    if showsFilters {
+                        FilterBar()
+                    }
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    DayGreeting(font: greetingFont)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                    if showsFilters {
+                        FilterBar()
+                    }
                 }
             }
         }

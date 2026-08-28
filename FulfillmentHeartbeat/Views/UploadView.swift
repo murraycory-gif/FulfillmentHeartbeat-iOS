@@ -12,6 +12,7 @@ struct UploadView: View {
     @State private var exportItem: ExportItem?
     @State private var showStatus = false
     @State private var showError = false
+    @State private var pageWidth: CGFloat = 900
 
     var body: some View {
         ScrollView {
@@ -61,6 +62,7 @@ struct UploadView: View {
                     .foregroundStyle(AppTheme.textSecondary)
             }
             .padding(20)
+            .readWidth($pageWidth)
         }
         .background(AppTheme.bg.ignoresSafeArea())
         .fileImporter(
@@ -113,13 +115,7 @@ struct UploadView: View {
     }
 
     private var uploadColumns: [GridItem] {
-        if sizeClass == .compact {
-            return [GridItem(.flexible(), spacing: 16)]
-        }
-        return [
-            GridItem(.flexible(), spacing: 16),
-            GridItem(.flexible(), spacing: 16),
-        ]
+        HubLayout.grid(HubLayout.uploadColumns(width: pageWidth), spacing: 16)
     }
 
     private func beginMasterImport() {

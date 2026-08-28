@@ -15,6 +15,7 @@ struct SectionDetailView: View {
     @State private var laborFocus: LaborFocus = .all
     @State private var lostRevenueFocus: LostRevenueFocus = .all
     @State private var showTables = false
+    @State private var pageWidth: CGFloat = 1000
 
     private var summary: SectionSummary { store.summary(for: section) }
     private var snapshots: [MetricRow] { store.displayRows(for: section) }
@@ -133,6 +134,7 @@ struct SectionDetailView: View {
         .background(AppTheme.bg.ignoresSafeArea())
         .environment(\.defaultMinListRowHeight, 1)
         .environmentObject(laborHeaderPin)
+        .readWidth($pageWidth)
         .background(
             GeometryReader { geo in
                 Color.clear.preference(
@@ -248,7 +250,7 @@ struct SectionDetailView: View {
                 lostRevenueStatusTiles
             } else {
                 LazyVGrid(
-                    columns: Array(repeating: GridItem(.flexible(minimum: 140), spacing: 14), count: 5),
+                    columns: HubLayout.grid(HubLayout.kpiColumns(width: pageWidth), spacing: 14, minWidth: 150),
                     spacing: 14
                 ) {
                     if section == .pph {
@@ -538,7 +540,10 @@ struct SectionDetailView: View {
         }()
         let post = rows.compactMap { $0.number("post_sub_oos_foregone") }.reduce(0, +)
         VStack(spacing: 14) {
-            HStack(spacing: 14) {
+            LazyVGrid(
+                columns: HubLayout.grid(min(4, HubLayout.kpiColumns(width: pageWidth)), spacing: 14, minWidth: 150),
+                spacing: 14
+            ) {
                 callout("Total lost revenue", HeartbeatFormat.money(dollars), "Total Opportunity", summary.health, selected: lostRevenueFocus == .all) {
                     lostRevenueFocus = .all
                 }
@@ -552,7 +557,10 @@ struct SectionDetailView: View {
                     lostRevenueFocus = .risk
                 }
             }
-            HStack(spacing: 12) {
+            LazyVGrid(
+                columns: HubLayout.grid(min(4, HubLayout.kpiColumns(width: pageWidth)), spacing: 12, minWidth: 150),
+                spacing: 12
+            ) {
                 callout("Lost revenue %", HeartbeatFormat.pct(pct), "Total Opportunity", summary.health)
                 callout("eComm sales", HeartbeatFormat.money(sales), "In this filter", .none, brand: true)
                 callout("FY2026 Goal", HeartbeatFormat.pct(goalPct), "Lost revenue goal", .none, brand: true)
@@ -683,7 +691,10 @@ struct SectionDetailView: View {
         let wage = laborRollup("wage_impact_pct")
         let aiv = laborRollup("aiv_impact_pct")
         VStack(spacing: 14) {
-            HStack(spacing: 14) {
+            LazyVGrid(
+                columns: HubLayout.grid(min(4, HubLayout.kpiColumns(width: pageWidth)), spacing: 14, minWidth: 150),
+                spacing: 14
+            ) {
                 callout("Target vs Actual", HeartbeatFormat.pct(tva), "0% healthy · 0.01–3% watch · over 3% risk", HeartbeatMath.laborHealth(tva), selected: laborFocus == .all) {
                     laborFocus = .all
                 }
