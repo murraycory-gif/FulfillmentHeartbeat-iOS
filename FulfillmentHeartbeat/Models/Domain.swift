@@ -1062,6 +1062,22 @@ enum HeartbeatMath {
         return flags
     }
 
+    static func lostRevenueActionFlags(_ rows: [MetricRow]) -> [FiveStarFlag] {
+        let stores = rows.filter {
+            $0.textPayload["lost_grain"] != "market"
+                && !isIgnoredStore($0.storeNumber)
+                && !$0.storeNumber.isEmpty
+        }
+        let healthy = stores.filter { lostRevenueHealth($0) == .good }.count
+        let watch = stores.filter { lostRevenueHealth($0) == .watch }.count
+        let risk = stores.filter { lostRevenueHealth($0) == .risk }.count
+        return [
+            FiveStarFlag(name: "Healthy", value: "", health: .good, stores: healthy),
+            FiveStarFlag(name: "Watch", value: "", health: watch == 0 ? .good : .watch, stores: watch),
+            FiveStarFlag(name: "At Risk", value: "", health: risk == 0 ? .good : .risk, stores: risk),
+        ]
+    }
+
     static func scheduleActionFlags(_ rows: [MetricRow]) -> [FiveStarFlag] {
         let specs: [(name: String, keys: [String])] = [
             ("Under Scheduled", ["under_schedule_pct", "under_scheduled"]),

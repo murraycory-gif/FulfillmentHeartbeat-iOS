@@ -17,7 +17,10 @@ struct DashboardView: View {
                     ) {
                         VStack(spacing: 12) {
                             if let lost = store.summaries.first(where: { $0.section == .lostRevenue }) {
-                                DashLostBanner(summary: lost) { open(.lostRevenue) }
+                                DashLostBanner(
+                                    summary: lost,
+                                    flags: HeartbeatMath.lostRevenueActionFlags(store.displayRows(for: .lostRevenue))
+                                ) { open(.lostRevenue) }
                             }
                             DashBriefingList(cards: briefingCards) { section in
                                 open(section)
@@ -94,50 +97,54 @@ private func dashWash(_ health: Health) -> Color { AppTheme.healthWash(health) }
 
 struct DashLostBanner: View {
     let summary: SectionSummary
+    let flags: [HeartbeatMath.FiveStarFlag]
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 16) {
-                DashCardGlyph(symbol: summary.section.symbol, health: summary.health)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Loss Revenue ScoreCard")
-                        .font(.title2.weight(.bold))
-                        .foregroundStyle(AppTheme.text)
-                    Text("Total Lost Revenue (Total Opportunity)")
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 16) {
+                    DashCardGlyph(symbol: summary.section.symbol, health: summary.health)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Loss Revenue ScoreCard")
+                            .font(.title2.weight(.bold))
+                            .foregroundStyle(AppTheme.text)
+                        Text("Total Lost Revenue (Total Opportunity)")
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(AppTheme.textSecondary)
+                        Text(riskLine)
+                            .font(.title3.weight(.bold))
+                            .foregroundStyle(dashInk(summary.riskCount == 0 ? .good : summary.health))
+                    }
+                    Spacer(minLength: 8)
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(summary.headlineText)
+                            .font(.system(size: 34, weight: .bold, design: .rounded).monospacedDigit())
+                            .foregroundStyle(dashInk(summary.health))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.5)
+                        Text("Dollars")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(AppTheme.textSecondary)
+                    }
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(HeartbeatFormat.pct(summary.lostRevenuePct))
+                            .font(.system(size: 34, weight: .bold, design: .rounded).monospacedDigit())
+                            .foregroundStyle(dashInk(summary.health))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.5)
+                        Text("Lost %")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(AppTheme.textSecondary)
+                    }
+                    HealthBadge(health: summary.health, prominent: true)
+                    Image(systemName: "chevron.right")
                         .font(.title3.weight(.semibold))
-                        .foregroundStyle(AppTheme.textSecondary)
-                    Text(riskLine)
-                        .font(.title3.weight(.bold))
-                        .foregroundStyle(dashInk(summary.riskCount == 0 ? .good : summary.health))
+                        .foregroundStyle(AppTheme.textTertiary)
                 }
-                Spacer(minLength: 8)
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(summary.headlineText)
-                        .font(.system(size: 34, weight: .bold, design: .rounded).monospacedDigit())
-                        .foregroundStyle(dashInk(summary.health))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.5)
-                    Text("Dollars")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(AppTheme.textSecondary)
-                }
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(HeartbeatFormat.pct(summary.lostRevenuePct))
-                        .font(.system(size: 34, weight: .bold, design: .rounded).monospacedDigit())
-                        .foregroundStyle(dashInk(summary.health))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.5)
-                    Text("Lost %")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(AppTheme.textSecondary)
-                }
-                HealthBadge(health: summary.health, prominent: true)
-                Image(systemName: "chevron.right")
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(AppTheme.textTertiary)
+                DashFlagGrid(flags: flags, columns: 3)
             }
-                    .modifier(DashCardChrome(health: summary.health))
+            .modifier(DashCardChrome(health: summary.health))
         }
         .buttonStyle(DashLiftStyle())
     }
@@ -146,6 +153,68 @@ struct DashLostBanner: View {
         let risk = HeartbeatFormat.num(Double(summary.riskCount))
         if summary.riskCount == 0 { return "0 stores at risk" }
         return "\(risk) stores at risk"
+    }
+}
+
+struct DashFlagGrid: View {
+    let flags: [HeartbeatMath.FiveStarFlag]
+    var columns: Int
+
+    var body: some View {
+        if !flags.isEmpty {
+            LazyVGrid(
+                columns: HubLayout.grid(columns, spacing: 8, minWidth: 168),
+                alignment: .leading,
+                spacing: 8
+            ) {
+                ForEach(flags) { flag in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(flag.name)
+                            .font(.subheadline.weight(.bold))
+                            .foregroundStyle(AppTheme.text)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                        HStack(spacing: 6) {
+                            if !flag.value.isEmpty {
+                                Text(flag.value)
+                                    .font(.title3.weight(.bold).monospacedDigit())
+                                    .foregroundStyle(dashInk(flag.health == .none ? .good : flag.health))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.7)
+                            }
+                            if flag.stores > 0 || flag.value.isEmpty {
+                                Text(flag.stores == 1 ? "1 \(String(flag.unit.dropLast()))" : "\(HeartbeatFormat.num(Double(flag.stores))) \(flag.unit)")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(flag.value.isEmpty ? dashInk(flag.health) : AppTheme.textSecondary)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.7)
+                            }
+                            if flag.health != .none {
+                                HealthBadge(health: flag.health, prominent: true, compact: true)
+                            }
+                        }
+                        .lineLimit(1)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(Color.white.opacity(0.72))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .fill(dashWash(flag.health == .none ? .good : flag.health).opacity(0.55))
+                            }
+                    )
+                    .overlay(alignment: .leading) {
+                        Capsule()
+                            .fill(dashInk(flag.health == .none ? .good : flag.health))
+                            .frame(width: 4)
+                            .padding(.vertical, 8)
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -230,61 +299,10 @@ struct DashBriefingList: View {
 
     @ViewBuilder
     private func metricFlags(_ flags: [HeartbeatMath.FiveStarFlag], columns: Int? = nil) -> some View {
-        if !flags.isEmpty {
-            let columns = columns ?? HubLayout.flagColumns(count: flags.count, width: width)
-            LazyVGrid(
-                columns: HubLayout.grid(columns, spacing: 8, minWidth: 168),
-                alignment: .leading,
-                spacing: 8
-            ) {
-                ForEach(flags) { flag in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(flag.name)
-                            .font(.subheadline.weight(.bold))
-                            .foregroundStyle(AppTheme.text)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                        HStack(spacing: 6) {
-                            if !flag.value.isEmpty {
-                                Text(flag.value)
-                                    .font(.title3.weight(.bold).monospacedDigit())
-                                    .foregroundStyle(dashInk(flag.health == .none ? .good : flag.health))
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.7)
-                            }
-                            if flag.stores > 0 || flag.value.isEmpty {
-                                Text(flag.stores == 1 ? "1 \(String(flag.unit.dropLast()))" : "\(HeartbeatFormat.num(Double(flag.stores))) \(flag.unit)")
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(flag.value.isEmpty ? dashInk(flag.health) : AppTheme.textSecondary)
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.7)
-                            }
-                            if flag.health != .none {
-                                HealthBadge(health: flag.health, prominent: true, compact: true)
-                            }
-                        }
-                        .lineLimit(1)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(Color.white.opacity(0.72))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(dashWash(flag.health == .none ? .good : flag.health).opacity(0.55))
-                            }
-                    )
-                    .overlay(alignment: .leading) {
-                        Capsule()
-                            .fill(dashInk(flag.health == .none ? .good : flag.health))
-                            .frame(width: 4)
-                            .padding(.vertical, 8)
-                    }
-                }
-            }
-        }
+        DashFlagGrid(
+            flags: flags,
+            columns: columns ?? HubLayout.flagColumns(count: flags.count, width: width)
+        )
     }
 
     private func riskLine(for card: SectionSummary) -> String {
