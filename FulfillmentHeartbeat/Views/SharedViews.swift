@@ -1040,7 +1040,6 @@ struct ShareRecapCompose: View {
     let packet: PulseMail.Packet
     var onBack: () -> Void
     @State private var to = ""
-    @State private var preparing = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1071,30 +1070,13 @@ struct ShareRecapCompose: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color(red: 0.96, green: 0.97, blue: 0.99))
 
-            VStack(spacing: 10) {
-                Button(action: sendMail) {
-                    Text("Send with Mail")
-                        .font(.headline.weight(.bold))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                }
-                .buttonStyle(PrimaryButtonStyle())
-                .disabled(preparing)
-
-                Button(action: sendOutlook) {
-                    HStack(spacing: 10) {
-                        if preparing {
-                            ProgressView().tint(AppTheme.blue)
-                        }
-                        Text(preparing ? "Opening Outlook…" : "Send with Outlook")
-                            .font(.headline.weight(.bold))
-                    }
+            Button(action: sendMail) {
+                Text("Send")
+                    .font(.headline.weight(.bold))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
-                }
-                .buttonStyle(.bordered)
-                .disabled(preparing)
             }
+            .buttonStyle(PrimaryButtonStyle())
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
             .background(AppTheme.bg)
@@ -1104,29 +1086,12 @@ struct ShareRecapCompose: View {
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Back", action: onBack)
-                    .disabled(preparing)
-            }
-        }
-        .onAppear {
-            Task { @MainActor in
-                await PulseShare.prepareOutlook(packet)
             }
         }
     }
 
     private func sendMail() {
         PulseShare.presentMail(packet, to: emails)
-    }
-
-    private func sendOutlook() {
-        guard !preparing else { return }
-        preparing = true
-        let packet = packet
-        let to = emails
-        Task { @MainActor in
-            await PulseShare.sendViaOutlook(packet, to: to)
-            preparing = false
-        }
     }
 
     private var emails: [String] {
@@ -10189,10 +10154,9 @@ enum PulseShare {
         jpegHTML = packet.html
         let source = PulseShareSource(packet: packet)
         let mail = MailShareActivity(packet: packet)
-        let outlook = OutlookShareActivity(packet: packet)
         let sheet = UIActivityViewController(
             activityItems: [source],
-            applicationActivities: [mail, outlook]
+            applicationActivities: [mail]
         )
         sheet.excludedActivityTypes = [
             .assignToContact,
