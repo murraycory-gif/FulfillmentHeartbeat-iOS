@@ -1017,8 +1017,9 @@ struct SharePulseSheet: View {
             let packet = await Task.detached(priority: .userInitiated) {
                 PulseMail.make(snap, pages: pages)
             }.value
+            let media = await RecapRenderer.render(html: packet.html)
             building = false
-            PulseShare.present(packet)
+            PulseShare.present(packet, images: media.images, pdf: media.pdf)
         }
     }
 }
@@ -9725,7 +9726,7 @@ final class PulseShareSource: NSObject, UIActivityItemSource {
     }
 
     func activityViewControllerPlaceholderItem(_ activityViewController: UIActivityViewController) -> Any {
-        brief
+        html
     }
 
     func activityViewController(
@@ -9733,9 +9734,15 @@ final class PulseShareSource: NSObject, UIActivityItemSource {
         itemForActivityType activityType: UIActivity.ActivityType?
     ) -> Any? {
         let raw = activityType?.rawValue ?? ""
-        if activityType == .mail
-            || raw.localizedCaseInsensitiveContains("outlook")
+        if activityType == .message {
+            return "\(subject)\n\n\(brief)"
+        }
+        if raw.localizedCaseInsensitiveContains("outlook")
             || raw.localizedCaseInsensitiveContains("microsoft")
+        {
+            return nil
+        }
+        if activityType == .mail
             || raw.localizedCaseInsensitiveContains("gmail")
             || raw.localizedCaseInsensitiveContains("googlemail")
             || raw.localizedCaseInsensitiveContains("yahoo")
@@ -9743,9 +9750,6 @@ final class PulseShareSource: NSObject, UIActivityItemSource {
             || raw.localizedCaseInsensitiveContains("airmail")
         {
             return html
-        }
-        if activityType == .message {
-            return "\(subject)\n\n\(brief)"
         }
         return html
     }
@@ -9770,10 +9774,12 @@ final class PulseShareSource: NSObject, UIActivityItemSource {
 
 final class MailShareActivity: UIActivity {
     private let packet: PulseMail.Packet
+    private let images: [UIImage]
     private var closer: MailShareCloser?
 
-    init(packet: PulseMail.Packet) {
+    init(packet: PulseMail.Packet, images: [UIImage] = []) {
         self.packet = packet
+        self.images = images
         super.init()
     }
 
@@ -9796,6 +9802,11 @@ final class MailShareActivity: UIActivity {
         let mail = MFMailComposeViewController()
         mail.setSubject(packet.subject)
         mail.setMessageBody(packet.html, isHTML: true)
+        for (index, image) in images.enumerated() {
+            if let data = image.jpegData(compressionQuality: 0.82) {
+                mail.addAttachmentData(data, mimeType: "image/jpeg", fileName: "heartbeat-page-\(index + 1).jpg")
+            }
+        }
         let closer = MailShareCloser(owner: self)
         self.closer = closer
         mail.mailComposeDelegate = closer
@@ -9827,12 +9838,14 @@ extension MailShareActivity {
 final class OutlookShareActivity: UIActivity {
     private let subject: String
     private let html: String
-    private let plain: String
+    private let images: [UIImage]
+    private let pdf: URL?
 
-    init(packet: PulseMail.Packet) {
+    init(packet: PulseMail.Packet, images: [UIImage], pdf: URL?) {
         self.subject = packet.subject
         self.html = packet.html
-        self.plain = packet.plain
+        self.images = images
+        self.pdf = pdf
         super.init()
     }
 
@@ -9851,23 +9864,33 @@ final class OutlookShareActivity: UIActivity {
     override func canPerform(withActivityItems activityItems: [Any]) -> Bool { true }
 
     override func perform() {
-        UIPasteboard.general.setItems(
-            [[UTType.html.identifier: html, UTType.utf8PlainText.identifier: plain]],
-            options: [:]
-        )
-        OutlookShareActivity.open(subject: subject, body: html.count > 4500 ? plain : html) { [weak self] success in
+        if !images.isEmpty {
+            UIPasteboard.general.images = images
+        }
+        if let eml = RecapRenderer.writeEML(subject: subject, html: html, images: images),
+           let presenter = PulseShare.topController()
+        {
+            let opener = UIDocumentInteractionController(url: eml)
+            opener.uti = "public.email-message"
+            let shown = opener.presentOpenInMenu(
+                from: CGRect(x: presenter.view.bounds.midX, y: 88, width: 1, height: 1),
+                in: presenter.view,
+                animated: true
+            )
+            if shown {
+                objc_setAssociatedObject(presenter, Unmanaged.passUnretained(opener).toOpaque(), opener, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+                activityDidFinish(true)
+                return
+            }
+        }
+        let encodedSubject = Self.encode(subject)
+        let candidates = [
+            "ms-outlook://emails/new?subject=\(encodedSubject)",
+            "ms-outlook://compose?subject=\(encodedSubject)",
+        ]
+        Self.tryOpen(candidates, index: 0) { [weak self] success in
             self?.activityDidFinish(success)
         }
-    }
-
-    static func open(subject: String, body: String, completion: @escaping (Bool) -> Void) {
-        let encodedSubject = encode(subject)
-        let encodedBody = encode(body)
-        let candidates = [
-            "ms-outlook://emails/new?subject=\(encodedSubject)&body=\(encodedBody)",
-            "ms-outlook://compose?subject=\(encodedSubject)&body=\(encodedBody)",
-        ]
-        tryOpen(candidates, index: 0, completion: completion)
     }
 
     private static func encode(_ value: String) -> String {
@@ -9900,14 +9923,14 @@ final class OutlookShareActivity: UIActivity {
 }
 
 enum PulseShare {
-    static func present(_ packet: PulseMail.Packet) {
+    static func present(_ packet: PulseMail.Packet, images: [UIImage] = [], pdf: URL? = nil) {
         let source = PulseShareSource(packet: packet)
-        let mail = MailShareActivity(packet: packet)
-        let outlook = OutlookShareActivity(packet: packet)
-        var items: [Any] = [source]
-        if let file = writeHTMLFile(packet) {
-            items.append(file)
-        }
+        let mail = MailShareActivity(packet: packet, images: images)
+        let outlook = OutlookShareActivity(packet: packet, images: images, pdf: pdf)
+        var items: [Any] = []
+        items.append(contentsOf: images)
+        if let pdf { items.append(pdf) }
+        items.append(source)
         let sheet = UIActivityViewController(
             activityItems: items,
             applicationActivities: [mail, outlook]
@@ -9930,13 +9953,7 @@ enum PulseShare {
             )
             popover.permittedArrowDirections = []
         }
-        if presenter.presentedViewController == nil {
-            presenter.present(sheet, animated: true)
-        } else {
-            presenter.dismiss(animated: false) {
-                presenter.present(sheet, animated: true)
-            }
-        }
+        presenter.present(sheet, animated: true)
     }
 
     static func writeHTMLFile(_ packet: PulseMail.Packet) -> URL? {
