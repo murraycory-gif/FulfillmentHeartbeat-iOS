@@ -207,15 +207,15 @@ struct DashBriefingList: View {
                         Text(flag.name)
                             .font(.subheadline.weight(.bold))
                             .foregroundStyle(AppTheme.text)
-                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        HStack(alignment: .center, spacing: 8) {
                             Text(flag.value)
                                 .font(.title3.weight(.bold).monospacedDigit())
                                 .foregroundStyle(dashInk(flag.health))
+                            Text(flag.stores == 1 ? "1 store" : "\(HeartbeatFormat.num(Double(flag.stores))) stores")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(AppTheme.textSecondary)
                             HealthBadge(health: flag.health, prominent: true, compact: true)
                         }
-                        Text(flag.stores == 1 ? "1 store" : "\(flag.stores) stores")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(AppTheme.textSecondary)
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
