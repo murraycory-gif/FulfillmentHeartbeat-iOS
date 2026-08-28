@@ -8995,6 +8995,7 @@ struct FulfillmentChecklistCard: View {
     var startsExpanded: Bool = false
     @State private var expanded = false
     @State private var openSections: Set<MetricSection> = []
+    @State private var openItems: Set<String> = []
     @State private var itemLimit: [MetricSection: Int] = [:]
     @State private var cachedItems: [MetricSection: [ChecklistDriverItem]] = [:]
     @State private var itemsStamp = -1
@@ -9062,6 +9063,7 @@ struct FulfillmentChecklistCard: View {
                 .padding(.horizontal, 20)
                 .padding(.top, 8)
                 .padding(.bottom, 36)
+                .transaction { $0.animation = nil }
             }
             .scrollIndicators(.hidden)
         }
@@ -9271,11 +9273,14 @@ struct FulfillmentChecklistCard: View {
         return Group {
             if !items.isEmpty {
                 Button {
-                    withAnimation(.easeInOut(duration: 0.18)) {
+                    var transaction = Transaction()
+                    transaction.animation = nil
+                    withTransaction(transaction) {
                         if isOpen {
                             openSections.remove(section)
                         } else {
-                            openSections.insert(section)
+                            openSections = [section]
+                            openItems = []
                         }
                         commentingID = nil
                     }
@@ -9308,28 +9313,49 @@ struct FulfillmentChecklistCard: View {
 
     private func issueRow(_ item: ChecklistDriverItem, section: MetricSection, rank: Int) -> some View {
         let action = store.checklistItem(for: item, section: section)
+        let detailsOpen = openItems.contains(item.id)
         let showComment = commentingID == item.id || !action.comment.isEmpty
+        let driverCount = item.findings.count + item.people.count
         return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .center, spacing: 12) {
-                Text("\(rank)")
-                    .font(.subheadline.weight(.bold).monospacedDigit())
-                    .foregroundStyle(AppTheme.blue)
-                    .frame(width: 32, height: 32)
-                    .background(AppTheme.blueSoft, in: Circle())
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(item.title)
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(AppTheme.text)
-                    Text(item.subtitle)
-                        .font(.subheadline)
-                        .foregroundStyle(AppTheme.textSecondary)
+                Button {
+                    var transaction = Transaction()
+                    transaction.animation = nil
+                    withTransaction(transaction) {
+                        if detailsOpen {
+                            openItems.remove(item.id)
+                        } else {
+                            openItems.insert(item.id)
+                        }
+                    }
+                } label: {
+                    HStack(alignment: .center, spacing: 12) {
+                        Text("\(rank)")
+                            .font(.subheadline.weight(.bold).monospacedDigit())
+                            .foregroundStyle(AppTheme.blue)
+                            .frame(width: 32, height: 32)
+                            .background(AppTheme.blueSoft, in: Circle())
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(item.title)
+                                .font(.title3.weight(.semibold))
+                                .foregroundStyle(AppTheme.text)
+                            Text(item.subtitle)
+                                .font(.subheadline)
+                                .foregroundStyle(AppTheme.textSecondary)
+                        }
+                        .frame(minWidth: 140, alignment: .leading)
+                        Text(item.value)
+                            .font(.title2.weight(.bold).monospacedDigit())
+                            .foregroundStyle(headlineColor(item.health))
+                            .frame(minWidth: 72, alignment: .trailing)
+                        Spacer(minLength: 8)
+                        Image(systemName: detailsOpen ? "chevron.up" : "chevron.down")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(AppTheme.textTertiary)
+                    }
+                    .contentShape(Rectangle())
                 }
-                .frame(minWidth: 140, alignment: .leading)
-                Text(item.value)
-                    .font(.title2.weight(.bold).monospacedDigit())
-                    .foregroundStyle(headlineColor(item.health))
-                    .frame(minWidth: 72, alignment: .trailing)
-                Spacer(minLength: 8)
+                .buttonStyle(.plain)
                 HStack(spacing: 8) {
                     ForEach([ChecklistStatus.addressed, .followUp]) { status in
                         statusChip(status, selected: action.status == status) {
@@ -9338,7 +9364,7 @@ struct FulfillmentChecklistCard: View {
                     }
                 }
                 Button {
-                    withAnimation { commentingID = commentingID == item.id && action.comment.isEmpty ? nil : item.id }
+                    commentingID = commentingID == item.id && action.comment.isEmpty ? nil : item.id
                 } label: {
                     Image(systemName: action.comment.isEmpty ? "text.bubble" : "text.bubble.fill")
                         .font(.body.weight(.semibold))
@@ -9348,6 +9374,11 @@ struct FulfillmentChecklistCard: View {
                 }
                 .buttonStyle(.plain)
             }
+            if !detailsOpen, driverCount > 0 {
+                Text("\(driverCount) drivers  ·  tap store to work them")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(AppTheme.textSecondary)
+            }
             if showComment {
                 TextField("Note for follow up", text: commentBinding(item, section: section), axis: .vertical)
                     .textFieldStyle(.plain)
@@ -9356,35 +9387,37 @@ struct FulfillmentChecklistCard: View {
                     .padding(12)
                     .background(AppTheme.bg, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
-            if !item.findings.isEmpty {
-                VStack(spacing: 8) {
-                    ForEach(item.findings) { finding in
-                        findingCard(finding, storeItem: item, section: section)
+            if detailsOpen {
+                if !item.findings.isEmpty {
+                    VStack(spacing: 8) {
+                        ForEach(item.findings.prefix(5)) { finding in
+                            findingCard(finding, storeItem: item, section: section)
+                        }
+                    }
+                } else {
+                    if !item.broken.isEmpty {
+                        diagnosisLine("Broken KPI", item.broken, AppTheme.bad)
+                    }
+                    if !item.action.isEmpty {
+                        diagnosisLine("Action", item.action, AppTheme.text)
                     }
                 }
-            } else {
-                if !item.broken.isEmpty {
-                    diagnosisLine("Broken KPI", item.broken, AppTheme.bad)
-                }
-                if !item.action.isEmpty {
-                    diagnosisLine("Action", item.action, AppTheme.text)
-                }
-            }
-            if !item.people.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Shoppers")
-                        .font(.subheadline.weight(.bold))
-                        .foregroundStyle(AppTheme.text)
-                    ForEach(item.people) { person in
-                        shopperActionRow(person, storeItem: item, section: section)
+                if !item.people.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Shoppers")
+                            .font(.subheadline.weight(.bold))
+                            .foregroundStyle(AppTheme.text)
+                        ForEach(item.people.prefix(5)) { person in
+                            shopperActionRow(person, storeItem: item, section: section)
+                        }
                     }
                 }
-            }
-            if item.id.hasPrefix("store-") && section != .lostRevenue {
-                ChecklistShopperDisclosure(
-                    storeNumber: String(item.id.dropFirst(6)),
-                    section: section
-                )
+                if item.id.hasPrefix("store-") && section != .lostRevenue {
+                    ChecklistShopperDisclosure(
+                        storeNumber: String(item.id.dropFirst(6)),
+                        section: section
+                    )
+                }
             }
         }
         .tableRowCard(health: item.health)
