@@ -972,6 +972,9 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func clearFilters() {
+        if isCompanyWide(unfilteredPulse) == false {
+            unfilteredPulse = nil
+        }
         commitFilters(DashboardFilters())
     }
 
@@ -1363,9 +1366,15 @@ final class HeartbeatStore: ObservableObject {
 
     private func applyFilters() {
         refilterTask?.cancel()
-        if !filters.isActive, let pulse = unfilteredPulse {
-            install(pulse)
+        if !filters.isActive {
+            if let pulse = unfilteredPulse, isCompanyWide(pulse) {
+                install(pulse)
+                filterStamp += 1
+                return
+            }
+            installCompanyWideFast()
             filterStamp += 1
+            warmUnfilteredPulse()
             return
         }
 
@@ -1391,7 +1400,9 @@ final class HeartbeatStore: ObservableObject {
                 self.install(pulse)
                 self.filterStamp += 1
                 if !current.isActive {
-                    self.unfilteredPulse = pulse
+                    if isCompanyWide(pulse) {
+                        self.unfilteredPulse = pulse
+                    }
                 } else {
                     self.warmUnfilteredPulse()
                 }
@@ -1451,10 +1462,60 @@ final class HeartbeatStore: ObservableObject {
         )
     }
 
+    private func isCompanyWide(_ pulse: FilterPulse?) -> Bool {
+        guard let pulse else { return false }
+        let total = max(roster.count, 1)
+        return pulse.stores.count >= min(total, max(total / 2, 8))
+    }
+
+    private func installCompanyWideFast() {
+        filteredLatest = latestBySection
+        refreshFilterOptions()
+        var pphByStore: [String: Double] = [:]
+        for row in latestBySection[.pph] ?? [] {
+            if let value = row.number("pph") {
+                pphByStore[HeartbeatMath.canonicalStore(row.storeNumber)] = value
+            }
+        }
+        var pathByStore: [String: Double] = [:]
+        for row in latestBySection[.pickPath] ?? [] {
+            if let value = row.number("compliance_pct") {
+                pathByStore[HeartbeatMath.canonicalStore(row.storeNumber)] = value
+            }
+        }
+        filteredMarket = cachedStores.map { item in
+            let identity = roster[item.0] ?? HeartbeatMath.StoreIdentity(division: "", district: "", om: "", name: nil)
+            return HeartbeatMath.MarketStore(
+                storeNumber: item.0,
+                division: identity.division,
+                district: identity.district,
+                om: identity.om,
+                pph: pphByStore[item.0],
+                compliance: pathByStore[item.0]
+            )
+        }
+        let laborMarket = laborMarketRow()
+        let lostMarket = lostRevenueMarketRow()
+        cachedSummaries = MetricSection.dashboardCards.map { section in
+            var input = latestBySection[section] ?? []
+            if section == .labor, let laborMarket { input.append(laborMarket) }
+            if section == .lostRevenue, let lostMarket { input.append(lostMarket) }
+            return HeartbeatMath.summarize(
+                section,
+                rows: input,
+                upload: uploads.first { $0.section == section }
+            )
+        }
+        objectWillChange.send()
+    }
+
     private func warmUnfilteredPulse() {
-        guard unfilteredPulse == nil else { return }
+        if let pulse = unfilteredPulse, isCompanyWide(pulse) { return }
         if !filters.isActive {
-            unfilteredPulse = snapshotPulse()
+            let snap = snapshotPulse()
+            if isCompanyWide(snap) {
+                unfilteredPulse = snap
+            }
             return
         }
         guard unfilteredWarmTask == nil else { return }
@@ -1478,7 +1539,7 @@ final class HeartbeatStore: ObservableObject {
                 self.unfilteredWarmTask = nil
                 guard self.pulseGeneration == generation else { return }
                 let pulse = self.pulse(from: caches)
-                if self.unfilteredPulse == nil {
+                if self.isCompanyWide(pulse) {
                     self.unfilteredPulse = pulse
                 }
                 if !self.filters.isActive {
