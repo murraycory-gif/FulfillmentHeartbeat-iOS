@@ -14,54 +14,58 @@ struct UploadView: View {
     @State private var pageWidth: CGFloat = 900
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                HubBanner(
-                    icon: HubDestination.upload.symbol,
-                    title: "Upload Workbooks",
-                    accessory: store.isImporting ? (store.importLabel ?? "Loading…") : store.filters.summary
-                )
-                MasterLoadPanel(
-                    enabled: !store.isImporting,
-                    importing: store.isImporting && importTarget == nil,
-                    label: store.importLabel,
-                    linkedName: store.linkedMasterName,
-                    lastLoaded: store.linkedMasterLoadedAt,
-                    onReload: { store.reloadLinkedMaster() },
-                    onPick: beginMasterImport,
-                    onUnlink: { store.unlinkMasterFile() }
-                )
-                HubBanner(
-                    icon: "square.and.arrow.up",
-                    title: "Or Add Individual KPI Data"
-                )
+        VStack(spacing: 0) {
+            HubStickyPageBanner(
+                icon: HubDestination.upload.symbol,
+                title: "Upload Workbooks",
+                accessory: store.isImporting ? (store.importLabel ?? "Loading…") : store.filters.summary
+            )
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    MasterLoadPanel(
+                        enabled: !store.isImporting,
+                        importing: store.isImporting && importTarget == nil,
+                        label: store.importLabel,
+                        linkedName: store.linkedMasterName,
+                        lastLoaded: store.linkedMasterLoadedAt,
+                        onReload: { store.reloadLinkedMaster() },
+                        onPick: beginMasterImport,
+                        onUnlink: { store.unlinkMasterFile() }
+                    )
+                    HubBanner(
+                        icon: "square.and.arrow.up",
+                        title: "Or Add Individual KPI Data"
+                    )
 
-                LazyVGrid(columns: uploadColumns, spacing: 16) {
-                    ForEach(MetricSection.uploadOrder) { section in
-                        UploadPanel(
-                            section: section,
-                            upload: store.upload(for: section),
-                            justUpdated: store.lastImportedSection == section,
-                            enabled: !store.isImporting,
-                            onPick: { beginImport(section) },
-                            onTemplate: {
-                                exportItem = ExportItem(
-                                    filename: "\(section.rawValue)-template.csv",
-                                    data: Data(SampleMarket.templateCSV(for: section).utf8)
-                                )
-                            },
-                            onClear: { store.clearSection(section) }
-                        )
-                        .frame(maxWidth: .infinity, minHeight: 428, maxHeight: .infinity, alignment: .top)
+                    LazyVGrid(columns: uploadColumns, spacing: 16) {
+                        ForEach(MetricSection.uploadOrder) { section in
+                            UploadPanel(
+                                section: section,
+                                upload: store.upload(for: section),
+                                justUpdated: store.lastImportedSection == section,
+                                enabled: !store.isImporting,
+                                onPick: { beginImport(section) },
+                                onTemplate: {
+                                    exportItem = ExportItem(
+                                        filename: "\(section.rawValue)-template.csv",
+                                        data: Data(SampleMarket.templateCSV(for: section).utf8)
+                                    )
+                                },
+                                onClear: { store.clearSection(section) }
+                            )
+                            .frame(maxWidth: .infinity, minHeight: 428, maxHeight: .infinity, alignment: .top)
+                        }
                     }
-                }
 
-                Text("Master load reads every sheet in one .xlsx. Name the tabs Lost Revenue, MI, 5 Star, Pick Path, Path Picker, Aisle Mapper, Prep, Dynacap, Schedule, PPH, Labor, and Picker ScoreCard — or leave the Power BI headers and we will map them. Individual cards still replace one KPI at a time.")
-                    .font(.subheadline)
-                    .foregroundStyle(AppTheme.textSecondary)
+                    Text("Master load reads every sheet in one .xlsx. Name the tabs Lost Revenue, MI, 5 Star, Pick Path, Path Picker, Aisle Mapper, Prep, Dynacap, Schedule, PPH, Labor, and Picker ScoreCard — or leave the Power BI headers and we will map them. Individual cards still replace one KPI at a time.")
+                        .font(.subheadline)
+                        .foregroundStyle(AppTheme.textSecondary)
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+                .padding(.bottom, 20)
+                .readWidth($pageWidth)
             }
-            .padding(20)
-            .readWidth($pageWidth)
         }
         .background(AppTheme.bg.ignoresSafeArea())
         .fileImporter(
