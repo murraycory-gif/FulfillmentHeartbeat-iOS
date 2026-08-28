@@ -857,7 +857,7 @@ struct FilterBar: View {
             FilterSheet(initialFocus: focus)
                 .environmentObject(store)
         }
-        .sheet(isPresented: $showShare) {
+        .fullScreenCover(isPresented: $showShare) {
             SharePulseSheet()
                 .environmentObject(store)
         }
@@ -971,22 +971,41 @@ struct SharePulseSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
+                        .disabled(building)
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button {
-                        send()
-                    } label: {
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                Button(action: send) {
+                    HStack(spacing: 10) {
                         if building {
                             ProgressView()
-                        } else {
-                            Text("Share")
-                                .fontWeight(.bold)
+                                .tint(.white)
                         }
+                        Text(building ? "Building recap…" : shareLabel)
+                            .font(.headline.weight(.bold))
                     }
-                    .disabled(selected.isEmpty || building)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .disabled(selected.isEmpty || building)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .background(AppTheme.bg)
+            }
+            .overlay {
+                if building {
+                    Color.black.opacity(0.18).ignoresSafeArea()
                 }
             }
         }
+    }
+
+    private var shareLabel: String {
+        let n = selected.count
+        if n == PulseMail.SharePage.allCases.count { return "Share all pages" }
+        if n == 1 { return "Share 1 page" }
+        return "Share \(n) pages"
     }
 
     private func send() {
@@ -994,15 +1013,12 @@ struct SharePulseSheet: View {
         building = true
         let pages = selected
         let snap = store.pulseMailSnapshot()
-        Task.detached(priority: .userInitiated) {
-            let packet = PulseMail.make(snap, pages: pages)
-            await MainActor.run {
-                building = false
-                dismiss()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                    PulseShare.present(packet)
-                }
-            }
+        Task { @MainActor in
+            let packet = await Task.detached(priority: .userInitiated) {
+                PulseMail.make(snap, pages: pages)
+            }.value
+            building = false
+            PulseShare.present(packet)
         }
     }
 }
@@ -9902,18 +9918,25 @@ enum PulseShare {
             .print,
             .saveToCameraRoll,
         ]
-        guard let presenter = topController() else { return }
+        guard let presenter = topController(), presenter.view.window != nil else { return }
         if let popover = sheet.popoverPresentationController {
-            popover.sourceView = presenter.view
+            let view = presenter.view!
+            popover.sourceView = view
             popover.sourceRect = CGRect(
-                x: presenter.view.bounds.midX,
-                y: 72,
+                x: view.bounds.midX,
+                y: max(88, view.bounds.minY + 72),
                 width: 1,
                 height: 1
             )
             popover.permittedArrowDirections = []
         }
-        presenter.present(sheet, animated: true)
+        if presenter.presentedViewController == nil {
+            presenter.present(sheet, animated: true)
+        } else {
+            presenter.dismiss(animated: false) {
+                presenter.present(sheet, animated: true)
+            }
+        }
     }
 
     static func writeHTMLFile(_ packet: PulseMail.Packet) -> URL? {
