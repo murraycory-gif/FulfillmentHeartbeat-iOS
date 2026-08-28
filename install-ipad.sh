@@ -2,6 +2,7 @@
 # Build, install, and open Fulfillment Heartbeat on a connected iPad
 # without Xcode's debugger.
 # SKIP_BUILD=1 reuses the last .app so a dropped cable is a 10-second retry.
+# SKIP_PULL=1 skips git fetch/pull when you already have the latest source.
 set -eu
 cd "$(dirname "$0")"
 
@@ -10,6 +11,28 @@ WORKSPACE="FulfillmentHeartbeat.xcworkspace"
 SCHEME="FulfillmentHeartbeat"
 DERIVED="${TMPDIR:-/tmp}/HeartbeatDeviceBuild"
 
+stamp_id() {
+  python3 - <<'PY'
+import re, pathlib
+text = pathlib.Path("FulfillmentHeartbeat/BuildStamp.swift").read_text()
+match = re.search(r'id = "([^"]+)"', text)
+print(match.group(1) if match else "unknown")
+PY
+}
+
+if [ "${SKIP_PULL:-0}" != "1" ] && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  echo "Pulling latest from GitHub..."
+  git fetch origin main
+  if git merge-base --is-ancestor HEAD origin/main; then
+    git pull --ff-only origin main
+  else
+    echo "Local commits are not on GitHub. Fast-forward skipped."
+    echo "If the stamp is old, run ./update.sh then retry this install."
+  fi
+fi
+
+STAMP="$(stamp_id)"
+echo "Source stamp: $STAMP"
 echo "Unlock the iPad, keep it awake, and leave it on the Home Screen."
 
 wait_for_ipad() {
@@ -77,7 +100,7 @@ if [ -z "${UDID:-}" ]; then
 fi
 
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
-  echo "Building for this iPad ($UDID)..."
+  echo "Building $STAMP for this iPad ($UDID)..."
   rm -rf "$DERIVED"
   LOG="${TMPDIR:-/tmp}/heartbeat-build.log"
   if ! xcodebuild \
@@ -104,7 +127,7 @@ if [ -z "$APP" ] || [ ! -d "$APP" ]; then
   exit 1
 fi
 
-echo "Installing on $UDID ..."
+echo "Installing $STAMP on $UDID ..."
 if ! xcrun devicectl device install app --device "$UDID" "$APP"; then
   echo ""
   echo "Install failed. Connected devices:"
@@ -115,7 +138,7 @@ if ! xcrun devicectl device install app --device "$UDID" "$APP"; then
   echo "  2. Settings → General → VPN & Device Management → tap your Apple ID → Trust."
   echo "  3. Unlock the iPad, leave it on the Home Screen."
   echo "  4. Rerun (do not use SKIP_BUILD=1):"
-  echo "       DEVICE_UDID=$UDID ./install-ipad.sh"
+  echo "       git pull && DEVICE_UDID=$UDID ./install-ipad.sh"
   exit 1
 fi
 
@@ -124,4 +147,6 @@ xcrun devicectl device process launch --device "$UDID" "$BUNDLE_ID" || true
 
 echo ""
 echo "Tap the Heartbeat icon if it did not come forward."
-echo "Top-right stamp should match FulfillmentHeartbeat/BuildStamp.swift (currently HB-0826.6)."
+echo "Sidebar stamp must read $STAMP  1.0 (230)."
+echo "If it still says an older HB-0826.* stamp, run:"
+echo "  git pull && DEVICE_UDID=$UDID ./install-ipad.sh"
