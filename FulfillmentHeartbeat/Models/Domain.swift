@@ -1164,6 +1164,26 @@ enum HeartbeatMath {
         return flags
     }
 
+    static func pphActionFlags(_ rows: [MetricRow]) -> [FiveStarFlag] {
+        let stores = rows.filter { !isIgnoredStore($0.storeNumber) && $0.number("pph") != nil }
+        let atGoal = stores.filter { ($0.number("pph") ?? 0) >= pphGoal }.count
+        let below74 = stores.filter { ($0.number("pph") ?? .greatestFiniteMagnitude) < pphRisk }.count
+        return [
+            FiveStarFlag(
+                name: "At Goal",
+                value: "",
+                health: .good,
+                stores: atGoal
+            ),
+            FiveStarFlag(
+                name: "Below 74",
+                value: "",
+                health: below74 == 0 ? .good : .risk,
+                stores: below74
+            ),
+        ]
+    }
+
     static func oosStar(_ row: MetricRow) -> StarMark {
         componentStar(row, starKey: "oos_star", pctKey: "oos_pct", full: 3, half: 5, invert: true)
     }
