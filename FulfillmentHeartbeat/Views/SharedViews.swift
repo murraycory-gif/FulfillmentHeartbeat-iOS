@@ -9562,6 +9562,9 @@ final class PulseShareSource: NSObject, UIActivityItemSource {
         if activityType == .message {
             return "\(subject)\n\n\(brief)"
         }
+        if raw.localizedCaseInsensitiveContains("outlook") || raw.localizedCaseInsensitiveContains("microsoft") {
+            return "\(subject)\n\n\(plain)"
+        }
         if raw.localizedCaseInsensitiveContains("note") {
             return "\(subject)\n\n\(plain)"
         }
@@ -9586,10 +9589,84 @@ final class PulseShareSource: NSObject, UIActivityItemSource {
     }
 }
 
+final class OutlookShareActivity: UIActivity {
+    private let subject: String
+    private let body: String
+
+    init(subject: String, body: String) {
+        self.subject = subject
+        self.body = body
+        super.init()
+    }
+
+    override var activityType: UIActivity.ActivityType? {
+        UIActivity.ActivityType("com.corymurray.FulfillmentHeartbeat.outlook")
+    }
+
+    override var activityTitle: String? { "Outlook" }
+
+    override var activityImage: UIImage? {
+        UIImage(systemName: "envelope.badge.fill")
+    }
+
+    override class var activityCategory: UIActivity.Category { .share }
+
+    override func canPerform(withActivityItems activityItems: [Any]) -> Bool { true }
+
+    override func perform() {
+        OutlookShareActivity.open(subject: subject, body: body) { [weak self] success in
+            self?.activityDidFinish(success)
+        }
+    }
+
+    static func open(subject: String, body: String, completion: @escaping (Bool) -> Void) {
+        let clipped = body.count > 7000 ? String(body.prefix(7000)) + "\n\n(Recap truncated for Outlook.)" : body
+        let encodedSubject = encode(subject)
+        let encodedBody = encode(clipped)
+        let candidates = [
+            "ms-outlook://emails/new?subject=\(encodedSubject)&body=\(encodedBody)",
+            "ms-outlook://compose?subject=\(encodedSubject)&body=\(encodedBody)",
+        ]
+        tryOpen(candidates, index: 0, completion: completion)
+    }
+
+    private static func encode(_ value: String) -> String {
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-._~")
+        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
+    }
+
+    private static func tryOpen(_ urls: [String], index: Int, completion: @escaping (Bool) -> Void) {
+        guard index < urls.count, let url = URL(string: urls[index]) else {
+            openAppStore(completion)
+            return
+        }
+        UIApplication.shared.open(url) { ok in
+            if ok {
+                completion(true)
+            } else {
+                tryOpen(urls, index: index + 1, completion: completion)
+            }
+        }
+    }
+
+    private static func openAppStore(_ completion: @escaping (Bool) -> Void) {
+        guard let store = URL(string: "https://apps.apple.com/app/microsoft-outlook/id951937596") else {
+            completion(false)
+            return
+        }
+        UIApplication.shared.open(store, completionHandler: completion)
+    }
+}
+
 enum PulseShare {
     static func present(_ packet: PulseMail.Packet) {
         let source = PulseShareSource(packet: packet)
-        let sheet = UIActivityViewController(activityItems: [source], applicationActivities: nil)
+        let outlook = OutlookShareActivity(subject: packet.subject, body: packet.plain)
+        let sheet = UIActivityViewController(
+            activityItems: [source],
+            applicationActivities: [outlook]
+        )
         sheet.excludedActivityTypes = [
             .assignToContact,
             .addToReadingList,
