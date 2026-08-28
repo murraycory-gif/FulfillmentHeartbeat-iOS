@@ -16,7 +16,7 @@ struct SectionDetailView: View {
     @State private var lostRevenueFocus: LostRevenueFocus = .all
     @State private var missingItemsFocus: MissingItemsFocus = .all
     @State private var miCategories: Set<MissingItemDept> = []
-    @State private var showTables = true
+    @State private var showTables = false
     @State private var pageWidth: CGFloat = 1000
 
     private var summary: SectionSummary { store.summary(for: section) }
@@ -40,6 +40,7 @@ struct SectionDetailView: View {
                     .listRowBackground(AppTheme.bg)
             }
 
+            if showTables {
             if section == .pickerScorecard {
                 Section {
                     PickerHighlightsPanel(
@@ -50,9 +51,7 @@ struct SectionDetailView: View {
                     .listRowSeparator(.hidden)
                     .listRowBackground(AppTheme.bg)
                 }
-                if showTables {
-                    PickerScoreTable(focus: pickerFocus)
-                }
+                PickerScoreTable(focus: pickerFocus)
             } else if section == .pickPath {
                 Section {
                     PickPathRollupTable()
@@ -60,9 +59,7 @@ struct SectionDetailView: View {
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.bg)
                 }
-                if showTables {
-                    PickPathTable(rows: pickPathRows)
-                }
+                PickPathTable(rows: pickPathRows)
             } else if section == .dynacap {
                 Section {
                     DynacapRollupTable()
@@ -70,9 +67,7 @@ struct SectionDetailView: View {
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.bg)
                 }
-                if showTables {
-                    DynacapTable(rows: dynacapRows)
-                }
+                DynacapTable(rows: dynacapRows)
             } else if section == .pph {
                 Section {
                     PPHRollupTable()
@@ -80,9 +75,7 @@ struct SectionDetailView: View {
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.bg)
                 }
-                if showTables {
-                    PPHTable(rows: pphRows)
-                }
+                PPHTable(rows: pphRows)
             } else if section == .scheduleQuality {
                 Section {
                     ScheduleRollupTable()
@@ -90,9 +83,7 @@ struct SectionDetailView: View {
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.bg)
                 }
-                if showTables {
-                    ScheduleTable(rows: scheduleRows)
-                }
+                ScheduleTable(rows: scheduleRows)
             } else if section == .prepNotReady {
                 Section {
                     PrepRollupTable()
@@ -100,9 +91,7 @@ struct SectionDetailView: View {
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.bg)
                 }
-                if showTables {
-                    PrepTable(rows: prepRows)
-                }
+                PrepTable(rows: prepRows)
             } else if section == .fiveStar {
                 Section {
                     FiveStarRollupTable()
@@ -110,9 +99,7 @@ struct SectionDetailView: View {
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.bg)
                 }
-                if showTables {
-                    FiveStarTable(rows: fiveStarRows)
-                }
+                FiveStarTable(rows: fiveStarRows)
             } else if section == .labor {
                 Section {
                     LaborRollupTable()
@@ -120,9 +107,7 @@ struct SectionDetailView: View {
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.bg)
                 }
-                if showTables {
-                    LaborTable(rows: laborRows)
-                }
+                LaborTable(rows: laborRows)
             } else if section == .lostRevenue {
                 Section {
                     LostRevenueRollupTable()
@@ -130,9 +115,7 @@ struct SectionDetailView: View {
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.bg)
                 }
-                if showTables {
-                    LostRevenueTable(rows: lostRevenueRows)
-                }
+                LostRevenueTable(rows: lostRevenueRows)
             } else if section == .missingItems {
                 Section {
                     MissingItemsRollupTable(depts: visibleMIDepts, pageWidth: pageWidth)
@@ -140,16 +123,16 @@ struct SectionDetailView: View {
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.bg)
                 }
-                if showTables {
-                    MissingItemsTable(rows: missingItemsRows, depts: visibleMIDepts, pageWidth: pageWidth)
-                }
-            } else if showTables {
+                MissingItemsTable(rows: missingItemsRows, depts: visibleMIDepts, pageWidth: pageWidth)
+            } else {
                 StoreTable(section: section, rows: snapshots)
+            }
             }
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
             .environment(\.defaultMinListRowHeight, 1)
+            .transaction { $0.animation = nil }
             .background(
                 GeometryReader { geo in
                     Color.clear.preference(
@@ -201,15 +184,27 @@ struct SectionDetailView: View {
             laborHeaderPin.listTop = top
         }
         .onAppear {
-            laborHeaderPin.openOnPageEnter()
+            armPage()
         }
         .onChange(of: router.current) { _, _ in
-            if isActivePage { laborHeaderPin.openOnPageEnter() }
+            armPage()
         }
     }
 
     private var isActivePage: Bool {
         router.current.section == section
+    }
+
+    private func armPage() {
+        if isActivePage {
+            DispatchQueue.main.async {
+                guard isActivePage else { return }
+                laborHeaderPin.openOnPageEnter()
+                showTables = true
+            }
+        } else if showTables {
+            showTables = false
+        }
     }
 
     @ViewBuilder

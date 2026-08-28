@@ -856,20 +856,13 @@ struct MissingItemsRollupTable: View {
     @EnvironmentObject private var headerPin: LaborHeaderPin
     let depts: [MissingItemDept]
     var pageWidth: CGFloat = 1000
+    @State private var grain: MissingItemsGrain?
+    @State private var summary: [MissingItemsRollupRow] = []
 
     private var expanded: Bool { headerPin.rollupExpanded }
 
-    private var grain: MissingItemsGrain? {
-        MissingItemsGrain.current(for: store.filters)
-    }
-
-    private var summary: [MissingItemsRollupRow] {
-        guard let grain else { return [] }
-        let source = MissingItemsRollupBuilder.source(from: store.displayRows(for: .missingItems), filters: store.filters)
-        return MissingItemsRollupBuilder.rows(from: source, grain: grain, depts: depts)
-    }
-
     var body: some View {
+        Group {
         if let grain, !summary.isEmpty {
             let metrics = MILayout.metrics(depts: depts.count, showCount: grain != .store, available: max(pageWidth - 56, 320))
             VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
@@ -917,5 +910,17 @@ struct MissingItemsRollupTable: View {
                     .stroke(AppTheme.blue, lineWidth: 2.5)
             )
         }
+        }
+        .onAppear(perform: rebuild)
+        .onChange(of: store.filterStamp) { _, _ in rebuild() }
+        .onChange(of: depts.count) { _, _ in rebuild() }
+    }
+
+    private func rebuild() {
+        let next = MissingItemsGrain.current(for: store.filters)
+        grain = next
+        guard let next else { summary = []; return }
+        let source = MissingItemsRollupBuilder.source(from: store.displayRows(for: .missingItems), filters: store.filters)
+        summary = MissingItemsRollupBuilder.rows(from: source, grain: next, depts: depts)
     }
 }

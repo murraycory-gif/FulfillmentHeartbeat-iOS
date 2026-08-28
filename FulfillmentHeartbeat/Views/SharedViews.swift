@@ -1958,10 +1958,13 @@ struct PickPathStickyStoreHeader: View {
 struct PickPathRollupTable: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var headerPin: LaborHeaderPin
+    @State private var grain: LaborRollupGrain?
+    @State private var summary: [PickPathRollupRow] = []
 
     private var expanded: Bool { headerPin.rollupExpanded }
 
     var body: some View {
+        Group {
         if let grain, !summary.isEmpty {
             VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
                 Button {
@@ -1998,23 +2001,24 @@ struct PickPathRollupTable: View {
                     .stroke(AppTheme.blue, lineWidth: 2.5)
             )
         }
+        }
+        .onAppear(perform: rebuild)
+        .onChange(of: store.filterStamp) { _, _ in rebuild() }
     }
 
-    private var grain: LaborRollupGrain? {
-        PickPathRollupBuilder.grain(for: store.filters)
-    }
-
-    private var summary: [PickPathRollupRow] {
-        guard let grain else { return [] }
+    private func rebuild() {
+        let next = PickPathRollupBuilder.grain(for: store.filters)
+        grain = next
+        guard let next else { summary = []; return }
         let source = PickPathRollupBuilder.source(from: store.displayRows(for: .pickPath), filters: store.filters)
-        var rows = PickPathRollupBuilder.rows(from: source, grain: grain)
-        if grain == .division {
+        var rows = PickPathRollupBuilder.rows(from: source, grain: next)
+        if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
                 rows.append(PickPathRollupRow(id: extra.name, label: extra.name, storeCount: extra.storeCount, path: nil, pph: nil, orders: nil))
             }
             rows.sort { ($0.path ?? 999) < ($1.path ?? 999) }
         }
-        return rows
+        summary = rows
     }
 }
 
@@ -2969,10 +2973,13 @@ struct DynacapStickyStoreHeader: View {
 struct DynacapRollupTable: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var headerPin: LaborHeaderPin
+    @State private var grain: LaborRollupGrain?
+    @State private var summary: [DynacapRollupRow] = []
 
     private var expanded: Bool { headerPin.rollupExpanded }
 
     var body: some View {
+        Group {
         if let grain, !summary.isEmpty {
             VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
                 Button {
@@ -3009,14 +3016,15 @@ struct DynacapRollupTable: View {
                     .stroke(AppTheme.blue, lineWidth: 2.5)
             )
         }
+        }
+        .onAppear(perform: rebuild)
+        .onChange(of: store.filterStamp) { _, _ in rebuild() }
     }
 
-    private var grain: LaborRollupGrain? {
-        DynacapRollupBuilder.grain(for: store.filters)
-    }
-
-    private var summary: [DynacapRollupRow] {
-        guard let grain else { return [] }
+    private func rebuild() {
+        let next = DynacapRollupBuilder.grain(for: store.filters)
+        grain = next
+        guard let next else { summary = []; return }
         let source = DynacapRollupBuilder.source(from: store.displayRows(for: .dynacap), filters: store.filters)
         var pphByStore: [String: Double] = [:]
         for row in store.latest(for: .pph) {
@@ -3024,14 +3032,14 @@ struct DynacapRollupTable: View {
                 pphByStore[HeartbeatMath.canonicalStore(row.storeNumber)] = pph
             }
         }
-        var rows = DynacapRollupBuilder.rows(from: source, grain: grain, pphByStore: pphByStore)
-        if grain == .division {
+        var rows = DynacapRollupBuilder.rows(from: source, grain: next, pphByStore: pphByStore)
+        if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
                 rows.append(DynacapRollupRow(id: extra.name, label: extra.name, storeCount: extra.storeCount, rate: nil, pph: nil, util: nil))
             }
             rows.sort { ($0.rate ?? 999) < ($1.rate ?? 999) }
         }
-        return rows
+        summary = rows
     }
 }
 
@@ -3743,10 +3751,13 @@ struct PrepStickyStoreHeader: View {
 struct PrepRollupTable: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var headerPin: LaborHeaderPin
+    @State private var grain: LaborRollupGrain?
+    @State private var summary: [PrepRollupRow] = []
 
     private var expanded: Bool { headerPin.rollupExpanded }
 
     var body: some View {
+        Group {
         if let grain, !summary.isEmpty {
             VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
                 Button {
@@ -3781,23 +3792,24 @@ struct PrepRollupTable: View {
                     .stroke(AppTheme.blue, lineWidth: 2.5)
             )
         }
+        }
+        .onAppear(perform: rebuild)
+        .onChange(of: store.filterStamp) { _, _ in rebuild() }
     }
 
-    private var grain: LaborRollupGrain? {
-        PrepRollupBuilder.grain(for: store.filters)
-    }
-
-    private var summary: [PrepRollupRow] {
-        guard let grain else { return [] }
+    private func rebuild() {
+        let next = PrepRollupBuilder.grain(for: store.filters)
+        grain = next
+        guard let next else { summary = []; return }
         let source = PrepRollupBuilder.source(from: store.displayRows(for: .prepNotReady), filters: store.filters)
-        var rows = PrepRollupBuilder.rows(from: source, grain: grain)
-        if grain == .division {
+        var rows = PrepRollupBuilder.rows(from: source, grain: next)
+        if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
                 rows.append(PrepRollupRow(id: extra.name, label: extra.name, storeCount: extra.storeCount, pnr: nil))
             }
             rows.sort { ($0.pnr ?? -1) > ($1.pnr ?? -1) }
         }
-        return rows
+        summary = rows
     }
 }
 
@@ -4488,10 +4500,13 @@ struct FiveStarStickyStoreHeader: View {
 struct FiveStarRollupTable: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var headerPin: LaborHeaderPin
+    @State private var grain: LaborRollupGrain?
+    @State private var summary: [FiveStarRollupRow] = []
 
     private var expanded: Bool { headerPin.rollupExpanded }
 
     var body: some View {
+        Group {
         if let grain, !summary.isEmpty {
             VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
                 Button {
@@ -4531,17 +4546,18 @@ struct FiveStarRollupTable: View {
                     .stroke(AppTheme.blue, lineWidth: 2.5)
             )
         }
+        }
+        .onAppear(perform: rebuild)
+        .onChange(of: store.filterStamp) { _, _ in rebuild() }
     }
 
-    private var grain: LaborRollupGrain? {
-        FiveStarRollupBuilder.grain(for: store.filters)
-    }
-
-    private var summary: [FiveStarRollupRow] {
-        guard let grain else { return [] }
+    private func rebuild() {
+        let next = FiveStarRollupBuilder.grain(for: store.filters)
+        grain = next
+        guard let next else { summary = []; return }
         let source = FiveStarRollupBuilder.source(from: store.displayRows(for: .fiveStar), filters: store.filters)
-        var rows = FiveStarRollupBuilder.rows(from: source, grain: grain)
-        if grain == .division {
+        var rows = FiveStarRollupBuilder.rows(from: source, grain: next)
+        if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
                 rows.append(
                     FiveStarRollupRow(
@@ -4559,7 +4575,7 @@ struct FiveStarRollupTable: View {
             }
             rows.sort { ($0.rating ?? 99) < ($1.rating ?? 99) }
         }
-        return rows
+        summary = rows
     }
 }
 
@@ -5278,10 +5294,13 @@ struct LaborMetricHeader: View {
 struct LaborRollupTable: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var headerPin: LaborHeaderPin
+    @State private var grain: LaborRollupGrain?
+    @State private var summary: [LaborRollupRow] = []
 
     private var expanded: Bool { headerPin.rollupExpanded }
 
     var body: some View {
+        Group {
         if let grain, !summary.isEmpty {
             VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
                     Button {
@@ -5322,17 +5341,18 @@ struct LaborRollupTable: View {
                         .stroke(AppTheme.blue, lineWidth: 2.5)
                 )
         }
+        }
+        .onAppear(perform: rebuild)
+        .onChange(of: store.filterStamp) { _, _ in rebuild() }
     }
 
-    private var grain: LaborRollupGrain? {
-        LaborRollupBuilder.grain(for: store.filters)
-    }
-
-    private var summary: [LaborRollupRow] {
-        guard let grain else { return [] }
+    private func rebuild() {
+        let next = LaborRollupBuilder.grain(for: store.filters)
+        grain = next
+        guard let next else { summary = []; return }
         let source = LaborRollupBuilder.source(from: store.displayRows(for: .labor), filters: store.filters)
-        var rows = LaborRollupBuilder.rows(from: source, grain: grain)
-        if grain == .division {
+        var rows = LaborRollupBuilder.rows(from: source, grain: next)
+        if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
                 rows.append(
                     LaborRollupRow(
@@ -5351,7 +5371,7 @@ struct LaborRollupTable: View {
             }
             rows.sort { ($0.tva ?? -999) > ($1.tva ?? -999) }
         }
-        return rows
+        summary = rows
     }
 }
 
@@ -6283,10 +6303,13 @@ struct LostRevenueStickyStoreHeader: View {
 struct LostRevenueRollupTable: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var headerPin: LaborHeaderPin
+    @State private var grain: LaborRollupGrain?
+    @State private var summary: [LostRevenueRollupRow] = []
 
     private var expanded: Bool { headerPin.rollupExpanded }
 
     var body: some View {
+        Group {
         if let grain, !summary.isEmpty {
             VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
                 Button {
@@ -6327,17 +6350,18 @@ struct LostRevenueRollupTable: View {
                     .stroke(AppTheme.blue, lineWidth: 2.5)
             )
         }
+        }
+        .onAppear(perform: rebuild)
+        .onChange(of: store.filterStamp) { _, _ in rebuild() }
     }
 
-    private var grain: LaborRollupGrain? {
-        LostRevenueRollupBuilder.grain(for: store.filters)
-    }
-
-    private var summary: [LostRevenueRollupRow] {
-        guard let grain else { return [] }
+    private func rebuild() {
+        let next = LostRevenueRollupBuilder.grain(for: store.filters)
+        grain = next
+        guard let next else { summary = []; return }
         let source = LostRevenueRollupBuilder.source(from: store.displayRows(for: .lostRevenue), filters: store.filters)
-        var rows = LostRevenueRollupBuilder.rows(from: source, grain: grain)
-        if grain == .division {
+        var rows = LostRevenueRollupBuilder.rows(from: source, grain: next)
+        if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
                 rows.append(
                     LostRevenueRollupRow(
@@ -6356,7 +6380,7 @@ struct LostRevenueRollupTable: View {
             }
             rows.sort { ($0.lost ?? -1) > ($1.lost ?? -1) }
         }
-        return rows
+        summary = rows
     }
 }
 
@@ -7280,10 +7304,13 @@ struct ScheduleStickyStoreHeader: View {
 struct ScheduleRollupTable: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var headerPin: LaborHeaderPin
+    @State private var grain: LaborRollupGrain?
+    @State private var summary: [ScheduleRollupRow] = []
 
     private var expanded: Bool { headerPin.rollupExpanded }
 
     var body: some View {
+        Group {
         if let grain, !summary.isEmpty {
             VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
                 Button {
@@ -7321,23 +7348,24 @@ struct ScheduleRollupTable: View {
                     .stroke(AppTheme.blue, lineWidth: 2.5)
             )
         }
+        }
+        .onAppear(perform: rebuild)
+        .onChange(of: store.filterStamp) { _, _ in rebuild() }
     }
 
-    private var grain: LaborRollupGrain? {
-        ScheduleRollupBuilder.grain(for: store.filters)
-    }
-
-    private var summary: [ScheduleRollupRow] {
-        guard let grain else { return [] }
+    private func rebuild() {
+        let next = ScheduleRollupBuilder.grain(for: store.filters)
+        grain = next
+        guard let next else { summary = []; return }
         let source = ScheduleRollupBuilder.source(from: store.displayRows(for: .scheduleQuality), filters: store.filters)
-        var rows = ScheduleRollupBuilder.rows(from: source, grain: grain)
-        if grain == .division {
+        var rows = ScheduleRollupBuilder.rows(from: source, grain: next)
+        if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
                 rows.append(ScheduleRollupRow(id: extra.name, label: extra.name, storeCount: extra.storeCount, efficiency: nil, staffing: nil, under: nil, over: nil))
             }
             rows.sort { ($0.efficiency ?? 999) < ($1.efficiency ?? 999) }
         }
-        return rows
+        summary = rows
     }
 }
 
@@ -7981,10 +8009,13 @@ struct PPHStickyStoreHeader: View {
 struct PPHRollupTable: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var headerPin: LaborHeaderPin
+    @State private var grain: LaborRollupGrain?
+    @State private var summary: [PPHRollupRow] = []
 
     private var expanded: Bool { headerPin.rollupExpanded }
 
     var body: some View {
+        Group {
         if let grain, !summary.isEmpty {
             VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
                 Button {
@@ -8020,23 +8051,24 @@ struct PPHRollupTable: View {
                     .stroke(AppTheme.blue, lineWidth: 2.5)
             )
         }
+        }
+        .onAppear(perform: rebuild)
+        .onChange(of: store.filterStamp) { _, _ in rebuild() }
     }
 
-    private var grain: LaborRollupGrain? {
-        PPHRollupBuilder.grain(for: store.filters)
-    }
-
-    private var summary: [PPHRollupRow] {
-        guard let grain else { return [] }
+    private func rebuild() {
+        let next = PPHRollupBuilder.grain(for: store.filters)
+        grain = next
+        guard let next else { summary = []; return }
         let source = PPHRollupBuilder.source(from: store.displayRows(for: .pph), filters: store.filters)
-        var rows = PPHRollupBuilder.rows(from: source, grain: grain, pickerCount: { store.pphPickerCount(forStore: $0) })
-        if grain == .division {
+        var rows = PPHRollupBuilder.rows(from: source, grain: next, pickerCount: { store.pphPickerCount(forStore: $0) })
+        if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
                 rows.append(PPHRollupRow(id: extra.name, label: extra.name, storeCount: extra.storeCount, pph: nil, pickers: 0))
             }
             rows.sort { ($0.pph ?? 999) < ($1.pph ?? 999) }
         }
-        return rows
+        summary = rows
     }
 }
 
