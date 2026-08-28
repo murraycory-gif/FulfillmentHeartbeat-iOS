@@ -2010,7 +2010,7 @@ struct PickPathRollupTable: View {
         let next = PickPathRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
-        let source = PickPathRollupBuilder.source(from: store.displayRows(for: .pickPath), filters: store.filters)
+        let source = PickPathRollupBuilder.source(from: store.allLatest(for: .pickPath), filters: store.filters)
         var rows = PickPathRollupBuilder.rows(from: source, grain: next)
         if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
@@ -3029,7 +3029,7 @@ struct DynacapRollupTable: View {
         let next = DynacapRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
-        let source = DynacapRollupBuilder.source(from: store.displayRows(for: .dynacap), filters: store.filters)
+        let source = DynacapRollupBuilder.source(from: store.allLatest(for: .dynacap), filters: store.filters)
         var pphByStore: [String: Double] = [:]
         for row in store.latest(for: .pph) {
             if let pph = row.number("pph") {
@@ -3805,7 +3805,7 @@ struct PrepRollupTable: View {
         let next = PrepRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
-        let source = PrepRollupBuilder.source(from: store.displayRows(for: .prepNotReady), filters: store.filters)
+        let source = PrepRollupBuilder.source(from: store.allLatest(for: .prepNotReady), filters: store.filters)
         var rows = PrepRollupBuilder.rows(from: source, grain: next)
         if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
@@ -4559,7 +4559,7 @@ struct FiveStarRollupTable: View {
         let next = FiveStarRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
-        let source = FiveStarRollupBuilder.source(from: store.displayRows(for: .fiveStar), filters: store.filters)
+        let source = FiveStarRollupBuilder.source(from: store.allLatest(for: .fiveStar), filters: store.filters)
         var rows = FiveStarRollupBuilder.rows(from: source, grain: next)
         if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
@@ -4847,10 +4847,10 @@ private struct LaborRollupRow: Identifiable {
 
 private enum LaborRollupBuilder {
     static func grain(for filters: DashboardFilters) -> LaborRollupGrain? {
-        if !filters.store.isEmpty { return nil }
         if !filters.division.isEmpty || !filters.district.isEmpty || !filters.om.isEmpty {
             return .district
         }
+        if !filters.store.isEmpty { return nil }
         return .division
     }
 
@@ -5354,7 +5354,7 @@ struct LaborRollupTable: View {
         let next = LaborRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
-        let source = LaborRollupBuilder.source(from: store.displayRows(for: .labor), filters: store.filters)
+        let source = LaborRollupBuilder.source(from: store.allLatest(for: .labor), filters: store.filters)
         var rows = LaborRollupBuilder.rows(from: source, grain: next)
         if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
@@ -6363,7 +6363,7 @@ struct LostRevenueRollupTable: View {
         let next = LostRevenueRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
-        let source = LostRevenueRollupBuilder.source(from: store.displayRows(for: .lostRevenue), filters: store.filters)
+        let source = LostRevenueRollupBuilder.source(from: store.allLatest(for: .lostRevenue), filters: store.filters)
         var rows = LostRevenueRollupBuilder.rows(from: source, grain: next)
         if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
@@ -7361,7 +7361,7 @@ struct ScheduleRollupTable: View {
         let next = ScheduleRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
-        let source = ScheduleRollupBuilder.source(from: store.displayRows(for: .scheduleQuality), filters: store.filters)
+        let source = ScheduleRollupBuilder.source(from: store.allLatest(for: .scheduleQuality), filters: store.filters)
         var rows = ScheduleRollupBuilder.rows(from: source, grain: next)
         if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
@@ -8064,7 +8064,7 @@ struct PPHRollupTable: View {
         let next = PPHRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
-        let source = PPHRollupBuilder.source(from: store.displayRows(for: .pph), filters: store.filters)
+        let source = PPHRollupBuilder.source(from: store.allLatest(for: .pph), filters: store.filters)
         var rows = PPHRollupBuilder.rows(from: source, grain: next, pickerCount: { store.pphPickerCount(forStore: $0) })
         if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {

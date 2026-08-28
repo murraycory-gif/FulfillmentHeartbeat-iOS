@@ -393,10 +393,10 @@ private enum MissingItemsGrain {
     }
 
     static func current(for filters: DashboardFilters) -> MissingItemsGrain? {
-        if !filters.store.isEmpty { return nil }
         if !filters.division.isEmpty || !filters.district.isEmpty || !filters.om.isEmpty {
             return .district
         }
+        if !filters.store.isEmpty { return nil }
         return .division
     }
 }
@@ -920,7 +920,7 @@ struct MissingItemsRollupTable: View {
         let next = MissingItemsGrain.current(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
-        let source = MissingItemsRollupBuilder.source(from: store.displayRows(for: .missingItems), filters: store.filters)
+        let source = MissingItemsRollupBuilder.source(from: store.allLatest(for: .missingItems), filters: store.filters)
         summary = MissingItemsRollupBuilder.rows(from: source, grain: next, depts: depts)
     }
 }
