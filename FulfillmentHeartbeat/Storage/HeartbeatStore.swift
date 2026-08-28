@@ -1732,10 +1732,8 @@ final class HeartbeatStore: ObservableObject {
             rows[section] = displayRows(for: section)
         }
         let grain: String?
-        if !filters.division.isEmpty || !filters.district.isEmpty || !filters.om.isEmpty {
+        if !filters.division.isEmpty || !filters.district.isEmpty || !filters.om.isEmpty || !filters.store.isEmpty {
             grain = "district"
-        } else if !filters.store.isEmpty {
-            grain = nil
         } else {
             grain = "division"
         }

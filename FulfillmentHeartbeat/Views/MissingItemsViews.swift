@@ -393,33 +393,18 @@ private enum MissingItemsGrain {
     }
 
     static func current(for filters: DashboardFilters) -> MissingItemsGrain? {
-        if !filters.division.isEmpty || !filters.district.isEmpty || !filters.om.isEmpty {
-            return .district
+        switch RollupMarketFill.grain(for: filters) {
+        case .division: return .division
+        case .district: return .district
+        case .store: return .store
         }
-        if !filters.store.isEmpty { return nil }
-        return .division
     }
 }
 
 private enum MissingItemsRollupBuilder {
     static func source(from all: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
         let stores = all.filter { !$0.storeNumber.isEmpty && $0.number(MissingItemDept.totalKey) != nil }
-        if !filters.division.isEmpty || !filters.region.isEmpty {
-            return stores.filter { filters.includesDivision($0.division) }
-        }
-        if !filters.district.isEmpty {
-            let divisions = Set(
-                stores.filter { filters.includesDistrict($0.district) }.map(\.division)
-            )
-            return stores.filter { divisions.contains($0.division) }
-        }
-        if !filters.om.isEmpty {
-            let divisions = Set(
-                stores.filter { filters.includesOM($0.operationsOM) }.map(\.division)
-            )
-            return stores.filter { divisions.contains($0.division) }
-        }
-        return stores
+        return RollupMarketFill.scoped(stores, filters: filters)
     }
 
     static func rows(from stores: [MetricRow], grain: MissingItemsGrain, depts: [MissingItemDept]) -> [MissingItemsRollupRow] {

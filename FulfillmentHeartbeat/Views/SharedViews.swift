@@ -1608,22 +1608,7 @@ private enum PickPathRollupBuilder {
 
     static func source(from all: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
         let stores = all.filter { !$0.storeNumber.isEmpty }
-        if !filters.division.isEmpty || !filters.region.isEmpty {
-            return stores.filter { filters.includesDivision($0.division) }
-        }
-        if !filters.district.isEmpty {
-            let divisions = Set(
-                stores.filter { filters.includesDistrict($0.district) }.map(\.division)
-            )
-            return stores.filter { divisions.contains($0.division) }
-        }
-        if !filters.om.isEmpty {
-            let divisions = Set(
-                stores.filter { filters.includesOM($0.operationsOM) }.map(\.division)
-            )
-            return stores.filter { divisions.contains($0.division) }
-        }
-        return stores
+        return RollupMarketFill.scoped(stores, filters: filters)
     }
 
     static func rows(from stores: [MetricRow], grain: LaborRollupGrain) -> [PickPathRollupRow] {
@@ -2654,22 +2639,7 @@ private enum DynacapRollupBuilder {
 
     static func source(from all: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
         let stores = all.filter { !$0.storeNumber.isEmpty && DynacapMath.rate($0) != nil }
-        if !filters.division.isEmpty || !filters.region.isEmpty {
-            return stores.filter { filters.includesDivision($0.division) }
-        }
-        if !filters.district.isEmpty {
-            let divisions = Set(
-                stores.filter { filters.includesDistrict($0.district) }.map(\.division)
-            )
-            return stores.filter { divisions.contains($0.division) }
-        }
-        if !filters.om.isEmpty {
-            let divisions = Set(
-                stores.filter { filters.includesOM($0.operationsOM) }.map(\.division)
-            )
-            return stores.filter { divisions.contains($0.division) }
-        }
-        return stores
+        return RollupMarketFill.scoped(stores, filters: filters)
     }
 
     static func rows(from stores: [MetricRow], grain: LaborRollupGrain, pphByStore: [String: Double]) -> [DynacapRollupRow] {
@@ -3450,22 +3420,7 @@ private enum PrepRollupBuilder {
 
     static func source(from all: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
         let stores = all.filter { !$0.storeNumber.isEmpty && $0.number("pnr_rate_pct") != nil }
-        if !filters.division.isEmpty || !filters.region.isEmpty {
-            return stores.filter { filters.includesDivision($0.division) }
-        }
-        if !filters.district.isEmpty {
-            let divisions = Set(
-                stores.filter { filters.includesDistrict($0.district) }.map(\.division)
-            )
-            return stores.filter { divisions.contains($0.division) }
-        }
-        if !filters.om.isEmpty {
-            let divisions = Set(
-                stores.filter { filters.includesOM($0.operationsOM) }.map(\.division)
-            )
-            return stores.filter { divisions.contains($0.division) }
-        }
-        return stores
+        return RollupMarketFill.scoped(stores, filters: filters)
     }
 
     static func rows(from stores: [MetricRow], grain: LaborRollupGrain) -> [PrepRollupRow] {
@@ -4143,22 +4098,7 @@ private enum FiveStarRollupBuilder {
 
     static func source(from all: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
         let stores = all.filter { !$0.storeNumber.isEmpty }
-        if !filters.division.isEmpty || !filters.region.isEmpty {
-            return stores.filter { filters.includesDivision($0.division) }
-        }
-        if !filters.district.isEmpty {
-            let divisions = Set(
-                stores.filter { filters.includesDistrict($0.district) }.map(\.division)
-            )
-            return stores.filter { divisions.contains($0.division) }
-        }
-        if !filters.om.isEmpty {
-            let divisions = Set(
-                stores.filter { filters.includesOM($0.operationsOM) }.map(\.division)
-            )
-            return stores.filter { divisions.contains($0.division) }
-        }
-        return stores
+        return RollupMarketFill.scoped(stores, filters: filters)
     }
 
     static func rows(from stores: [MetricRow], grain: LaborRollupGrain) -> [FiveStarRollupRow] {
@@ -4784,7 +4724,7 @@ struct FiveStarStoreCard: View {
     }
 }
 
-private enum LaborRollupGrain {
+enum LaborRollupGrain {
     case division, district, store
 
     var title: String {
@@ -4812,7 +4752,45 @@ private enum LaborRollupGrain {
     }
 }
 
-private enum RollupMarketFill {
+enum RollupMarketFill {
+    static func grain(for filters: DashboardFilters) -> LaborRollupGrain {
+        if !filters.division.isEmpty || !filters.district.isEmpty || !filters.om.isEmpty || !filters.store.isEmpty {
+            return .district
+        }
+        return .division
+    }
+
+    static func scoped(_ stores: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
+        if !filters.division.isEmpty || !filters.region.isEmpty {
+            return stores.filter { filters.includesDivision($0.division) }
+        }
+        if !filters.district.isEmpty {
+            let divisions = Set(
+                stores.filter { filters.includesDistrict($0.district) }.map { MarketRegion.canonicalName($0.division) }
+            )
+            return stores.filter { divisions.contains(MarketRegion.canonicalName($0.division)) }
+        }
+        if !filters.om.isEmpty {
+            let divisions = Set(
+                stores.filter { filters.includesOM($0.operationsOM) }.map { MarketRegion.canonicalName($0.division) }
+            )
+            return stores.filter { divisions.contains(MarketRegion.canonicalName($0.division)) }
+        }
+        if !filters.store.isEmpty {
+            let selected = Set(DashboardFilters.parts(filters.store).map { HeartbeatMath.canonicalStore($0) })
+            let divisions = Set(
+                stores
+                    .filter { selected.contains(HeartbeatMath.canonicalStore($0.storeNumber)) }
+                    .map { MarketRegion.canonicalName($0.division) }
+                    .filter { !$0.isEmpty }
+            )
+            if !divisions.isEmpty {
+                return stores.filter { divisions.contains(MarketRegion.canonicalName($0.division)) }
+            }
+        }
+        return stores
+    }
+
     static func missingDivisions(
         present: [String],
         markets: [HeartbeatMath.MarketStore],
@@ -4847,36 +4825,14 @@ private struct LaborRollupRow: Identifiable {
 
 private enum LaborRollupBuilder {
     static func grain(for filters: DashboardFilters) -> LaborRollupGrain? {
-        if !filters.division.isEmpty || !filters.district.isEmpty || !filters.om.isEmpty {
-            return .district
-        }
-        if !filters.store.isEmpty { return nil }
-        return .division
+        RollupMarketFill.grain(for: filters)
     }
 
     static func source(from all: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
         let stores = all.filter {
             $0.textPayload["labor_grain"] != "market" && !$0.storeNumber.isEmpty
         }
-        if !filters.division.isEmpty {
-            return stores.filter { filters.includesDivision($0.division) }
-        }
-        if !filters.region.isEmpty {
-            return stores.filter { filters.includesDivision($0.division) }
-        }
-        if !filters.district.isEmpty {
-            let divisions = Set(
-                stores.filter { filters.includesDistrict($0.district) }.map(\.division)
-            )
-            return stores.filter { divisions.contains($0.division) }
-        }
-        if !filters.om.isEmpty {
-            let divisions = Set(
-                stores.filter { filters.includesOM($0.operationsOM) }.map(\.division)
-            )
-            return stores.filter { divisions.contains($0.division) }
-        }
-        return stores
+        return RollupMarketFill.scoped(stores, filters: filters)
     }
 
     static func rows(from stores: [MetricRow], grain: LaborRollupGrain) -> [LaborRollupRow] {
@@ -5947,22 +5903,7 @@ private enum LostRevenueRollupBuilder {
         let stores = all.filter {
             $0.textPayload["lost_grain"] != "market" && !$0.storeNumber.isEmpty
         }
-        if !filters.division.isEmpty || !filters.region.isEmpty {
-            return stores.filter { filters.includesDivision($0.division) }
-        }
-        if !filters.district.isEmpty {
-            let divisions = Set(
-                stores.filter { filters.includesDistrict($0.district) }.map(\.division)
-            )
-            return stores.filter { divisions.contains($0.division) }
-        }
-        if !filters.om.isEmpty {
-            let divisions = Set(
-                stores.filter { filters.includesOM($0.operationsOM) }.map(\.division)
-            )
-            return stores.filter { divisions.contains($0.division) }
-        }
-        return stores
+        return RollupMarketFill.scoped(stores, filters: filters)
     }
 
     static func rows(from stores: [MetricRow], grain: LaborRollupGrain) -> [LostRevenueRollupRow] {
@@ -6968,22 +6909,7 @@ private enum ScheduleRollupBuilder {
 
     static func source(from all: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
         let stores = all.filter { !$0.storeNumber.isEmpty && (ScheduleMath.efficiency($0) != nil || ScheduleMath.staffing($0) != nil) }
-        if !filters.division.isEmpty || !filters.region.isEmpty {
-            return stores.filter { filters.includesDivision($0.division) }
-        }
-        if !filters.district.isEmpty {
-            let divisions = Set(
-                stores.filter { filters.includesDistrict($0.district) }.map(\.division)
-            )
-            return stores.filter { divisions.contains($0.division) }
-        }
-        if !filters.om.isEmpty {
-            let divisions = Set(
-                stores.filter { filters.includesOM($0.operationsOM) }.map(\.division)
-            )
-            return stores.filter { divisions.contains($0.division) }
-        }
-        return stores
+        return RollupMarketFill.scoped(stores, filters: filters)
     }
 
     static func rows(from stores: [MetricRow], grain: LaborRollupGrain) -> [ScheduleRollupRow] {
@@ -7702,22 +7628,7 @@ private enum PPHRollupBuilder {
 
     static func source(from all: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
         let stores = all.filter { !$0.storeNumber.isEmpty && $0.number("pph") != nil }
-        if !filters.division.isEmpty || !filters.region.isEmpty {
-            return stores.filter { filters.includesDivision($0.division) }
-        }
-        if !filters.district.isEmpty {
-            let divisions = Set(
-                stores.filter { filters.includesDistrict($0.district) }.map(\.division)
-            )
-            return stores.filter { divisions.contains($0.division) }
-        }
-        if !filters.om.isEmpty {
-            let divisions = Set(
-                stores.filter { filters.includesOM($0.operationsOM) }.map(\.division)
-            )
-            return stores.filter { divisions.contains($0.division) }
-        }
-        return stores
+        return RollupMarketFill.scoped(stores, filters: filters)
     }
 
     static func rows(from stores: [MetricRow], grain: LaborRollupGrain, pickerCount: (String) -> Int) -> [PPHRollupRow] {
