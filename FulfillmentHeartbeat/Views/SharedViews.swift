@@ -1019,8 +1019,12 @@ struct SharePulseSheet: View {
                 PulseMail.make(snap, pages: pages)
             }.value
             let media = await RecapRenderer.render(html: packet.html)
+            let images = media.images
             building = false
-            PulseShare.present(packet, images: media.images)
+            dismiss()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+                PulseShare.present(packet, images: images)
+            }
         }
     }
 }
@@ -9883,35 +9887,100 @@ extension MailShareActivity {
     }
 }
 
+final class OutlookShareActivity: UIActivity {
+    private let subject: String
+    private let jpegURLs: [URL]
+
+    init(subject: String, jpegURLs: [URL]) {
+        self.subject = subject
+        self.jpegURLs = jpegURLs
+        super.init()
+    }
+
+    override var activityType: UIActivity.ActivityType? {
+        UIActivity.ActivityType("com.corymurray.FulfillmentHeartbeat.outlook")
+    }
+
+    override var activityTitle: String? { "Outlook" }
+    override var activityImage: UIImage? { UIImage(systemName: "envelope.badge.fill") }
+    override class var activityCategory: UIActivity.Category { .share }
+    override func canPerform(withActivityItems activityItems: [Any]) -> Bool { true }
+
+    override func perform() {
+        let subject = self.subject
+        let urls = jpegURLs
+        activityDidFinish(true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            PulseShare.openOutlook(subject: subject, jpegURLs: urls)
+        }
+    }
+}
+
 enum PulseShare {
+    @MainActor
     static func present(_ packet: PulseMail.Packet, images: [UIImage] = []) {
-        let source = PulseShareSource(packet: packet, preview: images.first)
+        let jpegs = RecapRenderer.jpegFiles(images)
         let mail = MailShareActivity(packet: packet)
-        var items: [Any] = images.map { PulseImageItem(image: $0, subject: packet.subject) }
-        items.append(source)
+        let outlook = OutlookShareActivity(subject: packet.subject, jpegURLs: jpegs)
+        let items: [Any] = jpegs.isEmpty ? [packet.html] : jpegs
         let sheet = UIActivityViewController(
             activityItems: items,
-            applicationActivities: [mail]
+            applicationActivities: [mail, outlook]
         )
         sheet.excludedActivityTypes = [
             .assignToContact,
             .addToReadingList,
             .print,
             .saveToCameraRoll,
+            .markupAsPDF,
         ]
         guard let presenter = topController(), presenter.view.window != nil else { return }
         if let popover = sheet.popoverPresentationController {
             let view = presenter.view!
             popover.sourceView = view
             popover.sourceRect = CGRect(
-                x: view.bounds.midX,
-                y: max(88, view.bounds.minY + 72),
+                x: view.bounds.maxX - 56,
+                y: 56,
                 width: 1,
                 height: 1
             )
             popover.permittedArrowDirections = []
         }
         presenter.present(sheet, animated: true)
+    }
+
+    static func openOutlook(subject: String, jpegURLs: [URL]) {
+        let items: [[String: Any]] = jpegURLs.compactMap { url in
+            guard let data = try? Data(contentsOf: url) else { return nil }
+            return [UTType.jpeg.identifier: data]
+        }
+        if !items.isEmpty {
+            UIPasteboard.general.setItems(items, options: [:])
+        }
+        let encoded = encode(subject)
+        let candidates = [
+            "ms-outlook://emails/new?subject=\(encoded)",
+            "ms-outlook://compose?subject=\(encoded)",
+        ]
+        openFirst(candidates, index: 0)
+    }
+
+    private static func encode(_ value: String) -> String {
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-._~")
+        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
+    }
+
+    private static func openFirst(_ urls: [String], index: Int) {
+        guard index < urls.count, let url = URL(string: urls[index]) else {
+            if let store = URL(string: "https://apps.apple.com/app/microsoft-outlook/id951937596") {
+                UIApplication.shared.open(store)
+            }
+            return
+        }
+        UIApplication.shared.open(url) { ok in
+            if !ok { openFirst(urls, index: index + 1) }
+        }
     }
 
     static func writeHTMLFile(_ packet: PulseMail.Packet) -> URL? {

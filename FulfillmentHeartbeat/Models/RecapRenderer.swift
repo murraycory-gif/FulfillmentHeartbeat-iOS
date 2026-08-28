@@ -125,6 +125,70 @@ enum RecapRenderer {
             }
         }
     }
+
+    static func jpegFiles(_ images: [UIImage]) -> [URL] {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("hb-recap", isDirectory: true)
+        try? FileManager.default.removeItem(at: dir)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let tiles = stacked(images, maxHeight: 3600)
+        return tiles.enumerated().compactMap { index, image in
+            let scaled = scale(image, maxWidth: 1080)
+            let url = dir.appendingPathComponent("heartbeat-page-\(index + 1).jpg")
+            guard let data = scaled.jpegData(compressionQuality: 0.72) else { return nil }
+            try? data.write(to: url, options: .atomic)
+            return url
+        }
+    }
+
+    private static func stacked(_ images: [UIImage], maxHeight: CGFloat) -> [UIImage] {
+        guard !images.isEmpty else { return [] }
+        var tiles: [UIImage] = []
+        var bucket: [UIImage] = []
+        var height: CGFloat = 0
+        let gap: CGFloat = 16
+        for image in images {
+            let next = height == 0 ? image.size.height : height + gap + image.size.height
+            if !bucket.isEmpty, next > maxHeight {
+                tiles.append(stack(bucket, gap: gap))
+                bucket = [image]
+                height = image.size.height
+            } else {
+                bucket.append(image)
+                height = next
+            }
+        }
+        if !bucket.isEmpty { tiles.append(stack(bucket, gap: gap)) }
+        return tiles
+    }
+
+    private static func stack(_ images: [UIImage], gap: CGFloat) -> UIImage {
+        guard let first = images.first else { return UIImage() }
+        if images.count == 1 { return first }
+        let width = images.map(\.size.width).max() ?? first.size.width
+        let height = images.reduce(0) { $0 + $1.size.height } + gap * CGFloat(images.count - 1)
+        let size = CGSize(width: width, height: height)
+        let renderer = UIGraphicsImageRenderer(size: size)
+        return renderer.image { ctx in
+            UIColor(red: 0.96, green: 0.97, blue: 0.99, alpha: 1).setFill()
+            ctx.fill(CGRect(origin: .zero, size: size))
+            var y: CGFloat = 0
+            for image in images {
+                let x = (width - image.size.width) / 2
+                image.draw(in: CGRect(x: x, y: y, width: image.size.width, height: image.size.height))
+                y += image.size.height + gap
+            }
+        }
+    }
+
+    private static func scale(_ image: UIImage, maxWidth: CGFloat) -> UIImage {
+        guard image.size.width > maxWidth, image.size.width > 0 else { return image }
+        let ratio = maxWidth / image.size.width
+        let size = CGSize(width: maxWidth, height: image.size.height * ratio)
+        let renderer = UIGraphicsImageRenderer(size: size)
+        return renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
+    }
 }
 
 private final class RecapWebLoader: NSObject, WKNavigationDelegate {
