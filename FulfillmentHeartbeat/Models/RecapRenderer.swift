@@ -1,23 +1,22 @@
 import UIKit
 import WebKit
-import PDFKit
 
 struct RecapMedia {
     var images: [UIImage]
-    var pdf: URL?
 }
 
 @MainActor
 enum RecapRenderer {
     static func render(html: String) async -> RecapMedia {
         let width: CGFloat = 900
-        let web = WKWebView(frame: CGRect(x: 0, y: 0, width: width, height: 1400))
+        let web = WKWebView(frame: CGRect(x: 0, y: 0, width: width, height: 1600))
         web.isOpaque = true
         web.backgroundColor = UIColor(red: 0.96, green: 0.97, blue: 0.99, alpha: 1)
         web.scrollView.backgroundColor = web.backgroundColor
         web.scrollView.isScrollEnabled = false
+        web.scrollView.contentInsetAdjustmentBehavior = .never
 
-        let host = UIView(frame: CGRect(x: -width, y: 0, width: width, height: 1400))
+        let host = UIView(frame: CGRect(x: -width - 40, y: 0, width: width, height: 1600))
         host.isUserInteractionEnabled = false
         host.addSubview(web)
         let window = PulseShare.topController()?.view.window
@@ -32,26 +31,82 @@ enum RecapRenderer {
         web.navigationDelegate = loader
         do {
             try await loader.load(html, in: web)
-            try await Task.sleep(nanoseconds: 250_000_000)
-            let height = try await contentHeight(web)
-            let tall = min(max(height + 24, 800), 24_000)
-            web.frame = CGRect(x: 0, y: 0, width: width, height: tall)
-            host.frame.size.height = tall
-            web.scrollView.contentSize = CGSize(width: width, height: tall)
-
-            let pdfData = try await pdfData(from: web, width: width, height: tall)
-            let pdfURL = FileManager.default.temporaryDirectory.appendingPathComponent("Fulfillment-Heartbeat.pdf")
-            try pdfData.write(to: pdfURL, options: .atomic)
-            let images = pageImages(from: pdfData)
+            try await Task.sleep(nanoseconds: 350_000_000)
+            var images = await snapshotPages(web, width: width, host: host)
             if images.isEmpty, let fallback = await snapshot(web) {
-                return RecapMedia(images: [fallback], pdf: pdfURL)
+                images = [fallback]
             }
-            return RecapMedia(images: images, pdf: pdfURL)
+            return RecapMedia(images: images)
         } catch {
             if let fallback = await snapshot(web) {
-                return RecapMedia(images: [fallback], pdf: nil)
+                return RecapMedia(images: [fallback])
             }
-            return RecapMedia(images: [], pdf: nil)
+            return RecapMedia(images: [])
+        }
+    }
+
+    private static func snapshotPages(_ web: WKWebView, width: CGFloat, host: UIView) async -> [UIImage] {
+        let rects = await pageRects(web)
+        if rects.isEmpty {
+            let height = (try? await contentHeight(web)) ?? 1600
+            return await sliceSnapshots(web, width: width, height: height, host: host)
+        }
+        var images: [UIImage] = []
+        images.reserveCapacity(rects.count)
+        for rect in rects {
+            let height = min(max(rect.height + 8, 240), 8_000)
+            web.frame = CGRect(x: 0, y: 0, width: width, height: height)
+            host.frame.size = CGSize(width: width, height: height)
+            web.scrollView.contentOffset = CGPoint(x: 0, y: max(rect.y - 4, 0))
+            try? await Task.sleep(nanoseconds: 40_000_000)
+            let config = WKSnapshotConfiguration()
+            config.rect = CGRect(x: 0, y: 0, width: width, height: height)
+            config.snapshotWidth = NSNumber(value: Double(width * 2))
+            if let image = await snapshot(web, config: config) {
+                images.append(image)
+            }
+        }
+        return images
+    }
+
+    private static func sliceSnapshots(_ web: WKWebView, width: CGFloat, height: CGFloat, host: UIView) async -> [UIImage] {
+        let slice = min(height, 1_800)
+        web.frame = CGRect(x: 0, y: 0, width: width, height: slice)
+        host.frame.size = CGSize(width: width, height: slice)
+        var images: [UIImage] = []
+        var offset: CGFloat = 0
+        while offset < height - 8 {
+            web.scrollView.contentOffset = CGPoint(x: 0, y: offset)
+            try? await Task.sleep(nanoseconds: 30_000_000)
+            let config = WKSnapshotConfiguration()
+            config.rect = CGRect(x: 0, y: 0, width: width, height: min(slice, height - offset))
+            config.snapshotWidth = NSNumber(value: Double(width * 2))
+            if let image = await snapshot(web, config: config) {
+                images.append(image)
+            }
+            offset += slice - 24
+        }
+        return images
+    }
+
+    private struct PageRect { var y: CGFloat; var height: CGFloat }
+
+    private static func pageRects(_ web: WKWebView) async -> [PageRect] {
+        let js = """
+        JSON.stringify(Array.from(document.querySelectorAll('.page')).map(function(el) {
+          var r = el.getBoundingClientRect();
+          return { y: r.top + window.scrollY, h: r.height };
+        }))
+        """
+        guard let raw = try? await web.evaluateJavaScript(js) as? String,
+              let data = raw.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+        else { return [] }
+        return json.compactMap { row in
+            let y = (row["y"] as? NSNumber)?.doubleValue ?? 0
+            let h = (row["h"] as? NSNumber)?.doubleValue ?? 0
+            guard h > 40 else { return nil }
+            return PageRect(y: CGFloat(y), height: CGFloat(h))
         }
     }
 
@@ -60,81 +115,14 @@ enum RecapRenderer {
         if let number = raw as? CGFloat { return number }
         if let number = raw as? Double { return CGFloat(number) }
         if let number = raw as? Int { return CGFloat(number) }
-        return 1400
+        return 1600
     }
 
-    private static func pdfData(from web: WKWebView, width: CGFloat, height: CGFloat) async throws -> Data {
-        try await withCheckedThrowingContinuation { cont in
-            let config = WKPDFConfiguration()
-            config.rect = CGRect(x: 0, y: 0, width: width, height: height)
-            web.createPDF(configuration: config) { result in
-                cont.resume(with: result)
-            }
-        }
-    }
-
-    private static func snapshot(_ web: WKWebView) async -> UIImage? {
+    private static func snapshot(_ web: WKWebView, config: WKSnapshotConfiguration? = nil) async -> UIImage? {
         await withCheckedContinuation { cont in
-            web.takeSnapshot(with: nil) { image, _ in
+            web.takeSnapshot(with: config) { image, _ in
                 cont.resume(returning: image)
             }
-        }
-    }
-
-    private static func pageImages(from data: Data) -> [UIImage] {
-        guard let doc = PDFDocument(data: data) else { return [] }
-        var images: [UIImage] = []
-        images.reserveCapacity(doc.pageCount)
-        for index in 0..<doc.pageCount {
-            guard let page = doc.page(at: index) else { continue }
-            let bounds = page.bounds(for: .mediaBox)
-            let maxSide: CGFloat = 1600
-            let scale = min(maxSide / max(bounds.width, 1), maxSide / max(bounds.height, 1), 2)
-            let size = CGSize(width: bounds.width * scale, height: bounds.height * scale)
-            let image = page.thumbnail(of: size, for: .mediaBox)
-            if image.size.width > 8, image.size.height > 8 {
-                images.append(image)
-            }
-        }
-        return images
-    }
-
-    nonisolated static func writeEML(subject: String, html: String, images: [UIImage]) -> URL? {
-        let boundary = "HB-\(UUID().uuidString.prefix(8))"
-        var htmlBody = html
-        if !images.isEmpty {
-            let imgs = images.enumerated().map { index, _ in
-                "<img src=\"cid:page\(index)\" alt=\"Heartbeat page \(index + 1)\" style=\"width:100%;max-width:900px;display:block;margin:0 0 18px;border:0\" />"
-            }.joined()
-            htmlBody = "<html><body style=\"margin:0;padding:16px;background:#F5F7FC\">\(imgs)</body></html>"
-        }
-        var eml = ""
-        eml += "X-Unsent: 1\r\n"
-        eml += "Subject: \(subject.replacingOccurrences(of: "\r", with: "").replacingOccurrences(of: "\n", with: " "))\r\n"
-        eml += "MIME-Version: 1.0\r\n"
-        eml += "Content-Type: multipart/related; type=\"text/html\"; boundary=\"\(boundary)\"\r\n\r\n"
-        eml += "--\(boundary)\r\n"
-        eml += "Content-Type: text/html; charset=utf-8\r\n"
-        eml += "Content-Transfer-Encoding: 8bit\r\n\r\n"
-        eml += htmlBody
-        eml += "\r\n"
-        for (index, image) in images.enumerated() {
-            guard let jpeg = image.jpegData(compressionQuality: 0.78) else { continue }
-            eml += "--\(boundary)\r\n"
-            eml += "Content-Type: image/jpeg\r\n"
-            eml += "Content-Transfer-Encoding: base64\r\n"
-            eml += "Content-ID: <page\(index)>\r\n"
-            eml += "Content-Disposition: inline; filename=\"heartbeat-page-\(index + 1).jpg\"\r\n\r\n"
-            eml += jpeg.base64EncodedString(options: [.lineLength76Characters, .endLineWithCarriageReturn])
-            eml += "\r\n"
-        }
-        eml += "--\(boundary)--\r\n"
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Fulfillment-Heartbeat.eml")
-        do {
-            try eml.data(using: .utf8)?.write(to: url, options: .atomic)
-            return url
-        } catch {
-            return nil
         }
     }
 }
