@@ -15,51 +15,52 @@ struct DashboardView: View {
                 accessory: store.filters.summary
             )
             List {
-            Section {
-                DashBriefingList(cards: briefingCards) { section in
-                    open(section)
-                }
-                .padding(14)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(AppTheme.tableFill)
-                .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                        .stroke(AppTheme.blue, lineWidth: 2.5)
-                )
-                .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 8, trailing: 20))
-                .listRowSeparator(.hidden)
-                .listRowBackground(AppTheme.bg)
-            }
-            if !store.seeded {
                 Section {
-                    HubCard {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("No files yet")
-                                .font(.headline)
-                            Text("Open Upload to drop in the section workbooks, including the picker score card — or load the sample market to see the pulse.")
-                                .font(.subheadline)
-                                .foregroundStyle(AppTheme.textSecondary)
-                            Button("Load sample market") {
-                                store.loadSampleMarket()
-                            }
-                            .buttonStyle(SecondaryButtonStyle())
-                            .padding(.top, 4)
-                        }
+                    DashBriefingList(cards: briefingCards) { section in
+                        open(section)
                     }
-                    .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 20, trailing: 20))
+                    .padding(14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(AppTheme.tableFill)
+                    .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                            .stroke(AppTheme.blue, lineWidth: 2.5)
+                    )
+                    .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 8, trailing: 20))
                     .listRowSeparator(.hidden)
                     .listRowBackground(AppTheme.bg)
                 }
+                if !store.seeded {
+                    Section {
+                        HubCard {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("No files yet")
+                                    .font(.headline)
+                                Text("Open Upload to drop in the section workbooks, including the picker score card — or load the sample market to see the pulse.")
+                                    .font(.subheadline)
+                                    .foregroundStyle(AppTheme.textSecondary)
+                                Button("Load sample market") {
+                                    store.loadSampleMarket()
+                                }
+                                .buttonStyle(SecondaryButtonStyle())
+                                .padding(.top, 4)
+                            }
+                        }
+                        .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 20, trailing: 20))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(AppTheme.bg)
+                    }
+                }
+            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .environment(\.defaultMinListRowHeight, 1)
+            .navigationDestination(item: $pushedSection) { section in
+                SectionDetailView(section: section)
             }
         }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
         .background(AppTheme.bg.ignoresSafeArea())
-        .environment(\.defaultMinListRowHeight, 1)
-        .navigationDestination(item: $pushedSection) { section in
-            SectionDetailView(section: section)
-        }
         .alert("Couldn’t load", isPresented: $showError) {
             Button("OK", role: .cancel) {
                 store.errorMessage = nil
