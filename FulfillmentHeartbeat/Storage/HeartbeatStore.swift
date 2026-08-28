@@ -59,6 +59,8 @@ final class HeartbeatStore: ObservableObject {
     private var laborWeeksByStore: [String: [MetricRow]] = [:]
     private var unfilteredPulse: FilterPulse?
     private var refilterTask: Task<Void, Never>?
+    private var unfilteredWarmTask: Task<Void, Never>?
+    private var pulseGeneration = 0
     private var masterBookmark: Data?
     private var lifetimeObservers: [NSObjectProtocol] = []
 
@@ -1317,6 +1319,9 @@ final class HeartbeatStore: ObservableObject {
 
     private func rebuildIndex() {
         unfilteredPulse = nil
+        unfilteredWarmTask?.cancel()
+        unfilteredWarmTask = nil
+        pulseGeneration += 1
         let identitySource = rows.filter {
             $0.section != .scheduleQuality && $0.section != .dynacap && $0.section != .pickerScorecard && $0.section != .pickPathPicker && $0.section != .lostRevenue
         }
@@ -1357,10 +1362,7 @@ final class HeartbeatStore: ObservableObject {
             filterStamp += 1
             return
         }
-        if !filters.isActive {
-            applyFiltersNow()
-            return
-        }
+
         let latest = latestBySection
         let rosterCopy = roster
         let uploadsCopy = uploads
@@ -1379,67 +1381,16 @@ final class HeartbeatStore: ObservableObject {
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 guard !Task.isCancelled, self.filters == current else { return }
-                self.install(self.pulse(from: caches))
+                let pulse = self.pulse(from: caches)
+                self.install(pulse)
                 self.filterStamp += 1
+                if !current.isActive {
+                    self.unfilteredPulse = pulse
+                } else {
+                    self.warmUnfilteredPulse()
+                }
             }
         }
-    }
-
-    private func applyFiltersNow() {
-        if !filters.isActive, let pulse = unfilteredPulse {
-            install(pulse)
-            filterStamp += 1
-            return
-        }
-
-        let universe = latestUniverse
-        var nextLatest: [MetricSection: [MetricRow]] = [:]
-        if filters.isActive {
-            for section in MetricSection.allCases where section != .pickerScorecard && section != .pickPathPicker {
-                nextLatest[section] = HeartbeatMath.filtered(
-                    latestBySection[section] ?? [],
-                    filters: filters,
-                    relaxUnknown: false,
-                    universe: universe
-                )
-            }
-            let pickers = latestBySection[.pickerScorecard] ?? []
-            if let allowed = pickerStoreSet() {
-                nextLatest[.pickerScorecard] = pickers.filter { allowed.contains(HeartbeatMath.canonicalStore($0.storeNumber)) }
-            } else {
-                nextLatest[.pickerScorecard] = pickers
-            }
-        } else {
-            nextLatest = latestBySection
-        }
-        filteredLatest = nextLatest
-        cachedPickerBoard = HeartbeatMath.pickerBoard(nextLatest[.pickerScorecard] ?? [])
-        rebuildPickerIndex(nextLatest[.pickerScorecard] ?? [])
-        rebuildPickPathPickerIndex(scorecard: nextLatest[.pickerScorecard] ?? [])
-        rebuildPPHPickerIndex(scorecard: nextLatest[.pickerScorecard] ?? [])
-        cachedChecklistGroups = buildChecklistGroups(nextLatest)
-        filteredMarket = HeartbeatMath.marketBoard(universe, filters: filters)
-        refreshFilterOptions()
-        cachedSummaries = MetricSection.dashboardCards.map { section in
-            var input = nextLatest[section] ?? []
-            if section == .labor, !filters.isActive, let market = laborMarketRow() {
-                input.append(market)
-            }
-            if section == .lostRevenue, !filters.isActive, let market = lostRevenueMarketRow() {
-                input.append(market)
-            }
-            var summary = HeartbeatMath.summarize(section, rows: input, upload: upload(for: section))
-            if summary.storeCount == 0, !filteredMarket.isEmpty, summary.headline == nil {
-                summary.secondary = "No \(section.short) data for \(filteredMarket.count) stores in this filter"
-                summary.health = .none
-            }
-            return summary
-        }
-        if !filters.isActive {
-            unfilteredPulse = snapshotPulse()
-        }
-        filterStamp += 1
-        warmUnfilteredPulse()
     }
 
     private struct FilterPulse {
@@ -1500,12 +1451,14 @@ final class HeartbeatStore: ObservableObject {
             unfilteredPulse = snapshotPulse()
             return
         }
+        guard unfilteredWarmTask == nil else { return }
         let latest = latestBySection
         let rosterCopy = roster
         let uploadsCopy = uploads
         let laborMarket = laborMarketRow()
         let lostMarket = lostRevenueMarketRow()
-        Task.detached(priority: .utility) {
+        let generation = pulseGeneration
+        unfilteredWarmTask = Task.detached(priority: .utility) {
             let caches = PulseCaches.refilter(
                 latest: latest,
                 roster: rosterCopy,
@@ -1514,9 +1467,18 @@ final class HeartbeatStore: ObservableObject {
                 laborMarket: laborMarket,
                 lostRevenueMarket: lostMarket
             )
+            guard !Task.isCancelled else { return }
             await MainActor.run {
+                self.unfilteredWarmTask = nil
+                guard self.pulseGeneration == generation else { return }
+                let pulse = self.pulse(from: caches)
                 if self.unfilteredPulse == nil {
-                    self.unfilteredPulse = self.pulse(from: caches)
+                    self.unfilteredPulse = pulse
+                }
+                if !self.filters.isActive {
+                    self.refilterTask?.cancel()
+                    self.install(pulse)
+                    self.filterStamp += 1
                 }
             }
         }
@@ -1612,6 +1574,7 @@ final class HeartbeatStore: ObservableObject {
                     self.install(caches)
                     self.hydrating = false
                     self.isReady = true
+                    self.warmUnfilteredPulse()
                 }
                 if url != dest {
                     try? PulseDisk.write(decoded, to: dest)
@@ -1632,9 +1595,7 @@ final class HeartbeatStore: ObservableObject {
                 await MainActor.run {
                     self.mergeHeavy(heavy)
                     self.rebuildLaborWeekIndex()
-                    if !self.filters.isActive {
-                        self.warmUnfilteredPulse()
-                    }
+                    self.warmUnfilteredPulse()
                 }
             } catch {
                 await MainActor.run {
