@@ -2,15 +2,32 @@ import SwiftUI
 
 struct RootView: View {
     @EnvironmentObject private var store: HeartbeatStore
+    @State private var minTimeElapsed = false
+
+    private var showSplash: Bool {
+        !minTimeElapsed || !store.isReady
+    }
 
     var body: some View {
         ZStack {
             AppTheme.bg.ignoresSafeArea()
-            MainHubView()
+            if showSplash {
+                LaunchSplashView()
+                    .zIndex(2)
+            } else {
+                MainHubView()
+                    .transition(.opacity)
+                    .zIndex(1)
+            }
         }
         .preferredColorScheme(.light)
         .tint(AppTheme.blue)
         .background(AppTheme.bg.ignoresSafeArea())
+        .onAppear {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+                minTimeElapsed = true
+            }
+        }
         .onOpenURL { url in
             store.receiveExternalFile(url: url)
         }
@@ -21,6 +38,18 @@ struct RootView: View {
             PendingImportSheet()
                 .environmentObject(store)
         }
+        .animation(.easeInOut(duration: 0.28), value: showSplash)
+    }
+}
+
+struct LaunchSplashView: View {
+    var body: some View {
+        ZStack {
+            AppTheme.bg.ignoresSafeArea()
+            BeatingHeartbeatMark(height: 92, showsTrace: true)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityLabel("Fulfillment Heartbeat")
     }
 }
 
