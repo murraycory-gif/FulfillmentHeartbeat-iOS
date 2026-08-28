@@ -59,6 +59,13 @@ enum HeartbeatAssist {
                 "What's the biggest dollar bucket?",
                 "How do we recover the opportunity?",
             ]
+        case .missingItems:
+            return [
+                "Who is the worst district for missing items?",
+                "Which stores are over 6.50% missing aisle tags?",
+                "Which departments are the hottest?",
+                "How do we get missing items to 5%?",
+            ]
         case .fiveStar:
             return [
                 "Which 5 Star KPIs are broken?",
@@ -203,6 +210,9 @@ enum HeartbeatAssist {
             }
             if has(q, ["bucket", "item", "oos", "refund", "kill", "cancel", "dollar"]) && focuses(.lostRevenue) {
                 return bucketBrief()
+            }
+            if has(q, ["missing", "aisle"]) && (focuses(.missingItems) || dest == .dashboard) {
+                return missingItemsBrief()
             }
             if has(q, ["flash", "ott", "presub", "oth", "coe", "5 star", "five star"]) {
                 return fiveStarBrief()
@@ -433,6 +443,18 @@ enum HeartbeatAssist {
             lines.append(contentsOf: shopperLines(limit: 8))
             lines.append("")
             lines.append(contentsOf: fixLines())
+            return lines.joined(separator: "\n")
+        }
+
+        private func missingItemsBrief() -> String {
+            var lines = header("Missing items")
+            lines.append("Goal 5% or less. 5.01–6.50% is watch. Over 6.50% is at risk.")
+            lines.append("")
+            lines.append(contentsOf: districtLines(limit: 5, section: .missingItems))
+            lines.append("")
+            lines.append(contentsOf: storeLines(limit: 8, section: .missingItems))
+            lines.append("")
+            lines.append("Fix aisle tags in the hottest departments first — grocery, produce, meat, bakery.")
             return lines.joined(separator: "\n")
         }
 
@@ -693,6 +715,8 @@ enum HeartbeatAssist {
                 return HeartbeatFormat.pct(HeartbeatMath.average(rows.compactMap { $0.number("target_vs_actual_pct") }))
             case .pickerScorecard:
                 return "\(rows.count) shoppers"
+            case .missingItems:
+                return HeartbeatFormat.pct(HeartbeatMath.average(rows.compactMap { $0.number(MissingItemDept.totalKey) }))
             }
         }
 

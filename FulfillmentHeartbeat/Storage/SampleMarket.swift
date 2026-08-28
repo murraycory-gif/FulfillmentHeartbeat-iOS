@@ -197,6 +197,35 @@ enum SampleMarket {
                     textPayload: ["lost_grain": "store", "district": store.district]
                 ))
 
+                var miPayload: [String: Double] = [
+                    "mi_grocery": clamp(3.2 + jitter(index + 61, 6), 0.4, 18).rounded(1),
+                    "mi_alcohol": clamp(2.4 + jitter(index + 63, 5), 0.2, 14).rounded(1),
+                    "mi_pharmacy": clamp(18 + jitter(index + 65, 20), 0, 75).rounded(1),
+                    "mi_food_service": clamp(28 + jitter(index + 67, 22), 4, 92).rounded(1),
+                    "mi_deli": clamp(12 + jitter(index + 69, 10), 1, 42).rounded(1),
+                    "mi_gm_hbc": clamp(9 + jitter(index + 71, 8), 1, 28).rounded(1),
+                    "mi_dairy": clamp(1.8 + jitter(index + 73, 2.4), 0.2, 10).rounded(1),
+                    "mi_floral": clamp(78 + jitter(index + 75, 18), 20, 100).rounded(1),
+                    "mi_bakery": clamp(32 + jitter(index + 77, 24), 4, 96).rounded(1),
+                    "mi_frozen": clamp(4.2 + jitter(index + 79, 4), 0.4, 16).rounded(1),
+                    "mi_coffee": clamp(88 + jitter(index + 81, 12), 40, 100).rounded(1),
+                    "mi_produce": clamp(8.5 + jitter(index + 83, 8), 1, 32).rounded(1),
+                    "mi_seafood": clamp(14 + jitter(index + 85, 12), 2, 48).rounded(1),
+                    "mi_meat": clamp(11 + jitter(index + 87, 9), 1, 36).rounded(1),
+                    "mi_bakery_pkgd": clamp(7.5 + jitter(index + 89, 7), 0.8, 28).rounded(1),
+                ]
+                miPayload["mi_pct"] = clamp(4.1 + jitter(index + 91, 4.8), 0.8, 16).rounded(1)
+                out.append(MetricRow(
+                    section: .missingItems,
+                    division: store.division,
+                    operationsOM: store.om,
+                    storeNumber: store.store,
+                    storeName: store.name,
+                    recordedOn: date,
+                    payload: miPayload,
+                    textPayload: ["district": store.district]
+                ))
+
                 let shoppers = [
                     ("\(store.name.split(separator: " ").first ?? "Store") A", 0),
                     ("\(store.name.split(separator: " ").first ?? "Store") B", 1),
@@ -332,6 +361,14 @@ enum SampleMarket {
             1,10000,450,0.045
             606,8000,560,0.07
             Total,18000,1010,0.056111
+            """
+        case .missingItems:
+            return """
+            Department Desc,,,,301 GROCERY,303 ALCOHOLIC BEVERAGES,304 PHARMACY,306 FOOD SERVICE,309 DELICATESSEN,311 GM/HBC,314 DAIRY,315 FLORAL,316 BAKERY,317 FROZEN GROCERY,328 COFFEE KIOSK,329 PRODUCE,330 SEAFOOD,333 MEAT,336 BAKERY PKGD OUTSIDE,Total
+            Division > Store > Group > Product,District,OM,Store,% Items Without Aisle in Store Tag Subscription Data,% Items Without Aisle in Store Tag Subscription Data,% Items Without Aisle in Store Tag Subscription Data,% Items Without Aisle in Store Tag Subscription Data,% Items Without Aisle in Store Tag Subscription Data,% Items Without Aisle in Store Tag Subscription Data,% Items Without Aisle in Store Tag Subscription Data,% Items Without Aisle in Store Tag Subscription Data,% Items Without Aisle in Store Tag Subscription Data,% Items Without Aisle in Store Tag Subscription Data,% Items Without Aisle in Store Tag Subscription Data,% Items Without Aisle in Store Tag Subscription Data,% Items Without Aisle in Store Tag Subscription Data,% Items Without Aisle in Store Tag Subscription Data,% Items Without Aisle in Store Tag Subscription Data,% Items Without Aisle in Store Tag Subscription Data
+            Jewel Osco,J1,Shelly Selof,1,0.04,0.03,0.2,0.28,0.12,0.09,0.018,0.8,0.32,0.042,0.9,0.085,0.14,0.11,0.075,0.045
+            Jewel Osco,J1,Shelly Selof,606,0.062,0.051,0.5,0.41,0.19,0.14,0.028,0.99,0.55,0.061,1,0.12,0.21,0.16,0.11,0.068
+            Haggen,39,Luke Lomas,3427,0.031,0.022,0.1,0.18,0.08,0.06,0.012,0.72,0.24,0.028,0.85,0.055,0.09,0.07,0.042,0.038
             """
         }
     }

@@ -12,6 +12,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
     case labor
     case pickerScorecard
     case lostRevenue
+    case missingItems
     case checklist
 
     var id: String { rawValue }
@@ -30,6 +31,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         case .labor: return MetricSection.labor.title
         case .pickerScorecard: return MetricSection.pickerScorecard.title
         case .lostRevenue: return "Loss Revenue ScoreCard"
+        case .missingItems: return MetricSection.missingItems.bannerTitle
         }
     }
 
@@ -47,6 +49,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         case .labor: return MetricSection.labor.symbol
         case .pickerScorecard: return MetricSection.pickerScorecard.symbol
         case .lostRevenue: return MetricSection.lostRevenue.symbol
+        case .missingItems: return MetricSection.missingItems.symbol
         }
     }
 
@@ -61,6 +64,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         case .labor: return .labor
         case .pickerScorecard: return .pickerScorecard
         case .lostRevenue: return .lostRevenue
+        case .missingItems: return .missingItems
         case .dashboard, .checklist, .upload: return nil
         }
     }
@@ -76,13 +80,14 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         case .labor: return .labor
         case .pickerScorecard: return .pickerScorecard
         case .lostRevenue: return .lostRevenue
+        case .missingItems: return .missingItems
         }
     }
 
-    static var sectionItems: [HubDestination] { [.dashboard, .lostRevenue, .fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pickerScorecard, .pph, .labor, .checklist] }
+    static var sectionItems: [HubDestination] { [.dashboard, .lostRevenue, .missingItems, .fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pickerScorecard, .pph, .labor, .checklist] }
     static var settingsItems: [HubDestination] { [.upload] }
     static var primaryTabs: [HubDestination] { [.dashboard, .upload] }
-    static var metricItems: [HubDestination] { [.lostRevenue, .fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pickerScorecard, .pph, .labor] }
+    static var metricItems: [HubDestination] { [.lostRevenue, .missingItems, .fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pickerScorecard, .pph, .labor] }
 }
 
 final class HubRouter: ObservableObject {
@@ -336,7 +341,7 @@ struct MainHubView: View {
             ChecklistView().hubPageCanvas()
         case .upload:
             UploadView().hubPageCanvas()
-        case .fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pph, .labor, .pickerScorecard, .lostRevenue:
+        case .fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pph, .labor, .pickerScorecard, .lostRevenue, .missingItems:
             if let section = dest.section {
                 SectionDetailView(section: section).hubPageCanvas()
             }

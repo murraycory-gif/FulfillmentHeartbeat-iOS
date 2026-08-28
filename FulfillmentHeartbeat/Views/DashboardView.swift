@@ -287,6 +287,11 @@ struct DashBriefingList: View {
                                 metricFlags(Array(labor.prefix(4)), columns: min(4, max(2, HubLayout.flagColumns(count: 4, width: width))))
                                 metricFlags(Array(labor.suffix(from: 4)), columns: min(3, max(2, HubLayout.flagColumns(count: 3, width: width))))
                             }
+                        } else if card.section == .missingItems {
+                            metricFlags(
+                                HeartbeatMath.missingItemsActionFlags(store.displayRows(for: .missingItems)),
+                                columns: 3
+                            )
                         }
                     }
                     .modifier(DashCardChrome(health: card.health))

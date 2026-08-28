@@ -34,6 +34,24 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(HeartbeatMath.health(for: .prepNotReady, row: hotspot), .risk)
     }
 
+    func testMissingItemsInvertsAtFiveAndSixFifty() {
+        func row(_ pct: Double) -> MetricRow {
+            MetricRow(section: .missingItems, division: "Jewel Osco", operationsOM: "A", storeNumber: "1", payload: ["mi_pct": pct])
+        }
+        XCTAssertEqual(HeartbeatMath.missingItemsHealth(row(5.0)), .good)
+        XCTAssertEqual(HeartbeatMath.missingItemsHealth(row(5.01)), .watch)
+        XCTAssertEqual(HeartbeatMath.missingItemsHealth(row(6.50)), .watch)
+        XCTAssertEqual(HeartbeatMath.missingItemsHealth(row(6.51)), .risk)
+        XCTAssertEqual(HeartbeatMath.health(for: .missingItems, row: row(4.9)), .good)
+        let flags = HeartbeatMath.missingItemsActionFlags([row(4.0), row(5.5), row(8.0)])
+        XCTAssertEqual(flags.map(\.name), ["Healthy", "Watch", "At Risk"])
+        XCTAssertEqual(flags.map(\.stores), [1, 1, 1])
+        XCTAssertEqual(MissingItemDept.match("301 GROCERY"), .grocery)
+        XCTAssertEqual(MissingItemDept.match("336 BAKERY PKGD OUTSIDE"), .bakeryPkgd)
+        XCTAssertEqual(MissingItemDept.match("317 FROZEN GROCERY"), .frozen)
+        XCTAssertNil(MissingItemDept.match("Total"))
+    }
+
     func testDynacapAlignedWithinTenPercent() {
         let aligned = MetricRow(
             section: .dynacap,

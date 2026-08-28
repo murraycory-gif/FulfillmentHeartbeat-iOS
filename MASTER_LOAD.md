@@ -17,15 +17,16 @@ Create one sheet per KPI. Use these tab names:
 | # | Tab name | Scorecard |
 |---|---|---|
 | 1 | `Lost Revenue` | Loss Revenue |
-| 2 | `5 Star` | 5 Star Metrics |
-| 3 | `Pick Path` | Pick Path Compliance |
-| 4 | `Path Picker` | Pick Path Compliance Picker |
-| 5 | `Prep Not Ready` | Prep Not Ready |
-| 6 | `Dynacap` | Dynacap Setting |
-| 7 | `Schedule Quality` | Schedule Quality |
-| 8 | `PPH` | PPH Pure Picks Per Hour |
-| 9 | `Labor` | Labor |
-| 10 | `Picker ScoreCard` | Picker ScoreCard |
+| 2 | `MI` | Missing Items |
+| 3 | `5 Star` | 5 Star Metrics |
+| 4 | `Pick Path` | Pick Path Compliance |
+| 5 | `Path Picker` | Pick Path Compliance Picker |
+| 6 | `Prep Not Ready` | Prep Not Ready |
+| 7 | `Dynacap` | Dynacap Setting |
+| 8 | `Schedule Quality` | Schedule Quality |
+| 9 | `PPH` | PPH Pure Picks Per Hour |
+| 10 | `Labor` | Labor |
+| 11 | `Picker ScoreCard` | Picker ScoreCard |
 
 Paste the matching Power BI export onto each tab. Headers can stay as the export — we already map those.
 
@@ -34,6 +35,7 @@ Paste the matching Power BI export onto each tab. Headers can stay as the export
 ## Also accepted (if a tab name is close)
 
 - Lost Revenue / Loss Revenue
+- MI / Missing Items / Missing Item / Aisle Tag
 - 5 Star / Five Star / Star Rating
 - Pick Path / Path Compliance
 - Path Picker / Pick Path Picker / Pick Path Employee

@@ -11,6 +11,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
     case labor = "labor"
     case pickerScorecard = "picker_scorecard"
     case lostRevenue = "lost_revenue"
+    case missingItems = "missing_items"
 
     var id: String { rawValue }
 
@@ -26,6 +27,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .labor: return "Labor"
         case .pickerScorecard: return "Picker ScoreCard"
         case .lostRevenue: return "Loss Revenue"
+        case .missingItems: return "Missing Items"
         }
     }
 
@@ -41,6 +43,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .labor: return "Labor"
         case .pickerScorecard: return "Pickers"
         case .lostRevenue: return "Lost Rev"
+        case .missingItems: return "MI"
         }
     }
 
@@ -56,6 +59,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .labor: return "Upload LABOR Store View Thru Week.xlsx for store totals. Optional: Total company day file for week and day drill-in. Each upload replaces the last Labor load."
         case .pickerScorecard: return "Shopper-level totals for PPH, Presubs, OOS, pick hours, subs, orders, DUG, OTH eligibility, OTH5, OTT, and refunds."
         case .lostRevenue: return "Total lost revenue opportunity by store. Upload Breakdown Week.xlsx from the Lost Revenue report."
+        case .missingItems: return "Share of items without an aisle in store tag subscription data. Upload the department-wise MI export. 5% or less is healthy."
         }
     }
 
@@ -71,6 +75,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .labor: return "STORE_ID · Sch Effi% · Empower Hrs · Sch_Hrs · ActHrs · Earned Hrs · CostTrgt% · ActCost% · Target vs Actual% · Charged Hrs  (or the day file with WEEK_ID · D_DATE)"
         case .pickerScorecard: return "STORE · PICKER · Total Pure PPH · Presub · OOS · Hours · Subs · Orders · DUG · OTH Elig · OTH5 · OTT · Refund"
         case .lostRevenue: return "Store · eComm Sales · Total Lost Revenue (Total Opportunity) · Total Lost Revenue % (Total Opportunity)"
+        case .missingItems: return "Division · District · OM · Store · 301 Grocery · 303 Alcohol · 304 Pharmacy · 306 Food Service · 309 Deli · 311 GM/HBC · 314 Dairy · 315 Floral · 316 Bakery · 317 Frozen · 328 Coffee Kiosk · 329 Produce · 330 Seafood · 333 Meat · 336 Bakery Pkgd · Total"
         }
     }
 
@@ -85,6 +90,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .labor: return "Labor ScoreCard"
         case .pickerScorecard: return "Picker ScoreCard"
         case .lostRevenue: return "Loss Revenue ScoreCard"
+        case .missingItems: return "Missing Items ScoreCard"
         }
     }
 
@@ -100,6 +106,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .labor: return "dollarsign.circle.fill"
         case .pickerScorecard: return "person.2.fill"
         case .lostRevenue: return "chart.line.downtrend.xyaxis"
+        case .missingItems: return "tag.slash.fill"
         }
     }
 
@@ -121,21 +128,125 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
             return URL(string: "https://app.powerbi.com/groups/me/apps/d973ff03-651f-4e52-9e7a-8e5bff14b5e6/reports/c7805592-9273-416c-a02f-edc74e0a75d0/ReportSection7246ca8b726f69d2ad9d?experience=power-bi&clientSideAuth=0")
         case .lostRevenue:
             return URL(string: "https://app.powerbi.com/groups/me/apps/d973ff03-651f-4e52-9e7a-8e5bff14b5e6/reports/dac4848e-a28a-4e12-bfbb-b386da90f344/e57401a67b0f2379a0b3?ctid=b7f604a0-00a9-4188-9248-42f3a5aac2e9&experience=power-bi")
+        case .missingItems:
+            return URL(string: "https://app.powerbi.com/groups/me/apps/d973ff03-651f-4e52-9e7a-8e5bff14b5e6/reports/47829fe7-c57f-4c65-a557-f35c99a1e851/2a870f3cf2c35df0a38b?ctid=b7f604a0-00a9-4188-9248-42f3a5aac2e9&experience=power-bi")
         default:
             return nil
         }
     }
 
     static var dashboardCards: [MetricSection] {
-        [.lostRevenue, .fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pickerScorecard, .pph, .labor]
+        [.lostRevenue, .missingItems, .fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pickerScorecard, .pph, .labor]
     }
 
     static var uploadOrder: [MetricSection] {
-        [.lostRevenue, .fiveStar, .pickPath, .pickPathPicker, .prepNotReady, .dynacap, .scheduleQuality, .pph, .labor, .pickerScorecard]
+        [.lostRevenue, .missingItems, .fiveStar, .pickPath, .pickPathPicker, .prepNotReady, .dynacap, .scheduleQuality, .pph, .labor, .pickerScorecard]
     }
 
     static var checklistSections: [MetricSection] {
         dashboardCards
+    }
+}
+
+enum MissingItemDept: String, CaseIterable, Identifiable, Hashable {
+    case grocery = "mi_grocery"
+    case alcohol = "mi_alcohol"
+    case pharmacy = "mi_pharmacy"
+    case foodService = "mi_food_service"
+    case deli = "mi_deli"
+    case gmHbc = "mi_gm_hbc"
+    case dairy = "mi_dairy"
+    case floral = "mi_floral"
+    case bakery = "mi_bakery"
+    case frozen = "mi_frozen"
+    case coffee = "mi_coffee"
+    case produce = "mi_produce"
+    case seafood = "mi_seafood"
+    case meat = "mi_meat"
+    case bakeryPkgd = "mi_bakery_pkgd"
+
+    var id: String { rawValue }
+
+    static let totalKey = "mi_pct"
+
+    var code: String {
+        switch self {
+        case .grocery: return "301"
+        case .alcohol: return "303"
+        case .pharmacy: return "304"
+        case .foodService: return "306"
+        case .deli: return "309"
+        case .gmHbc: return "311"
+        case .dairy: return "314"
+        case .floral: return "315"
+        case .bakery: return "316"
+        case .frozen: return "317"
+        case .coffee: return "328"
+        case .produce: return "329"
+        case .seafood: return "330"
+        case .meat: return "333"
+        case .bakeryPkgd: return "336"
+        }
+    }
+
+    var short: String {
+        switch self {
+        case .grocery: return "Grocery"
+        case .alcohol: return "Alcohol"
+        case .pharmacy: return "Pharmacy"
+        case .foodService: return "Food Svc"
+        case .deli: return "Deli"
+        case .gmHbc: return "GM/HBC"
+        case .dairy: return "Dairy"
+        case .floral: return "Floral"
+        case .bakery: return "Bakery"
+        case .frozen: return "Frozen"
+        case .coffee: return "Coffee"
+        case .produce: return "Produce"
+        case .seafood: return "Seafood"
+        case .meat: return "Meat"
+        case .bakeryPkgd: return "Bakery Pkgd"
+        }
+    }
+
+    var title: String { "\(code) \(short)" }
+
+    var chip: String { short }
+
+    static func match(_ raw: String) -> MissingItemDept? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return nil }
+        let compact = trimmed.lowercased().replacingOccurrences(of: "[^a-z0-9]+", with: "", options: .regularExpression)
+        if compact.isEmpty || compact == "departmentdesc" { return nil }
+        if compact.hasPrefix("336") || compact.contains("bakerypkgd") || compact.contains("pkgdoutside") || compact.contains("pkgd") {
+            return .bakeryPkgd
+        }
+        if compact.hasPrefix("317") || compact.contains("frozen") { return .frozen }
+        if compact.hasPrefix("301") || compact == "grocery" || (compact.contains("grocery") && !compact.contains("frozen")) {
+            return .grocery
+        }
+        if compact.hasPrefix("303") || compact.contains("alcohol") { return .alcohol }
+        if compact.hasPrefix("304") || compact.contains("pharmacy") { return .pharmacy }
+        if compact.hasPrefix("306") || compact.contains("foodservice") { return .foodService }
+        if compact.hasPrefix("309") || compact.contains("delicatessen") || compact.contains("deli") { return .deli }
+        if compact.hasPrefix("311") || compact.contains("gmhbc") || compact.contains("hbc") { return .gmHbc }
+        if compact.hasPrefix("314") || compact.contains("dairy") { return .dairy }
+        if compact.hasPrefix("315") || compact.contains("floral") { return .floral }
+        if compact.hasPrefix("316") || compact.contains("bakery") { return .bakery }
+        if compact.hasPrefix("328") || compact.contains("coffee") { return .coffee }
+        if compact.hasPrefix("329") || compact.contains("produce") { return .produce }
+        if compact.hasPrefix("330") || compact.contains("seafood") { return .seafood }
+        if compact.hasPrefix("333") || compact == "meat" || compact.hasSuffix("meat") { return .meat }
+        return nil
+    }
+
+    static func isTotalHeader(_ raw: String) -> Bool {
+        raw.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("total") == .orderedSame
+    }
+
+    static func visible(from selected: Set<MissingItemDept>) -> [MissingItemDept] {
+        if selected.isEmpty { return Array(allCases) }
+        return allCases.filter { selected.contains($0) }
     }
 }
 
@@ -712,6 +823,8 @@ enum HeartbeatMath {
             return pickerHealth(row)
         case .lostRevenue:
             return lostRevenueHealth(row)
+        case .missingItems:
+            return missingItemsHealth(row)
         }
     }
 
@@ -928,6 +1041,25 @@ enum HeartbeatMath {
                 lastUploadedAt: upload?.uploadedAt,
                 lostRevenuePct: pct
             )
+        case .missingItems:
+            let headline = average(latest.compactMap { $0.number(MissingItemDept.totalKey) })
+            let healthy = latest.filter { missingItemsHealth($0) == .good }.count
+            let watchCount = latest.filter { missingItemsHealth($0) == .watch }.count
+            let riskCount = latest.filter { missingItemsHealth($0) == .risk }.count
+            return SectionSummary(
+                section: section,
+                storeCount: latest.count,
+                headline: headline,
+                headlineLabel: "Avg missing items",
+                secondary: latest.isEmpty
+                    ? "No Missing Items rows in this filter"
+                    : "\(healthy) healthy · \(watchCount) watch · \(riskCount) over 6.50%",
+                health: latest.isEmpty ? .none : band(headline, good: missingItemsGoal, watch: missingItemsWatch, invert: true),
+                watchCount: watchCount,
+                riskCount: riskCount,
+                lastFilename: upload?.filename,
+                lastUploadedAt: upload?.uploadedAt
+            )
         }
     }
 
@@ -938,6 +1070,8 @@ enum HeartbeatMath {
     static let laborWatch = 3.0
     static let lostRevenueGood = 3.0
     static let lostRevenueWatch = 5.0
+    static let missingItemsGoal = 5.0
+    static let missingItemsWatch = 6.50
     static let pickPathGoal = 90.0
     static let pickPathRisk = 80.0
     static let dynacapGoal = 65.0
@@ -1071,6 +1205,18 @@ enum HeartbeatMath {
         let healthy = stores.filter { lostRevenueHealth($0) == .good }.count
         let watch = stores.filter { lostRevenueHealth($0) == .watch }.count
         let risk = stores.filter { lostRevenueHealth($0) == .risk }.count
+        return [
+            FiveStarFlag(name: "Healthy", value: "", health: .good, stores: healthy),
+            FiveStarFlag(name: "Watch", value: "", health: watch == 0 ? .good : .watch, stores: watch),
+            FiveStarFlag(name: "At Risk", value: "", health: risk == 0 ? .good : .risk, stores: risk),
+        ]
+    }
+
+    static func missingItemsActionFlags(_ rows: [MetricRow]) -> [FiveStarFlag] {
+        let stores = rows.filter { !isIgnoredStore($0.storeNumber) && !$0.storeNumber.isEmpty }
+        let healthy = stores.filter { missingItemsHealth($0) == .good }.count
+        let watch = stores.filter { missingItemsHealth($0) == .watch }.count
+        let risk = stores.filter { missingItemsHealth($0) == .risk }.count
         return [
             FiveStarFlag(name: "Healthy", value: "", health: .good, stores: healthy),
             FiveStarFlag(name: "Watch", value: "", health: watch == 0 ? .good : .watch, stores: watch),
@@ -1434,6 +1580,21 @@ enum HeartbeatMath {
         band(pct, good: lostRevenueGood, watch: lostRevenueWatch, invert: true)
     }
 
+    static func missingItemsRate(_ row: MetricRow, depts: [MissingItemDept] = []) -> Double? {
+        if depts.isEmpty || depts.count == MissingItemDept.allCases.count {
+            return row.number(MissingItemDept.totalKey)
+        }
+        return average(depts.compactMap { row.number($0.rawValue) })
+    }
+
+    static func missingItemsHealth(_ row: MetricRow, depts: [MissingItemDept] = []) -> Health {
+        missingItemsHealth(pct: missingItemsRate(row, depts: depts))
+    }
+
+    static func missingItemsHealth(pct: Double?) -> Health {
+        band(pct, good: missingItemsGoal, watch: missingItemsWatch, invert: true)
+    }
+
     static func pickerHasVolume(_ row: MetricRow) -> Bool {
         (row.number("orders") ?? 0) > 15
     }
@@ -1678,6 +1839,8 @@ enum HeartbeatMath {
             return -pickerComposite(row)
         case .lostRevenue:
             return row.number("lost_revenue") ?? 0
+        case .missingItems:
+            return row.number(MissingItemDept.totalKey) ?? 0
         }
     }
 
@@ -1783,6 +1946,8 @@ enum HeartbeatMath {
                 value = pickerComposite(row)
             case .lostRevenue:
                 value = row.number("lost_revenue")
+            case .missingItems:
+                value = row.number(MissingItemDept.totalKey)
             }
             guard let value else { continue }
             buckets[date, default: []].append(value)
@@ -2425,6 +2590,21 @@ struct StoreCellViewModel {
                 primary: HeartbeatFormat.money(row.number("lost_revenue")),
                 extra: "\(HeartbeatFormat.pct(row.number("lost_revenue_pct"))) of \(HeartbeatFormat.money(row.number("ecomm_sales"))) sales"
             )
+        case .missingItems:
+            let rate = row.number(MissingItemDept.totalKey)
+            let gap = rate.map { $0 - HeartbeatMath.missingItemsGoal }
+            let gapText: String
+            if let gap {
+                gapText = gap <= 0
+                    ? "\(HeartbeatFormat.num(abs(gap), digits: 1)) under 5%"
+                    : "+\(HeartbeatFormat.num(gap, digits: 1)) vs 5%"
+            } else {
+                gapText = "Goal 5%"
+            }
+            return StoreCellViewModel(
+                primary: HeartbeatFormat.pct(rate),
+                extra: gapText
+            )
         }
     }
 }
@@ -2439,6 +2619,15 @@ enum LaborFocus: String, CaseIterable, Identifiable {
 }
 
 enum LostRevenueFocus: String, CaseIterable, Identifiable {
+    case all
+    case healthy
+    case watch
+    case risk
+
+    var id: String { rawValue }
+}
+
+enum MissingItemsFocus: String, CaseIterable, Identifiable {
     case all
     case healthy
     case watch

@@ -84,6 +84,8 @@ extension HeartbeatMath {
             return diagnoseDynacap(row, labor: labor, pph: pph)
         case .lostRevenue:
             return diagnoseLost(row, pickers: pickers)
+        case .missingItems:
+            return diagnoseMissingItems(row)
         case .pickerScorecard:
             return []
         }
@@ -446,6 +448,29 @@ extension HeartbeatMath {
             fact: "Prep not ready is \(HeartbeatFormat.pct(row.number("pnr_rate_pct"))). Bakery, deli, or meat is late to the pick wave, so shops stall and DUG slips.",
             shoppers: "",
             action: "Run a 30-minute prep-ready board for bakery, deli, and meat. Escalate any department over 2.5% the same day."
+        )]
+    }
+
+    private static func diagnoseMissingItems(_ row: MetricRow) -> [ChecklistFinding] {
+        let rate = row.number(MissingItemDept.totalKey)
+        let hottest = MissingItemDept.allCases
+            .compactMap { dept -> (MissingItemDept, Double)? in
+                guard let value = row.number(dept.rawValue) else { return nil }
+                return (dept, value)
+            }
+            .sorted { $0.1 > $1.1 }
+            .prefix(3)
+        let hotText = hottest.isEmpty
+            ? "Aisle tags are missing on the pick path."
+            : hottest.map { "\($0.0.short) \(HeartbeatFormat.pct($0.1))" }.joined(separator: " · ")
+        return [ChecklistFinding(
+            name: "Missing items",
+            value: HeartbeatFormat.pct(rate),
+            need: "≤ \(HeartbeatFormat.num(HeartbeatMath.missingItemsGoal, digits: 0))%",
+            health: health(for: .missingItems, row: row),
+            fact: "Missing aisle tags are \(HeartbeatFormat.pct(rate)). Hottest departments: \(hotText). Shoppers cannot find items, so OOS, subs, and lost revenue climb.",
+            shoppers: "",
+            action: "Fix aisle tags for the hottest departments first. Anything over 6.50% is at risk — own grocery, produce, meat, and bakery the same day."
         )]
     }
 

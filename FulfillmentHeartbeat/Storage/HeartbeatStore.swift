@@ -1328,7 +1328,7 @@ final class HeartbeatStore: ObservableObject {
                 latest[section] = HeartbeatMath.materializeDynacap(sectionRows, roster: roster)
             } else if section == .pickPath {
                 latest[section] = HeartbeatMath.materializePickPath(sectionRows, roster: roster)
-            } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady || section == .pph || section == .lostRevenue {
+            } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady || section == .pph || section == .lostRevenue || section == .missingItems {
                 let source = section == .lostRevenue
                     ? sectionRows.filter { $0.textPayload["lost_grain"] != "market" }
                     : sectionRows
@@ -1874,7 +1874,7 @@ private struct PulseCaches {
                 latest[section] = HeartbeatMath.materializeDynacap(sectionRows, roster: roster)
             } else if section == .pickPath {
                 latest[section] = HeartbeatMath.materializePickPath(sectionRows, roster: roster)
-            } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady || section == .pph || section == .lostRevenue {
+            } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady || section == .pph || section == .lostRevenue || section == .missingItems {
                 let source = section == .lostRevenue
                     ? sectionRows.filter { $0.textPayload["lost_grain"] != "market" }
                     : sectionRows

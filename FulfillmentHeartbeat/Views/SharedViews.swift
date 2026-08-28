@@ -1348,6 +1348,7 @@ struct StoreTable: View {
         case .labor: return row.number("target_vs_actual_pct") ?? -1
         case .pickerScorecard: return HeartbeatMath.pickerComposite(row)
         case .lostRevenue: return row.number("lost_revenue") ?? -1
+        case .missingItems: return row.number(MissingItemDept.totalKey) ?? -1
         }
     }
 
@@ -2077,7 +2078,7 @@ private enum ShopperMetric: String, CaseIterable, Hashable {
         case .pph, .dynacap: return [.pph, .orders, .hours]
         case .lostRevenue: return [.refund, .presub, .oos, .pph]
         case .labor: return [.pph, .hours, .orders]
-        case .prepNotReady, .scheduleQuality, .pickerScorecard: return nil
+        case .prepNotReady, .scheduleQuality, .pickerScorecard, .missingItems: return nil
         }
     }
 }

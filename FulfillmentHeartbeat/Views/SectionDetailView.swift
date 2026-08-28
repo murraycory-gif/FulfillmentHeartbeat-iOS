@@ -14,6 +14,8 @@ struct SectionDetailView: View {
     @State private var fiveStarFocus: FiveStarFocus = .all
     @State private var laborFocus: LaborFocus = .all
     @State private var lostRevenueFocus: LostRevenueFocus = .all
+    @State private var missingItemsFocus: MissingItemsFocus = .all
+    @State private var miCategories: Set<MissingItemDept> = []
     @State private var showTables = false
     @State private var pageWidth: CGFloat = 1000
 
@@ -125,6 +127,16 @@ struct SectionDetailView: View {
                     }
                     LostRevenueTable(rows: lostRevenueRows)
                 }
+            } else if section == .missingItems {
+                if showTables {
+                    Section {
+                        MissingItemsRollupTable(depts: visibleMIDepts)
+                            .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(AppTheme.bg)
+                    }
+                    MissingItemsTable(rows: missingItemsRows, depts: visibleMIDepts)
+                }
             } else if showTables {
                 StoreTable(section: section, rows: snapshots)
             }
@@ -177,6 +189,9 @@ struct SectionDetailView: View {
                         .environmentObject(laborHeaderPin)
                 } else if section == .pickerScorecard {
                     PickerStickyStoreHeader()
+                        .environmentObject(laborHeaderPin)
+                } else if section == .missingItems {
+                    MissingItemsStickyStoreHeader(depts: visibleMIDepts)
                         .environmentObject(laborHeaderPin)
                 }
             }
@@ -248,6 +263,9 @@ struct SectionDetailView: View {
                 laborStatusTiles
             } else if section == .lostRevenue {
                 lostRevenueStatusTiles
+            } else if section == .missingItems {
+                missingItemsStatusTiles
+                MissingItemsCategoryFilter(selected: $miCategories)
             } else {
                 LazyVGrid(
                     columns: HubLayout.grid(HubLayout.kpiColumns(width: pageWidth), spacing: 14, minWidth: 150),
@@ -362,6 +380,16 @@ struct SectionDetailView: View {
                 ("Lost %", HeartbeatFormat.pct(sales > 0 ? dollars / sales * 100 : summary.lostRevenuePct)),
                 ("eComm sales", HeartbeatFormat.money(sales)),
             ]
+        case .missingItems:
+            let healthy = rows.filter { HeartbeatMath.missingItemsHealth($0) == .good }.count
+            let watch = rows.filter { HeartbeatMath.missingItemsHealth($0) == .watch }.count
+            let risk = rows.filter { HeartbeatMath.missingItemsHealth($0) == .risk }.count
+            return [
+                ("Goal", "5%"),
+                ("Healthy", HeartbeatFormat.num(Double(healthy))),
+                ("Watch", HeartbeatFormat.num(Double(watch))),
+                ("At risk", HeartbeatFormat.num(Double(risk))),
+            ]
         }
     }
 
@@ -428,6 +456,24 @@ struct SectionDetailView: View {
             return scored.filter { HeartbeatMath.lostRevenueHealth($0) == .watch }
         case .risk:
             return scored.filter { HeartbeatMath.lostRevenueHealth($0) == .risk }
+        }
+    }
+
+    private var visibleMIDepts: [MissingItemDept] {
+        MissingItemDept.visible(from: miCategories)
+    }
+
+    private var missingItemsRows: [MetricRow] {
+        let scored = snapshots.filter { !$0.storeNumber.isEmpty }
+        switch missingItemsFocus {
+        case .all:
+            return scored
+        case .healthy:
+            return scored.filter { HeartbeatMath.missingItemsHealth($0) == .good }
+        case .watch:
+            return scored.filter { HeartbeatMath.missingItemsHealth($0) == .watch }
+        case .risk:
+            return scored.filter { HeartbeatMath.missingItemsHealth($0) == .risk }
         }
     }
 
@@ -565,6 +611,41 @@ struct SectionDetailView: View {
                 callout("eComm sales", HeartbeatFormat.money(sales), "In this filter", .none, brand: true)
                 callout("FY2026 Goal", HeartbeatFormat.pct(goalPct), "Lost revenue goal", .none, brand: true)
                 callout("Post Sub OOS", HeartbeatFormat.money(rows.isEmpty ? nil : post), "Foregone revenue", .none)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var missingItemsStatusTiles: some View {
+        let rows = snapshots.filter { !$0.storeNumber.isEmpty }
+        let healthy = rows.filter { HeartbeatMath.missingItemsHealth($0) == .good }.count
+        let watch = rows.filter { HeartbeatMath.missingItemsHealth($0) == .watch }.count
+        let risk = rows.filter { HeartbeatMath.missingItemsHealth($0) == .risk }.count
+        VStack(spacing: 14) {
+            LazyVGrid(
+                columns: HubLayout.grid(min(4, HubLayout.kpiColumns(width: pageWidth)), spacing: 14, minWidth: 150),
+                spacing: 14
+            ) {
+                callout("Avg missing items", summary.headlineText, "5% healthy · 5.01–6.50% watch · over 6.50% at risk", summary.health, selected: missingItemsFocus == .all) {
+                    missingItemsFocus = .all
+                }
+                callout("Healthy", HeartbeatFormat.num(Double(healthy)), "5% or less", .good, unit: "stores", selected: missingItemsFocus == .healthy) {
+                    missingItemsFocus = .healthy
+                }
+                callout("Watch", HeartbeatFormat.num(Double(watch)), "5.01% to 6.50%", watch == 0 ? .good : .watch, unit: "stores", selected: missingItemsFocus == .watch) {
+                    missingItemsFocus = .watch
+                }
+                callout("At Risk", HeartbeatFormat.num(Double(risk)), "Stores over 6.50%", risk == 0 ? .good : .risk, unit: "stores", selected: missingItemsFocus == .risk) {
+                    missingItemsFocus = .risk
+                }
+            }
+            LazyVGrid(
+                columns: HubLayout.grid(min(3, HubLayout.kpiColumns(width: pageWidth)), spacing: 12, minWidth: 150),
+                spacing: 12
+            ) {
+                callout("Goal", "5%", "Or less is healthy", .none, brand: true)
+                callout("Watch band", "5.01–6.50%", "Needs a look", .watch)
+                callout("At risk band", "> 6.50%", "Items without an aisle tag", .risk)
             }
         }
     }

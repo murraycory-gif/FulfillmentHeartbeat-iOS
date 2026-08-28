@@ -131,6 +131,8 @@ enum WorkbookParser {
             .replacingOccurrences(of: "-", with: " ")
         if name.contains("lost") && name.contains("revenue") { return .lostRevenue }
         if name.contains("loss") && name.contains("revenue") { return .lostRevenue }
+        if name == "mi" || name.hasPrefix("mi ") || name.contains("missing item") { return .missingItems }
+        if name.contains("aisle") && name.contains("tag") { return .missingItems }
         if name.contains("picker") && (name.contains("score") || name.contains("card") || name.contains("shopper")) {
             return .pickerScorecard
         }
@@ -159,6 +161,7 @@ enum WorkbookParser {
             text.formUnion(row.textPayload.keys)
         }
         if keys.contains("lost_revenue") { return .lostRevenue }
+        if keys.contains("mi_pct") || keys.contains("mi_grocery") { return .missingItems }
         if keys.contains("target_vs_actual_pct") || keys.contains("earned_hrs") { return .labor }
         if keys.contains("pnr_rate_pct") { return .prepNotReady }
         if keys.contains("star_rating") || keys.contains("flash_pct") { return .fiveStar }
@@ -412,6 +415,9 @@ enum WorkbookParser {
         if let lost = parseLostRevenue(matrix), !lost.isEmpty {
             return lost
         }
+        if let missing = parseMissingItems(matrix), !missing.isEmpty {
+            return missing
+        }
         if let prep = parsePrepHours(matrix), !prep.isEmpty {
             return prep
         }
@@ -533,6 +539,98 @@ enum WorkbookParser {
         if lower.contains("kill switch") { return "kill_switch_lost" }
         if lower.contains("reduced capacity") { return "reduced_capacity" }
         return ""
+    }
+
+    private static func isMissingItemsDeptRow(_ row: [String]) -> Bool {
+        let blob = row.map { $0.lowercased() }.joined(separator: " ")
+        if blob.contains("department desc") { return true }
+        let hits = row.filter { MissingItemDept.match($0) != nil }.count
+        return hits >= 4
+    }
+
+    private static func parseMissingItems(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {
+        guard let deptRowIndex = matrix.firstIndex(where: isMissingItemsDeptRow) else { return nil }
+        let deptRow = matrix[deptRowIndex]
+        var keyByCol: [Int: String] = [:]
+        for (index, cell) in deptRow.enumerated() {
+            if MissingItemDept.isTotalHeader(cell) {
+                keyByCol[index] = MissingItemDept.totalKey
+            } else if let dept = MissingItemDept.match(cell) {
+                keyByCol[index] = dept.rawValue
+            }
+        }
+        guard keyByCol.count >= 4 else { return nil }
+
+        let identityRow = deptRowIndex + 1 < matrix.count ? matrix[deptRowIndex + 1] : []
+        var divIdx: Int?
+        var distIdx: Int?
+        var omIdx: Int?
+        var storeIdx: Int?
+        for (index, cell) in identityRow.enumerated() where keyByCol[index] == nil {
+            let name = normHeader(cell)
+            if name.contains("division") { divIdx = index }
+            else if districtKeys.contains(name) || name == "district" { distIdx = index }
+            else if omKeys.contains(name) || name == "om" { omIdx = index }
+            else if storeKeys.contains(name) || name == "store" { storeIdx = index }
+        }
+        if storeIdx == nil {
+            divIdx = 0
+            distIdx = 1
+            omIdx = 2
+            storeIdx = 3
+        }
+
+        var carryDiv = ""
+        var carryDist = ""
+        var carryOM = ""
+        var out: [ParsedWorkbookRow] = []
+        out.reserveCapacity(max(0, matrix.count - deptRowIndex))
+
+        for line in matrix.dropFirst(deptRowIndex + 2) {
+            func cell(_ index: Int?) -> String {
+                guard let index, index < line.count else { return "" }
+                return line[index]
+            }
+            if let value = usableValue(cell(divIdx)) { carryDiv = value }
+            if let value = usableValue(cell(distIdx)) { carryDist = value }
+            if let value = usableValue(cell(omIdx)) { carryOM = value }
+
+            let storeRaw = cell(storeIdx).trimmingCharacters(in: .whitespacesAndNewlines)
+            if storeRaw.lowercased().hasPrefix("applied") { continue }
+            if isTotalCell(storeRaw) { continue }
+            if storeRaw.isEmpty {
+                if isTotalCell(cell(omIdx)) || isTotalCell(cell(distIdx)) || isTotalCell(cell(divIdx)) {
+                    continue
+                }
+                continue
+            }
+            guard looksLikeStoreNumber(storeRaw) else { continue }
+
+            var payload: [String: Double] = [:]
+            for (index, key) in keyByCol {
+                let raw = index < line.count ? line[index] : ""
+                guard let number = cellNumber(raw) else { continue }
+                var value = number
+                if abs(value) <= 1.5 { value *= 100 }
+                payload[key] = value
+            }
+            guard payload[MissingItemDept.totalKey] != nil || payload.count >= 3 else { continue }
+
+            var text: [String: String] = [:]
+            if !carryDist.isEmpty { text["district"] = carryDist }
+            out.append(
+                ParsedWorkbookRow(
+                    division: carryDiv,
+                    operationsOM: carryOM,
+                    storeNumber: HeartbeatMath.canonicalStore(storeRaw),
+                    storeName: nil,
+                    recordedOn: nil,
+                    payload: payload,
+                    textPayload: text
+                )
+            )
+        }
+        return out.isEmpty ? nil : out
     }
 
     private static func parseLabor(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {

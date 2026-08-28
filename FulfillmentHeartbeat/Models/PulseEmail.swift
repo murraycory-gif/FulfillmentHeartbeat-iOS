@@ -18,7 +18,7 @@ enum PulseMail {
     }
 
     static let pageOrder: [MetricSection] = [
-        .lostRevenue, .fiveStar, .pickPath, .prepNotReady, .dynacap,
+        .lostRevenue, .missingItems, .fiveStar, .pickPath, .prepNotReady, .dynacap,
         .scheduleQuality, .pickerScorecard, .pph, .labor,
     ]
 
@@ -151,6 +151,8 @@ enum PulseMail {
         switch section {
         case .lostRevenue:
             items.append(("Lost %", HeartbeatFormat.pct(summary?.lostRevenuePct)))
+        case .missingItems:
+            items.append(("Goal", "5%"))
         case .scheduleQuality:
             items.append(("Staffing %", HeartbeatFormat.pct(avg("staffing_efficiency_pct"))))
         case .pph:
@@ -257,6 +259,8 @@ enum PulseMail {
         case .pph: return ["Store", "PPH", "Pickers", "Goal", "Status"]
         case .labor: return ["Store", "Tgt vs Act", "CostTrgt%", "ActCost%", "Sch Effi%", "UPLH", "Wage", "AIV", "Status"]
         case .lostRevenue: return ["Store", "Lost $", "Lost %", "Goal", "Sales", "Post", "Refund", "Missed", "Status"]
+        case .missingItems:
+            return ["Store"] + MissingItemDept.allCases.map(\.title) + ["Total", "Status"]
         case .pickerScorecard: return ["Shopper", "PPH", "Presub", "OOS%", "OTT", "OTH5", "Refund", "Status"]
         }
     }
@@ -314,6 +318,12 @@ enum PulseMail {
             html += cell(HeartbeatFormat.money(row.number("post_sub_oos_foregone")))
             html += cell(HeartbeatFormat.money(row.number("refund_lost", "refund_amt")))
             html += cell(HeartbeatFormat.money(row.number("missed_sales")))
+        case .missingItems:
+            for dept in MissingItemDept.allCases {
+                let value = row.number(dept.rawValue)
+                html += cell(HeartbeatFormat.pct(value), HeartbeatMath.missingItemsHealth(pct: value))
+            }
+            html += cell(HeartbeatFormat.pct(row.number(MissingItemDept.totalKey)), HeartbeatMath.health(for: .missingItems, row: row))
         case .pickerScorecard:
             html += cell(HeartbeatFormat.num(row.number("pph"), digits: 1), HeartbeatMath.pickerHealth(row))
             html += cell(HeartbeatFormat.pct(row.number("presub_pct")))

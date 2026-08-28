@@ -74,6 +74,8 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertEqual(WorkbookParser.section(fromSheetName: "PPH"), .pph)
         XCTAssertEqual(WorkbookParser.section(fromSheetName: "Labor"), .labor)
         XCTAssertEqual(WorkbookParser.section(fromSheetName: "Picker ScoreCard"), .pickerScorecard)
+        XCTAssertEqual(WorkbookParser.section(fromSheetName: "MI"), .missingItems)
+        XCTAssertEqual(WorkbookParser.section(fromSheetName: "Missing Items"), .missingItems)
         XCTAssertNil(WorkbookParser.section(fromSheetName: "Sheet1"))
     }
 
@@ -85,6 +87,27 @@ final class WorkbookParserTests: XCTestCase {
             let classified = WorkbookParser.classifySheet(name: "Sheet1", rows: rows)
             XCTAssertEqual(classified, section, section.rawValue)
         }
+    }
+
+    func testMissingItemsParsesDepartmentPercentsAndSkipsTotals() {
+        let csv = SampleMarket.templateCSV(for: .missingItems)
+        let rows = WorkbookParser.parseCSV(csv)
+        XCTAssertEqual(WorkbookParser.classifySheet(name: "MI", rows: rows), .missingItems)
+        XCTAssertEqual(Set(rows.map(\.storeNumber)), Set(["1", "606", "3427"]))
+        let jewel = rows.first { $0.storeNumber == "1" }!
+        XCTAssertEqual(jewel.division, "Jewel Osco")
+        XCTAssertEqual(jewel.operationsOM, "Shelly Selof")
+        XCTAssertEqual(jewel.textPayload["district"], "J1")
+        XCTAssertEqual(jewel.payload["mi_grocery"] ?? 0, 4.0, accuracy: 0.05)
+        XCTAssertEqual(jewel.payload["mi_pct"] ?? 0, 4.5, accuracy: 0.05)
+        XCTAssertEqual(jewel.payload["mi_bakery_pkgd"] ?? 0, 7.5, accuracy: 0.05)
+        XCTAssertEqual(HeartbeatMath.health(for: .missingItems, row: jewel), .good)
+        let watch = rows.first { $0.storeNumber == "606" }!
+        XCTAssertEqual(watch.payload["mi_pct"] ?? 0, 6.8, accuracy: 0.05)
+        XCTAssertEqual(HeartbeatMath.health(for: .missingItems, row: watch), .risk)
+        let haggen = rows.first { $0.storeNumber == "3427" }!
+        XCTAssertEqual(haggen.payload["mi_pct"] ?? 0, 3.8, accuracy: 0.05)
+        XCTAssertEqual(HeartbeatMath.health(for: .missingItems, row: haggen), .good)
     }
 
     func testTemplateCSVRoundTrip() throws {
