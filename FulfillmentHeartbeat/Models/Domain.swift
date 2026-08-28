@@ -1130,16 +1130,6 @@ enum HeartbeatMath {
                 stores: 0
             )
         )
-        for spec in [("UPLH", uplh), ("Wage", wage), ("AIV", aiv)] {
-            flags.append(
-                FiveStarFlag(
-                    name: spec.0,
-                    value: HeartbeatFormat.pct(spec.1),
-                    health: laborHealth(spec.1),
-                    stores: 0
-                )
-            )
-        }
         let over3 = stores.filter { ($0.number("target_vs_actual_pct") ?? 0) > laborWatch }.count
         let band = stores.filter {
             let value = $0.number("target_vs_actual_pct") ?? 0
@@ -1161,6 +1151,16 @@ enum HeartbeatMath {
                 stores: band
             )
         )
+        for spec in [("UPLH", uplh), ("Wage", wage), ("AIV", aiv)] {
+            flags.append(
+                FiveStarFlag(
+                    name: spec.0,
+                    value: HeartbeatFormat.pct(spec.1),
+                    health: laborHealth(spec.1),
+                    stores: 0
+                )
+            )
+        }
         return flags
     }
 

@@ -191,7 +191,11 @@ struct DashBriefingList: View {
                         } else if card.section == .scheduleQuality {
                             metricFlags(HeartbeatMath.scheduleActionFlags(store.displayRows(for: .scheduleQuality)))
                         } else if card.section == .labor {
-                            metricFlags(HeartbeatMath.laborActionFlags(store.displayRows(for: .labor)))
+                            let labor = HeartbeatMath.laborActionFlags(store.displayRows(for: .labor))
+                            VStack(alignment: .leading, spacing: 8) {
+                                metricFlags(Array(labor.prefix(4)), columns: min(4, max(2, HubLayout.flagColumns(count: 4, width: width))))
+                                metricFlags(Array(labor.suffix(from: 4)), columns: min(3, max(2, HubLayout.flagColumns(count: 3, width: width))))
+                            }
                         }
                     }
                     .modifier(DashCardChrome(health: card.health))
@@ -203,9 +207,9 @@ struct DashBriefingList: View {
     }
 
     @ViewBuilder
-    private func metricFlags(_ flags: [HeartbeatMath.FiveStarFlag]) -> some View {
+    private func metricFlags(_ flags: [HeartbeatMath.FiveStarFlag], columns: Int? = nil) -> some View {
         if !flags.isEmpty {
-            let columns = HubLayout.flagColumns(count: flags.count, width: width)
+            let columns = columns ?? HubLayout.flagColumns(count: flags.count, width: width)
             LazyVGrid(
                 columns: HubLayout.grid(columns, spacing: 8, minWidth: 168),
                 alignment: .leading,
