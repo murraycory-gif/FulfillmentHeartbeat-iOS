@@ -1594,10 +1594,12 @@ final class HeartbeatStore: ObservableObject {
                    let saved = try? JSONDecoder().decode(DashboardFilters.self, from: overlay) {
                     loadedFilters = saved
                 }
-                let caches = PulseCaches.build(rows: decoded.rows, filters: loadedFilters, uploads: decoded.uploads)
-                if url != dest {
-                    try? PulseDisk.write(decoded, to: dest)
-                }
+                let caches = PulseCaches.build(
+                    rows: decoded.rows,
+                    filters: loadedFilters,
+                    uploads: decoded.uploads,
+                    heavy: false
+                )
                 await MainActor.run {
                     self.hydrating = true
                     self.rows = decoded.rows
@@ -1607,7 +1609,29 @@ final class HeartbeatStore: ObservableObject {
                     self.install(caches)
                     self.hydrating = false
                     self.isReady = true
-                    self.warmUnfilteredPulse()
+                }
+                if url != dest {
+                    try? PulseDisk.write(decoded, to: dest)
+                }
+                let heavy = PulseCaches.refilter(
+                    latest: caches.latestBySection,
+                    roster: caches.roster,
+                    filters: loadedFilters,
+                    uploads: decoded.uploads,
+                    laborMarket: decoded.rows.first {
+                        $0.section == .labor && $0.textPayload["labor_grain"] == "market"
+                    },
+                    lostRevenueMarket: decoded.rows.first {
+                        $0.section == .lostRevenue && $0.textPayload["lost_grain"] == "market"
+                    },
+                    heavy: true
+                )
+                await MainActor.run {
+                    self.mergeHeavy(heavy)
+                    self.rebuildLaborWeekIndex()
+                    if !self.filters.isActive {
+                        self.warmUnfilteredPulse()
+                    }
                 }
             } catch {
                 await MainActor.run {
@@ -1649,7 +1673,17 @@ final class HeartbeatStore: ObservableObject {
         pickPathPickersByStore = caches.pickPathPickersByStore
         pickPathByShopper = caches.pickPathByShopper
         pphPickersByStore = caches.pphPickersByStore
-        rebuildLaborWeekIndex()
+        objectWillChange.send()
+    }
+
+    private func mergeHeavy(_ caches: PulseCaches) {
+        cachedPickerBoard = caches.cachedPickerBoard
+        cachedChecklistGroups = caches.cachedChecklistGroups
+        pickerIndex = caches.pickerIndex
+        pickerFocusHealth = caches.pickerFocusHealth
+        pickPathPickersByStore = caches.pickPathPickersByStore
+        pickPathByShopper = caches.pickPathByShopper
+        pphPickersByStore = caches.pphPickersByStore
         objectWillChange.send()
     }
 
@@ -1815,16 +1849,27 @@ private struct PulseCaches {
     var pickPathByShopper: [String: MetricRow]
     var pphPickersByStore: [String: [MetricRow]]
 
-    static func build(rows: [MetricRow], filters: DashboardFilters, uploads: [UploadRecord]) -> PulseCaches {
-        let identitySource = rows.filter {
-            $0.section != .scheduleQuality && $0.section != .dynacap && $0.section != .pickerScorecard && $0.section != .pickPathPicker && $0.section != .lostRevenue
+    static func build(rows: [MetricRow], filters: DashboardFilters, uploads: [UploadRecord], heavy: Bool = true) -> PulseCaches {
+        var bySection: [MetricSection: [MetricRow]] = [:]
+        bySection.reserveCapacity(16)
+        for row in rows {
+            bySection[row.section, default: []].append(row)
+        }
+        var identitySource: [MetricRow] = []
+        for (section, list) in bySection {
+            if section != .scheduleQuality && section != .dynacap && section != .pickerScorecard && section != .pickPathPicker && section != .lostRevenue {
+                identitySource.append(contentsOf: list)
+            }
         }
         let roster = HeartbeatMath.storeRoster(
-            identitySource.isEmpty ? rows.filter { $0.section != .pickerScorecard && $0.section != .pickPathPicker } : identitySource
+            identitySource.isEmpty
+                ? rows.filter { $0.section != .pickerScorecard && $0.section != .pickPathPicker }
+                : identitySource
         )
         var latest: [MetricSection: [MetricRow]] = [:]
+        latest.reserveCapacity(MetricSection.allCases.count)
         for section in MetricSection.allCases {
-            let sectionRows = rows.filter { $0.section == section }
+            let sectionRows = bySection[section] ?? []
             if section == .dynacap {
                 latest[section] = HeartbeatMath.materializeDynacap(sectionRows, roster: roster)
             } else if section == .pickPath {
@@ -1848,12 +1893,9 @@ private struct PulseCaches {
             roster: roster,
             filters: filters,
             uploads: uploads,
-            laborMarket: rows.first {
-                $0.section == .labor && $0.textPayload["labor_grain"] == "market"
-            },
-            lostRevenueMarket: rows.first {
-                $0.section == .lostRevenue && $0.textPayload["lost_grain"] == "market"
-            }
+            laborMarket: (bySection[.labor] ?? []).first { $0.textPayload["labor_grain"] == "market" },
+            lostRevenueMarket: (bySection[.lostRevenue] ?? []).first { $0.textPayload["lost_grain"] == "market" },
+            heavy: heavy
         )
     }
 
@@ -1863,7 +1905,8 @@ private struct PulseCaches {
         filters: DashboardFilters,
         uploads: [UploadRecord],
         laborMarket: MetricRow? = nil,
-        lostRevenueMarket: MetricRow? = nil
+        lostRevenueMarket: MetricRow? = nil,
+        heavy: Bool = true
     ) -> PulseCaches {
         let allowed = pickerStoreSet(roster: roster, filters: filters)
         var nextLatest: [MetricSection: [MetricRow]] = [:]
@@ -1876,10 +1919,16 @@ private struct PulseCaches {
             nextLatest = latest
         }
         let pickers = nextLatest[.pickerScorecard] ?? []
-        let pickerBoard = HeartbeatMath.pickerBoard(pickers)
-        let picker = pickerIndexValues(pickers)
-        let path = pickPathIndexValues(scorecard: pickers, pathRows: latest[.pickPathPicker] ?? [])
-        let pph = pphIndexValues(pickers)
+        let pickerBoard = heavy
+            ? HeartbeatMath.pickerBoard(pickers)
+            : HeartbeatMath.PickerBoard(shopperCount: pickers.count, opportunityCount: 0, strongCount: 0, opportunity: [], strong: [])
+        let picker = heavy
+            ? pickerIndexValues(pickers)
+            : (index: [PickerFocus: [Int]](), health: [PickerFocus: Health]())
+        let path = heavy
+            ? pickPathIndexValues(scorecard: pickers, pathRows: latest[.pickPathPicker] ?? [])
+            : (buckets: [String: [MetricRow]](), byShopper: [String: MetricRow]())
+        let pph = heavy ? pphIndexValues(pickers) : [:]
         let districts = roster.values
             .filter { filters.includesDivision($0.division) }
             .map(\.district)
@@ -1953,7 +2002,7 @@ private struct PulseCaches {
             cachedStores: stores,
             cachedSummaries: summaries,
             cachedPickerBoard: pickerBoard,
-            cachedChecklistGroups: checklistGroups(from: nextLatest, roster: roster),
+            cachedChecklistGroups: heavy ? checklistGroups(from: nextLatest, roster: roster) : [:],
             pickerIndex: picker.index,
             pickerFocusHealth: picker.health,
             pickPathPickersByStore: path.buckets,
