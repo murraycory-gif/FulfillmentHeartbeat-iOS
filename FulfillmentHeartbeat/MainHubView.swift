@@ -226,6 +226,22 @@ struct MainHubView: View {
                 HubNavLogo()
             }
         }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            Text(BuildStamp.label)
+                .font(.caption2.weight(.semibold).monospaced())
+                .foregroundStyle(AppTheme.textTertiary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity)
+                .background(AppTheme.card, in: Capsule(style: .continuous))
+                .overlay(Capsule(style: .continuous).stroke(AppTheme.cardBorder, lineWidth: 1))
+                .padding(.horizontal, 16)
+                .padding(.bottom, 12)
+                .padding(.top, 8)
+                .frame(maxWidth: .infinity)
+                .background(AppTheme.bg)
+                .accessibilityLabel("Build \(BuildStamp.label)")
+        }
     }
 
     private func sidebarRow(_ item: HubDestination) -> some View {
