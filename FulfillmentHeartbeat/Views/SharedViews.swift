@@ -1040,7 +1040,6 @@ struct ShareRecapCompose: View {
     let packet: PulseMail.Packet
     var onBack: () -> Void
     @State private var to = ""
-    @State private var preparing = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1079,21 +1078,14 @@ struct ShareRecapCompose: View {
                         .padding(.vertical, 14)
                 }
                 .buttonStyle(PrimaryButtonStyle())
-                .disabled(preparing)
 
                 Button(action: sendOutlook) {
-                    HStack(spacing: 10) {
-                        if preparing {
-                            ProgressView().tint(AppTheme.blue)
-                        }
-                        Text(preparing ? "Preparing Outlook recap…" : "Send with Outlook")
-                            .font(.headline.weight(.bold))
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
+                    Text("Send with Outlook")
+                        .font(.headline.weight(.bold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
                 }
                 .buttonStyle(.bordered)
-                .disabled(preparing)
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
@@ -1104,12 +1096,11 @@ struct ShareRecapCompose: View {
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Back", action: onBack)
-                    .disabled(preparing)
             }
         }
-        .overlay {
-            if preparing {
-                Color.black.opacity(0.18).ignoresSafeArea()
+        .onAppear {
+            Task { @MainActor in
+                await PulseShare.prepareOutlook(packet)
             }
         }
     }
@@ -1119,15 +1110,7 @@ struct ShareRecapCompose: View {
     }
 
     private func sendOutlook() {
-        guard !preparing else { return }
-        preparing = true
-        let html = packet.html
-        let subject = packet.subject
-        Task { @MainActor in
-            let media = await RecapRenderer.render(html: html)
-            preparing = false
-            PulseShare.presentOutlook(subject: subject, images: media.images)
-        }
+        PulseShare.sendViaOutlook(packet, to: emails)
     }
 
     private var emails: [String] {
@@ -10138,40 +10121,43 @@ enum PulseShare {
     }
 
     @MainActor
-    static func presentOutlook(subject: String, images: [UIImage]) {
-        let tiles = RecapRenderer.inlineImages(images)
-        if !tiles.isEmpty {
-            UIPasteboard.general.images = tiles
+    static func sendViaOutlook(_ packet: PulseMail.Packet, to: [String] = []) {
+        Task { await prepareOutlook(packet) }
+        var parts: [String] = []
+        if !to.isEmpty {
+            parts.append("to=\(encode(to.joined(separator: ";")))")
         }
-        guard let presenter = topController(), presenter.view.window != nil else {
-            openOutlook(subject: subject, jpegURLs: [])
+        parts.append("subject=\(encode(packet.subject))")
+        let query = parts.joined(separator: "&")
+        let candidates = [
+            "ms-outlook://emails/new?\(query)",
+            "ms-outlook://compose?\(query)",
+        ]
+        let outlook = URL(string: candidates[0])
+        if let outlook, UIApplication.shared.canOpenURL(outlook) {
+            openFirst(candidates, index: 0)
             return
         }
-        var items: [Any] = tiles.enumerated().map { index, image in
-            OutlookBodyItem(image: image, subject: subject, primary: index == 0)
+        presentMail(packet, to: to)
+    }
+
+    @MainActor
+    static func prepareOutlook(_ packet: PulseMail.Packet) async {
+        if jpegHTML != packet.html || jpegURLs.isEmpty {
+            await warmJpegs(packet.html)
         }
-        if items.isEmpty {
-            items = [subject]
+        var items: [[String: Any]] = []
+        if let html = packet.html.data(using: .utf8) {
+            items.append([UTType.html.identifier: html])
         }
-        let sheet = UIActivityViewController(
-            activityItems: items,
-            applicationActivities: nil
-        )
-        sheet.excludedActivityTypes = [
-            .assignToContact,
-            .addToReadingList,
-            .print,
-            .saveToCameraRoll,
-            .markupAsPDF,
-            .copyToPasteboard,
-        ]
-        if let popover = sheet.popoverPresentationController {
-            let view = presenter.view!
-            popover.sourceView = view
-            popover.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.maxY - 80, width: 1, height: 1)
-            popover.permittedArrowDirections = []
+        for url in jpegURLs {
+            if let data = try? Data(contentsOf: url) {
+                items.append([UTType.jpeg.identifier: data])
+            }
         }
-        presenter.present(sheet, animated: true)
+        if !items.isEmpty {
+            UIPasteboard.general.setItems(items, options: [:])
+        }
     }
 
     @MainActor
