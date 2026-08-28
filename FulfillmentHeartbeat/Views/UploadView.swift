@@ -5,7 +5,6 @@ import UIKit
 struct UploadView: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var router: HubRouter
-    @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var showImporter = false
     @State private var importTarget: MetricSection?
     @State private var masterImport = false
