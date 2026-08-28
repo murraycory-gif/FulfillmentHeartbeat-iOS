@@ -1061,6 +1061,47 @@ enum HeartbeatMath {
         return flags
     }
 
+    static func scheduleActionFlags(_ rows: [MetricRow]) -> [FiveStarFlag] {
+        let specs: [(name: String, keys: [String])] = [
+            ("Under Scheduled", ["under_schedule_pct", "under_scheduled"]),
+            ("Over Scheduled", ["over_schedule_pct", "over_scheduled"]),
+        ]
+        var flags: [FiveStarFlag] = []
+        flags.reserveCapacity(specs.count)
+        for spec in specs {
+            var worst = Health.none
+            var action = 0
+            var values: [Double] = []
+            values.reserveCapacity(rows.count)
+            for row in rows {
+                let value: Double?
+                if spec.keys.count == 2 {
+                    value = row.number(spec.keys[0], spec.keys[1])
+                } else {
+                    value = row.number(spec.keys[0])
+                }
+                guard let value else { continue }
+                values.append(value)
+                let health = varianceHealth(value)
+                if health.needsAction {
+                    action += 1
+                    if health == .risk { worst = .risk }
+                    else if worst != .risk { worst = .watch }
+                }
+            }
+            guard action > 0, worst.needsAction else { continue }
+            flags.append(
+                FiveStarFlag(
+                    name: spec.name,
+                    value: HeartbeatFormat.pct(average(values)),
+                    health: worst,
+                    stores: action
+                )
+            )
+        }
+        return flags
+    }
+
     static func oosStar(_ row: MetricRow) -> StarMark {
         componentStar(row, starKey: "oos_star", pctKey: "oos_pct", full: 3, half: 5, invert: true)
     }

@@ -186,7 +186,9 @@ struct DashBriefingList: View {
                                 .foregroundStyle(AppTheme.textTertiary)
                         }
                         if card.section == .fiveStar {
-                            fiveStarFlags
+                            metricFlags(HeartbeatMath.fiveStarActionFlags(store.displayRows(for: .fiveStar)))
+                        } else if card.section == .scheduleQuality {
+                            metricFlags(HeartbeatMath.scheduleActionFlags(store.displayRows(for: .scheduleQuality)))
                         }
                     }
                     .modifier(DashCardChrome(health: card.health))
@@ -197,8 +199,7 @@ struct DashBriefingList: View {
     }
 
     @ViewBuilder
-    private var fiveStarFlags: some View {
-        let flags = HeartbeatMath.fiveStarActionFlags(store.displayRows(for: .fiveStar))
+    private func metricFlags(_ flags: [HeartbeatMath.FiveStarFlag]) -> some View {
         if !flags.isEmpty {
             HStack(spacing: 8) {
                 ForEach(flags) { flag in
