@@ -127,35 +127,8 @@ enum PulseMail {
         .wrap{max-width:1100px;margin:0 auto}
         h1{font-size:22px;margin:0 0 4px;color:#003DA5}
         .sub{color:#5C677A;font-size:13px;margin:0 0 18px}
-        .page{background:#fff;border:2.5px solid #003DA5;border-radius:16px;overflow:hidden;margin:0 0 22px;page-break-after:always;break-after:page}
-        .banner{background:#003DA5;color:#fff;padding:12px 16px;font-weight:700;font-size:18px}
-        .banner small{display:block;font-weight:600;opacity:.9;font-size:12px;margin-top:2px}
-        .pad{padding:14px 16px}
-        .kpis{display:flex;flex-wrap:wrap;gap:10px;margin:0 0 14px}
-        .tile{flex:1 1 170px;min-width:150px;border-radius:14px;padding:12px 14px;border:1px solid #E4E9F4;background:#fff}
-        .tile .top{display:flex;align-items:center;justify-content:space-between;gap:8px}
-        .tile .l{font-size:12px;font-weight:700;color:#141A29}
-        .tile .v{font-size:26px;font-weight:700;margin-top:6px;font-variant-numeric:tabular-nums}
-        .tile .d{font-size:12px;color:#5C677A;margin-top:4px}
-        .tile.good{background:#D1FAE5;border-color:#A7F3D0}
-        .tile.watch{background:#FEF3C7;border-color:#FDE68A}
-        .tile.risk{background:#FEE2E2;border-color:#FECACA}
-        .tile.brand{background:#EEF3FB;border-color:#D6E2F5}
-        .tile.good .v,.ink-good{color:#059669}
-        .tile.watch .v,.ink-watch{color:#D97706}
-        .tile.risk .v,.ink-risk{color:#DC2626}
-        .dash{border-radius:14px;padding:12px 14px;margin:0 0 10px;border:1px solid #E4E9F4}
-        .dash.good{background:#ECFDF5;border-color:#A7F3D0}
-        .dash.watch{background:#FFFBEB;border-color:#FDE68A}
-        .dash.risk{background:#FEF2F2;border-color:#FECACA}
-        .dash h3{margin:0;font-size:18px}
-        .flags{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
-        .flag{flex:1 1 120px;border-radius:10px;padding:8px 10px;background:#fff;border:1px solid #E4E9F4}
-        .flag .l{font-size:11px;color:#5C677A;font-weight:700}
-        .flag .v{font-size:16px;font-weight:700;margin-top:2px}
-        .bar{background:#003DA5;color:#fff;border-radius:14px;padding:10px 14px;font-weight:700;margin:8px 0}
-        .bar small{display:block;font-weight:600;opacity:.9;font-size:12px;margin-top:2px}
-        table{width:100%;border-collapse:collapse;font-size:12px}
+        table.layout{width:100%;border-collapse:separate;border-spacing:8px 8px}
+        table.data{width:100%;border-collapse:collapse;font-size:12px}
         th{text-align:left;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:#8A93A3;padding:6px 8px;border-bottom:1px solid #E4E9F4}
         td{padding:6px 8px;border-bottom:1px solid #EEF1F6;white-space:nowrap}
         td.num{text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
@@ -187,30 +160,39 @@ enum PulseMail {
         var cards = ""
         for card in snap.summaries {
             let flags = dashboardFlags(card.section, snap: snap)
-            let flagHTML = flags.isEmpty ? "" : "<div class=\"flags\">" + flags.map { flag in
-                "<div class=\"flag\"><div class=\"l\">\(esc(flag.0))</div><div class=\"v ink-\(flag.2.rawValue)\">\(esc(flag.1)) \(pill(flag.2))</div></div>"
-            }.joined() + "</div>"
+            let fill = cardFill(card.health)
+            var flagHTML = ""
+            if !flags.isEmpty {
+                var cells = ""
+                for flag in flags {
+                    cells += """
+                    <td style="background:#fff;border:1px solid #E4E9F4;border-radius:10px;padding:8px 10px">
+                    <div style="font-size:11px;color:#5C677A;font-weight:700">\(esc(flag.0))</div>
+                    <div style="font-size:16px;font-weight:700;margin-top:2px;color:\(ink(flag.2))">\(esc(flag.1)) \(pill(flag.2))</div>
+                    </td>
+                    """
+                }
+                flagHTML = "<table class=\"layout\" width=\"100%\" cellspacing=\"8\" cellpadding=\"0\"><tr>\(cells)</tr></table>"
+            }
+            let title = card.section == .pickPath ? "Pick Path Compliance" : card.section.title
             cards += """
-            <div class="dash \(card.health.rawValue)">
-            <div class="top" style="display:flex;align-items:center;gap:10px">
-            <div style="flex:1">
-            <h3>\(esc(card.section == .pickPath ? "Pick Path Compliance" : card.section.title))</h3>
-            <div class="muted">\(esc(card.headlineLabel))</div>
-            <div class="ink-\(card.riskCount == 0 ? "good" : "risk")" style="font-weight:700;margin-top:4px">\(esc(riskLine(card.section, card)))</div>
-            </div>
-            <div class="v ink-\(card.health.rawValue)" style="font-size:28px;font-weight:700">\(esc(card.headlineText))</div>
-            \(pill(card.health))
-            </div>
+            <table width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 10px;background:\(fill.bg);border:1px solid \(fill.border);border-radius:14px">
+            <tr>
+            <td style="padding:12px 14px">
+            <div style="font-size:18px;font-weight:700;color:#141A29">\(esc(title))</div>
+            <div style="color:#5C677A;font-size:13px">\(esc(card.headlineLabel))</div>
+            <div style="font-weight:700;margin-top:4px;color:\(card.riskCount == 0 ? ink(.good) : ink(.risk))">\(esc(riskLine(card.section, card)))</div>
             \(flagHTML)
-            </div>
+            </td>
+            <td valign="top" style="padding:12px 14px;text-align:right;white-space:nowrap">
+            <div style="font-size:28px;font-weight:700;color:\(ink(card.health))">\(esc(card.headlineText))</div>
+            \(pill(card.health))
+            </td>
+            </tr>
+            </table>
             """
         }
-        return """
-        <div class="page">
-        <div class="banner">Operational Heartbeat<small>\(esc(snap.filterSummary))</small></div>
-        <div class="pad">\(cards)</div>
-        </div>
-        """
+        return pageWrap(title: "Operational Heartbeat", filter: snap.filterSummary, inner: cards)
     }
 
     private static func dashboardFlags(_ section: MetricSection, snap: Snapshot) -> [(String, String, Health)] {
@@ -240,30 +222,62 @@ enum PulseMail {
         let kpis = kpiTiles(section, summary: summary, rows: stores, snap: snap)
         let rollup = rollupTable(section, rows: stores, grain: snap.grain)
         let table = storeTable(section, rows: stores, pickerCounts: snap.pickerCounts)
-        return """
-        <div class="page">
-        <div class="banner">\(esc(section.bannerTitle))<small>\(esc(snap.filterSummary))</small></div>
-        <div class="pad">
-        \(kpis)
-        \(rollup)
-        \(table)
-        </div>
-        </div>
+        return pageWrap(
+            title: section.bannerTitle,
+            filter: snap.filterSummary,
+            inner: kpis + rollup + table
+        )
+    }
+
+    private static func pageWrap(title: String, filter: String, inner: String) -> String {
+        """
+        <table width="100%" cellspacing="0" cellpadding="0" style="background:#fff;border:2.5px solid #003DA5;border-radius:16px;margin:0 0 22px">
+        <tr><td style="background:#003DA5;color:#fff;padding:12px 16px;font-weight:700;font-size:18px">
+        \(esc(title))
+        <div style="font-weight:600;opacity:.9;font-size:12px;margin-top:2px">\(esc(filter))</div>
+        </td></tr>
+        <tr><td style="padding:14px 16px">\(inner)</td></tr>
+        </table>
         """
     }
 
+    private static func cardFill(_ health: Health) -> (bg: String, border: String) {
+        switch health {
+        case .good: return ("#ECFDF5", "#A7F3D0")
+        case .watch: return ("#FFFBEB", "#FDE68A")
+        case .risk: return ("#FEF2F2", "#FECACA")
+        case .none: return ("#FFFFFF", "#E4E9F4")
+        }
+    }
+
+    private static func ink(_ health: Health) -> String {
+        switch health {
+        case .good: return "#059669"
+        case .watch: return "#D97706"
+        case .risk: return "#DC2626"
+        case .none: return "#141A29"
+        }
+    }
+
+    private static func tileFill(_ health: Health, brand: Bool) -> (bg: String, border: String, ink: String) {
+        if brand { return ("#EEF3FB", "#D6E2F5", "#141A29") }
+        switch health {
+        case .good: return ("#D1FAE5", "#A7F3D0", "#059669")
+        case .watch: return ("#FEF3C7", "#FDE68A", "#D97706")
+        case .risk: return ("#FEE2E2", "#FECACA", "#DC2626")
+        case .none: return ("#FFFFFF", "#E4E9F4", "#141A29")
+        }
+    }
+
     private static func tile(_ label: String, _ value: String, _ detail: String, _ health: Health, brand: Bool = false) -> String {
-        let cls: String
-        if brand { cls = "brand" }
-        else if health == .none { cls = "" }
-        else { cls = health.rawValue }
+        let fill = tileFill(health, brand: brand)
         let badge = health == .none ? "" : pill(health)
         return """
-        <div class="tile \(cls)">
-        <div class="top"><span class="l">\(esc(label))</span>\(badge)</div>
-        <div class="v">\(esc(value))</div>
-        <div class="d">\(esc(detail))</div>
-        </div>
+        <td valign="top" style="width:25%;background:\(fill.bg);border:1px solid \(fill.border);border-radius:14px;padding:12px 14px">
+        <div style="font-size:12px;font-weight:700;color:#141A29">\(esc(label)) \(badge)</div>
+        <div style="font-size:26px;font-weight:700;margin-top:6px;color:\(fill.ink)">\(esc(value))</div>
+        <div style="font-size:12px;color:#5C677A;margin-top:4px">\(esc(detail))</div>
+        </td>
         """
     }
 
@@ -399,7 +413,15 @@ enum PulseMail {
             }
         }
         guard !items.isEmpty else { return "" }
-        return "<div class=\"kpis\">\(items.joined())</div>"
+        var rows = ""
+        var index = 0
+        let perRow = 4
+        while index < items.count {
+            let end = min(index + perRow, items.count)
+            rows += "<tr>" + items[index..<end].joined() + "</tr>"
+            index = end
+        }
+        return "<table class=\"layout\" width=\"100%\" cellspacing=\"8\" cellpadding=\"0\">\(rows)</table>"
     }
 
     private static func groupKey(_ row: MetricRow, grain: String) -> String {
@@ -444,7 +466,8 @@ enum PulseMail {
             body += "</tr>"
         }
         let title = grain == "district" ? "By district" : "Markets"
-        return "<div class=\"bar\">\(esc(title))<small>\(buckets.count) \(grain == "district" ? "districts" : "divisions")</small></div><table><tr>\(head)</tr>\(body)</table>"
+        return bar(title, "\(buckets.count) \(grain == "district" ? "districts" : "divisions")")
+            + "<table class=\"data\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\"><tr>\(head)</tr>\(body)</table>"
     }
 
     private static func averagedPayload(_ rows: [MetricRow]) -> [String: Double] {
@@ -469,9 +492,9 @@ enum PulseMail {
     private static func storeTable(_ section: MetricSection, rows: [MetricRow], pickerCounts: [String: Int]) -> String {
         let title = section == .pickerScorecard ? "Shopper" : "Store"
         if rows.isEmpty {
-            return "<div class=\"bar\">\(esc(title))<small>No rows in this view</small></div>"
+            return bar(title, "No rows in this view")
         }
-        let cap = section == .pickerScorecard ? 50 : 50
+        let cap = section == .pickerScorecard ? 200 : rows.count
         let headers = storeHeaders(section)
         let head = headers.map { "<th>\(esc($0))</th>" }.joined()
         var body = ""
@@ -494,7 +517,8 @@ enum PulseMail {
         if rows.count > ordered.count {
             note += " of \(HeartbeatFormat.num(Double(rows.count))) · open the app for the rest"
         }
-        return "<div class=\"bar\">\(esc(title))<small>\(esc(note))</small></div><table><tr>\(head)</tr>\(body)</table>"
+        return bar(title, note)
+            + "<table class=\"data\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\"><tr>\(head)</tr>\(body)</table>"
     }
 
     private static func storeHeaders(_ section: MetricSection) -> [String] {
@@ -605,7 +629,25 @@ enum PulseMail {
     }
 
     private static func pill(_ health: Health) -> String {
-        "<span class=\"pill \(health.rawValue)\">\(esc(health.label.uppercased()))</span>"
+        let bg: String
+        switch health {
+        case .good: bg = "#059669"
+        case .watch: bg = "#D97706"
+        case .risk: bg = "#DC2626"
+        case .none: bg = "#8A93A3"
+        }
+        return "<span style=\"display:inline-block;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;color:#fff;background:\(bg)\">\(esc(health.label.uppercased()))</span>"
+    }
+
+    private static func bar(_ title: String, _ detail: String) -> String {
+        """
+        <table width="100%" cellspacing="0" cellpadding="0" style="background:#003DA5;color:#fff;border-radius:14px;margin:8px 0">
+        <tr><td style="padding:10px 14px;font-weight:700">
+        \(esc(title))
+        <div style="font-weight:600;opacity:.9;font-size:12px;margin-top:2px">\(esc(detail))</div>
+        </td></tr>
+        </table>
+        """
     }
 
     private static func plain(_ snap: Snapshot, pages: Set<SharePage>) -> String {
