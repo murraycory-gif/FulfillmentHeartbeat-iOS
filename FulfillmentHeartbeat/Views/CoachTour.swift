@@ -54,7 +54,7 @@ enum CoachTour: Equatable {
                 CoachStep(
                     icon: "doc.badge.plus",
                     heading: "Master load",
-                    body: "Pick one .xlsx that has a tab per KPI. Name the sheets Lost Revenue, MI, 5 Star, Pick Path, Path Picker, Prep, Dynacap, Schedule, PPH, Labor, and Picker ScoreCard — or leave the Power BI headers and we map them. Link the file so next week you can reload from the same place."
+                    body: "Pick one .xlsx that has a tab per KPI. Name the sheets Lost Revenue, MI, 5 Star, Pick Path, Path Picker, Aisle Mapper, Prep, Dynacap, Schedule, PPH, Labor, and Picker ScoreCard — or leave the Power BI headers and we map them. Link the file so next week you can reload from the same place."
                 ),
                 CoachStep(
                     icon: "square.grid.2x2",
@@ -134,7 +134,7 @@ enum CoachTour: Equatable {
                 CoachStep(
                     icon: "person.2.fill",
                     heading: "Shoppers under each store",
-                    body: "Expand a store for that shopper’s pick path compliance, presub, OOS%, and PPH — only on this page."
+                    body: "Expand a store for that shopper’s pick path compliance, presub, OOS%, and PPH — only on this page. Mapper and Sequence columns are the latest aisle map and aisle sequence dates from the Aisle Mapper upload."
                 ),
             ]
         case .prepNotReady:

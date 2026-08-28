@@ -66,11 +66,6 @@ enum HeartbeatAssist {
                 "Which departments are the hottest?",
                 "How do we get missing items to 5%?",
             ]
-        case .aisleMapper:
-            return [
-                "Which stores have stale aisle maps?",
-                "Who has the oldest sequence update?",
-            ]
         case .fiveStar:
             return [
                 "Which 5 Star KPIs are broken?",
@@ -84,6 +79,8 @@ enum HeartbeatAssist {
                 "Which stores are off path?",
                 "Which shoppers are breaking path?",
                 "How do we fix path compliance?",
+                "Which stores have stale aisle maps?",
+                "Who has the oldest sequence update?",
             ]
         case .prepNotReady:
             return [
@@ -222,7 +219,7 @@ enum HeartbeatAssist {
             if has(q, ["flash", "ott", "presub", "oth", "coe", "5 star", "five star"]) {
                 return fiveStarBrief()
             }
-            if has(q, ["path", "compliance"]) {
+            if has(q, ["path", "compliance", "aisle map", "aisle mapper", "sequence update", "stale aisle"]) {
                 return pathBrief()
             }
             if has(q, ["healthy", "working", "green"]) {
@@ -441,6 +438,14 @@ enum HeartbeatAssist {
 
         private func pathBrief() -> String {
             var lines = header("Pick path")
+            let pathRows = storeRows(.pickPath)
+            let staleMapper = pathRows.filter { AisleMapperMath.health(AisleMapperMath.mapperISO($0)) == .risk }.count
+            let staleSeq = pathRows.filter { AisleMapperMath.health(AisleMapperMath.sequenceISO($0)) == .risk }.count
+            if staleMapper + staleSeq > 0 {
+                lines.append("ISSUE")
+                lines.append("\(staleMapper) stores have aisle maps older than 90 days. \(staleSeq) have sequence updates older than 90 days. Mapper and Sequence columns live on this Pick Path page.")
+                lines.append("")
+            }
             lines.append(contentsOf: districtLines(limit: 5, section: .pickPath))
             lines.append("")
             lines.append(contentsOf: storeLines(limit: 6, section: .pickPath))
