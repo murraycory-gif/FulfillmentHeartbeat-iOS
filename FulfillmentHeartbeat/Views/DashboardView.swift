@@ -189,6 +189,8 @@ struct DashBriefingList: View {
                             metricFlags(HeartbeatMath.fiveStarActionFlags(store.displayRows(for: .fiveStar)))
                         } else if card.section == .scheduleQuality {
                             metricFlags(HeartbeatMath.scheduleActionFlags(store.displayRows(for: .scheduleQuality)))
+                        } else if card.section == .labor {
+                            metricFlags(HeartbeatMath.laborActionFlags(store.displayRows(for: .labor)))
                         }
                     }
                     .modifier(DashCardChrome(health: card.health))
@@ -201,20 +203,30 @@ struct DashBriefingList: View {
     @ViewBuilder
     private func metricFlags(_ flags: [HeartbeatMath.FiveStarFlag]) -> some View {
         if !flags.isEmpty {
-            HStack(spacing: 8) {
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 150), spacing: 8)],
+                alignment: .leading,
+                spacing: 8
+            ) {
                 ForEach(flags) { flag in
                     VStack(alignment: .leading, spacing: 4) {
                         Text(flag.name)
                             .font(.subheadline.weight(.bold))
                             .foregroundStyle(AppTheme.text)
                         HStack(alignment: .center, spacing: 8) {
-                            Text(flag.value)
-                                .font(.title3.weight(.bold).monospacedDigit())
-                                .foregroundStyle(dashInk(flag.health))
-                            Text(flag.stores == 1 ? "1 store" : "\(HeartbeatFormat.num(Double(flag.stores))) stores")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(AppTheme.textSecondary)
-                            HealthBadge(health: flag.health, prominent: true, compact: true)
+                            if !flag.value.isEmpty {
+                                Text(flag.value)
+                                    .font(.title3.weight(.bold).monospacedDigit())
+                                    .foregroundStyle(dashInk(flag.health == .none ? .good : flag.health))
+                            }
+                            if flag.stores > 0 || flag.value.isEmpty {
+                                Text(flag.stores == 1 ? "1 store" : "\(HeartbeatFormat.num(Double(flag.stores))) stores")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(flag.value.isEmpty ? dashInk(flag.health) : AppTheme.textSecondary)
+                            }
+                            if flag.health != .none {
+                                HealthBadge(health: flag.health, prominent: true, compact: true)
+                            }
                         }
                     }
                     .padding(.horizontal, 12)
@@ -225,12 +237,12 @@ struct DashBriefingList: View {
                             .fill(Color.white.opacity(0.72))
                             .overlay {
                                 RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(dashWash(flag.health).opacity(0.55))
+                                    .fill(dashWash(flag.health == .none ? .good : flag.health).opacity(0.55))
                             }
                     )
                     .overlay(alignment: .leading) {
                         Capsule()
-                            .fill(dashInk(flag.health))
+                            .fill(dashInk(flag.health == .none ? .good : flag.health))
                             .frame(width: 4)
                             .padding(.vertical, 8)
                     }

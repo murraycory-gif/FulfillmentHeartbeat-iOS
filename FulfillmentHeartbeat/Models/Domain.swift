@@ -1102,7 +1102,67 @@ enum HeartbeatMath {
         return flags
     }
 
-    static func oosStar(_ row: MetricRow) -> StarMark {
+    static func laborActionFlags(_ rows: [MetricRow]) -> [FiveStarFlag] {
+        let stores = rows.filter { $0.textPayload["labor_grain"] != "market" && !isIgnoredStore($0.storeNumber) }
+        let cost = laborRollup(rows, key: "cost_trgt_pct")
+        let act = laborRollup(rows, key: "act_cost_pct")
+        let uplh = laborRollup(rows, key: "uplh_impact_pct")
+        let wage = laborRollup(rows, key: "wage_impact_pct")
+        let aiv = laborRollup(rows, key: "aiv_impact_pct")
+        var flags: [FiveStarFlag] = []
+        flags.append(
+            FiveStarFlag(
+                name: "Cost Trgt%",
+                value: HeartbeatFormat.pct(cost),
+                health: .none,
+                stores: 0
+            )
+        )
+        let actHealth: Health = {
+            guard let act, let cost else { return .none }
+            return act <= cost ? .good : .risk
+        }()
+        flags.append(
+            FiveStarFlag(
+                name: "Act Cost%",
+                value: HeartbeatFormat.pct(act),
+                health: actHealth,
+                stores: 0
+            )
+        )
+        for spec in [("UPLH", uplh), ("Wage", wage), ("AIV", aiv)] {
+            flags.append(
+                FiveStarFlag(
+                    name: spec.0,
+                    value: HeartbeatFormat.pct(spec.1),
+                    health: laborHealth(spec.1),
+                    stores: 0
+                )
+            )
+        }
+        let over3 = stores.filter { ($0.number("target_vs_actual_pct") ?? 0) > laborWatch }.count
+        let band = stores.filter {
+            let value = $0.number("target_vs_actual_pct") ?? 0
+            return value > 0 && value <= laborWatch
+        }.count
+        flags.append(
+            FiveStarFlag(
+                name: "Over 3%",
+                value: "",
+                health: over3 == 0 ? .good : .risk,
+                stores: over3
+            )
+        )
+        flags.append(
+            FiveStarFlag(
+                name: "0.01%–3%",
+                value: "",
+                health: band == 0 ? .good : .watch,
+                stores: band
+            )
+        )
+        return flags
+    }
         componentStar(row, starKey: "oos_star", pctKey: "oos_pct", full: 3, half: 5, invert: true)
     }
 
