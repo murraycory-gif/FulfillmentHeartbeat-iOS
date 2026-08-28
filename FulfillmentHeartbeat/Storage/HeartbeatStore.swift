@@ -914,7 +914,7 @@ final class HeartbeatStore: ObservableObject {
 
     func commitFilters(_ next: DashboardFilters) {
         var cleaned = next
-        cleaned.division = MarketRegion.uniqueNames(cleaned.divisions).joined(separator: "\n")
+        cleaned.sanitize()
         if filters == cleaned { return }
         filters = cleaned
         persistFilters()
@@ -928,18 +928,12 @@ final class HeartbeatStore: ObservableObject {
         case .region:
             return MarketRegion.allCases.map { (id: $0.rawValue, label: $0.rawValue) }
         case .division:
-            let all = cachedDivisions
-            if !draft.regions.isEmpty {
-                return pairs(all.filter { value in
-                    draft.regions.contains { MarketRegion(rawValue: $0)?.contains(value) == true }
-                })
-            }
-            return pairs(all)
+            return pairs(MarketRegion.divisionChoices(regions: draft.regions))
         case .district:
             return pairs(
                 roster.values
                     .filter { draft.includesDivision($0.division) }
-                    .map(\.district)
+                    .map { HeartbeatMath.canonicalDistrict($0.district) }
                     .filter { !$0.isEmpty }
                     .uniquedIgnoringCase()
                     .sorted()
@@ -949,7 +943,7 @@ final class HeartbeatStore: ObservableObject {
                 roster.values
                     .filter { draft.includesDivision($0.division) }
                     .filter { draft.includesDistrict($0.district) }
-                    .map(\.om)
+                    .map { HeartbeatMath.canonicalOM($0.om) }
                     .filter { value in
                         !value.isEmpty && value.rangeOfCharacter(from: .letters) != nil
                     }
@@ -1510,18 +1504,18 @@ final class HeartbeatStore: ObservableObject {
     private func refreshFilterOptions() {
         cachedDistricts = roster.values
             .filter { filters.includesDivision($0.division) }
-            .map(\.district)
+            .map { HeartbeatMath.canonicalDistrict($0.district) }
             .filter { !$0.isEmpty }
-            .uniqued()
+            .uniquedIgnoringCase()
             .sorted()
         cachedOMs = roster.values
             .filter { filters.includesDivision($0.division) }
             .filter { filters.includesDistrict($0.district) }
-            .map(\.om)
+            .map { HeartbeatMath.canonicalOM($0.om) }
             .filter { value in
                 !value.isEmpty && value.rangeOfCharacter(from: .letters) != nil
             }
-            .uniqued()
+            .uniquedIgnoringCase()
             .sorted()
         var seen: [String: String?] = [:]
         for (number, identity) in roster {
@@ -1578,6 +1572,7 @@ final class HeartbeatStore: ObservableObject {
                     self.uploads = decoded.uploads.sorted { $0.uploadedAt > $1.uploadedAt }
                     self.seeded = decoded.seeded || !decoded.rows.isEmpty
                     self.filters = loadedFilters
+                    self.filters.sanitize()
                     self.install(caches)
                     self.hydrating = false
                     self.isReady = true
@@ -1905,16 +1900,16 @@ private struct PulseCaches {
         let pph = heavy ? pphIndexValues(pickers) : [:]
         let districts = roster.values
             .filter { filters.includesDivision($0.division) }
-            .map(\.district)
+            .map { HeartbeatMath.canonicalDistrict($0.district) }
             .filter { !$0.isEmpty }
-            .uniqued()
+            .uniquedIgnoringCase()
             .sorted()
         let oms = roster.values
             .filter { filters.includesDivision($0.division) }
             .filter { filters.includesDistrict($0.district) }
-            .map(\.om)
+            .map { HeartbeatMath.canonicalOM($0.om) }
             .filter { value in !value.isEmpty && value.rangeOfCharacter(from: .letters) != nil }
-            .uniqued()
+            .uniquedIgnoringCase()
             .sorted()
         var seen: [String: String?] = [:]
         for (number, identity) in roster {

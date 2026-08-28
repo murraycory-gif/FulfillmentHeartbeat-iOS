@@ -636,6 +636,28 @@ enum HeartbeatMath {
             .lowercased()
     }
 
+    static func compactKey(_ raw: String) -> String {
+        normalize(raw).replacingOccurrences(of: "[^a-z0-9]", with: "", options: .regularExpression)
+    }
+
+    static func canonicalDistrict(_ raw: String) -> String {
+        var value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        value = value.replacingOccurrences(of: "(?i)^district\\s+", with: "", options: .regularExpression)
+        value = value.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        guard !value.isEmpty else { return "" }
+        if value.rangeOfCharacter(from: .decimalDigits) != nil {
+            return value.replacingOccurrences(of: "\\s+", with: "", options: .regularExpression).uppercased()
+        }
+        return value
+    }
+
+    static func canonicalOM(_ raw: String) -> String {
+        var value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        value = value.replacingOccurrences(of: "(?i)^(om|operations manager)\\s*[:\\-–]\\s*", with: "", options: .regularExpression)
+        value = value.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        return value
+    }
+
     struct StoreIdentity {
         var division: String
         var district: String
@@ -708,10 +730,17 @@ enum HeartbeatMath {
             if ignoredStores.contains(number) { continue }
             var current = map[number] ?? StoreIdentity(division: "", district: "", om: "", name: nil)
             if !row.division.isEmpty {
-                current.division = MarketRegion.canonicalName(row.division)
+                let name = MarketRegion.canonicalName(row.division)
+                if !name.isEmpty { current.division = name }
             }
-            if current.district.isEmpty, !row.district.isEmpty { current.district = row.district }
-            if current.om.isEmpty, !row.operationsOM.isEmpty { current.om = row.operationsOM }
+            if !row.district.isEmpty {
+                let district = canonicalDistrict(row.district)
+                if !district.isEmpty { current.district = district }
+            }
+            if !row.operationsOM.isEmpty {
+                let om = canonicalOM(row.operationsOM)
+                if !om.isEmpty { current.om = om }
+            }
             if current.name == nil, let name = row.storeName, !name.isEmpty { current.name = name }
             map[number] = current
         }
@@ -2298,6 +2327,27 @@ struct DashboardFilters: Equatable, Codable {
         district = try c.decodeIfPresent(String.self, forKey: .district) ?? ""
         om = try c.decodeIfPresent(String.self, forKey: .om) ?? ""
         store = try c.decodeIfPresent(String.self, forKey: .store) ?? ""
+        sanitize()
+    }
+
+    mutating func sanitize() {
+        division = MarketRegion.uniqueNames(divisions).joined(separator: "\n")
+        district = Self.uniqueNormalized(districts.map(HeartbeatMath.canonicalDistrict))
+        om = Self.uniqueNormalized(oms.map(HeartbeatMath.canonicalOM))
+        store = Self.uniqueNormalized(stores.map(HeartbeatMath.canonicalStore))
+    }
+
+    private static func uniqueNormalized(_ values: [String]) -> String {
+        var seen = Set<String>()
+        var out: [String] = []
+        for value in values {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+            if seen.insert(HeartbeatMath.normalize(trimmed)).inserted {
+                out.append(trimmed)
+            }
+        }
+        return out.joined(separator: "\n")
     }
 }
 
@@ -2330,7 +2380,8 @@ enum MarketRegion: String, CaseIterable, Identifiable, Sendable {
         var out: [String] = []
         for name in divisions {
             let canonical = Self.canonicalName(name)
-            if seen.insert(HeartbeatMath.normalize(canonical)).inserted {
+            guard !canonical.isEmpty else { continue }
+            if seen.insert(HeartbeatMath.compactKey(canonical)).inserted {
                 out.append(canonical)
             }
         }
@@ -2347,58 +2398,55 @@ enum MarketRegion: String, CaseIterable, Identifiable, Sendable {
     }
 
     static func matchesDivision(_ lhs: String, _ rhs: String) -> Bool {
-        HeartbeatMath.matches(lhs, rhs)
-            || HeartbeatMath.matches(
-                lhs.replacingOccurrences(of: "-", with: " "),
-                rhs.replacingOccurrences(of: "-", with: " ")
-            )
+        let a = canonicalName(lhs)
+        let b = canonicalName(rhs)
+        if !a.isEmpty, !b.isEmpty { return HeartbeatMath.compactKey(a) == HeartbeatMath.compactKey(b) }
+        return HeartbeatMath.compactKey(lhs) == HeartbeatMath.compactKey(rhs) && !HeartbeatMath.compactKey(lhs).isEmpty
     }
+
+    static let ignoredDivisionKeys: Set<String> = [
+        "total", "grandtotal", "all", "alldivisions", "allmarkets", "company",
+        "na", "none", "null", "blank", "unassigned", "unknown",
+    ]
+
+    static let regionKeys: Set<String> = [
+        "east", "west", "south", "california",
+        "eastregion", "westregion", "southregion", "californiaregion",
+    ]
 
     static func canonicalName(_ raw: String) -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return trimmed }
+        guard !trimmed.isEmpty else { return "" }
         var compact = HeartbeatMath.normalize(
-            trimmed
-                .replacingOccurrences(of: "[-'’./]", with: " ", options: .regularExpression)
+            trimmed.replacingOccurrences(of: "[-'’./]", with: " ", options: .regularExpression)
         )
         compact = compact.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-        for suffix in [" division", " div", " market", " banner"] {
+        for suffix in [" division", " div", " market", " banner", " region"] {
             if compact.hasSuffix(suffix) {
                 compact = String(compact.dropLast(suffix.count)).trimmingCharacters(in: .whitespaces)
             }
         }
-        if compact == "mid atlantic" || compact.hasPrefix("mid atlantic") { return "Mid-Atlantic" }
-        if compact.hasPrefix("united") { return "United" }
-        if compact.contains("jewel") { return "Jewel Osco" }
-        if compact == "shaws" || compact.hasPrefix("shaw") { return "Shaws" }
-        if compact == "norcal" || compact == "nor cal" || compact == "no cal" || compact == "northern california" {
-            return "NorCal"
+        var key = HeartbeatMath.compactKey(compact)
+        for suffix in ["division", "div", "market", "banner", "region"] where key.hasSuffix(suffix) && key.count > suffix.count {
+            key.removeLast(suffix.count)
         }
-        if compact == "socal" || compact == "so cal" || compact == "southern california" {
-            return "SoCal"
-        }
-        if compact.contains("mountain west") { return "Mountain West" }
-        if compact == "haggen" || compact.hasPrefix("haggen ") { return "Haggen" }
-        if compact == "portland" || compact.hasPrefix("portland ") { return "Portland" }
-        if compact == "seattle" || compact.hasPrefix("seattle ") { return "Seattle" }
-        if compact == "southern" || compact.hasPrefix("southern ") && !compact.contains("california") {
-            return "Southern"
-        }
-        if compact == "southwest" || compact.hasPrefix("southwest ") { return "Southwest" }
+        if ignoredDivisionKeys.contains(key) || regionKeys.contains(key) { return "" }
+        if key == "midatlantic" || compact.hasPrefix("mid atlantic") { return "Mid-Atlantic" }
+        if key.hasPrefix("united") { return "United" }
+        if key.contains("jewel") { return "Jewel Osco" }
+        if key == "shaws" || key.hasPrefix("shaw") { return "Shaws" }
+        if key == "norcal" || key == "nocal" || key == "northerncalifornia" { return "NorCal" }
+        if key == "socal" || key == "southerncalifornia" || key == "southerncal" { return "SoCal" }
+        if key.contains("mountainwest") { return "Mountain West" }
+        if key == "haggen" || key.hasPrefix("haggen") { return "Haggen" }
+        if key == "portland" || key.hasPrefix("portland") { return "Portland" }
+        if key == "seattle" || key.hasPrefix("seattle") { return "Seattle" }
+        if key == "southwest" || key.hasPrefix("southwest") { return "Southwest" }
+        if key == "southern" { return "Southern" }
         for official in officialDivisions {
-            let key = HeartbeatMath.normalize(official.replacingOccurrences(of: "-", with: " "))
-            if compact == key { return official }
+            if key == HeartbeatMath.compactKey(official) { return official }
         }
-        if let match = officialDivisions.first(where: { official in
-            compact.hasPrefix(HeartbeatMath.normalize(official.replacingOccurrences(of: "-", with: " ")))
-        }) {
-            return match
-        }
-        return trimmed.replacingOccurrences(
-            of: "(?i)\\s*(division|div\\.?|market|banner)\\s*$",
-            with: "",
-            options: .regularExpression
-        ).trimmingCharacters(in: .whitespacesAndNewlines)
+        return ""
     }
 
     static func uniqueNames(_ values: [String]) -> [String] {
@@ -2407,9 +2455,22 @@ enum MarketRegion: String, CaseIterable, Identifiable, Sendable {
         for raw in values {
             let name = canonicalName(raw)
             guard !name.isEmpty else { continue }
-            let key = HeartbeatMath.normalize(name.replacingOccurrences(of: "-", with: " "))
-            if seen.insert(key).inserted {
+            if seen.insert(HeartbeatMath.compactKey(name)).inserted {
                 out.append(name)
+            }
+        }
+        return out
+    }
+
+    static func divisionChoices(regions: [String]) -> [String] {
+        if regions.isEmpty { return officialDivisions }
+        var seen = Set<String>()
+        var out: [String] = []
+        for region in regions.compactMap({ MarketRegion(rawValue: $0) }) {
+            for name in region.displayDivisions {
+                if seen.insert(HeartbeatMath.compactKey(name)).inserted {
+                    out.append(name)
+                }
             }
         }
         return out
@@ -2418,7 +2479,7 @@ enum MarketRegion: String, CaseIterable, Identifiable, Sendable {
     static func companyDivisions(for filters: DashboardFilters) -> [String] {
         let selectedDivisions = DashboardFilters.parts(filters.division)
         if !selectedDivisions.isEmpty {
-            return selectedDivisions.map { canonicalName($0) }
+            return uniqueNames(selectedDivisions)
         }
         let selectedRegions = DashboardFilters.parts(filters.region)
         if !selectedRegions.isEmpty {
