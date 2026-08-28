@@ -588,6 +588,7 @@ final class HeartbeatStore: ObservableObject {
         entry.updatedAt = Date()
         checklistByKey[entry.id] = entry
         persistChecklist()
+        refreshChecklistOpenCount()
         objectWillChange.send()
     }
 
@@ -624,7 +625,11 @@ final class HeartbeatStore: ObservableObject {
         objectWillChange.send()
     }
 
-    var checklistOpenCount: Int {
+    private var cachedChecklistOpenCount = 0
+
+    var checklistOpenCount: Int { cachedChecklistOpenCount }
+
+    private func refreshChecklistOpenCount() {
         var count = 0
         for section in MetricSection.checklistSections {
             var seen = Set<String>()
@@ -647,7 +652,7 @@ final class HeartbeatStore: ObservableObject {
                 }
             }
         }
-        return count
+        cachedChecklistOpenCount = count
     }
 
     var canSendChecklist: Bool { !checklistRecipients.isEmpty }
@@ -1499,6 +1504,7 @@ final class HeartbeatStore: ObservableObject {
         cachedOMs = pulse.oms
         cachedStores = pulse.stores
         cachedSummaries = pulse.summaries
+        refreshChecklistOpenCount()
     }
 
     private func refreshFilterOptions() {
@@ -1639,6 +1645,7 @@ final class HeartbeatStore: ObservableObject {
         pickPathPickersByStore = caches.pickPathPickersByStore
         pickPathByShopper = caches.pickPathByShopper
         pphPickersByStore = caches.pphPickersByStore
+        refreshChecklistOpenCount()
         objectWillChange.send()
     }
 
@@ -1650,6 +1657,7 @@ final class HeartbeatStore: ObservableObject {
         pickPathPickersByStore = caches.pickPathPickersByStore
         pickPathByShopper = caches.pickPathByShopper
         pphPickersByStore = caches.pphPickersByStore
+        refreshChecklistOpenCount()
         objectWillChange.send()
     }
 

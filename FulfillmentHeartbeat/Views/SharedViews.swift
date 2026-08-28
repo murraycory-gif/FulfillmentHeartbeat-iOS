@@ -1374,7 +1374,7 @@ struct PickPathTable: View {
     @State private var ascending = true
     @State private var snaps: [PickPathLineSnap] = []
     @State private var openStore: String?
-    @State private var limit = 150
+    @State private var limit = 50
     @State private var orderedCount = 0
 
     private var expanded: Bool { headerPin.storesExpanded }
@@ -1460,7 +1460,7 @@ struct PickPathTable: View {
                     }
                     if orderedCount > snaps.count {
                         Button {
-                            limit += 150
+                            limit += 50
                             rebuildOrder(sort: sort, ascending: ascending)
                         } label: {
                             Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
@@ -1478,12 +1478,12 @@ struct PickPathTable: View {
                 .transaction { $0.animation = nil }
                 .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
                 .onChange(of: store.filterStamp) { _, _ in
-                    limit = 150
+                    limit = 50
                     rebuildOrder(sort: sort, ascending: ascending)
                     headerPin.storeCount = rows.count
                 }
                 .onChange(of: rows.count) { _, _ in
-                    limit = 150
+                    limit = 50
                     rebuildOrder(sort: sort, ascending: ascending)
                     headerPin.storeCount = rows.count
                 }
@@ -2095,52 +2095,9 @@ private struct PathShopperTable: View {
     let storeNumber: String
     var section: MetricSection = .pickPath
     @State private var limit = 12
+    @State private var pickers: [PathShopperSnap] = []
 
     private var columns: [ShopperMetric] { ShopperMetric.columns(for: section) ?? [] }
-
-    private var pickers: [PathShopperSnap] {
-        guard !columns.isEmpty else { return [] }
-        var byKey: [String: PathShopperSnap] = [:]
-        func key(for row: MetricRow) -> String {
-            HeartbeatMath.shopperAliases(row).first ?? HeartbeatMath.canonicalShopper(row.shopperKey)
-        }
-        func merge(_ row: MetricRow, path: Double? = nil) {
-            let id = key(for: row)
-            guard !id.isEmpty else { return }
-            var snap = byKey[id] ?? PathShopperSnap(id: id, name: row.shopperName)
-            if snap.name.isEmpty { snap.name = row.shopperName }
-            if snap.path == nil { snap.path = path ?? row.number("compliance_pct") }
-            if snap.presub == nil { snap.presub = row.number("presub_pct") }
-            if snap.oos == nil { snap.oos = row.number("oos_pct") }
-            if snap.pph == nil { snap.pph = row.number("pph") }
-            if snap.ott == nil { snap.ott = row.number("ott_pct") }
-            if snap.flash == nil { snap.flash = row.number("flash_pct") }
-            if snap.oth5 == nil { snap.oth5 = row.number("oth5_pct") }
-            if snap.coe == nil { snap.coe = row.number("coe_pct") }
-            if snap.refund == nil { snap.refund = row.number("refund_amt") }
-            if snap.orders == nil { snap.orders = row.number("orders") }
-            if snap.hours == nil { snap.hours = row.number("pick_hours") }
-            byKey[id] = snap
-        }
-        if section == .pickPath || section == .pickPathPicker {
-            for row in store.pickPathPickers(forStore: storeNumber) {
-                merge(row, path: row.number("compliance_pct"))
-            }
-        }
-        for row in store.pphPickers(forStore: storeNumber) {
-            let pathRow = store.pickPathPicker(forShopper: row.shopperKey)
-                ?? store.pickPathPicker(forShopper: row.shopperName)
-                ?? store.pickPathPicker(forShopper: row.shopperId ?? "")
-            merge(row, path: pathRow?.number("compliance_pct"))
-            if let pathRow { merge(pathRow, path: pathRow.number("compliance_pct")) }
-        }
-        return byKey.values.sorted {
-            let a = sortValue($0)
-            let b = sortValue($1)
-            if a != b { return a < b }
-            return $0.name.localizedStandardCompare($1.name) == .orderedAscending
-        }
-    }
 
     var body: some View {
         if columns.isEmpty {
@@ -2186,6 +2143,53 @@ private struct PathShopperTable: View {
                     }
                 }
             }
+            .onAppear(perform: rebuildPickers)
+            .onChange(of: storeNumber) { _, _ in rebuildPickers() }
+            .onChange(of: store.filterStamp) { _, _ in rebuildPickers() }
+        }
+    }
+
+    private func rebuildPickers() {
+        guard !columns.isEmpty else { pickers = []; return }
+        var byKey: [String: PathShopperSnap] = [:]
+        func key(for row: MetricRow) -> String {
+            HeartbeatMath.shopperAliases(row).first ?? HeartbeatMath.canonicalShopper(row.shopperKey)
+        }
+        func merge(_ row: MetricRow, path: Double? = nil) {
+            let id = key(for: row)
+            guard !id.isEmpty else { return }
+            var snap = byKey[id] ?? PathShopperSnap(id: id, name: row.shopperName)
+            if snap.name.isEmpty { snap.name = row.shopperName }
+            if snap.path == nil { snap.path = path ?? row.number("compliance_pct") }
+            if snap.presub == nil { snap.presub = row.number("presub_pct") }
+            if snap.oos == nil { snap.oos = row.number("oos_pct") }
+            if snap.pph == nil { snap.pph = row.number("pph") }
+            if snap.ott == nil { snap.ott = row.number("ott_pct") }
+            if snap.flash == nil { snap.flash = row.number("flash_pct") }
+            if snap.oth5 == nil { snap.oth5 = row.number("oth5_pct") }
+            if snap.coe == nil { snap.coe = row.number("coe_pct") }
+            if snap.refund == nil { snap.refund = row.number("refund_amt") }
+            if snap.orders == nil { snap.orders = row.number("orders") }
+            if snap.hours == nil { snap.hours = row.number("pick_hours") }
+            byKey[id] = snap
+        }
+        if section == .pickPath || section == .pickPathPicker {
+            for row in store.pickPathPickers(forStore: storeNumber) {
+                merge(row, path: row.number("compliance_pct"))
+            }
+        }
+        for row in store.pphPickers(forStore: storeNumber) {
+            let pathRow = store.pickPathPicker(forShopper: row.shopperKey)
+                ?? store.pickPathPicker(forShopper: row.shopperName)
+                ?? store.pickPathPicker(forShopper: row.shopperId ?? "")
+            merge(row, path: pathRow?.number("compliance_pct"))
+            if let pathRow { merge(pathRow, path: pathRow.number("compliance_pct")) }
+        }
+        pickers = byKey.values.sorted {
+            let a = sortValue($0)
+            let b = sortValue($1)
+            if a != b { return a < b }
+            return $0.name.localizedStandardCompare($1.name) == .orderedAscending
         }
     }
 
@@ -2428,7 +2432,7 @@ struct DynacapTable: View {
     @State private var ascending = false
     @State private var snaps: [DynacapLineSnap] = []
     @State private var openStore: String?
-    @State private var limit = 150
+    @State private var limit = 50
     @State private var orderedCount = 0
 
     private var expanded: Bool { headerPin.storesExpanded }
@@ -2513,7 +2517,7 @@ struct DynacapTable: View {
                     }
                     if orderedCount > snaps.count {
                         Button {
-                            limit += 150
+                            limit += 50
                             rebuildOrder(sort: sort, ascending: ascending)
                         } label: {
                             Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
@@ -2531,12 +2535,12 @@ struct DynacapTable: View {
                 .transaction { $0.animation = nil }
                 .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
                 .onChange(of: store.filterStamp) { _, _ in
-                    limit = 150
+                    limit = 50
                     rebuildOrder(sort: sort, ascending: ascending)
                     headerPin.storeCount = rows.count
                 }
                 .onChange(of: rows.count) { _, _ in
-                    limit = 150
+                    limit = 50
                     rebuildOrder(sort: sort, ascending: ascending)
                     headerPin.storeCount = rows.count
                 }
@@ -3247,7 +3251,7 @@ struct PrepTable: View {
     @State private var ascending = false
     @State private var snaps: [PrepLineSnap] = []
     @State private var openStore: String?
-    @State private var limit = 150
+    @State private var limit = 50
     @State private var orderedCount = 0
 
     private var expanded: Bool { headerPin.storesExpanded }
@@ -3332,7 +3336,7 @@ struct PrepTable: View {
                     }
                     if orderedCount > snaps.count {
                         Button {
-                            limit += 150
+                            limit += 50
                             rebuildOrder(sort: sort, ascending: ascending)
                         } label: {
                             Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
@@ -3350,12 +3354,12 @@ struct PrepTable: View {
                 .transaction { $0.animation = nil }
                 .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
                 .onChange(of: store.filterStamp) { _, _ in
-                    limit = 150
+                    limit = 50
                     rebuildOrder(sort: sort, ascending: ascending)
                     headerPin.storeCount = rows.count
                 }
                 .onChange(of: rows.count) { _, _ in
-                    limit = 150
+                    limit = 50
                     rebuildOrder(sort: sort, ascending: ascending)
                     headerPin.storeCount = rows.count
                 }
@@ -3932,7 +3936,7 @@ struct FiveStarTable: View {
     @State private var ascending = true
     @State private var snaps: [FiveStarLineSnap] = []
     @State private var openStore: String?
-    @State private var limit = 150
+    @State private var limit = 50
     @State private var orderedCount = 0
 
     private var expanded: Bool { headerPin.storesExpanded }
@@ -4017,7 +4021,7 @@ struct FiveStarTable: View {
                     }
                     if orderedCount > snaps.count {
                         Button {
-                            limit += 150
+                            limit += 50
                             rebuildOrder(sort: sort, ascending: ascending)
                         } label: {
                             Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
@@ -4035,12 +4039,12 @@ struct FiveStarTable: View {
                 .transaction { $0.animation = nil }
                 .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
                 .onChange(of: store.filterStamp) { _, _ in
-                    limit = 150
+                    limit = 50
                     rebuildOrder(sort: sort, ascending: ascending)
                     headerPin.storeCount = rows.count
                 }
                 .onChange(of: rows.count) { _, _ in
-                    limit = 150
+                    limit = 50
                     rebuildOrder(sort: sort, ascending: ascending)
                     headerPin.storeCount = rows.count
                 }
@@ -5415,7 +5419,7 @@ struct LaborTable: View {
     @State private var ascending = false
     @State private var snaps: [LaborLineSnap] = []
     @State private var openStore: String?
-    @State private var limit = 150
+    @State private var limit = 50
     @State private var orderedCount = 0
 
     private var expanded: Bool { headerPin.storesExpanded }
@@ -5500,7 +5504,7 @@ struct LaborTable: View {
                     }
                     if orderedCount > snaps.count {
                         Button {
-                            limit += 150
+                            limit += 50
                             rebuildOrder(sort: sort, ascending: ascending)
                         } label: {
                             Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
@@ -5518,12 +5522,12 @@ struct LaborTable: View {
                 .transaction { $0.animation = nil }
                 .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
                 .onChange(of: store.filterStamp) { _, _ in
-                    limit = 150
+                    limit = 50
                     rebuildOrder(sort: sort, ascending: ascending)
                     headerPin.storeCount = rows.count
                 }
                 .onChange(of: rows.count) { _, _ in
-                    limit = 150
+                    limit = 50
                     rebuildOrder(sort: sort, ascending: ascending)
                     headerPin.storeCount = rows.count
                 }
@@ -6411,7 +6415,7 @@ struct LostRevenueTable: View {
     @State private var ascending = false
     @State private var snaps: [LostRevenueLineSnap] = []
     @State private var openStore: String?
-    @State private var limit = 150
+    @State private var limit = 50
     @State private var orderedCount = 0
 
     private var expanded: Bool { headerPin.storesExpanded }
@@ -6496,7 +6500,7 @@ struct LostRevenueTable: View {
                     }
                     if orderedCount > snaps.count {
                         Button {
-                            limit += 150
+                            limit += 50
                             rebuildOrder(sort: sort, ascending: ascending)
                         } label: {
                             Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
@@ -6514,12 +6518,12 @@ struct LostRevenueTable: View {
                 .transaction { $0.animation = nil }
                 .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
                 .onChange(of: store.filterStamp) { _, _ in
-                    limit = 150
+                    limit = 50
                     rebuildOrder(sort: sort, ascending: ascending)
                     headerPin.storeCount = rows.count
                 }
                 .onChange(of: rows.count) { _, _ in
-                    limit = 150
+                    limit = 50
                     rebuildOrder(sort: sort, ascending: ascending)
                     headerPin.storeCount = rows.count
                 }
@@ -6730,7 +6734,7 @@ struct ScheduleTable: View {
     @State private var ascending = true
     @State private var snaps: [ScheduleLineSnap] = []
     @State private var openStore: String?
-    @State private var limit = 150
+    @State private var limit = 50
     @State private var orderedCount = 0
 
     private var expanded: Bool { headerPin.storesExpanded }
@@ -6815,7 +6819,7 @@ struct ScheduleTable: View {
                     }
                     if orderedCount > snaps.count {
                         Button {
-                            limit += 150
+                            limit += 50
                             rebuildOrder(sort: sort, ascending: ascending)
                         } label: {
                             Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
@@ -6833,12 +6837,12 @@ struct ScheduleTable: View {
                 .transaction { $0.animation = nil }
                 .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
                 .onChange(of: store.filterStamp) { _, _ in
-                    limit = 150
+                    limit = 50
                     rebuildOrder(sort: sort, ascending: ascending)
                     headerPin.storeCount = rows.count
                 }
                 .onChange(of: rows.count) { _, _ in
-                    limit = 150
+                    limit = 50
                     rebuildOrder(sort: sort, ascending: ascending)
                     headerPin.storeCount = rows.count
                 }
@@ -7496,7 +7500,7 @@ struct PPHTable: View {
     @State private var ascending = true
     @State private var snaps: [PPHLineSnap] = []
     @State private var openStore: String?
-    @State private var limit = 150
+    @State private var limit = 50
     @State private var orderedCount = 0
 
     private var expanded: Bool { headerPin.storesExpanded }
@@ -7581,7 +7585,7 @@ struct PPHTable: View {
                     }
                     if orderedCount > snaps.count {
                         Button {
-                            limit += 150
+                            limit += 50
                             rebuildOrder(sort: sort, ascending: ascending)
                         } label: {
                             Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
@@ -7599,12 +7603,12 @@ struct PPHTable: View {
                 .transaction { $0.animation = nil }
                 .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
                 .onChange(of: store.filterStamp) { _, _ in
-                    limit = 150
+                    limit = 50
                     rebuildOrder(sort: sort, ascending: ascending)
                     headerPin.storeCount = rows.count
                 }
                 .onChange(of: rows.count) { _, _ in
-                    limit = 150
+                    limit = 50
                     rebuildOrder(sort: sort, ascending: ascending)
                     headerPin.storeCount = rows.count
                 }
@@ -8292,7 +8296,7 @@ struct PickerScoreTable: View {
 
     @State private var sort = Column.pph
     @State private var ascending = true
-    @State private var limit = 150
+    @State private var limit = 50
     @State private var snaps: [PickerLineSnap] = []
     @State private var openShopper: String?
 
@@ -8346,12 +8350,12 @@ struct PickerScoreTable: View {
                     rebuildPage()
                 }
                 .onChange(of: focus) { _, _ in
-                    limit = 150
+                    limit = 50
                     openShopper = nil
                     rebuildPage()
                 }
                 .onChange(of: store.filterStamp) { _, _ in
-                    limit = 150
+                    limit = 50
                     rebuildPage()
                 }
                 .onChange(of: total) { _, _ in
@@ -8393,7 +8397,7 @@ struct PickerScoreTable: View {
                     }
                     if snaps.count < total {
                         Button {
-                            limit += 150
+                            limit += 50
                             rebuildPage()
                         } label: {
                             Text("Show more · \(snaps.count) of \(HeartbeatFormat.num(Double(total)))")
@@ -8990,7 +8994,10 @@ struct FulfillmentChecklistCard: View {
     var showsHeader: Bool = true
     var startsExpanded: Bool = false
     @State private var expanded = false
-    @State private var openSections: Set<MetricSection> = Set(MetricSection.checklistSections)
+    @State private var openSections: Set<MetricSection> = []
+    @State private var itemLimit: [MetricSection: Int] = [:]
+    @State private var cachedItems: [MetricSection: [ChecklistDriverItem]] = [:]
+    @State private var itemsStamp = -1
     @State private var commentingID: String?
     @State private var recipientDraft = ""
     @State private var showingMail = false
@@ -9031,8 +9038,22 @@ struct FulfillmentChecklistCard: View {
                     ForEach(MetricSection.checklistSections) { section in
                         sectionHeader(section)
                         if openSections.contains(section) {
-                            ForEach(Array(visibleItems(for: section).enumerated()), id: \.element.id) { index, item in
+                            let items = cachedItems[section] ?? []
+                            let cap = itemLimit[section] ?? 8
+                            ForEach(Array(items.prefix(cap).enumerated()), id: \.element.id) { index, item in
                                 issueRow(item, section: section, rank: index + 1)
+                            }
+                            if items.count > cap {
+                                Button {
+                                    itemLimit[section] = items.count
+                                } label: {
+                                    Text("Show all \(items.count) \(section.short) stores")
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(AppTheme.blue)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.vertical, 6)
+                                }
+                                .buttonStyle(.plain)
                             }
                         }
                     }
@@ -9047,9 +9068,13 @@ struct FulfillmentChecklistCard: View {
         .background(AppTheme.bg.ignoresSafeArea())
         .onAppear {
             expanded = true
-            if openSections.isEmpty {
-                openSections = Set(MetricSection.checklistSections)
-            }
+            refreshChecklistItems()
+        }
+        .onChange(of: store.filterStamp) { _, _ in
+            refreshChecklistItems()
+        }
+        .onChange(of: store.checklistOpenCount) { _, _ in
+            refreshChecklistItems()
         }
         .sheet(isPresented: $showingMail, content: mailSheet)
         .alert("Couldn’t send", isPresented: mailErrorBinding) {
@@ -9072,7 +9097,9 @@ struct FulfillmentChecklistCard: View {
                     ForEach(MetricSection.checklistSections) { section in
                         sectionHeader(section)
                         if openSections.contains(section) {
-                            ForEach(Array(visibleItems(for: section).enumerated()), id: \.element.id) { index, item in
+                            let items = cachedItems[section] ?? []
+                            let cap = itemLimit[section] ?? 8
+                            ForEach(Array(items.prefix(cap).enumerated()), id: \.element.id) { index, item in
                                 issueRow(item, section: section, rank: index + 1)
                             }
                         }
@@ -9085,6 +9112,7 @@ struct FulfillmentChecklistCard: View {
         .modifier(ChecklistCardClip(enabled: true))
         .onAppear {
             if startsExpanded { expanded = true }
+            refreshChecklistItems()
         }
         .sheet(isPresented: $showingMail, content: mailSheet)
         .alert("Couldn’t send", isPresented: mailErrorBinding) {
@@ -9214,6 +9242,15 @@ struct FulfillmentChecklistCard: View {
         .tableRowCard(health: health)
     }
 
+    private func refreshChecklistItems() {
+        var map: [MetricSection: [ChecklistDriverItem]] = [:]
+        for section in MetricSection.checklistSections {
+            map[section] = visibleItems(for: section)
+        }
+        cachedItems = map
+        itemsStamp = store.filterStamp
+    }
+
     private func visibleItems(for section: MetricSection) -> [ChecklistDriverItem] {
         var items: [ChecklistDriverItem] = []
         var seen = Set<String>()
@@ -9229,7 +9266,7 @@ struct FulfillmentChecklistCard: View {
 
     private func sectionHeader(_ section: MetricSection) -> some View {
         let summary = store.summary(for: section)
-        let items = visibleItems(for: section)
+        let items = cachedItems[section] ?? visibleItems(for: section)
         let isOpen = openSections.contains(section)
         return Group {
             if !items.isEmpty {
