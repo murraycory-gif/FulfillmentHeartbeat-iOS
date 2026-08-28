@@ -130,12 +130,12 @@ struct SectionDetailView: View {
             } else if section == .missingItems {
                 if showTables {
                     Section {
-                        MissingItemsRollupTable(depts: visibleMIDepts)
+                        MissingItemsRollupTable(depts: visibleMIDepts, pageWidth: pageWidth)
                             .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
                             .listRowSeparator(.hidden)
                             .listRowBackground(AppTheme.bg)
                     }
-                    MissingItemsTable(rows: missingItemsRows, depts: visibleMIDepts)
+                    MissingItemsTable(rows: missingItemsRows, depts: visibleMIDepts, pageWidth: pageWidth)
                 }
             } else if showTables {
                 StoreTable(section: section, rows: snapshots)
@@ -189,9 +189,6 @@ struct SectionDetailView: View {
                         .environmentObject(laborHeaderPin)
                 } else if section == .pickerScorecard {
                     PickerStickyStoreHeader()
-                        .environmentObject(laborHeaderPin)
-                } else if section == .missingItems {
-                    MissingItemsStickyStoreHeader(depts: visibleMIDepts)
                         .environmentObject(laborHeaderPin)
                 }
             }
