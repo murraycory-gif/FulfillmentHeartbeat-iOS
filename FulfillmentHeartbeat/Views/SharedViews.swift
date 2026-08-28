@@ -60,6 +60,21 @@ struct HubBanner: View {
     }
 }
 
+struct HubStickyPageBanner: View {
+    var icon: String
+    var title: String
+    var accessory: String? = nil
+
+    var body: some View {
+        HubBanner(icon: icon, title: title, accessory: accessory)
+            .padding(.horizontal, 20)
+            .padding(.top, 4)
+            .padding(.bottom, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(AppTheme.bg)
+    }
+}
+
 struct HubPanel<Content: View>: View {
     var icon: String
     var title: String
@@ -9004,33 +9019,35 @@ struct FulfillmentChecklistCard: View {
     }
 
     private var pageScroll: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 14) {
-                HubBanner(
-                    icon: HubDestination.checklist.symbol,
-                    title: "Operational Heartbeat Checklist",
-                    accessory: "\(store.filters.summary)  ·  \(store.checklistOpenCount) open"
-                )
-                Text("Action items for at-risk and watch metrics in this filter. Work them in order.")
-                    .font(.subheadline)
-                    .foregroundStyle(AppTheme.textSecondary)
-                    .padding(.horizontal, 4)
-                visibilityStrip
-                ForEach(MetricSection.checklistSections) { section in
-                    sectionHeader(section)
-                    if openSections.contains(section) {
-                        ForEach(Array(visibleItems(for: section).enumerated()), id: \.element.id) { index, item in
-                            issueRow(item, section: section, rank: index + 1)
+        VStack(spacing: 0) {
+            HubStickyPageBanner(
+                icon: HubDestination.checklist.symbol,
+                title: "Operational Heartbeat Checklist",
+                accessory: "\(store.filters.summary)  ·  \(store.checklistOpenCount) open"
+            )
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 14) {
+                    Text("Action items for at-risk and watch metrics in this filter. Work them in order.")
+                        .font(.subheadline)
+                        .foregroundStyle(AppTheme.textSecondary)
+                        .padding(.horizontal, 4)
+                    visibilityStrip
+                    ForEach(MetricSection.checklistSections) { section in
+                        sectionHeader(section)
+                        if openSections.contains(section) {
+                            ForEach(Array(visibleItems(for: section).enumerated()), id: \.element.id) { index, item in
+                                issueRow(item, section: section, rank: index + 1)
+                            }
                         }
                     }
+                    sendBar
                 }
-                sendBar
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+                .padding(.bottom, 36)
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 16)
-            .padding(.bottom, 36)
+            .scrollIndicators(.hidden)
         }
-        .scrollIndicators(.hidden)
         .background(AppTheme.bg.ignoresSafeArea())
         .onAppear {
             expanded = true

@@ -26,10 +26,16 @@ struct SectionDetailView: View {
     }
 
     var body: some View {
-        List {
+        VStack(spacing: 0) {
+            HubStickyPageBanner(
+                icon: section.symbol,
+                title: section.bannerTitle,
+                accessory: store.filters.summary
+            )
+            List {
             Section {
                 pageIntro
-                    .listRowInsets(EdgeInsets(top: 16, leading: 20, bottom: 4, trailing: 20))
+                    .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 4, trailing: 20))
                     .listRowSeparator(.hidden)
                     .listRowBackground(AppTheme.bg)
             }
@@ -140,58 +146,59 @@ struct SectionDetailView: View {
             } else if showTables {
                 StoreTable(section: section, rows: snapshots)
             }
-        }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .background(AppTheme.bg.ignoresSafeArea())
-        .environment(\.defaultMinListRowHeight, 1)
-        .environmentObject(laborHeaderPin)
-        .readWidth($pageWidth)
-        .background(
-            GeometryReader { geo in
-                Color.clear.preference(
-                    key: LaborListTopKey.self,
-                    value: geo.frame(in: .global).minY
-                )
             }
-        )
-        .onPreferenceChange(LaborListTopKey.self) { top in
-            laborHeaderPin.listTop = top
-        }
-        .onPreferenceChange(LaborHeaderMinYKey.self) { minY in
-            laborHeaderPin.updatePin(headerMinY: minY)
-        }
-        .overlay(alignment: .top) {
-            if laborHeaderPin.storesExpanded && laborHeaderPin.pinned {
-                if section == .labor {
-                    LaborStickyStoreHeader()
-                        .environmentObject(laborHeaderPin)
-                } else if section == .lostRevenue {
-                    LostRevenueStickyStoreHeader()
-                        .environmentObject(laborHeaderPin)
-                } else if section == .fiveStar {
-                    FiveStarStickyStoreHeader()
-                        .environmentObject(laborHeaderPin)
-                } else if section == .pickPath {
-                    PickPathStickyStoreHeader()
-                        .environmentObject(laborHeaderPin)
-                } else if section == .prepNotReady {
-                    PrepStickyStoreHeader()
-                        .environmentObject(laborHeaderPin)
-                } else if section == .dynacap {
-                    DynacapStickyStoreHeader()
-                        .environmentObject(laborHeaderPin)
-                } else if section == .scheduleQuality {
-                    ScheduleStickyStoreHeader()
-                        .environmentObject(laborHeaderPin)
-                } else if section == .pph {
-                    PPHStickyStoreHeader()
-                        .environmentObject(laborHeaderPin)
-                } else if section == .pickerScorecard {
-                    PickerStickyStoreHeader()
-                        .environmentObject(laborHeaderPin)
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .environment(\.defaultMinListRowHeight, 1)
+            .background(
+                GeometryReader { geo in
+                    Color.clear.preference(
+                        key: LaborListTopKey.self,
+                        value: geo.frame(in: .global).minY
+                    )
+                }
+            )
+            .onPreferenceChange(LaborHeaderMinYKey.self) { minY in
+                laborHeaderPin.updatePin(headerMinY: minY)
+            }
+            .overlay(alignment: .top) {
+                if laborHeaderPin.storesExpanded && laborHeaderPin.pinned {
+                    if section == .labor {
+                        LaborStickyStoreHeader()
+                            .environmentObject(laborHeaderPin)
+                    } else if section == .lostRevenue {
+                        LostRevenueStickyStoreHeader()
+                            .environmentObject(laborHeaderPin)
+                    } else if section == .fiveStar {
+                        FiveStarStickyStoreHeader()
+                            .environmentObject(laborHeaderPin)
+                    } else if section == .pickPath {
+                        PickPathStickyStoreHeader()
+                            .environmentObject(laborHeaderPin)
+                    } else if section == .prepNotReady {
+                        PrepStickyStoreHeader()
+                            .environmentObject(laborHeaderPin)
+                    } else if section == .dynacap {
+                        DynacapStickyStoreHeader()
+                            .environmentObject(laborHeaderPin)
+                    } else if section == .scheduleQuality {
+                        ScheduleStickyStoreHeader()
+                            .environmentObject(laborHeaderPin)
+                    } else if section == .pph {
+                        PPHStickyStoreHeader()
+                            .environmentObject(laborHeaderPin)
+                    } else if section == .pickerScorecard {
+                        PickerStickyStoreHeader()
+                            .environmentObject(laborHeaderPin)
+                    }
                 }
             }
+        }
+        .background(AppTheme.bg.ignoresSafeArea())
+        .environmentObject(laborHeaderPin)
+        .readWidth($pageWidth)
+        .onPreferenceChange(LaborListTopKey.self) { top in
+            laborHeaderPin.listTop = top
         }
         .onAppear {
             armTablesIfActive()
@@ -217,18 +224,10 @@ struct SectionDetailView: View {
     @ViewBuilder
     private var pageIntro: some View {
         VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
-                HubBanner(
-                    icon: section.symbol,
-                    title: section.bannerTitle,
-                    accessory: store.filters.summary
-                )
-                Text(section.blurb)
-                    .font(.subheadline)
-                    .foregroundStyle(AppTheme.textSecondary)
-                    .padding(.top, 6)
-                    .padding(.horizontal, 4)
-            }
+            Text(section.blurb)
+                .font(.subheadline)
+                .foregroundStyle(AppTheme.textSecondary)
+                .padding(.horizontal, 4)
 
             if section == .labor, store.laborNeedsReload() {
                 HStack(alignment: .top, spacing: 10) {

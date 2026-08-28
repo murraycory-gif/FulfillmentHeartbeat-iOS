@@ -8,19 +8,26 @@ struct DashboardView: View {
     @State private var showError = false
 
     var body: some View {
-        List {
+        VStack(spacing: 0) {
+            HubStickyPageBanner(
+                icon: "waveform.path.ecg",
+                title: "Operational Heartbeat",
+                accessory: store.filters.summary
+            )
+            List {
             Section {
-                VStack(spacing: 16) {
-                    HubPanel(
-                        icon: "waveform.path.ecg",
-                        title: "Operational Heartbeat"
-                    ) {
-                        DashBriefingList(cards: briefingCards) { section in
-                            open(section)
-                        }
-                    }
+                DashBriefingList(cards: briefingCards) { section in
+                    open(section)
                 }
-                .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(AppTheme.tableFill)
+                .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                        .stroke(AppTheme.blue, lineWidth: 2.5)
+                )
+                .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 8, trailing: 20))
                 .listRowSeparator(.hidden)
                 .listRowBackground(AppTheme.bg)
             }
