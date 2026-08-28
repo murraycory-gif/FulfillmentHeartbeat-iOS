@@ -323,6 +323,14 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(MarketRegion.canonicalName("united supermarkets"), "United")
         XCTAssertEqual(MarketRegion.canonicalName("Mid Atlantic"), "Mid-Atlantic")
         XCTAssertEqual(MarketRegion.canonicalName("Jewel Osco"), "Jewel Osco")
+        XCTAssertEqual(MarketRegion.canonicalName("Jewel-Osco"), "Jewel Osco")
+        XCTAssertEqual(MarketRegion.canonicalName("Mountain West Division"), "Mountain West")
+        XCTAssertEqual(MarketRegion.canonicalName("Nor Cal"), "NorCal")
+        XCTAssertEqual(MarketRegion.canonicalName("SoCal Division"), "SoCal")
+        XCTAssertEqual(
+            MarketRegion.uniqueNames(["Mountain West", "Mountain West Division", "mountain west"]),
+            ["Mountain West"]
+        )
         XCTAssertTrue(MarketRegion.south.contains("United Texas"))
         let all = MarketRegion.companyDivisions(for: DashboardFilters())
         XCTAssertEqual(all.count, 12)

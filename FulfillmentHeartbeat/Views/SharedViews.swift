@@ -1105,10 +1105,8 @@ struct FilterColumn: View {
 
     private func isSelected(_ id: String) -> Bool {
         if id.isEmpty { return selection.isEmpty }
-        return selected.contains(id)
+        return selection.contains { HeartbeatMath.matches($0, id) || MarketRegion.matchesDivision($0, id) }
     }
-
-    private var selected: Set<String> { Set(selection) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {

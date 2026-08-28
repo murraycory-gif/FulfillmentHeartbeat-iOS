@@ -913,8 +913,10 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func commitFilters(_ next: DashboardFilters) {
-        if filters == next { return }
-        filters = next
+        var cleaned = next
+        cleaned.division = MarketRegion.uniqueNames(cleaned.divisions).joined(separator: "\n")
+        if filters == cleaned { return }
+        filters = cleaned
         persistFilters()
     }
 
@@ -939,7 +941,7 @@ final class HeartbeatStore: ObservableObject {
                     .filter { draft.includesDivision($0.division) }
                     .map(\.district)
                     .filter { !$0.isEmpty }
-                    .uniqued()
+                    .uniquedIgnoringCase()
                     .sorted()
             )
         case .om:
@@ -951,7 +953,7 @@ final class HeartbeatStore: ObservableObject {
                     .filter { value in
                         !value.isEmpty && value.rangeOfCharacter(from: .letters) != nil
                     }
-                    .uniqued()
+                    .uniquedIgnoringCase()
                     .sorted()
             )
         case .store:
@@ -1356,7 +1358,7 @@ final class HeartbeatStore: ObservableObject {
             latest[.pickPath] = HeartbeatMath.applyAisleMapper(path, from: latest[.aisleMapper] ?? [])
         }
         latestBySection = latest
-        cachedDivisions = roster.values.map(\.division).filter { !$0.isEmpty }.uniqued().sorted()
+        cachedDivisions = MarketRegion.uniqueNames(roster.values.map(\.division)).sorted()
         rebuildLaborWeekIndex()
     }
 
@@ -1968,7 +1970,7 @@ private struct PulseCaches {
             roster: roster,
             filteredLatest: nextLatest,
             filteredMarket: market,
-            cachedDivisions: roster.values.map(\.division).filter { !$0.isEmpty }.uniqued().sorted(),
+            cachedDivisions: MarketRegion.uniqueNames(roster.values.map(\.division)).sorted(),
             cachedDistricts: districts,
             cachedOMs: oms,
             cachedStores: stores,
@@ -2182,5 +2184,18 @@ private extension Array where Element: Hashable {
     func uniqued() -> [Element] {
         var seen = Set<Element>()
         return filter { seen.insert($0).inserted }
+    }
+}
+
+private extension Array where Element == String {
+    func uniquedIgnoringCase() -> [String] {
+        var seen = Set<String>()
+        var out: [String] = []
+        for value in self {
+            let key = HeartbeatMath.normalize(value)
+            guard !key.isEmpty, seen.insert(key).inserted else { continue }
+            out.append(value)
+        }
+        return out
     }
 }
