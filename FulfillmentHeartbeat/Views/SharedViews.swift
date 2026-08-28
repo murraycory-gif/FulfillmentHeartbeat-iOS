@@ -1482,6 +1482,7 @@ struct PickPathTable: View {
                     PickPathMetricHeader(
                         label: "Store",
                         showCount: false,
+                        showDates: true,
                         active: sort.key,
                         ascending: ascending,
                         onSelect: applyHeaderSort
@@ -1614,7 +1615,14 @@ struct PickPathTable: View {
 }
 
 private enum PickPathMath {
-    static let dateW: CGFloat = 86
+    static let gutter: CGFloat = 8
+    static let labelMin: CGFloat = 148
+    static let labelMax: CGFloat = 180
+    static let countW: CGFloat = 58
+    static let pphW: CGFloat = 84
+    static let ordersW: CGFloat = 72
+    static let dateW: CGFloat = 100
+    static let statusW: CGFloat = 88
 
     static func orders(_ row: MetricRow) -> Double? {
         row.number("orders") ?? row.number("picks_total")
@@ -1638,8 +1646,6 @@ private struct PickPathRollupRow: Identifiable {
     let path: Double?
     let pph: Double?
     let orders: Double?
-    let mapper: String?
-    let sequence: String?
 
     var health: Health { PickPathMath.pathHealth(path) }
 }
@@ -1703,9 +1709,7 @@ private enum PickPathRollupBuilder {
                     storeCount: group.count,
                     path: HeartbeatMath.average(group.compactMap { $0.number("compliance_pct") }),
                     pph: HeartbeatMath.average(group.compactMap { $0.number("pph") }),
-                    orders: orderValues.isEmpty ? nil : orderValues.reduce(0, +),
-                    mapper: AisleMapperMath.oldest(group.map(AisleMapperMath.mapperISO)),
-                    sequence: AisleMapperMath.oldest(group.map(AisleMapperMath.sequenceISO))
+                    orders: orderValues.isEmpty ? nil : orderValues.reduce(0, +)
                 )
             )
         }
@@ -1767,7 +1771,7 @@ private struct PickPathCheapLine: View, Equatable {
     let expanded: Bool
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: PickPathMath.gutter) {
             HStack(spacing: 4) {
                 Text(snap.label)
                     .font(.subheadline.weight(.semibold))
@@ -1778,12 +1782,12 @@ private struct PickPathCheapLine: View, Equatable {
                     .font(.caption.weight(.bold))
                     .foregroundStyle(AppTheme.blue)
             }
-            .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            .frame(minWidth: PickPathMath.labelMin, maxWidth: PickPathMath.labelMax, alignment: .leading)
             cell(snap.path, snap.pathHealth)
-            cell(snap.pph, snap.pphHealth)
-            cell(snap.orders, .none)
-            dateCell(snap.mapper, snap.mapperHealth)
-            dateCell(snap.sequence, snap.sequenceHealth)
+            cell(snap.pph, snap.pphHealth, width: PickPathMath.pphW)
+            cell(snap.orders, .none, width: PickPathMath.ordersW)
+            cell(snap.mapper, snap.mapperHealth, width: PickPathMath.dateW, alignment: .center)
+            cell(snap.sequence, snap.sequenceHealth, width: PickPathMath.dateW, alignment: .center)
             Text(snap.health.label.uppercased())
                 .font(.caption.weight(.heavy))
                 .lineLimit(1)
@@ -1792,32 +1796,21 @@ private struct PickPathCheapLine: View, Equatable {
                 .padding(.vertical, 5)
                 .foregroundStyle(Color.white)
                 .background(pill(snap.health), in: Capsule())
-                .frame(width: 88, alignment: .trailing)
+                .frame(width: PickPathMath.statusW, alignment: .trailing)
         }
         .padding(.vertical, 4)
     }
 
-    private func cell(_ value: String, _ health: Health) -> some View {
-        Text(value)
+    private func cell(_ value: String, _ health: Health, width: CGFloat? = nil, alignment: Alignment = .trailing) -> some View {
+        Text(value.isEmpty ? "—" : value)
             .font(.subheadline.weight(.bold).monospacedDigit())
             .foregroundStyle(ink(health))
             .lineLimit(1)
-            .minimumScaleFactor(0.55)
-            .frame(maxWidth: .infinity, alignment: .trailing)
-            .padding(.vertical, 6)
+            .minimumScaleFactor(0.7)
             .padding(.horizontal, 6)
-            .background(wash(health), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-    }
-
-    private func dateCell(_ value: String, _ health: Health) -> some View {
-        Text(value)
-            .font(.caption.weight(.bold).monospacedDigit())
-            .foregroundStyle(ink(health))
-            .lineLimit(1)
-            .minimumScaleFactor(0.6)
-            .frame(width: PickPathMath.dateW, alignment: .trailing)
+            .frame(maxWidth: width == nil ? .infinity : nil, alignment: alignment)
+            .frame(width: width, alignment: alignment)
             .padding(.vertical, 6)
-            .padding(.horizontal, 4)
             .background(wash(health), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
@@ -1855,8 +1848,6 @@ private struct PickPathMetricLine: View, Equatable {
     let path: Double?
     let pph: Double?
     let orders: Double?
-    var mapper: String? = nil
-    var sequence: String? = nil
 
     var body: some View {
         let health = PickPathMath.pathHealth(path)
@@ -1866,20 +1857,18 @@ private struct PickPathMetricLine: View, Equatable {
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                .frame(minWidth: PickPathMath.labelMin, maxWidth: PickPathMath.labelMax, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
                     .font(.subheadline.weight(.semibold).monospacedDigit())
                     .foregroundStyle(AppTheme.textSecondary)
-                    .frame(width: 58, alignment: .trailing)
+                    .frame(width: PickPathMath.countW, alignment: .trailing)
             }
             cell(HeartbeatFormat.pct(path), health)
             cell(HeartbeatFormat.num(pph, digits: 1), PickPathMath.pphHealth(pph))
             cell(HeartbeatFormat.num(orders), .none)
-            dateCell(HeartbeatFormat.shortDate(mapper), AisleMapperMath.health(mapper))
-            dateCell(HeartbeatFormat.shortDate(sequence), AisleMapperMath.health(sequence))
             HealthBadge(health: health, prominent: true, compact: true)
-                .frame(width: 88, alignment: .trailing)
+                .frame(width: PickPathMath.statusW, alignment: .trailing)
         }
         .tableRowCard(health: health)
     }
@@ -1893,21 +1882,6 @@ private struct PickPathMetricLine: View, Equatable {
             .frame(maxWidth: .infinity, alignment: .trailing)
             .padding(.vertical, 6)
             .padding(.horizontal, 6)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(wash(health))
-            )
-    }
-
-    private func dateCell(_ value: String, _ health: Health) -> some View {
-        Text(value)
-            .font(.caption.weight(.bold).monospacedDigit())
-            .foregroundStyle(ink(health))
-            .lineLimit(1)
-            .minimumScaleFactor(0.6)
-            .frame(width: PickPathMath.dateW, alignment: .trailing)
-            .padding(.vertical, 6)
-            .padding(.horizontal, 4)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(wash(health))
@@ -1936,27 +1910,35 @@ private struct PickPathMetricLine: View, Equatable {
 struct PickPathMetricHeader: View {
     let label: String
     var showCount: Bool = false
+    var showDates: Bool = false
     var active: String? = nil
     var ascending: Bool = false
     var onSelect: ((String) -> Void)? = nil
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: showDates ? PickPathMath.gutter : 6) {
             head(label, key: "label", alignment: .leading)
-                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                .frame(minWidth: PickPathMath.labelMin, maxWidth: PickPathMath.labelMax, alignment: .leading)
             if showCount {
                 head("Stores", key: "count", alignment: .trailing)
-                    .frame(width: 58, alignment: .trailing)
+                    .frame(width: PickPathMath.countW, alignment: .trailing)
             }
             head("Pick Path", key: "path")
-            head("Avg PPH", key: "pph")
-            head("Orders", key: "orders")
-            head("Mapper", key: "mapper")
-                .frame(width: PickPathMath.dateW, alignment: .trailing)
-            head("Sequence", key: "sequence")
-                .frame(width: PickPathMath.dateW, alignment: .trailing)
+            if showDates {
+                head("Avg PPH", key: "pph")
+                    .frame(width: PickPathMath.pphW, alignment: .trailing)
+                head("Orders", key: "orders")
+                    .frame(width: PickPathMath.ordersW, alignment: .trailing)
+                head("Mapper", key: "mapper", alignment: .center)
+                    .frame(width: PickPathMath.dateW)
+                head("Sequence", key: "sequence", alignment: .center)
+                    .frame(width: PickPathMath.dateW)
+            } else {
+                head("Avg PPH", key: "pph")
+                head("Orders", key: "orders")
+            }
             head("Status", key: "status", alignment: .trailing)
-                .frame(width: 88, alignment: .trailing)
+                .frame(width: PickPathMath.statusW, alignment: .trailing)
         }
         .font(.caption2.weight(.semibold))
         .tracking(0.4)
@@ -2004,6 +1986,7 @@ struct PickPathStickyStoreHeader: View {
             PickPathMetricHeader(
                 label: "Store",
                 showCount: false,
+                showDates: true,
                 active: pin.active,
                 ascending: pin.ascending,
                 onSelect: { pin.onSelect?($0) }
@@ -2050,9 +2033,7 @@ struct PickPathRollupTable: View {
                             count: grain == .store ? nil : row.storeCount,
                             path: row.path,
                             pph: row.pph,
-                            orders: row.orders,
-                            mapper: row.mapper,
-                            sequence: row.sequence
+                            orders: row.orders
                         )
                     }
                                     }
@@ -2078,7 +2059,7 @@ struct PickPathRollupTable: View {
         var rows = PickPathRollupBuilder.rows(from: source, grain: grain)
         if grain == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
-                rows.append(PickPathRollupRow(id: extra.name, label: extra.name, storeCount: extra.storeCount, path: nil, pph: nil, orders: nil, mapper: nil, sequence: nil))
+                rows.append(PickPathRollupRow(id: extra.name, label: extra.name, storeCount: extra.storeCount, path: nil, pph: nil, orders: nil))
             }
             rows.sort { ($0.path ?? 999) < ($1.path ?? 999) }
         }

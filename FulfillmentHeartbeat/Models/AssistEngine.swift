@@ -443,7 +443,7 @@ enum HeartbeatAssist {
             let staleSeq = pathRows.filter { AisleMapperMath.health(AisleMapperMath.sequenceISO($0)) == .risk }.count
             if staleMapper + staleSeq > 0 {
                 lines.append("ISSUE")
-                lines.append("\(staleMapper) stores have aisle maps older than 90 days. \(staleSeq) have sequence updates older than 90 days. Mapper and Sequence columns live on this Pick Path page.")
+                lines.append("\(staleMapper) stores have aisle maps older than 90 days. \(staleSeq) have sequence updates older than 90 days. Mapper and Sequence columns live on the Pick Path store table.")
                 lines.append("")
             }
             lines.append(contentsOf: districtLines(limit: 5, section: .pickPath))

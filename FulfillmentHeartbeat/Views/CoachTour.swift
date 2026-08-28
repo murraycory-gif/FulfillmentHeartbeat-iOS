@@ -134,7 +134,7 @@ enum CoachTour: Equatable {
                 CoachStep(
                     icon: "person.2.fill",
                     heading: "Shoppers under each store",
-                    body: "Expand a store for that shopper’s pick path compliance, presub, OOS%, and PPH — only on this page. Mapper and Sequence columns are the latest aisle map and aisle sequence dates from the Aisle Mapper upload."
+                    body: "Expand a store for that shopper’s pick path compliance, presub, OOS%, and PPH — only on this page. Mapper and Sequence on the store table are the latest aisle map and aisle sequence dates from the Aisle Mapper upload."
                 ),
             ]
         case .prepNotReady:
