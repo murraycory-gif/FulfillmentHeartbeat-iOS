@@ -1163,6 +1163,8 @@ enum HeartbeatMath {
         )
         return flags
     }
+
+    static func oosStar(_ row: MetricRow) -> StarMark {
         componentStar(row, starKey: "oos_star", pctKey: "oos_pct", full: 3, half: 5, invert: true)
     }
 
