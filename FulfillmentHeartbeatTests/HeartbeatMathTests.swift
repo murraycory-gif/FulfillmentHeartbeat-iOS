@@ -2,6 +2,40 @@ import XCTest
 @testable import FulfillmentHeartbeat
 
 final class HeartbeatMathTests: XCTestCase {
+    func testDashboardCalloutsSortRiskThenWatchThenHealthy() {
+        func card(_ section: MetricSection, _ health: Health, risk: Int = 0, watch: Int = 0) -> SectionSummary {
+            SectionSummary(
+                section: section,
+                storeCount: 4,
+                headline: 1,
+                headlineLabel: "x",
+                secondary: "",
+                health: health,
+                watchCount: watch,
+                riskCount: risk
+            )
+        }
+        let mixed = [
+            card(.fiveStar, .good, watch: 1),
+            card(.missingItems, .risk, risk: 3, watch: 1),
+            card(.pph, .watch, watch: 2),
+            card(.lostRevenue, .risk, risk: 8),
+            card(.labor, .none),
+            card(.pickPath, .watch, watch: 5),
+        ]
+        let ordered = HeartbeatMath.dashboardCallouts(mixed)
+        XCTAssertEqual(
+            ordered.map(\.section),
+            [.lostRevenue, .missingItems, .pickPath, .pph, .fiveStar, .labor]
+        )
+        let filteredHealthy = HeartbeatMath.dashboardCallouts([
+            card(.lostRevenue, .good),
+            card(.missingItems, .watch, watch: 1),
+            card(.pph, .risk, risk: 2),
+        ])
+        XCTAssertEqual(filteredHealthy.map(\.section), [.pph, .missingItems, .lostRevenue])
+    }
+
     func testFiveStarBand() {
         let good = MetricRow(section: .fiveStar, division: "10", operationsOM: "A", storeNumber: "1", payload: ["star_rating": 4.7])
         let watch = MetricRow(section: .fiveStar, division: "10", operationsOM: "A", storeNumber: "2", payload: ["star_rating": 4.2])

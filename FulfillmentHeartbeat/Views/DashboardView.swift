@@ -15,16 +15,8 @@ struct DashboardView: View {
                         icon: "waveform.path.ecg",
                         title: "Operational Heartbeat"
                     ) {
-                        VStack(spacing: 12) {
-                            if let lost = store.summaries.first(where: { $0.section == .lostRevenue }) {
-                                DashLostBanner(
-                                    summary: lost,
-                                    flags: HeartbeatMath.lostRevenueActionFlags(store.displayRows(for: .lostRevenue))
-                                ) { open(.lostRevenue) }
-                            }
-                            DashBriefingList(cards: briefingCards) { section in
-                                open(section)
-                            }
+                        DashBriefingList(cards: briefingCards) { section in
+                            open(section)
                         }
                     }
                 }
@@ -77,9 +69,7 @@ struct DashboardView: View {
     }
 
     private var briefingCards: [SectionSummary] {
-        MetricSection.dashboardCards
-            .filter { $0 != .lostRevenue }
-            .compactMap { section in store.summaries.first(where: { $0.section == section }) }
+        HeartbeatMath.dashboardCallouts(store.summaries)
     }
 
     private func open(_ section: MetricSection) {
@@ -227,6 +217,12 @@ struct DashBriefingList: View {
     var body: some View {
         VStack(spacing: 12) {
             ForEach(cards) { card in
+                if card.section == .lostRevenue {
+                    DashLostBanner(
+                        summary: card,
+                        flags: HeartbeatMath.lostRevenueActionFlags(store.displayRows(for: .lostRevenue))
+                    ) { action(.lostRevenue) }
+                } else {
                 Button {
                     action(card.section)
                 } label: {
@@ -297,6 +293,7 @@ struct DashBriefingList: View {
                     .modifier(DashCardChrome(health: card.health))
                 }
                 .buttonStyle(DashLiftStyle())
+                }
             }
         }
         .readWidth($width)

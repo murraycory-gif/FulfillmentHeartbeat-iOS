@@ -263,6 +263,16 @@ enum Health: String, Codable, Equatable {
     }
 
     var needsAction: Bool { self == .risk || self == .watch }
+
+    /// Dashboard callouts: At Risk, then Watch, then Healthy, then no data.
+    var dashboardRank: Int {
+        switch self {
+        case .risk: return 0
+        case .watch: return 1
+        case .good: return 2
+        case .none: return 3
+        }
+    }
 }
 
 struct MetricRow: Identifiable, Codable, Hashable {
@@ -395,6 +405,18 @@ struct SectionSummary: Identifiable {
 }
 
 enum HeartbeatMath {
+    static func dashboardCallouts(_ summaries: [SectionSummary]) -> [SectionSummary] {
+        let order = Dictionary(uniqueKeysWithValues: MetricSection.dashboardCards.enumerated().map { ($0.element, $0.offset) })
+        return summaries.sorted { lhs, rhs in
+            if lhs.health.dashboardRank != rhs.health.dashboardRank {
+                return lhs.health.dashboardRank < rhs.health.dashboardRank
+            }
+            if lhs.riskCount != rhs.riskCount { return lhs.riskCount > rhs.riskCount }
+            if lhs.watchCount != rhs.watchCount { return lhs.watchCount > rhs.watchCount }
+            return (order[lhs.section] ?? 99) < (order[rhs.section] ?? 99)
+        }
+    }
+
     static func latestPerStore(_ rows: [MetricRow]) -> [MetricRow] {
         var map: [String: MetricRow] = [:]
         for row in rows {
