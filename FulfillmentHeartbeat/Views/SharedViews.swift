@@ -9039,23 +9039,7 @@ struct FulfillmentChecklistCard: View {
                     ForEach(MetricSection.checklistSections) { section in
                         sectionHeader(section)
                         if openSections.contains(section) {
-                            let items = cachedItems[section] ?? []
-                            let cap = itemLimit[section] ?? 8
-                            ForEach(Array(items.prefix(cap).enumerated()), id: \.element.id) { index, item in
-                                issueRow(item, section: section, rank: index + 1)
-                            }
-                            if items.count > cap {
-                                Button {
-                                    itemLimit[section] = items.count
-                                } label: {
-                                    Text("Show all \(items.count) \(section.short) stores")
-                                        .font(.subheadline.weight(.semibold))
-                                        .foregroundStyle(AppTheme.blue)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .padding(.vertical, 6)
-                                }
-                                .buttonStyle(.plain)
-                            }
+                            sectionRows(section)
                         }
                     }
                     sendBar
@@ -9099,11 +9083,7 @@ struct FulfillmentChecklistCard: View {
                     ForEach(MetricSection.checklistSections) { section in
                         sectionHeader(section)
                         if openSections.contains(section) {
-                            let items = cachedItems[section] ?? []
-                            let cap = itemLimit[section] ?? 8
-                            ForEach(Array(items.prefix(cap).enumerated()), id: \.element.id) { index, item in
-                                issueRow(item, section: section, rank: index + 1)
-                            }
+                            sectionRows(section)
                         }
                     }
                     sendBar
@@ -9266,6 +9246,32 @@ struct FulfillmentChecklistCard: View {
         return items.filter { $0.health.needsAction }
     }
 
+    @ViewBuilder
+    private func sectionRows(_ section: MetricSection) -> some View {
+        let items = cachedItems[section] ?? []
+        let cap = itemLimit[section] ?? 8
+        VStack(alignment: .leading, spacing: 14) {
+            ForEach(Array(items.prefix(cap).enumerated()), id: \.offset) { index, item in
+                issueRow(item, section: section, rank: index + 1)
+                    .id("\(section.rawValue)-\(item.id)")
+            }
+            if items.count > cap {
+                Button {
+                    itemLimit[section] = items.count
+                    openItems.formUnion(items.map(\.id))
+                } label: {
+                    Text("Show all \(items.count) \(section.short) stores")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(AppTheme.blue)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 6)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .id(section)
+    }
+
     private func sectionHeader(_ section: MetricSection) -> some View {
         let summary = store.summary(for: section)
         let items = cachedItems[section] ?? visibleItems(for: section)
@@ -9278,9 +9284,10 @@ struct FulfillmentChecklistCard: View {
                     withTransaction(transaction) {
                         if isOpen {
                             openSections.remove(section)
+                            openItems = []
                         } else {
                             openSections = [section]
-                            openItems = []
+                            openItems = Set((cachedItems[section] ?? []).map(\.id))
                         }
                         commentingID = nil
                     }
@@ -9390,7 +9397,7 @@ struct FulfillmentChecklistCard: View {
             if detailsOpen {
                 if !item.findings.isEmpty {
                     VStack(spacing: 8) {
-                        ForEach(item.findings.prefix(5)) { finding in
+                        ForEach(item.findings) { finding in
                             findingCard(finding, storeItem: item, section: section)
                         }
                     }
@@ -9407,7 +9414,7 @@ struct FulfillmentChecklistCard: View {
                         Text("Shoppers")
                             .font(.subheadline.weight(.bold))
                             .foregroundStyle(AppTheme.text)
-                        ForEach(item.people.prefix(5)) { person in
+                        ForEach(item.people) { person in
                             shopperActionRow(person, storeItem: item, section: section)
                         }
                     }
