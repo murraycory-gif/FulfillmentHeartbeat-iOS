@@ -837,7 +837,7 @@ struct FilterBar: View {
     @EnvironmentObject private var store: HeartbeatStore
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var sheetFocus: FilterFocus?
-    @State private var buildingShare = false
+    @State private var showShare = false
 
     var body: some View {
         HStack(spacing: 8) {
@@ -855,6 +855,10 @@ struct FilterBar: View {
         }
         .fullScreenCover(item: $sheetFocus) { focus in
             FilterSheet(initialFocus: focus)
+                .environmentObject(store)
+        }
+        .sheet(isPresented: $showShare) {
+            SharePulseSheet()
                 .environmentObject(store)
         }
     }
@@ -882,12 +886,10 @@ struct FilterBar: View {
             HubChromePill(
                 title: "Share",
                 symbol: "square.and.arrow.up",
-                showsChevron: false,
-                spinning: buildingShare
+                showsChevron: false
             ) {
-                composePulseShare()
+                showShare = true
             }
-            .disabled(buildingShare)
         }
     }
 
@@ -913,16 +915,93 @@ struct FilterBar: View {
     private func openFilters(_ focus: FilterFocus) {
         sheetFocus = focus
     }
+}
 
-    private func composePulseShare() {
-        guard !buildingShare else { return }
-        buildingShare = true
+struct SharePulseSheet: View {
+    @EnvironmentObject private var store: HeartbeatStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var selected: Set<PulseMail.SharePage> = Set(PulseMail.SharePage.allCases)
+    @State private var building = false
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Button {
+                        selected = Set(PulseMail.SharePage.allCases)
+                    } label: {
+                        Label("Select all pages", systemImage: "checkmark.circle.fill")
+                    }
+                    .disabled(selected.count == PulseMail.SharePage.allCases.count)
+                    Button(role: .destructive) {
+                        selected = []
+                    } label: {
+                        Label("Clear", systemImage: "xmark.circle")
+                    }
+                    .disabled(selected.isEmpty)
+                } footer: {
+                    Text("Checklist and Upload are never included. Select every scorecard, or tap only the pages you want in the email.")
+                }
+
+                Section("Pages") {
+                    ForEach(PulseMail.SharePage.allCases) { page in
+                        Button {
+                            if selected.contains(page) {
+                                selected.remove(page)
+                            } else {
+                                selected.insert(page)
+                            }
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: page.symbol)
+                                    .foregroundStyle(AppTheme.blue)
+                                    .frame(width: 28)
+                                Text(page.title)
+                                    .foregroundStyle(AppTheme.text)
+                                Spacer()
+                                Image(systemName: selected.contains(page) ? "checkmark.circle.fill" : "circle")
+                                    .foregroundStyle(selected.contains(page) ? AppTheme.blue : AppTheme.textTertiary)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Share pulse")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button {
+                        send()
+                    } label: {
+                        if building {
+                            ProgressView()
+                        } else {
+                            Text("Share")
+                                .fontWeight(.bold)
+                        }
+                    }
+                    .disabled(selected.isEmpty || building)
+                }
+            }
+        }
+    }
+
+    private func send() {
+        guard !building, !selected.isEmpty else { return }
+        building = true
+        let pages = selected
         let snap = store.pulseMailSnapshot()
         Task.detached(priority: .userInitiated) {
-            let packet = PulseMail.make(snap)
+            let packet = PulseMail.make(snap, pages: pages)
             await MainActor.run {
-                buildingShare = false
-                PulseShare.present(packet)
+                building = false
+                dismiss()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                    PulseShare.present(packet)
+                }
             }
         }
     }
@@ -9638,19 +9717,21 @@ final class PulseShareSource: NSObject, UIActivityItemSource {
         itemForActivityType activityType: UIActivity.ActivityType?
     ) -> Any? {
         let raw = activityType?.rawValue ?? ""
-        if activityType == .mail {
+        if activityType == .mail
+            || raw.localizedCaseInsensitiveContains("outlook")
+            || raw.localizedCaseInsensitiveContains("microsoft")
+            || raw.localizedCaseInsensitiveContains("gmail")
+            || raw.localizedCaseInsensitiveContains("googlemail")
+            || raw.localizedCaseInsensitiveContains("yahoo")
+            || raw.localizedCaseInsensitiveContains("spark")
+            || raw.localizedCaseInsensitiveContains("airmail")
+        {
             return html
         }
         if activityType == .message {
             return "\(subject)\n\n\(brief)"
         }
-        if raw.localizedCaseInsensitiveContains("outlook") || raw.localizedCaseInsensitiveContains("microsoft") {
-            return "\(subject)\n\n\(plain)"
-        }
-        if raw.localizedCaseInsensitiveContains("note") {
-            return "\(subject)\n\n\(plain)"
-        }
-        return "\(subject)\n\n\(plain)"
+        return html
     }
 
     func activityViewController(
@@ -9664,20 +9745,78 @@ final class PulseShareSource: NSObject, UIActivityItemSource {
         _ activityViewController: UIActivityViewController,
         dataTypeIdentifierForActivityType activityType: UIActivity.ActivityType?
     ) -> String {
-        if activityType == .mail {
-            return UTType.html.identifier
+        if activityType == .message {
+            return UTType.plainText.identifier
         }
-        return UTType.plainText.identifier
+        return UTType.html.identifier
+    }
+}
+
+final class MailShareActivity: UIActivity {
+    private let packet: PulseMail.Packet
+    private var closer: MailShareCloser?
+
+    init(packet: PulseMail.Packet) {
+        self.packet = packet
+        super.init()
+    }
+
+    override var activityType: UIActivity.ActivityType? {
+        UIActivity.ActivityType("com.corymurray.FulfillmentHeartbeat.mail")
+    }
+
+    override var activityTitle: String? { "Mail" }
+    override var activityImage: UIImage? { UIImage(systemName: "envelope.fill") }
+    override class var activityCategory: UIActivity.Category { .share }
+    override func canPerform(withActivityItems activityItems: [Any]) -> Bool {
+        MFMailComposeViewController.canSendMail()
+    }
+
+    override func perform() {
+        guard let presenter = PulseShare.topController() else {
+            activityDidFinish(false)
+            return
+        }
+        let mail = MFMailComposeViewController()
+        mail.setSubject(packet.subject)
+        mail.setMessageBody(packet.html, isHTML: true)
+        let closer = MailShareCloser(owner: self)
+        self.closer = closer
+        mail.mailComposeDelegate = closer
+        presenter.present(mail, animated: true)
+    }
+}
+
+private final class MailShareCloser: NSObject, MFMailComposeViewControllerDelegate {
+    let owner: MailShareActivity
+    init(owner: MailShareActivity) { self.owner = owner }
+
+    func mailComposeController(
+        _ controller: MFMailComposeViewController,
+        didFinishWith result: MFMailComposeResult,
+        error: Error?
+    ) {
+        controller.dismiss(animated: true) {
+            self.owner.finishFromMail(result != .failed)
+        }
+    }
+}
+
+extension MailShareActivity {
+    fileprivate func finishFromMail(_ success: Bool) {
+        activityDidFinish(success)
     }
 }
 
 final class OutlookShareActivity: UIActivity {
     private let subject: String
-    private let body: String
+    private let html: String
+    private let plain: String
 
-    init(subject: String, body: String) {
-        self.subject = subject
-        self.body = body
+    init(packet: PulseMail.Packet) {
+        self.subject = packet.subject
+        self.html = packet.html
+        self.plain = packet.plain
         super.init()
     }
 
@@ -9696,15 +9835,18 @@ final class OutlookShareActivity: UIActivity {
     override func canPerform(withActivityItems activityItems: [Any]) -> Bool { true }
 
     override func perform() {
-        OutlookShareActivity.open(subject: subject, body: body) { [weak self] success in
+        UIPasteboard.general.setItems(
+            [[UTType.html.identifier: html, UTType.utf8PlainText.identifier: plain]],
+            options: [:]
+        )
+        OutlookShareActivity.open(subject: subject, body: html.count > 4500 ? plain : html) { [weak self] success in
             self?.activityDidFinish(success)
         }
     }
 
     static func open(subject: String, body: String, completion: @escaping (Bool) -> Void) {
-        let clipped = body.count > 7000 ? String(body.prefix(7000)) + "\n\n(Recap truncated for Outlook.)" : body
         let encodedSubject = encode(subject)
-        let encodedBody = encode(clipped)
+        let encodedBody = encode(body)
         let candidates = [
             "ms-outlook://emails/new?subject=\(encodedSubject)&body=\(encodedBody)",
             "ms-outlook://compose?subject=\(encodedSubject)&body=\(encodedBody)",
@@ -9744,10 +9886,15 @@ final class OutlookShareActivity: UIActivity {
 enum PulseShare {
     static func present(_ packet: PulseMail.Packet) {
         let source = PulseShareSource(packet: packet)
-        let outlook = OutlookShareActivity(subject: packet.subject, body: packet.plain)
+        let mail = MailShareActivity(packet: packet)
+        let outlook = OutlookShareActivity(packet: packet)
+        var items: [Any] = [source]
+        if let file = writeHTMLFile(packet) {
+            items.append(file)
+        }
         let sheet = UIActivityViewController(
-            activityItems: [source],
-            applicationActivities: [outlook]
+            activityItems: items,
+            applicationActivities: [mail, outlook]
         )
         sheet.excludedActivityTypes = [
             .assignToContact,
@@ -9769,7 +9916,17 @@ enum PulseShare {
         presenter.present(sheet, animated: true)
     }
 
-    private static func topController() -> UIViewController? {
+    static func writeHTMLFile(_ packet: PulseMail.Packet) -> URL? {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Fulfillment-Heartbeat.html")
+        do {
+            try packet.html.data(using: .utf8)?.write(to: url, options: .atomic)
+            return url
+        } catch {
+            return nil
+        }
+    }
+
+    static func topController() -> UIViewController? {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         let window = scenes
             .filter { $0.activationState == .foregroundActive }

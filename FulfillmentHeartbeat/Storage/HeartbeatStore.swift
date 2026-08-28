@@ -1792,6 +1792,7 @@ final class HeartbeatStore: ObservableObject {
         for section in PulseMail.pageOrder {
             rows[section] = displayRows(for: section)
         }
+        rows[.pickPathPicker] = displayRows(for: .pickPathPicker)
         let grain: String?
         if !filters.division.isEmpty || !filters.district.isEmpty || !filters.om.isEmpty || !filters.store.isEmpty {
             grain = "district"
