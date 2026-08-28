@@ -3,6 +3,7 @@ import UIKit
 import MessageUI
 import UniformTypeIdentifiers
 import LinkPresentation
+import WebKit
 
 struct HubCard<Content: View>: View {
     @ViewBuilder var content: Content
@@ -923,81 +924,92 @@ struct SharePulseSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selected: Set<PulseMail.SharePage> = Set(PulseMail.SharePage.allCases)
     @State private var building = false
+    @State private var packet: PulseMail.Packet?
 
     var body: some View {
         NavigationStack {
-            List {
-                Section {
-                    Button {
-                        selected = Set(PulseMail.SharePage.allCases)
-                    } label: {
-                        Label("Select all pages", systemImage: "checkmark.circle.fill")
-                    }
-                    .disabled(selected.count == PulseMail.SharePage.allCases.count)
-                    Button(role: .destructive) {
-                        selected = []
-                    } label: {
-                        Label("Clear", systemImage: "xmark.circle")
-                    }
-                    .disabled(selected.isEmpty)
-                } footer: {
-                    Text("Checklist and Upload are never included. Select every scorecard, or tap only the pages you want in the email.")
+            if let packet {
+                ShareRecapCompose(packet: packet) {
+                    self.packet = nil
                 }
+            } else {
+                picker
+            }
+        }
+    }
 
-                Section("Pages") {
-                    ForEach(PulseMail.SharePage.allCases) { page in
-                        Button {
-                            if selected.contains(page) {
-                                selected.remove(page)
-                            } else {
-                                selected.insert(page)
-                            }
-                        } label: {
-                            HStack(spacing: 12) {
-                                Image(systemName: page.symbol)
-                                    .foregroundStyle(AppTheme.blue)
-                                    .frame(width: 28)
-                                Text(page.title)
-                                    .foregroundStyle(AppTheme.text)
-                                Spacer()
-                                Image(systemName: selected.contains(page) ? "checkmark.circle.fill" : "circle")
-                                    .foregroundStyle(selected.contains(page) ? AppTheme.blue : AppTheme.textTertiary)
-                            }
+    private var picker: some View {
+        List {
+            Section {
+                Button {
+                    selected = Set(PulseMail.SharePage.allCases)
+                } label: {
+                    Label("Select all pages", systemImage: "checkmark.circle.fill")
+                }
+                .disabled(selected.count == PulseMail.SharePage.allCases.count)
+                Button(role: .destructive) {
+                    selected = []
+                } label: {
+                    Label("Clear", systemImage: "xmark.circle")
+                }
+                .disabled(selected.isEmpty)
+            } footer: {
+                Text("Checklist and Upload are never included. Select every scorecard, or tap only the pages you want in the email.")
+            }
+
+            Section("Pages") {
+                ForEach(PulseMail.SharePage.allCases) { page in
+                    Button {
+                        if selected.contains(page) {
+                            selected.remove(page)
+                        } else {
+                            selected.insert(page)
+                        }
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: page.symbol)
+                                .foregroundStyle(AppTheme.blue)
+                                .frame(width: 28)
+                            Text(page.title)
+                                .foregroundStyle(AppTheme.text)
+                            Spacer()
+                            Image(systemName: selected.contains(page) ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(selected.contains(page) ? AppTheme.blue : AppTheme.textTertiary)
                         }
                     }
                 }
             }
-            .navigationTitle("Share pulse")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                        .disabled(building)
-                }
+        }
+        .navigationTitle("Share pulse")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") { dismiss() }
+                    .disabled(building)
             }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                Button(action: send) {
-                    HStack(spacing: 10) {
-                        if building {
-                            ProgressView()
-                                .tint(.white)
-                        }
-                        Text(building ? "Building recap…" : shareLabel)
-                            .font(.headline.weight(.bold))
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            Button(action: send) {
+                HStack(spacing: 10) {
+                    if building {
+                        ProgressView()
+                            .tint(.white)
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
+                    Text(building ? "Building recap…" : shareLabel)
+                        .font(.headline.weight(.bold))
                 }
-                .buttonStyle(PrimaryButtonStyle())
-                .disabled(selected.isEmpty || building)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
-                .background(AppTheme.bg)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
             }
-            .overlay {
-                if building {
-                    Color.black.opacity(0.18).ignoresSafeArea()
-                }
+            .buttonStyle(PrimaryButtonStyle())
+            .disabled(selected.isEmpty || building)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .background(AppTheme.bg)
+        }
+        .overlay {
+            if building {
+                Color.black.opacity(0.18).ignoresSafeArea()
             }
         }
     }
@@ -1015,17 +1027,131 @@ struct SharePulseSheet: View {
         let pages = selected
         let snap = store.pulseMailSnapshot()
         Task { @MainActor in
-            let packet = await Task.detached(priority: .userInitiated) {
+            let built = await Task.detached(priority: .userInitiated) {
                 PulseMail.make(snap, pages: pages)
             }.value
-            let media = await RecapRenderer.render(html: packet.html)
-            let images = media.images
             building = false
-            dismiss()
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
-                PulseShare.present(packet, images: images)
+            packet = built
+        }
+    }
+}
+
+struct ShareRecapCompose: View {
+    let packet: PulseMail.Packet
+    var onBack: () -> Void
+    @State private var to = ""
+    @State private var preparing = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text("To:")
+                        .foregroundStyle(AppTheme.textSecondary)
+                        .frame(width: 56, alignment: .leading)
+                    TextField("name@company.com", text: $to)
+                        .textInputAutocapitalization(.never)
+                        .keyboardType(.emailAddress)
+                        .textContentType(.emailAddress)
+                }
+                Divider()
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text("Subject:")
+                        .foregroundStyle(AppTheme.textSecondary)
+                    Text(packet.subject)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(AppTheme.text)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(AppTheme.card)
+
+            RecapWebView(html: packet.html)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color(red: 0.96, green: 0.97, blue: 0.99))
+
+            VStack(spacing: 10) {
+                Button(action: sendMail) {
+                    Text("Send with Mail")
+                        .font(.headline.weight(.bold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .disabled(preparing)
+
+                Button(action: sendOutlook) {
+                    HStack(spacing: 10) {
+                        if preparing {
+                            ProgressView().tint(AppTheme.blue)
+                        }
+                        Text(preparing ? "Preparing Outlook recap…" : "Send with Outlook")
+                            .font(.headline.weight(.bold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                }
+                .buttonStyle(.bordered)
+                .disabled(preparing)
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .background(AppTheme.bg)
+        }
+        .navigationTitle("New Message")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Back", action: onBack)
+                    .disabled(preparing)
             }
         }
+        .overlay {
+            if preparing {
+                Color.black.opacity(0.18).ignoresSafeArea()
+            }
+        }
+    }
+
+    private func sendMail() {
+        PulseShare.presentMail(packet, to: emails)
+    }
+
+    private func sendOutlook() {
+        guard !preparing else { return }
+        preparing = true
+        let html = packet.html
+        let subject = packet.subject
+        Task { @MainActor in
+            let media = await RecapRenderer.render(html: html)
+            let jpegs = RecapRenderer.jpegFiles(media.images)
+            preparing = false
+            PulseShare.presentOutlook(subject: subject, jpegURLs: jpegs)
+        }
+    }
+
+    private var emails: [String] {
+        to.split(whereSeparator: { ",; ".contains($0) })
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { $0.contains("@") }
+    }
+}
+
+struct RecapWebView: UIViewRepresentable {
+    let html: String
+
+    func makeUIView(context: Context) -> WKWebView {
+        let web = WKWebView()
+        web.isOpaque = false
+        web.backgroundColor = .clear
+        web.scrollView.backgroundColor = .clear
+        web.scrollView.contentInsetAdjustmentBehavior = .never
+        return web
+    }
+
+    func updateUIView(_ web: WKWebView, context: Context) {
+        web.loadHTMLString(html, baseURL: nil)
     }
 }
 
@@ -9887,13 +10013,50 @@ extension MailShareActivity {
     }
 }
 
-final class OutlookShareActivity: UIActivity {
+private final class PulseMailCloser: NSObject, MFMailComposeViewControllerDelegate {
+    func mailComposeController(
+        _ controller: MFMailComposeViewController,
+        didFinishWith result: MFMailComposeResult,
+        error: Error?
+    ) {
+        controller.dismiss(animated: true)
+    }
+}
+
+final class OutlookLaunchActivity: UIActivity {
     private let subject: String
     private let jpegURLs: [URL]
 
     init(subject: String, jpegURLs: [URL]) {
         self.subject = subject
         self.jpegURLs = jpegURLs
+        super.init()
+    }
+
+    override var activityType: UIActivity.ActivityType? {
+        UIActivity.ActivityType("com.corymurray.FulfillmentHeartbeat.outlook-launch")
+    }
+
+    override var activityTitle: String? { "Outlook" }
+    override var activityImage: UIImage? { UIImage(systemName: "envelope.badge.fill") }
+    override class var activityCategory: UIActivity.Category { .share }
+    override func canPerform(withActivityItems activityItems: [Any]) -> Bool { true }
+
+    override func perform() {
+        let subject = self.subject
+        let urls = jpegURLs
+        activityDidFinish(true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            PulseShare.openOutlook(subject: subject, jpegURLs: urls)
+        }
+    }
+}
+
+final class OutlookShareActivity: UIActivity {
+    private let packet: PulseMail.Packet
+
+    init(packet: PulseMail.Packet) {
+        self.packet = packet
         super.init()
     }
 
@@ -9907,24 +10070,81 @@ final class OutlookShareActivity: UIActivity {
     override func canPerform(withActivityItems activityItems: [Any]) -> Bool { true }
 
     override func perform() {
-        let subject = self.subject
-        let urls = jpegURLs
+        let packet = self.packet
         activityDidFinish(true)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-            PulseShare.openOutlook(subject: subject, jpegURLs: urls)
+        Task { @MainActor in
+            await PulseShare.openOutlook(packet)
         }
     }
 }
 
 enum PulseShare {
+    private static var jpegURLs: [URL] = []
+    private static var jpegHTML: String = ""
+    private static let mailCloser = PulseMailCloser()
+
     @MainActor
-    static func present(_ packet: PulseMail.Packet, images: [UIImage] = []) {
-        let jpegs = RecapRenderer.jpegFiles(images)
-        let mail = MailShareActivity(packet: packet)
-        let outlook = OutlookShareActivity(subject: packet.subject, jpegURLs: jpegs)
-        let items: [Any] = jpegs.isEmpty ? [packet.html] : jpegs
+    static func presentMail(_ packet: PulseMail.Packet, to: [String] = []) {
+        guard MFMailComposeViewController.canSendMail(), let presenter = topController() else {
+            present(packet)
+            return
+        }
+        let mail = MFMailComposeViewController()
+        mail.setSubject(packet.subject)
+        mail.setMessageBody(packet.html, isHTML: true)
+        if !to.isEmpty {
+            mail.setToRecipients(to)
+        }
+        mail.mailComposeDelegate = mailCloser
+        presenter.present(mail, animated: true)
+    }
+
+    @MainActor
+    static func presentOutlook(subject: String, jpegURLs: [URL]) {
+        Self.jpegURLs = jpegURLs
+        if !jpegURLs.isEmpty {
+            let items: [[String: Any]] = jpegURLs.compactMap { url in
+                guard let data = try? Data(contentsOf: url) else { return nil }
+                return [UTType.jpeg.identifier: data]
+            }
+            if !items.isEmpty {
+                UIPasteboard.general.setItems(items, options: [:])
+            }
+        }
+        guard let presenter = topController(), presenter.view.window != nil else {
+            openOutlook(subject: subject, jpegURLs: jpegURLs)
+            return
+        }
+        let payload: [Any] = jpegURLs.isEmpty ? [subject] : jpegURLs
         let sheet = UIActivityViewController(
-            activityItems: items,
+            activityItems: payload,
+            applicationActivities: nil
+        )
+        sheet.excludedActivityTypes = [
+            .assignToContact,
+            .addToReadingList,
+            .print,
+            .saveToCameraRoll,
+            .markupAsPDF,
+        ]
+        if let popover = sheet.popoverPresentationController {
+            let view = presenter.view!
+            popover.sourceView = view
+            popover.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.maxY - 80, width: 1, height: 1)
+            popover.permittedArrowDirections = []
+        }
+        presenter.present(sheet, animated: true)
+    }
+
+    @MainActor
+    static func present(_ packet: PulseMail.Packet) {
+        jpegURLs = []
+        jpegHTML = packet.html
+        let source = PulseShareSource(packet: packet)
+        let mail = MailShareActivity(packet: packet)
+        let outlook = OutlookShareActivity(packet: packet)
+        let sheet = UIActivityViewController(
+            activityItems: [source],
             applicationActivities: [mail, outlook]
         )
         sheet.excludedActivityTypes = [
@@ -9939,14 +10159,32 @@ enum PulseShare {
             let view = presenter.view!
             popover.sourceView = view
             popover.sourceRect = CGRect(
-                x: view.bounds.maxX - 56,
-                y: 56,
+                x: view.bounds.midX,
+                y: 72,
                 width: 1,
                 height: 1
             )
             popover.permittedArrowDirections = []
         }
         presenter.present(sheet, animated: true)
+        Task { @MainActor in
+            await warmJpegs(packet.html)
+        }
+    }
+
+    @MainActor
+    static func openOutlook(_ packet: PulseMail.Packet) async {
+        if jpegURLs.isEmpty || jpegHTML != packet.html {
+            await warmJpegs(packet.html)
+        }
+        openOutlook(subject: packet.subject, jpegURLs: jpegURLs)
+    }
+
+    @MainActor
+    private static func warmJpegs(_ html: String) async {
+        jpegHTML = html
+        let media = await RecapRenderer.render(html: html)
+        jpegURLs = RecapRenderer.jpegFiles(media.images)
     }
 
     static func openOutlook(subject: String, jpegURLs: [URL]) {
