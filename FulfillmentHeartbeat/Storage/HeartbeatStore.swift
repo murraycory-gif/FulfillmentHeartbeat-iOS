@@ -1400,7 +1400,7 @@ final class HeartbeatStore: ObservableObject {
                 self.install(pulse)
                 self.filterStamp += 1
                 if !current.isActive {
-                    if isCompanyWide(pulse) {
+                    if self.isCompanyWide(pulse) {
                         self.unfilteredPulse = pulse
                     }
                 } else {
