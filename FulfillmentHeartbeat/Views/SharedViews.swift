@@ -836,8 +836,7 @@ struct HubChromePill: View {
 struct FilterBar: View {
     @EnvironmentObject private var store: HeartbeatStore
     @Environment(\.horizontalSizeClass) private var sizeClass
-    @State private var showingFilters = false
-    @State private var sheetFocus: FilterFocus = .region
+    @State private var sheetFocus: FilterFocus?
     @State private var buildingShare = false
 
     var body: some View {
@@ -854,8 +853,8 @@ struct FilterBar: View {
                 }
             }
         }
-        .fullScreenCover(isPresented: $showingFilters) {
-            FilterSheet(initialFocus: sheetFocus)
+        .fullScreenCover(item: $sheetFocus) { focus in
+            FilterSheet(initialFocus: focus)
                 .environmentObject(store)
         }
     }
@@ -913,7 +912,6 @@ struct FilterBar: View {
 
     private func openFilters(_ focus: FilterFocus) {
         sheetFocus = focus
-        showingFilters = true
     }
 
     private func composePulseShare() {
@@ -937,39 +935,41 @@ struct FilterSheet: View {
     @State private var original = DashboardFilters()
     @State private var draft = DashboardFilters()
     @State private var confirmLeave = false
-    @State private var focus: FilterFocus = .region
     @State private var options: [(id: String, label: String)] = []
 
+    private var focus: FilterFocus { initialFocus }
     private var isDirty: Bool { draft != original }
+    private var focusValues: [String] { draft.values(for: focus) }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 16) {
-                summaryRow
-                focusPicker
+                Text("Search or tap rows. Select more than one \(focus.chipTitle.lowercased()).")
+                    .font(.subheadline)
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 FilterColumn(
                     title: focus.title,
                     prompt: focus.prompt,
                     allLabel: focus.allLabel,
-                    selection: draft.values(for: focus),
+                    selection: focusValues,
                     options: options,
-                    onChange: { apply($0, to: focus) }
+                    onChange: apply
                 )
-                .id(focus)
                 .transaction { $0.animation = nil }
             }
             .padding(20)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(AppTheme.bg.ignoresSafeArea())
-            .navigationTitle("Filters")
+            .navigationTitle(focus.title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { requestClose() }
                 }
                 ToolbarItem(placement: .primaryAction) {
-                    if draft.isActive {
-                        Button("Clear all") { applyDraft(DashboardFilters()) }
+                    if !focusValues.isEmpty {
+                        Button("Clear") { apply("") }
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
@@ -984,18 +984,14 @@ struct FilterSheet: View {
                 }
                 Button("Keep editing", role: .cancel) {}
             } message: {
-                Text("You changed Region, Division, District, OM, or Store. Save to apply them on the dashboard.")
+                Text("You changed \(focus.title). Save to apply it on every page.")
             }
         }
         .interactiveDismissDisabled(isDirty)
         .onAppear {
             original = store.filters
             draft = store.filters
-            focus = initialFocus
-            options = store.filterChoices(focus: initialFocus, draft: store.filters)
-        }
-        .onChange(of: focus) { _, next in
-            options = store.filterChoices(focus: next, draft: draft)
+            options = store.filterChoices(focus: focus, draft: store.filters)
         }
     }
 
@@ -1012,75 +1008,13 @@ struct FilterSheet: View {
         }
     }
 
-    private var summaryRow: some View {
-        VStack(spacing: 10) {
-            HStack(spacing: 10) {
-                filterChip(.region)
-                filterChip(.division)
-            }
-            HStack(spacing: 10) {
-                filterChip(.district)
-                filterChip(.om)
-                filterChip(.store)
-            }
-        }
-    }
-
-    private func filterChip(_ item: FilterFocus) -> some View {
-        Button {
-            focus = item
-        } label: {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.chipTitle.uppercased())
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(AppTheme.textTertiary)
-                Text(display(for: item))
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(draft.values(for: item).isEmpty ? AppTheme.textSecondary : AppTheme.blue)
-                    .lineLimit(1)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(
-                item == focus ? AppTheme.blueSoft : AppTheme.card,
-                in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(item == focus ? AppTheme.blue : AppTheme.cardBorder, lineWidth: item == focus ? 2 : 1)
-            )
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var focusPicker: some View {
-        Text("Search or tap rows in \(focus.title). Select more than one.")
-            .font(.subheadline)
-            .foregroundStyle(AppTheme.textSecondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func display(for focus: FilterFocus) -> String {
-        let values = draft.values(for: focus)
-        if values.isEmpty { return focus.allLabel }
-        if values.count == 1 { return values[0] }
-        if values.count == 2 { return values.joined(separator: ", ") }
-        return "\(values[0]) + \(values.count - 1) more"
-    }
-
-    private func apply(_ value: String, to focus: FilterFocus) {
+    private func apply(_ value: String) {
         var next = draft
         next.toggle(value, in: focus)
         draft = next
         if focus != .store {
-            options = store.filterChoices(focus: self.focus, draft: next)
+            options = store.filterChoices(focus: focus, draft: next)
         }
-    }
-
-    private func applyDraft(_ next: DashboardFilters) {
-        draft = next
-        options = store.filterChoices(focus: focus, draft: next)
     }
 }
 
