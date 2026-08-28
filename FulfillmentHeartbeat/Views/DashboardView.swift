@@ -198,7 +198,12 @@ struct DashBriefingList: View {
                                 )
                             )
                         } else if card.section == .pph {
-                            metricFlags(HeartbeatMath.pphActionFlags(store.displayRows(for: .pph)))
+                            metricFlags(
+                                HeartbeatMath.pphActionFlags(
+                                    stores: store.displayRows(for: .pph),
+                                    shoppers: store.displayRows(for: .pickerScorecard)
+                                )
+                            )
                         } else if card.section == .dynacap {
                             metricFlags(HeartbeatMath.dynacapActionFlags(store.displayRows(for: .dynacap)))
                         } else if card.section == .pickerScorecard {

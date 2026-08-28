@@ -1165,22 +1165,27 @@ enum HeartbeatMath {
         return flags
     }
 
-    static func pphActionFlags(_ rows: [MetricRow]) -> [FiveStarFlag] {
-        let stores = rows.filter { !isIgnoredStore($0.storeNumber) && $0.number("pph") != nil }
-        let atGoal = stores.filter { ($0.number("pph") ?? 0) >= pphGoal }.count
-        let below74 = stores.filter { ($0.number("pph") ?? .greatestFiniteMagnitude) < pphRisk }.count
+    static func pphActionFlags(stores: [MetricRow], shoppers: [MetricRow]) -> [FiveStarFlag] {
+        let pickerRows = shoppers.filter { isRealPicker($0) && $0.number("pph") != nil }
+        let usingShoppers = !pickerRows.isEmpty
+        let rows = usingShoppers ? pickerRows : stores.filter { !isIgnoredStore($0.storeNumber) && $0.number("pph") != nil }
+        let atGoal = rows.filter { ($0.number("pph") ?? 0) >= pphGoal }.count
+        let below74 = rows.filter { ($0.number("pph") ?? .greatestFiniteMagnitude) < pphRisk }.count
+        let unit = usingShoppers ? "shoppers" : "stores"
         return [
             FiveStarFlag(
                 name: "At Goal",
                 value: "",
                 health: .good,
-                stores: atGoal
+                stores: atGoal,
+                unit: unit
             ),
             FiveStarFlag(
                 name: "Below 74",
                 value: "",
                 health: below74 == 0 ? .good : .risk,
-                stores: below74
+                stores: below74,
+                unit: unit
             ),
         ]
     }
