@@ -413,9 +413,9 @@ private enum MissingItemsRollupBuilder {
             let key: String
             switch grain {
             case .division:
-                key = row.division.isEmpty ? "Unassigned" : MarketRegion.canonicalName(row.division)
+                key = RollupMarketFill.divisionKey(row.division)
             case .district:
-                key = row.district.isEmpty ? "Unassigned" : row.district
+                key = RollupMarketFill.districtKey(row.district)
             case .store:
                 key = HeartbeatMath.canonicalStore(row.storeNumber)
             }
@@ -841,14 +841,14 @@ struct MissingItemsRollupTable: View {
     @EnvironmentObject private var headerPin: LaborHeaderPin
     let depts: [MissingItemDept]
     var pageWidth: CGFloat = 1000
-    @State private var grain: MissingItemsGrain?
+    @State private var grain: MissingItemsGrain? = .division
     @State private var summary: [MissingItemsRollupRow] = []
 
     private var expanded: Bool { headerPin.rollupExpanded }
 
     var body: some View {
         Group {
-        if let grain, !summary.isEmpty {
+        if let grain {
             let metrics = MILayout.metrics(depts: depts.count, showCount: grain != .store, available: max(pageWidth - 56, 320))
             VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
                 Button {
@@ -906,6 +906,21 @@ struct MissingItemsRollupTable: View {
         grain = next
         guard let next else { summary = []; return }
         let source = MissingItemsRollupBuilder.source(from: store.allLatest(for: .missingItems), filters: store.filters)
-        summary = MissingItemsRollupBuilder.rows(from: source, grain: next, depts: depts)
+        var rows = MissingItemsRollupBuilder.rows(from: source, grain: next, depts: depts)
+        if next == .division {
+            for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
+                rows.append(
+                    MissingItemsRollupRow(
+                        id: extra.name,
+                        label: extra.name,
+                        storeCount: extra.storeCount,
+                        total: nil,
+                        values: [:],
+                        health: .none
+                    )
+                )
+            }
+        }
+        summary = rows
     }
 }

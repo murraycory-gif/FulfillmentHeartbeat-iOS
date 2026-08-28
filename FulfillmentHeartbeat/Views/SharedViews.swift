@@ -1617,9 +1617,9 @@ private enum PickPathRollupBuilder {
             let key: String
             switch grain {
             case .division:
-                key = row.division.isEmpty ? "Unassigned" : MarketRegion.canonicalName(row.division)
+                key = RollupMarketFill.divisionKey(row.division)
             case .district:
-                key = row.district.isEmpty ? "Unassigned" : row.district
+                key = RollupMarketFill.districtKey(row.district)
             case .store:
                 key = HeartbeatMath.canonicalStore(row.storeNumber)
             }
@@ -1943,14 +1943,14 @@ struct PickPathStickyStoreHeader: View {
 struct PickPathRollupTable: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var headerPin: LaborHeaderPin
-    @State private var grain: LaborRollupGrain?
+    @State private var grain: LaborRollupGrain? = .division
     @State private var summary: [PickPathRollupRow] = []
 
     private var expanded: Bool { headerPin.rollupExpanded }
 
     var body: some View {
         Group {
-        if let grain, !summary.isEmpty {
+        if let grain {
             VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
                 Button {
                     headerPin.rollupExpanded.toggle()
@@ -2648,9 +2648,9 @@ private enum DynacapRollupBuilder {
             let key: String
             switch grain {
             case .division:
-                key = row.division.isEmpty ? "Unassigned" : MarketRegion.canonicalName(row.division)
+                key = RollupMarketFill.divisionKey(row.division)
             case .district:
-                key = row.district.isEmpty ? "Unassigned" : row.district
+                key = RollupMarketFill.districtKey(row.district)
             case .store:
                 key = HeartbeatMath.canonicalStore(row.storeNumber)
             }
@@ -2947,14 +2947,14 @@ struct DynacapStickyStoreHeader: View {
 struct DynacapRollupTable: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var headerPin: LaborHeaderPin
-    @State private var grain: LaborRollupGrain?
+    @State private var grain: LaborRollupGrain? = .division
     @State private var summary: [DynacapRollupRow] = []
 
     private var expanded: Bool { headerPin.rollupExpanded }
 
     var body: some View {
         Group {
-        if let grain, !summary.isEmpty {
+        if let grain {
             VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
                 Button {
                     headerPin.rollupExpanded.toggle()
@@ -3429,9 +3429,9 @@ private enum PrepRollupBuilder {
             let key: String
             switch grain {
             case .division:
-                key = row.division.isEmpty ? "Unassigned" : MarketRegion.canonicalName(row.division)
+                key = RollupMarketFill.divisionKey(row.division)
             case .district:
-                key = row.district.isEmpty ? "Unassigned" : row.district
+                key = RollupMarketFill.districtKey(row.district)
             case .store:
                 key = HeartbeatMath.canonicalStore(row.storeNumber)
             }
@@ -3710,14 +3710,14 @@ struct PrepStickyStoreHeader: View {
 struct PrepRollupTable: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var headerPin: LaborHeaderPin
-    @State private var grain: LaborRollupGrain?
+    @State private var grain: LaborRollupGrain? = .division
     @State private var summary: [PrepRollupRow] = []
 
     private var expanded: Bool { headerPin.rollupExpanded }
 
     var body: some View {
         Group {
-        if let grain, !summary.isEmpty {
+        if let grain {
             VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
                 Button {
                     headerPin.rollupExpanded.toggle()
@@ -4107,9 +4107,9 @@ private enum FiveStarRollupBuilder {
             let key: String
             switch grain {
             case .division:
-                key = row.division.isEmpty ? "Unassigned" : MarketRegion.canonicalName(row.division)
+                key = RollupMarketFill.divisionKey(row.division)
             case .district:
-                key = row.district.isEmpty ? "Unassigned" : row.district
+                key = RollupMarketFill.districtKey(row.district)
             case .store:
                 key = HeartbeatMath.canonicalStore(row.storeNumber)
             }
@@ -4444,14 +4444,14 @@ struct FiveStarStickyStoreHeader: View {
 struct FiveStarRollupTable: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var headerPin: LaborHeaderPin
-    @State private var grain: LaborRollupGrain?
+    @State private var grain: LaborRollupGrain? = .division
     @State private var summary: [FiveStarRollupRow] = []
 
     private var expanded: Bool { headerPin.rollupExpanded }
 
     var body: some View {
         Group {
-        if let grain, !summary.isEmpty {
+        if let grain {
             VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
                 Button {
                     headerPin.rollupExpanded.toggle()
@@ -4753,6 +4753,20 @@ enum LaborRollupGrain {
 }
 
 enum RollupMarketFill {
+    static func divisionKey(_ raw: String) -> String {
+        let canonical = MarketRegion.canonicalName(raw)
+        if !canonical.isEmpty { return canonical }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Unassigned" : trimmed
+    }
+
+    static func districtKey(_ raw: String) -> String {
+        let value = HeartbeatMath.canonicalDistrict(raw)
+        if !value.isEmpty { return value }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Unassigned" : trimmed
+    }
+
     static func grain(for filters: DashboardFilters) -> LaborRollupGrain {
         if !filters.division.isEmpty || !filters.district.isEmpty || !filters.om.isEmpty || !filters.store.isEmpty {
             return .district
@@ -4842,9 +4856,9 @@ private enum LaborRollupBuilder {
             let key: String
             switch grain {
             case .division:
-                key = row.division.isEmpty ? "Unassigned" : MarketRegion.canonicalName(row.division)
+                key = RollupMarketFill.divisionKey(row.division)
             case .district:
-                key = row.district.isEmpty ? "Unassigned" : row.district
+                key = RollupMarketFill.districtKey(row.district)
             case .store:
                 key = HeartbeatMath.canonicalStore(row.storeNumber)
             }
@@ -5254,14 +5268,14 @@ struct LaborMetricHeader: View {
 struct LaborRollupTable: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var headerPin: LaborHeaderPin
-    @State private var grain: LaborRollupGrain?
+    @State private var grain: LaborRollupGrain? = .division
     @State private var summary: [LaborRollupRow] = []
 
     private var expanded: Bool { headerPin.rollupExpanded }
 
     var body: some View {
         Group {
-        if let grain, !summary.isEmpty {
+        if let grain {
             VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
                     Button {
                         headerPin.rollupExpanded.toggle()
@@ -5912,9 +5926,9 @@ private enum LostRevenueRollupBuilder {
             let key: String
             switch grain {
             case .division:
-                key = row.division.isEmpty ? "Unassigned" : MarketRegion.canonicalName(row.division)
+                key = RollupMarketFill.divisionKey(row.division)
             case .district:
-                key = row.district.isEmpty ? "Unassigned" : row.district
+                key = RollupMarketFill.districtKey(row.district)
             case .store:
                 key = HeartbeatMath.canonicalStore(row.storeNumber)
             }
@@ -6248,14 +6262,14 @@ struct LostRevenueStickyStoreHeader: View {
 struct LostRevenueRollupTable: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var headerPin: LaborHeaderPin
-    @State private var grain: LaborRollupGrain?
+    @State private var grain: LaborRollupGrain? = .division
     @State private var summary: [LostRevenueRollupRow] = []
 
     private var expanded: Bool { headerPin.rollupExpanded }
 
     var body: some View {
         Group {
-        if let grain, !summary.isEmpty {
+        if let grain {
             VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
                 Button {
                     headerPin.rollupExpanded.toggle()
@@ -6918,9 +6932,9 @@ private enum ScheduleRollupBuilder {
             let key: String
             switch grain {
             case .division:
-                key = row.division.isEmpty ? "Unassigned" : MarketRegion.canonicalName(row.division)
+                key = RollupMarketFill.divisionKey(row.division)
             case .district:
-                key = row.district.isEmpty ? "Unassigned" : row.district
+                key = RollupMarketFill.districtKey(row.district)
             case .store:
                 key = HeartbeatMath.canonicalStore(row.storeNumber)
             }
@@ -7234,14 +7248,14 @@ struct ScheduleStickyStoreHeader: View {
 struct ScheduleRollupTable: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var headerPin: LaborHeaderPin
-    @State private var grain: LaborRollupGrain?
+    @State private var grain: LaborRollupGrain? = .division
     @State private var summary: [ScheduleRollupRow] = []
 
     private var expanded: Bool { headerPin.rollupExpanded }
 
     var body: some View {
         Group {
-        if let grain, !summary.isEmpty {
+        if let grain {
             VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
                 Button {
                     headerPin.rollupExpanded.toggle()
@@ -7637,9 +7651,9 @@ private enum PPHRollupBuilder {
             let key: String
             switch grain {
             case .division:
-                key = row.division.isEmpty ? "Unassigned" : MarketRegion.canonicalName(row.division)
+                key = RollupMarketFill.divisionKey(row.division)
             case .district:
-                key = row.district.isEmpty ? "Unassigned" : row.district
+                key = RollupMarketFill.districtKey(row.district)
             case .store:
                 key = HeartbeatMath.canonicalStore(row.storeNumber)
             }
@@ -7924,14 +7938,14 @@ struct PPHStickyStoreHeader: View {
 struct PPHRollupTable: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var headerPin: LaborHeaderPin
-    @State private var grain: LaborRollupGrain?
+    @State private var grain: LaborRollupGrain? = .division
     @State private var summary: [PPHRollupRow] = []
 
     private var expanded: Bool { headerPin.rollupExpanded }
 
     var body: some View {
         Group {
-        if let grain, !summary.isEmpty {
+        if let grain {
             VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
                 Button {
                     headerPin.rollupExpanded.toggle()
