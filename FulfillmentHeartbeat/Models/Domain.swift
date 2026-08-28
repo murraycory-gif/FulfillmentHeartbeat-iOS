@@ -1207,6 +1207,31 @@ enum HeartbeatMath {
         ]
     }
 
+    static func pickPathActionFlags(stores: [MetricRow], shoppers: [MetricRow]) -> [FiveStarFlag] {
+        let pickerRows = shoppers.filter { $0.number("compliance_pct") != nil }
+        let usingShoppers = !pickerRows.isEmpty
+        let rows = usingShoppers ? pickerRows : stores.filter { !isIgnoredStore($0.storeNumber) && $0.number("compliance_pct") != nil }
+        let atGoal = rows.filter { ($0.number("compliance_pct") ?? 0) >= pickPathGoal }.count
+        let below80 = rows.filter { ($0.number("compliance_pct") ?? .greatestFiniteMagnitude) < pickPathRisk }.count
+        let unit = usingShoppers ? "shoppers" : "stores"
+        return [
+            FiveStarFlag(
+                name: "At Goal",
+                value: "",
+                health: .good,
+                stores: atGoal,
+                unit: unit
+            ),
+            FiveStarFlag(
+                name: "Below 80%",
+                value: "",
+                health: below80 == 0 ? .good : .risk,
+                stores: below80,
+                unit: unit
+            ),
+        ]
+    }
+
     static func pickerActionFlags(_ rows: [MetricRow]) -> [FiveStarFlag] {
         var opportunity = 0
         var strong = 0

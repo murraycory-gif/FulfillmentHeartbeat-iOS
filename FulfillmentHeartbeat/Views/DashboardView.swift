@@ -190,6 +190,13 @@ struct DashBriefingList: View {
                             metricFlags(HeartbeatMath.fiveStarActionFlags(store.displayRows(for: .fiveStar)))
                         } else if card.section == .scheduleQuality {
                             metricFlags(HeartbeatMath.scheduleActionFlags(store.displayRows(for: .scheduleQuality)))
+                        } else if card.section == .pickPath {
+                            metricFlags(
+                                HeartbeatMath.pickPathActionFlags(
+                                    stores: store.displayRows(for: .pickPath),
+                                    shoppers: store.displayRows(for: .pickPathPicker)
+                                )
+                            )
                         } else if card.section == .pph {
                             metricFlags(HeartbeatMath.pphActionFlags(store.displayRows(for: .pph)))
                         } else if card.section == .dynacap {
