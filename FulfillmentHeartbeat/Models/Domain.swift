@@ -1021,6 +1021,7 @@ enum HeartbeatMath {
         let value: String
         let health: Health
         let stores: Int
+        var unit: String = "stores"
     }
 
     static func fiveStarActionFlags(_ rows: [MetricRow]) -> [FiveStarFlag] {
@@ -1203,6 +1204,98 @@ enum HeartbeatMath {
                 health: below60 == 0 ? .good : .risk,
                 stores: below60
             ),
+        ]
+    }
+
+    static func pickerActionFlags(_ rows: [MetricRow]) -> [FiveStarFlag] {
+        var opportunity = 0
+        var strong = 0
+        var pph = 0
+        var presub = 0
+        var oos = 0
+        var ott = 0
+        var oth = 0
+        var refund = 0
+        var pphHealth: Health = .none
+        var presubHealth: Health = .none
+        var oosHealth: Health = .none
+        var ottHealth: Health = .none
+        var othHealth: Health = .none
+        var refundHealth: Health = .none
+        func bump(_ current: inout Health, _ next: Health) {
+            if next == .risk { current = .risk }
+            else if next == .watch, current != .risk { current = .watch }
+        }
+        for row in rows {
+            guard isRealPicker(row) else { continue }
+            let volume = pickerHasVolume(row)
+            let overall = pickerHealth(row)
+            if volume && overall == .good {
+                strong += 1
+            } else if volume && overall.needsAction {
+                opportunity += 1
+            }
+            if row.number("pph") != nil {
+                let health = Self.pphHealth(row)
+                if health.needsAction {
+                    pph += 1
+                    bump(&pphHealth, health)
+                }
+            }
+            if row.number("presub_pct") != nil {
+                let health = presubStar(row).health
+                if health.needsAction {
+                    presub += 1
+                    bump(&presubHealth, health)
+                }
+            }
+            if row.number("oos_pct") != nil {
+                let health = oosStar(row).health
+                if health.needsAction {
+                    oos += 1
+                    bump(&oosHealth, health)
+                }
+            }
+            if row.number("ott_pct") != nil {
+                let health = ottStar(row).health
+                if health.needsAction {
+                    ott += 1
+                    bump(&ottHealth, health)
+                }
+            }
+            if row.number("oth5_pct") != nil {
+                let health = othStar(row).health
+                if health.needsAction {
+                    oth += 1
+                    bump(&othHealth, health)
+                }
+            }
+            if row.number("refund_amt") != nil {
+                let health = Self.refundHealth(row)
+                if health.needsAction {
+                    refund += 1
+                    bump(&refundHealth, health)
+                }
+            }
+        }
+        func shoppers(_ name: String, _ count: Int, _ health: Health) -> FiveStarFlag {
+            FiveStarFlag(
+                name: name,
+                value: "",
+                health: count == 0 ? .good : health,
+                stores: count,
+                unit: "shoppers"
+            )
+        }
+        return [
+            shoppers("Opportunity", opportunity, .risk),
+            shoppers("Doing Well", strong, .good),
+            shoppers("PPH", pph, pphHealth),
+            shoppers("Presub", presub, presubHealth),
+            shoppers("OOS", oos, oosHealth),
+            shoppers("OTT", ott, ottHealth),
+            shoppers("OTH", oth, othHealth),
+            shoppers("Refund", refund, refundHealth),
         ]
     }
 

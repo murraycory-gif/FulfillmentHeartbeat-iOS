@@ -194,6 +194,12 @@ struct DashBriefingList: View {
                             metricFlags(HeartbeatMath.pphActionFlags(store.displayRows(for: .pph)))
                         } else if card.section == .dynacap {
                             metricFlags(HeartbeatMath.dynacapActionFlags(store.displayRows(for: .dynacap)))
+                        } else if card.section == .pickerScorecard {
+                            let picker = HeartbeatMath.pickerActionFlags(store.displayRows(for: .pickerScorecard))
+                            VStack(alignment: .leading, spacing: 8) {
+                                metricFlags(Array(picker.prefix(2)), columns: 2)
+                                metricFlags(Array(picker.suffix(from: 2)), columns: min(6, max(2, HubLayout.flagColumns(count: 6, width: width))))
+                            }
                         } else if card.section == .labor {
                             let labor = HeartbeatMath.laborActionFlags(store.displayRows(for: .labor))
                             VStack(alignment: .leading, spacing: 8) {
@@ -235,7 +241,7 @@ struct DashBriefingList: View {
                                     .minimumScaleFactor(0.7)
                             }
                             if flag.stores > 0 || flag.value.isEmpty {
-                                Text(flag.stores == 1 ? "1 store" : "\(HeartbeatFormat.num(Double(flag.stores))) stores")
+                                Text(flag.stores == 1 ? "1 \(String(flag.unit.dropLast()))" : "\(HeartbeatFormat.num(Double(flag.stores))) \(flag.unit)")
                                     .font(.subheadline.weight(.semibold))
                                     .foregroundStyle(flag.value.isEmpty ? dashInk(flag.health) : AppTheme.textSecondary)
                                     .lineLimit(1)
