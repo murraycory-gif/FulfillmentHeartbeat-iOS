@@ -10151,7 +10151,7 @@ enum PulseShare {
             UIPasteboard.general.images = tiles
         }
         guard let presenter = topController(), presenter.view.window != nil else {
-            openOutlook(subject: subject, jpegURLs: jpegFiles(tiles))
+            openOutlook(subject: subject, jpegURLs: RecapRenderer.jpegFiles(tiles))
             return
         }
         let items: [Any] = tiles.enumerated().map { index, image in
@@ -10176,10 +10176,6 @@ enum PulseShare {
             popover.permittedArrowDirections = []
         }
         presenter.present(sheet, animated: true)
-    }
-
-    private static func jpegFiles(_ images: [UIImage]) -> [URL] {
-        RecapRenderer.jpegFiles(images)
     }
 
     @MainActor
