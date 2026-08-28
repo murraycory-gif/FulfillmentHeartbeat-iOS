@@ -12,6 +12,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
     case pickerScorecard = "picker_scorecard"
     case lostRevenue = "lost_revenue"
     case missingItems = "missing_items"
+    case aisleMapper = "aisle_mapper"
 
     var id: String { rawValue }
 
@@ -28,6 +29,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .pickerScorecard: return "Picker ScoreCard"
         case .lostRevenue: return "Loss Revenue"
         case .missingItems: return "Missing Items"
+        case .aisleMapper: return "Aisle Mapper"
         }
     }
 
@@ -44,6 +46,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .pickerScorecard: return "Pickers"
         case .lostRevenue: return "Lost Rev"
         case .missingItems: return "MI"
+        case .aisleMapper: return "Aisle Map"
         }
     }
 
@@ -60,6 +63,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .pickerScorecard: return "Shopper-level totals for PPH, Presubs, OOS, pick hours, subs, orders, DUG, OTH eligibility, OTH5, OTT, and refunds."
         case .lostRevenue: return "Total lost revenue opportunity by store. Upload Breakdown Week.xlsx from the Lost Revenue report."
         case .missingItems: return "Share of items without an aisle in store tag subscription data. Upload the department-wise MI export. 5% or less is healthy."
+        case .aisleMapper: return "Latest aisle mapper and aisle sequence update by store. Upload the Latest Aisle Mapper and Sequence Update Date By Store export. Dates show on Pick Path."
         }
     }
 
@@ -76,6 +80,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .pickerScorecard: return "STORE · PICKER · Total Pure PPH · Presub · OOS · Hours · Subs · Orders · DUG · OTH Elig · OTH5 · OTT · Refund"
         case .lostRevenue: return "Store · eComm Sales · Total Lost Revenue (Total Opportunity) · Total Lost Revenue % (Total Opportunity)"
         case .missingItems: return "Division · District · OM · Store · 301 Grocery · 303 Alcohol · 304 Pharmacy · 306 Food Service · 309 Deli · 311 GM/HBC · 314 Dairy · 315 Floral · 316 Bakery · 317 Frozen · 328 Coffee Kiosk · 329 Produce · 330 Seafood · 333 Meat · 336 Bakery Pkgd · Total"
+        case .aisleMapper: return "Division · District · OM · Store · Latest Aisle Mapper Update Date · Latest Aisle Sequence Update Date"
         }
     }
 
@@ -91,6 +96,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .pickerScorecard: return "Picker ScoreCard"
         case .lostRevenue: return "Loss Revenue ScoreCard"
         case .missingItems: return "Missing Items ScoreCard"
+        case .aisleMapper: return "Aisle Mapper"
         }
     }
 
@@ -107,6 +113,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .pickerScorecard: return "person.2.fill"
         case .lostRevenue: return "chart.line.downtrend.xyaxis"
         case .missingItems: return "tag.slash.fill"
+        case .aisleMapper: return "map.fill"
         }
     }
 
@@ -130,6 +137,8 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
             return URL(string: "https://app.powerbi.com/groups/me/apps/d973ff03-651f-4e52-9e7a-8e5bff14b5e6/reports/dac4848e-a28a-4e12-bfbb-b386da90f344/e57401a67b0f2379a0b3?ctid=b7f604a0-00a9-4188-9248-42f3a5aac2e9&experience=power-bi")
         case .missingItems:
             return URL(string: "https://app.powerbi.com/groups/me/apps/d973ff03-651f-4e52-9e7a-8e5bff14b5e6/reports/47829fe7-c57f-4c65-a557-f35c99a1e851/2a870f3cf2c35df0a38b?ctid=b7f604a0-00a9-4188-9248-42f3a5aac2e9&experience=power-bi")
+        case .aisleMapper:
+            return URL(string: "https://app.powerbi.com/groups/me/apps/d973ff03-651f-4e52-9e7a-8e5bff14b5e6/reports/c13fc8a7-5492-4d39-bd1b-8091e2f5f99a/bc42d1e4f9041554fbad?ctid=b7f604a0-00a9-4188-9248-42f3a5aac2e9&experience=power-bi&clientSideAuth=0")
         default:
             return nil
         }
@@ -140,7 +149,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
     }
 
     static var uploadOrder: [MetricSection] {
-        [.lostRevenue, .missingItems, .fiveStar, .pickPath, .pickPathPicker, .prepNotReady, .dynacap, .scheduleQuality, .pph, .labor, .pickerScorecard]
+        [.lostRevenue, .missingItems, .fiveStar, .pickPath, .pickPathPicker, .aisleMapper, .prepNotReady, .dynacap, .scheduleQuality, .pph, .labor, .pickerScorecard]
     }
 
     static var checklistSections: [MetricSection] {
@@ -247,6 +256,43 @@ enum MissingItemDept: String, CaseIterable, Identifiable, Hashable {
     static func visible(from selected: Set<MissingItemDept>) -> [MissingItemDept] {
         if selected.isEmpty { return Array(allCases) }
         return allCases.filter { selected.contains($0) }
+    }
+}
+
+enum AisleMapperMath {
+    static let mapperKey = "aisle_mapper_date"
+    static let sequenceKey = "aisle_sequence_date"
+    static let freshDays = 30.0
+    static let watchDays = 90.0
+
+    static func iso(_ row: MetricRow, key: String) -> String? {
+        let raw = row.textPayload[key]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return raw.isEmpty ? nil : raw
+    }
+
+    static func mapperISO(_ row: MetricRow) -> String? { iso(row, key: mapperKey) }
+    static func sequenceISO(_ row: MetricRow) -> String? { iso(row, key: sequenceKey) }
+
+    static func health(_ iso: String?) -> Health {
+        guard let days = ageDays(iso) else { return .none }
+        if days <= freshDays { return .good }
+        if days <= watchDays { return .watch }
+        return .risk
+    }
+
+    static func oldest(_ values: [String?]) -> String? {
+        let clean = values.compactMap { $0 }.filter { !$0.isEmpty }
+        return clean.min()
+    }
+
+    static func ageDays(_ iso: String?, now: Date = Date()) -> Double? {
+        guard let iso, iso.count >= 10 else { return nil }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyy-MM-dd"
+        guard let date = formatter.date(from: String(iso.prefix(10))) else { return nil }
+        return now.timeIntervalSince(date) / 86_400
     }
 }
 
@@ -810,6 +856,29 @@ enum HeartbeatMath {
         }
     }
 
+    static func applyAisleMapper(_ rows: [MetricRow], from mapper: [MetricRow]) -> [MetricRow] {
+        guard !mapper.isEmpty else { return rows }
+        var byStore: [String: (mapper: String, sequence: String)] = [:]
+        for row in mapper {
+            let key = canonicalStore(row.storeNumber)
+            guard !key.isEmpty, !isIgnoredStore(key) else { continue }
+            let mapDate = AisleMapperMath.mapperISO(row) ?? ""
+            let seqDate = AisleMapperMath.sequenceISO(row) ?? ""
+            if mapDate.isEmpty && seqDate.isEmpty { continue }
+            byStore[key] = (mapDate, seqDate)
+        }
+        guard !byStore.isEmpty else { return rows }
+        return rows.map { row in
+            guard let extra = byStore[canonicalStore(row.storeNumber)] else { return row }
+            var text = row.textPayload
+            if !extra.mapper.isEmpty { text[AisleMapperMath.mapperKey] = extra.mapper }
+            if !extra.sequence.isEmpty { text[AisleMapperMath.sequenceKey] = extra.sequence }
+            var next = row
+            next.textPayload = text
+            return next
+        }
+    }
+
     static func resolvedIdentity(_ row: MetricRow, roster: [String: StoreIdentity]) -> StoreIdentity {
         let known = roster[canonicalStore(row.storeNumber)]
         return StoreIdentity(
@@ -847,6 +916,8 @@ enum HeartbeatMath {
             return lostRevenueHealth(row)
         case .missingItems:
             return missingItemsHealth(row)
+        case .aisleMapper:
+            return AisleMapperMath.health(AisleMapperMath.mapperISO(row))
         }
     }
 
@@ -1079,6 +1150,21 @@ enum HeartbeatMath {
                 health: latest.isEmpty ? .none : band(headline, good: missingItemsGoal, watch: missingItemsWatch, invert: true),
                 watchCount: watchCount,
                 riskCount: riskCount,
+                lastFilename: upload?.filename,
+                lastUploadedAt: upload?.uploadedAt
+            )
+        case .aisleMapper:
+            return SectionSummary(
+                section: section,
+                storeCount: latest.count,
+                headline: nil,
+                headlineLabel: "Aisle mapper",
+                secondary: latest.isEmpty
+                    ? "No Aisle Mapper rows in this filter"
+                    : "\(latest.count) stores · dates show on Pick Path",
+                health: .none,
+                watchCount: 0,
+                riskCount: 0,
                 lastFilename: upload?.filename,
                 lastUploadedAt: upload?.uploadedAt
             )
@@ -1863,6 +1949,8 @@ enum HeartbeatMath {
             return row.number("lost_revenue") ?? 0
         case .missingItems:
             return row.number(MissingItemDept.totalKey) ?? 0
+        case .aisleMapper:
+            return AisleMapperMath.ageDays(AisleMapperMath.mapperISO(row)) ?? 0
         }
     }
 
@@ -1970,6 +2058,8 @@ enum HeartbeatMath {
                 value = row.number("lost_revenue")
             case .missingItems:
                 value = row.number(MissingItemDept.totalKey)
+            case .aisleMapper:
+                value = AisleMapperMath.ageDays(AisleMapperMath.mapperISO(row))
             }
             guard let value else { continue }
             buckets[date, default: []].append(value)
@@ -2461,6 +2551,15 @@ enum HeartbeatFormat {
         return "$" + (formatter.string(from: NSNumber(value: value)) ?? "0")
     }
 
+    static func shortDate(_ iso: String?) -> String {
+        guard let iso, iso.count >= 10 else { return "—" }
+        let parts = iso.prefix(10).split(separator: "-")
+        guard parts.count == 3, let year = Int(parts[0]), let month = Int(parts[1]), let day = Int(parts[2]) else {
+            return String(iso.prefix(10))
+        }
+        return "\(month)/\(day)/\(String(format: "%02d", year % 100))"
+    }
+
     static func moneyShort(_ value: Double?) -> String {
         guard let value else { return "—" }
         if abs(value) >= 1_000_000 {
@@ -2626,6 +2725,11 @@ struct StoreCellViewModel {
             return StoreCellViewModel(
                 primary: HeartbeatFormat.pct(rate),
                 extra: gapText
+            )
+        case .aisleMapper:
+            return StoreCellViewModel(
+                primary: HeartbeatFormat.shortDate(AisleMapperMath.mapperISO(row)),
+                extra: "Seq \(HeartbeatFormat.shortDate(AisleMapperMath.sequenceISO(row)))"
             )
         }
     }

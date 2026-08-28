@@ -153,6 +153,8 @@ enum PulseMail {
             items.append(("Lost %", HeartbeatFormat.pct(summary?.lostRevenuePct)))
         case .missingItems:
             items.append(("Goal", "5%"))
+        case .aisleMapper:
+            items.append(("Stores", HeartbeatFormat.num(Double(rows.count))))
         case .scheduleQuality:
             items.append(("Staffing %", HeartbeatFormat.pct(avg("staffing_efficiency_pct"))))
         case .pph:
@@ -252,7 +254,7 @@ enum PulseMail {
     private static func storeHeaders(_ section: MetricSection) -> [String] {
         switch section {
         case .fiveStar: return ["Store", "Rating", "Flash", "Presub", "COE", "OTT", "OTH5", "Status"]
-        case .pickPath, .pickPathPicker: return ["Store", "Pick Path", "PPH", "Orders", "Status"]
+        case .pickPath, .pickPathPicker: return ["Store", "Pick Path", "PPH", "Orders", "Mapper", "Sequence", "Status"]
         case .prepNotReady: return ["Store", "PNR %", "Goal", "Watch", "Status"]
         case .dynacap: return ["Store", "Rate", "PPH", "Goal", "Util", "Status"]
         case .scheduleQuality: return ["Store", "Efficiency", "Staffing % (Pch vs Tgt)", "Goal", "Under", "Over", "Status"]
@@ -261,6 +263,8 @@ enum PulseMail {
         case .lostRevenue: return ["Store", "Lost $", "Lost %", "Goal", "Sales", "Post", "Refund", "Missed", "Status"]
         case .missingItems:
             return ["Store"] + MissingItemDept.allCases.map(\.title) + ["Total", "Status"]
+        case .aisleMapper:
+            return ["Store", "Mapper", "Sequence", "Status"]
         case .pickerScorecard: return ["Shopper", "PPH", "Presub", "OOS%", "OTT", "OTH5", "Refund", "Status"]
         }
     }
@@ -283,6 +287,8 @@ enum PulseMail {
             html += cell(HeartbeatFormat.pct(row.number("compliance_pct")), HeartbeatMath.band(row.number("compliance_pct"), good: HeartbeatMath.pickPathGoal, watch: HeartbeatMath.pickPathRisk))
             html += cell(HeartbeatFormat.num(row.number("pph"), digits: 1))
             html += cell(HeartbeatFormat.num(row.number("orders") ?? row.number("picks_total")))
+            html += cell(HeartbeatFormat.shortDate(AisleMapperMath.mapperISO(row)), AisleMapperMath.health(AisleMapperMath.mapperISO(row)))
+            html += cell(HeartbeatFormat.shortDate(AisleMapperMath.sequenceISO(row)), AisleMapperMath.health(AisleMapperMath.sequenceISO(row)))
         case .prepNotReady:
             html += cell(HeartbeatFormat.pct(row.number("pnr_rate_pct")), HeartbeatMath.health(for: .prepNotReady, row: row))
             html += cell("\(HeartbeatFormat.num(HeartbeatMath.pnrGoal, digits: 1))%")
@@ -324,6 +330,9 @@ enum PulseMail {
                 html += cell(HeartbeatFormat.pct(value), HeartbeatMath.missingItemsHealth(pct: value))
             }
             html += cell(HeartbeatFormat.pct(row.number(MissingItemDept.totalKey)), HeartbeatMath.health(for: .missingItems, row: row))
+        case .aisleMapper:
+            html += cell(HeartbeatFormat.shortDate(AisleMapperMath.mapperISO(row)), AisleMapperMath.health(AisleMapperMath.mapperISO(row)))
+            html += cell(HeartbeatFormat.shortDate(AisleMapperMath.sequenceISO(row)), AisleMapperMath.health(AisleMapperMath.sequenceISO(row)))
         case .pickerScorecard:
             html += cell(HeartbeatFormat.num(row.number("pph"), digits: 1), HeartbeatMath.pickerHealth(row))
             html += cell(HeartbeatFormat.pct(row.number("presub_pct")))

@@ -1349,6 +1349,7 @@ struct StoreTable: View {
         case .pickerScorecard: return HeartbeatMath.pickerComposite(row)
         case .lostRevenue: return row.number("lost_revenue") ?? -1
         case .missingItems: return row.number(MissingItemDept.totalKey) ?? -1
+        case .aisleMapper: return AisleMapperMath.ageDays(AisleMapperMath.mapperISO(row)) ?? -1
         }
     }
 
@@ -1407,7 +1408,7 @@ struct PickPathTable: View {
     let rows: [MetricRow]
 
     private enum Column: String, CaseIterable, Identifiable {
-        case store, path, pph, orders, status
+        case store, path, pph, orders, mapper, sequence, status
         var id: String { rawValue }
         var key: String {
             switch self {
@@ -1415,6 +1416,8 @@ struct PickPathTable: View {
             case .path: return "path"
             case .pph: return "pph"
             case .orders: return "orders"
+            case .mapper: return "mapper"
+            case .sequence: return "sequence"
             case .status: return "status"
             }
         }
@@ -1572,6 +1575,10 @@ struct PickPathTable: View {
             return numberOrder(lhs.number("pph"), rhs.number("pph"))
         case .orders:
             return numberOrder(PickPathMath.orders(lhs), PickPathMath.orders(rhs))
+        case .mapper:
+            return dateOrder(AisleMapperMath.mapperISO(lhs), AisleMapperMath.mapperISO(rhs))
+        case .sequence:
+            return dateOrder(AisleMapperMath.sequenceISO(lhs), AisleMapperMath.sequenceISO(rhs))
         case .status:
             let a = healthRank(HeartbeatMath.health(for: .pickPath, row: lhs))
             let b = healthRank(HeartbeatMath.health(for: .pickPath, row: rhs))
@@ -1587,6 +1594,15 @@ struct PickPathTable: View {
         return lhs < rhs ? .orderedAscending : .orderedDescending
     }
 
+    private func dateOrder(_ a: String?, _ b: String?) -> ComparisonResult {
+        let lhs = a ?? ""
+        let rhs = b ?? ""
+        if lhs.isEmpty && rhs.isEmpty { return .orderedSame }
+        if lhs.isEmpty { return .orderedDescending }
+        if rhs.isEmpty { return .orderedAscending }
+        return lhs.compare(rhs)
+    }
+
     private func healthRank(_ health: Health) -> Int {
         switch health {
         case .risk: return 0
@@ -1598,6 +1614,8 @@ struct PickPathTable: View {
 }
 
 private enum PickPathMath {
+    static let dateW: CGFloat = 86
+
     static func orders(_ row: MetricRow) -> Double? {
         row.number("orders") ?? row.number("picks_total")
     }
@@ -1620,6 +1638,8 @@ private struct PickPathRollupRow: Identifiable {
     let path: Double?
     let pph: Double?
     let orders: Double?
+    let mapper: String?
+    let sequence: String?
 
     var health: Health { PickPathMath.pathHealth(path) }
 }
@@ -1683,7 +1703,9 @@ private enum PickPathRollupBuilder {
                     storeCount: group.count,
                     path: HeartbeatMath.average(group.compactMap { $0.number("compliance_pct") }),
                     pph: HeartbeatMath.average(group.compactMap { $0.number("pph") }),
-                    orders: orderValues.isEmpty ? nil : orderValues.reduce(0, +)
+                    orders: orderValues.isEmpty ? nil : orderValues.reduce(0, +),
+                    mapper: AisleMapperMath.oldest(group.map(AisleMapperMath.mapperISO)),
+                    sequence: AisleMapperMath.oldest(group.map(AisleMapperMath.sequenceISO))
                 )
             )
         }
@@ -1700,9 +1722,13 @@ private struct PickPathLineSnap: Identifiable, Equatable {
     let path: String
     let pph: String
     let orders: String
+    let mapper: String
+    let sequence: String
     let health: Health
     let pathHealth: Health
     let pphHealth: Health
+    let mapperHealth: Health
+    let sequenceHealth: Health
     let pathValue: Double
     let pphValue: Double
     let ordersValue: Double
@@ -1718,12 +1744,18 @@ private struct PickPathLineSnap: Identifiable, Equatable {
         let pathNum = row.number("compliance_pct")
         let pphNum = row.number("pph")
         let ordersNum = PickPathMath.orders(row)
+        let mapperISO = AisleMapperMath.mapperISO(row)
+        let sequenceISO = AisleMapperMath.sequenceISO(row)
         path = HeartbeatFormat.pct(pathNum)
         pph = HeartbeatFormat.num(pphNum, digits: 1)
         orders = HeartbeatFormat.num(ordersNum)
+        mapper = HeartbeatFormat.shortDate(mapperISO)
+        sequence = HeartbeatFormat.shortDate(sequenceISO)
         health = HeartbeatMath.health(for: .pickPath, row: row)
         pathHealth = PickPathMath.pathHealth(pathNum)
         pphHealth = PickPathMath.pphHealth(pphNum)
+        mapperHealth = AisleMapperMath.health(mapperISO)
+        sequenceHealth = AisleMapperMath.health(sequenceISO)
         pathValue = pathNum ?? -1
         pphValue = pphNum ?? -1
         ordersValue = ordersNum ?? -1
@@ -1750,6 +1782,8 @@ private struct PickPathCheapLine: View, Equatable {
             cell(snap.path, snap.pathHealth)
             cell(snap.pph, snap.pphHealth)
             cell(snap.orders, .none)
+            dateCell(snap.mapper, snap.mapperHealth)
+            dateCell(snap.sequence, snap.sequenceHealth)
             Text(snap.health.label.uppercased())
                 .font(.caption.weight(.heavy))
                 .lineLimit(1)
@@ -1772,6 +1806,18 @@ private struct PickPathCheapLine: View, Equatable {
             .frame(maxWidth: .infinity, alignment: .trailing)
             .padding(.vertical, 6)
             .padding(.horizontal, 6)
+            .background(wash(health), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private func dateCell(_ value: String, _ health: Health) -> some View {
+        Text(value)
+            .font(.caption.weight(.bold).monospacedDigit())
+            .foregroundStyle(ink(health))
+            .lineLimit(1)
+            .minimumScaleFactor(0.6)
+            .frame(width: PickPathMath.dateW, alignment: .trailing)
+            .padding(.vertical, 6)
+            .padding(.horizontal, 4)
             .background(wash(health), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
@@ -1809,6 +1855,8 @@ private struct PickPathMetricLine: View, Equatable {
     let path: Double?
     let pph: Double?
     let orders: Double?
+    var mapper: String? = nil
+    var sequence: String? = nil
 
     var body: some View {
         let health = PickPathMath.pathHealth(path)
@@ -1828,6 +1876,8 @@ private struct PickPathMetricLine: View, Equatable {
             cell(HeartbeatFormat.pct(path), health)
             cell(HeartbeatFormat.num(pph, digits: 1), PickPathMath.pphHealth(pph))
             cell(HeartbeatFormat.num(orders), .none)
+            dateCell(HeartbeatFormat.shortDate(mapper), AisleMapperMath.health(mapper))
+            dateCell(HeartbeatFormat.shortDate(sequence), AisleMapperMath.health(sequence))
             HealthBadge(health: health, prominent: true, compact: true)
                 .frame(width: 88, alignment: .trailing)
         }
@@ -1843,6 +1893,21 @@ private struct PickPathMetricLine: View, Equatable {
             .frame(maxWidth: .infinity, alignment: .trailing)
             .padding(.vertical, 6)
             .padding(.horizontal, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(wash(health))
+            )
+    }
+
+    private func dateCell(_ value: String, _ health: Health) -> some View {
+        Text(value)
+            .font(.caption.weight(.bold).monospacedDigit())
+            .foregroundStyle(ink(health))
+            .lineLimit(1)
+            .minimumScaleFactor(0.6)
+            .frame(width: PickPathMath.dateW, alignment: .trailing)
+            .padding(.vertical, 6)
+            .padding(.horizontal, 4)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(wash(health))
@@ -1886,6 +1951,10 @@ struct PickPathMetricHeader: View {
             head("Pick Path", key: "path")
             head("Avg PPH", key: "pph")
             head("Orders", key: "orders")
+            head("Mapper", key: "mapper")
+                .frame(width: PickPathMath.dateW, alignment: .trailing)
+            head("Sequence", key: "sequence")
+                .frame(width: PickPathMath.dateW, alignment: .trailing)
             head("Status", key: "status", alignment: .trailing)
                 .frame(width: 88, alignment: .trailing)
         }
@@ -1981,7 +2050,9 @@ struct PickPathRollupTable: View {
                             count: grain == .store ? nil : row.storeCount,
                             path: row.path,
                             pph: row.pph,
-                            orders: row.orders
+                            orders: row.orders,
+                            mapper: row.mapper,
+                            sequence: row.sequence
                         )
                     }
                                     }
@@ -2007,7 +2078,7 @@ struct PickPathRollupTable: View {
         var rows = PickPathRollupBuilder.rows(from: source, grain: grain)
         if grain == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
-                rows.append(PickPathRollupRow(id: extra.name, label: extra.name, storeCount: extra.storeCount, path: nil, pph: nil, orders: nil))
+                rows.append(PickPathRollupRow(id: extra.name, label: extra.name, storeCount: extra.storeCount, path: nil, pph: nil, orders: nil, mapper: nil, sequence: nil))
             }
             rows.sort { ($0.path ?? 999) < ($1.path ?? 999) }
         }
@@ -2078,7 +2149,7 @@ private enum ShopperMetric: String, CaseIterable, Hashable {
         case .pph, .dynacap: return [.pph, .orders, .hours]
         case .lostRevenue: return [.refund, .presub, .oos, .pph]
         case .labor: return [.pph, .hours, .orders]
-        case .prepNotReady, .scheduleQuality, .pickerScorecard, .missingItems: return nil
+        case .prepNotReady, .scheduleQuality, .pickerScorecard, .missingItems, .aisleMapper: return nil
         }
     }
 }
@@ -2328,6 +2399,8 @@ private struct PickPathStoreExpand: View {
             ("Pick Path", snap.path, snap.pathHealth),
             ("Avg PPH", snap.pph, snap.pphHealth),
             ("Orders", snap.orders, .none),
+            ("Mapper", snap.mapper, snap.mapperHealth),
+            ("Sequence", snap.sequence, snap.sequenceHealth),
         ]
     }
 

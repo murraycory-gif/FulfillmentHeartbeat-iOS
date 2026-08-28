@@ -86,7 +86,7 @@ extension HeartbeatMath {
             return diagnoseLost(row, pickers: pickers)
         case .missingItems:
             return diagnoseMissingItems(row)
-        case .pickerScorecard:
+        case .pickerScorecard, .aisleMapper:
             return []
         }
     }

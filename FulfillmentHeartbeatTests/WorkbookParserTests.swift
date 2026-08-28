@@ -76,6 +76,7 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertEqual(WorkbookParser.section(fromSheetName: "Picker ScoreCard"), .pickerScorecard)
         XCTAssertEqual(WorkbookParser.section(fromSheetName: "MI"), .missingItems)
         XCTAssertEqual(WorkbookParser.section(fromSheetName: "Missing Items"), .missingItems)
+        XCTAssertEqual(WorkbookParser.section(fromSheetName: "Aisle Mapper"), .aisleMapper)
         XCTAssertNil(WorkbookParser.section(fromSheetName: "Sheet1"))
     }
 
@@ -108,6 +109,24 @@ final class WorkbookParserTests: XCTestCase {
         let haggen = rows.first { $0.storeNumber == "3427" }!
         XCTAssertEqual(haggen.payload["mi_pct"] ?? 0, 3.8, accuracy: 0.05)
         XCTAssertEqual(HeartbeatMath.health(for: .missingItems, row: haggen), .good)
+    }
+
+    func testAisleMapperParsesDatesAndSkipsFilterRow() {
+        let csv = SampleMarket.templateCSV(for: .aisleMapper)
+        let rows = WorkbookParser.parseCSV(csv)
+        XCTAssertEqual(WorkbookParser.classifySheet(name: "Aisle Mapper", rows: rows), .aisleMapper)
+        XCTAssertEqual(Set(rows.map(\.storeNumber)), Set(["1", "606", "3427"]))
+        let fresh = rows.first { $0.storeNumber == "1" }!
+        XCTAssertEqual(fresh.textPayload[AisleMapperMath.mapperKey], "2026-08-20")
+        XCTAssertEqual(fresh.textPayload[AisleMapperMath.sequenceKey], "2026-08-24")
+        XCTAssertEqual(AisleMapperMath.health(nil), .none)
+        let stale = rows.first { $0.storeNumber == "606" }!
+        XCTAssertEqual(stale.textPayload[AisleMapperMath.mapperKey], "2021-03-05")
+        XCTAssertEqual(AisleMapperMath.health("2021-03-05"), .risk)
+        let path = MetricRow(section: .pickPath, division: "Jewel Osco", operationsOM: "Shelly Selof", storeNumber: "1", payload: ["compliance_pct": 92])
+        let merged = HeartbeatMath.applyAisleMapper([path], from: rows)
+        XCTAssertEqual(merged.first?.textPayload[AisleMapperMath.mapperKey], "2026-08-20")
+        XCTAssertEqual(HeartbeatFormat.shortDate("2026-08-20"), "8/20/26")
     }
 
     func testTemplateCSVRoundTrip() throws {

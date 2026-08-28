@@ -131,6 +131,9 @@ enum WorkbookParser {
             .replacingOccurrences(of: "-", with: " ")
         if name.contains("lost") && name.contains("revenue") { return .lostRevenue }
         if name.contains("loss") && name.contains("revenue") { return .lostRevenue }
+        if name.contains("aisle mapper") || (name.contains("aisle") && name.contains("sequence")) {
+            return .aisleMapper
+        }
         if name == "mi" || name.hasPrefix("mi ") || name.contains("missing item") { return .missingItems }
         if name.contains("aisle") && name.contains("tag") { return .missingItems }
         if name.contains("picker") && (name.contains("score") || name.contains("card") || name.contains("shopper")) {
@@ -162,6 +165,7 @@ enum WorkbookParser {
         }
         if keys.contains("lost_revenue") { return .lostRevenue }
         if keys.contains("mi_pct") || keys.contains("mi_grocery") { return .missingItems }
+        if text.contains(AisleMapperMath.mapperKey) || text.contains(AisleMapperMath.sequenceKey) { return .aisleMapper }
         if keys.contains("target_vs_actual_pct") || keys.contains("earned_hrs") { return .labor }
         if keys.contains("pnr_rate_pct") { return .prepNotReady }
         if keys.contains("star_rating") || keys.contains("flash_pct") { return .fiveStar }
@@ -418,6 +422,9 @@ enum WorkbookParser {
         if let missing = parseMissingItems(matrix), !missing.isEmpty {
             return missing
         }
+        if let aisle = parseAisleMapper(matrix), !aisle.isEmpty {
+            return aisle
+        }
         if let prep = parsePrepHours(matrix), !prep.isEmpty {
             return prep
         }
@@ -458,6 +465,74 @@ enum WorkbookParser {
     private static func isLaborWorkbook(_ strings: [String]) -> Bool {
         let blob = strings.prefix(40).map(normHeader).joined(separator: " ")
         return blob.contains("costtrgt") && blob.contains("targetvsactual")
+    }
+
+    private static func parseAisleMapper(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {
+        guard let headerIndex = matrix.firstIndex(where: isAisleMapperHeader) else { return nil }
+        let headers = matrix[headerIndex].map(normHeader)
+        var divIdx: Int?
+        var distIdx: Int?
+        var omIdx: Int?
+        var storeIdx: Int?
+        var mapperIdx: Int?
+        var sequenceIdx: Int?
+        for (index, name) in headers.enumerated() {
+            if divisionKeys.contains(name) { divIdx = index }
+            else if districtKeys.contains(name) || name == "district" { distIdx = index }
+            else if omKeys.contains(name) || name == "om" { omIdx = index }
+            else if storeKeys.contains(name) || name == "store" { storeIdx = index }
+            else if name.contains("aislemapper") || (name.contains("mapper") && name.contains("date")) {
+                mapperIdx = index
+            } else if name.contains("aislesequence") || (name.contains("sequence") && name.contains("date")) {
+                sequenceIdx = index
+            }
+        }
+        guard let storeIdx, mapperIdx != nil || sequenceIdx != nil else { return nil }
+
+        var out: [ParsedWorkbookRow] = []
+        out.reserveCapacity(max(0, matrix.count - headerIndex))
+        for line in matrix.dropFirst(headerIndex + 1) {
+            func cell(_ index: Int?) -> String {
+                guard let index, index < line.count else { return "" }
+                return line[index]
+            }
+            let storeRaw = cell(storeIdx).trimmingCharacters(in: .whitespacesAndNewlines)
+            if storeRaw.isEmpty { continue }
+            if storeRaw.lowercased().hasPrefix("applied") || storeRaw.lowercased().hasPrefix("no filter") { continue }
+            if isTotalCell(storeRaw) { continue }
+            let store = HeartbeatMath.canonicalStore(storeRaw)
+            guard !store.isEmpty, !HeartbeatMath.isIgnoredStore(store) else { continue }
+
+            let mapper = WorkbookParser.isoDate(cell(mapperIdx)) ?? ""
+            let sequence = WorkbookParser.isoDate(cell(sequenceIdx)) ?? ""
+            if mapper.isEmpty && sequence.isEmpty { continue }
+
+            var text: [String: String] = [:]
+            let district = cell(distIdx).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !district.isEmpty { text["district"] = district }
+            if !mapper.isEmpty { text[AisleMapperMath.mapperKey] = mapper }
+            if !sequence.isEmpty { text[AisleMapperMath.sequenceKey] = sequence }
+            out.append(
+                ParsedWorkbookRow(
+                    division: cell(divIdx).trimmingCharacters(in: .whitespacesAndNewlines),
+                    operationsOM: cell(omIdx).trimmingCharacters(in: .whitespacesAndNewlines),
+                    storeNumber: store,
+                    storeName: nil,
+                    recordedOn: sequence.isEmpty ? (mapper.isEmpty ? nil : mapper) : sequence,
+                    payload: [:],
+                    textPayload: text
+                )
+            )
+        }
+        return out.isEmpty ? nil : out
+    }
+
+    private static func isAisleMapperHeader(_ row: [String]) -> Bool {
+        let blob = row.map { $0.lowercased() }.joined(separator: " ")
+        if blob.contains("aisle mapper") && blob.contains("sequence") { return true }
+        let names = row.map(normHeader)
+        return names.contains(where: { $0.contains("aislemapper") })
+            && names.contains(where: { $0.contains("aislesequence") || $0.contains("sequenceupdate") })
     }
 
     private static func parseLostRevenue(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {

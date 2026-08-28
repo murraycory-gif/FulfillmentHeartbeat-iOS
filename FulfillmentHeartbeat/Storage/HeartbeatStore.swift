@@ -1342,6 +1342,9 @@ final class HeartbeatStore: ObservableObject {
                 latest[section] = HeartbeatMath.latestPerStore(sectionRows)
             }
         }
+        if let path = latest[.pickPath] {
+            latest[.pickPath] = HeartbeatMath.applyAisleMapper(path, from: latest[.aisleMapper] ?? [])
+        }
         latestBySection = latest
         cachedDivisions = roster.values.map(\.division).filter { !$0.isEmpty }.uniqued().sorted()
         rebuildLaborWeekIndex()
@@ -1887,6 +1890,9 @@ private struct PulseCaches {
             } else {
                 latest[section] = HeartbeatMath.latestPerStore(sectionRows)
             }
+        }
+        if let path = latest[.pickPath] {
+            latest[.pickPath] = HeartbeatMath.applyAisleMapper(path, from: latest[.aisleMapper] ?? [])
         }
         return refilter(
             latest: latest,

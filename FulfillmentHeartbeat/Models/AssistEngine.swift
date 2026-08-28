@@ -66,6 +66,11 @@ enum HeartbeatAssist {
                 "Which departments are the hottest?",
                 "How do we get missing items to 5%?",
             ]
+        case .aisleMapper:
+            return [
+                "Which stores have stale aisle maps?",
+                "Who has the oldest sequence update?",
+            ]
         case .fiveStar:
             return [
                 "Which 5 Star KPIs are broken?",
@@ -717,6 +722,8 @@ enum HeartbeatAssist {
                 return "\(rows.count) shoppers"
             case .missingItems:
                 return HeartbeatFormat.pct(HeartbeatMath.average(rows.compactMap { $0.number(MissingItemDept.totalKey) }))
+            case .aisleMapper:
+                return "\(rows.count) stores"
             }
         }
 

@@ -390,6 +390,11 @@ struct SectionDetailView: View {
                 ("Watch", HeartbeatFormat.num(Double(watch))),
                 ("At risk", HeartbeatFormat.num(Double(risk))),
             ]
+        case .aisleMapper:
+            return [
+                ("Mapper", "Latest map"),
+                ("Sequence", "Latest sequence"),
+            ]
         }
     }
 

@@ -258,6 +258,38 @@ enum SampleMarket {
                 }
             }
         }
+        for (index, store) in stores.enumerated() {
+            let mapper: String
+            let sequence: String
+            switch index % 4 {
+            case 0:
+                mapper = "2021-03-05"
+                sequence = "2024-08-06"
+            case 1:
+                mapper = "2024-09-16"
+                sequence = "2024-09-16"
+            case 2:
+                mapper = "2026-07-01"
+                sequence = "2026-08-17"
+            default:
+                mapper = "2026-08-20"
+                sequence = "2026-08-24"
+            }
+            out.append(MetricRow(
+                section: .aisleMapper,
+                division: store.division,
+                operationsOM: store.om,
+                storeNumber: store.store,
+                storeName: store.name,
+                recordedOn: sequence,
+                payload: [:],
+                textPayload: [
+                    "district": store.district,
+                    AisleMapperMath.mapperKey: mapper,
+                    AisleMapperMath.sequenceKey: sequence,
+                ]
+            ))
+        }
         let lastDate = dates.last ?? ""
         let lostStores = out.filter { $0.section == .lostRevenue && $0.recordedOn == lastDate }
         let lostDollars = lostStores.compactMap { $0.number("lost_revenue") }.reduce(0, +)
@@ -369,6 +401,13 @@ enum SampleMarket {
             Jewel Osco,J1,Shelly Selof,1,0.04,0.03,0.2,0.28,0.12,0.09,0.018,0.8,0.32,0.042,0.9,0.085,0.14,0.11,0.075,0.045
             Jewel Osco,J1,Shelly Selof,606,0.062,0.051,0.5,0.41,0.19,0.14,0.028,0.99,0.55,0.061,1,0.12,0.21,0.16,0.11,0.068
             Haggen,39,Luke Lomas,3427,0.031,0.022,0.1,0.18,0.08,0.06,0.012,0.72,0.24,0.028,0.85,0.055,0.09,0.07,0.042,0.038
+            """
+        case .aisleMapper:
+            return """
+            DIVISION,District,OM,Store,Latest Aisle Mapper Update Date,Latest Aisle Sequence Update Date
+            Jewel Osco,J1,Shelly Selof,1,2026-08-20,2026-08-24
+            Jewel Osco,J1,Shelly Selof,606,2021-03-05,2024-08-06
+            Haggen,39,Luke Lomas,3427,2026-07-01,2026-08-17
             """
         }
     }

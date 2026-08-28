@@ -21,12 +21,13 @@ Create one sheet per KPI. Use these tab names:
 | 3 | `5 Star` | 5 Star Metrics |
 | 4 | `Pick Path` | Pick Path Compliance |
 | 5 | `Path Picker` | Pick Path Compliance Picker |
-| 6 | `Prep Not Ready` | Prep Not Ready |
-| 7 | `Dynacap` | Dynacap Setting |
-| 8 | `Schedule Quality` | Schedule Quality |
-| 9 | `PPH` | PPH Pure Picks Per Hour |
-| 10 | `Labor` | Labor |
-| 11 | `Picker ScoreCard` | Picker ScoreCard |
+| 6 | `Aisle Mapper` | Aisle Mapper dates on Pick Path |
+| 7 | `Prep Not Ready` | Prep Not Ready |
+| 8 | `Dynacap` | Dynacap Setting |
+| 9 | `Schedule Quality` | Schedule Quality |
+| 10 | `PPH` | PPH Pure Picks Per Hour |
+| 11 | `Labor` | Labor |
+| 12 | `Picker ScoreCard` | Picker ScoreCard |
 
 Paste the matching Power BI export onto each tab. Headers can stay as the export — we already map those.
 
@@ -39,6 +40,7 @@ Paste the matching Power BI export onto each tab. Headers can stay as the export
 - 5 Star / Five Star / Star Rating
 - Pick Path / Path Compliance
 - Path Picker / Pick Path Picker / Pick Path Employee
+- Aisle Mapper / Aisle Sequence
 - Prep / Prep Not Ready
 - Dynacap / Capacity
 - Schedule / Schedule Quality
