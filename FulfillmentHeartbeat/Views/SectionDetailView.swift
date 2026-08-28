@@ -197,13 +197,8 @@ struct SectionDetailView: View {
 
     private func armPage() {
         if isActivePage {
-            DispatchQueue.main.async {
-                guard isActivePage else { return }
-                laborHeaderPin.openOnPageEnter()
-                showTables = true
-            }
-        } else if showTables {
-            showTables = false
+            laborHeaderPin.openOnPageEnter()
+            if !showTables { showTables = true }
         }
     }
 

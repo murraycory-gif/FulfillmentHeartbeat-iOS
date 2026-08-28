@@ -41,6 +41,7 @@ struct ScorecardPager: UIViewControllerRepresentable {
 
         let dest = router.current
         guard dest != .upload, dest != coordinator.displayed else { return }
+        if coordinator.isSwiping { return }
         coordinator.snap(to: dest, animated: false)
     }
 
@@ -79,6 +80,7 @@ struct ScorecardPager: UIViewControllerRepresentable {
         var filterStamp: Int
         var cache: [HubDestination: PageHost] = [:]
         var displayed: HubDestination = .dashboard
+        var isSwiping = false
         private weak var pager: UIPageViewController?
 
         init(page: @escaping (HubDestination) -> AnyView, router: HubRouter, filterStamp: Int) {
@@ -162,6 +164,16 @@ struct ScorecardPager: UIViewControllerRepresentable {
 
         func pageViewController(
             _ pageViewController: UIPageViewController,
+            willTransitionTo pendingViewControllers: [UIViewController]
+        ) {
+            if let host = pendingViewControllers.first as? PageHost, router.destination != host.dest {
+                isSwiping = true
+                router.open(host.dest)
+            }
+        }
+
+        func pageViewController(
+            _ pageViewController: UIPageViewController,
             didFinishAnimating finished: Bool,
             previousViewControllers: [UIViewController],
             transitionCompleted completed: Bool
@@ -169,6 +181,7 @@ struct ScorecardPager: UIViewControllerRepresentable {
             let current = (completed ? pageViewController.viewControllers?.first : previousViewControllers.first) as? PageHost
             guard let host = current ?? pageViewController.viewControllers?.first as? PageHost else { return }
             displayed = host.dest
+            isSwiping = false
             resetScroll(pageViewController)
             if router.destination != host.dest {
                 router.open(host.dest)

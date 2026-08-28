@@ -120,7 +120,7 @@ struct MainHubView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @StateObject private var router = HubRouter()
     @StateObject private var coach = CoachGuide()
-    @State private var columnVisibility: NavigationSplitViewVisibility = .detailOnly
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
     var body: some View {
         Group {
@@ -155,7 +155,6 @@ struct MainHubView: View {
             }
         }
         .onChange(of: router.destination) { _, dest in
-            columnVisibility = .detailOnly
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                 coach.presentIfNeeded(for: dest)
             }
