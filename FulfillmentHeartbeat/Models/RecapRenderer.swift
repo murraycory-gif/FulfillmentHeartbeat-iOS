@@ -139,7 +139,7 @@ enum RecapRenderer {
     }
 
     static func inlineImages(_ images: [UIImage]) -> [UIImage] {
-        stacked(images, maxHeight: 7_200).map { scale($0, maxWidth: 1080) }
+        stacked(images, maxHeight: 8_192).map { scale($0, maxWidth: 1080) }
     }
 
     private static func stacked(_ images: [UIImage], maxHeight: CGFloat) -> [UIImage] {

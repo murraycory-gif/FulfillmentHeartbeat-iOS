@@ -10107,13 +10107,6 @@ final class OutlookBodyItem: NSObject, UIActivityItemSource {
         subject
     }
 
-    func activityViewController(
-        _ activityViewController: UIActivityViewController,
-        dataTypeIdentifierForActivityType activityType: UIActivity.ActivityType?
-    ) -> String {
-        UTType.jpeg.identifier
-    }
-
     func activityViewControllerLinkMetadata(_ activityViewController: UIActivityViewController) -> LPLinkMetadata? {
         guard primary else { return nil }
         let meta = LPLinkMetadata()
@@ -10151,14 +10144,17 @@ enum PulseShare {
             UIPasteboard.general.images = tiles
         }
         guard let presenter = topController(), presenter.view.window != nil else {
-            openOutlook(subject: subject, jpegURLs: RecapRenderer.jpegFiles(tiles))
+            openOutlook(subject: subject, jpegURLs: [])
             return
         }
-        let items: [Any] = tiles.enumerated().map { index, image in
+        var items: [Any] = tiles.enumerated().map { index, image in
             OutlookBodyItem(image: image, subject: subject, primary: index == 0)
         }
+        if items.isEmpty {
+            items = [subject]
+        }
         let sheet = UIActivityViewController(
-            activityItems: items.isEmpty ? [subject] : items,
+            activityItems: items,
             applicationActivities: nil
         )
         sheet.excludedActivityTypes = [
