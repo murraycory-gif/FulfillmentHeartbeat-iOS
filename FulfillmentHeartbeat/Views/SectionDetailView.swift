@@ -198,7 +198,10 @@ struct SectionDetailView: View {
     private func armPage() {
         if isActivePage {
             laborHeaderPin.openOnPageEnter()
-            if !showTables { showTables = true }
+            guard !showTables else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                if isActivePage { showTables = true }
+            }
         }
     }
 
@@ -972,7 +975,8 @@ struct PickerFocusTile: View {
         }
         .overlay {
             if shouldPulse && !selected {
-                RiskPulseRing(cornerRadius: 16, lineWidth: 2.5)
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(Color(red: 220 / 255, green: 38 / 255, blue: 38 / 255), lineWidth: 2.5)
             } else {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .stroke(stroke, lineWidth: selected ? 2.5 : 1)

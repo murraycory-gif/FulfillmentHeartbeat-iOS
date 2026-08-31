@@ -535,15 +535,11 @@ enum HeartbeatMath {
             buckets[key, default: []].append(row)
         }
         return buckets.map { key, group -> (DashScopeLine, Double) in
-            let summary = summarize(section, rows: group, upload: nil)
-            let worst = group.reduce(Health.none) { current, row in
-                let next = health(for: section, row: row)
-                return next.dashboardRank < current.dashboardRank ? next : current
-            }
+            let worst = worstHealth(section, rows: group)
             let line = DashScopeLine(
                 label: key,
-                value: summary.headlineText,
-                health: worst == .none ? summary.health : worst,
+                value: scopeHeadline(section, rows: group),
+                health: worst,
                 count: group.count
             )
             let rank: Double
@@ -594,15 +590,11 @@ enum HeartbeatMath {
             if group.isEmpty {
                 return (DashScopeLine(label: label, value: "—", health: .none, count: 0), section == .fiveStar ? -1 : 0)
             }
-            let summary = summarize(section, rows: group, upload: nil)
-            let worst = group.reduce(Health.none) { current, row in
-                let next = health(for: section, row: row)
-                return next.dashboardRank < current.dashboardRank ? next : current
-            }
+            let worst = worstHealth(section, rows: group)
             let line = DashScopeLine(
                 label: label,
-                value: summary.headlineText,
-                health: worst == .none ? summary.health : worst,
+                value: scopeHeadline(section, rows: group),
+                health: worst,
                 count: group.count
             )
             let rank = section == .fiveStar ? fiveStarPresubScore(group) : 0
@@ -623,6 +615,40 @@ enum HeartbeatMath {
 
     static func fiveStarPresubScore(_ rows: [MetricRow]) -> Double {
         average(rows.compactMap { $0.number("presub_pct") }) ?? -1
+    }
+
+    static func worstHealth(_ section: MetricSection, rows: [MetricRow]) -> Health {
+        rows.reduce(Health.none) { current, row in
+            let next = health(for: section, row: row)
+            return next.dashboardRank < current.dashboardRank ? next : current
+        }
+    }
+
+    static func scopeHeadline(_ section: MetricSection, rows: [MetricRow]) -> String {
+        switch section {
+        case .lostRevenue:
+            return HeartbeatFormat.money(rows.compactMap { $0.number("lost_revenue") }.reduce(0, +))
+        case .missingItems:
+            return HeartbeatFormat.pct(average(rows.compactMap { $0.number(MissingItemDept.totalKey) }))
+        case .fiveStar:
+            return HeartbeatFormat.stars(average(rows.compactMap { $0.number("star_rating") }))
+        case .pickPath, .pickPathPicker:
+            return HeartbeatFormat.pct(average(rows.compactMap { $0.number("compliance_pct") }))
+        case .prepNotReady:
+            return HeartbeatFormat.pct(average(rows.compactMap { $0.number("pnr_rate_pct") }))
+        case .dynacap:
+            return HeartbeatFormat.num(average(rows.compactMap { $0.number("dynacap_rate", "pieces_per_hour") }), digits: 1)
+        case .scheduleQuality:
+            return HeartbeatFormat.pct(average(rows.compactMap { $0.number("schedule_efficiency_pct") }))
+        case .pph:
+            return HeartbeatFormat.num(average(rows.compactMap { $0.number("pph") ?? $0.number("pure_pph") }), digits: 1)
+        case .labor:
+            return HeartbeatFormat.pct(average(rows.compactMap { $0.number("target_vs_actual_pct") }))
+        case .pickerScorecard:
+            return "\(rows.filter { isRealPicker($0) }.count) shoppers"
+        case .aisleMapper:
+            return "\(rows.count) stores"
+        }
     }
 
     static func dashboardActionFlags(

@@ -1429,15 +1429,9 @@ final class HeartbeatStore: ObservableObject {
 
     private func applyFilters() {
         refilterTask?.cancel()
-        if !filters.isActive {
-            if let pulse = unfilteredPulse, isCompanyWide(pulse) {
-                install(pulse)
-                filterStamp += 1
-                return
-            }
-            installCompanyWideFast()
+        if !filters.isActive, let pulse = unfilteredPulse, isCompanyWide(pulse) {
+            install(pulse)
             filterStamp += 1
-            warmUnfilteredPulse()
             return
         }
 
@@ -1449,28 +1443,39 @@ final class HeartbeatStore: ObservableObject {
         let lostMarket = lostRevenueMarketRow()
         let grain = effectiveDashboardGrain
         let hidePicker = sessionRole == .evp
+        if !current.isActive {
+            installCompanyWideFast()
+            filterStamp += 1
+        }
         refilterTask = Task.detached(priority: .userInitiated) {
-            let caches = PulseCaches.refilter(
+            let light = PulseCaches.refilter(
                 latest: latest,
                 roster: rosterCopy,
                 filters: current,
                 uploads: uploadsCopy,
                 laborMarket: laborMarket,
                 lostRevenueMarket: lostMarket,
+                heavy: false,
                 grain: grain,
                 hidePicker: hidePicker
             )
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 guard !Task.isCancelled, self.filters == current else { return }
-                let pulse = self.pulse(from: caches)
-                self.install(pulse)
+                self.install(self.pulse(from: light))
                 self.filterStamp += 1
-                if !current.isActive {
-                    if self.isCompanyWide(pulse) {
-                        self.unfilteredPulse = pulse
-                    }
-                } else {
+                if !current.isActive, self.isCompanyWide(self.snapshotPulse()) {
+                    self.unfilteredPulse = self.snapshotPulse()
+                }
+            }
+            let heavy = PulseCaches.heavyExtras(latest: light.filteredLatest, roster: rosterCopy)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard !Task.isCancelled, self.filters == current else { return }
+                self.mergeHeavy(heavy)
+                if !current.isActive, self.isCompanyWide(self.snapshotPulse()) {
+                    self.unfilteredPulse = self.snapshotPulse()
+                } else if current.isActive {
                     self.warmUnfilteredPulse()
                 }
             }
@@ -1544,42 +1549,6 @@ final class HeartbeatStore: ObservableObject {
     private func installCompanyWideFast() {
         filteredLatest = latestBySection
         refreshFilterOptions()
-        var pphByStore: [String: Double] = [:]
-        for row in latestBySection[.pph] ?? [] {
-            if let value = row.number("pph") {
-                pphByStore[HeartbeatMath.canonicalStore(row.storeNumber)] = value
-            }
-        }
-        var pathByStore: [String: Double] = [:]
-        for row in latestBySection[.pickPath] ?? [] {
-            if let value = row.number("compliance_pct") {
-                pathByStore[HeartbeatMath.canonicalStore(row.storeNumber)] = value
-            }
-        }
-        filteredMarket = cachedStores.map { item in
-            let identity = roster[item.0] ?? HeartbeatMath.StoreIdentity(division: "", district: "", om: "", name: nil)
-            return HeartbeatMath.MarketStore(
-                storeNumber: item.0,
-                division: identity.division,
-                district: identity.district,
-                om: identity.om,
-                pph: pphByStore[item.0],
-                compliance: pathByStore[item.0]
-            )
-        }
-        let laborMarket = laborMarketRow()
-        let lostMarket = lostRevenueMarketRow()
-        cachedSummaries = MetricSection.dashboardCards.map { section in
-            var input = latestBySection[section] ?? []
-            if section == .labor, let laborMarket { input.append(laborMarket) }
-            if section == .lostRevenue, let lostMarket { input.append(lostMarket) }
-            return HeartbeatMath.summarize(
-                section,
-                rows: input,
-                upload: uploads.first { $0.section == section }
-            )
-        }
-        cachedCardFlags = PulseCaches.cardFlags(latest: latestBySection)
         cachedGrainPacks = [:]
         objectWillChange.send()
     }
@@ -1643,6 +1612,7 @@ final class HeartbeatStore: ObservableObject {
         cachedCardFlags = pulse.cardFlags
         cachedGrainPacks = pulse.grainPacks
         refreshChecklistOpenCount()
+        objectWillChange.send()
     }
 
     private func refreshFilterOptions() {
@@ -1789,16 +1759,28 @@ final class HeartbeatStore: ObservableObject {
         objectWillChange.send()
     }
 
-    private func mergeHeavy(_ caches: PulseCaches) {
-        cachedPickerBoard = caches.cachedPickerBoard
-        cachedChecklistGroups = caches.cachedChecklistGroups
-        pickerIndex = caches.pickerIndex
-        pickerFocusHealth = caches.pickerFocusHealth
-        pickPathPickersByStore = caches.pickPathPickersByStore
-        pickPathByShopper = caches.pickPathByShopper
-        pphPickersByStore = caches.pphPickersByStore
+    private func mergeHeavy(_ bits: PulseCaches.HeavyBits) {
+        cachedPickerBoard = bits.pickerBoard
+        cachedChecklistGroups = bits.checklistGroups
+        pickerIndex = bits.pickerIndex
+        pickerFocusHealth = bits.pickerFocusHealth
+        pickPathPickersByStore = bits.pickPathPickersByStore
+        pickPathByShopper = bits.pickPathByShopper
+        pphPickersByStore = bits.pphPickersByStore
         refreshChecklistOpenCount()
         objectWillChange.send()
+    }
+
+    private func mergeHeavy(_ caches: PulseCaches) {
+        mergeHeavy(PulseCaches.HeavyBits(
+            pickerBoard: caches.cachedPickerBoard,
+            pickerIndex: caches.pickerIndex,
+            pickerFocusHealth: caches.pickerFocusHealth,
+            pickPathPickersByStore: caches.pickPathPickersByStore,
+            pickPathByShopper: caches.pickPathByShopper,
+            pphPickersByStore: caches.pphPickersByStore,
+            checklistGroups: caches.cachedChecklistGroups
+        ))
     }
 
     private func persist() {
@@ -1963,6 +1945,16 @@ private struct PulseCaches {
     var pphPickersByStore: [String: [MetricRow]]
     var cachedCardFlags: [MetricSection: [HeartbeatMath.FiveStarFlag]]
     var cachedGrainPacks: [MetricSection: [DashScopePack]]
+
+    struct HeavyBits {
+        var pickerBoard: HeartbeatMath.PickerBoard
+        var pickerIndex: [PickerFocus: [Int]]
+        var pickerFocusHealth: [PickerFocus: Health]
+        var pickPathPickersByStore: [String: [MetricRow]]
+        var pickPathByShopper: [String: MetricRow]
+        var pphPickersByStore: [String: [MetricRow]]
+        var checklistGroups: [MetricSection: [ChecklistDriverGroup]]
+    }
 
     static func build(rows: [MetricRow], filters: DashboardFilters, uploads: [UploadRecord], heavy: Bool = true) -> PulseCaches {
         var bySection: [MetricSection: [MetricRow]] = [:]
@@ -2138,6 +2130,24 @@ private struct PulseCaches {
                     stores: stores,
                     roster: roster
                 )
+        )
+    }
+
+    static func heavyExtras(
+        latest: [MetricSection: [MetricRow]],
+        roster: [String: HeartbeatMath.StoreIdentity]
+    ) -> HeavyBits {
+        let pickers = latest[.pickerScorecard] ?? []
+        let picker = pickerIndexValues(pickers)
+        let path = pickPathIndexValues(scorecard: pickers, pathRows: latest[.pickPathPicker] ?? [])
+        return HeavyBits(
+            pickerBoard: HeartbeatMath.pickerBoard(pickers),
+            pickerIndex: picker.index,
+            pickerFocusHealth: picker.health,
+            pickPathPickersByStore: path.buckets,
+            pickPathByShopper: path.byShopper,
+            pphPickersByStore: pphIndexValues(pickers),
+            checklistGroups: checklistGroups(from: latest, roster: roster)
         )
     }
 
