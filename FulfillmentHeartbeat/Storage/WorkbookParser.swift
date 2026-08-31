@@ -1,5 +1,6 @@
 import Compression
 import Foundation
+import zlib
 
 struct ParsedWorkbookRow {
     var division: String
@@ -128,21 +129,18 @@ enum WorkbookParser {
         if looksLikeXlsx(data) { return data }
         let sig = Data([0x50, 0x4B, 0x03, 0x04])
         var start = data.startIndex
-        let cap = data.index(data.startIndex, offsetBy: min(data.count, 1_048_576), limitedBy: data.endIndex) ?? data.endIndex
+        let cap = data.endIndex
         var attempts = 0
-        while attempts < 64, let hit = data.range(of: sig, in: start..<cap) {
+        var fallback: Data?
+        while attempts < 80, let hit = data.range(of: sig, in: start..<cap) {
             let sliced = Data(data[hit.lowerBound..<data.endIndex])
             if looksLikeXlsx(sliced) { return sliced }
+            if fallback == nil, sliced.count > 100_000 { fallback = sliced }
             start = data.index(after: hit.lowerBound)
             attempts += 1
+            if data.distance(from: data.startIndex, to: start) > 1_048_576 { break }
         }
-        for offset in 0...16_384 where offset + 4 < data.count {
-            if data[offset] == 0x50, data[offset + 1] == 0x4B, data[offset + 2] == 0x03, data[offset + 3] == 0x04 {
-                let sliced = data.subdata(in: offset..<data.count)
-                if looksLikeXlsx(sliced) { return sliced }
-            }
-        }
-        return nil
+        return fallback
     }
 
     private static func looksLikeXlsx(_ data: Data) -> Bool {
@@ -2553,12 +2551,15 @@ final class ZipArchive {
 }
 
 private func inflate(_ source: Data, uncompressedSize: Int) -> Data? {
-    if let out = try? (source as NSData).decompressed(using: .zlib) as Data, !out.isEmpty {
+    if let out = inflateWindow(source, uncompressedSize: uncompressedSize, windowBits: -MAX_WBITS), !out.isEmpty {
+        return out
+    }
+    if let out = inflateWindow(source, uncompressedSize: uncompressedSize, windowBits: MAX_WBITS), !out.isEmpty {
         return out
     }
     var wrapped = Data([0x78, 0x01])
     wrapped.append(source)
-    if let out = try? (wrapped as NSData).decompressed(using: .zlib) as Data, !out.isEmpty {
+    if let out = inflateWindow(wrapped, uncompressedSize: uncompressedSize, windowBits: MAX_WBITS), !out.isEmpty {
         return out
     }
     let dstSize = max(uncompressedSize, source.count * 8 + 64)
@@ -2603,6 +2604,44 @@ private func inflate(_ source: Data, uncompressedSize: Int) -> Data? {
     guard written2 > 0 else { return nil }
     dest2.count = written2
     return dest2
+}
+
+private func inflateWindow(_ source: Data, uncompressedSize: Int, windowBits: Int32) -> Data? {
+    guard !source.isEmpty else { return nil }
+    var size = uncompressedSize > 64 ? uncompressedSize : max(source.count * 16, 4096)
+    for _ in 0..<5 {
+        var dest = Data(count: size)
+        var produced = 0
+        let rc: Int32 = source.withUnsafeBytes { srcBuf in
+            dest.withUnsafeMutableBytes { dstBuf in
+                guard
+                    let src = srcBuf.bindMemory(to: Bytef.self).baseAddress,
+                    let dst = dstBuf.bindMemory(to: Bytef.self).baseAddress
+                else { return Z_ERRNO }
+                var stream = z_stream()
+                stream.next_in = UnsafeMutablePointer(mutating: src)
+                stream.avail_in = uInt(source.count)
+                stream.next_out = dst
+                stream.avail_out = uInt(size)
+                var status = inflateInit2_(&stream, windowBits, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size))
+                guard status == Z_OK else { return status }
+                status = inflate(&stream, Z_FINISH)
+                produced = Int(stream.total_out)
+                inflateEnd(&stream)
+                return status
+            }
+        }
+        if rc == Z_STREAM_END || rc == Z_OK, produced > 0 {
+            dest.count = produced
+            return dest
+        }
+        if rc == Z_BUF_ERROR {
+            size *= 2
+            continue
+        }
+        return nil
+    }
+    return nil
 }
 
 private func u16(_ data: Data, _ offset: Int) -> UInt16 {
