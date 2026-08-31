@@ -470,27 +470,37 @@ enum HeartbeatMath {
         var cards = dashboardCallouts(summaries)
         if role == .evp {
             cards.removeAll { $0.section == .pickerScorecard }
-            let lost = cards.first { $0.section == .lostRevenue }
-            let five = cards.first { $0.section == .fiveStar }
-            let rest = cards.filter { $0.section != .lostRevenue && $0.section != .fiveStar }
-            if storeScoped {
-                var out: [SectionSummary] = []
-                if let lost { out.append(lost) }
-                if let five { out.append(five) }
-                out.append(contentsOf: rest)
-                return out
-            }
-            let focused = rest.filter { $0.health == .risk || $0.health == .watch }
-            var out: [SectionSummary] = []
-            if let lost { out.append(lost) }
-            if let five { out.append(five) }
-            out.append(contentsOf: focused.isEmpty ? rest : focused)
-            return out
+            return pinnedCallouts(cards, pin: [.lostRevenue, .fiveStar], restRiskWatch: !storeScoped)
+        }
+        if role == .districtManager || role == .director {
+            return pinnedCallouts(cards, pin: [.lostRevenue, .fiveStar, .labor], restRiskWatch: !storeScoped)
         }
         if storeScoped { return cards }
         guard role?.showsOnlyRiskAndWatch == true else { return cards }
         let focused = cards.filter { $0.health == .risk || $0.health == .watch }
         return focused.isEmpty ? cards : focused
+    }
+
+    private static func pinnedCallouts(
+        _ cards: [SectionSummary],
+        pin: [MetricSection],
+        restRiskWatch: Bool
+    ) -> [SectionSummary] {
+        var rest = cards
+        var out: [SectionSummary] = []
+        for section in pin {
+            if let card = rest.first(where: { $0.section == section }) {
+                out.append(card)
+                rest.removeAll { $0.section == section }
+            }
+        }
+        if restRiskWatch {
+            let focused = rest.filter { $0.health == .risk || $0.health == .watch }
+            out.append(contentsOf: focused.isEmpty ? rest : focused)
+        } else {
+            out.append(contentsOf: rest)
+        }
+        return out
     }
 
     static func dashboardScopeKey(_ row: MetricRow, grain: DashScopeGrain) -> String? {

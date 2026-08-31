@@ -89,6 +89,30 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(ordered.map(\.section), [.lostRevenue, .fiveStar, .missingItems, .pph])
     }
 
+    func testDistrictDashboardPutsLostFiveStarThenLabor() {
+        func card(_ section: MetricSection, _ health: Health, risk: Int = 0, watch: Int = 0) -> SectionSummary {
+            SectionSummary(
+                section: section,
+                storeCount: 4,
+                headline: 1,
+                headlineLabel: "x",
+                secondary: "",
+                health: health,
+                watchCount: watch,
+                riskCount: risk
+            )
+        }
+        let ordered = HeartbeatMath.dashboardCallouts([
+            card(.fiveStar, .risk, risk: 9),
+            card(.missingItems, .risk, risk: 3),
+            card(.lostRevenue, .watch, watch: 1),
+            card(.labor, .good),
+            card(.pph, .watch, watch: 2),
+            card(.pickPath, .good),
+        ], role: .districtManager)
+        XCTAssertEqual(ordered.map(\.section), [.lostRevenue, .fiveStar, .labor, .missingItems, .pph])
+    }
+
     func testDashboardScopeLinesGroupByMarketThenRisk() {
         let rows = [
             MetricRow(section: .missingItems, division: "Jewel Osco", operationsOM: "A", storeNumber: "1", payload: ["mi_pct": 8.2]),
