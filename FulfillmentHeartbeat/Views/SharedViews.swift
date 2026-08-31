@@ -8955,14 +8955,16 @@ struct HubBrandBar: View {
                         store.reopenRoleGate()
                     }
                     .accessibilityLabel("Change who's looking")
-                    HubChromePill(
-                        title: "Assist",
-                        symbol: "waveform.path.ecg",
-                        showsChevron: false
-                    ) {
-                        showAssist = true
+                    if router.current != .checklist {
+                        HubChromePill(
+                            title: "Assist",
+                            symbol: "waveform.path.ecg",
+                            showsChevron: false
+                        ) {
+                            showAssist = true
+                        }
+                        .accessibilityLabel("Heartbeat Assist, build \(BuildStamp.label)")
                     }
-                    .accessibilityLabel("Heartbeat Assist, build \(BuildStamp.label)")
                 }
                 BeatingHeartbeatMark(height: markHeight, showsTrace: true)
                     .allowsHitTesting(false)

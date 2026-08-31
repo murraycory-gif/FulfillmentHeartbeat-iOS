@@ -43,7 +43,7 @@ struct HeartbeatAssistSheet: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 12) {
                     if messages.isEmpty && !thinking {
-                        Text("Ask about districts, stores, shoppers, and what is driving the number on this page. Answers use the live filter.")
+                        Text(intro)
                             .font(.title3)
                             .foregroundStyle(AppTheme.textSecondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -102,7 +102,7 @@ struct HeartbeatAssistSheet: View {
                     }
                 }
             }
-            .frame(maxHeight: router.current == .dashboard || router.current == .checklist ? 220 : 150)
+            .frame(maxHeight: 168)
         }
         .padding(.horizontal, 24)
         .padding(.top, 10)
@@ -169,6 +169,38 @@ struct HeartbeatAssistSheet: View {
 
     private var canSend: Bool {
         !thinking && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var intro: String {
+        let book = store.filters.summary
+        switch router.current {
+        case .dashboard:
+            return "You're on the dashboard for \(book). I'll name the at-risk KPIs, worst districts, and the stores to work first."
+        case .lostRevenue:
+            return "You're on Loss Revenue for \(book). I'll break dollars by district, store, and bucket (OOS, refunds, cancels, kill switch)."
+        case .missingItems:
+            return "You're on Missing Items for \(book). Goal is 5% or less. I'll rank districts, stores, and hottest departments."
+        case .fiveStar:
+            return "You're on 5 Star for \(book). I'll use live Presub, OTT, Flash, COE, and OTH 5% — worst Presub first."
+        case .pickPath:
+            return "You're on Pick Path for \(book). I'll flag off-path stores, shoppers, and stale aisle maps / sequences."
+        case .prepNotReady:
+            return "You're on Prep Not Ready for \(book). Grocery owns this. I'll rank PNR hours and tell grocery what to stage."
+        case .dynacap:
+            return "You're on Dynacap for \(book). I'll call out stores under 60 pieces/hour and whether labor is hiding in the number."
+        case .scheduleQuality:
+            return "You're on Schedule Quality for \(book). I'll separate a fat map from no-shows."
+        case .pph:
+            return "You're on PPH for \(book). Goal 80. I'll name stores below 74 and the shoppers dragging the rate."
+        case .labor:
+            return "You're on Labor for \(book). I'll show over-target stores and whether it's call-offs or the map."
+        case .pickerScorecard:
+            return "You're on Picker ScoreCard for \(book). I'll name the LDAPS to floor-coach today."
+        case .upload:
+            return "You're on Upload. I'll tell you which KPI files are missing and how to load the master."
+        case .checklist:
+            return "Assist is for the scorecards. Open a KPI page to ask about the live numbers."
+        }
     }
 
     private func ask(_ raw: String) {

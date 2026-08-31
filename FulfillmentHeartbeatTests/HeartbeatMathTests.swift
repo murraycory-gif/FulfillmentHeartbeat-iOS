@@ -2,6 +2,41 @@ import XCTest
 @testable import FulfillmentHeartbeat
 
 final class HeartbeatMathTests: XCTestCase {
+    func testAssistPromptsRouteOnEveryScorecard() {
+        let pairs: [(HubDestination, HeartbeatAssist.Intent)] = [
+            (.dashboard, .overview),
+            (.lostRevenue, .districts),
+            (.missingItems, .districts),
+            (.fiveStar, .fiveStar),
+            (.pickPath, .districts),
+            (.prepNotReady, .districts),
+            (.dynacap, .stores),
+            (.scheduleQuality, .districts),
+            (.pph, .districts),
+            (.labor, .districts),
+            (.pickerScorecard, .shoppers),
+        ]
+        for (dest, _) in pairs {
+            let prompts = HeartbeatAssist.pagePrompts(dest)
+            XCTAssertFalse(prompts.isEmpty, "\(dest) should have prompts")
+            for prompt in prompts {
+                let intent = HeartbeatAssist.intent(for: prompt, dest: dest)
+                XCTAssertNotEqual(intent, .upload, "\(dest) prompt should not route to upload: \(prompt)")
+            }
+        }
+        XCTAssertEqual(HeartbeatAssist.intent(for: "What's the biggest dollar bucket?", dest: .lostRevenue), .buckets)
+        XCTAssertEqual(HeartbeatAssist.intent(for: "Which 5 Star KPIs are broken?", dest: .fiveStar), .fiveStar)
+        XCTAssertEqual(HeartbeatAssist.intent(for: "Which departments are the hottest?", dest: .missingItems), .missing)
+        XCTAssertEqual(HeartbeatAssist.intent(for: "Which stores have stale aisle maps?", dest: .pickPath), .path)
+        XCTAssertEqual(HeartbeatAssist.intent(for: "What should grocery own today?", dest: .prepNotReady), .prep)
+        XCTAssertEqual(HeartbeatAssist.intent(for: "Is Dynacap hiding a labor problem?", dest: .dynacap), .dynacap)
+        XCTAssertEqual(HeartbeatAssist.intent(for: "Is this a map problem or no-shows?", dest: .scheduleQuality), .schedule)
+        XCTAssertEqual(HeartbeatAssist.intent(for: "How do we get to 80 PPH?", dest: .pph), .pph)
+        XCTAssertEqual(HeartbeatAssist.intent(for: "Is this call-offs or a bad map?", dest: .labor), .labor)
+        XCTAssertEqual(HeartbeatAssist.intent(for: "Who should we coach today?", dest: .pickerScorecard), .shoppers)
+        XCTAssertTrue(HeartbeatAssist.pagePrompts(.checklist).isEmpty)
+    }
+
     func testDashboardCalloutsSortRiskThenWatchThenHealthy() {
         func card(_ section: MetricSection, _ health: Health, risk: Int = 0, watch: Int = 0) -> SectionSummary {
             SectionSummary(
