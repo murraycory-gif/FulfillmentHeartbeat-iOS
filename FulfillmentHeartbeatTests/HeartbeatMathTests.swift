@@ -78,6 +78,26 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(lines[0].count, 2)
     }
 
+    func testMarketFiveStarTilesMatchCalloutMetrics() {
+        let jewel = MetricRow(
+            section: .fiveStar,
+            division: "Jewel Osco",
+            operationsOM: "A",
+            storeNumber: "1",
+            payload: [
+                "star_rating": 4.1,
+                "ott_pct": 81,
+                "flash_pct": 80,
+                "presub_pct": 4,
+                "coe_pct": 22,
+                "oth5_pct": 93,
+            ]
+        )
+        let flags = HeartbeatMath.dashboardActionFlags(section: .fiveStar, rows: [jewel], includeAll: true)
+        XCTAssertEqual(flags.map(\.name), ["OTT", "Flash", "Presubs", "COE", "OTH 5%"])
+        XCTAssertEqual(flags.first { $0.name == "OTT" }?.value, HeartbeatFormat.pct(81))
+    }
+
     func testFiveStarBand() {
         let good = MetricRow(section: .fiveStar, division: "10", operationsOM: "A", storeNumber: "1", payload: ["star_rating": 4.7])
         let watch = MetricRow(section: .fiveStar, division: "10", operationsOM: "A", storeNumber: "2", payload: ["star_rating": 4.2])

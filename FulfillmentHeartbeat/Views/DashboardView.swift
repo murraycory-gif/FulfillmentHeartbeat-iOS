@@ -164,6 +164,7 @@ struct DashLostBanner: View {
 struct DashScopeStrip: View {
     @EnvironmentObject private var store: HeartbeatStore
     let section: MetricSection
+    @State private var width: CGFloat = 980
 
     var body: some View {
         if let grain = store.sessionRole?.dashboardGrain {
@@ -173,38 +174,25 @@ struct DashScopeStrip: View {
                 grain: grain
             )
             if !lines.isEmpty {
-                VStack(alignment: .leading, spacing: 8) {
+                let all = store.displayRows(for: section)
+                let pickers = store.displayRows(for: .pickerScorecard)
+                let pathPickers = store.displayRows(for: .pickPathPicker)
+                VStack(alignment: .leading, spacing: 10) {
                     Text(grain.title)
                         .font(.subheadline.weight(.bold))
                         .foregroundStyle(AppTheme.blue)
                     ForEach(lines.prefix(60)) { line in
-                        HStack(spacing: 10) {
-                            Text(line.label)
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(AppTheme.text)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.75)
-                            Spacer(minLength: 8)
-                            Text(line.value)
-                                .font(.subheadline.weight(.bold).monospacedDigit())
-                                .foregroundStyle(dashInk(line.health == .none ? .good : line.health))
-                                .lineLimit(1)
-                            if grain != .store {
-                                Text(line.count == 1 ? "1 store" : "\(line.count) stores")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(AppTheme.textSecondary)
-                            }
-                            HealthBadge(health: line.health, prominent: true, compact: true)
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        .background(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .fill(Color.white.opacity(0.78))
-                                .overlay {
-                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                        .fill(dashWash(line.health == .none ? .good : line.health).opacity(0.5))
-                                }
+                        DashScopeGrainCard(
+                            line: line,
+                            grain: grain,
+                            flags: HeartbeatMath.dashboardActionFlags(
+                                section: section,
+                                rows: all.filter { HeartbeatMath.dashboardScopeKey($0, grain: grain) == line.label },
+                                pickers: pickers.filter { HeartbeatMath.dashboardScopeKey($0, grain: grain) == line.label },
+                                pathPickers: pathPickers.filter { HeartbeatMath.dashboardScopeKey($0, grain: grain) == line.label },
+                                includeAll: true
+                            ),
+                            width: width
                         )
                     }
                     if lines.count > 60 {
@@ -213,7 +201,59 @@ struct DashScopeStrip: View {
                             .foregroundStyle(AppTheme.textSecondary)
                     }
                 }
+                .readWidth($width)
             }
+        }
+    }
+}
+
+struct DashScopeGrainCard: View {
+    let line: DashScopeLine
+    let grain: DashScopeGrain
+    let flags: [HeartbeatMath.FiveStarFlag]
+    let width: CGFloat
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Text(line.label)
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(AppTheme.text)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                Spacer(minLength: 8)
+                Text(line.value)
+                    .font(.title3.weight(.bold).monospacedDigit())
+                    .foregroundStyle(dashInk(line.health == .none ? .good : line.health))
+                    .lineLimit(1)
+                if grain != .store {
+                    Text(line.count == 1 ? "1 store" : "\(line.count) stores")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppTheme.textSecondary)
+                }
+                HealthBadge(health: line.health, prominent: true, compact: true)
+            }
+            if !flags.isEmpty {
+                DashFlagGrid(
+                    flags: flags,
+                    columns: HubLayout.flagColumns(count: flags.count, width: max(width - 24, 200))
+                )
+            }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white.opacity(0.78))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(dashWash(line.health == .none ? .good : line.health).opacity(0.5))
+                }
+        )
+        .overlay(alignment: .leading) {
+            Capsule()
+                .fill(dashInk(line.health == .none ? .good : line.health))
+                .frame(width: 4)
+                .padding(.vertical, 8)
         }
     }
 }

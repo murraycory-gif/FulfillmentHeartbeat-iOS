@@ -466,6 +466,22 @@ enum HeartbeatMath {
         }
     }
 
+    static func dashboardScopeKey(_ row: MetricRow, grain: DashScopeGrain) -> String? {
+        switch grain {
+        case .division:
+            let key = RollupMarketFill.divisionKey(row.division)
+            return key.isEmpty ? nil : key
+        case .district:
+            let key = RollupMarketFill.districtKey(row.district)
+            return key.isEmpty ? nil : key
+        case .store:
+            let number = canonicalStore(row.storeNumber)
+            guard !number.isEmpty else { return nil }
+            let market = RollupMarketFill.divisionKey(row.division)
+            return market.isEmpty || market == "Unassigned" ? number : "\(number)  |  \(market)"
+        }
+    }
+
     static func dashboardScopeLines(section: MetricSection, rows: [MetricRow], grain: DashScopeGrain) -> [DashScopeLine] {
         let source: [MetricRow]
         if section == .pickerScorecard {
@@ -475,19 +491,7 @@ enum HeartbeatMath {
         }
         var buckets: [String: [MetricRow]] = [:]
         for row in source {
-            let key: String
-            switch grain {
-            case .division:
-                key = RollupMarketFill.divisionKey(row.division)
-            case .district:
-                key = RollupMarketFill.districtKey(row.district)
-            case .store:
-                let number = canonicalStore(row.storeNumber)
-                guard !number.isEmpty else { continue }
-                let market = RollupMarketFill.divisionKey(row.division)
-                key = market.isEmpty || market == "Unassigned" ? number : "\(number)  |  \(market)"
-            }
-            guard !key.isEmpty else { continue }
+            guard let key = dashboardScopeKey(row, grain: grain) else { continue }
             buckets[key, default: []].append(row)
         }
         return buckets.map { key, group in
@@ -508,6 +512,47 @@ enum HeartbeatMath {
                 return lhs.health.dashboardRank < rhs.health.dashboardRank
             }
             return lhs.label.localizedStandardCompare(rhs.label) == .orderedAscending
+        }
+    }
+
+    static func dashboardActionFlags(
+        section: MetricSection,
+        rows: [MetricRow],
+        pickers: [MetricRow] = [],
+        pathPickers: [MetricRow] = [],
+        includeAll: Bool = false
+    ) -> [FiveStarFlag] {
+        switch section {
+        case .fiveStar:
+            return fiveStarActionFlags(rows, includeAll: includeAll)
+        case .lostRevenue:
+            return lostRevenueActionFlags(rows)
+        case .missingItems:
+            return missingItemsActionFlags(rows)
+        case .scheduleQuality:
+            return scheduleActionFlags(rows, includeAll: includeAll)
+        case .labor:
+            return laborActionFlags(rows)
+        case .pph:
+            return pphActionFlags(stores: rows, shoppers: pickers)
+        case .dynacap:
+            return dynacapActionFlags(rows)
+        case .pickPath, .pickPathPicker:
+            return pickPathActionFlags(stores: rows, shoppers: pathPickers)
+        case .pickerScorecard:
+            return pickerActionFlags(rows)
+        case .prepNotReady:
+            let stores = rows.filter { !isIgnoredStore($0.storeNumber) && !$0.storeNumber.isEmpty }
+            let healthy = stores.filter { health(for: .prepNotReady, row: $0) == .good }.count
+            let watch = stores.filter { health(for: .prepNotReady, row: $0) == .watch }.count
+            let risk = stores.filter { health(for: .prepNotReady, row: $0) == .risk }.count
+            return [
+                FiveStarFlag(name: "Healthy", value: "", health: .good, stores: healthy),
+                FiveStarFlag(name: "Watch", value: "", health: watch == 0 ? .good : .watch, stores: watch),
+                FiveStarFlag(name: "At Risk", value: "", health: risk == 0 ? .good : .risk, stores: risk),
+            ]
+        case .aisleMapper:
+            return []
         }
     }
 
@@ -1343,7 +1388,7 @@ enum HeartbeatMath {
         var unit: String = "stores"
     }
 
-    static func fiveStarActionFlags(_ rows: [MetricRow]) -> [FiveStarFlag] {
+    static func fiveStarActionFlags(_ rows: [MetricRow], includeAll: Bool = false) -> [FiveStarFlag] {
         let specs: [(name: String, key: String, mark: (MetricRow) -> StarMark)] = [
             ("OTT", "ott_pct", ottStar),
             ("Flash", "flash_pct", flashStar),
@@ -1368,12 +1413,15 @@ enum HeartbeatMath {
                     else if worst != .risk { worst = .watch }
                 }
             }
-            guard action > 0, worst.needsAction else { continue }
+            guard !values.isEmpty else { continue }
+            if !includeAll {
+                guard action > 0, worst.needsAction else { continue }
+            }
             flags.append(
                 FiveStarFlag(
                     name: spec.name,
                     value: HeartbeatFormat.pct(average(values)),
-                    health: worst,
+                    health: worst == .none ? .good : worst,
                     stores: action
                 )
             )
@@ -1409,7 +1457,7 @@ enum HeartbeatMath {
         ]
     }
 
-    static func scheduleActionFlags(_ rows: [MetricRow]) -> [FiveStarFlag] {
+    static func scheduleActionFlags(_ rows: [MetricRow], includeAll: Bool = false) -> [FiveStarFlag] {
         let specs: [(name: String, keys: [String])] = [
             ("Under Scheduled", ["under_schedule_pct", "under_scheduled"]),
             ("Over Scheduled", ["over_schedule_pct", "over_scheduled"]),
@@ -1437,12 +1485,15 @@ enum HeartbeatMath {
                     else if worst != .risk { worst = .watch }
                 }
             }
-            guard action > 0, worst.needsAction else { continue }
+            guard !values.isEmpty else { continue }
+            if !includeAll {
+                guard action > 0, worst.needsAction else { continue }
+            }
             flags.append(
                 FiveStarFlag(
                     name: spec.name,
                     value: HeartbeatFormat.pct(average(values)),
-                    health: worst,
+                    health: worst == .none ? .good : worst,
                     stores: action
                 )
             )
