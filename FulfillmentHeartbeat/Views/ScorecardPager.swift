@@ -36,9 +36,6 @@ struct ScorecardPager: UIViewControllerRepresentable {
 
         if coordinator.filterStamp != filterStamp {
             coordinator.filterStamp = filterStamp
-            coordinator.dropCache()
-            let dest = router.current == .upload ? .dashboard : router.current
-            coordinator.snap(to: dest, animated: false)
             return
         }
 
@@ -50,6 +47,7 @@ struct ScorecardPager: UIViewControllerRepresentable {
 
     final class PageHost: UIHostingController<AnyView> {
         let dest: HubDestination
+        var hydrated = false
 
         init(dest: HubDestination, rootView: AnyView) {
             self.dest = dest
@@ -63,14 +61,6 @@ struct ScorecardPager: UIViewControllerRepresentable {
             view.backgroundColor = AppTheme.uiBg
             view.clipsToBounds = true
             view.layer.masksToBounds = true
-        }
-
-        override func viewDidLayoutSubviews() {
-            super.viewDidLayoutSubviews()
-            view.clipsToBounds = true
-            if let bounds = view.superview?.bounds, bounds.width > 0 {
-                view.frame = bounds
-            }
         }
 
         @available(*, unavailable)
@@ -98,49 +88,40 @@ struct ScorecardPager: UIViewControllerRepresentable {
 
         func host(for dest: HubDestination) -> PageHost {
             if let existing = cache[dest] { return existing }
-            let root = page(dest)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(AppTheme.bg.ignoresSafeArea())
-            let host = PageHost(dest: dest, rootView: AnyView(root))
+            let host = PageHost(dest: dest, rootView: Self.blank)
             cache[dest] = host
             return host
         }
 
+        func hydrate(_ dest: HubDestination) {
+            let host = host(for: dest)
+            guard !host.hydrated else { return }
+            let root = page(dest)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(AppTheme.bg.ignoresSafeArea())
+            host.rootView = AnyView(root)
+            host.hydrated = true
+        }
+
+        func dehydrate(except dest: HubDestination) {
+            for (key, host) in cache where key != dest && host.hydrated {
+                host.rootView = Self.blank
+                host.hydrated = false
+            }
+        }
+
         func snap(to dest: HubDestination, animated: Bool) {
             guard let pager else { return }
-            let host = host(for: dest)
+            hydrate(dest)
             displayed = dest
             pager.dataSource = nil
-            pager.setViewControllers([host], direction: .forward, animated: false)
+            pager.setViewControllers([host(for: dest)], direction: .forward, animated: false)
             pager.dataSource = self
             resetScroll(pager)
-            if let index = HubDestination.sectionItems.firstIndex(of: dest) {
-                trimCache(around: index)
-            }
+            dehydrate(except: dest)
         }
 
-        func dropCache() {
-            cache.removeAll(keepingCapacity: true)
-        }
-
-        func prefetch(around dest: HubDestination) {
-            let items = HubDestination.sectionItems
-            guard let index = items.firstIndex(of: dest) else { return }
-            trimCache(around: index)
-        }
-
-        private func trimCache(around index: Int) {
-            let items = HubDestination.sectionItems
-            var keep = Set<HubDestination>()
-            for offset in -1...1 {
-                let i = index + offset
-                if items.indices.contains(i) {
-                    keep.insert(items[i])
-                }
-            }
-            if cache.count <= keep.count { return }
-            cache = cache.filter { keep.contains($0.key) }
-        }
+        private static let blank = AnyView(Color(AppTheme.uiBg).ignoresSafeArea())
 
         private func resetScroll(_ pager: UIPageViewController) {
             for sub in pager.view.subviews {
@@ -176,9 +157,12 @@ struct ScorecardPager: UIViewControllerRepresentable {
             _ pageViewController: UIPageViewController,
             willTransitionTo pendingViewControllers: [UIViewController]
         ) {
-            if let host = pendingViewControllers.first as? PageHost, router.destination != host.dest {
-                isSwiping = true
-                router.open(host.dest)
+            if let host = pendingViewControllers.first as? PageHost {
+                hydrate(host.dest)
+                if router.destination != host.dest {
+                    isSwiping = true
+                    router.open(host.dest)
+                }
             }
         }
 
@@ -196,9 +180,7 @@ struct ScorecardPager: UIViewControllerRepresentable {
             if router.destination != host.dest {
                 router.open(host.dest)
             }
-            if completed {
-                prefetch(around: host.dest)
-            }
+            dehydrate(except: host.dest)
         }
     }
 }

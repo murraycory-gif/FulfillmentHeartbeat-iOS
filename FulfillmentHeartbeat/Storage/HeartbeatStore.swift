@@ -169,6 +169,14 @@ final class HeartbeatStore: ObservableObject {
         cachedGrainPacks[section] ?? []
     }
 
+    func dashboardGrainFlags(
+        section: MetricSection,
+        grain: DashScopeGrain,
+        packs: [DashScopePack]
+    ) -> [String: [HeartbeatMath.FiveStarFlag]] {
+        PulseCaches.grainFlags(section: section, grain: grain, packs: packs, latest: filteredLatest)
+    }
+
     var effectiveDashboardGrain: DashScopeGrain? {
         if !filters.store.isEmpty || !filters.om.isEmpty || !filters.district.isEmpty {
             return .store
@@ -2146,44 +2154,58 @@ private struct PulseCaches {
         hidePicker: Bool
     ) -> [MetricSection: [DashScopePack]] {
         guard let grain else { return [:] }
-        let pickers = latest[.pickerScorecard] ?? []
-        let pathPickers = latest[.pickPathPicker] ?? []
-        var pickerBuckets: [String: [MetricRow]] = [:]
-        var pathBuckets: [String: [MetricRow]] = [:]
-        for row in pickers {
-            if let key = HeartbeatMath.dashboardScopeKey(row, grain: grain) {
-                pickerBuckets[key, default: []].append(row)
-            }
-        }
-        for row in pathPickers {
-            if let key = HeartbeatMath.dashboardScopeKey(row, grain: grain) {
-                pathBuckets[key, default: []].append(row)
-            }
-        }
         let cap = grain == .store ? 40 : 24
         var out: [MetricSection: [DashScopePack]] = [:]
         for section in MetricSection.dashboardCards {
             if hidePicker, section == .pickerScorecard { continue }
             let rows = latest[section] ?? []
             let lines = Array(HeartbeatMath.dashboardScopeLines(section: section, rows: rows, grain: grain).prefix(cap))
-            var buckets: [String: [MetricRow]] = [:]
-            for row in rows {
+            out[section] = lines.map { DashScopePack(line: $0, flags: []) }
+        }
+        return out
+    }
+
+    static func grainFlags(
+        section: MetricSection,
+        grain: DashScopeGrain,
+        packs: [DashScopePack],
+        latest: [MetricSection: [MetricRow]]
+    ) -> [String: [HeartbeatMath.FiveStarFlag]] {
+        let rows = latest[section] ?? []
+        let pickers = latest[.pickerScorecard] ?? []
+        let pathPickers = latest[.pickPathPicker] ?? []
+        var buckets: [String: [MetricRow]] = [:]
+        var pickerBuckets: [String: [MetricRow]] = [:]
+        var pathBuckets: [String: [MetricRow]] = [:]
+        for row in rows {
+            if let key = HeartbeatMath.dashboardScopeKey(row, grain: grain) {
+                buckets[key, default: []].append(row)
+            }
+        }
+        if section == .pph || section == .pickerScorecard {
+            for row in pickers {
                 if let key = HeartbeatMath.dashboardScopeKey(row, grain: grain) {
-                    buckets[key, default: []].append(row)
+                    pickerBuckets[key, default: []].append(row)
                 }
             }
-            out[section] = lines.map { line in
-                DashScopePack(
-                    line: line,
-                    flags: HeartbeatMath.dashboardActionFlags(
-                        section: section,
-                        rows: buckets[line.label] ?? [],
-                        pickers: pickerBuckets[line.label] ?? [],
-                        pathPickers: pathBuckets[line.label] ?? [],
-                        includeAll: true
-                    )
-                )
+        }
+        if section == .pickPath {
+            for row in pathPickers {
+                if let key = HeartbeatMath.dashboardScopeKey(row, grain: grain) {
+                    pathBuckets[key, default: []].append(row)
+                }
             }
+        }
+        var out: [String: [HeartbeatMath.FiveStarFlag]] = [:]
+        out.reserveCapacity(packs.count)
+        for pack in packs {
+            out[pack.id] = HeartbeatMath.dashboardActionFlags(
+                section: section,
+                rows: buckets[pack.line.label] ?? [],
+                pickers: pickerBuckets[pack.line.label] ?? [],
+                pathPickers: pathBuckets[pack.line.label] ?? [],
+                includeAll: true
+            )
         }
         return out
     }

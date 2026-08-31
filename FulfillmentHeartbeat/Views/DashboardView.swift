@@ -158,7 +158,7 @@ struct DashLostBanner: View {
             .buttonStyle(DashLiftStyle())
             DashFlagGrid(flags: flags, columns: 3)
             if let grain, !grains.isEmpty {
-                DashScopeStrip(grain: grain, packs: grains, width: width)
+                DashScopeStrip(section: summary.section, grain: grain, packs: grains, width: width)
             }
         }
         .modifier(DashCardChrome(health: summary.health))
@@ -172,16 +172,23 @@ struct DashLostBanner: View {
 }
 
 struct DashScopeStrip: View {
+    @EnvironmentObject private var store: HeartbeatStore
+    let section: MetricSection
     let grain: DashScopeGrain
     let packs: [DashScopePack]
     var width: CGFloat
     @State private var expanded = false
+    @State private var flags: [String: [HeartbeatMath.FiveStarFlag]] = [:]
 
     var body: some View {
         if !packs.isEmpty {
             VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
                 Button {
-                    expanded.toggle()
+                    let next = !expanded
+                    expanded = next
+                    if next, flags.isEmpty {
+                        flags = store.dashboardGrainFlags(section: section, grain: grain, packs: packs)
+                    }
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: grain.symbol)
@@ -207,7 +214,7 @@ struct DashScopeStrip: View {
                         DashScopeGrainCard(
                             line: pack.line,
                             grain: grain,
-                            flags: pack.flags,
+                            flags: flags[pack.id] ?? [],
                             width: width
                         )
                     }
@@ -215,6 +222,7 @@ struct DashScopeStrip: View {
             }
             .onChange(of: packs.map(\.id).joined(separator: "|")) { _, _ in
                 expanded = false
+                flags = [:]
             }
         }
     }
@@ -389,7 +397,7 @@ struct DashCallout: View, Equatable {
                     .buttonStyle(DashLiftStyle())
                     flagBlock(flags)
                     if let grain, !grains.isEmpty {
-                        DashScopeStrip(grain: grain, packs: grains, width: width)
+                        DashScopeStrip(section: card.section, grain: grain, packs: grains, width: width)
                     }
                 }
                 .modifier(DashCardChrome(health: card.health))
@@ -486,14 +494,14 @@ private struct DashCardChrome: ViewModifier {
             }
             .overlay {
                 if health == .risk {
-                    RiskPulseRing(cornerRadius: 16, lineWidth: 2.5)
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(Color(red: 220 / 255, green: 38 / 255, blue: 38 / 255), lineWidth: 2.5)
                 } else {
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .stroke(Color.black.opacity(0.05), lineWidth: 1)
                 }
             }
-            .shadow(color: Color.black.opacity(0.10), radius: 10, y: 5)
-            .shadow(color: Color.black.opacity(0.04), radius: 2, y: 1)
+            .shadow(color: Color.black.opacity(0.08), radius: 6, y: 3)
             .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
