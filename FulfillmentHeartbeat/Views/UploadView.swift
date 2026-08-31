@@ -607,17 +607,27 @@ final class HeartbeatFilePicker: NSObject, UIDocumentPickerDelegate {
             throw importError("OneDrive only sent \(raw.count) bytes. Open the file in Excel so it downloads, then Choose file again.")
         }
         if raw.starts(with: [0xD0, 0xCF, 0x11, 0xE0]) {
-            throw importError("That workbook is encrypted or has a sensitivity label. In Excel: File → Info → remove the label / unprotect, Save a Copy, then upload the copy.")
+            throw importError("That workbook is encrypted or has a sensitivity label. In Excel: File → Info → remove the label, then File → Save a Copy to On My iPad and upload that copy.")
         }
         if !raw.starts(with: [0x50, 0x4B]) && !looksLikeText(raw) {
             let head = raw.prefix(8).map { String(format: "%02X", $0) }.joined(separator: " ")
-            throw importError("That was not an Excel workbook (\(raw.count) bytes, \(head)). Pick the .xlsx from OneDrive after it has finished downloading.")
+            throw importError("OneDrive wrapped that file (\(raw.count) bytes, \(head)). Open it in Excel → File → Save a Copy → On My iPad, then Choose that copy in Heartbeat.")
         }
         return (raw, url.lastPathComponent)
     }
 
     private static func unwrapWorkbook(_ data: Data) -> Data {
-        guard data.starts(with: [0x50, 0x4B]), let zip = ZipArchive(data: data) else { return data }
+        if let opened = openXlsx(data) { return opened }
+        if let sliced = scanForZip(data), let opened = openXlsx(sliced) { return opened }
+        for offset in [4, 8, 512, 1024, 4096, 4099, 4100, 8192] where offset < data.count - 64 {
+            let slice = data.subdata(in: offset..<data.count)
+            if let opened = openXlsx(slice) { return opened }
+        }
+        return data
+    }
+
+    private static func openXlsx(_ data: Data) -> Data? {
+        guard data.starts(with: [0x50, 0x4B]), let zip = ZipArchive(data: data) else { return nil }
         if zip.file(named: "xl/workbook.xml") != nil { return data }
         let nested = zip.entryNames()
             .filter { name in
@@ -626,14 +636,32 @@ final class HeartbeatFilePicker: NSObject, UIDocumentPickerDelegate {
             }
             .compactMap { zip.file(named: $0) }
             .max(by: { $0.count < $1.count })
-        if let nested, nested.starts(with: [0x50, 0x4B]) || looksLikeText(nested) {
-            if nested.starts(with: [0x50, 0x4B]), let inner = ZipArchive(data: nested), inner.file(named: "xl/workbook.xml") != nil {
+        if let nested {
+            if nested.starts(with: [0x50, 0x4B]), ZipArchive(data: nested)?.file(named: "xl/workbook.xml") != nil {
                 return nested
             }
             if looksLikeText(nested) { return nested }
-            return nested
         }
-        return data
+        return nil
+    }
+
+    private static func scanForZip(_ data: Data) -> Data? {
+        let sig = Data([0x50, 0x4B, 0x03, 0x04])
+        var start = data.startIndex
+        var attempts = 0
+        let windowEnd = data.index(data.startIndex, offsetBy: min(data.count, 131_072))
+        while attempts < 12, let hit = data.range(of: sig, in: start..<windowEnd) {
+            let sliced = data.subdata(in: hit.lowerBound..<data.endIndex)
+            if openXlsx(sliced) != nil { return sliced }
+            start = data.index(after: hit.lowerBound)
+            attempts += 1
+        }
+        if let hit = data.range(of: sig) {
+            let sliced = data.subdata(in: hit.lowerBound..<data.endIndex)
+            if openXlsx(sliced) != nil { return sliced }
+            return sliced
+        }
+        return nil
     }
 
     private static func importError(_ message: String) -> NSError {

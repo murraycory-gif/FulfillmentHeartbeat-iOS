@@ -48,7 +48,9 @@ enum WorkbookParser {
         let rows: [ParsedWorkbookRow]
         if ext == "csv" || ext == "txt" || looksLikeCSV(data) {
             rows = parseCSV(String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1) ?? "")
-        } else if ext == "xlsx" || data.starts(with: [0x50, 0x4B]) {
+        } else if let payload = extractZipPayload(data) {
+            rows = try parseXLSX(payload)
+        } else if ext == "xlsx" || ext == "xlsm" || data.starts(with: [0x50, 0x4B]) {
             rows = try parseXLSX(data)
         } else {
             throw ParseError.unsupported
@@ -93,8 +95,9 @@ enum WorkbookParser {
         if ext == "csv" || ext == "txt" || looksLikeCSV(data) {
             throw ParseError.unsupported
         }
-        guard ext == "xlsx" || data.starts(with: [0x50, 0x4B]) else { throw ParseError.unsupported }
-        guard let zip = ZipArchive(data: data) else { throw ParseError.unreadable }
+        guard ext == "xlsx" || ext == "xlsm" || data.starts(with: [0x50, 0x4B]) || extractZipPayload(data) != nil else { throw ParseError.unsupported }
+        let payload = extractZipPayload(data) ?? data
+        guard let zip = ZipArchive(data: payload) else { throw ParseError.unreadable }
         let strings = zip.file(named: "xl/sharedStrings.xml").flatMap { String(data: $0, encoding: .utf8) }.map(SharedStrings.parse) ?? []
         let titles = sheetTitles(from: zip)
         let paths = zip.worksheetPaths()
@@ -118,6 +121,32 @@ enum WorkbookParser {
         let sheets = MetricSection.uploadOrder.compactMap { found[$0] }
         if sheets.isEmpty { throw ParseError.empty }
         return sheets
+    }
+
+    /// OneDrive / Intune often prepends a short wrapper. Find the real xlsx zip.
+    static func extractZipPayload(_ data: Data) -> Data? {
+        if looksLikeXlsx(data) { return data }
+        let sig = Data([0x50, 0x4B, 0x03, 0x04])
+        var start = data.startIndex
+        var attempts = 0
+        let cap = data.index(data.startIndex, offsetBy: min(data.count, 262_144), limitedBy: data.endIndex) ?? data.endIndex
+        while attempts < 16, let hit = data.range(of: sig, in: start..<cap) {
+            let sliced = Data(data[hit.lowerBound..<data.endIndex])
+            if looksLikeXlsx(sliced) { return sliced }
+            start = data.index(after: hit.lowerBound)
+            attempts += 1
+        }
+        for offset in [4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 4099, 4100, 4112, 8192] where offset < data.count - 128 {
+            let sliced = data.subdata(in: offset..<data.count)
+            if looksLikeXlsx(sliced) { return sliced }
+        }
+        return nil
+    }
+
+    private static func looksLikeXlsx(_ data: Data) -> Bool {
+        guard data.count > 128, data.starts(with: [0x50, 0x4B]) else { return false }
+        guard let zip = ZipArchive(data: data) else { return false }
+        return zip.file(named: "xl/workbook.xml") != nil
     }
 
     static func classifySheet(name: String, rows: [ParsedWorkbookRow]) -> MetricSection? {
