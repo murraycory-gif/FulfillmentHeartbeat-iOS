@@ -567,6 +567,60 @@ enum HeartbeatMath {
         .map(\.0)
     }
 
+    static func dashboardStoreLines(
+        section: MetricSection,
+        rows: [MetricRow],
+        stores: [(number: String, name: String?)],
+        roster: [String: StoreIdentity]
+    ) -> [DashScopeLine] {
+        let source: [MetricRow]
+        if section == .pickerScorecard {
+            source = latestPerShopper(rows)
+        } else {
+            source = latestPerStore(rows)
+        }
+        var byStore: [String: [MetricRow]] = [:]
+        for row in source {
+            let number = canonicalStore(row.storeNumber)
+            guard !number.isEmpty else { continue }
+            byStore[number, default: []].append(row)
+        }
+        return stores.compactMap { item -> (DashScopeLine, Double)? in
+            let number = canonicalStore(item.number)
+            guard !number.isEmpty else { return nil }
+            let group = byStore[number] ?? []
+            let market = RollupMarketFill.divisionKey(roster[number]?.division ?? group.first?.division ?? "")
+            let label = market.isEmpty || market == "Unassigned" ? number : "\(number)  |  \(market)"
+            if group.isEmpty {
+                return (DashScopeLine(label: label, value: "—", health: .none, count: 0), section == .fiveStar ? -1 : 0)
+            }
+            let summary = summarize(section, rows: group, upload: nil)
+            let worst = group.reduce(Health.none) { current, row in
+                let next = health(for: section, row: row)
+                return next.dashboardRank < current.dashboardRank ? next : current
+            }
+            let line = DashScopeLine(
+                label: label,
+                value: summary.headlineText,
+                health: worst == .none ? summary.health : worst,
+                count: group.count
+            )
+            let rank = section == .fiveStar ? fiveStarPresubScore(group) : 0
+            return (line, rank)
+        }
+        .sorted { lhs, rhs in
+            if section == .fiveStar {
+                if lhs.1 != rhs.1 { return lhs.1 > rhs.1 }
+                return lhs.0.label.localizedStandardCompare(rhs.0.label) == .orderedAscending
+            }
+            if lhs.0.health.dashboardRank != rhs.0.health.dashboardRank {
+                return lhs.0.health.dashboardRank < rhs.0.health.dashboardRank
+            }
+            return lhs.0.label.localizedStandardCompare(rhs.0.label) == .orderedAscending
+        }
+        .map(\.0)
+    }
+
     static func fiveStarPresubScore(_ rows: [MetricRow]) -> Double {
         average(rows.compactMap { $0.number("presub_pct") }) ?? -1
     }
@@ -615,10 +669,11 @@ enum HeartbeatMath {
     static func latestPerStore(_ rows: [MetricRow]) -> [MetricRow] {
         var map: [String: MetricRow] = [:]
         for row in rows {
-            if isIgnoredStore(row.storeNumber) { continue }
-            let key = row.storeNumber.isEmpty
+            let number = canonicalStore(row.storeNumber)
+            if isIgnoredStore(number) { continue }
+            let key = number.isEmpty
                 ? "\(row.division)|\(row.operationsOM)|\(row.storeName ?? "")"
-                : row.storeNumber
+                : number
             if let existing = map[key] {
                 if (row.recordedOn ?? "") > (existing.recordedOn ?? "") {
                     map[key] = row

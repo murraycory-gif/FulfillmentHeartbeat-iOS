@@ -2127,7 +2127,13 @@ private struct PulseCaches {
             cachedCardFlags: cardFlags(latest: nextLatest),
             cachedGrainPacks: DashboardFilters.parts(filters.store).count == 1
                 ? [:]
-                : grainPacks(latest: nextLatest, grain: grain, hidePicker: hidePicker)
+                : grainPacks(
+                    latest: nextLatest,
+                    grain: grain,
+                    hidePicker: hidePicker,
+                    stores: stores,
+                    roster: roster
+                )
         )
     }
 
@@ -2151,15 +2157,27 @@ private struct PulseCaches {
     static func grainPacks(
         latest: [MetricSection: [MetricRow]],
         grain: DashScopeGrain?,
-        hidePicker: Bool
+        hidePicker: Bool,
+        stores: [(number: String, name: String?)] = [],
+        roster: [String: HeartbeatMath.StoreIdentity] = [:]
     ) -> [MetricSection: [DashScopePack]] {
         guard let grain else { return [:] }
-        let cap = grain == .store ? 40 : 24
+        let cap = grain == .store ? max(stores.count, 80) : 24
         var out: [MetricSection: [DashScopePack]] = [:]
         for section in MetricSection.dashboardCards {
             if hidePicker, section == .pickerScorecard { continue }
             let rows = latest[section] ?? []
-            let lines = Array(HeartbeatMath.dashboardScopeLines(section: section, rows: rows, grain: grain).prefix(cap))
+            let lines: [DashScopeLine]
+            if grain == .store, !stores.isEmpty {
+                lines = Array(HeartbeatMath.dashboardStoreLines(
+                    section: section,
+                    rows: rows,
+                    stores: stores,
+                    roster: roster
+                ).prefix(cap))
+            } else {
+                lines = Array(HeartbeatMath.dashboardScopeLines(section: section, rows: rows, grain: grain).prefix(cap))
+            }
             out[section] = lines.map { DashScopePack(line: $0, flags: []) }
         }
         return out
@@ -2177,33 +2195,42 @@ private struct PulseCaches {
         var buckets: [String: [MetricRow]] = [:]
         var pickerBuckets: [String: [MetricRow]] = [:]
         var pathBuckets: [String: [MetricRow]] = [:]
-        for row in rows {
-            if let key = HeartbeatMath.dashboardScopeKey(row, grain: grain) {
-                buckets[key, default: []].append(row)
+        func key(for row: MetricRow) -> String? {
+            if grain == .store {
+                let number = HeartbeatMath.canonicalStore(row.storeNumber)
+                return number.isEmpty ? nil : number
             }
+            return HeartbeatMath.dashboardScopeKey(row, grain: grain)
+        }
+        func packKey(_ pack: DashScopePack) -> String {
+            if grain == .store {
+                let raw = pack.line.label.split(separator: "|").first.map(String.init) ?? pack.line.label
+                return HeartbeatMath.canonicalStore(raw.trimmingCharacters(in: .whitespaces))
+            }
+            return pack.line.label
+        }
+        for row in rows {
+            if let key = key(for: row) { buckets[key, default: []].append(row) }
         }
         if section == .pph || section == .pickerScorecard {
             for row in pickers {
-                if let key = HeartbeatMath.dashboardScopeKey(row, grain: grain) {
-                    pickerBuckets[key, default: []].append(row)
-                }
+                if let key = key(for: row) { pickerBuckets[key, default: []].append(row) }
             }
         }
         if section == .pickPath {
             for row in pathPickers {
-                if let key = HeartbeatMath.dashboardScopeKey(row, grain: grain) {
-                    pathBuckets[key, default: []].append(row)
-                }
+                if let key = key(for: row) { pathBuckets[key, default: []].append(row) }
             }
         }
         var out: [String: [HeartbeatMath.FiveStarFlag]] = [:]
         out.reserveCapacity(packs.count)
         for pack in packs {
+            let match = packKey(pack)
             out[pack.id] = HeartbeatMath.dashboardActionFlags(
                 section: section,
-                rows: buckets[pack.line.label] ?? [],
-                pickers: pickerBuckets[pack.line.label] ?? [],
-                pathPickers: pathBuckets[pack.line.label] ?? [],
+                rows: buckets[match] ?? [],
+                pickers: pickerBuckets[match] ?? [],
+                pathPickers: pathBuckets[match] ?? [],
                 includeAll: true
             )
         }

@@ -147,6 +147,29 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(lines.first { $0.label == "J2" }?.count, 2)
     }
 
+    func testDashboardStoreLinesFillMissingRosterStores() {
+        let rows = [
+            MetricRow(section: .prepNotReady, division: "Jewel Osco", operationsOM: "A", storeNumber: "3466", payload: ["pnr_rate_pct": 3.1]),
+            MetricRow(section: .prepNotReady, division: "Jewel Osco", operationsOM: "A", storeNumber: "3503", payload: ["pnr_rate_pct": 1.2]),
+        ]
+        let roster: [String: HeartbeatMath.StoreIdentity] = [
+            "3466": .init(division: "Jewel Osco", district: "J2", om: "A", name: nil),
+            "3503": .init(division: "Jewel Osco", district: "J2", om: "A", name: nil),
+            "3478": .init(division: "Jewel Osco", district: "J2", om: "A", name: nil),
+        ]
+        let stores = [("3466", nil as String?), ("3503", nil), ("3478", nil)]
+        let lines = HeartbeatMath.dashboardStoreLines(
+            section: .prepNotReady,
+            rows: rows,
+            stores: stores,
+            roster: roster
+        )
+        XCTAssertEqual(lines.count, 3)
+        XCTAssertEqual(Set(lines.map { String($0.label.prefix(4)) }), ["3466", "3503", "3478"])
+        XCTAssertEqual(lines.first { $0.label.hasPrefix("3478") }?.health, .none)
+        XCTAssertEqual(lines.first { $0.label.hasPrefix("3478") }?.value, "—")
+    }
+
     func testDashboardScopeLinesGroupByMarketThenRisk() {
         let rows = [
             MetricRow(section: .missingItems, division: "Jewel Osco", operationsOM: "A", storeNumber: "1", payload: ["mi_pct": 8.2]),
