@@ -34,28 +34,51 @@ private enum MILayout {
 
 struct MissingItemsCategoryFilter: View {
     @Binding var selected: Set<MissingItemDept>
+    var width: CGFloat = 980
+
+    private var allOn: Bool { selected.isEmpty }
+    private var columns: Int {
+        max(3, min(5, Int(max(width - 48, 360) / 150)))
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Categories")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(AppTheme.textTertiary)
-                .tracking(0.4)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    chip("All", on: selected.isEmpty) {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text("Categories")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(AppTheme.text)
+                Text(allOn ? "All departments" : "\(selected.count) selected")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.textSecondary)
+                Spacer(minLength: 8)
+                if !allOn {
+                    Button("Clear") {
                         selected = []
                     }
-                    ForEach(MissingItemDept.allCases) { dept in
-                        chip(dept.title, on: selected.contains(dept)) {
-                            toggle(dept)
-                        }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(AppTheme.blue)
+                    .buttonStyle(.plain)
+                }
+            }
+            Text(allOn ? "Tap a department to focus the table. Tap more to add." : "Tap again to remove. Clear to show every department.")
+                .font(.caption)
+                .foregroundStyle(AppTheme.textTertiary)
+            LazyVGrid(
+                columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: columns),
+                alignment: .leading,
+                spacing: 8
+            ) {
+                filterChip(title: "All", subtitle: "Every dept", on: allOn) {
+                    selected = []
+                }
+                ForEach(MissingItemDept.allCases) { dept in
+                    filterChip(title: dept.short, subtitle: dept.code, on: selected.contains(dept)) {
+                        toggle(dept)
                     }
                 }
-                .padding(.vertical, 2)
             }
         }
-        .padding(14)
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(AppTheme.card, in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous))
         .overlay(
@@ -79,17 +102,34 @@ struct MissingItemsCategoryFilter: View {
         }
     }
 
-    private func chip(_ title: String, on: Bool, action: @escaping () -> Void) -> some View {
+    private func filterChip(title: String, subtitle: String, on: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(on ? .white : AppTheme.text)
-                .lineLimit(1)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-                .background(on ? AppTheme.blue : AppTheme.blueSoft, in: Capsule(style: .continuous))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(on ? .white : AppTheme.text)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Text(subtitle)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(on ? Color.white.opacity(0.86) : AppTheme.textSecondary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(on ? AppTheme.blue : AppTheme.blueSoft)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(on ? AppTheme.blue : AppTheme.cardBorder, lineWidth: 1)
+            )
         }
         .buttonStyle(.plain)
+        .accessibilityLabel("\(title) \(subtitle)")
+        .accessibilityAddTraits(on ? .isSelected : [])
     }
 }
 
