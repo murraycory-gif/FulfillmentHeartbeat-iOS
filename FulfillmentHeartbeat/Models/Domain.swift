@@ -466,6 +466,25 @@ enum HeartbeatMath {
         }
     }
 
+    static func dashboardCallouts(_ summaries: [SectionSummary], role: HeartbeatRole?) -> [SectionSummary] {
+        var cards = dashboardCallouts(summaries)
+        if role == .evp {
+            cards.removeAll { $0.section == .pickerScorecard }
+            let lost = cards.first { $0.section == .lostRevenue }
+            let five = cards.first { $0.section == .fiveStar }
+            let rest = cards.filter { $0.section != .lostRevenue && $0.section != .fiveStar }
+            let focused = rest.filter { $0.health == .risk || $0.health == .watch }
+            var out: [SectionSummary] = []
+            if let lost { out.append(lost) }
+            if let five { out.append(five) }
+            out.append(contentsOf: focused.isEmpty ? rest : focused)
+            return out
+        }
+        guard role?.showsOnlyRiskAndWatch == true else { return cards }
+        let focused = cards.filter { $0.health == .risk || $0.health == .watch }
+        return focused.isEmpty ? cards : focused
+    }
+
     static func dashboardScopeKey(_ row: MetricRow, grain: DashScopeGrain) -> String? {
         switch grain {
         case .division:
