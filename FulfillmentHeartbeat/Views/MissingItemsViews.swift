@@ -38,7 +38,7 @@ struct MissingItemsCategoryFilter: View {
 
     private var allOn: Bool { selected.isEmpty }
     private var columns: Int {
-        max(3, min(5, Int(max(width - 48, 360) / 150)))
+        Int(ceil(Double(MissingItemDept.allCases.count + 1) / 2.0))
     }
 
     var body: some View {
@@ -64,9 +64,9 @@ struct MissingItemsCategoryFilter: View {
                 .font(.caption)
                 .foregroundStyle(AppTheme.textTertiary)
             LazyVGrid(
-                columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: columns),
+                columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: columns),
                 alignment: .leading,
-                spacing: 8
+                spacing: 6
             ) {
                 filterChip(title: "All", subtitle: "Every dept", on: allOn) {
                     selected = []
@@ -104,26 +104,27 @@ struct MissingItemsCategoryFilter: View {
 
     private func filterChip(title: String, subtitle: String, on: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 4) {
                 Text(title)
                     .font(.subheadline.weight(.bold))
                     .foregroundStyle(on ? .white : AppTheme.text)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                    .minimumScaleFactor(0.7)
+                Spacer(minLength: 0)
                 Text(subtitle)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(on ? Color.white.opacity(0.86) : AppTheme.textSecondary)
                     .lineLimit(1)
             }
-            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
             .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(on ? AppTheme.blue : AppTheme.blueSoft)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .stroke(on ? AppTheme.blue : AppTheme.cardBorder, lineWidth: 1)
             )
         }
