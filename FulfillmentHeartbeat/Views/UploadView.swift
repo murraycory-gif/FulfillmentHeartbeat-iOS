@@ -501,11 +501,12 @@ final class HeartbeatFilePicker: NSObject, UIDocumentPickerDelegate {
         let picker = UIDocumentPickerViewController(
             forOpeningContentTypes: [
                 UTType(filenameExtension: "xlsx") ?? .data,
+                UTType(filenameExtension: "xlsm") ?? .data,
                 .spreadsheet,
                 .commaSeparatedText,
                 .item,
             ],
-            asCopy: true
+            asCopy: false
         )
         picker.delegate = self
         picker.allowsMultipleSelection = false
@@ -552,48 +553,91 @@ final class HeartbeatFilePicker: NSObject, UIDocumentPickerDelegate {
         let accessed = url.startAccessingSecurityScopedResource()
         defer { if accessed { url.stopAccessingSecurityScopedResource() } }
 
+        let dest = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("HeartbeatImports", isDirectory: true)
+        try FileManager.default.createDirectory(at: dest, withIntermediateDirectories: true)
+        let localCopy = dest.appendingPathComponent(UUID().uuidString + "-" + url.lastPathComponent)
+
         if FileManager.default.isUbiquitousItem(at: url) {
             try? FileManager.default.startDownloadingUbiquitousItem(at: url)
-            let deadline = Date().addingTimeInterval(20)
-            while Date() < deadline {
-                let values = try? url.resourceValues(forKeys: [.ubiquitousItemDownloadingStatusKey, .fileSizeKey])
-                let status = values?.ubiquitousItemDownloadingStatus
-                if status == .current || status == .downloaded { break }
-                if let size = values?.fileSize, size > 0, status != .notDownloaded { break }
-                Thread.sleep(forTimeInterval: 0.15)
-            }
         }
 
-        var copied: Data?
-        var coordError: NSError?
-        NSFileCoordinator().coordinate(readingItemAt: url, options: [.forUploading], error: &coordError) { local in
-            copied = try? Data(contentsOf: local, options: [.uncached])
-        }
-        if copied == nil || copied?.isEmpty == true {
+        var lastSize = -1
+        var stableHits = 0
+        let deadline = Date().addingTimeInterval(60)
+        var materialized: URL?
+        while Date() < deadline {
+            var coordError: NSError?
             NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordError) { local in
-                copied = try? Data(contentsOf: local, options: [.uncached])
+                let size = (try? FileManager.default.attributesOfItem(atPath: local.path)[.size] as? NSNumber)?.intValue ?? 0
+                if size > 64 {
+                    try? FileManager.default.removeItem(at: localCopy)
+                    try? FileManager.default.copyItem(at: local, to: localCopy)
+                    materialized = localCopy
+                    if size == lastSize { stableHits += 1 } else { stableHits = 0; lastSize = size }
+                }
+            }
+            if materialized != nil, lastSize >= 100_000, stableHits >= 1 { break }
+            if materialized != nil, lastSize >= 64, stableHits >= 4 { break }
+            Thread.sleep(forTimeInterval: 0.4)
+        }
+
+        if materialized == nil {
+            var coordError: NSError?
+            NSFileCoordinator().coordinate(readingItemAt: url, options: [.forUploading], error: &coordError) { local in
+                try? FileManager.default.removeItem(at: localCopy)
+                try? FileManager.default.copyItem(at: local, to: localCopy)
+                materialized = localCopy
             }
         }
-        if copied == nil || copied?.isEmpty == true {
-            copied = try Data(contentsOf: url, options: [.uncached])
+        if materialized == nil, FileManager.default.fileExists(atPath: url.path) {
+            try? FileManager.default.copyItem(at: url, to: localCopy)
+            materialized = localCopy
         }
-        guard let raw = copied, !raw.isEmpty else {
-            throw NSError(
-                domain: "HeartbeatImport",
-                code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "Could not read that file. Open it in the Files or Excel app so OneDrive finishes downloading, wait until it opens, then Choose file again."]
-            )
+
+        guard let fileURL = materialized, FileManager.default.fileExists(atPath: fileURL.path) else {
+            throw importError("Could not copy that file off OneDrive. Open it in Excel, wait until the workbook is fully loaded, close Excel, then Choose file again.")
         }
-        if raw.count < 64 || !(raw.starts(with: [0x50, 0x4B]) || looksLikeText(raw)) {
-            throw NSError(
-                domain: "HeartbeatImport",
-                code: 2,
-                userInfo: [NSLocalizedDescriptionKey: "OneDrive sent a placeholder, not the workbook. Open Heartbeat Master Week 27.xlsx in Excel, wait for it to load, close Excel, then Choose file again."]
-            )
+
+        var raw = try Data(contentsOf: fileURL, options: [.uncached])
+        raw = unwrapWorkbook(raw)
+        try? FileManager.default.removeItem(at: fileURL)
+
+        guard raw.count >= 64 else {
+            throw importError("OneDrive only sent \(raw.count) bytes. Open the file in Excel so it downloads, then Choose file again.")
         }
-        var owned = Data()
-        owned.append(contentsOf: raw)
-        return (owned, url.lastPathComponent)
+        if raw.starts(with: [0xD0, 0xCF, 0x11, 0xE0]) {
+            throw importError("That workbook is encrypted or has a sensitivity label. In Excel: File → Info → remove the label / unprotect, Save a Copy, then upload the copy.")
+        }
+        if !raw.starts(with: [0x50, 0x4B]) && !looksLikeText(raw) {
+            let head = raw.prefix(8).map { String(format: "%02X", $0) }.joined(separator: " ")
+            throw importError("That was not an Excel workbook (\(raw.count) bytes, \(head)). Pick the .xlsx from OneDrive after it has finished downloading.")
+        }
+        return (raw, url.lastPathComponent)
+    }
+
+    private static func unwrapWorkbook(_ data: Data) -> Data {
+        guard data.starts(with: [0x50, 0x4B]), let zip = ZipArchive(data: data) else { return data }
+        if zip.file(named: "xl/workbook.xml") != nil { return data }
+        let nested = zip.entryNames()
+            .filter { name in
+                let lower = name.lowercased()
+                return lower.hasSuffix(".xlsx") || lower.hasSuffix(".xlsm") || lower.hasSuffix(".csv")
+            }
+            .compactMap { zip.file(named: $0) }
+            .max(by: { $0.count < $1.count })
+        if let nested, nested.starts(with: [0x50, 0x4B]) || looksLikeText(nested) {
+            if nested.starts(with: [0x50, 0x4B]), let inner = ZipArchive(data: nested), inner.file(named: "xl/workbook.xml") != nil {
+                return nested
+            }
+            if looksLikeText(nested) { return nested }
+            return nested
+        }
+        return data
+    }
+
+    private static func importError(_ message: String) -> NSError {
+        NSError(domain: "HeartbeatImport", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
     }
 
     private static func looksLikeText(_ data: Data) -> Bool {

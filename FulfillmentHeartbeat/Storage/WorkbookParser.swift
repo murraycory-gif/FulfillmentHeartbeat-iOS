@@ -2498,6 +2498,10 @@ final class ZipArchive {
         files[name]
     }
 
+    func entryNames() -> [String] {
+        Array(files.keys)
+    }
+
     func worksheetPaths() -> [String] {
         files.keys
             .filter { $0.hasPrefix("xl/worksheets/") && $0.hasSuffix(".xml") }
