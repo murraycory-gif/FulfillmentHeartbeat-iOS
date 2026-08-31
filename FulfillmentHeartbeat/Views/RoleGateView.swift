@@ -35,6 +35,13 @@ struct RoleGateView: View {
             Text("Shown each time the app opens. Pick your seat, then the dashboard only includes that book of business.")
                 .font(.title3)
                 .foregroundStyle(AppTheme.textSecondary)
+            if store.sessionRole != nil {
+                Button("Stay in this view") {
+                    store.needsRolePick = false
+                }
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(AppTheme.blue)
+            }
         }
     }
 

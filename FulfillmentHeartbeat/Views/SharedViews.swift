@@ -8948,6 +8948,14 @@ struct HubBrandBar: View {
                     }
                     Spacer(minLength: 8)
                     HubChromePill(
+                        title: "Who's looking",
+                        symbol: "person.crop.circle",
+                        showsChevron: false
+                    ) {
+                        store.reopenRoleGate()
+                    }
+                    .accessibilityLabel("Change who's looking")
+                    HubChromePill(
                         title: "Assist",
                         symbol: "waveform.path.ecg",
                         showsChevron: false

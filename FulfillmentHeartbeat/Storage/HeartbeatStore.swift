@@ -1029,6 +1029,10 @@ final class HeartbeatStore: ObservableObject {
         needsRolePick = false
     }
 
+    func reopenRoleGate() {
+        needsRolePick = true
+    }
+
     func clearFilters() {
         sessionRole = .backstage
         if isCompanyWide(unfilteredPulse) == false {

@@ -120,7 +120,7 @@ struct MainHubView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @StateObject private var router = HubRouter()
     @StateObject private var coach = CoachGuide()
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    @State private var columnVisibility: NavigationSplitViewVisibility = .detailOnly
 
     var body: some View {
         Group {
