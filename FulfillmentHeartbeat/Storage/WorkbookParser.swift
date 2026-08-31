@@ -102,18 +102,18 @@ enum WorkbookParser {
 
         var found: [MetricSection: ParsedSheet] = [:]
         for (index, path) in paths.enumerated() {
-            guard let sheet = zip.file(named: path) else { continue }
             let title = index < titles.count ? titles[index] : "Sheet \(index + 1)"
-            let matrix = SheetXML.parse(data: sheet, strings: strings)
-            var parsed = rows(from: matrix)
-            if parsed.isEmpty {
-                let labor = parseLaborSheet(data: sheet, strings: strings)
-                if !labor.isEmpty { parsed = labor }
+            autoreleasepool {
+                guard let sheet = zip.file(named: path), !sheet.isEmpty else { return }
+                var parsed = rows(fromSheet: sheet, strings: strings)
+                if parsed.isEmpty {
+                    parsed = parseLaborSheet(data: sheet, strings: strings)
+                }
+                guard !parsed.isEmpty else { return }
+                guard let section = classifySheet(name: title, rows: parsed) else { return }
+                if let existing = found[section], existing.rows.count >= parsed.count { return }
+                found[section] = ParsedSheet(section: section, sheetName: title, rows: parsed)
             }
-            guard !parsed.isEmpty else { continue }
-            guard let section = classifySheet(name: title, rows: parsed) else { continue }
-            if let existing = found[section], existing.rows.count >= parsed.count { continue }
-            found[section] = ParsedSheet(section: section, sheetName: title, rows: parsed)
         }
         let sheets = MetricSection.uploadOrder.compactMap { found[$0] }
         if sheets.isEmpty { throw ParseError.empty }
@@ -136,7 +136,7 @@ enum WorkbookParser {
         }
         if name == "mi" || name.hasPrefix("mi ") || name.contains("missing item") { return .missingItems }
         if name.contains("aisle") && name.contains("tag") { return .missingItems }
-        if name.contains("picker") && (name.contains("score") || name.contains("card") || name.contains("shopper")) {
+        if name.contains("picker") && (name.contains("score") || name.contains("card") || name.contains("scor") || name.contains("shopper")) {
             return .pickerScorecard
         }
         if (name.contains("pick path") || name.contains("path compliance"))
@@ -411,6 +411,11 @@ enum WorkbookParser {
         dict["chargedhrs"] = "charged_hrs"
         return dict
     }()
+
+    private static func rows(fromSheet data: Data, strings: [String]) -> [ParsedWorkbookRow] {
+        let matrix = SheetXML.parse(data: data, strings: strings)
+        return rows(from: matrix)
+    }
 
     private static func rows(from matrix: [[String]]) -> [ParsedWorkbookRow] {
         if let labor = parseLabor(matrix), !labor.isEmpty {
@@ -2063,7 +2068,9 @@ enum SheetXML {
     static func forEachRow(data: Data, strings: [String], handle: ([String]) -> Void) {
         guard var xml = String(data: data, encoding: .utf8) else { return }
         if xml.hasPrefix("\u{FEFF}") { xml.removeFirst() }
-        xml = xml.replacingOccurrences(of: "<x:", with: "<").replacingOccurrences(of: "</x:", with: "</")
+        if xml.contains("<x:") {
+            xml = xml.replacingOccurrences(of: "<x:", with: "<").replacingOccurrences(of: "</x:", with: "</")
+        }
         var cursor = xml.startIndex
         while let rowStart = xml.range(of: "<row", range: cursor..<xml.endIndex) {
             let after = rowStart.upperBound
@@ -2089,7 +2096,9 @@ enum SheetXML {
     private static func walk(data: Data, strings: [String]) -> [[String]] {
         guard var xml = String(data: data, encoding: .utf8) else { return [] }
         if xml.hasPrefix("\u{FEFF}") { xml.removeFirst() }
-        xml = xml.replacingOccurrences(of: "<x:", with: "<").replacingOccurrences(of: "</x:", with: "</")
+        if xml.contains("<x:") {
+            xml = xml.replacingOccurrences(of: "<x:", with: "<").replacingOccurrences(of: "</x:", with: "</")
+        }
         var rows: [[String]] = []
         rows.reserveCapacity(4096)
         var cursor = xml.startIndex
@@ -2449,39 +2458,36 @@ final class ZipArchive {
 
     init?(data: Data) {
         var offset = 0
-        let bytes = [UInt8](data)
-        while offset + 30 <= bytes.count {
-            let sig = u32(bytes, offset)
+        let count = data.count
+        while offset + 30 <= count {
+            let sig = u32(data, offset)
             if sig == 0x02014b50 || sig == 0x06054b50 { break }
             guard sig == 0x04034b50 else { return nil }
-            let flags = u16(bytes, offset + 6)
-            let method = u16(bytes, offset + 8)
-            let compSize = Int(u32(bytes, offset + 18))
-            let uncompSize = Int(u32(bytes, offset + 22))
-            let nameLen = Int(u16(bytes, offset + 26))
-            let extraLen = Int(u16(bytes, offset + 28))
+            let flags = u16(data, offset + 6)
+            let method = u16(data, offset + 8)
+            let compSize = Int(u32(data, offset + 18))
+            let uncompSize = Int(u32(data, offset + 22))
+            let nameLen = Int(u16(data, offset + 26))
+            let extraLen = Int(u16(data, offset + 28))
             let nameStart = offset + 30
-            guard nameStart + nameLen <= bytes.count else { return nil }
-            let name = String(bytes: bytes[nameStart..<(nameStart + nameLen)], encoding: .utf8) ?? ""
+            guard nameStart + nameLen <= count else { return nil }
+            let name = String(data: data.subdata(in: nameStart..<(nameStart + nameLen)), encoding: .utf8) ?? ""
             let dataStart = nameStart + nameLen + extraLen
             if flags & 0x08 != 0, compSize == 0 {
-                // Data descriptor — scan for next signature after payload (best effort).
-                if let next = nextLocalOrCentral(bytes, from: dataStart) {
-                    // descriptor is 12 or 16 bytes before next header; size unknown — skip descriptor files
-                    _ = next
-                }
+                return nil
             }
-            guard dataStart + compSize <= bytes.count else { return nil }
-            let payload = Data(bytes[dataStart..<(dataStart + max(compSize, 0))])
+            guard dataStart + compSize <= count else { return nil }
+            let payload = data.subdata(in: dataStart..<(dataStart + max(compSize, 0)))
             if method == 0 {
                 files[name] = payload
             } else if method == 8 {
-                files[name] = inflate(payload, uncompressedSize: uncompSize)
+                if let inflated = inflate(payload, uncompressedSize: uncompSize) {
+                    files[name] = inflated
+                }
             }
             offset = dataStart + compSize
             if flags & 0x08 != 0 {
-                // skip data descriptor
-                if offset + 4 <= bytes.count, u32(bytes, offset) == 0x08074b50 { offset += 16 }
+                if offset + 4 <= count, u32(data, offset) == 0x08074b50 { offset += 16 }
                 else { offset += 12 }
             }
         }
@@ -2502,16 +2508,6 @@ final class ZipArchive {
         let digits = path.compactMap(\.wholeNumberValue)
         let value = digits.reduce(0) { $0 * 10 + $1 }
         return value == 0 ? 999 : value
-    }
-
-    private func nextLocalOrCentral(_ bytes: [UInt8], from start: Int) -> Int? {
-        var i = start
-        while i + 4 <= bytes.count {
-            let sig = u32(bytes, i)
-            if sig == 0x04034b50 || sig == 0x02014b50 { return i }
-            i += 1
-        }
-        return nil
     }
 }
 
@@ -2563,13 +2559,13 @@ private func inflate(_ source: Data, uncompressedSize: Int) -> Data? {
     return dest2
 }
 
-private func u16(_ bytes: [UInt8], _ offset: Int) -> UInt16 {
-    UInt16(bytes[offset]) | (UInt16(bytes[offset + 1]) << 8)
+private func u16(_ data: Data, _ offset: Int) -> UInt16 {
+    UInt16(data[offset]) | (UInt16(data[offset + 1]) << 8)
 }
 
-private func u32(_ bytes: [UInt8], _ offset: Int) -> UInt32 {
-    UInt32(bytes[offset])
-        | (UInt32(bytes[offset + 1]) << 8)
-        | (UInt32(bytes[offset + 2]) << 16)
-        | (UInt32(bytes[offset + 3]) << 24)
+private func u32(_ data: Data, _ offset: Int) -> UInt32 {
+    UInt32(data[offset])
+        | (UInt32(data[offset + 1]) << 8)
+        | (UInt32(data[offset + 2]) << 16)
+        | (UInt32(data[offset + 3]) << 24)
 }

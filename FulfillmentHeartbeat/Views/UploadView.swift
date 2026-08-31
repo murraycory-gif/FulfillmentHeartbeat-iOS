@@ -124,13 +124,21 @@ struct UploadView: View {
     private func beginMasterImport() {
         importTarget = nil
         masterImport = true
-        showImporter = true
+        HeartbeatFilePicker.shared.present { data, name in
+            store.importMasterWorkbook(data: data, filename: name)
+        } onFail: { message in
+            store.errorMessage = message
+        }
     }
 
     private func beginImport(_ section: MetricSection) {
         importTarget = section
         masterImport = false
-        showImporter = true
+        HeartbeatFilePicker.shared.present { data, name in
+            store.importWorkbook(data: data, filename: name, section: section)
+        } onFail: { message in
+            store.errorMessage = message
+        }
     }
 
     private func handleImport(_ result: Result<[URL], Error>) {
@@ -491,7 +499,12 @@ final class HeartbeatFilePicker: NSObject, UIDocumentPickerDelegate {
         self.onPick = onPick
         self.onFail = onFail
         let picker = UIDocumentPickerViewController(
-            forOpeningContentTypes: [.item, .data, .commaSeparatedText],
+            forOpeningContentTypes: [
+                UTType(filenameExtension: "xlsx") ?? .data,
+                .spreadsheet,
+                .commaSeparatedText,
+                .item,
+            ],
             asCopy: true
         )
         picker.delegate = self
@@ -557,18 +570,35 @@ final class HeartbeatFilePicker: NSObject, UIDocumentPickerDelegate {
             copied = try? Data(contentsOf: local, options: [.uncached])
         }
         if copied == nil || copied?.isEmpty == true {
+            NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordError) { local in
+                copied = try? Data(contentsOf: local, options: [.uncached])
+            }
+        }
+        if copied == nil || copied?.isEmpty == true {
             copied = try Data(contentsOf: url, options: [.uncached])
         }
         guard let raw = copied, !raw.isEmpty else {
             throw NSError(
                 domain: "HeartbeatImport",
                 code: 1,
-                userInfo: [NSLocalizedDescriptionKey: "Could not read that file. Open it in Files first so iCloud or OneDrive finishes downloading, then Choose file again."]
+                userInfo: [NSLocalizedDescriptionKey: "Could not read that file. Open it in the Files or Excel app so OneDrive finishes downloading, wait until it opens, then Choose file again."]
+            )
+        }
+        if raw.count < 64 || !(raw.starts(with: [0x50, 0x4B]) || looksLikeText(raw)) {
+            throw NSError(
+                domain: "HeartbeatImport",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "OneDrive sent a placeholder, not the workbook. Open Heartbeat Master Week 27.xlsx in Excel, wait for it to load, close Excel, then Choose file again."]
             )
         }
         var owned = Data()
         owned.append(contentsOf: raw)
         return (owned, url.lastPathComponent)
+    }
+
+    private static func looksLikeText(_ data: Data) -> Bool {
+        guard let sample = String(data: data.prefix(200), encoding: .utf8) else { return false }
+        return sample.contains(",") || sample.contains("\t")
     }
 
     private func clear() {
