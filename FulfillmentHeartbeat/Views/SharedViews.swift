@@ -4077,8 +4077,8 @@ struct FiveStarTable: View {
         }
     }
 
-    @State private var sort = Column.rating
-    @State private var ascending = true
+    @State private var sort = Column.presub
+    @State private var ascending = false
     @State private var snaps: [FiveStarLineSnap] = []
     @State private var openStore: String?
     @State private var limit = 50
@@ -4331,7 +4331,7 @@ private enum FiveStarRollupBuilder {
                 )
             )
         }
-        return result.sorted { ($0.rating ?? 99) < ($1.rating ?? 99) }
+        return result.sorted { ($0.presub ?? -1) > ($1.presub ?? -1) }
     }
 }
 
@@ -4707,7 +4707,7 @@ struct FiveStarRollupTable: View {
                     )
                 )
             }
-            rows.sort { ($0.rating ?? 99) < ($1.rating ?? 99) }
+            rows.sort { ($0.presub ?? -1) > ($1.presub ?? -1) }
         }
         summary = rows
     }

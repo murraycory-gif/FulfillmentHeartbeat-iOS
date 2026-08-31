@@ -527,7 +527,7 @@ enum HeartbeatMath {
             )
             let rank: Double
             if section == .fiveStar {
-                rank = average(group.compactMap { $0.number("presub_pct") }) ?? -1
+                rank = fiveStarPresubScore(group)
             } else {
                 rank = 0
             }
@@ -544,6 +544,10 @@ enum HeartbeatMath {
             return lhs.0.label.localizedStandardCompare(rhs.0.label) == .orderedAscending
         }
         .map(\.0)
+    }
+
+    static func fiveStarPresubScore(_ rows: [MetricRow]) -> Double {
+        average(rows.compactMap { $0.number("presub_pct") }) ?? -1
     }
 
     static func dashboardActionFlags(

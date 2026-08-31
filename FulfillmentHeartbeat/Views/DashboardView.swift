@@ -28,7 +28,7 @@ struct DashboardView: View {
                         card: card,
                         flags: store.dashboardFlags(for: card.section),
                         grains: store.dashboardGrains(for: card.section),
-                        grain: store.sessionRole?.dashboardGrain
+                        grain: store.effectiveDashboardGrain
                     ) {
                         open(card.section)
                     }

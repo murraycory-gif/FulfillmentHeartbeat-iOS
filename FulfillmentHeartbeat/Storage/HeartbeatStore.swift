@@ -169,6 +169,19 @@ final class HeartbeatStore: ObservableObject {
         cachedGrainPacks[section] ?? []
     }
 
+    var effectiveDashboardGrain: DashScopeGrain? {
+        if !filters.store.isEmpty || !filters.om.isEmpty || !filters.district.isEmpty {
+            return .store
+        }
+        if !filters.division.isEmpty {
+            return .district
+        }
+        if !filters.region.isEmpty {
+            return .division
+        }
+        return sessionRole?.dashboardGrain
+    }
+
     var pickerBoard: HeartbeatMath.PickerBoard { cachedPickerBoard }
 
     func pphPickers(forStore store: String) -> [MetricRow] {
@@ -1422,7 +1435,7 @@ final class HeartbeatStore: ObservableObject {
         let current = filters
         let laborMarket = laborMarketRow()
         let lostMarket = lostRevenueMarketRow()
-        let grain = sessionRole?.dashboardGrain
+        let grain = effectiveDashboardGrain
         let hidePicker = sessionRole == .evp
         refilterTask = Task.detached(priority: .userInitiated) {
             let caches = PulseCaches.refilter(
