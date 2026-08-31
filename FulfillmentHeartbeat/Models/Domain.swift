@@ -472,7 +472,10 @@ enum HeartbeatMath {
             cards.removeAll { $0.section == .pickerScorecard }
             return pinnedCallouts(cards, pin: [.lostRevenue, .fiveStar], restRiskWatch: !storeScoped)
         }
-        if role == .districtManager || role == .director {
+        if role == .director {
+            return pinnedCallouts(cards, pin: [.lostRevenue, .fiveStar, .labor, .pickerScorecard], restRiskWatch: !storeScoped)
+        }
+        if role == .districtManager {
             return pinnedCallouts(cards, pin: [.lostRevenue, .fiveStar, .labor], restRiskWatch: !storeScoped)
         }
         if storeScoped { return cards }

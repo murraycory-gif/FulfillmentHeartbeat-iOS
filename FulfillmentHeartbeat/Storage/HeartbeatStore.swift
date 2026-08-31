@@ -1410,7 +1410,7 @@ final class HeartbeatStore: ObservableObject {
                 let stores = sectionRows.filter { $0.textPayload["labor_grain"] == "store" }
                 latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(stores), roster: roster)
             } else if section == .pickerScorecard || section == .pickPathPicker {
-                latest[section] = HeartbeatMath.latestPerShopper(sectionRows)
+                latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerShopper(sectionRows), roster: roster)
             } else {
                 latest[section] = HeartbeatMath.latestPerStore(sectionRows)
             }
@@ -1994,7 +1994,7 @@ private struct PulseCaches {
                 let stores = sectionRows.filter { $0.textPayload["labor_grain"] == "store" }
                 latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(stores), roster: roster)
             } else if section == .pickerScorecard || section == .pickPathPicker {
-                latest[section] = HeartbeatMath.latestPerShopper(sectionRows)
+                latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerShopper(sectionRows), roster: roster)
             } else {
                 latest[section] = HeartbeatMath.latestPerStore(sectionRows)
             }

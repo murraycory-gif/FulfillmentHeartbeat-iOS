@@ -113,6 +113,40 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(ordered.map(\.section), [.lostRevenue, .fiveStar, .labor, .missingItems, .pph])
     }
 
+    func testDirectorDashboardKeepsPickerScorecard() {
+        func card(_ section: MetricSection, _ health: Health, risk: Int = 0, watch: Int = 0) -> SectionSummary {
+            SectionSummary(
+                section: section,
+                storeCount: 4,
+                headline: 1,
+                headlineLabel: "x",
+                secondary: "",
+                health: health,
+                watchCount: watch,
+                riskCount: risk
+            )
+        }
+        let ordered = HeartbeatMath.dashboardCallouts([
+            card(.lostRevenue, .watch, watch: 1),
+            card(.fiveStar, .risk, risk: 2),
+            card(.labor, .good),
+            card(.pickerScorecard, .good),
+            card(.pph, .watch, watch: 2),
+        ], role: .director)
+        XCTAssertEqual(ordered.prefix(4).map(\.section), [.lostRevenue, .fiveStar, .labor, .pickerScorecard])
+    }
+
+    func testPickerScopeLinesGroupByDistrict() {
+        let rows = [
+            MetricRow(section: .pickerScorecard, division: "Jewel Osco", operationsOM: "A", storeNumber: "1", payload: ["pph": 42], textPayload: ["shopper_name": "A", "district": "J2"]),
+            MetricRow(section: .pickerScorecard, division: "Jewel Osco", operationsOM: "A", storeNumber: "2", payload: ["pph": 31], textPayload: ["shopper_name": "B", "district": "J3"]),
+            MetricRow(section: .pickerScorecard, division: "Jewel Osco", operationsOM: "B", storeNumber: "3", payload: ["pph": 55], textPayload: ["shopper_name": "C", "district": "J2"]),
+        ]
+        let lines = HeartbeatMath.dashboardScopeLines(section: .pickerScorecard, rows: rows, grain: .district)
+        XCTAssertEqual(Set(lines.map(\.label)), ["J2", "J3"])
+        XCTAssertEqual(lines.first { $0.label == "J2" }?.count, 2)
+    }
+
     func testDashboardScopeLinesGroupByMarketThenRisk() {
         let rows = [
             MetricRow(section: .missingItems, division: "Jewel Osco", operationsOM: "A", storeNumber: "1", payload: ["mi_pct": 8.2]),
