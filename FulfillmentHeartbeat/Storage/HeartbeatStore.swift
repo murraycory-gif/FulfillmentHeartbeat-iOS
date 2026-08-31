@@ -1669,11 +1669,13 @@ final class HeartbeatStore: ObservableObject {
         Task.detached(priority: .userInitiated) {
             do {
                 let decoded = try PulseDisk.read(from: url)
-                var loadedFilters = decoded.filters
-                if let overlay = try? Data(contentsOf: filterFile),
-                   let saved = try? JSONDecoder().decode(DashboardFilters.self, from: overlay) {
-                    loadedFilters = saved
-                }
+                let overlayFilters: DashboardFilters? = {
+                    guard let overlay = try? Data(contentsOf: filterFile),
+                          let saved = try? JSONDecoder().decode(DashboardFilters.self, from: overlay)
+                    else { return nil }
+                    return saved
+                }()
+                let loadedFilters = overlayFilters ?? decoded.filters
                 let caches = PulseCaches.build(
                     rows: decoded.rows,
                     filters: loadedFilters,
