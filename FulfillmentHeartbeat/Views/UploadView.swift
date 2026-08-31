@@ -553,6 +553,10 @@ final class HeartbeatFilePicker: NSObject, UIDocumentPickerDelegate {
         let accessed = url.startAccessingSecurityScopedResource()
         defer { if accessed { url.stopAccessingSecurityScopedResource() } }
 
+        if let exported = exportSpreadsheet(from: url) {
+            if let ready = usableWorkbook(exported) { return (ready, url.lastPathComponent) }
+        }
+
         let dest = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("HeartbeatImports", isDirectory: true)
         try FileManager.default.createDirectory(at: dest, withIntermediateDirectories: true)
@@ -568,7 +572,7 @@ final class HeartbeatFilePicker: NSObject, UIDocumentPickerDelegate {
         var materialized: URL?
         while Date() < deadline {
             var coordError: NSError?
-            NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordError) { local in
+            NSFileCoordinator().coordinate(readingItemAt: url, options: [.forUploading], error: &coordError) { local in
                 let size = (try? FileManager.default.attributesOfItem(atPath: local.path)[.size] as? NSNumber)?.intValue ?? 0
                 if size > 64 {
                     try? FileManager.default.removeItem(at: localCopy)
@@ -577,19 +581,22 @@ final class HeartbeatFilePicker: NSObject, UIDocumentPickerDelegate {
                     if size == lastSize { stableHits += 1 } else { stableHits = 0; lastSize = size }
                 }
             }
+            if materialized == nil {
+                NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordError) { local in
+                    let size = (try? FileManager.default.attributesOfItem(atPath: local.path)[.size] as? NSNumber)?.intValue ?? 0
+                    if size > 64 {
+                        try? FileManager.default.removeItem(at: localCopy)
+                        try? FileManager.default.copyItem(at: local, to: localCopy)
+                        materialized = localCopy
+                        if size == lastSize { stableHits += 1 } else { stableHits = 0; lastSize = size }
+                    }
+                }
+            }
             if materialized != nil, lastSize >= 100_000, stableHits >= 1 { break }
             if materialized != nil, lastSize >= 64, stableHits >= 4 { break }
             Thread.sleep(forTimeInterval: 0.4)
         }
 
-        if materialized == nil {
-            var coordError: NSError?
-            NSFileCoordinator().coordinate(readingItemAt: url, options: [.forUploading], error: &coordError) { local in
-                try? FileManager.default.removeItem(at: localCopy)
-                try? FileManager.default.copyItem(at: local, to: localCopy)
-                materialized = localCopy
-            }
-        }
         if materialized == nil, FileManager.default.fileExists(atPath: url.path) {
             try? FileManager.default.copyItem(at: url, to: localCopy)
             materialized = localCopy
@@ -600,20 +607,55 @@ final class HeartbeatFilePicker: NSObject, UIDocumentPickerDelegate {
         }
 
         var raw = try Data(contentsOf: fileURL, options: [.uncached])
-        raw = unwrapWorkbook(raw)
         try? FileManager.default.removeItem(at: fileURL)
+        if let ready = usableWorkbook(raw) { return (ready, url.lastPathComponent) }
 
-        guard raw.count >= 64 else {
-            throw importError("OneDrive only sent \(raw.count) bytes. Open the file in Excel so it downloads, then Choose file again.")
+        let head = raw.prefix(8).map { String(format: "%02X", $0) }.joined(separator: " ")
+        throw importError("OneDrive did not hand over an .xlsx (\(raw.count) bytes, \(head)). Open the file in Excel → File → Save a Copy → On My iPad, then Choose that copy.")
+    }
+
+    private static func usableWorkbook(_ data: Data) -> Data? {
+        if let extracted = WorkbookParser.extractZipPayload(data) { return extracted }
+        let unwrapped = unwrapWorkbook(data)
+        if unwrapped.starts(with: [0x50, 0x4B]) { return unwrapped }
+        if looksLikeText(unwrapped) { return unwrapped }
+        return nil
+    }
+
+    private static func exportSpreadsheet(from url: URL) -> Data? {
+        guard let provider = NSItemProvider(contentsOf: url) else { return nil }
+        let typeIds = [
+            "org.openxmlformats.spreadsheetml.sheet",
+            "com.microsoft.excel.xlsx",
+            "com.microsoft.office.openxml.spreadsheetml.sheet",
+            UTType.spreadsheet.identifier,
+            UTType.data.identifier,
+        ]
+        for typeId in typeIds {
+            if let data = loadProviderData(provider, typeId: typeId), data.count > 64 {
+                return data
+            }
         }
-        if raw.starts(with: [0xD0, 0xCF, 0x11, 0xE0]) {
-            throw importError("That workbook is encrypted or has a sensitivity label. In Excel: File → Info → remove the label, then File → Save a Copy to On My iPad and upload that copy.")
+        return nil
+    }
+
+    private static func loadProviderData(_ provider: NSItemProvider, typeId: String) -> Data? {
+        let lock = DispatchSemaphore(value: 0)
+        var result: Data?
+        if provider.hasItemConformingToTypeIdentifier(typeId) {
+            provider.loadFileRepresentation(forTypeIdentifier: typeId) { file, _ in
+                if let file { result = try? Data(contentsOf: file, options: [.uncached]) }
+                lock.signal()
+            }
+            _ = lock.wait(timeout: .now() + 40)
+            if let result, result.count > 64 { return result }
         }
-        if !raw.starts(with: [0x50, 0x4B]) && !looksLikeText(raw) {
-            let head = raw.prefix(8).map { String(format: "%02X", $0) }.joined(separator: " ")
-            throw importError("OneDrive wrapped that file (\(raw.count) bytes, \(head)). Open it in Excel → File → Save a Copy → On My iPad, then Choose that copy in Heartbeat.")
+        provider.loadDataRepresentation(forTypeIdentifier: typeId) { data, _ in
+            result = data
+            lock.signal()
         }
-        return (raw, url.lastPathComponent)
+        _ = lock.wait(timeout: .now() + 40)
+        return result
     }
 
     private static func unwrapWorkbook(_ data: Data) -> Data {

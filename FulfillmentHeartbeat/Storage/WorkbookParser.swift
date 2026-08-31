@@ -128,17 +128,19 @@ enum WorkbookParser {
         if looksLikeXlsx(data) { return data }
         let sig = Data([0x50, 0x4B, 0x03, 0x04])
         var start = data.startIndex
+        let cap = data.index(data.startIndex, offsetBy: min(data.count, 1_048_576), limitedBy: data.endIndex) ?? data.endIndex
         var attempts = 0
-        let cap = data.index(data.startIndex, offsetBy: min(data.count, 262_144), limitedBy: data.endIndex) ?? data.endIndex
-        while attempts < 16, let hit = data.range(of: sig, in: start..<cap) {
+        while attempts < 64, let hit = data.range(of: sig, in: start..<cap) {
             let sliced = Data(data[hit.lowerBound..<data.endIndex])
             if looksLikeXlsx(sliced) { return sliced }
             start = data.index(after: hit.lowerBound)
             attempts += 1
         }
-        for offset in [4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 4099, 4100, 4112, 8192] where offset < data.count - 128 {
-            let sliced = data.subdata(in: offset..<data.count)
-            if looksLikeXlsx(sliced) { return sliced }
+        for offset in 0...16_384 where offset + 4 < data.count {
+            if data[offset] == 0x50, data[offset + 1] == 0x4B, data[offset + 2] == 0x03, data[offset + 3] == 0x04 {
+                let sliced = data.subdata(in: offset..<data.count)
+                if looksLikeXlsx(sliced) { return sliced }
+            }
         }
         return nil
     }
@@ -2488,10 +2490,16 @@ final class ZipArchive {
     init?(data: Data) {
         var offset = 0
         let count = data.count
+        while offset + 4 <= count, offset < 131_072, u32(data, offset) != 0x04034b50 {
+            offset += 1
+        }
         while offset + 30 <= count {
             let sig = u32(data, offset)
             if sig == 0x02014b50 || sig == 0x06054b50 { break }
-            guard sig == 0x04034b50 else { return nil }
+            guard sig == 0x04034b50 else {
+                offset += 1
+                continue
+            }
             let flags = u16(data, offset + 6)
             let method = u16(data, offset + 8)
             let compSize = Int(u32(data, offset + 18))
@@ -2545,6 +2553,12 @@ final class ZipArchive {
 }
 
 private func inflate(_ source: Data, uncompressedSize: Int) -> Data? {
+    if let out = try? (source as NSData).decompressed(using: .deflate) as Data, !out.isEmpty {
+        return out
+    }
+    if let out = try? (source as NSData).decompressed(using: .zlib) as Data, !out.isEmpty {
+        return out
+    }
     let dstSize = max(uncompressedSize, source.count * 8 + 64)
     var dest = Data(count: dstSize)
     let written = dest.withUnsafeMutableBytes { destPtr -> Int in
@@ -2567,9 +2581,11 @@ private func inflate(_ source: Data, uncompressedSize: Int) -> Data? {
         dest.count = written
         return dest
     }
-    // Some Excel writers emit a zlib wrapper; retry with a raw header prepended no-op.
     var wrapped = Data([0x78, 0x01])
     wrapped.append(source)
+    if let out = try? (wrapped as NSData).decompressed(using: .zlib) as Data, !out.isEmpty {
+        return out
+    }
     var dest2 = Data(count: dstSize)
     let written2 = dest2.withUnsafeMutableBytes { destPtr -> Int in
         wrapped.withUnsafeBytes { srcPtr in
