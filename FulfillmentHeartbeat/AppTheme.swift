@@ -95,7 +95,8 @@ private struct RiskPulseLayer: UIViewRepresentable {
         func apply(cornerRadius: CGFloat, lineWidth: CGFloat) {
             layer.cornerRadius = cornerRadius
             layer.borderWidth = lineWidth
-            layer.shadowRadius = 8
+            layer.shadowOpacity = 0
+            layer.shadowRadius = 0
             startIfNeeded()
         }
 
@@ -109,15 +110,6 @@ private struct RiskPulseLayer: UIViewRepresentable {
             opacity.repeatCount = .infinity
             opacity.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
             layer.add(opacity, forKey: "riskPulse")
-
-            let glow = CABasicAnimation(keyPath: "shadowOpacity")
-            glow.fromValue = 0.10
-            glow.toValue = 0.28
-            glow.duration = 1.05
-            glow.autoreverses = true
-            glow.repeatCount = .infinity
-            glow.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            layer.add(glow, forKey: "riskGlow")
         }
     }
 }

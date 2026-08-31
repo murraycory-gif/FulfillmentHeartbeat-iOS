@@ -8,6 +8,14 @@ struct DashboardView: View {
     @State private var showError = false
 
     var body: some View {
+        if store.needsRolePick {
+            AppTheme.bg.ignoresSafeArea()
+        } else {
+            dashboardBody
+        }
+    }
+
+    private var dashboardBody: some View {
         VStack(spacing: 0) {
             HubStickyPageBanner(
                 icon: "waveform.path.ecg",
@@ -15,19 +23,17 @@ struct DashboardView: View {
                 accessory: store.filters.summary
             )
             List {
-                Section {
-                    DashBriefingList(cards: briefingCards) { section in
-                        open(section)
+                ForEach(briefingCards) { card in
+                    DashCallout(
+                        card: card,
+                        flags: store.dashboardFlags(for: card.section),
+                        grains: store.dashboardGrains(for: card.section),
+                        grain: store.sessionRole?.dashboardGrain
+                    ) {
+                        open(card.section)
                     }
-                    .padding(14)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(AppTheme.tableFill)
-                    .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                            .stroke(AppTheme.blue, lineWidth: 2.5)
-                    )
-                    .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 8, trailing: 20))
+                    .equatable()
+                    .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
                     .listRowSeparator(.hidden)
                     .listRowBackground(AppTheme.bg)
                 }
@@ -56,6 +62,7 @@ struct DashboardView: View {
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
             .environment(\.defaultMinListRowHeight, 1)
+            .transaction { $0.animation = nil }
             .navigationDestination(item: $pushedSection) { section in
                 SectionDetailView(section: section)
             }
@@ -102,6 +109,9 @@ private func dashWash(_ health: Health) -> Color { AppTheme.healthWash(health) }
 struct DashLostBanner: View {
     let summary: SectionSummary
     let flags: [HeartbeatMath.FiveStarFlag]
+    var grains: [DashScopePack] = []
+    var grain: DashScopeGrain? = nil
+    var width: CGFloat = 980
     let action: () -> Void
 
     var body: some View {
@@ -147,7 +157,9 @@ struct DashLostBanner: View {
                         .foregroundStyle(AppTheme.textTertiary)
                 }
                 DashFlagGrid(flags: flags, columns: 3)
-                DashScopeStrip(section: summary.section)
+                if let grain, !grains.isEmpty {
+                    DashScopeStrip(grain: grain, packs: grains, width: width)
+                }
             }
             .modifier(DashCardChrome(health: summary.health))
         }
@@ -162,46 +174,24 @@ struct DashLostBanner: View {
 }
 
 struct DashScopeStrip: View {
-    @EnvironmentObject private var store: HeartbeatStore
-    let section: MetricSection
-    @State private var width: CGFloat = 980
+    let grain: DashScopeGrain
+    let packs: [DashScopePack]
+    var width: CGFloat
 
     var body: some View {
-        if let grain = store.sessionRole?.dashboardGrain {
-            let lines = HeartbeatMath.dashboardScopeLines(
-                section: section,
-                rows: store.displayRows(for: section),
-                grain: grain
-            )
-            if !lines.isEmpty {
-                let all = store.displayRows(for: section)
-                let pickers = store.displayRows(for: .pickerScorecard)
-                let pathPickers = store.displayRows(for: .pickPathPicker)
-                VStack(alignment: .leading, spacing: 10) {
-                    Text(grain.title)
-                        .font(.subheadline.weight(.bold))
-                        .foregroundStyle(AppTheme.blue)
-                    ForEach(lines.prefix(60)) { line in
-                        DashScopeGrainCard(
-                            line: line,
-                            grain: grain,
-                            flags: HeartbeatMath.dashboardActionFlags(
-                                section: section,
-                                rows: all.filter { HeartbeatMath.dashboardScopeKey($0, grain: grain) == line.label },
-                                pickers: pickers.filter { HeartbeatMath.dashboardScopeKey($0, grain: grain) == line.label },
-                                pathPickers: pathPickers.filter { HeartbeatMath.dashboardScopeKey($0, grain: grain) == line.label },
-                                includeAll: true
-                            ),
-                            width: width
-                        )
-                    }
-                    if lines.count > 60 {
-                        Text("+\(lines.count - 60) more in this view")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(AppTheme.textSecondary)
-                    }
+        if !packs.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(grain.title)
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(AppTheme.blue)
+                ForEach(packs) { pack in
+                    DashScopeGrainCard(
+                        line: pack.line,
+                        grain: grain,
+                        flags: pack.flags,
+                        width: width
+                    )
                 }
-                .readWidth($width)
             }
         }
     }
@@ -264,55 +254,13 @@ struct DashFlagGrid: View {
 
     var body: some View {
         if !flags.isEmpty {
-            LazyVGrid(
-                columns: HubLayout.grid(columns, spacing: 8, minWidth: 168),
-                alignment: .leading,
-                spacing: 8
-            ) {
-                ForEach(flags) { flag in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(flag.name)
-                            .font(.subheadline.weight(.bold))
-                            .foregroundStyle(AppTheme.text)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.8)
-                        HStack(spacing: 6) {
-                            if !flag.value.isEmpty {
-                                Text(flag.value)
-                                    .font(.title3.weight(.bold).monospacedDigit())
-                                    .foregroundStyle(dashInk(flag.health == .none ? .good : flag.health))
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.7)
-                            }
-                            if flag.stores > 0 || flag.value.isEmpty {
-                                Text(flag.stores == 1 ? "1 \(String(flag.unit.dropLast()))" : "\(HeartbeatFormat.num(Double(flag.stores))) \(flag.unit)")
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(flag.value.isEmpty ? dashInk(flag.health) : AppTheme.textSecondary)
-                                    .lineLimit(1)
-                                    .minimumScaleFactor(0.7)
-                            }
-                            if flag.health != .none {
-                                HealthBadge(health: flag.health, prominent: true, compact: true)
-                            }
+            let cols = max(1, columns)
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(Array(stride(from: 0, to: flags.count, by: cols)), id: \.self) { start in
+                    HStack(alignment: .top, spacing: 8) {
+                        ForEach(Array(flags[start..<min(start + cols, flags.count)])) { flag in
+                            DashFlagChip(flag: flag)
                         }
-                        .lineLimit(1)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(Color.white.opacity(0.72))
-                            .overlay {
-                                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                    .fill(dashWash(flag.health == .none ? .good : flag.health).opacity(0.55))
-                            }
-                    )
-                    .overlay(alignment: .leading) {
-                        Capsule()
-                            .fill(dashInk(flag.health == .none ? .good : flag.health))
-                            .frame(width: 4)
-                            .padding(.vertical, 8)
                     }
                 }
             }
@@ -320,24 +268,75 @@ struct DashFlagGrid: View {
     }
 }
 
-struct DashBriefingList: View {
-    @EnvironmentObject private var store: HeartbeatStore
-    let cards: [SectionSummary]
-    let action: (MetricSection) -> Void
-    @State private var width: CGFloat = 980
+private struct DashFlagChip: View {
+    let flag: HeartbeatMath.FiveStarFlag
 
     var body: some View {
-        VStack(spacing: 12) {
-            ForEach(cards) { card in
-                if card.section == .lostRevenue {
-                    DashLostBanner(
-                        summary: card,
-                        flags: HeartbeatMath.lostRevenueActionFlags(store.displayRows(for: .lostRevenue))
-                    ) { action(.lostRevenue) }
-                } else {
-                Button {
-                    action(card.section)
-                } label: {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(flag.name)
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(AppTheme.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            HStack(spacing: 6) {
+                if !flag.value.isEmpty {
+                    Text(flag.value)
+                        .font(.title3.weight(.bold).monospacedDigit())
+                        .foregroundStyle(dashInk(flag.health == .none ? .good : flag.health))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+                if flag.stores > 0 || flag.value.isEmpty {
+                    Text(flag.stores == 1 ? "1 \(String(flag.unit.dropLast()))" : "\(HeartbeatFormat.num(Double(flag.stores))) \(flag.unit)")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(flag.value.isEmpty ? dashInk(flag.health) : AppTheme.textSecondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+                if flag.health != .none {
+                    HealthBadge(health: flag.health, prominent: true, compact: true)
+                }
+            }
+            .lineLimit(1)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white.opacity(0.72))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(dashWash(flag.health == .none ? .good : flag.health).opacity(0.55))
+                }
+        )
+        .overlay(alignment: .leading) {
+            Capsule()
+                .fill(dashInk(flag.health == .none ? .good : flag.health))
+                .frame(width: 4)
+                .padding(.vertical, 8)
+        }
+    }
+}
+
+struct DashCallout: View, Equatable {
+    let card: SectionSummary
+    let flags: [HeartbeatMath.FiveStarFlag]
+    let grains: [DashScopePack]
+    let grain: DashScopeGrain?
+    let action: () -> Void
+    @State private var width: CGFloat = 980
+
+    static func == (lhs: DashCallout, rhs: DashCallout) -> Bool {
+        lhs.card == rhs.card && lhs.flags == rhs.flags && lhs.grains == rhs.grains && lhs.grain == rhs.grain
+    }
+
+    var body: some View {
+        Group {
+            if card.section == .lostRevenue {
+                DashLostBanner(summary: card, flags: flags, grains: grains, grain: grain, width: width, action: action)
+            } else {
+                Button(action: action) {
                     VStack(alignment: .leading, spacing: 12) {
                         HStack(spacing: 16) {
                             DashCardGlyph(symbol: card.section.symbol, health: card.health)
@@ -363,53 +362,36 @@ struct DashBriefingList: View {
                                 .font(.title3.weight(.semibold))
                                 .foregroundStyle(AppTheme.textTertiary)
                         }
-                        if card.section == .fiveStar {
-                            metricFlags(HeartbeatMath.fiveStarActionFlags(store.displayRows(for: .fiveStar)))
-                        } else if card.section == .scheduleQuality {
-                            metricFlags(HeartbeatMath.scheduleActionFlags(store.displayRows(for: .scheduleQuality)))
-                        } else if card.section == .pickPath {
-                            metricFlags(
-                                HeartbeatMath.pickPathActionFlags(
-                                    stores: store.displayRows(for: .pickPath),
-                                    shoppers: store.displayRows(for: .pickPathPicker)
-                                )
-                            )
-                        } else if card.section == .pph {
-                            metricFlags(
-                                HeartbeatMath.pphActionFlags(
-                                    stores: store.displayRows(for: .pph),
-                                    shoppers: store.displayRows(for: .pickerScorecard)
-                                )
-                            )
-                        } else if card.section == .dynacap {
-                            metricFlags(HeartbeatMath.dynacapActionFlags(store.displayRows(for: .dynacap)))
-                        } else if card.section == .pickerScorecard {
-                            let picker = HeartbeatMath.pickerActionFlags(store.displayRows(for: .pickerScorecard))
-                            VStack(alignment: .leading, spacing: 8) {
-                                metricFlags(Array(picker.prefix(2)), columns: 2)
-                                metricFlags(Array(picker.suffix(from: 2)), columns: min(6, max(2, HubLayout.flagColumns(count: 6, width: width))))
-                            }
-                        } else if card.section == .labor {
-                            let labor = HeartbeatMath.laborActionFlags(store.displayRows(for: .labor))
-                            VStack(alignment: .leading, spacing: 8) {
-                                metricFlags(Array(labor.prefix(4)), columns: min(4, max(2, HubLayout.flagColumns(count: 4, width: width))))
-                                metricFlags(Array(labor.suffix(from: 4)), columns: min(3, max(2, HubLayout.flagColumns(count: 3, width: width))))
-                            }
-                        } else if card.section == .missingItems {
-                            metricFlags(
-                                HeartbeatMath.missingItemsActionFlags(store.displayRows(for: .missingItems)),
-                                columns: 3
-                            )
+                        flagBlock(flags)
+                        if let grain, !grains.isEmpty {
+                            DashScopeStrip(grain: grain, packs: grains, width: width)
                         }
-                        DashScopeStrip(section: card.section)
                     }
                     .modifier(DashCardChrome(health: card.health))
                 }
                 .buttonStyle(DashLiftStyle())
-                }
             }
         }
         .readWidth($width)
+    }
+
+    @ViewBuilder
+    private func flagBlock(_ flags: [HeartbeatMath.FiveStarFlag]) -> some View {
+        if flags.isEmpty {
+            EmptyView()
+        } else if card.section == .pickerScorecard {
+            VStack(alignment: .leading, spacing: 8) {
+                metricFlags(Array(flags.prefix(2)), columns: 2)
+                metricFlags(Array(flags.suffix(from: min(2, flags.count))), columns: min(6, max(2, HubLayout.flagColumns(count: 6, width: width))))
+            }
+        } else if card.section == .labor {
+            VStack(alignment: .leading, spacing: 8) {
+                metricFlags(Array(flags.prefix(4)), columns: min(4, max(2, HubLayout.flagColumns(count: 4, width: width))))
+                metricFlags(Array(flags.suffix(from: min(4, flags.count))), columns: min(3, max(2, HubLayout.flagColumns(count: 3, width: width))))
+            }
+        } else {
+            metricFlags(flags, columns: card.section == .missingItems ? 3 : nil)
+        }
     }
 
     @ViewBuilder

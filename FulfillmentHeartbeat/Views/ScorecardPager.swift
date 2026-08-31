@@ -36,6 +36,9 @@ struct ScorecardPager: UIViewControllerRepresentable {
 
         if coordinator.filterStamp != filterStamp {
             coordinator.filterStamp = filterStamp
+            coordinator.dropCache()
+            let dest = router.current == .upload ? .dashboard : router.current
+            coordinator.snap(to: dest, animated: false)
             return
         }
 
@@ -111,6 +114,13 @@ struct ScorecardPager: UIViewControllerRepresentable {
             pager.setViewControllers([host], direction: .forward, animated: false)
             pager.dataSource = self
             resetScroll(pager)
+            if let index = HubDestination.sectionItems.firstIndex(of: dest) {
+                trimCache(around: index)
+            }
+        }
+
+        func dropCache() {
+            cache.removeAll(keepingCapacity: true)
         }
 
         func prefetch(around dest: HubDestination) {

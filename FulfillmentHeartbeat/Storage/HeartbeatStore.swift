@@ -58,6 +58,8 @@ final class HeartbeatStore: ObservableObject {
     private var pickPathPickersByStore: [String: [MetricRow]] = [:]
     private var pickPathByShopper: [String: MetricRow] = [:]
     private var pphPickersByStore: [String: [MetricRow]] = [:]
+    private var cachedCardFlags: [MetricSection: [HeartbeatMath.FiveStarFlag]] = [:]
+    private var cachedGrainPacks: [MetricSection: [DashScopePack]] = [:]
     private var laborWeeksByStore: [String: [MetricRow]] = [:]
     private var unfilteredPulse: FilterPulse?
     private var refilterTask: Task<Void, Never>?
@@ -158,6 +160,14 @@ final class HeartbeatStore: ObservableObject {
     }
 
     var summaries: [SectionSummary] { cachedSummaries }
+
+    func dashboardFlags(for section: MetricSection) -> [HeartbeatMath.FiveStarFlag] {
+        cachedCardFlags[section] ?? []
+    }
+
+    func dashboardGrains(for section: MetricSection) -> [DashScopePack] {
+        cachedGrainPacks[section] ?? []
+    }
 
     var pickerBoard: HeartbeatMath.PickerBoard { cachedPickerBoard }
 
@@ -990,7 +1000,11 @@ final class HeartbeatStore: ObservableObject {
             next.om = om
         }
         next.sanitize()
-        commitFilters(next)
+        if filters == next {
+            applyFilters()
+        } else {
+            commitFilters(next)
+        }
         needsRolePick = false
     }
 
@@ -1408,6 +1422,8 @@ final class HeartbeatStore: ObservableObject {
         let current = filters
         let laborMarket = laborMarketRow()
         let lostMarket = lostRevenueMarketRow()
+        let grain = sessionRole?.dashboardGrain
+        let hidePicker = sessionRole == .evp
         refilterTask = Task.detached(priority: .userInitiated) {
             let caches = PulseCaches.refilter(
                 latest: latest,
@@ -1415,7 +1431,9 @@ final class HeartbeatStore: ObservableObject {
                 filters: current,
                 uploads: uploadsCopy,
                 laborMarket: laborMarket,
-                lostRevenueMarket: lostMarket
+                lostRevenueMarket: lostMarket,
+                grain: grain,
+                hidePicker: hidePicker
             )
             guard !Task.isCancelled else { return }
             await MainActor.run {
@@ -1448,6 +1466,8 @@ final class HeartbeatStore: ObservableObject {
         var oms: [String]
         var stores: [(number: String, name: String?)]
         var summaries: [SectionSummary]
+        var cardFlags: [MetricSection: [HeartbeatMath.FiveStarFlag]]
+        var grainPacks: [MetricSection: [DashScopePack]]
     }
 
     private func snapshotPulse() -> FilterPulse {
@@ -1464,7 +1484,9 @@ final class HeartbeatStore: ObservableObject {
             districts: cachedDistricts,
             oms: cachedOMs,
             stores: cachedStores,
-            summaries: cachedSummaries
+            summaries: cachedSummaries,
+            cardFlags: cachedCardFlags,
+            grainPacks: cachedGrainPacks
         )
     }
 
@@ -1482,7 +1504,9 @@ final class HeartbeatStore: ObservableObject {
             districts: caches.cachedDistricts,
             oms: caches.cachedOMs,
             stores: caches.cachedStores,
-            summaries: caches.cachedSummaries
+            summaries: caches.cachedSummaries,
+            cardFlags: caches.cachedCardFlags,
+            grainPacks: caches.cachedGrainPacks
         )
     }
 
@@ -1530,6 +1554,8 @@ final class HeartbeatStore: ObservableObject {
                 upload: uploads.first { $0.section == section }
             )
         }
+        cachedCardFlags = PulseCaches.cardFlags(latest: latestBySection)
+        cachedGrainPacks = [:]
         objectWillChange.send()
     }
 
@@ -1589,6 +1615,8 @@ final class HeartbeatStore: ObservableObject {
         cachedOMs = pulse.oms
         cachedStores = pulse.stores
         cachedSummaries = pulse.summaries
+        cachedCardFlags = pulse.cardFlags
+        cachedGrainPacks = pulse.grainPacks
         refreshChecklistOpenCount()
     }
 
@@ -1730,6 +1758,8 @@ final class HeartbeatStore: ObservableObject {
         pickPathPickersByStore = caches.pickPathPickersByStore
         pickPathByShopper = caches.pickPathByShopper
         pphPickersByStore = caches.pphPickersByStore
+        cachedCardFlags = caches.cachedCardFlags
+        cachedGrainPacks = caches.cachedGrainPacks
         refreshChecklistOpenCount()
         objectWillChange.send()
     }
@@ -1906,6 +1936,8 @@ private struct PulseCaches {
     var pickPathPickersByStore: [String: [MetricRow]]
     var pickPathByShopper: [String: MetricRow]
     var pphPickersByStore: [String: [MetricRow]]
+    var cachedCardFlags: [MetricSection: [HeartbeatMath.FiveStarFlag]]
+    var cachedGrainPacks: [MetricSection: [DashScopePack]]
 
     static func build(rows: [MetricRow], filters: DashboardFilters, uploads: [UploadRecord], heavy: Bool = true) -> PulseCaches {
         var bySection: [MetricSection: [MetricRow]] = [:]
@@ -1967,7 +1999,9 @@ private struct PulseCaches {
         uploads: [UploadRecord],
         laborMarket: MetricRow? = nil,
         lostRevenueMarket: MetricRow? = nil,
-        heavy: Bool = true
+        heavy: Bool = true,
+        grain: DashScopeGrain? = nil,
+        hidePicker: Bool = false
     ) -> PulseCaches {
         let allowed = pickerStoreSet(roster: roster, filters: filters)
         var nextLatest: [MetricSection: [MetricRow]] = [:]
@@ -2068,8 +2102,83 @@ private struct PulseCaches {
             pickerFocusHealth: picker.health,
             pickPathPickersByStore: path.buckets,
             pickPathByShopper: path.byShopper,
-            pphPickersByStore: pph
+            pphPickersByStore: pph,
+            cachedCardFlags: cardFlags(latest: nextLatest),
+            cachedGrainPacks: grainPacks(latest: nextLatest, grain: grain, hidePicker: hidePicker)
         )
+    }
+
+    static func cardFlags(latest: [MetricSection: [MetricRow]]) -> [MetricSection: [HeartbeatMath.FiveStarFlag]] {
+        let pickers = latest[.pickerScorecard] ?? []
+        let pathPickers = latest[.pickPathPicker] ?? []
+        var out: [MetricSection: [HeartbeatMath.FiveStarFlag]] = [:]
+        out.reserveCapacity(MetricSection.dashboardCards.count)
+        for section in MetricSection.dashboardCards {
+            out[section] = HeartbeatMath.dashboardActionFlags(
+                section: section,
+                rows: latest[section] ?? [],
+                pickers: pickers,
+                pathPickers: pathPickers,
+                includeAll: false
+            )
+        }
+        return out
+    }
+
+    static func grainPacks(
+        latest: [MetricSection: [MetricRow]],
+        grain: DashScopeGrain?,
+        hidePicker: Bool
+    ) -> [MetricSection: [DashScopePack]] {
+        guard let grain else { return [:] }
+        let pickers = latest[.pickerScorecard] ?? []
+        let pathPickers = latest[.pickPathPicker] ?? []
+        var pickerBuckets: [String: [MetricRow]] = [:]
+        var pathBuckets: [String: [MetricRow]] = [:]
+        if grain != .store {
+            for row in pickers {
+                if let key = HeartbeatMath.dashboardScopeKey(row, grain: grain) {
+                    pickerBuckets[key, default: []].append(row)
+                }
+            }
+            for row in pathPickers {
+                if let key = HeartbeatMath.dashboardScopeKey(row, grain: grain) {
+                    pathBuckets[key, default: []].append(row)
+                }
+            }
+        }
+        let cap = grain == .store ? 40 : 24
+        var out: [MetricSection: [DashScopePack]] = [:]
+        for section in MetricSection.dashboardCards {
+            if hidePicker, section == .pickerScorecard { continue }
+            let rows = latest[section] ?? []
+            let lines = Array(HeartbeatMath.dashboardScopeLines(section: section, rows: rows, grain: grain).prefix(cap))
+            var buckets: [String: [MetricRow]] = [:]
+            if grain != .store {
+                for row in rows {
+                    if let key = HeartbeatMath.dashboardScopeKey(row, grain: grain) {
+                        buckets[key, default: []].append(row)
+                    }
+                }
+            }
+            out[section] = lines.map { line in
+                let wantsFlags = grain == .division || (grain == .district && (line.health == .risk || line.health == .watch))
+                let flags: [HeartbeatMath.FiveStarFlag]
+                if wantsFlags {
+                    flags = HeartbeatMath.dashboardActionFlags(
+                        section: section,
+                        rows: buckets[line.label] ?? [],
+                        pickers: pickerBuckets[line.label] ?? [],
+                        pathPickers: pathBuckets[line.label] ?? [],
+                        includeAll: grain == .division
+                    )
+                } else {
+                    flags = []
+                }
+                return DashScopePack(line: line, flags: flags)
+            }
+        }
+        return out
     }
 
     private static func pickerStoreSet(

@@ -296,7 +296,7 @@ enum AisleMapperMath {
     }
 }
 
-enum Health: String, Codable, Equatable {
+enum Health: String, Codable, Equatable, Sendable {
     case good, watch, risk, none
 
     var label: String {
@@ -412,7 +412,7 @@ struct UploadRecord: Identifiable, Codable, Hashable {
     }
 }
 
-struct SectionSummary: Identifiable {
+struct SectionSummary: Identifiable, Equatable {
     var section: MetricSection
     var storeCount: Int
     var headline: Double?
@@ -1379,7 +1379,7 @@ enum HeartbeatMath {
         componentStar(row, starKey: "oth5_star", pctKey: "oth5_pct", full: 92, half: 78)
     }
 
-    struct FiveStarFlag: Identifiable, Equatable {
+    struct FiveStarFlag: Identifiable, Equatable, Sendable {
         var id: String { name }
         let name: String
         let value: String
@@ -2384,7 +2384,7 @@ enum HeartbeatRole: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
-enum DashScopeGrain: String, Sendable {
+enum DashScopeGrain: String, Sendable, Equatable {
     case division
     case district
     case store
@@ -2404,6 +2404,12 @@ struct DashScopeLine: Identifiable, Equatable, Sendable {
     var health: Health
     var count: Int
     var id: String { label }
+}
+
+struct DashScopePack: Identifiable, Equatable, Sendable {
+    var line: DashScopeLine
+    var flags: [HeartbeatMath.FiveStarFlag]
+    var id: String { line.label }
 }
 
 struct DashboardFilters: Equatable, Codable {
