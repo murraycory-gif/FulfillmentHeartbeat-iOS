@@ -144,6 +144,7 @@ struct DashLostBanner: View {
                         .foregroundStyle(AppTheme.textTertiary)
                 }
                 DashFlagGrid(flags: flags, columns: 3)
+                DashScopeStrip(section: summary.section)
             }
             .modifier(DashCardChrome(health: summary.health))
         }
@@ -154,6 +155,63 @@ struct DashLostBanner: View {
         let risk = HeartbeatFormat.num(Double(summary.riskCount))
         if summary.riskCount == 0 { return "0 stores at risk" }
         return "\(risk) stores at risk"
+    }
+}
+
+struct DashScopeStrip: View {
+    @EnvironmentObject private var store: HeartbeatStore
+    let section: MetricSection
+
+    var body: some View {
+        if let grain = store.sessionRole?.dashboardGrain {
+            let lines = HeartbeatMath.dashboardScopeLines(
+                section: section,
+                rows: store.displayRows(for: section),
+                grain: grain
+            )
+            if !lines.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(grain.title)
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(AppTheme.blue)
+                    ForEach(lines.prefix(60)) { line in
+                        HStack(spacing: 10) {
+                            Text(line.label)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(AppTheme.text)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.75)
+                            Spacer(minLength: 8)
+                            Text(line.value)
+                                .font(.subheadline.weight(.bold).monospacedDigit())
+                                .foregroundStyle(dashInk(line.health == .none ? .good : line.health))
+                                .lineLimit(1)
+                            if grain != .store {
+                                Text(line.count == 1 ? "1 store" : "\(line.count) stores")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(AppTheme.textSecondary)
+                            }
+                            HealthBadge(health: line.health, prominent: true, compact: true)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .fill(Color.white.opacity(0.78))
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .fill(dashWash(line.health == .none ? .good : line.health).opacity(0.5))
+                                }
+                        )
+                    }
+                    if lines.count > 60 {
+                        Text("+\(lines.count - 60) more in this view")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(AppTheme.textSecondary)
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -300,6 +358,7 @@ struct DashBriefingList: View {
                                 columns: 3
                             )
                         }
+                        DashScopeStrip(section: card.section)
                     }
                     .modifier(DashCardChrome(health: card.health))
                 }

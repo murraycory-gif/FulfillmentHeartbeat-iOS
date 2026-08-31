@@ -973,7 +973,7 @@ final class HeartbeatStore: ObservableObject {
         }
     }
 
-    func applyLaunchRole(_ role: HeartbeatRole, region: String = "", division: String = "", om: String = "") {
+    func applyLaunchRole(_ role: HeartbeatRole, region: String = "", division: String = "", district: String = "", om: String = "") {
         sessionRole = role
         var next = DashboardFilters()
         switch role {
@@ -984,6 +984,8 @@ final class HeartbeatStore: ObservableObject {
         case .director:
             next.division = division
             next.region = MarketRegion.containing(division)?.rawValue ?? ""
+        case .districtManager:
+            next.district = district
         case .om:
             next.om = om
         }

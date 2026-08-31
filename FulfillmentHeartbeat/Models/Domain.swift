@@ -454,12 +454,60 @@ enum HeartbeatMath {
     static func dashboardCallouts(_ summaries: [SectionSummary]) -> [SectionSummary] {
         let order = Dictionary(uniqueKeysWithValues: MetricSection.dashboardCards.enumerated().map { ($0.element, $0.offset) })
         return summaries.sorted { lhs, rhs in
+            let lhsFiveRisk = lhs.section == .fiveStar && lhs.health == .risk
+            let rhsFiveRisk = rhs.section == .fiveStar && rhs.health == .risk
+            if lhsFiveRisk != rhsFiveRisk { return lhsFiveRisk }
             if lhs.health.dashboardRank != rhs.health.dashboardRank {
                 return lhs.health.dashboardRank < rhs.health.dashboardRank
             }
             if lhs.riskCount != rhs.riskCount { return lhs.riskCount > rhs.riskCount }
             if lhs.watchCount != rhs.watchCount { return lhs.watchCount > rhs.watchCount }
             return (order[lhs.section] ?? 99) < (order[rhs.section] ?? 99)
+        }
+    }
+
+    static func dashboardScopeLines(section: MetricSection, rows: [MetricRow], grain: DashScopeGrain) -> [DashScopeLine] {
+        let source: [MetricRow]
+        if section == .pickerScorecard {
+            source = latestPerShopper(rows)
+        } else {
+            source = latestPerStore(rows)
+        }
+        var buckets: [String: [MetricRow]] = [:]
+        for row in source {
+            let key: String
+            switch grain {
+            case .division:
+                key = RollupMarketFill.divisionKey(row.division)
+            case .district:
+                key = RollupMarketFill.districtKey(row.district)
+            case .store:
+                let number = canonicalStore(row.storeNumber)
+                guard !number.isEmpty else { continue }
+                let market = RollupMarketFill.divisionKey(row.division)
+                key = market.isEmpty || market == "Unassigned" ? number : "\(number)  |  \(market)"
+            }
+            guard !key.isEmpty else { continue }
+            buckets[key, default: []].append(row)
+        }
+        return buckets.map { key, group in
+            let summary = summarize(section, rows: group, upload: nil)
+            let worst = group.reduce(Health.none) { current, row in
+                let next = health(for: section, row: row)
+                return next.dashboardRank < current.dashboardRank ? next : current
+            }
+            return DashScopeLine(
+                label: key,
+                value: summary.headlineText,
+                health: worst == .none ? summary.health : worst,
+                count: group.count
+            )
+        }
+        .sorted { lhs, rhs in
+            if lhs.health.dashboardRank != rhs.health.dashboardRank {
+                return lhs.health.dashboardRank < rhs.health.dashboardRank
+            }
+            return lhs.label.localizedStandardCompare(rhs.label) == .orderedAscending
         }
     }
 
@@ -2233,6 +2281,7 @@ enum HeartbeatRole: String, CaseIterable, Identifiable, Sendable {
     case backstage
     case evp
     case director
+    case districtManager
     case om
 
     var id: String { rawValue }
@@ -2242,6 +2291,7 @@ enum HeartbeatRole: String, CaseIterable, Identifiable, Sendable {
         case .backstage: return "Backstage Support"
         case .evp: return "EVP Region"
         case .director: return "Director / Market VP / Sr Director Sales"
+        case .districtManager: return "District Manager"
         case .om: return "Operations Manager"
         }
     }
@@ -2251,11 +2301,13 @@ enum HeartbeatRole: String, CaseIterable, Identifiable, Sendable {
         case .backstage:
             return "Total company view · every region, market, and store"
         case .evp:
-            return "East, South, California, or West · that region only"
+            return "East, South, California, or West · markets under each callout"
         case .director:
-            return "One market / division · that banner only"
+            return "One market · districts under each callout"
+        case .districtManager:
+            return "Your district · stores under each callout"
         case .om:
-            return "Your OM book of stores"
+            return "Your OM book · assigned stores under each callout"
         }
     }
 
@@ -2264,11 +2316,43 @@ enum HeartbeatRole: String, CaseIterable, Identifiable, Sendable {
         case .backstage: return "building.2.fill"
         case .evp: return "map.fill"
         case .director: return "chart.bar.doc.horizontal.fill"
+        case .districtManager: return "square.grid.2x2.fill"
         case .om: return "person.crop.rectangle.stack.fill"
         }
     }
 
     var showsOnlyRiskAndWatch: Bool { self != .backstage }
+
+    var dashboardGrain: DashScopeGrain? {
+        switch self {
+        case .backstage: return nil
+        case .evp: return .division
+        case .director: return .district
+        case .districtManager, .om: return .store
+        }
+    }
+}
+
+enum DashScopeGrain: String, Sendable {
+    case division
+    case district
+    case store
+
+    var title: String {
+        switch self {
+        case .division: return "Markets"
+        case .district: return "Districts"
+        case .store: return "Stores"
+        }
+    }
+}
+
+struct DashScopeLine: Identifiable, Equatable, Sendable {
+    var label: String
+    var value: String
+    var health: Health
+    var count: Int
+    var id: String { label }
 }
 
 struct DashboardFilters: Equatable, Codable {

@@ -36,6 +36,48 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(filteredHealthy.map(\.section), [.pph, .missingItems, .lostRevenue])
     }
 
+    func testDashboardCalloutsPinsFiveStarOnlyWhenAtRisk() {
+        func card(_ section: MetricSection, _ health: Health, risk: Int = 0, watch: Int = 0) -> SectionSummary {
+            SectionSummary(
+                section: section,
+                storeCount: 4,
+                headline: 1,
+                headlineLabel: "x",
+                secondary: "",
+                health: health,
+                watchCount: watch,
+                riskCount: risk
+            )
+        }
+        let atRisk = HeartbeatMath.dashboardCallouts([
+            card(.lostRevenue, .risk, risk: 12),
+            card(.missingItems, .risk, risk: 4),
+            card(.fiveStar, .risk, risk: 1),
+            card(.pph, .watch, watch: 2),
+        ])
+        XCTAssertEqual(atRisk.map(\.section), [.fiveStar, .lostRevenue, .missingItems, .pph])
+
+        let watchOnly = HeartbeatMath.dashboardCallouts([
+            card(.lostRevenue, .risk, risk: 8),
+            card(.fiveStar, .watch, watch: 3),
+            card(.pph, .good),
+        ])
+        XCTAssertEqual(watchOnly.map(\.section), [.lostRevenue, .fiveStar, .pph])
+    }
+
+    func testDashboardScopeLinesGroupByMarketThenRisk() {
+        let rows = [
+            MetricRow(section: .missingItems, division: "Jewel Osco", operationsOM: "A", storeNumber: "1", payload: ["mi_pct": 8.2]),
+            MetricRow(section: .missingItems, division: "Jewel Osco", operationsOM: "A", storeNumber: "2", payload: ["mi_pct": 4.0]),
+            MetricRow(section: .missingItems, division: "Shaws", operationsOM: "B", storeNumber: "3", payload: ["mi_pct": 5.2]),
+        ]
+        let lines = HeartbeatMath.dashboardScopeLines(section: .missingItems, rows: rows, grain: .division)
+        XCTAssertEqual(lines.map(\.label), ["Jewel Osco", "Shaws"])
+        XCTAssertEqual(lines[0].health, .risk)
+        XCTAssertEqual(lines[1].health, .watch)
+        XCTAssertEqual(lines[0].count, 2)
+    }
+
     func testFiveStarBand() {
         let good = MetricRow(section: .fiveStar, division: "10", operationsOM: "A", storeNumber: "1", payload: ["star_rating": 4.7])
         let watch = MetricRow(section: .fiveStar, division: "10", operationsOM: "A", storeNumber: "2", payload: ["star_rating": 4.2])

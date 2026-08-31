@@ -134,8 +134,32 @@ struct RoleGateView: View {
                 }
             case .om:
                 omStep
+            case .districtManager:
+                districtStep
             case .backstage:
                 EmptyView()
+            }
+        }
+    }
+
+    private var districtStep: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            TextField("Search districts", text: $query)
+                .textFieldStyle(.roundedBorder)
+            if filteredDistricts.isEmpty {
+                Text("No districts in the loaded files yet. Upload the workbooks, then reopen the app.")
+                    .font(.subheadline)
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .padding(.top, 8)
+            } else {
+                ForEach(filteredDistricts, id: \.self) { district in
+                    Button {
+                        store.applyLaunchRole(.districtManager, district: district)
+                    } label: {
+                        scopeCard(title: district, detail: "District")
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
     }
@@ -194,6 +218,7 @@ struct RoleGateView: View {
         switch role {
         case .evp: return "Choose your region"
         case .director: return "Choose your market"
+        case .districtManager: return "Choose your district"
         case .om: return "Choose your OM"
         case .backstage: return ""
         }
@@ -202,14 +227,23 @@ struct RoleGateView: View {
     private func scopeDetail(_ role: HeartbeatRole) -> String {
         switch role {
         case .evp:
-            return "Dashboard and scorecards stay inside that region. At risk and watch items surface first."
+            return "Dashboard and scorecards stay inside that region. Markets sit under each callout."
         case .director:
-            return "Only that division’s stores. Dashboard callouts are at risk and watch for your market."
+            return "Only that division’s stores. Districts sit under each callout."
+        case .districtManager:
+            return "Only this district’s stores. Those stores sit under each callout."
         case .om:
-            return "Only stores on this OM. Dashboard callouts are at risk and watch for your book."
+            return "Only stores on this OM. Those stores sit under each callout."
         case .backstage:
             return ""
         }
+    }
+
+    private var filteredDistricts: [String] {
+        let all = store.filterChoices(focus: .district, draft: DashboardFilters()).map(\.id)
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        if q.isEmpty { return all }
+        return all.filter { $0.localizedCaseInsensitiveContains(q) }
     }
 
     private var filteredOMs: [String] {
