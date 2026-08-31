@@ -77,7 +77,10 @@ struct DashboardView: View {
     }
 
     private var briefingCards: [SectionSummary] {
-        let cards = HeartbeatMath.dashboardCallouts(store.summaries)
+        var cards = HeartbeatMath.dashboardCallouts(store.summaries)
+        if store.sessionRole == .evp {
+            cards.removeAll { $0.section == .pickerScorecard }
+        }
         guard store.sessionRole?.showsOnlyRiskAndWatch == true else { return cards }
         let focused = cards.filter { $0.health == .risk || $0.health == .watch }
         return focused.isEmpty ? cards : focused
