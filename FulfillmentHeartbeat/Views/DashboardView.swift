@@ -84,7 +84,11 @@ struct DashboardView: View {
     }
 
     private var briefingCards: [SectionSummary] {
-        HeartbeatMath.dashboardCallouts(store.summaries, role: store.sessionRole)
+        HeartbeatMath.dashboardCallouts(
+            store.summaries,
+            role: store.sessionRole,
+            storeScoped: !store.filters.store.isEmpty
+        )
     }
 
     private func open(_ section: MetricSection) {
@@ -109,8 +113,8 @@ struct DashLostBanner: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 12) {
+            Button(action: action) {
                 HStack(spacing: 16) {
                     DashCardGlyph(symbol: summary.section.symbol, health: summary.health)
                     VStack(alignment: .leading, spacing: 4) {
@@ -150,14 +154,14 @@ struct DashLostBanner: View {
                         .font(.title3.weight(.semibold))
                         .foregroundStyle(AppTheme.textTertiary)
                 }
-                DashFlagGrid(flags: flags, columns: 3)
-                if let grain, !grains.isEmpty {
-                    DashScopeStrip(grain: grain, packs: grains, width: width)
-                }
             }
-            .modifier(DashCardChrome(health: summary.health))
+            .buttonStyle(DashLiftStyle())
+            DashFlagGrid(flags: flags, columns: 3)
+            if let grain, !grains.isEmpty {
+                DashScopeStrip(grain: grain, packs: grains, width: width)
+            }
         }
-        .buttonStyle(DashLiftStyle())
+        .modifier(DashCardChrome(health: summary.health))
     }
 
     private var riskLine: String {
@@ -171,21 +175,46 @@ struct DashScopeStrip: View {
     let grain: DashScopeGrain
     let packs: [DashScopePack]
     var width: CGFloat
+    @State private var expanded = false
 
     var body: some View {
         if !packs.isEmpty {
-            VStack(alignment: .leading, spacing: 10) {
-                Text(grain.title)
-                    .font(.subheadline.weight(.bold))
-                    .foregroundStyle(AppTheme.blue)
-                ForEach(packs) { pack in
-                    DashScopeGrainCard(
-                        line: pack.line,
-                        grain: grain,
-                        flags: pack.flags,
-                        width: width
-                    )
+            VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
+                Button {
+                    expanded.toggle()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: grain.symbol)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(AppTheme.blue)
+                        Text(grain.title)
+                            .font(.subheadline.weight(.bold))
+                            .foregroundStyle(AppTheme.blue)
+                        Text("\(packs.count) \(packs.count == 1 ? String(grain.unit.dropLast()) : grain.unit)  ·  tap to \(expanded ? "collapse" : "expand")")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(AppTheme.textSecondary)
+                            .lineLimit(1)
+                        Spacer(minLength: 8)
+                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(AppTheme.blue)
+                    }
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                if expanded {
+                    ForEach(packs) { pack in
+                        DashScopeGrainCard(
+                            line: pack.line,
+                            grain: grain,
+                            flags: pack.flags,
+                            width: width
+                        )
+                    }
+                }
+            }
+            .onChange(of: packs.map(\.id).joined(separator: "|")) { _, _ in
+                expanded = false
             }
         }
     }
@@ -330,8 +359,8 @@ struct DashCallout: View, Equatable {
             if card.section == .lostRevenue {
                 DashLostBanner(summary: card, flags: flags, grains: grains, grain: grain, width: width, action: action)
             } else {
-                Button(action: action) {
-                    VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Button(action: action) {
                         HStack(spacing: 16) {
                             DashCardGlyph(symbol: card.section.symbol, health: card.health)
                             VStack(alignment: .leading, spacing: 4) {
@@ -356,14 +385,14 @@ struct DashCallout: View, Equatable {
                                 .font(.title3.weight(.semibold))
                                 .foregroundStyle(AppTheme.textTertiary)
                         }
-                        flagBlock(flags)
-                        if let grain, !grains.isEmpty {
-                            DashScopeStrip(grain: grain, packs: grains, width: width)
-                        }
                     }
-                    .modifier(DashCardChrome(health: card.health))
+                    .buttonStyle(DashLiftStyle())
+                    flagBlock(flags)
+                    if let grain, !grains.isEmpty {
+                        DashScopeStrip(grain: grain, packs: grains, width: width)
+                    }
                 }
-                .buttonStyle(DashLiftStyle())
+                .modifier(DashCardChrome(health: card.health))
             }
         }
         .readWidth($width)

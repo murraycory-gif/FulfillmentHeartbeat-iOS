@@ -466,13 +466,20 @@ enum HeartbeatMath {
         }
     }
 
-    static func dashboardCallouts(_ summaries: [SectionSummary], role: HeartbeatRole?) -> [SectionSummary] {
+    static func dashboardCallouts(_ summaries: [SectionSummary], role: HeartbeatRole?, storeScoped: Bool = false) -> [SectionSummary] {
         var cards = dashboardCallouts(summaries)
         if role == .evp {
             cards.removeAll { $0.section == .pickerScorecard }
             let lost = cards.first { $0.section == .lostRevenue }
             let five = cards.first { $0.section == .fiveStar }
             let rest = cards.filter { $0.section != .lostRevenue && $0.section != .fiveStar }
+            if storeScoped {
+                var out: [SectionSummary] = []
+                if let lost { out.append(lost) }
+                if let five { out.append(five) }
+                out.append(contentsOf: rest)
+                return out
+            }
             let focused = rest.filter { $0.health == .risk || $0.health == .watch }
             var out: [SectionSummary] = []
             if let lost { out.append(lost) }
@@ -480,6 +487,7 @@ enum HeartbeatMath {
             out.append(contentsOf: focused.isEmpty ? rest : focused)
             return out
         }
+        if storeScoped { return cards }
         guard role?.showsOnlyRiskAndWatch == true else { return cards }
         let focused = cards.filter { $0.health == .risk || $0.health == .watch }
         return focused.isEmpty ? cards : focused
@@ -2429,6 +2437,22 @@ enum DashScopeGrain: String, Sendable, Equatable {
         case .division: return "Markets"
         case .district: return "Districts"
         case .store: return "Stores"
+        }
+    }
+
+    var unit: String {
+        switch self {
+        case .division: return "markets"
+        case .district: return "districts"
+        case .store: return "stores"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .division: return "map.fill"
+        case .district: return "square.grid.2x2.fill"
+        case .store: return "storefront.fill"
         }
     }
 }
