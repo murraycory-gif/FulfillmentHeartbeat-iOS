@@ -143,10 +143,25 @@ if ! xcrun devicectl device install app --device "$UDID" "$APP"; then
 fi
 
 echo "Opening Heartbeat..."
-xcrun devicectl device process launch --device "$UDID" "$BUNDLE_ID" || true
+if ! xcrun devicectl device process launch --device "$UDID" "$BUNDLE_ID"; then
+  echo ""
+  echo "iOS blocked the launch (invalid signature / untrusted developer)."
+  echo "Do this on the iPad, in order:"
+  echo "  1. Delete the Heartbeat app from the Home Screen."
+  echo "  2. Settings → General → VPN & Device Management"
+  echo "     (or Device Management) → tap the Cory Murray / Apple Development profile → Trust."
+  echo "  3. Settings → Privacy & Security → Developer Mode → On (if shown), then restart if asked."
+  echo "  4. Unlock the iPad, leave it on the Home Screen, keep the cable in."
+  echo "  5. Rerun:"
+  echo "       git pull && DEVICE_UDID=$UDID ./install-ipad.sh"
+  echo ""
+  echo "If you just paid for Apple Developer, open the project in Xcode once:"
+  echo "  Signing & Capabilities → Team = your paid team → plug in the iPad → Register Device."
+  exit 1
+fi
 
 echo ""
 echo "Tap the Heartbeat icon if it did not come forward."
-echo "Sidebar stamp must read $STAMP  1.0 (230)."
+echo "Sidebar stamp must read $STAMP."
 echo "If it still says an older HB-0826.* stamp, run:"
 echo "  git pull && DEVICE_UDID=$UDID ./install-ipad.sh"
