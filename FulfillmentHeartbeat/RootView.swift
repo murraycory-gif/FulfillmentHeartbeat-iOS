@@ -9,6 +9,12 @@ struct RootView: View {
             if store.isReady {
                 MainHubView()
                     .transition(.opacity)
+                    .overlay {
+                        if store.needsRolePick {
+                            RoleGateView()
+                                .transition(.opacity)
+                        }
+                    }
             } else {
                 LaunchSplashView()
             }
@@ -27,6 +33,7 @@ struct RootView: View {
                 .environmentObject(store)
         }
         .animation(.easeOut(duration: 0.18), value: store.isReady)
+        .animation(.easeOut(duration: 0.18), value: store.needsRolePick)
     }
 }
 

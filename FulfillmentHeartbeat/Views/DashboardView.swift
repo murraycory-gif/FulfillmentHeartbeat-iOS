@@ -77,7 +77,10 @@ struct DashboardView: View {
     }
 
     private var briefingCards: [SectionSummary] {
-        HeartbeatMath.dashboardCallouts(store.summaries)
+        let cards = HeartbeatMath.dashboardCallouts(store.summaries)
+        guard store.sessionRole?.showsOnlyRiskAndWatch == true else { return cards }
+        let focused = cards.filter { $0.health == .risk || $0.health == .watch }
+        return focused.isEmpty ? cards : focused
     }
 
     private func open(_ section: MetricSection) {

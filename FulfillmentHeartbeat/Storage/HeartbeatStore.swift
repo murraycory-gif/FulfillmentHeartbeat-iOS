@@ -23,6 +23,8 @@ final class HeartbeatStore: ObservableObject {
     @Published private(set) var filterStamp = 0
     @Published private(set) var linkedMasterName: String?
     @Published private(set) var linkedMasterLoadedAt: Date?
+    @Published var needsRolePick = true
+    @Published private(set) var sessionRole: HeartbeatRole?
 
     private let fileManager: FileManager
     private let snapshotURL: URL
@@ -971,7 +973,27 @@ final class HeartbeatStore: ObservableObject {
         }
     }
 
+    func applyLaunchRole(_ role: HeartbeatRole, region: String = "", division: String = "", om: String = "") {
+        sessionRole = role
+        var next = DashboardFilters()
+        switch role {
+        case .backstage:
+            break
+        case .evp:
+            next.region = region
+        case .director:
+            next.division = division
+            next.region = MarketRegion.containing(division)?.rawValue ?? ""
+        case .om:
+            next.om = om
+        }
+        next.sanitize()
+        commitFilters(next)
+        needsRolePick = false
+    }
+
     func clearFilters() {
+        sessionRole = .backstage
         if isCompanyWide(unfilteredPulse) == false {
             unfilteredPulse = nil
         }

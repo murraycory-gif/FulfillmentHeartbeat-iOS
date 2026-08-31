@@ -150,11 +150,21 @@ struct MainHubView: View {
         .environmentObject(router)
         .environmentObject(coach)
         .onAppear {
+            guard !store.needsRolePick else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                 coach.presentIfNeeded(for: router.current)
             }
         }
+        .onChange(of: store.needsRolePick) { _, needs in
+            if !needs {
+                router.open(.dashboard)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    coach.presentIfNeeded(for: .dashboard)
+                }
+            }
+        }
         .onChange(of: router.destination) { _, dest in
+            guard !store.needsRolePick else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                 coach.presentIfNeeded(for: dest)
             }
@@ -165,7 +175,7 @@ struct MainHubView: View {
         }
         .background(AppTheme.bg.ignoresSafeArea())
         .overlay {
-            if coach.active != nil, !store.isImporting {
+            if coach.active != nil, !store.isImporting, !store.needsRolePick {
                 CoachOverlay(guide: coach)
             }
         }

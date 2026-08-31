@@ -2229,6 +2229,48 @@ struct ChecklistDriverGroup: Identifiable, Equatable {
     var id: String { title }
 }
 
+enum HeartbeatRole: String, CaseIterable, Identifiable, Sendable {
+    case backstage
+    case evp
+    case director
+    case om
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .backstage: return "Backstage Support"
+        case .evp: return "EVP Region"
+        case .director: return "Director / Market VP / Sr Director Sales"
+        case .om: return "Operations Manager"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .backstage:
+            return "Total company view · every region, market, and store"
+        case .evp:
+            return "East, South, California, or West · that region only"
+        case .director:
+            return "One market / division · that banner only"
+        case .om:
+            return "Your OM book of stores"
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .backstage: return "building.2.fill"
+        case .evp: return "map.fill"
+        case .director: return "chart.bar.doc.horizontal.fill"
+        case .om: return "person.crop.rectangle.stack.fill"
+        }
+    }
+
+    var showsOnlyRiskAndWatch: Bool { self != .backstage }
+}
+
 struct DashboardFilters: Equatable, Codable {
     var region = ""
     var division = ""
@@ -2378,7 +2420,7 @@ enum MarketRegion: String, CaseIterable, Identifiable, Sendable {
     var displayDivisions: [String] {
         var seen = Set<String>()
         var out: [String] = []
-        for name in divisions {
+        for name in gateDivisions + divisions {
             let canonical = Self.canonicalName(name)
             guard !canonical.isEmpty else { continue }
             if seen.insert(HeartbeatMath.compactKey(canonical)).inserted {
@@ -2386,6 +2428,15 @@ enum MarketRegion: String, CaseIterable, Identifiable, Sendable {
             }
         }
         return out
+    }
+
+    var gateDivisions: [String] {
+        switch self {
+        case .east: return ["Shaws", "Jewel Osco", "Mid-Atlantic"]
+        case .south: return ["Southern", "United", "Southwest"]
+        case .california: return ["NorCal", "SoCal"]
+        case .west: return ["Mountain West", "Seattle", "Portland", "Haggen"]
+        }
     }
 
     func contains(_ division: String) -> Bool {

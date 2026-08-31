@@ -330,7 +330,10 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(MarketRegion.canonicalName("Nor Cal"), "NorCal")
         XCTAssertEqual(MarketRegion.canonicalName("SoCal Division"), "SoCal")
         XCTAssertEqual(MarketRegion.divisionChoices(regions: []).count, 12)
-        XCTAssertEqual(MarketRegion.divisionChoices(regions: ["West Region"]), ["Mountain West", "Seattle", "Haggen", "Portland"])
+        XCTAssertEqual(MarketRegion.divisionChoices(regions: ["West Region"]), ["Mountain West", "Seattle", "Portland", "Haggen"])
+        XCTAssertEqual(MarketRegion.east.gateDivisions, ["Shaws", "Jewel Osco", "Mid-Atlantic"])
+        XCTAssertEqual(MarketRegion.south.gateDivisions, ["Southern", "United", "Southwest"])
+        XCTAssertEqual(MarketRegion.california.gateDivisions, ["NorCal", "SoCal"])
         XCTAssertEqual(
             MarketRegion.uniqueNames(["Mountain West", "Mountain West Division", "mountain west", "West Region", "Total"]),
             ["Mountain West"]
