@@ -2553,10 +2553,12 @@ final class ZipArchive {
 }
 
 private func inflate(_ source: Data, uncompressedSize: Int) -> Data? {
-    if let out = try? (source as NSData).decompressed(using: .deflate) as Data, !out.isEmpty {
+    if let out = try? (source as NSData).decompressed(using: .zlib) as Data, !out.isEmpty {
         return out
     }
-    if let out = try? (source as NSData).decompressed(using: .zlib) as Data, !out.isEmpty {
+    var wrapped = Data([0x78, 0x01])
+    wrapped.append(source)
+    if let out = try? (wrapped as NSData).decompressed(using: .zlib) as Data, !out.isEmpty {
         return out
     }
     let dstSize = max(uncompressedSize, source.count * 8 + 64)
@@ -2580,11 +2582,6 @@ private func inflate(_ source: Data, uncompressedSize: Int) -> Data? {
     if written > 0 {
         dest.count = written
         return dest
-    }
-    var wrapped = Data([0x78, 0x01])
-    wrapped.append(source)
-    if let out = try? (wrapped as NSData).decompressed(using: .zlib) as Data, !out.isEmpty {
-        return out
     }
     var dest2 = Data(count: dstSize)
     let written2 = dest2.withUnsafeMutableBytes { destPtr -> Int in
