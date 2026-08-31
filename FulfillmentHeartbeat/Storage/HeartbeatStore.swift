@@ -2135,16 +2135,14 @@ private struct PulseCaches {
         let pathPickers = latest[.pickPathPicker] ?? []
         var pickerBuckets: [String: [MetricRow]] = [:]
         var pathBuckets: [String: [MetricRow]] = [:]
-        if grain != .store {
-            for row in pickers {
-                if let key = HeartbeatMath.dashboardScopeKey(row, grain: grain) {
-                    pickerBuckets[key, default: []].append(row)
-                }
+        for row in pickers {
+            if let key = HeartbeatMath.dashboardScopeKey(row, grain: grain) {
+                pickerBuckets[key, default: []].append(row)
             }
-            for row in pathPickers {
-                if let key = HeartbeatMath.dashboardScopeKey(row, grain: grain) {
-                    pathBuckets[key, default: []].append(row)
-                }
+        }
+        for row in pathPickers {
+            if let key = HeartbeatMath.dashboardScopeKey(row, grain: grain) {
+                pathBuckets[key, default: []].append(row)
             }
         }
         let cap = grain == .store ? 40 : 24
@@ -2154,28 +2152,22 @@ private struct PulseCaches {
             let rows = latest[section] ?? []
             let lines = Array(HeartbeatMath.dashboardScopeLines(section: section, rows: rows, grain: grain).prefix(cap))
             var buckets: [String: [MetricRow]] = [:]
-            if grain != .store {
-                for row in rows {
-                    if let key = HeartbeatMath.dashboardScopeKey(row, grain: grain) {
-                        buckets[key, default: []].append(row)
-                    }
+            for row in rows {
+                if let key = HeartbeatMath.dashboardScopeKey(row, grain: grain) {
+                    buckets[key, default: []].append(row)
                 }
             }
             out[section] = lines.map { line in
-                let wantsFlags = grain == .division || (grain == .district && (line.health == .risk || line.health == .watch))
-                let flags: [HeartbeatMath.FiveStarFlag]
-                if wantsFlags {
-                    flags = HeartbeatMath.dashboardActionFlags(
+                DashScopePack(
+                    line: line,
+                    flags: HeartbeatMath.dashboardActionFlags(
                         section: section,
                         rows: buckets[line.label] ?? [],
                         pickers: pickerBuckets[line.label] ?? [],
                         pathPickers: pathBuckets[line.label] ?? [],
-                        includeAll: grain == .division
+                        includeAll: true
                     )
-                } else {
-                    flags = []
-                }
-                return DashScopePack(line: line, flags: flags)
+                )
             }
         }
         return out

@@ -102,6 +102,16 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(lines[0].count, 2)
     }
 
+    func testFiveStarStoreLinesRankWorstPresubFirst() {
+        let rows = [
+            MetricRow(section: .fiveStar, division: "Jewel Osco", operationsOM: "A", storeNumber: "10", payload: ["star_rating": 4.8, "presub_pct": 2.1]),
+            MetricRow(section: .fiveStar, division: "Jewel Osco", operationsOM: "A", storeNumber: "20", payload: ["star_rating": 4.1, "presub_pct": 8.4]),
+            MetricRow(section: .fiveStar, division: "Jewel Osco", operationsOM: "A", storeNumber: "30", payload: ["star_rating": 4.4, "presub_pct": 5.0]),
+        ]
+        let lines = HeartbeatMath.dashboardScopeLines(section: .fiveStar, rows: rows, grain: .store)
+        XCTAssertEqual(lines.map { String($0.label.prefix(2)) }, ["20", "30", "10"])
+    }
+
     func testMarketFiveStarTilesMatchCalloutMetrics() {
         let jewel = MetricRow(
             section: .fiveStar,

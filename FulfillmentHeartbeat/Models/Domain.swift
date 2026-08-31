@@ -513,25 +513,37 @@ enum HeartbeatMath {
             guard let key = dashboardScopeKey(row, grain: grain) else { continue }
             buckets[key, default: []].append(row)
         }
-        return buckets.map { key, group in
+        return buckets.map { key, group -> (DashScopeLine, Double) in
             let summary = summarize(section, rows: group, upload: nil)
             let worst = group.reduce(Health.none) { current, row in
                 let next = health(for: section, row: row)
                 return next.dashboardRank < current.dashboardRank ? next : current
             }
-            return DashScopeLine(
+            let line = DashScopeLine(
                 label: key,
                 value: summary.headlineText,
                 health: worst == .none ? summary.health : worst,
                 count: group.count
             )
+            let rank: Double
+            if section == .fiveStar {
+                rank = average(group.compactMap { $0.number("presub_pct") }) ?? -1
+            } else {
+                rank = 0
+            }
+            return (line, rank)
         }
         .sorted { lhs, rhs in
-            if lhs.health.dashboardRank != rhs.health.dashboardRank {
-                return lhs.health.dashboardRank < rhs.health.dashboardRank
+            if section == .fiveStar {
+                if lhs.1 != rhs.1 { return lhs.1 > rhs.1 }
+                return lhs.0.label.localizedStandardCompare(rhs.0.label) == .orderedAscending
             }
-            return lhs.label.localizedStandardCompare(rhs.label) == .orderedAscending
+            if lhs.0.health.dashboardRank != rhs.0.health.dashboardRank {
+                return lhs.0.health.dashboardRank < rhs.0.health.dashboardRank
+            }
+            return lhs.0.label.localizedStandardCompare(rhs.0.label) == .orderedAscending
         }
+        .map(\.0)
     }
 
     static func dashboardActionFlags(
