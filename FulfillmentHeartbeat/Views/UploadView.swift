@@ -613,9 +613,11 @@ final class HeartbeatFilePicker: NSObject, UIDocumentPickerDelegate {
         var raw = try Data(contentsOf: fileURL, options: [.uncached])
         try? FileManager.default.removeItem(at: fileURL)
         if let ready = usableWorkbook(raw) { return (ready, url.lastPathComponent) }
-
+        if raw.count > 100_000 {
+            return (raw, url.lastPathComponent)
+        }
         let head = raw.prefix(8).map { String(format: "%02X", $0) }.joined(separator: " ")
-        throw importError("OneDrive did not hand over an .xlsx (\(raw.count) bytes, \(head)). Open the file in Excel → File → Save a Copy → On My iPad, then Choose that copy.")
+        throw importError("OneDrive did not hand over an .xlsx (\(raw.count) bytes, \(head)). Open the file in Excel, wait until it loads, then Choose file again.")
     }
 
     private static func usableWorkbook(_ data: Data) -> Data? {
@@ -623,6 +625,7 @@ final class HeartbeatFilePicker: NSObject, UIDocumentPickerDelegate {
         let unwrapped = unwrapWorkbook(data)
         if unwrapped.starts(with: [0x50, 0x4B]) { return unwrapped }
         if looksLikeText(unwrapped) { return unwrapped }
+        if data.count > 100_000 { return data }
         return nil
     }
 
