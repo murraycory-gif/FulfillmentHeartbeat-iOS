@@ -139,7 +139,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .labor:
             return URL(string: "https://app.powerbi.com/groups/b49dfeed-3984-42bf-82ef-d591fb235e2a/reports/b4af7dad-92e1-4e78-a222-39b97c245e44/ReportSectionceac564838e55ea8368a?experience=power-bi")
         case .dynacap:
-            return URL(string: "https://app.powerbi.com/groups/me/apps/d973ff03-651f-4e52-9e7a-8e5bff14b5e6/reports/c7805592-9273-416c-a02f-edc74e0a75d0/ReportSection7246ca8b726f69d2ad9d?experience=power-bi&clientSideAuth=0")
+            return URL(string: "https://app.powerbi.com/groups/me/apps/d973ff03-651f-4e52-9e7a-8e5bff14b5e6/reports/5e149f25-b69e-4d6d-83c7-2bea61f951e3/ReportSectioneea6916e080ade11f562?experience=power-bi")
         case .lostRevenue:
             return URL(string: "https://app.powerbi.com/groups/me/apps/d973ff03-651f-4e52-9e7a-8e5bff14b5e6/reports/dac4848e-a28a-4e12-bfbb-b386da90f344/e57401a67b0f2379a0b3?ctid=b7f604a0-00a9-4188-9248-42f3a5aac2e9&experience=power-bi")
         case .missingItems:
