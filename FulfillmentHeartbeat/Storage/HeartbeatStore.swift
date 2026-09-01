@@ -666,12 +666,13 @@ final class HeartbeatStore: ObservableObject {
         entry.comment = comment
         entry.updatedAt = Date()
         checklistByKey[entry.id] = entry
-        objectWillChange.send()
         commentSaveTask?.cancel()
         commentSaveTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 400_000_000)
             guard !Task.isCancelled else { return }
-            self?.persistChecklist()
+            await MainActor.run {
+                self?.persistChecklist()
+            }
         }
     }
 

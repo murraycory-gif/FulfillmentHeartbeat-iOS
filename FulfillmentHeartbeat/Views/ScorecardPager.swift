@@ -103,8 +103,18 @@ struct ScorecardPager: UIViewControllerRepresentable {
             host.hydrated = true
         }
 
-        func dehydrate(except dest: HubDestination) {
-            for (key, host) in cache where key != dest && host.hydrated {
+        func neighbors(of dest: HubDestination) -> [HubDestination] {
+            let items = HubDestination.sectionItems
+            guard let index = items.firstIndex(of: dest) else { return [] }
+            var out: [HubDestination] = []
+            if index > 0 { out.append(items[index - 1]) }
+            if index + 1 < items.count { out.append(items[index + 1]) }
+            return out
+        }
+
+        func dehydrate(keeping dest: HubDestination) {
+            let keep = Set(neighbors(of: dest) + [dest])
+            for (key, host) in cache where host.hydrated && !keep.contains(key) {
                 host.rootView = Self.blank
                 host.hydrated = false
             }
@@ -113,12 +123,13 @@ struct ScorecardPager: UIViewControllerRepresentable {
         func snap(to dest: HubDestination, animated: Bool) {
             guard let pager else { return }
             hydrate(dest)
+            for neighbor in neighbors(of: dest) { hydrate(neighbor) }
             displayed = dest
             pager.dataSource = nil
             pager.setViewControllers([host(for: dest)], direction: .forward, animated: false)
             pager.dataSource = self
             resetScroll(pager)
-            dehydrate(except: dest)
+            dehydrate(keeping: dest)
         }
 
         private static let blank = AnyView(Color(AppTheme.uiBg).ignoresSafeArea())
@@ -180,7 +191,7 @@ struct ScorecardPager: UIViewControllerRepresentable {
             if router.destination != host.dest {
                 router.open(host.dest)
             }
-            dehydrate(except: host.dest)
+            dehydrate(keeping: host.dest)
         }
     }
 }

@@ -203,7 +203,7 @@ struct SectionDetailView: View {
         if isActivePage {
             laborHeaderPin.openOnPageEnter()
             guard !showTables else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.04) {
                 if isActivePage { showTables = true }
             }
         }
