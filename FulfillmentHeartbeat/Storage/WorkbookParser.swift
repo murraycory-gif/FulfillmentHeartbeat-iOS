@@ -97,8 +97,8 @@ enum WorkbookParser {
             throw ParseError.unsupported
         }
         guard ext == "xlsx" || ext == "xlsm" || data.starts(with: [0x50, 0x4B]) || extractZipPayload(data) != nil else { throw ParseError.unsupported }
-        let payload = extractZipPayload(data) ?? data
-        guard let zip = ZipArchive(data: payload) ?? ZipArchive(data: data) else { throw ParseError.unreadable }
+        let zip = Self.openWorkbook(data) ?? extractZipPayload(data).flatMap(Self.openWorkbook)
+        guard let zip else { throw ParseError.unreadable }
         let strings = zip.file(named: "xl/sharedStrings.xml").flatMap { String(data: $0, encoding: .utf8) }.map(SharedStrings.parse) ?? []
         let titles = sheetTitles(from: zip)
         let paths = zip.worksheetPaths()
@@ -124,14 +124,14 @@ enum WorkbookParser {
         return sheets
     }
 
-    /// OneDrive / Intune prepends a short wrapper (often 4099 bytes starting 00 4D 53 4D).
-    /// Return the zip bytes even if inflate has not been proven yet.
+    private static func openWorkbook(_ data: Data) -> ZipArchive? {
+        guard let zip = ZipArchive(data: data) else { return nil }
+        guard zip.file(named: "xl/workbook.xml") != nil, !zip.worksheetPaths().isEmpty else { return nil }
+        return zip
+    }
     static func extractZipPayload(_ data: Data) -> Data? {
         if data.count > 128, data.starts(with: [0x50, 0x4B, 0x03, 0x04]) { return data }
         let sig = Data([0x50, 0x4B, 0x03, 0x04])
-        if let hit = data.range(of: sig) {
-            return Data(data[hit.lowerBound..<data.endIndex])
-        }
         if data.count > 4100, data[0] == 0x00, data[1] == 0x4D, data[2] == 0x53, data[3] == 0x4D {
             let slice = data.subdata(in: 4099..<data.count)
             if slice.starts(with: [0x50, 0x4B]) { return slice }
@@ -143,6 +143,9 @@ enum WorkbookParser {
             if data[offset] == 0x50, data[offset + 1] == 0x4B, data[offset + 2] == 0x03, data[offset + 3] == 0x04 {
                 return data.subdata(in: offset..<data.count)
             }
+        }
+        if let hit = data.range(of: sig) {
+            return Data(data[hit.lowerBound..<data.endIndex])
         }
         return nil
     }
