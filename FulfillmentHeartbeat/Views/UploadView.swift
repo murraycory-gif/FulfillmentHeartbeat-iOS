@@ -197,8 +197,8 @@ struct MasterLoadPanel: View {
             )
             VStack(alignment: .leading, spacing: 14) {
                 Text(linkedName == nil
-                     ? "Choose the shared workbook once from iCloud or OneDrive. After that, Reload pulls the latest from that same file."
-                     : "Reload grabs the latest from the linked iCloud or OneDrive file. Choose file still lets you pick a different workbook.")
+                     ? "On a work iPad, Choose from iCloud Drive — not OneDrive. Company OneDrive encrypts the file for unmanaged apps. Save the workbook to iCloud once, pick that copy, then Reload."
+                     : "Reload the linked iCloud file. Work OneDrive is blocked by Intune until IT allows Heartbeat (com.corymurray.FulfillmentHeartbeat).")
                     .font(.subheadline)
                     .foregroundStyle(AppTheme.textSecondary)
 
@@ -584,7 +584,7 @@ final class HeartbeatFilePicker: NSObject, UIDocumentPickerDelegate {
         let sample = lastRaw ?? Data()
         let head = sample.prefix(8).map { String(format: "%02X", $0) }.joined(separator: " ")
         let eocd = ZipArchive.findEOCD(sample) != nil
-        throw importError("Could not unpack that OneDrive file (\(BuildStamp.label), \(sample.count) bytes, \(head), zip-end \(eocd ? "yes" : "no")). Open it in Excel → Share → Save to iCloud Drive, then Choose the iCloud copy.")
+        throw importError("Work OneDrive encrypted this workbook (Intune). Save it to iCloud Drive from Excel, then Choose that iCloud file.")
     }
 
     private static func readUIDocument(_ url: URL) -> Data? {

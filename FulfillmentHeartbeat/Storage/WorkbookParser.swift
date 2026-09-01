@@ -104,7 +104,7 @@ enum WorkbookParser {
         guard let zip else {
             let head = unzipped.prefix(8).map { String(format: "%02X", $0) }.joined(separator: " ")
             let eocd = ZipArchive.findEOCD(unzipped) != nil
-            throw ParseError.wrapped("Could not unpack that OneDrive file (\(BuildStamp.id), \(unzipped.count) bytes, \(head), zip-end \(eocd ? "yes" : "no")). Open it in Excel, Save a Copy to iCloud or On My iPad, then Choose that copy.")
+            throw ParseError.wrapped("Work OneDrive encrypted this workbook (Intune). Heartbeat is not a managed app, so that copy is unreadable. Open it in Excel → Share → Save to iCloud Drive, then Choose the iCloud file — or tap Reload if this workbook is already linked.")
         }
         let strings = zip.file(named: "xl/sharedStrings.xml").flatMap { String(data: $0, encoding: .utf8) }.map(SharedStrings.parse) ?? []
         let titles = sheetTitles(from: zip)
