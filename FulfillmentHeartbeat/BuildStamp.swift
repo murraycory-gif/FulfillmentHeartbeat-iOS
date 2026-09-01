@@ -1,7 +1,7 @@
 import Foundation
 
 enum BuildStamp {
-    static let id = "HB-0827.23"
+    static let id = "HB-0827.24"
 
     static var version: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"

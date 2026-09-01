@@ -29,12 +29,14 @@ enum WorkbookParser {
     enum ParseError: LocalizedError {
         case empty
         case unreadable
+        case wrapped(String)
         case unsupported
 
         var errorDescription: String? {
             switch self {
             case .empty: return "That file had no usable store rows."
             case .unreadable: return "Could not read that workbook."
+            case .wrapped(let detail): return detail
             case .unsupported: return "Use a .xlsx or .csv file."
             }
         }
@@ -97,8 +99,13 @@ enum WorkbookParser {
             throw ParseError.unsupported
         }
         guard ext == "xlsx" || ext == "xlsm" || data.starts(with: [0x50, 0x4B]) || extractZipPayload(data) != nil else { throw ParseError.unsupported }
-        let zip = Self.openWorkbook(data) ?? extractZipPayload(data).flatMap(Self.openWorkbook)
-        guard let zip else { throw ParseError.unreadable }
+        let unzipped = stripWrapper(data)
+        let zip = Self.openWorkbook(unzipped) ?? Self.openWorkbook(data) ?? extractZipPayload(unzipped).flatMap(Self.openWorkbook)
+        guard let zip else {
+            let head = unzipped.prefix(8).map { String(format: "%02X", $0) }.joined(separator: " ")
+            let eocd = ZipArchive.findEOCD(unzipped) != nil
+            throw ParseError.wrapped("Could not unpack that OneDrive file (\(BuildStamp.id), \(unzipped.count) bytes, \(head), zip-end \(eocd ? "yes" : "no")). Open it in Excel, Save a Copy to iCloud or On My iPad, then Choose that copy.")
+        }
         let strings = zip.file(named: "xl/sharedStrings.xml").flatMap { String(data: $0, encoding: .utf8) }.map(SharedStrings.parse) ?? []
         let titles = sheetTitles(from: zip)
         let paths = zip.worksheetPaths()
@@ -124,11 +131,32 @@ enum WorkbookParser {
         return sheets
     }
 
+    static func stripWrapper(_ data: Data) -> Data {
+        if data.count > 128, data.starts(with: [0x50, 0x4B, 0x03, 0x04]) { return data }
+        guard let eocd = ZipArchive.findEOCD(data), eocd + 22 <= data.count else {
+            return extractZipPayload(data) ?? data
+        }
+        let storedCD = Int(u32(data, eocd + 16))
+        let cdSize = Int(u32(data, eocd + 12))
+        guard cdSize > 46, eocd >= cdSize else { return extractZipPayload(data) ?? data }
+        let inferred = eocd - cdSize
+        guard inferred >= 0, inferred + 4 <= data.count, u32(data, inferred) == 0x02014b50 else {
+            return extractZipPayload(data) ?? data
+        }
+        let prefix = inferred - storedCD
+        guard prefix > 0, prefix < eocd, prefix + 4 <= data.count else { return data }
+        if data[prefix] == 0x50, data[prefix + 1] == 0x4B {
+            return data.subdata(in: prefix..<data.count)
+        }
+        return extractZipPayload(data) ?? data
+    }
+
     private static func openWorkbook(_ data: Data) -> ZipArchive? {
         guard let zip = ZipArchive(data: data) else { return nil }
         guard zip.file(named: "xl/workbook.xml") != nil, !zip.worksheetPaths().isEmpty else { return nil }
         return zip
     }
+
     static func extractZipPayload(_ data: Data) -> Data? {
         if data.count > 128, data.starts(with: [0x50, 0x4B, 0x03, 0x04]) { return data }
         let sig = Data([0x50, 0x4B, 0x03, 0x04])
@@ -2611,7 +2639,7 @@ final class ZipArchive {
         }
     }
 
-    private static func findEOCD(_ data: Data) -> Int? {
+    static func findEOCD(_ data: Data) -> Int? {
         guard data.count >= 22 else { return nil }
         let floor = max(0, data.count - 65_557)
         var i = data.count - 22

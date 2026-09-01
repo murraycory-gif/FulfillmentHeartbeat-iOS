@@ -504,13 +504,12 @@ final class HeartbeatFilePicker: NSObject, UIDocumentPickerDelegate {
         self.onFail = onFail
         let picker = UIDocumentPickerViewController(
             forOpeningContentTypes: [
-                UTType(filenameExtension: "xlsx") ?? .data,
-                UTType(filenameExtension: "xlsm") ?? .data,
+                UTType(filenameExtension: "xlsx") ?? .spreadsheet,
+                UTType(filenameExtension: "xlsm") ?? .spreadsheet,
                 .spreadsheet,
                 .commaSeparatedText,
-                .item,
             ],
-            asCopy: false
+            asCopy: true
         )
         picker.delegate = self
         picker.allowsMultipleSelection = false
@@ -612,20 +611,23 @@ final class HeartbeatFilePicker: NSObject, UIDocumentPickerDelegate {
 
         var raw = try Data(contentsOf: fileURL, options: [.uncached])
         try? FileManager.default.removeItem(at: fileURL)
+        raw = WorkbookParser.stripWrapper(raw)
         if let ready = usableWorkbook(raw) { return (ready, url.lastPathComponent) }
         if raw.count > 100_000 {
-            return (raw, url.lastPathComponent)
+            return (WorkbookParser.stripWrapper(raw), url.lastPathComponent)
         }
         let head = raw.prefix(8).map { String(format: "%02X", $0) }.joined(separator: " ")
         throw importError("OneDrive did not hand over an .xlsx (\(raw.count) bytes, \(head)). Open the file in Excel, wait until it loads, then Choose file again.")
     }
 
     private static func usableWorkbook(_ data: Data) -> Data? {
-        if let extracted = WorkbookParser.extractZipPayload(data) { return extracted }
-        let unwrapped = unwrapWorkbook(data)
+        let unzipped = WorkbookParser.stripWrapper(data)
+        if let extracted = WorkbookParser.extractZipPayload(unzipped) { return extracted }
+        if unzipped.starts(with: [0x50, 0x4B]) { return unzipped }
+        let unwrapped = unwrapWorkbook(unzipped)
         if unwrapped.starts(with: [0x50, 0x4B]) { return unwrapped }
         if looksLikeText(unwrapped) { return unwrapped }
-        if data.count > 100_000 { return data }
+        if unzipped.count > 100_000 { return unzipped }
         return nil
     }
 
