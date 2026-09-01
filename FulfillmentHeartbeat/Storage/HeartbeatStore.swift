@@ -1429,7 +1429,7 @@ final class HeartbeatStore: ObservableObject {
 
     private func applyFilters() {
         refilterTask?.cancel()
-        if !filters.isActive, let pulse = unfilteredPulse, isCompanyWide(pulse) {
+        if !filters.isActive, let pulse = unfilteredPulse, isCompanyWide(pulse), !pulse.checklistGroups.isEmpty {
             install(pulse)
             filterStamp += 1
             return
@@ -1464,9 +1464,6 @@ final class HeartbeatStore: ObservableObject {
                 guard !Task.isCancelled, self.filters == current else { return }
                 self.install(self.pulse(from: light))
                 self.filterStamp += 1
-                if !current.isActive, self.isCompanyWide(self.snapshotPulse()) {
-                    self.unfilteredPulse = self.snapshotPulse()
-                }
             }
             let heavy = PulseCaches.heavyExtras(latest: light.filteredLatest, roster: rosterCopy)
             guard !Task.isCancelled else { return }
@@ -1603,7 +1600,9 @@ final class HeartbeatStore: ObservableObject {
         pickPathPickersByStore = pulse.pickPathPickersByStore
         pickPathByShopper = pulse.pickPathByShopper
         pphPickersByStore = pulse.pphPickersByStore
-        cachedChecklistGroups = pulse.checklistGroups
+        if !pulse.checklistGroups.isEmpty || filters.isActive {
+            cachedChecklistGroups = pulse.checklistGroups
+        }
         filteredMarket = pulse.market
         cachedDistricts = pulse.districts
         cachedOMs = pulse.oms

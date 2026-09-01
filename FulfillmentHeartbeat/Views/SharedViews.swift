@@ -9356,6 +9356,9 @@ struct FulfillmentChecklistCard: View {
         }
         cachedItems = map
         itemsStamp = store.filterStamp
+        if startsExpanded || !showsHeader {
+            openSections = Set(map.compactMap { $0.value.isEmpty ? nil : $0.key })
+        }
     }
 
     private func visibleItems(for section: MetricSection) -> [ChecklistDriverItem] {
