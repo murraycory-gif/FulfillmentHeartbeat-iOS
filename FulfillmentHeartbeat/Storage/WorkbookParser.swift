@@ -107,23 +107,25 @@ enum WorkbookParser {
             throw ParseError.wrapped("Work OneDrive encrypted this workbook (Intune). Heartbeat is not a managed app, so that copy is unreadable. Open it in Excel → Share → Save to iCloud Drive, then Choose the iCloud file — or tap Reload if this workbook is already linked.")
         }
         let strings = zip.file(named: "xl/sharedStrings.xml").flatMap { String(data: $0, encoding: .utf8) }.map(SharedStrings.parse) ?? []
-        let titles = sheetTitles(from: zip)
-        let paths = zip.worksheetPaths()
-        if paths.isEmpty { throw ParseError.unreadable }
+        let sheetsToRead = sheetMap(from: zip)
+        if sheetsToRead.isEmpty { throw ParseError.unreadable }
 
         var found: [MetricSection: ParsedSheet] = [:]
-        for (index, path) in paths.enumerated() {
-            let title = index < titles.count ? titles[index] : "Sheet \(index + 1)"
+        for entry in sheetsToRead {
             autoreleasepool {
-                guard let sheet = zip.file(named: path), !sheet.isEmpty else { return }
+                guard let sheet = zip.file(named: entry.path) ?? zip.file(named: entry.path.replacingOccurrences(of: "xl/", with: "")),
+                      !sheet.isEmpty else { return }
                 var parsed = rows(fromSheet: sheet, strings: strings)
                 if parsed.isEmpty {
                     parsed = parseLaborSheet(data: sheet, strings: strings)
                 }
                 guard !parsed.isEmpty else { return }
-                guard let section = classifySheet(name: title, rows: parsed) else { return }
-                if let existing = found[section], existing.rows.count >= parsed.count { return }
-                found[section] = ParsedSheet(section: section, sheetName: title, rows: parsed)
+                guard let section = classifySheet(name: entry.name, rows: parsed) else { return }
+                if let existing = found[section] {
+                    let named = entry.name.lowercased().contains(section.rawValue) || entry.name.lowercased().contains(section.short.lowercased())
+                    if !named, existing.rows.count >= parsed.count { return }
+                }
+                found[section] = ParsedSheet(section: section, sheetName: entry.name, rows: parsed)
             }
         }
         let sheets = MetricSection.uploadOrder.compactMap { found[$0] }
@@ -185,8 +187,8 @@ enum WorkbookParser {
     }
 
     static func classifySheet(name: String, rows: [ParsedWorkbookRow]) -> MetricSection? {
-        if let fromRows = section(fromRows: rows) { return fromRows }
-        return section(fromSheetName: name)
+        if let named = section(fromSheetName: name) { return named }
+        return section(fromRows: rows)
     }
 
     static func section(fromSheetName raw: String) -> MetricSection? {
@@ -234,7 +236,7 @@ enum WorkbookParser {
         if keys.contains("pnr_rate_pct") { return .prepNotReady }
         if keys.contains("star_rating") || keys.contains("flash_pct") { return .fiveStar }
         if keys.contains("schedule_efficiency_pct") { return .scheduleQuality }
-        if keys.contains("dynacap_rate") { return .dynacap }
+        if keys.contains("dynacap_rate") || keys.contains("dpa_dynacap") || keys.contains("eot_capacity") { return .dynacap }
         if keys.contains("compliance_pct") && (text.contains("employee") || text.contains("employee_alternate_id") || text.contains("shopper_id")) {
             return .pickPathPicker
         }
@@ -244,10 +246,52 @@ enum WorkbookParser {
         return nil
     }
 
-    private static func sheetTitles(from zip: ZipArchive) -> [String] {
-        guard let data = zip.file(named: "xl/workbook.xml"),
-              let xml = String(data: data, encoding: .utf8) else { return [] }
-        return matches(in: xml, pattern: #"<sheet[^>]*name="([^"]+)""#)
+    private static func sheetMap(from zip: ZipArchive) -> [(name: String, path: String)] {
+        let fallback = zip.worksheetPaths()
+        guard let wb = zip.file(named: "xl/workbook.xml").flatMap({ String(data: $0, encoding: .utf8) }) else {
+            return fallback.enumerated().map { ("Sheet \($0.offset + 1)", $0.element) }
+        }
+        var ridToPath: [String: String] = [:]
+        if let rels = zip.file(named: "xl/_rels/workbook.xml.rels").flatMap({ String(data: $0, encoding: .utf8) }),
+           let regex = try? NSRegularExpression(pattern: #"<Relationship\b[^>]*>"#, options: []) {
+            let range = NSRange(rels.startIndex..., in: rels)
+            for match in regex.matches(in: rels, range: range) {
+                guard let tagRange = Range(match.range, in: rels) else { continue }
+                let tag = String(rels[tagRange])
+                let rid = xmlAttr(tag, "Id")
+                var target = xmlAttr(tag, "Target")
+                guard !rid.isEmpty, !target.isEmpty else { continue }
+                if target.hasPrefix("/") { target.removeFirst() }
+                if !target.hasPrefix("xl/") { target = "xl/" + target }
+                ridToPath[rid] = target
+            }
+        }
+        var out: [(name: String, path: String)] = []
+        if let regex = try? NSRegularExpression(pattern: #"<sheet\b[^>]*>"#, options: []) {
+            let range = NSRange(wb.startIndex..., in: wb)
+            for match in regex.matches(in: wb, range: range) {
+                guard let tagRange = Range(match.range, in: wb) else { continue }
+                let tag = String(wb[tagRange])
+                let name = xmlAttr(tag, "name")
+                let rid = xmlAttr(tag, "r:id")
+                guard !name.isEmpty else { continue }
+                let path = ridToPath[rid] ?? "xl/worksheets/sheet\(out.count + 1).xml"
+                out.append((name, path))
+            }
+        }
+        if out.isEmpty {
+            let titles = matches(in: wb, pattern: #"<sheet[^>]*name="([^"]+)""#)
+            return zip(titles, fallback).map { ($0, $1) } + fallback.dropFirst(titles.count).map { ("Sheet", $0) }
+        }
+        return out
+    }
+
+    private static func xmlAttr(_ tag: String, _ name: String) -> String {
+        let needle = "\(name)=\""
+        guard let start = tag.range(of: needle) else { return "" }
+        let rest = tag[start.upperBound...]
+        guard let end = rest.firstIndex(of: "\"") else { return "" }
+        return String(rest[..<end])
     }
 
     private static func looksLikeCSV(_ data: Data) -> Bool {
@@ -362,7 +406,10 @@ enum WorkbookParser {
         dict["deliveryutil"] = "delivery_util_pct"
         dict["deliveryutilization"] = "delivery_util_pct"
         dict["totalpiecestotalhours"] = "dynacap_rate"
+        dict["totalpiecestotalhrs"] = "dynacap_rate"
+        dict["totalpiecestotalhr"] = "dynacap_rate"
         dict["totalpieceshrs"] = "dynacap_rate"
+        dict["totalpieceshr"] = "dynacap_rate"
         dict["pieceshr"] = "dynacap_rate"
         dict["pcsperhr"] = "dynacap_rate"
         dict["totalpiecesperhour"] = "dynacap_rate"
@@ -370,6 +417,7 @@ enum WorkbookParser {
         dict["piecestotalhrs"] = "dynacap_rate"
         dict["dynacaprate"] = "dynacap_rate"
         dict["dynacapsetting"] = "dynacap_rate"
+        dict["dynacap"] = "dynacap_rate"
         dict["dpadynacap"] = "dpa_dynacap"
         dict["eotcapacity"] = "eot_capacity"
         dict["usedcapacity"] = "used_capacity"
@@ -1987,6 +2035,8 @@ enum WorkbookParser {
             if store.isEmpty && name == nil && division.isEmpty {
                 if payload["compliance_pct"] != nil, !(text["om_area"] ?? "").isEmpty {
                     // OM-area pick path rollup — expanded onto stores later.
+                } else if payload["dynacap_rate"] != nil || payload["dpa_dynacap"] != nil || payload["eot_capacity"] != nil {
+                    // Store-level Dynacap (STORE_ID) or district-level capacity summary.
                 } else if (text["district"] ?? "").isEmpty {
                     continue
                 } else if payload["dynacap_rate"] == nil {

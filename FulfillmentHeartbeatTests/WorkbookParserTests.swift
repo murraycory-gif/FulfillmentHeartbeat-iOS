@@ -83,6 +83,20 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertNil(WorkbookParser.section(fromSheetName: "Sheet1"))
     }
 
+    func testDynacapDailyReportHeadersMapRateAndStore() {
+        let csv = """
+        STORE_ID,DPA_DYNACAP,EOT Capacity,Total Pieces/Total Hrs,% Change,Used Capacity,Utilization%
+        0001,17439,17499,75.657,0.00344,3164,0.1787
+        0052,25029,25081,57.472,0.00208,5556,0.2212
+        """
+        let rows = WorkbookParser.parseCSV(csv)
+        XCTAssertEqual(WorkbookParser.classifySheet(name: "Dynacap", rows: rows), .dynacap)
+        XCTAssertEqual(Set(rows.map(\.storeNumber)), Set(["1", "52"]))
+        XCTAssertEqual(rows.first { $0.storeNumber == "1" }?.payload["dynacap_rate"] ?? 0, 75.657, accuracy: 0.01)
+        XCTAssertEqual(rows.first { $0.storeNumber == "52" }?.payload["dynacap_rate"] ?? 0, 57.472, accuracy: 0.01)
+        XCTAssertEqual(rows.first { $0.storeNumber == "1" }?.payload["dpa_dynacap"] ?? 0, 17439, accuracy: 0.5)
+    }
+
     func testClassifiesTemplateRows() throws {
         for section in MetricSection.uploadOrder {
             let csv = SampleMarket.templateCSV(for: section)

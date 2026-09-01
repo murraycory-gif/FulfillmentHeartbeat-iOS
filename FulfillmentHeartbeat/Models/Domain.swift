@@ -470,13 +470,13 @@ enum HeartbeatMath {
         var cards = dashboardCallouts(summaries)
         if role == .evp {
             cards.removeAll { $0.section == .pickerScorecard }
-            return pinnedCallouts(cards, pin: [.lostRevenue, .fiveStar], restRiskWatch: !storeScoped)
+            return pinnedCallouts(cards, pin: [.lostRevenue, .fiveStar, .dynacap], restRiskWatch: !storeScoped)
         }
         if role == .director {
-            return pinnedCallouts(cards, pin: [.lostRevenue, .fiveStar, .labor, .pickerScorecard], restRiskWatch: !storeScoped)
+            return pinnedCallouts(cards, pin: [.lostRevenue, .fiveStar, .labor, .dynacap, .pickerScorecard], restRiskWatch: !storeScoped)
         }
         if role == .districtManager {
-            return pinnedCallouts(cards, pin: [.lostRevenue, .fiveStar, .labor], restRiskWatch: !storeScoped)
+            return pinnedCallouts(cards, pin: [.lostRevenue, .fiveStar, .labor, .dynacap], restRiskWatch: !storeScoped)
         }
         if storeScoped { return cards }
         guard role?.showsOnlyRiskAndWatch == true else { return cards }
