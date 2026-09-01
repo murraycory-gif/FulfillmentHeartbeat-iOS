@@ -57,7 +57,7 @@ struct UploadView: View {
                         }
                     }
 
-                    Text("Master load reads every sheet in one .xlsx. Name the tabs Lost Revenue, MI, 5 Star, Pick Path, Path Picker, Aisle Mapper, Prep, Dynacap, Schedule, PPH, Labor, and Picker ScoreCard — or leave the Power BI headers and we will map them. Individual cards still replace one KPI at a time.")
+                    Text("Master load reads every sheet in one .xlsx. Name the tabs Lost Revenue, MI, 5 Star, Pre-Sub OOS, Pick Path, Path Picker, Aisle Mapper, Prep, Dynacap, Schedule, PPH, Labor, and Picker ScoreCard — or leave the Power BI headers and we will map them. Individual cards still replace one KPI at a time.")
                         .font(.subheadline)
                         .foregroundStyle(AppTheme.textSecondary)
                 }
@@ -431,6 +431,9 @@ struct UploadPanel: View {
                 .font(.title3.weight(.bold))
         } else if section == .missingItems {
             (Text("Missing Items ") + Text("ScoreCard").foregroundStyle(AppTheme.blue))
+                .font(.title3.weight(.bold))
+        } else if section == .preSubOOS {
+            (Text("Pre-Sub OOS ") + Text("ScoreCard").foregroundStyle(AppTheme.blue))
                 .font(.title3.weight(.bold))
         } else if section == .aisleMapper {
             Text("Aisle Mapper")

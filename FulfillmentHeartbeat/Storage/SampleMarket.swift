@@ -226,6 +226,21 @@ enum SampleMarket {
                     textPayload: ["district": store.district]
                 ))
 
+                var preSubPayload = miPayload
+                preSubPayload["mi_pct"] = clamp(3.6 + jitter(index + 97, 5.2), 0.4, 18).rounded(1)
+                preSubPayload["mi_grocery"] = clamp(4.8 + jitter(index + 99, 5), 0.4, 16).rounded(1)
+                preSubPayload["mi_bakery"] = clamp(12 + jitter(index + 101, 10), 1, 40).rounded(1)
+                out.append(MetricRow(
+                    section: .preSubOOS,
+                    division: store.division,
+                    operationsOM: store.om,
+                    storeNumber: store.store,
+                    storeName: store.name,
+                    recordedOn: date,
+                    payload: preSubPayload,
+                    textPayload: ["district": store.district, "presub_dept": "1", "data_window": "Aug 30 – Aug 31, 2026"]
+                ))
+
                 let shoppers = [
                     ("\(store.name.split(separator: " ").first ?? "Store") A", 0),
                     ("\(store.name.split(separator: " ").first ?? "Store") B", 1),
@@ -401,6 +416,16 @@ enum SampleMarket {
             Jewel Osco,J1,Shelly Selof,1,0.04,0.03,0.2,0.28,0.12,0.09,0.018,0.8,0.32,0.042,0.9,0.085,0.14,0.11,0.075,0.045
             Jewel Osco,J1,Shelly Selof,606,0.062,0.051,0.5,0.41,0.19,0.14,0.028,0.99,0.55,0.061,1,0.12,0.21,0.16,0.11,0.068
             Haggen,39,Luke Lomas,3427,0.031,0.022,0.1,0.18,0.08,0.06,0.012,0.72,0.24,0.028,0.85,0.055,0.09,0.07,0.042,0.038
+            """
+        case .preSubOOS:
+            return """
+            DEPARTMENT_NM,ALCOHOLIC BEVERAGES,BAKERY,BAKERY PKGD OUTSIDE,DAIRY,DELICATESSEN,FLORAL,FOOD SERVICE,FROZEN GROCERY,GM/HBC,GROCERY,MEAT,PHARMACY,PRODUCE,SEAFOOD,Total
+            STORE_ID,Pre-Sub OOS%,Pre-Sub OOS%,Pre-Sub OOS%,Pre-Sub OOS%,Pre-Sub OOS%,Pre-Sub OOS%,Pre-Sub OOS%,Pre-Sub OOS%,Pre-Sub OOS%,Pre-Sub OOS%,Pre-Sub OOS%,Pre-Sub OOS%,Pre-Sub OOS%,Pre-Sub OOS%,Pre-Sub OOS%
+            1,0,0.0869565217391304,0.0461538461538462,0.0174563591022444,0.0108695652173913,1,0.0476190476190476,0.0280373831775701,0.101123595505618,0.0188284518828452,0.0202020202020202,,0.00831946755407654,0.111111111111111,0.0198974977389207
+            606,0.25,0.260869565217391,0.168831168831169,0.0931372549019608,0.144736842105263,0,0.19047619047619,0.109649122807018,0.277777777777778,0.0840425531914894,0.219047619047619,,0.139664804469274,0.387096774193548,0.071
+            3427,0,0.0952380952380952,0.0263157894736842,0.0375,0.05,0.25,0,0.0238095238095238,0.111111111111111,0.0134228187919463,0.037037037037037,,0.00766283524904215,0,0.038
+            Total,0.0632380510620204,0.144513477233039,0.0811279849348813,0.0622186454029183,0.0790007553685119,0.370154230929554,0.147040931606848,0.0722434786892514,0.0816591541909625,0.055595269040811,0.0906783008783752,0.125541125541126,0.0307631829755623,0.113365813301466,0.0570090596706524
+            Applied filters: Excluded (2) (Blank) (DIVISION), (Blank) (DEPARTMENT_NM) WEEK_ID is greater than or equal to 202513 DTE is on or after 8/30/2026 and is before 9/1/2026
             """
         case .aisleMapper:
             return """

@@ -79,6 +79,8 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertEqual(WorkbookParser.section(fromSheetName: "Loss Revenue"), .lostRevenue)
         XCTAssertEqual(WorkbookParser.section(fromSheetName: "MI"), .missingItems)
         XCTAssertEqual(WorkbookParser.section(fromSheetName: "Missing Items"), .missingItems)
+        XCTAssertEqual(WorkbookParser.section(fromSheetName: "Pre-Sub OOS"), .preSubOOS)
+        XCTAssertEqual(WorkbookParser.section(fromSheetName: "Pre Substitution OOS%"), .preSubOOS)
         XCTAssertEqual(WorkbookParser.section(fromSheetName: "Aisle Mapper"), .aisleMapper)
         XCTAssertNil(WorkbookParser.section(fromSheetName: "Sheet1"))
     }
@@ -126,6 +128,35 @@ final class WorkbookParserTests: XCTestCase {
         let haggen = rows.first { $0.storeNumber == "3427" }!
         XCTAssertEqual(haggen.payload["mi_pct"] ?? 0, 3.8, accuracy: 0.05)
         XCTAssertEqual(HeartbeatMath.health(for: .missingItems, row: haggen), .good)
+    }
+
+    func testPreSubOOSParsesDepartmentsWindowAndSkipsTotals() {
+        let csv = SampleMarket.templateCSV(for: .preSubOOS)
+        let rows = WorkbookParser.parseCSV(csv)
+        XCTAssertEqual(WorkbookParser.classifySheet(name: "Sheet1", rows: rows), .preSubOOS)
+        XCTAssertEqual(WorkbookParser.classifySheet(name: "Pre-Sub OOS", rows: rows), .preSubOOS)
+        XCTAssertEqual(Set(rows.map(\.storeNumber)), Set(["1", "606", "3427"]))
+        XCTAssertFalse(rows.contains { $0.storeNumber.lowercased() == "total" })
+        let jewel = rows.first { $0.storeNumber == "1" }!
+        XCTAssertEqual(jewel.textPayload["presub_dept"], "1")
+        XCTAssertEqual(jewel.textPayload["data_window"], "Aug 30 – Aug 31, 2026")
+        XCTAssertEqual(jewel.payload["mi_pct"] ?? 0, 1.9897, accuracy: 0.01)
+        XCTAssertEqual(jewel.payload["mi_grocery"] ?? 0, 1.8828, accuracy: 0.01)
+        XCTAssertEqual(jewel.payload["mi_bakery"] ?? 0, 8.6957, accuracy: 0.01)
+        XCTAssertEqual(jewel.payload["mi_bakery_pkgd"] ?? 0, 4.6154, accuracy: 0.01)
+        XCTAssertEqual(HeartbeatMath.health(for: .preSubOOS, row: jewel), .good)
+        let risk = rows.first { $0.storeNumber == "606" }!
+        XCTAssertEqual(risk.payload["mi_pct"] ?? 0, 7.1, accuracy: 0.05)
+        XCTAssertEqual(HeartbeatMath.health(for: .preSubOOS, row: risk), .risk)
+        let haggen = rows.first { $0.storeNumber == "3427" }!
+        XCTAssertEqual(haggen.payload["mi_pct"] ?? 0, 3.8, accuracy: 0.05)
+        XCTAssertEqual(HeartbeatMath.health(for: .preSubOOS, row: haggen), .good)
+    }
+
+    func testFormatAppliedWindowUsesExclusiveBeforeDate() {
+        let footer = "Applied filters: Excluded (2) (Blank) (DIVISION), (Blank) (DEPARTMENT_NM) WEEK_ID is greater than or equal to 202513 DTE is on or after 8/30/2026 and is before 9/1/2026"
+        XCTAssertEqual(WorkbookParser.formatAppliedWindow(footer), "Aug 30 – Aug 31, 2026")
+        XCTAssertEqual(WorkbookParser.formatAppliedWindow("WEEK_ID is 202627"), "Week 27 · 2026")
     }
 
     func testAisleMapperParsesDatesAndSkipsFilterRow() {

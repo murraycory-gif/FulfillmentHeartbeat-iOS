@@ -197,6 +197,10 @@ enum WorkbookParser {
             .replacingOccurrences(of: "-", with: " ")
         if name.contains("lost") && name.contains("revenue") { return .lostRevenue }
         if name.contains("loss") && name.contains("revenue") { return .lostRevenue }
+        if name.contains("pre sub") || name.contains("presub") || name.contains("pre-sub")
+            || (name.contains("substitution") && name.contains("oos")) {
+            return .preSubOOS
+        }
         if name.contains("aisle mapper") || (name.contains("aisle") && name.contains("sequence")) {
             return .aisleMapper
         }
@@ -230,7 +234,10 @@ enum WorkbookParser {
             text.formUnion(row.textPayload.keys)
         }
         if keys.contains("lost_revenue") { return .lostRevenue }
-        if keys.contains("mi_pct") || keys.contains("mi_grocery") { return .missingItems }
+        if keys.contains("mi_pct") || keys.contains("mi_grocery") {
+            if sample.contains(where: { $0.textPayload["presub_dept"] == "1" }) { return .preSubOOS }
+            return .missingItems
+        }
         if text.contains(AisleMapperMath.mapperKey) || text.contains(AisleMapperMath.sequenceKey) { return .aisleMapper }
         if keys.contains("target_vs_actual_pct") || keys.contains("earned_hrs") { return .labor }
         if keys.contains("pnr_rate_pct") { return .prepNotReady }
@@ -530,34 +537,98 @@ enum WorkbookParser {
     }
 
     private static func rows(from matrix: [[String]]) -> [ParsedWorkbookRow] {
+        let parsed: [ParsedWorkbookRow]
         if let labor = parseLabor(matrix), !labor.isEmpty {
-            return labor
+            parsed = labor
+        } else if let lost = parseLostRevenue(matrix), !lost.isEmpty {
+            parsed = lost
+        } else if let presub = parsePreSubOOS(matrix), !presub.isEmpty {
+            parsed = presub
+        } else if let missing = parseMissingItems(matrix), !missing.isEmpty {
+            parsed = missing
+        } else if let aisle = parseAisleMapper(matrix), !aisle.isEmpty {
+            parsed = aisle
+        } else if let prep = parsePrepHours(matrix), !prep.isEmpty {
+            parsed = prep
+        } else if let pickers = parsePickerWide(matrix), !pickers.isEmpty {
+            parsed = pickers
+        } else if let outline = parseOutline(matrix), !outline.isEmpty {
+            parsed = outline
+        } else if let stores = parseStoreWeek(matrix), !stores.isEmpty {
+            parsed = stores
+        } else if let pickers = parseEmployeeWeek(matrix), !pickers.isEmpty {
+            parsed = pickers
+        } else {
+            parsed = parseFlat(matrix)
         }
-        if let lost = parseLostRevenue(matrix), !lost.isEmpty {
-            return lost
+        return stampWindow(parsed, matrix: matrix)
+    }
+
+    private static func stampWindow(_ rows: [ParsedWorkbookRow], matrix: [[String]]) -> [ParsedWorkbookRow] {
+        guard let window = dataWindow(from: matrix), !rows.isEmpty else { return rows }
+        return rows.map { row in
+            var next = row
+            if next.textPayload["data_window"] == nil {
+                next.textPayload["data_window"] = window
+            }
+            return next
         }
-        if let missing = parseMissingItems(matrix), !missing.isEmpty {
-            return missing
+    }
+
+    static func dataWindow(from matrix: [[String]]) -> String? {
+        let blob = matrix.suffix(8).flatMap { $0 }.joined(separator: " ")
+        let lower = blob.lowercased()
+        guard lower.contains("applied filter") else { return nil }
+        return formatAppliedWindow(blob)
+    }
+
+    static func formatAppliedWindow(_ raw: String) -> String? {
+        let pattern = #"(\d{1,2}/\d{1,2}/\d{2,4})"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let ns = raw as NSString
+        let matches = regex.matches(in: raw, range: NSRange(location: 0, length: ns.length))
+        let stamps = matches.compactMap { match -> Date? in
+            parseFilterDate(ns.substring(with: match.range(at: 1)))
         }
-        if let aisle = parseAisleMapper(matrix), !aisle.isEmpty {
-            return aisle
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        if stamps.count >= 2 {
+            var start = stamps[0]
+            var end = stamps[1]
+            if end < start { swap(&start, &end) }
+            let exclusive = raw.lowercased().contains("before")
+            if exclusive, let prior = Calendar(identifier: .gregorian).date(byAdding: .day, value: -1, to: end) {
+                end = prior
+            }
+            formatter.dateFormat = "MMM d"
+            let left = formatter.string(from: start)
+            formatter.dateFormat = "MMM d, yyyy"
+            let right = formatter.string(from: end)
+            return "\(left) – \(right)"
         }
-        if let prep = parsePrepHours(matrix), !prep.isEmpty {
-            return prep
+        if let only = stamps.first {
+            formatter.dateFormat = "MMM d, yyyy"
+            return formatter.string(from: only)
         }
-        if let pickers = parsePickerWide(matrix), !pickers.isEmpty {
-            return pickers
+        if let week = raw.range(of: #"\b(20\d{2})(0[1-9]|[1-4]\d|5[0-3])\b"#, options: .regularExpression) {
+            let token = String(raw[week])
+            let year = String(token.prefix(4))
+            let wk = String(Int(token.suffix(2)) ?? 0)
+            return "Week \(wk) · \(year)"
         }
-        if let outline = parseOutline(matrix), !outline.isEmpty {
-            return outline
+        return nil
+    }
+
+    private static func parseFilterDate(_ raw: String) -> Date? {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        for format in ["M/d/yyyy", "MM/dd/yyyy", "M/d/yy", "MM/dd/yy"] {
+            formatter.dateFormat = format
+            if let date = formatter.date(from: raw) { return date }
         }
-        if let stores = parseStoreWeek(matrix), !stores.isEmpty {
-            return stores
-        }
-        if let pickers = parseEmployeeWeek(matrix), !pickers.isEmpty {
-            return pickers
-        }
-        return parseFlat(matrix)
+        return nil
     }
 
     private static func isTotalCell(_ raw: String) -> Bool {
@@ -738,6 +809,69 @@ enum WorkbookParser {
         if blob.contains("department desc") { return true }
         let hits = row.filter { MissingItemDept.match($0) != nil }.count
         return hits >= 4
+    }
+
+    private static func isPreSubHeaderRow(_ row: [String]) -> Bool {
+        let blob = row.map { $0.lowercased() }.joined(separator: " ")
+        return blob.contains("pre-sub") || blob.contains("presub") || blob.contains("pre sub oos")
+    }
+
+    private static func parsePreSubOOS(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {
+        guard let deptRowIndex = matrix.firstIndex(where: isMissingItemsDeptRow) else { return nil }
+        let identityRow = deptRowIndex + 1 < matrix.count ? matrix[deptRowIndex + 1] : []
+        guard isPreSubHeaderRow(identityRow) || isPreSubHeaderRow(matrix[deptRowIndex]) else { return nil }
+
+        let deptRow = matrix[deptRowIndex]
+        var keyByCol: [Int: String] = [:]
+        for (index, cell) in deptRow.enumerated() {
+            if MissingItemDept.isTotalHeader(cell) {
+                keyByCol[index] = MissingItemDept.totalKey
+            } else if let dept = MissingItemDept.match(cell) {
+                keyByCol[index] = dept.rawValue
+            }
+        }
+        guard keyByCol.count >= 4 else { return nil }
+
+        var storeIdx: Int?
+        for (index, cell) in identityRow.enumerated() where keyByCol[index] == nil {
+            let name = normHeader(cell)
+            if storeKeys.contains(name) || name == "store" { storeIdx = index }
+        }
+        if storeIdx == nil {
+            storeIdx = deptRow.indices.first { MissingItemDept.match(deptRow[$0]) == nil && !MissingItemDept.isTotalHeader(deptRow[$0]) }
+        }
+        guard let storeIdx else { return nil }
+
+        var out: [ParsedWorkbookRow] = []
+        out.reserveCapacity(max(0, matrix.count - deptRowIndex))
+        for line in matrix.dropFirst(deptRowIndex + 2) {
+            let storeRaw = storeIdx < line.count ? line[storeIdx].trimmingCharacters(in: .whitespacesAndNewlines) : ""
+            if storeRaw.lowercased().hasPrefix("applied") { continue }
+            if isTotalCell(storeRaw) { continue }
+            guard looksLikeStoreNumber(storeRaw) else { continue }
+
+            var payload: [String: Double] = [:]
+            for (index, key) in keyByCol {
+                let raw = index < line.count ? line[index] : ""
+                guard let number = cellNumber(raw) else { continue }
+                var value = number
+                if abs(value) <= 1.5 { value *= 100 }
+                payload[key] = value
+            }
+            guard payload[MissingItemDept.totalKey] != nil || payload.count >= 3 else { continue }
+            out.append(
+                ParsedWorkbookRow(
+                    division: "",
+                    operationsOM: "",
+                    storeNumber: HeartbeatMath.canonicalStore(storeRaw),
+                    storeName: nil,
+                    recordedOn: nil,
+                    payload: payload,
+                    textPayload: ["presub_dept": "1"]
+                )
+            )
+        }
+        return out.isEmpty ? nil : out
     }
 
     private static func parseMissingItems(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {

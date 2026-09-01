@@ -13,6 +13,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
     case lostRevenue = "lost_revenue"
     case missingItems = "missing_items"
     case aisleMapper = "aisle_mapper"
+    case preSubOOS = "pre_sub_oos"
 
     var id: String { rawValue }
 
@@ -30,6 +31,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .lostRevenue: return "Loss Revenue"
         case .missingItems: return "Missing Items"
         case .aisleMapper: return "Aisle Mapper"
+        case .preSubOOS: return "Pre-Sub OOS"
         }
     }
 
@@ -47,6 +49,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .lostRevenue: return "Lost Rev"
         case .missingItems: return "MI"
         case .aisleMapper: return "Aisle Map"
+        case .preSubOOS: return "Pre-Sub"
         }
     }
 
@@ -64,6 +67,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .lostRevenue: return "Total lost revenue opportunity by store. Upload Breakdown Week.xlsx from the Lost Revenue report."
         case .missingItems: return "Share of items without an aisle in store tag subscription data. Upload the department-wise MI export. 5% or less is healthy."
         case .aisleMapper: return "Latest aisle mapper and aisle sequence update by store. Upload the Latest Aisle Mapper and Sequence Update Date By Store export. Dates show on the Pick Path store table."
+        case .preSubOOS: return "Pre-substitution OOS% by store and department. Upload Pre Substitution OOS% Division Area Store View. 5% or less is healthy."
         }
     }
 
@@ -81,6 +85,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .lostRevenue: return "Store · eComm Sales · Total Lost Revenue (Total Opportunity) · Total Lost Revenue % (Total Opportunity)"
         case .missingItems: return "Division · District · OM · Store · 301 Grocery · 303 Alcohol · 304 Pharmacy · 306 Food Service · 309 Deli · 311 GM/HBC · 314 Dairy · 315 Floral · 316 Bakery · 317 Frozen · 328 Coffee Kiosk · 329 Produce · 330 Seafood · 333 Meat · 336 Bakery Pkgd · Total"
         case .aisleMapper: return "Division · District · OM · Store · Latest Aisle Mapper Update Date · Latest Aisle Sequence Update Date"
+        case .preSubOOS: return "STORE_ID · Alcohol · Bakery · Bakery Pkgd · Dairy · Deli · Floral · Food Service · Frozen · GM/HBC · Grocery · Meat · Pharmacy · Produce · Seafood · Total Pre-Sub OOS%"
         }
     }
 
@@ -97,6 +102,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .lostRevenue: return "Loss Revenue ScoreCard"
         case .missingItems: return "Missing Items ScoreCard"
         case .aisleMapper: return "Aisle Mapper"
+        case .preSubOOS: return "Pre-Sub OOS ScoreCard"
         }
     }
 
@@ -114,6 +120,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .lostRevenue: return "chart.line.downtrend.xyaxis"
         case .missingItems: return "tag.slash.fill"
         case .aisleMapper: return "map.fill"
+        case .preSubOOS: return "cart.badge.minus"
         }
     }
 
@@ -139,17 +146,19 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
             return URL(string: "https://app.powerbi.com/groups/me/apps/d973ff03-651f-4e52-9e7a-8e5bff14b5e6/reports/47829fe7-c57f-4c65-a557-f35c99a1e851/2a870f3cf2c35df0a38b?ctid=b7f604a0-00a9-4188-9248-42f3a5aac2e9&experience=power-bi")
         case .aisleMapper:
             return URL(string: "https://app.powerbi.com/groups/me/apps/d973ff03-651f-4e52-9e7a-8e5bff14b5e6/reports/c13fc8a7-5492-4d39-bd1b-8091e2f5f99a/bc42d1e4f9041554fbad?ctid=b7f604a0-00a9-4188-9248-42f3a5aac2e9&experience=power-bi&clientSideAuth=0")
+        case .preSubOOS:
+            return URL(string: "https://app.powerbi.com/groups/me/apps/d973ff03-651f-4e52-9e7a-8e5bff14b5e6/reports/73aafb1b-7a54-4c96-af93-4736442edc42/ReportSection5f4b54422e8bd962800c?experience=power-bi")
         default:
             return nil
         }
     }
 
     static var dashboardCards: [MetricSection] {
-        [.lostRevenue, .missingItems, .fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pickerScorecard, .pph, .labor]
+        [.lostRevenue, .missingItems, .fiveStar, .preSubOOS, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pickerScorecard, .pph, .labor]
     }
 
     static var uploadOrder: [MetricSection] {
-        [.lostRevenue, .missingItems, .fiveStar, .pickPath, .pickPathPicker, .aisleMapper, .prepNotReady, .dynacap, .scheduleQuality, .pph, .labor, .pickerScorecard]
+        [.lostRevenue, .missingItems, .fiveStar, .preSubOOS, .pickPath, .pickPathPicker, .aisleMapper, .prepNotReady, .dynacap, .scheduleQuality, .pph, .labor, .pickerScorecard]
     }
 
     static var checklistSections: [MetricSection] {
@@ -630,6 +639,8 @@ enum HeartbeatMath {
             return HeartbeatFormat.money(rows.compactMap { $0.number("lost_revenue") }.reduce(0, +))
         case .missingItems:
             return HeartbeatFormat.pct(average(rows.compactMap { $0.number(MissingItemDept.totalKey) }))
+        case .preSubOOS:
+            return HeartbeatFormat.pct(average(rows.compactMap { $0.number(MissingItemDept.totalKey) }))
         case .fiveStar:
             return HeartbeatFormat.stars(average(rows.compactMap { $0.number("star_rating") }))
         case .pickPath, .pickPathPicker:
@@ -664,6 +675,8 @@ enum HeartbeatMath {
         case .lostRevenue:
             return lostRevenueActionFlags(rows)
         case .missingItems:
+            return missingItemsActionFlags(rows)
+        case .preSubOOS:
             return missingItemsActionFlags(rows)
         case .scheduleQuality:
             return scheduleActionFlags(rows, includeAll: includeAll)
@@ -1175,6 +1188,8 @@ enum HeartbeatMath {
             return lostRevenueHealth(row)
         case .missingItems:
             return missingItemsHealth(row)
+        case .preSubOOS:
+            return missingItemsHealth(row)
         case .aisleMapper:
             return AisleMapperMath.health(AisleMapperMath.mapperISO(row))
         }
@@ -1405,6 +1420,25 @@ enum HeartbeatMath {
                 headlineLabel: "Avg missing items",
                 secondary: latest.isEmpty
                     ? "No Missing Items rows in this filter"
+                    : "\(healthy) healthy · \(watchCount) watch · \(riskCount) over 6.50%",
+                health: latest.isEmpty ? .none : band(headline, good: missingItemsGoal, watch: missingItemsWatch, invert: true),
+                watchCount: watchCount,
+                riskCount: riskCount,
+                lastFilename: upload?.filename,
+                lastUploadedAt: upload?.uploadedAt
+            )
+        case .preSubOOS:
+            let headline = average(latest.compactMap { $0.number(MissingItemDept.totalKey) })
+            let healthy = latest.filter { missingItemsHealth($0) == .good }.count
+            let watchCount = latest.filter { missingItemsHealth($0) == .watch }.count
+            let riskCount = latest.filter { missingItemsHealth($0) == .risk }.count
+            return SectionSummary(
+                section: section,
+                storeCount: latest.count,
+                headline: headline,
+                headlineLabel: "Avg Pre-Sub OOS",
+                secondary: latest.isEmpty
+                    ? "No Pre-Sub OOS rows in this filter"
                     : "\(healthy) healthy · \(watchCount) watch · \(riskCount) over 6.50%",
                 health: latest.isEmpty ? .none : band(headline, good: missingItemsGoal, watch: missingItemsWatch, invert: true),
                 watchCount: watchCount,
@@ -2212,7 +2246,7 @@ enum HeartbeatMath {
             return -pickerComposite(row)
         case .lostRevenue:
             return row.number("lost_revenue") ?? 0
-        case .missingItems:
+        case .missingItems, .preSubOOS:
             return row.number(MissingItemDept.totalKey) ?? 0
         case .aisleMapper:
             return AisleMapperMath.ageDays(AisleMapperMath.mapperISO(row)) ?? 0
@@ -2321,7 +2355,7 @@ enum HeartbeatMath {
                 value = pickerComposite(row)
             case .lostRevenue:
                 value = row.number("lost_revenue")
-            case .missingItems:
+            case .missingItems, .preSubOOS:
                 value = row.number(MissingItemDept.totalKey)
             case .aisleMapper:
                 value = AisleMapperMath.ageDays(AisleMapperMath.mapperISO(row))
@@ -3187,7 +3221,7 @@ struct StoreCellViewModel {
                 primary: HeartbeatFormat.money(row.number("lost_revenue")),
                 extra: "\(HeartbeatFormat.pct(row.number("lost_revenue_pct"))) of \(HeartbeatFormat.money(row.number("ecomm_sales"))) sales"
             )
-        case .missingItems:
+        case .missingItems, .preSubOOS:
             let rate = row.number(MissingItemDept.totalKey)
             let gap = rate.map { $0 - HeartbeatMath.missingItemsGoal }
             let gapText: String

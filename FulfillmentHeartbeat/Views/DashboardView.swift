@@ -20,7 +20,8 @@ struct DashboardView: View {
             HubStickyPageBanner(
                 icon: "waveform.path.ecg",
                 title: "Operational Heartbeat",
-                accessory: store.filters.summary
+                accessory: store.filters.summary,
+                trailing: store.sharedDataWindow()
             )
             List {
                 ForEach(briefingCards) { card in

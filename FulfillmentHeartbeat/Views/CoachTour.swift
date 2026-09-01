@@ -38,7 +38,7 @@ enum CoachTour: Equatable {
         CoachStep(
             icon: "square.grid.2x2.fill",
             heading: "How the app is laid out",
-            body: "Dashboard is the heartbeat. Swipe between scorecards (Loss Revenue → Missing Items → 5 Star → Pick Path → Prep → Dynacap → Schedule → Picker → PPH → Labor → Checklist). Filters in the header apply everywhere. Share sends the recap. Upload lives in Settings — it is not in the swipe path."
+            body: "Dashboard is the heartbeat. Swipe between scorecards (Loss Revenue → Missing Items → 5 Star → Pre-Sub OOS → Pick Path → Prep → Dynacap → Schedule → Picker → PPH → Labor → Checklist). Filters in the header apply everywhere. Share sends the recap. Upload lives in Settings — it is not in the swipe path."
         ),
         CoachStep(
             icon: "hand.tap.fill",
@@ -54,7 +54,7 @@ enum CoachTour: Equatable {
                 CoachStep(
                     icon: "doc.badge.plus",
                     heading: "Master load",
-                    body: "Pick one .xlsx that has a tab per KPI. Name the sheets Lost Revenue, MI, 5 Star, Pick Path, Path Picker, Aisle Mapper, Prep, Dynacap, Schedule, PPH, Labor, and Picker ScoreCard — or leave the Power BI headers and we map them. Link the file so next week you can reload from the same place."
+                    body: "Pick one .xlsx that has a tab per KPI. Name the sheets Lost Revenue, MI, 5 Star, Pre-Sub OOS, Pick Path, Path Picker, Aisle Mapper, Prep, Dynacap, Schedule, PPH, Labor, and Picker ScoreCard — or leave the Power BI headers and we map them. Link the file so next week you can reload from the same place."
                 ),
                 CoachStep(
                     icon: "square.grid.2x2",
@@ -109,6 +109,19 @@ enum CoachTour: Equatable {
                     icon: "tablecells",
                     heading: "Departments",
                     body: "Both tables show 301 Grocery through 336 Bakery Pkgd plus Total. Filter categories on this page only — region filters in the header still apply everywhere."
+                ),
+            ]
+        case .preSubOOS:
+            return [
+                CoachStep(
+                    icon: "cart.badge.minus",
+                    heading: "Callouts",
+                    body: "Avg Pre-Sub OOS, Healthy (≤5%), Watch (5.01–6.50%), and At Risk (over 6.50%). Tap a tile to filter the tables. Use the category chips to show all departments or only the ones you need."
+                ),
+                CoachStep(
+                    icon: "tablecells",
+                    heading: "Departments",
+                    body: "Both tables show the same department grid as Missing Items, plus Total Pre-Sub OOS%. Filter categories on this page only — region filters in the header still apply everywhere. The date window on the blue banner comes from Applied filters at the bottom of the export."
                 ),
             ]
         case .fiveStar:

@@ -86,6 +86,8 @@ extension HeartbeatMath {
             return diagnoseLost(row, pickers: pickers)
         case .missingItems:
             return diagnoseMissingItems(row)
+        case .preSubOOS:
+            return diagnosePreSubOOS(row)
         case .pickerScorecard, .aisleMapper:
             return []
         }
@@ -471,6 +473,29 @@ extension HeartbeatMath {
             fact: "Missing aisle tags are \(HeartbeatFormat.pct(rate)). Hottest departments: \(hotText). Shoppers cannot find items, so OOS, subs, and lost revenue climb.",
             shoppers: "",
             action: "Fix aisle tags for the hottest departments first. Anything over 6.50% is at risk — own grocery, produce, meat, and bakery the same day."
+        )]
+    }
+
+    private static func diagnosePreSubOOS(_ row: MetricRow) -> [ChecklistFinding] {
+        let rate = row.number(MissingItemDept.totalKey)
+        let hottest = MissingItemDept.allCases
+            .compactMap { dept -> (MissingItemDept, Double)? in
+                guard let value = row.number(dept.rawValue) else { return nil }
+                return (dept, value)
+            }
+            .sorted { $0.1 > $1.1 }
+            .prefix(3)
+        let hotText = hottest.isEmpty
+            ? "Pre-sub OOS is high before a substitute is offered."
+            : hottest.map { "\($0.0.short) \(HeartbeatFormat.pct($0.1))" }.joined(separator: " · ")
+        return [ChecklistFinding(
+            name: "Pre-Sub OOS",
+            value: HeartbeatFormat.pct(rate),
+            need: "≤ \(HeartbeatFormat.num(HeartbeatMath.missingItemsGoal, digits: 0))%",
+            health: health(for: .preSubOOS, row: row),
+            fact: "Pre-substitution OOS is \(HeartbeatFormat.pct(rate)). Hottest departments: \(hotText). Empty pick faces force subs, 5 Star Presub, and lost revenue.",
+            shoppers: "",
+            action: "Fill the hottest departments first. Confirm on-hands, then pick the home location before substituting. Anything over 6.50% is at risk."
         )]
     }
 

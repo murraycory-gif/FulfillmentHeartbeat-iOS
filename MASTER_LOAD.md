@@ -19,15 +19,16 @@ Create one sheet per KPI. Use these tab names:
 | 1 | `Lost Revenue` | Loss Revenue |
 | 2 | `MI` | Missing Items |
 | 3 | `5 Star` | 5 Star Metrics |
-| 4 | `Pick Path` | Pick Path Compliance |
-| 5 | `Path Picker` | Pick Path Compliance Picker |
-| 6 | `Aisle Mapper` | Aisle Mapper dates on Pick Path |
-| 7 | `Prep Not Ready` | Prep Not Ready |
-| 8 | `Dynacap` | Dynacap Setting |
-| 9 | `Schedule Quality` | Schedule Quality |
-| 10 | `PPH` | PPH Pure Picks Per Hour |
-| 11 | `Labor` | Labor |
-| 12 | `Picker ScoreCard` | Picker ScoreCard |
+| 4 | `Pre-Sub OOS` | Pre-Sub OOS |
+| 5 | `Pick Path` | Pick Path Compliance |
+| 6 | `Path Picker` | Pick Path Compliance Picker |
+| 7 | `Aisle Mapper` | Aisle Mapper dates on Pick Path |
+| 8 | `Prep Not Ready` | Prep Not Ready |
+| 9 | `Dynacap` | Dynacap Setting |
+| 10 | `Schedule Quality` | Schedule Quality |
+| 11 | `PPH` | PPH Pure Picks Per Hour |
+| 12 | `Labor` | Labor |
+| 13 | `Picker ScoreCard` | Picker ScoreCard |
 
 Paste the matching Power BI export onto each tab. Headers can stay as the export — we already map those.
 
@@ -38,6 +39,7 @@ Paste the matching Power BI export onto each tab. Headers can stay as the export
 - Lost Revenue / Loss Revenue
 - MI / Missing Items / Missing Item / Aisle Tag
 - 5 Star / Five Star / Star Rating
+- Pre-Sub OOS / Pre Sub / Pre Substitution OOS
 - Pick Path / Path Compliance
 - Path Picker / Pick Path Picker / Pick Path Employee
 - Aisle Mapper / Aisle Sequence

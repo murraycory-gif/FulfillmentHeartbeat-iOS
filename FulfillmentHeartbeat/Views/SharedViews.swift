@@ -27,6 +27,7 @@ struct HubBanner: View {
     var icon: String
     var title: String
     var accessory: String? = nil
+    var trailing: String? = nil
     var clipped: Bool = true
 
     var body: some View {
@@ -47,6 +48,14 @@ struct HubBanner: View {
                 }
             }
             Spacer(minLength: 8)
+            if let trailing, !trailing.isEmpty {
+                Text(trailing)
+                    .font(.subheadline.weight(.bold))
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.7)
+                    .multilineTextAlignment(.trailing)
+                    .opacity(0.95)
+            }
         }
         .foregroundStyle(Color.white)
         .padding(.horizontal, 16)
@@ -66,9 +75,10 @@ struct HubStickyPageBanner: View {
     var icon: String
     var title: String
     var accessory: String? = nil
+    var trailing: String? = nil
 
     var body: some View {
-        HubBanner(icon: icon, title: title, accessory: accessory)
+        HubBanner(icon: icon, title: title, accessory: accessory, trailing: trailing)
             .padding(.horizontal, 20)
             .padding(.top, 4)
             .padding(.bottom, 8)
@@ -1485,7 +1495,7 @@ struct StoreTable: View {
         case .labor: return row.number("target_vs_actual_pct") ?? -1
         case .pickerScorecard: return HeartbeatMath.pickerComposite(row)
         case .lostRevenue: return row.number("lost_revenue") ?? -1
-        case .missingItems: return row.number(MissingItemDept.totalKey) ?? -1
+        case .missingItems, .preSubOOS: return row.number(MissingItemDept.totalKey) ?? -1
         case .aisleMapper: return AisleMapperMath.ageDays(AisleMapperMath.mapperISO(row)) ?? -1
         }
     }
@@ -2260,7 +2270,7 @@ private enum ShopperMetric: String, CaseIterable, Hashable {
         case .pph, .dynacap: return [.pph, .orders, .hours]
         case .lostRevenue: return [.refund, .presub, .oos, .pph]
         case .labor: return [.pph, .hours, .orders]
-        case .prepNotReady, .scheduleQuality, .pickerScorecard, .missingItems, .aisleMapper: return nil
+        case .prepNotReady, .scheduleQuality, .pickerScorecard, .missingItems, .preSubOOS, .aisleMapper: return nil
         }
     }
 }
@@ -9164,7 +9174,8 @@ struct FulfillmentChecklistCard: View {
             HubStickyPageBanner(
                 icon: HubDestination.checklist.symbol,
                 title: "Operational Heartbeat Checklist",
-                accessory: "\(store.filters.summary)  ·  \(store.checklistOpenCount) open"
+                accessory: "\(store.filters.summary)  ·  \(store.checklistOpenCount) open",
+                trailing: store.sharedDataWindow()
             )
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 14) {

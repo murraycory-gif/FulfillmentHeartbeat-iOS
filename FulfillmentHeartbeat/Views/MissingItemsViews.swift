@@ -140,6 +140,7 @@ struct MissingItemsTable: View {
     let rows: [MetricRow]
     let depts: [MissingItemDept]
     var pageWidth: CGFloat = 1000
+    var section: MetricSection = .missingItems
 
     private enum Column: Equatable {
         case store, total, status
@@ -168,9 +169,11 @@ struct MissingItemsTable: View {
         if rows.isEmpty {
             Section {
                 EmptyHint(
-                    symbol: "tag.slash.fill",
+                    symbol: section.symbol,
                     title: "No stores in this view",
-                    detail: "Tap Avg missing items to see every store, or pick another callout."
+                    detail: section == .preSubOOS
+                        ? "Tap Avg Pre-Sub OOS to see every store, or pick another callout."
+                        : "Tap Avg missing items to see every store, or pick another callout."
                 )
                 .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 20, trailing: 20))
                 .listRowSeparator(.hidden)
@@ -882,6 +885,7 @@ struct MissingItemsRollupTable: View {
     @EnvironmentObject private var headerPin: LaborHeaderPin
     let depts: [MissingItemDept]
     var pageWidth: CGFloat = 1000
+    var section: MetricSection = .missingItems
     @State private var grain: MissingItemsGrain? = .division
     @State private var summary: [MissingItemsRollupRow] = []
 
@@ -940,13 +944,14 @@ struct MissingItemsRollupTable: View {
         .onAppear(perform: rebuild)
         .onChange(of: store.filterStamp) { _, _ in rebuild() }
         .onChange(of: depts.count) { _, _ in rebuild() }
+        .onChange(of: section) { _, _ in rebuild() }
     }
 
     private func rebuild() {
         let next = MissingItemsGrain.current(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
-        let source = MissingItemsRollupBuilder.source(from: store.allLatest(for: .missingItems), filters: store.filters)
+        let source = MissingItemsRollupBuilder.source(from: store.allLatest(for: section), filters: store.filters)
         var rows = MissingItemsRollupBuilder.rows(from: source, grain: next, depts: depts)
         if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {

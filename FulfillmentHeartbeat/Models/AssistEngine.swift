@@ -74,6 +74,13 @@ enum HeartbeatAssist {
                 "Which departments are the hottest?",
                 "How do we get missing items to 5%?",
             ]
+        case .preSubOOS:
+            return [
+                "Who is the worst district for Pre-Sub OOS?",
+                "Which stores are over 6.50% Pre-Sub OOS?",
+                "Which departments are the hottest?",
+                "How do we get Pre-Sub OOS to 5%?",
+            ]
         case .fiveStar:
             return [
                 "Which 5 Star KPIs are broken?",
@@ -171,7 +178,7 @@ enum HeartbeatAssist {
         if q.contains("district") { return .districts }
         if q.contains("store") { return .stores }
         if q.contains("healthy") { return .healthy }
-        if q.contains("fix") || q.contains("recover") || q.contains("cut pnr") || q.contains("get missing") || q.contains("restore") || q.contains("address first") || q.contains("fix path") { return .fix }
+        if q.contains("fix") || q.contains("recover") || q.contains("cut pnr") || q.contains("get missing") || q.contains("get pre-sub") || q.contains("get presub") || q.contains("restore") || q.contains("address first") || q.contains("fix path") { return .fix }
         if q.contains("at risk") || q.contains("across the heartbeat") { return .overview }
         return .overview
     }
@@ -185,6 +192,9 @@ enum HeartbeatAssist {
                 if dest == .fiveStar, has(q, ["store", "fail", "presub"]) { return .stores }
                 if dest != .fiveStar, has(q, ["5 star", "five star", "flash", "ott", "presub"]) { return .fiveStar }
             }
+        }
+        if dest == .preSubOOS || has(q, ["pre-sub oos", "presub oos", "substitution oos"]) {
+            return has(q, ["district"]) ? .districts : .missing
         }
         if dest == .missingItems || has(q, ["missing", "aisle tag"]) { return has(q, ["district"]) ? .districts : .missing }
         if dest == .pickPath || has(q, ["path", "aisle map", "sequence"]) { return has(q, ["shopper"]) ? .shoppers : .path }
@@ -291,7 +301,7 @@ enum HeartbeatAssist {
             case .buckets: return bucketBrief()
             case .fiveStar: return fiveStarBrief()
             case .path: return pathBrief()
-            case .missing: return missingItemsBrief()
+            case .missing: return dest == .preSubOOS ? preSubBrief() : missingItemsBrief()
             case .prep: return prepBrief()
             case .dynacap: return dynacapBrief()
             case .schedule: return scheduleBrief()
@@ -589,6 +599,38 @@ enum HeartbeatAssist {
                 lines.append("1. Print and hang aisle tags in \(hot.0.short) first — hottest department at \(HeartbeatFormat.pct(hot.1)).")
             }
             lines.append("2. Audit the at-risk stores below before the next cutover.")
+            return join(lines)
+        }
+
+        private func preSubBrief() -> String {
+            var lines = header("Pre-Sub OOS")
+            let rows = storeRows(.preSubOOS)
+            let avg = HeartbeatMath.average(rows.compactMap { $0.number(MissingItemDept.totalKey) })
+            lines.append("ISSUE")
+            lines.append("Avg Pre-Sub OOS \(HeartbeatFormat.pct(avg)) in \(filter). Goal 5% or less. 5.01–6.50% watch. Over 6.50% at risk.")
+            var depts: [(MissingItemDept, Double)] = MissingItemDept.allCases.compactMap { dept in
+                let value = HeartbeatMath.average(rows.compactMap { $0.number(dept.rawValue) })
+                guard let value, value > 0 else { return nil }
+                return (dept, value)
+            }
+            depts.sort { $0.1 > $1.1 }
+            if !depts.isEmpty {
+                lines.append("")
+                lines.append("HOTTEST DEPARTMENTS")
+                for (index, item) in depts.prefix(6).enumerated() {
+                    lines.append("\(index + 1). \(item.0.title)  ·  \(HeartbeatFormat.pct(item.1))  ·  \(HeartbeatMath.missingItemsHealth(pct: item.1).label)")
+                }
+            }
+            lines.append("")
+            lines.append(contentsOf: districtLines(limit: 5, section: .preSubOOS))
+            lines.append("")
+            lines.append(contentsOf: storeLines(limit: 8, section: .preSubOOS))
+            lines.append("")
+            lines.append("WHAT TO DO")
+            if let hot = depts.first {
+                lines.append("1. Fix on-hands and pick-face fills in \(hot.0.short) first — hottest department at \(HeartbeatFormat.pct(hot.1)).")
+            }
+            lines.append("2. Walk the at-risk stores below and sub only after the home location is actually empty.")
             return join(lines)
         }
 
@@ -969,7 +1011,7 @@ enum HeartbeatAssist {
                 return HeartbeatFormat.pct(HeartbeatMath.average(rows.compactMap { $0.number("target_vs_actual_pct") }))
             case .pickerScorecard:
                 return "\(rows.count) shoppers"
-            case .missingItems:
+            case .missingItems, .preSubOOS:
                 return HeartbeatFormat.pct(HeartbeatMath.average(rows.compactMap { $0.number(MissingItemDept.totalKey) }))
             case .aisleMapper:
                 return "\(rows.count) stores"

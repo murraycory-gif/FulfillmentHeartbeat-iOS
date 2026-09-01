@@ -11,6 +11,13 @@ struct HeartbeatAssistSheet: View {
 
     private var prompts: [String] { HeartbeatAssist.prompts(for: router.current) }
 
+    private var assistWindow: String? {
+        if let section = router.current.section {
+            return store.dataWindow(for: section)
+        }
+        return store.sharedDataWindow()
+    }
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
@@ -18,6 +25,7 @@ struct HeartbeatAssistSheet: View {
                     icon: "waveform.path.ecg",
                     title: "Heartbeat Assist",
                     accessory: "\(router.current.title)  ·  \(store.filters.summary)",
+                    trailing: assistWindow,
                     clipped: false
                 )
                 .padding(.horizontal, 20)
@@ -180,6 +188,8 @@ struct HeartbeatAssistSheet: View {
             return "You're on Loss Revenue for \(book). I'll break dollars by district, store, and bucket (OOS, refunds, cancels, kill switch)."
         case .missingItems:
             return "You're on Missing Items for \(book). Goal is 5% or less. I'll rank districts, stores, and hottest departments."
+        case .preSubOOS:
+            return "You're on Pre-Sub OOS for \(book). Goal is 5% or less. I'll rank districts, stores, and hottest departments."
         case .fiveStar:
             return "You're on 5 Star for \(book). I'll use live Presub, OTT, Flash, COE, and OTH 5% — worst Presub first."
         case .pickPath:

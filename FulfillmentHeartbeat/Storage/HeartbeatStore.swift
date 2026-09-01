@@ -479,6 +479,17 @@ final class HeartbeatStore: ObservableObject {
         return "Dynacap in this workbook is only \(covered.count) stores (\(markets.isEmpty ? "no market names" : markets)). Power BI exported with IS_OPP_STORE on. Clear that slicer, export all stores, replace the Dynacap tab, and reload."
     }
 
+    func dataWindow(for section: MetricSection) -> String? {
+        rows.first { $0.section == section && !($0.textPayload["data_window"] ?? "").isEmpty }?.textPayload["data_window"]
+    }
+
+    func sharedDataWindow() -> String? {
+        let labels = MetricSection.uploadOrder.compactMap { dataWindow(for: $0) }
+        let unique = Array(Set(labels))
+        if unique.count == 1 { return unique[0] }
+        return labels.first
+    }
+
     func laborNeedsReload() -> Bool {
         let stores = rows.filter { $0.section == .labor && $0.textPayload["labor_grain"] == "store" }
         guard !stores.isEmpty else { return false }
@@ -1420,7 +1431,7 @@ final class HeartbeatStore: ObservableObject {
         unfilteredWarmTask = nil
         pulseGeneration += 1
         let identitySource = rows.filter {
-            $0.section != .scheduleQuality && $0.section != .dynacap && $0.section != .pickerScorecard && $0.section != .pickPathPicker && $0.section != .lostRevenue
+            $0.section != .scheduleQuality && $0.section != .dynacap && $0.section != .pickerScorecard && $0.section != .pickPathPicker && $0.section != .lostRevenue && $0.section != .preSubOOS
         }
         roster = HeartbeatMath.storeRoster(identitySource.isEmpty ? rows.filter { $0.section != .pickerScorecard && $0.section != .pickPathPicker } : identitySource)
         var latest: [MetricSection: [MetricRow]] = [:]
@@ -1430,7 +1441,7 @@ final class HeartbeatStore: ObservableObject {
                 latest[section] = HeartbeatMath.materializeDynacap(sectionRows, roster: roster)
             } else if section == .pickPath {
                 latest[section] = HeartbeatMath.materializePickPath(sectionRows, roster: roster)
-            } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady || section == .pph || section == .lostRevenue || section == .missingItems {
+            } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady || section == .pph || section == .lostRevenue || section == .missingItems || section == .preSubOOS {
                 let source = section == .lostRevenue
                     ? sectionRows.filter { $0.textPayload["lost_grain"] != "market" }
                     : sectionRows
@@ -1990,7 +2001,7 @@ private struct PulseCaches {
         }
         var identitySource: [MetricRow] = []
         for (section, list) in bySection {
-            if section != .scheduleQuality && section != .dynacap && section != .pickerScorecard && section != .pickPathPicker && section != .lostRevenue {
+            if section != .scheduleQuality && section != .dynacap && section != .pickerScorecard && section != .pickPathPicker && section != .lostRevenue && section != .preSubOOS {
                 identitySource.append(contentsOf: list)
             }
         }
@@ -2007,7 +2018,7 @@ private struct PulseCaches {
                 latest[section] = HeartbeatMath.materializeDynacap(sectionRows, roster: roster)
             } else if section == .pickPath {
                 latest[section] = HeartbeatMath.materializePickPath(sectionRows, roster: roster)
-            } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady || section == .pph || section == .lostRevenue || section == .missingItems {
+            } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady || section == .pph || section == .lostRevenue || section == .missingItems || section == .preSubOOS {
                 let source = section == .lostRevenue
                     ? sectionRows.filter { $0.textPayload["lost_grain"] != "market" }
                     : sectionRows

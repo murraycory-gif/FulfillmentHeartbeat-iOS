@@ -22,6 +22,7 @@ enum PulseMail {
         case lostRevenue
         case missingItems
         case fiveStar
+        case preSubOOS
         case pickPath
         case prepNotReady
         case dynacap
@@ -38,6 +39,7 @@ enum PulseMail {
             case .lostRevenue: return "Loss Revenue ScoreCard"
             case .missingItems: return MetricSection.missingItems.bannerTitle
             case .fiveStar: return MetricSection.fiveStar.bannerTitle
+            case .preSubOOS: return MetricSection.preSubOOS.bannerTitle
             case .pickPath: return MetricSection.pickPath.bannerTitle
             case .prepNotReady: return MetricSection.prepNotReady.bannerTitle
             case .dynacap: return MetricSection.dynacap.bannerTitle
@@ -54,6 +56,7 @@ enum PulseMail {
             case .lostRevenue: return MetricSection.lostRevenue.symbol
             case .missingItems: return MetricSection.missingItems.symbol
             case .fiveStar: return MetricSection.fiveStar.symbol
+            case .preSubOOS: return MetricSection.preSubOOS.symbol
             case .pickPath: return MetricSection.pickPath.symbol
             case .prepNotReady: return MetricSection.prepNotReady.symbol
             case .dynacap: return MetricSection.dynacap.symbol
@@ -70,6 +73,7 @@ enum PulseMail {
             case .lostRevenue: return .lostRevenue
             case .missingItems: return .missingItems
             case .fiveStar: return .fiveStar
+            case .preSubOOS: return .preSubOOS
             case .pickPath: return .pickPath
             case .prepNotReady: return .prepNotReady
             case .dynacap: return .dynacap
@@ -82,7 +86,7 @@ enum PulseMail {
     }
 
     static let pageOrder: [MetricSection] = [
-        .lostRevenue, .missingItems, .fiveStar, .pickPath, .prepNotReady, .dynacap,
+        .lostRevenue, .missingItems, .fiveStar, .preSubOOS, .pickPath, .prepNotReady, .dynacap,
         .scheduleQuality, .pickerScorecard, .pph, .labor,
     ]
 
@@ -192,7 +196,7 @@ enum PulseMail {
             </table>
             """
         }
-        return pageWrap(title: "Operational Heartbeat", filter: snap.filterSummary, inner: cards)
+        return pageWrap(title: "Operational Heartbeat", filter: snap.filterSummary, trailing: sharedWindow(snap), inner: cards)
     }
 
     private static func dashboardFlags(_ section: MetricSection, snap: Snapshot) -> [(String, String, Health)] {
@@ -209,6 +213,7 @@ enum PulseMail {
         case .pickerScorecard: flags = HeartbeatMath.pickerActionFlags(rows)
         case .labor: flags = HeartbeatMath.laborActionFlags(rows)
         case .missingItems: flags = HeartbeatMath.missingItemsActionFlags(rows)
+        case .preSubOOS: flags = HeartbeatMath.missingItemsActionFlags(rows)
         case .lostRevenue: flags = HeartbeatMath.lostRevenueActionFlags(rows)
         default:
             return []
@@ -222,23 +227,45 @@ enum PulseMail {
         let kpis = kpiTiles(section, summary: summary, rows: stores, snap: snap)
         let rollup = rollupTable(section, rows: stores, grain: snap.grain)
         let table = storeTable(section, rows: stores, pickerCounts: snap.pickerCounts)
+        let window = stores.first { !($0.textPayload["data_window"] ?? "").isEmpty }?.textPayload["data_window"]
         return pageWrap(
             title: section.bannerTitle,
             filter: snap.filterSummary,
+            trailing: window,
             inner: kpis + rollup + table
         )
     }
 
-    private static func pageWrap(title: String, filter: String, inner: String) -> String {
-        """
+    private static func pageWrap(title: String, filter: String, trailing: String? = nil, inner: String) -> String {
+        let right: String
+        if let trailing, !trailing.isEmpty {
+            right = "<div style=\"font-weight:700;opacity:.95;font-size:13px;text-align:right;white-space:nowrap\">\(esc(trailing))</div>"
+        } else {
+            right = ""
+        }
+        return """
         <table width="100%" cellspacing="0" cellpadding="0" style="background:#fff;border:2.5px solid #003DA5;border-radius:16px;margin:0 0 22px">
         <tr><td style="background:#003DA5;color:#fff;padding:12px 16px;font-weight:700;font-size:18px">
+        <table width="100%" cellspacing="0" cellpadding="0"><tr>
+        <td style="color:#fff;font-weight:700;font-size:18px">
         \(esc(title))
         <div style="font-weight:600;opacity:.9;font-size:12px;margin-top:2px">\(esc(filter))</div>
+        </td>
+        <td valign="middle" style="color:#fff">\(right)</td>
+        </tr></table>
         </td></tr>
         <tr><td style="padding:14px 16px">\(inner)</td></tr>
         </table>
         """
+    }
+
+    private static func sharedWindow(_ snap: Snapshot) -> String? {
+        let labels = MetricSection.uploadOrder.compactMap { section in
+            (snap.rows[section] ?? []).first { !($0.textPayload["data_window"] ?? "").isEmpty }?.textPayload["data_window"]
+        }
+        let unique = Array(Set(labels))
+        if unique.count == 1 { return unique[0] }
+        return labels.first
     }
 
     private static func cardFill(_ health: Health) -> (bg: String, border: String) {
@@ -312,6 +339,19 @@ enum PulseMail {
                 tile("Goal", "5%", "Or less is healthy", .none, brand: true),
                 tile("Watch band", "5.01–6.50%", "Needs a look", .watch),
                 tile("At risk band", "> 6.50%", "Items without an aisle tag", .risk),
+            ]
+        case .preSubOOS:
+            let healthy = scored.filter { HeartbeatMath.missingItemsHealth($0) == .good }.count
+            let watch = scored.filter { HeartbeatMath.missingItemsHealth($0) == .watch }.count
+            let risk = scored.filter { HeartbeatMath.missingItemsHealth($0) == .risk }.count
+            items = [
+                tile("Avg Pre-Sub OOS", summary?.headlineText ?? "—", "5% healthy · 5.01–6.50% watch · over 6.50% at risk", summary?.health ?? .none),
+                tile("Healthy", HeartbeatFormat.num(Double(healthy)), "5% or less", .good),
+                tile("Watch", HeartbeatFormat.num(Double(watch)), "5.01% to 6.50%", watch == 0 ? .good : .watch),
+                tile("At Risk", HeartbeatFormat.num(Double(risk)), "Stores over 6.50%", risk == 0 ? .good : .risk),
+                tile("Goal", "5%", "Or less is healthy", .none, brand: true),
+                tile("Watch band", "5.01–6.50%", "Needs a look", .watch),
+                tile("At risk band", "> 6.50%", "Pre-substitution out of stock", .risk),
             ]
         case .fiveStar:
             let atFive = scored.filter { ($0.number("star_rating") ?? 0) >= 4.95 }.count
@@ -531,7 +571,7 @@ enum PulseMail {
         case .pph: return ["Store", "PPH", "Pickers", "Goal", "Status"]
         case .labor: return ["Store", "Tgt vs Act", "CostTrgt%", "ActCost%", "Sch Effi%", "UPLH", "Wage", "AIV", "Status"]
         case .lostRevenue: return ["Store", "Lost $", "Lost %", "Goal", "Sales", "Post", "Refund", "Missed", "Status"]
-        case .missingItems:
+        case .missingItems, .preSubOOS:
             return ["Store"] + MissingItemDept.allCases.map(\.title) + ["Total", "Status"]
         case .aisleMapper:
             return ["Store", "Mapper", "Sequence", "Status"]
@@ -594,12 +634,12 @@ enum PulseMail {
             html += cell(HeartbeatFormat.money(row.number("post_sub_oos_foregone")))
             html += cell(HeartbeatFormat.money(row.number("refund_lost", "refund_amt")))
             html += cell(HeartbeatFormat.money(row.number("missed_sales")))
-        case .missingItems:
+        case .missingItems, .preSubOOS:
             for dept in MissingItemDept.allCases {
                 let value = row.number(dept.rawValue)
                 html += cell(HeartbeatFormat.pct(value), HeartbeatMath.missingItemsHealth(pct: value))
             }
-            html += cell(HeartbeatFormat.pct(row.number(MissingItemDept.totalKey)), HeartbeatMath.health(for: .missingItems, row: row))
+            html += cell(HeartbeatFormat.pct(row.number(MissingItemDept.totalKey)), HeartbeatMath.health(for: section, row: row))
         case .aisleMapper:
             html += cell(HeartbeatFormat.shortDate(AisleMapperMath.mapperISO(row)), AisleMapperMath.health(AisleMapperMath.mapperISO(row)))
             html += cell(HeartbeatFormat.shortDate(AisleMapperMath.sequenceISO(row)), AisleMapperMath.health(AisleMapperMath.sequenceISO(row)))

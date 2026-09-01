@@ -30,7 +30,8 @@ struct SectionDetailView: View {
             HubStickyPageBanner(
                 icon: section.symbol,
                 title: section.bannerTitle,
-                accessory: store.filters.summary
+                accessory: store.filters.summary,
+                trailing: store.dataWindow(for: section)
             )
             List {
             Section {
@@ -116,14 +117,14 @@ struct SectionDetailView: View {
                         .listRowBackground(AppTheme.bg)
                 }
                 LostRevenueTable(rows: lostRevenueRows)
-            } else if section == .missingItems {
+            } else if section == .missingItems || section == .preSubOOS {
                 Section {
-                    MissingItemsRollupTable(depts: visibleMIDepts, pageWidth: pageWidth)
+                    MissingItemsRollupTable(depts: visibleMIDepts, pageWidth: pageWidth, section: section)
                         .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.bg)
                 }
-                MissingItemsTable(rows: missingItemsRows, depts: visibleMIDepts, pageWidth: pageWidth)
+                MissingItemsTable(rows: missingItemsRows, depts: visibleMIDepts, pageWidth: pageWidth, section: section)
             } else {
                 StoreTable(section: section, rows: snapshots)
             }
@@ -256,7 +257,7 @@ struct SectionDetailView: View {
                 laborStatusTiles
             } else if section == .lostRevenue {
                 lostRevenueStatusTiles
-            } else if section == .missingItems {
+            } else if section == .missingItems || section == .preSubOOS {
                 missingItemsStatusTiles
                 MissingItemsCategoryFilter(selected: $miCategories, width: pageWidth)
             } else {
@@ -373,7 +374,7 @@ struct SectionDetailView: View {
                 ("Lost %", HeartbeatFormat.pct(sales > 0 ? dollars / sales * 100 : summary.lostRevenuePct)),
                 ("eComm sales", HeartbeatFormat.money(sales)),
             ]
-        case .missingItems:
+        case .missingItems, .preSubOOS:
             let healthy = rows.filter { HeartbeatMath.missingItemsHealth($0) == .good }.count
             let watch = rows.filter { HeartbeatMath.missingItemsHealth($0) == .watch }.count
             let risk = rows.filter { HeartbeatMath.missingItemsHealth($0) == .risk }.count
@@ -624,7 +625,7 @@ struct SectionDetailView: View {
                 columns: HubLayout.grid(min(4, HubLayout.kpiColumns(width: pageWidth)), spacing: 14, minWidth: 150),
                 spacing: 14
             ) {
-                callout("Avg missing items", summary.headlineText, "5% healthy · 5.01–6.50% watch · over 6.50% at risk", summary.health, selected: missingItemsFocus == .all) {
+                callout(section == .preSubOOS ? "Avg Pre-Sub OOS" : "Avg missing items", summary.headlineText, "5% healthy · 5.01–6.50% watch · over 6.50% at risk", summary.health, selected: missingItemsFocus == .all) {
                     missingItemsFocus = .all
                 }
                 callout("Healthy", HeartbeatFormat.num(Double(healthy)), "5% or less", .good, unit: "stores", selected: missingItemsFocus == .healthy) {
@@ -643,7 +644,7 @@ struct SectionDetailView: View {
             ) {
                 callout("Goal", "5%", "Or less is healthy", .none, brand: true)
                 callout("Watch band", "5.01–6.50%", "Needs a look", .watch)
-                callout("At risk band", "> 6.50%", "Items without an aisle tag", .risk)
+                callout("At risk band", "> 6.50%", section == .preSubOOS ? "Pre-substitution out of stock" : "Items without an aisle tag", .risk)
             }
         }
     }
