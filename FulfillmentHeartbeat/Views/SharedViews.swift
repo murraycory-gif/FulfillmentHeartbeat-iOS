@@ -1497,6 +1497,7 @@ struct StoreTable: View {
         case .lostRevenue: return row.number("lost_revenue") ?? -1
         case .missingItems, .preSubOOS: return row.number(MissingItemDept.totalKey) ?? -1
         case .aisleMapper: return AisleMapperMath.ageDays(AisleMapperMath.mapperISO(row)) ?? -1
+        case .preSubOOSItem: return row.number("presub_count") ?? row.number("presub_pct") ?? -1
         }
     }
 
@@ -2270,7 +2271,7 @@ private enum ShopperMetric: String, CaseIterable, Hashable {
         case .pph, .dynacap: return [.pph, .orders, .hours]
         case .lostRevenue: return [.refund, .presub, .oos, .pph]
         case .labor: return [.pph, .hours, .orders]
-        case .prepNotReady, .scheduleQuality, .pickerScorecard, .missingItems, .preSubOOS, .aisleMapper: return nil
+        case .prepNotReady, .scheduleQuality, .pickerScorecard, .missingItems, .preSubOOS, .aisleMapper, .preSubOOSItem: return nil
         }
     }
 }

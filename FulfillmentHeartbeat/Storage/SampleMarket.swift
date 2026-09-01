@@ -305,6 +305,32 @@ enum SampleMarket {
                 ]
             ))
         }
+        out.append(contentsOf: [
+            MetricRow(
+                section: .preSubOOSItem,
+                division: "Jewel Osco",
+                operationsOM: "Shelly Selof",
+                storeNumber: "1",
+                payload: ["ord_qty": 1755, "sub_count": 2, "presub_pct": 12.1, "presub_count": 213, "presub_dollars": 425.89, "oos_count": 211, "oos_pct": 12.0, "oos_dollars": 420.91],
+                textPayload: ["district": "J1", "presub_item": "1", "bpn": "184350009 - Sweet Corn"]
+            ),
+            MetricRow(
+                section: .preSubOOSItem,
+                division: "Jewel Osco",
+                operationsOM: "Shelly Selof",
+                storeNumber: "76",
+                payload: ["ord_qty": 278, "sub_count": 57, "presub_pct": 55.4, "presub_count": 154, "presub_dollars": 1076.46, "oos_count": 97, "oos_pct": 34.9, "oos_dollars": 678.03],
+                textPayload: ["district": "J6", "presub_item": "1", "bpn": "960012546 - Strawberries Prepacked - 2 Lb"]
+            ),
+            MetricRow(
+                section: .preSubOOSItem,
+                division: "Haggen",
+                operationsOM: "Luke Lomas",
+                storeNumber: "3427",
+                payload: ["ord_qty": 92, "sub_count": 0, "presub_pct": 4.2, "presub_count": 4, "presub_dollars": 8.4, "oos_count": 4, "oos_pct": 4.2, "oos_dollars": 8.4],
+                textPayload: ["district": "39", "presub_item": "1", "bpn": "184060007 - Banana"]
+            ),
+        ])
         let lastDate = dates.last ?? ""
         let lostStores = out.filter { $0.section == .lostRevenue && $0.recordedOn == lastDate }
         let lostDollars = lostStores.compactMap { $0.number("lost_revenue") }.reduce(0, +)
@@ -433,6 +459,15 @@ enum SampleMarket {
             Jewel Osco,J1,Shelly Selof,1,2026-08-20,2026-08-24
             Jewel Osco,J1,Shelly Selof,606,2021-03-05,2024-08-06
             Haggen,39,Luke Lomas,3427,2026-07-01,2026-08-17
+            """
+        case .preSubOOSItem:
+            return """
+            STORE_ID,DIVISION,DISTRICT,BPN DESC,ORD_QTY,Subs,Pre-Sub OOS%,Pre-Sub OOS,$Pre-Sub OOS,Subs%,$Subs,OOS,OOS%,$OOS
+            1,Jewel Osco,J1,184350009 - Sweet Corn,1755,2,0.121367521367521,213,425.89,0.00113960113960114,4.98,211,0.12022792022792,420.91
+            76,Jewel Osco,J6,960012546 - Strawberries Prepacked - 2 Lb,278,57,0.553956834532374,154,1076.46,0.205035971223022,398.43,97,0.348920863309353,678.03
+            3427,Haggen,39,184060007 - Banana,92,0,0.042,4,8.40,0,0,4,0.042,8.40
+            Total,,, ,7536605,48582,0.017726681974178,133599,616674.06,0.00644613854646754,247768.28,85017,0.0112805434277105,368905.78
+            Applied filters: BPN DESC top 20 by OOS
             """
         }
     }

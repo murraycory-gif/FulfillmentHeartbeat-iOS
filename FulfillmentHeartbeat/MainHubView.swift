@@ -85,7 +85,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         case .pickerScorecard: return .pickerScorecard
         case .lostRevenue: return .lostRevenue
         case .missingItems: return .missingItems
-        case .preSubOOS: return .preSubOOS
+        case .preSubOOS, .preSubOOSItem: return .preSubOOS
         case .aisleMapper: return .pickPath
         }
     }

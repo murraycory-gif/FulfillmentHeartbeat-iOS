@@ -970,3 +970,131 @@ struct MissingItemsRollupTable: View {
         summary = rows
     }
 }
+
+struct PreSubItemTable: View {
+    let rows: [MetricRow]
+    var pageWidth: CGFloat = 1000
+    @State private var expanded = false
+    @State private var limit = 80
+    @State private var snaps: [MetricRow] = []
+
+    var body: some View {
+        Section {
+            Button {
+                expanded.toggle()
+                if expanded { rebuild() }
+            } label: {
+                HubTableHeader(
+                    icon: "barcode",
+                    title: "Pre-Sub OOS Items",
+                    accessory: rows.isEmpty
+                        ? "Upload Pre-Sub OOS Item  ·  tap when loaded"
+                        : "\(HeartbeatFormat.num(Double(rows.count))) items  ·  tap to \(expanded ? "collapse" : "expand")",
+                    expanded: expanded
+                )
+            }
+            .buttonStyle(.plain)
+            .background(AppTheme.tableFill)
+            .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                    .stroke(AppTheme.blue, lineWidth: 2.5)
+            )
+            .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: expanded ? 4 : 20, trailing: 20))
+            .listRowSeparator(.hidden)
+            .listRowBackground(AppTheme.bg)
+        }
+        if expanded {
+            Section {
+                if rows.isEmpty {
+                    EmptyHint(
+                        symbol: "barcode",
+                        title: "No item rows in this view",
+                        detail: "Add a master tab named Pre-Sub OOS Item or upload that export on the Pre-Sub OOS Item card. Header filters still apply."
+                    )
+                } else {
+                    VStack(spacing: 0) {
+                        HStack(spacing: 8) {
+                            Text("Store").frame(width: 72, alignment: .leading)
+                            Text("Item").frame(maxWidth: .infinity, alignment: .leading)
+                            Text("Pre-Sub %").frame(width: 84, alignment: .trailing)
+                            Text("Units").frame(width: 64, alignment: .trailing)
+                            Text("$ Pre-Sub").frame(width: 88, alignment: .trailing)
+                            Text("OOS %").frame(width: 72, alignment: .trailing)
+                            Text("$ OOS").frame(width: 80, alignment: .trailing)
+                        }
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppTheme.textSecondary)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        Divider()
+                        ForEach(snaps) { row in
+                            let health = HeartbeatMath.health(for: .preSubOOSItem, row: row)
+                            HStack(alignment: .top, spacing: 8) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(row.storeNumber)
+                                        .font(.subheadline.weight(.semibold).monospacedDigit())
+                                    Text(row.division.isEmpty ? (row.district.isEmpty ? "—" : row.district) : row.division)
+                                        .font(.caption2)
+                                        .foregroundStyle(AppTheme.textSecondary)
+                                }
+                                .frame(width: 72, alignment: .leading)
+                                Text(row.textPayload["bpn"] ?? "—")
+                                    .font(.caption)
+                                    .lineLimit(2)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                Text(HeartbeatFormat.pct(row.number("presub_pct")))
+                                    .font(.subheadline.weight(.semibold).monospacedDigit())
+                                    .foregroundStyle(AppTheme.healthInk(health))
+                                    .frame(width: 84, alignment: .trailing)
+                                Text(HeartbeatFormat.num(row.number("presub_count"), digits: 0))
+                                    .font(.subheadline.monospacedDigit())
+                                    .frame(width: 64, alignment: .trailing)
+                                Text(HeartbeatFormat.money(row.number("presub_dollars")))
+                                    .font(.subheadline.monospacedDigit())
+                                    .frame(width: 88, alignment: .trailing)
+                                Text(HeartbeatFormat.pct(row.number("oos_pct")))
+                                    .font(.subheadline.monospacedDigit())
+                                    .frame(width: 72, alignment: .trailing)
+                                Text(HeartbeatFormat.money(row.number("oos_dollars")))
+                                    .font(.subheadline.monospacedDigit())
+                                    .frame(width: 80, alignment: .trailing)
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(AppTheme.healthWash(health).opacity(0.35))
+                        }
+                        if snaps.count < rows.count {
+                            Button("Show more items") {
+                                limit += 120
+                                rebuild()
+                            }
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(AppTheme.blue)
+                            .padding(.vertical, 12)
+                        }
+                    }
+                }
+            }
+            .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 16, trailing: 20))
+            .listRowSeparator(.hidden)
+            .listRowBackground(AppTheme.tableFill)
+            .onAppear { rebuild() }
+            .onChange(of: rows.count) { _, _ in
+                limit = 80
+                rebuild()
+            }
+        }
+    }
+
+    private func rebuild() {
+        snaps = rows.sorted {
+            let lhs = $0.number("presub_count") ?? 0
+            let rhs = $1.number("presub_count") ?? 0
+            if lhs != rhs { return lhs > rhs }
+            return HeartbeatFormat.storeOrder($0.storeNumber, $1.storeNumber)
+        }
+        .prefix(limit)
+        .map { $0 }
+    }
+}

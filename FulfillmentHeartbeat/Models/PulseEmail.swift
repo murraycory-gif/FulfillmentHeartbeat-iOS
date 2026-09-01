@@ -573,6 +573,8 @@ enum PulseMail {
         case .lostRevenue: return ["Store", "Lost $", "Lost %", "Goal", "Sales", "Post", "Refund", "Missed", "Status"]
         case .missingItems, .preSubOOS:
             return ["Store"] + MissingItemDept.allCases.map(\.title) + ["Total", "Status"]
+        case .preSubOOSItem:
+            return ["Store", "Item", "Pre-Sub %", "Units", "$ Pre-Sub", "OOS %", "$ OOS", "Status"]
         case .aisleMapper:
             return ["Store", "Mapper", "Sequence", "Status"]
         case .pickerScorecard: return ["Shopper", "PPH", "Presub", "OOS%", "OTT", "OTH5", "Refund", "Status"]
@@ -643,6 +645,13 @@ enum PulseMail {
         case .aisleMapper:
             html += cell(HeartbeatFormat.shortDate(AisleMapperMath.mapperISO(row)), AisleMapperMath.health(AisleMapperMath.mapperISO(row)))
             html += cell(HeartbeatFormat.shortDate(AisleMapperMath.sequenceISO(row)), AisleMapperMath.health(AisleMapperMath.sequenceISO(row)))
+        case .preSubOOSItem:
+            html += cell(row.textPayload["bpn"] ?? "")
+            html += cell(HeartbeatFormat.pct(row.number("presub_pct")), HeartbeatMath.health(for: .preSubOOSItem, row: row))
+            html += cell(HeartbeatFormat.num(row.number("presub_count"), digits: 0))
+            html += cell(HeartbeatFormat.money(row.number("presub_dollars")))
+            html += cell(HeartbeatFormat.pct(row.number("oos_pct")))
+            html += cell(HeartbeatFormat.money(row.number("oos_dollars")))
         case .pickerScorecard:
             html += cell(HeartbeatFormat.num(row.number("pph"), digits: 1), HeartbeatMath.pickerHealth(row))
             html += cell(HeartbeatFormat.pct(row.number("presub_pct")))

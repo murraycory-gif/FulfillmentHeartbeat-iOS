@@ -14,6 +14,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
     case missingItems = "missing_items"
     case aisleMapper = "aisle_mapper"
     case preSubOOS = "pre_sub_oos"
+    case preSubOOSItem = "pre_sub_oos_item"
 
     var id: String { rawValue }
 
@@ -32,6 +33,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .missingItems: return "Missing Items"
         case .aisleMapper: return "Aisle Mapper"
         case .preSubOOS: return "Pre-Sub OOS"
+        case .preSubOOSItem: return "Pre-Sub OOS Item"
         }
     }
 
@@ -50,6 +52,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .missingItems: return "MI"
         case .aisleMapper: return "Aisle Map"
         case .preSubOOS: return "Pre-Sub"
+        case .preSubOOSItem: return "Pre-Sub Item"
         }
     }
 
@@ -68,6 +71,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .missingItems: return "Share of items without an aisle in store tag subscription data. Upload the department-wise MI export. 5% or less is healthy."
         case .aisleMapper: return "Latest aisle mapper and aisle sequence update by store. Upload the Latest Aisle Mapper and Sequence Update Date By Store export. Dates show on the Pick Path store table."
         case .preSubOOS: return "Pre-substitution OOS% by store and department. Upload Pre Substitution OOS% Division Area Store View. 5% or less is healthy."
+        case .preSubOOSItem: return "Item-level Pre-Sub OOS by store. Upload Pre Substitution OOS% items by Store. Rows show on the Pre-Sub OOS ScoreCard under the store table."
         }
     }
 
@@ -86,6 +90,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .missingItems: return "Division · District · OM · Store · 301 Grocery · 303 Alcohol · 304 Pharmacy · 306 Food Service · 309 Deli · 311 GM/HBC · 314 Dairy · 315 Floral · 316 Bakery · 317 Frozen · 328 Coffee Kiosk · 329 Produce · 330 Seafood · 333 Meat · 336 Bakery Pkgd · Total"
         case .aisleMapper: return "Division · District · OM · Store · Latest Aisle Mapper Update Date · Latest Aisle Sequence Update Date"
         case .preSubOOS: return "STORE_ID · Alcohol · Bakery · Bakery Pkgd · Dairy · Deli · Floral · Food Service · Frozen · GM/HBC · Grocery · Meat · Pharmacy · Produce · Seafood · Total Pre-Sub OOS%"
+        case .preSubOOSItem: return "STORE_ID · DIVISION · DISTRICT · BPN DESC · ORD_QTY · Subs · Pre-Sub OOS% · Pre-Sub OOS · $Pre-Sub OOS · OOS · OOS% · $OOS"
         }
     }
 
@@ -103,6 +108,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .missingItems: return "Missing Items ScoreCard"
         case .aisleMapper: return "Aisle Mapper"
         case .preSubOOS: return "Pre-Sub OOS ScoreCard"
+        case .preSubOOSItem: return "Pre-Sub OOS Items"
         }
     }
 
@@ -121,6 +127,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .missingItems: return "tag.slash.fill"
         case .aisleMapper: return "map.fill"
         case .preSubOOS: return "cart.badge.minus"
+        case .preSubOOSItem: return "barcode"
         }
     }
 
@@ -148,6 +155,8 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
             return URL(string: "https://app.powerbi.com/groups/me/apps/d973ff03-651f-4e52-9e7a-8e5bff14b5e6/reports/c13fc8a7-5492-4d39-bd1b-8091e2f5f99a/bc42d1e4f9041554fbad?ctid=b7f604a0-00a9-4188-9248-42f3a5aac2e9&experience=power-bi&clientSideAuth=0")
         case .preSubOOS:
             return URL(string: "https://app.powerbi.com/groups/me/apps/d973ff03-651f-4e52-9e7a-8e5bff14b5e6/reports/73aafb1b-7a54-4c96-af93-4736442edc42/ReportSection5f4b54422e8bd962800c?experience=power-bi")
+        case .preSubOOSItem:
+            return URL(string: "https://app.powerbi.com/groups/me/apps/d973ff03-651f-4e52-9e7a-8e5bff14b5e6/reports/5e149f25-b69e-4d6d-83c7-2bea61f951e3/ReportSection05d54238959c5bc8a4ad?experience=power-bi")
         default:
             return nil
         }
@@ -158,7 +167,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
     }
 
     static var uploadOrder: [MetricSection] {
-        [.lostRevenue, .missingItems, .fiveStar, .preSubOOS, .pickPath, .pickPathPicker, .aisleMapper, .prepNotReady, .dynacap, .scheduleQuality, .pph, .labor, .pickerScorecard]
+        [.lostRevenue, .missingItems, .fiveStar, .preSubOOS, .pickPath, .pickPathPicker, .aisleMapper, .prepNotReady, .dynacap, .scheduleQuality, .pph, .labor, .pickerScorecard, .preSubOOSItem]
     }
 
     static var checklistSections: [MetricSection] {
@@ -659,6 +668,8 @@ enum HeartbeatMath {
             return "\(rows.filter { isRealPicker($0) }.count) shoppers"
         case .aisleMapper:
             return "\(rows.count) stores"
+        case .preSubOOSItem:
+            return "\(rows.count) items"
         }
     }
 
@@ -700,7 +711,7 @@ enum HeartbeatMath {
                 FiveStarFlag(name: "Watch", value: "", health: watch == 0 ? .good : .watch, stores: watch),
                 FiveStarFlag(name: "At Risk", value: "", health: risk == 0 ? .good : .risk, stores: risk),
             ]
-        case .aisleMapper:
+        case .aisleMapper, .preSubOOSItem:
             return []
         }
     }
@@ -1192,6 +1203,8 @@ enum HeartbeatMath {
             return missingItemsHealth(row)
         case .aisleMapper:
             return AisleMapperMath.health(AisleMapperMath.mapperISO(row))
+        case .preSubOOSItem:
+            return missingItemsHealth(pct: row.number("presub_pct"))
         }
     }
 
@@ -1458,6 +1471,22 @@ enum HeartbeatMath {
                 health: .none,
                 watchCount: 0,
                 riskCount: 0,
+                lastFilename: upload?.filename,
+                lastUploadedAt: upload?.uploadedAt
+            )
+        case .preSubOOSItem:
+            let units = latest.compactMap { $0.number("presub_count") }.reduce(0, +)
+            return SectionSummary(
+                section: section,
+                storeCount: Set(latest.map(\.storeNumber)).count,
+                headline: average(latest.compactMap { $0.number("presub_pct") }),
+                headlineLabel: "Item Pre-Sub OOS",
+                secondary: latest.isEmpty
+                    ? "No Pre-Sub item rows in this filter"
+                    : "\(latest.count) items · \(HeartbeatFormat.num(units, digits: 0)) units",
+                health: latest.isEmpty ? .none : band(average(latest.compactMap { $0.number("presub_pct") }), good: missingItemsGoal, watch: missingItemsWatch, invert: true),
+                watchCount: latest.filter { missingItemsHealth(pct: $0.number("presub_pct")) == .watch }.count,
+                riskCount: latest.filter { missingItemsHealth(pct: $0.number("presub_pct")) == .risk }.count,
                 lastFilename: upload?.filename,
                 lastUploadedAt: upload?.uploadedAt
             )
@@ -2246,8 +2275,8 @@ enum HeartbeatMath {
             return -pickerComposite(row)
         case .lostRevenue:
             return row.number("lost_revenue") ?? 0
-        case .missingItems, .preSubOOS:
-            return row.number(MissingItemDept.totalKey) ?? 0
+        case .missingItems, .preSubOOS, .preSubOOSItem:
+            return row.number(section == .preSubOOSItem ? "presub_pct" : MissingItemDept.totalKey) ?? 0
         case .aisleMapper:
             return AisleMapperMath.ageDays(AisleMapperMath.mapperISO(row)) ?? 0
         }
@@ -2359,6 +2388,8 @@ enum HeartbeatMath {
                 value = row.number(MissingItemDept.totalKey)
             case .aisleMapper:
                 value = AisleMapperMath.ageDays(AisleMapperMath.mapperISO(row))
+            case .preSubOOSItem:
+                value = row.number("presub_pct")
             }
             guard let value else { continue }
             buckets[date, default: []].append(value)
@@ -3240,6 +3271,11 @@ struct StoreCellViewModel {
             return StoreCellViewModel(
                 primary: HeartbeatFormat.shortDate(AisleMapperMath.mapperISO(row)),
                 extra: "Seq \(HeartbeatFormat.shortDate(AisleMapperMath.sequenceISO(row)))"
+            )
+        case .preSubOOSItem:
+            return StoreCellViewModel(
+                primary: HeartbeatFormat.pct(row.number("presub_pct")),
+                extra: row.textPayload["bpn"] ?? row.textPayload["item"] ?? ""
             )
         }
     }

@@ -1324,6 +1324,8 @@ final class HeartbeatStore: ObservableObject {
         let stores = Set(incoming.map(\.storeNumber).filter { !$0.isEmpty }).count
         if section == .pickPathPicker {
             statusMessage = "Imported \(incoming.count) pickers into Pick Path Compliance Picker. Open a store on Pick Path to see them."
+        } else if section == .preSubOOSItem {
+            statusMessage = "Imported \(incoming.count) item rows into Pre-Sub OOS Item. Open Pre-Sub OOS and expand Pre-Sub OOS Items under the store table."
         } else if let validation = nextUploads.first?.validation {
             statusMessage = "Imported \(section.title): \(validation)"
         } else {
@@ -1441,6 +1443,8 @@ final class HeartbeatStore: ObservableObject {
                 latest[section] = HeartbeatMath.materializeDynacap(sectionRows, roster: roster)
             } else if section == .pickPath {
                 latest[section] = HeartbeatMath.materializePickPath(sectionRows, roster: roster)
+            } else if section == .preSubOOSItem {
+                latest[section] = HeartbeatMath.applyRoster(sectionRows, roster: roster)
             } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady || section == .pph || section == .lostRevenue || section == .missingItems || section == .preSubOOS {
                 let source = section == .lostRevenue
                     ? sectionRows.filter { $0.textPayload["lost_grain"] != "market" }
@@ -2018,6 +2022,8 @@ private struct PulseCaches {
                 latest[section] = HeartbeatMath.materializeDynacap(sectionRows, roster: roster)
             } else if section == .pickPath {
                 latest[section] = HeartbeatMath.materializePickPath(sectionRows, roster: roster)
+            } else if section == .preSubOOSItem {
+                latest[section] = HeartbeatMath.applyRoster(sectionRows, roster: roster)
             } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady || section == .pph || section == .lostRevenue || section == .missingItems || section == .preSubOOS {
                 let source = section == .lostRevenue
                     ? sectionRows.filter { $0.textPayload["lost_grain"] != "market" }

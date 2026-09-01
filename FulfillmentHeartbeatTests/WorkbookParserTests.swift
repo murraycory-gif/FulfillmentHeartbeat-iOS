@@ -82,8 +82,27 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertEqual(WorkbookParser.section(fromSheetName: "Pre-Sub OOS"), .preSubOOS)
         XCTAssertEqual(WorkbookParser.section(fromSheetName: "Pre Substitution OOS%"), .preSubOOS)
         XCTAssertEqual(WorkbookParser.section(fromSheetName: "Aisle Mapper"), .aisleMapper)
-        XCTAssertEqual(WorkbookParser.section(fromSheetName: "Pre Substitution OOS% - Division, Area, Store View.xlsx"), .preSubOOS)
-        XCTAssertEqual(WorkbookParser.section(fromSheetName: "Export"), nil)
+        XCTAssertEqual(WorkbookParser.section(fromSheetName: "Pre Substitution OOS% - this table shows all items by Store.xlsx"), .preSubOOSItem)
+        XCTAssertEqual(WorkbookParser.section(fromSheetName: "Pre-Sub OOS Item"), .preSubOOSItem)
+        XCTAssertEqual(WorkbookParser.section(fromSheetName: "Pre Sub OOS Item"), .preSubOOSItem)
+        XCTAssertEqual(WorkbookParser.section(fromSheetName: "Pre-Sub OOS"), .preSubOOS)
+    }
+
+    func testPreSubOOSItemParsesBPNRowsAndSkipsTotal() {
+        let csv = SampleMarket.templateCSV(for: .preSubOOSItem)
+        let rows = WorkbookParser.parseCSV(csv)
+        XCTAssertEqual(WorkbookParser.classifySheet(name: "Export", rows: rows), .preSubOOSItem)
+        XCTAssertEqual(WorkbookParser.classifySheet(name: "Pre-Sub OOS Item", rows: rows), .preSubOOSItem)
+        XCTAssertFalse(rows.contains { $0.storeNumber.lowercased() == "total" })
+        XCTAssertEqual(Set(rows.map(\.storeNumber)), Set(["1", "76", "3427"]))
+        let corn = rows.first { $0.storeNumber == "1" }!
+        XCTAssertEqual(corn.division, "Jewel Osco")
+        XCTAssertEqual(corn.textPayload["bpn"], "184350009 - Sweet Corn")
+        XCTAssertEqual(corn.textPayload["presub_item"], "1")
+        XCTAssertEqual(corn.payload["presub_pct"] ?? 0, 12.136, accuracy: 0.02)
+        XCTAssertEqual(corn.payload["presub_count"] ?? 0, 213, accuracy: 0.5)
+        XCTAssertEqual(corn.payload["presub_dollars"] ?? 0, 425.89, accuracy: 0.02)
+        XCTAssertEqual(HeartbeatMath.health(for: .preSubOOSItem, row: corn), .risk)
     }
 
     func testPreSubOOSParsesDepartmentNMWithoutIdentityRow() {

@@ -1013,6 +1013,8 @@ enum HeartbeatAssist {
                 return "\(rows.count) shoppers"
             case .missingItems, .preSubOOS:
                 return HeartbeatFormat.pct(HeartbeatMath.average(rows.compactMap { $0.number(MissingItemDept.totalKey) }))
+            case .preSubOOSItem:
+                return "\(rows.count) items"
             case .aisleMapper:
                 return "\(rows.count) stores"
             }

@@ -125,6 +125,9 @@ struct SectionDetailView: View {
                         .listRowBackground(AppTheme.bg)
                 }
                 MissingItemsTable(rows: missingItemsRows, depts: visibleMIDepts, pageWidth: pageWidth, section: section)
+                if section == .preSubOOS {
+                    PreSubItemTable(rows: store.displayRows(for: .preSubOOSItem), pageWidth: pageWidth)
+                }
             } else {
                 StoreTable(section: section, rows: snapshots)
             }
@@ -401,6 +404,11 @@ struct SectionDetailView: View {
             return [
                 ("Mapper", "Latest map"),
                 ("Sequence", "Latest sequence"),
+            ]
+        case .preSubOOSItem:
+            return [
+                ("Items", HeartbeatFormat.num(Double(rows.count))),
+                ("Units", HeartbeatFormat.num(rows.compactMap { $0.number("presub_count") }.reduce(0, +), digits: 0)),
             ]
         }
     }

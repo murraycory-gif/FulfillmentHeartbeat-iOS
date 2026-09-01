@@ -88,7 +88,7 @@ extension HeartbeatMath {
             return diagnoseMissingItems(row)
         case .preSubOOS:
             return diagnosePreSubOOS(row)
-        case .pickerScorecard, .aisleMapper:
+        case .pickerScorecard, .aisleMapper, .preSubOOSItem:
             return []
         }
     }

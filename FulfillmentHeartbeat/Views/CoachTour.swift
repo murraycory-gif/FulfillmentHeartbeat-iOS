@@ -54,7 +54,7 @@ enum CoachTour: Equatable {
                 CoachStep(
                     icon: "doc.badge.plus",
                     heading: "Master load",
-                    body: "Pick one .xlsx that has a tab per KPI. Name the sheets Lost Revenue, MI, 5 Star, Pre-Sub OOS, Pick Path, Path Picker, Aisle Mapper, Prep, Dynacap, Schedule, PPH, Labor, and Picker ScoreCard — or leave the Power BI headers and we map them. Link the file so next week you can reload from the same place."
+                    body: "Pick one .xlsx that has a tab per KPI. Name the sheets Lost Revenue, MI, 5 Star, Pre-Sub OOS, Pre-Sub OOS Item, Pick Path, Path Picker, Aisle Mapper, Prep, Dynacap, Schedule, PPH, Labor, and Picker ScoreCard — or leave the Power BI headers and we map them. Link the file so next week you can reload from the same place."
                 ),
                 CoachStep(
                     icon: "square.grid.2x2",
@@ -121,7 +121,7 @@ enum CoachTour: Equatable {
                 CoachStep(
                     icon: "tablecells",
                     heading: "Departments",
-                    body: "Both tables show the same department grid as Missing Items, plus Total Pre-Sub OOS%. Filter categories on this page only — region filters in the header still apply everywhere. The date window on the blue banner comes from Applied filters at the bottom of the export."
+                    body: "Both tables show the same department grid as Missing Items, plus Total Pre-Sub OOS%. Under the store table is Pre-Sub OOS Items — item-level BPN rows from the item export. Filter categories on this page only — region filters in the header still apply everywhere."
                 ),
             ]
         case .fiveStar:

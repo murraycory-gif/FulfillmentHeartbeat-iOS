@@ -198,6 +198,11 @@ enum WorkbookParser {
             .replacingOccurrences(of: "-", with: " ")
         if name.contains("lost") && name.contains("revenue") { return .lostRevenue }
         if name.contains("loss") && name.contains("revenue") { return .lostRevenue }
+        if (name.contains("pre sub") || name.contains("presub") || name.contains("pre-sub")
+            || (name.contains("substitution") && name.contains("oos")))
+            && (name.contains("item") || name.contains("bpn")) {
+            return .preSubOOSItem
+        }
         if name.contains("pre sub") || name.contains("presub") || name.contains("pre-sub")
             || (name.contains("substitution") && name.contains("oos"))
             || (name.contains("department") && name.contains("nm") && name.contains("oos")) {
@@ -239,6 +244,9 @@ enum WorkbookParser {
         if keys.contains("mi_pct") || keys.contains("mi_grocery") {
             if sample.contains(where: { $0.textPayload["presub_dept"] == "1" }) { return .preSubOOS }
             return .missingItems
+        }
+        if sample.contains(where: { $0.textPayload["presub_item"] == "1" }) || text.contains("bpn") {
+            return .preSubOOSItem
         }
         if text.contains(AisleMapperMath.mapperKey) || text.contains(AisleMapperMath.sequenceKey) { return .aisleMapper }
         if keys.contains("target_vs_actual_pct") || keys.contains("earned_hrs") { return .labor }
@@ -545,6 +553,8 @@ enum WorkbookParser {
             parsed = labor
         } else if let lost = parseLostRevenue(matrix), !lost.isEmpty {
             parsed = lost
+        } else if let items = parsePreSubOOSItem(matrix), !items.isEmpty {
+            parsed = items
         } else if let presub = parsePreSubOOS(matrix), !presub.isEmpty {
             parsed = presub
         } else if let missing = parseMissingItems(matrix), !missing.isEmpty {
@@ -805,6 +815,125 @@ enum WorkbookParser {
         if lower.contains("kill switch") { return "kill_switch_lost" }
         if lower.contains("reduced capacity") { return "reduced_capacity" }
         return ""
+    }
+
+    private static func isPreSubItemHeader(_ row: [String]) -> Bool {
+        let names = row.map(normHeader)
+        let hasBPN = names.contains { $0.contains("bpn") || $0 == "item" || $0.contains("itemdesc") || $0.contains("bpndesc") }
+        let hasPreSub = row.contains { cell in
+            let lower = cell.lowercased()
+            return lower.contains("pre-sub") || lower.contains("presub") || lower.contains("pre sub")
+        }
+        return hasBPN && hasPreSub
+    }
+
+    private static func parsePreSubOOSItem(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {
+        guard let headerIdx = matrix.firstIndex(where: isPreSubItemHeader) else { return nil }
+        let rawHeader = matrix[headerIdx]
+        func compact(_ cell: String) -> String { normHeader(cell) }
+        func firstIndex(where test: (String, String) -> Bool) -> Int? {
+            rawHeader.enumerated().first { test($0.element, compact($0.element)) }?.offset
+        }
+        let storeIdx = firstIndex { _, n in n == "storeid" || n == "storenumber" || n == "store" || n == "storenbr" }
+        let divIdx = firstIndex { _, n in n == "division" }
+        let distIdx = firstIndex { _, n in n == "district" }
+        let bpnIdx = firstIndex { _, n in n.contains("bpn") || n == "item" || n.contains("itemdesc") }
+        let ordIdx = firstIndex { _, n in n == "ordqty" || n == "orderqty" }
+        let subsIdx = firstIndex { raw, n in
+            let lower = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            return (n == "subs" || n == "subct") && !lower.contains("%") && !lower.contains("$")
+        }
+        let pctIdx = firstIndex { raw, n in
+            let lower = raw.lowercased()
+            return (lower.contains("pre-sub") || lower.contains("presub") || lower.contains("pre sub"))
+                && (lower.contains("%") || n.hasSuffix("pct") || n.hasSuffix("percent"))
+                && !lower.contains("$")
+        }
+        let unitsIdx = firstIndex { raw, n in
+            let lower = raw.lowercased()
+            return (lower.contains("pre-sub oos") || lower.contains("presub oos") || n == "presuboos")
+                && !lower.contains("%") && !lower.contains("$") && !n.contains("pct") && !n.contains("dollar")
+        }
+        let dollarsIdx = firstIndex { raw, _ in
+            let lower = raw.lowercased()
+            return lower.contains("$") && (lower.contains("pre-sub") || lower.contains("presub"))
+        }
+        let oosPctIdx = firstIndex { raw, n in
+            let lower = raw.lowercased()
+            return (n == "oospct" || n == "oospercent" || (lower.contains("oos%") && !lower.contains("pre")))
+                && !lower.contains("$") && !lower.contains("pre-sub") && !lower.contains("presub")
+        }
+        let oosIdx = firstIndex { raw, n in
+            let lower = raw.lowercased()
+            return (n == "oos" || n == "oosct") && !lower.contains("%") && !lower.contains("$") && !lower.contains("pre")
+        }
+        let oosDollarsIdx = firstIndex { raw, _ in
+            let lower = raw.lowercased()
+            return lower.contains("$") && lower.contains("oos") && !lower.contains("pre-sub") && !lower.contains("presub") && !lower.contains("sub")
+        }
+        let subsPctIdx = firstIndex { raw, n in
+            let lower = raw.lowercased()
+            return (n == "subspct" || n == "subpct" || lower == "subs%") && !lower.contains("$")
+        }
+        let subsDollarsIdx = firstIndex { raw, _ in
+            let lower = raw.lowercased()
+            return lower.contains("$") && (lower.contains("subs") && !lower.contains("pre"))
+        }
+        guard let storeIdx, let bpnIdx else { return nil }
+
+        var out: [ParsedWorkbookRow] = []
+        out.reserveCapacity(max(0, matrix.count - headerIdx))
+        for line in matrix.dropFirst(headerIdx + 1) {
+            func cell(_ index: Int?) -> String {
+                guard let index, index < line.count else { return "" }
+                return line[index].trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            let storeRaw = cell(storeIdx)
+            if storeRaw.lowercased().hasPrefix("applied") { continue }
+            if isTotalCell(storeRaw) { continue }
+            guard looksLikeStoreNumber(storeRaw) else { continue }
+            let item = cell(bpnIdx)
+            if item.isEmpty { continue }
+            var payload: [String: Double] = [:]
+            func put(_ index: Int?, _ key: String, percent: Bool = false) {
+                guard let raw = index.map({ cell($0) }), let number = cellNumber(raw) else { return }
+                var value = number
+                if percent, abs(value) <= 1.5 { value *= 100 }
+                payload[key] = value
+            }
+            put(ordIdx, "ord_qty")
+            put(subsIdx, "sub_count")
+            put(pctIdx, "presub_pct", percent: true)
+            put(unitsIdx, "presub_count")
+            put(dollarsIdx, "presub_dollars")
+            put(subsPctIdx, "subs_pct", percent: true)
+            put(subsDollarsIdx, "subs_dollars")
+            put(oosIdx, "oos_count")
+            put(oosPctIdx, "oos_pct", percent: true)
+            put(oosDollarsIdx, "oos_dollars")
+            var text: [String: String] = [
+                "presub_item": "1",
+                "bpn": item,
+            ]
+            let district = cell(distIdx)
+            if !district.isEmpty { text["district"] = HeartbeatMath.canonicalDistrict(district) }
+            out.append(
+                ParsedWorkbookRow(
+                    division: {
+                        let raw = cell(divIdx)
+                        let name = MarketRegion.canonicalName(raw)
+                        return name.isEmpty ? raw : name
+                    }(),
+                    operationsOM: "",
+                    storeNumber: HeartbeatMath.canonicalStore(storeRaw),
+                    storeName: nil,
+                    recordedOn: nil,
+                    payload: payload,
+                    textPayload: text
+                )
+            )
+        }
+        return out.isEmpty ? nil : out
     }
 
     private static func isMissingItemsDeptRow(_ row: [String]) -> Bool {
