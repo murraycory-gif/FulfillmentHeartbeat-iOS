@@ -281,7 +281,7 @@ enum WorkbookParser {
         }
         if out.isEmpty {
             let titles = matches(in: wb, pattern: #"<sheet[^>]*name="([^"]+)""#)
-            return zip(titles, fallback).map { ($0, $1) } + fallback.dropFirst(titles.count).map { ("Sheet", $0) }
+            return Swift.zip(titles, fallback).map { ($0, $1) } + fallback.dropFirst(titles.count).map { ("Sheet", $0) }
         }
         return out
     }
