@@ -972,11 +972,34 @@ struct MissingItemsRollupTable: View {
 }
 
 struct PreSubItemTable: View {
+    @EnvironmentObject private var store: HeartbeatStore
     let rows: [MetricRow]
     var pageWidth: CGFloat = 1000
+
+    private enum Column: String, CaseIterable, Identifiable {
+        case store, item, pct, units, dollars, oosPct, oosDollars, status
+        var id: String { rawValue }
+        var key: String { rawValue }
+        var title: String {
+            switch self {
+            case .store: return "Store"
+            case .item: return "Item"
+            case .pct: return "Pre-Sub %"
+            case .units: return "Units"
+            case .dollars: return "$ Pre-Sub"
+            case .oosPct: return "OOS %"
+            case .oosDollars: return "$ OOS"
+            case .status: return "Status"
+            }
+        }
+    }
+
     @State private var expanded = false
+    @State private var sort = Column.units
+    @State private var ascending = false
     @State private var limit = 80
-    @State private var snaps: [MetricRow] = []
+    @State private var snaps: [PreSubItemSnap] = []
+    @State private var orderedCount = 0
 
     var body: some View {
         Section {
@@ -1005,96 +1028,254 @@ struct PreSubItemTable: View {
             .listRowBackground(AppTheme.bg)
         }
         if expanded {
-            Section {
-                if rows.isEmpty {
+            if rows.isEmpty {
+                Section {
                     EmptyHint(
                         symbol: "barcode",
                         title: "No item rows in this view",
                         detail: "Add a master tab named Pre-Sub OOS Item or upload that export on the Pre-Sub OOS Item card. Header filters still apply."
                     )
-                } else {
-                    VStack(spacing: 0) {
-                        HStack(spacing: 8) {
-                            Text("Store").frame(width: 72, alignment: .leading)
-                            Text("Item").frame(maxWidth: .infinity, alignment: .leading)
-                            Text("Pre-Sub %").frame(width: 84, alignment: .trailing)
-                            Text("Units").frame(width: 64, alignment: .trailing)
-                            Text("$ Pre-Sub").frame(width: 88, alignment: .trailing)
-                            Text("OOS %").frame(width: 72, alignment: .trailing)
-                            Text("$ OOS").frame(width: 80, alignment: .trailing)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 20, trailing: 20))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(AppTheme.bg)
+                }
+            } else {
+                Section {
+                    PreSubItemHeader(active: sort.key, ascending: ascending, onSelect: applySort)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(AppTheme.tableFill)
+                    ForEach(snaps) { snap in
+                        PreSubItemLine(snap: snap)
+                            .listRowInsets(EdgeInsets(top: 5, leading: 20, bottom: 5, trailing: 20))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(AppTheme.tableFill)
+                    }
+                    if orderedCount > snaps.count {
+                        Button {
+                            limit += 80
+                            rebuild()
+                        } label: {
+                            Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(AppTheme.blue)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
                         }
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(AppTheme.textSecondary)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
-                        Divider()
-                        ForEach(snaps) { row in
-                            let health = HeartbeatMath.health(for: .preSubOOSItem, row: row)
-                            HStack(alignment: .top, spacing: 8) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(row.storeNumber)
-                                        .font(.subheadline.weight(.semibold).monospacedDigit())
-                                    Text(row.division.isEmpty ? (row.district.isEmpty ? "—" : row.district) : row.division)
-                                        .font(.caption2)
-                                        .foregroundStyle(AppTheme.textSecondary)
-                                }
-                                .frame(width: 72, alignment: .leading)
-                                Text(row.textPayload["bpn"] ?? "—")
-                                    .font(.caption)
-                                    .lineLimit(2)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                Text(HeartbeatFormat.pct(row.number("presub_pct")))
-                                    .font(.subheadline.weight(.semibold).monospacedDigit())
-                                    .foregroundStyle(AppTheme.healthInk(health))
-                                    .frame(width: 84, alignment: .trailing)
-                                Text(HeartbeatFormat.num(row.number("presub_count"), digits: 0))
-                                    .font(.subheadline.monospacedDigit())
-                                    .frame(width: 64, alignment: .trailing)
-                                Text(HeartbeatFormat.money(row.number("presub_dollars")))
-                                    .font(.subheadline.monospacedDigit())
-                                    .frame(width: 88, alignment: .trailing)
-                                Text(HeartbeatFormat.pct(row.number("oos_pct")))
-                                    .font(.subheadline.monospacedDigit())
-                                    .frame(width: 72, alignment: .trailing)
-                                Text(HeartbeatFormat.money(row.number("oos_dollars")))
-                                    .font(.subheadline.monospacedDigit())
-                                    .frame(width: 80, alignment: .trailing)
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .background(AppTheme.healthWash(health).opacity(0.35))
-                        }
-                        if snaps.count < rows.count {
-                            Button("Show more items") {
-                                limit += 120
-                                rebuild()
-                            }
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(AppTheme.blue)
-                            .padding(.vertical, 12)
-                        }
+                        .buttonStyle(.plain)
+                        .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 16, trailing: 20))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(AppTheme.tableFill)
                     }
                 }
-            }
-            .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 16, trailing: 20))
-            .listRowSeparator(.hidden)
-            .listRowBackground(AppTheme.tableFill)
-            .onAppear { rebuild() }
-            .onChange(of: rows.count) { _, _ in
-                limit = 80
-                rebuild()
+                .transaction { $0.animation = nil }
+                .onAppear { rebuild() }
+                .onChange(of: store.filterStamp) { _, _ in
+                    limit = 80
+                    rebuild()
+                }
+                .onChange(of: rows.count) { _, _ in
+                    limit = 80
+                    rebuild()
+                }
+                .onChange(of: rows.first?.storeNumber) { _, _ in
+                    rebuild()
+                }
             }
         }
     }
 
+    private func applySort(_ key: String) {
+        let column = Column.allCases.first { $0.key == key } ?? .units
+        let nextAscending = sort == column ? !ascending : (column == .store || column == .item)
+        sort = column
+        ascending = nextAscending
+        rebuild()
+    }
+
     private func rebuild() {
-        snaps = rows.sorted {
-            let lhs = $0.number("presub_count") ?? 0
-            let rhs = $1.number("presub_count") ?? 0
-            if lhs != rhs { return lhs > rhs }
-            return HeartbeatFormat.storeOrder($0.storeNumber, $1.storeNumber)
+        let sorted = rows.sorted { lhs, rhs in
+            let result = compare(lhs, rhs)
+            return ascending ? result == .orderedAscending : result == .orderedDescending
         }
-        .prefix(limit)
-        .map { $0 }
+        orderedCount = sorted.count
+        snaps = sorted.prefix(limit).map(PreSubItemSnap.init)
+    }
+
+    private func compare(_ lhs: MetricRow, _ rhs: MetricRow) -> ComparisonResult {
+        switch sort {
+        case .store:
+            return HeartbeatFormat.storeOrder(lhs.storeNumber, rhs.storeNumber) ? .orderedAscending : .orderedDescending
+        case .item:
+            return (lhs.textPayload["bpn"] ?? "").localizedStandardCompare(rhs.textPayload["bpn"] ?? "")
+        case .pct:
+            return numberOrder(lhs.number("presub_pct"), rhs.number("presub_pct"))
+        case .units:
+            return numberOrder(lhs.number("presub_count"), rhs.number("presub_count"))
+        case .dollars:
+            return numberOrder(lhs.number("presub_dollars"), rhs.number("presub_dollars"))
+        case .oosPct:
+            return numberOrder(lhs.number("oos_pct"), rhs.number("oos_pct"))
+        case .oosDollars:
+            return numberOrder(lhs.number("oos_dollars"), rhs.number("oos_dollars"))
+        case .status:
+            let a = healthRank(HeartbeatMath.health(for: .preSubOOSItem, row: lhs))
+            let b = healthRank(HeartbeatMath.health(for: .preSubOOSItem, row: rhs))
+            if a == b { return numberOrder(lhs.number("presub_pct"), rhs.number("presub_pct")) }
+            return a < b ? .orderedAscending : .orderedDescending
+        }
+    }
+
+    private func numberOrder(_ a: Double?, _ b: Double?) -> ComparisonResult {
+        let lhs = a ?? -1
+        let rhs = b ?? -1
+        if lhs == rhs { return .orderedSame }
+        return lhs < rhs ? .orderedAscending : .orderedDescending
+    }
+
+    private func healthRank(_ health: Health) -> Int {
+        switch health {
+        case .risk: return 0
+        case .watch: return 1
+        case .good: return 2
+        case .none: return 3
+        }
+    }
+}
+
+private struct PreSubItemSnap: Identifiable, Equatable {
+    let id: UUID
+    let store: String
+    let division: String
+    let item: String
+    let pct: String
+    let units: String
+    let dollars: String
+    let oosPct: String
+    let oosDollars: String
+    let health: Health
+
+    init(_ row: MetricRow) {
+        id = row.id
+        store = row.storeNumber
+        division = row.division
+        item = row.textPayload["bpn"] ?? "—"
+        pct = HeartbeatFormat.pct(row.number("presub_pct"))
+        units = HeartbeatFormat.num(row.number("presub_count"), digits: 0)
+        dollars = HeartbeatFormat.money(row.number("presub_dollars"))
+        oosPct = HeartbeatFormat.pct(row.number("oos_pct"))
+        oosDollars = HeartbeatFormat.money(row.number("oos_dollars"))
+        health = HeartbeatMath.health(for: .preSubOOSItem, row: row)
+    }
+}
+
+private struct PreSubItemHeader: View {
+    let active: String
+    let ascending: Bool
+    let onSelect: (String) -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            head("Store", key: "store", alignment: .leading)
+                .frame(width: 92, alignment: .leading)
+            head("Item", key: "item", alignment: .leading)
+                .frame(minWidth: 140, maxWidth: .infinity, alignment: .leading)
+            head("Pre-Sub %", key: "pct")
+            head("Units", key: "units")
+            head("$ Pre-Sub", key: "dollars")
+            head("OOS %", key: "oosPct")
+            head("$ OOS", key: "oosDollars")
+            head("Status", key: "status", alignment: .trailing)
+                .frame(width: 88, alignment: .trailing)
+        }
+        .font(.caption2.weight(.semibold))
+        .tracking(0.4)
+        .lineLimit(1)
+        .minimumScaleFactor(0.65)
+    }
+
+    private func head(_ title: String, key: String, alignment: Alignment = .trailing) -> some View {
+        let selected = active == key
+        return Button { onSelect(key) } label: {
+            HStack(spacing: 3) {
+                Text(title.uppercased())
+                if selected {
+                    Image(systemName: ascending ? "chevron.up" : "chevron.down")
+                        .font(.caption2.weight(.bold))
+                }
+            }
+            .foregroundStyle(selected ? AppTheme.blue : AppTheme.textTertiary)
+            .frame(maxWidth: alignment == .leading ? nil : .infinity, alignment: alignment)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct PreSubItemLine: View, Equatable {
+    let snap: PreSubItemSnap
+
+    var body: some View {
+        HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(snap.store)
+                    .font(.subheadline.weight(.semibold).monospacedDigit())
+                    .foregroundStyle(AppTheme.text)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                if !snap.division.isEmpty {
+                    Text(snap.division)
+                        .font(.caption2)
+                        .foregroundStyle(AppTheme.textSecondary)
+                        .lineLimit(1)
+                }
+            }
+            .frame(width: 92, alignment: .leading)
+            Text(snap.item)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(AppTheme.text)
+                .lineLimit(2)
+                .minimumScaleFactor(0.75)
+                .frame(minWidth: 140, maxWidth: .infinity, alignment: .leading)
+            cell(snap.pct, snap.health)
+            cell(snap.units, snap.health)
+            cell(snap.dollars, snap.health)
+            cell(snap.oosPct, .none)
+            cell(snap.oosDollars, .none)
+            HealthBadge(health: snap.health, prominent: true, compact: true)
+                .frame(width: 88, alignment: .trailing)
+        }
+        .padding(.vertical, 4)
+        .tableRowCard(health: snap.health)
+    }
+
+    private func cell(_ value: String, _ health: Health) -> some View {
+        Text(value)
+            .font(.subheadline.weight(.bold).monospacedDigit())
+            .foregroundStyle(ink(health))
+            .lineLimit(1)
+            .minimumScaleFactor(0.55)
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .padding(.vertical, 6)
+            .padding(.horizontal, 6)
+            .background(wash(health), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private func ink(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.text
+        }
+    }
+
+    private func wash(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.okSoft
+        case .watch: return AppTheme.warnSoft
+        case .risk: return AppTheme.badSoft
+        case .none: return Color.clear
+        }
     }
 }
