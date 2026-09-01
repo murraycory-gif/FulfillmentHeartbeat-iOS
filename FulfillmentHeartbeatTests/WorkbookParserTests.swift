@@ -105,6 +105,20 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertEqual(HeartbeatMath.health(for: .preSubOOSItem, row: corn), .risk)
     }
 
+    func testPreSubOOSItemAcceptsExcelStoreDecimals() {
+        let csv = """
+        STORE_ID,DIVISION,DISTRICT,BPN DESC,ORD_QTY,Subs,Pre-Sub OOS%,Pre-Sub OOS,$Pre-Sub OOS,OOS,OOS%,$OOS
+        2893.0,NorCal,15,184350009 - Sweet Corn,1755,2,0.121367521367521,213,425.89,211,0.12022792022792,420.91
+        """
+        let rows = WorkbookParser.parseCSV(csv)
+        XCTAssertEqual(rows.count, 1)
+        XCTAssertEqual(rows[0].storeNumber, "2893")
+        XCTAssertEqual(rows[0].textPayload["bpn"], "184350009 - Sweet Corn")
+        XCTAssertEqual(WorkbookParser.classifySheet(name: "Export", rows: rows), .preSubOOSItem)
+        XCTAssertTrue(WorkbookParser.looksLikeStoreNumber("2893.0"))
+        XCTAssertEqual(HeartbeatMath.canonicalStore("2893.0"), "2893")
+    }
+
     func testPreSubOOSParsesDepartmentNMWithoutIdentityRow() {
         let csv = """
         DEPARTMENT_NM,ALCOHOLIC BEVERAGES,BAKERY,GROCERY,MEAT,PRODUCE,DAIRY,DELI,Total

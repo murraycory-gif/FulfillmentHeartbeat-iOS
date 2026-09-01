@@ -963,6 +963,10 @@ enum HeartbeatMath {
     static func canonicalStore(_ raw: String) -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if let number = Int(trimmed) { return String(number) }
+        let cleaned = trimmed.replacingOccurrences(of: ",", with: "")
+        if let value = Double(cleaned), value > 0, value < 1_000_000, value == value.rounded() {
+            return String(Int(value))
+        }
         return trimmed
     }
 

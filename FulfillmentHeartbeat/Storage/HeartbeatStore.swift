@@ -1286,9 +1286,10 @@ final class HeartbeatStore: ObservableObject {
             let incoming = try await Task.detached(priority: .userInitiated) {
                 let parsed = try WorkbookParser.parse(data: data, filename: filename)
                 if parsed.isEmpty { throw WorkbookParser.ParseError.empty }
-                return parsed.map { $0.asRow(section: section) }
+                let target = WorkbookParser.classifySheet(name: filename, rows: parsed) ?? section
+                return (parsed.map { $0.asRow(section: target) }, target)
             }.value
-            await applyImport(incoming, filename: filename, section: section)
+            await applyImport(incoming.0, filename: filename, section: incoming.1)
         } catch {
             errorMessage = error.localizedDescription
         }

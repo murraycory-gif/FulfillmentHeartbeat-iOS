@@ -188,6 +188,9 @@ enum WorkbookParser {
     }
 
     static func classifySheet(name: String, rows: [ParsedWorkbookRow]) -> MetricSection? {
+        if rows.contains(where: { $0.textPayload["presub_item"] == "1" || !($0.textPayload["bpn"] ?? "").isEmpty }) {
+            return .preSubOOSItem
+        }
         if let named = section(fromSheetName: name) { return named }
         return section(fromRows: rows)
     }
@@ -2219,7 +2222,10 @@ enum WorkbookParser {
     static func looksLikeStoreNumber(_ raw: String) -> Bool {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !isTotalCell(trimmed) else { return false }
-        if trimmed.contains(".") { return false }
+        let cleaned = trimmed.replacingOccurrences(of: ",", with: "")
+        if let value = Double(cleaned), value > 0, value < 1_000_000, abs(value - value.rounded()) < 0.001 {
+            return true
+        }
         guard trimmed.range(of: #"^\d{1,6}[A-Za-z]?$"#, options: .regularExpression) != nil else { return false }
         return true
     }
