@@ -888,6 +888,8 @@ struct MissingItemsRollupTable: View {
     var section: MetricSection = .missingItems
     @State private var grain: MissingItemsGrain? = .division
     @State private var summary: [MissingItemsRollupRow] = []
+    @State private var sortKey = MissingItemDept.totalKey
+    @State private var sortAscending = false
 
     private var expanded: Bool { headerPin.rollupExpanded }
 
@@ -914,7 +916,10 @@ struct MissingItemsRollupTable: View {
                                 label: grain.columnTitle,
                                 showCount: grain != .store,
                                 depts: depts,
-                                cellW: metrics.cellW
+                                cellW: metrics.cellW,
+                                active: sortKey,
+                                ascending: sortAscending,
+                                onSelect: applySort
                             )
                             ForEach(summary) { row in
                                 MissingItemsMetricLine(
@@ -968,6 +973,31 @@ struct MissingItemsRollupTable: View {
             }
         }
         summary = rows
+        applyCurrentSort()
+    }
+
+    private func applySort(_ key: String) {
+        RollupColumnSort.toggle(current: &sortKey, ascending: &sortAscending, key: key)
+        applyCurrentSort()
+    }
+
+    private func applyCurrentSort() {
+        summary.sort { lhs, rhs in
+            let result: ComparisonResult
+            switch sortKey {
+            case "label":
+                result = RollupColumnSort.label(lhs.label, rhs.label)
+            case "count":
+                result = RollupColumnSort.count(lhs.storeCount, rhs.storeCount)
+            case "status":
+                result = RollupColumnSort.health(lhs.health, rhs.health)
+            case MissingItemDept.totalKey:
+                result = RollupColumnSort.number(lhs.total, rhs.total)
+            default:
+                result = RollupColumnSort.number(lhs.values[sortKey], rhs.values[sortKey])
+            }
+            return RollupColumnSort.ordered(result, ascending: sortAscending)
+        }
     }
 }
 

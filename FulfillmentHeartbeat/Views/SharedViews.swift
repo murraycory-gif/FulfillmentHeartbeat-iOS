@@ -23,6 +23,52 @@ struct HubCard<Content: View>: View {
     }
 }
 
+enum RollupColumnSort {
+    static func toggle(current: inout String, ascending: inout Bool, key: String) {
+        if current == key {
+            ascending.toggle()
+        } else {
+            current = key
+            ascending = key == "label" || key == "count"
+        }
+    }
+
+    static func number(_ a: Double?, _ b: Double?, empty: Double = -1) -> ComparisonResult {
+        let lhs = a ?? empty
+        let rhs = b ?? empty
+        if lhs == rhs { return .orderedSame }
+        return lhs < rhs ? .orderedAscending : .orderedDescending
+    }
+
+    static func count(_ a: Int, _ b: Int) -> ComparisonResult {
+        if a == b { return .orderedSame }
+        return a < b ? .orderedAscending : .orderedDescending
+    }
+
+    static func label(_ a: String, _ b: String) -> ComparisonResult {
+        a.localizedStandardCompare(b)
+    }
+
+    static func health(_ a: Health, _ b: Health) -> ComparisonResult {
+        func rank(_ value: Health) -> Int {
+            switch value {
+            case .risk: return 0
+            case .watch: return 1
+            case .good: return 2
+            case .none: return 3
+            }
+        }
+        let lhs = rank(a)
+        let rhs = rank(b)
+        if lhs == rhs { return .orderedSame }
+        return lhs < rhs ? .orderedAscending : .orderedDescending
+    }
+
+    static func ordered(_ result: ComparisonResult, ascending: Bool) -> Bool {
+        ascending ? result == .orderedAscending : result == .orderedDescending
+    }
+}
+
 struct HubBanner: View {
     var icon: String
     var title: String
@@ -2146,6 +2192,8 @@ struct PickPathRollupTable: View {
     @EnvironmentObject private var headerPin: LaborHeaderPin
     @State private var grain: LaborRollupGrain? = .division
     @State private var summary: [PickPathRollupRow] = []
+    @State private var sortKey = "path"
+    @State private var sortAscending = true
 
     private var expanded: Bool { headerPin.rollupExpanded }
 
@@ -2166,7 +2214,13 @@ struct PickPathRollupTable: View {
                 .buttonStyle(.plain)
                 if expanded {
                     VStack(alignment: .leading, spacing: 10) {
-                    PickPathMetricHeader(label: grain.columnTitle, showCount: grain != .store)
+                    PickPathMetricHeader(
+                        label: grain.columnTitle,
+                        showCount: grain != .store,
+                        active: sortKey,
+                        ascending: sortAscending,
+                        onSelect: applySort
+                    )
                     ForEach(summary) { row in
                         PickPathMetricLine(
                             label: row.label,
@@ -2205,6 +2259,27 @@ struct PickPathRollupTable: View {
             rows.sort { ($0.path ?? 999) < ($1.path ?? 999) }
         }
         summary = rows
+        applyCurrentSort()
+    }
+
+    private func applySort(_ key: String) {
+        RollupColumnSort.toggle(current: &sortKey, ascending: &sortAscending, key: key)
+        applyCurrentSort()
+    }
+
+    private func applyCurrentSort() {
+        summary.sort { lhs, rhs in
+            let result: ComparisonResult
+            switch sortKey {
+            case "label": result = RollupColumnSort.label(lhs.label, rhs.label)
+            case "count": result = RollupColumnSort.count(lhs.storeCount, rhs.storeCount)
+            case "pph": result = RollupColumnSort.number(lhs.pph, rhs.pph, empty: 999)
+            case "orders": result = RollupColumnSort.number(lhs.orders, rhs.orders)
+            case "status": result = RollupColumnSort.health(lhs.health, rhs.health)
+            default: result = RollupColumnSort.number(lhs.path, rhs.path, empty: 999)
+            }
+            return RollupColumnSort.ordered(result, ascending: sortAscending)
+        }
     }
 }
 
@@ -3162,6 +3237,8 @@ struct DynacapRollupTable: View {
     @EnvironmentObject private var headerPin: LaborHeaderPin
     @State private var grain: LaborRollupGrain? = .division
     @State private var summary: [DynacapRollupRow] = []
+    @State private var sortKey = "rate"
+    @State private var sortAscending = true
 
     private var expanded: Bool { headerPin.rollupExpanded }
 
@@ -3182,7 +3259,13 @@ struct DynacapRollupTable: View {
                 .buttonStyle(.plain)
                 if expanded {
                     VStack(alignment: .leading, spacing: 10) {
-                    DynacapMetricHeader(label: grain.columnTitle, showCount: grain != .store)
+                    DynacapMetricHeader(
+                        label: grain.columnTitle,
+                        showCount: grain != .store,
+                        active: sortKey,
+                        ascending: sortAscending,
+                        onSelect: applySort
+                    )
                     ForEach(summary) { row in
                         DynacapMetricLine(
                             label: row.label,
@@ -3227,6 +3310,27 @@ struct DynacapRollupTable: View {
             rows.sort { ($0.rate ?? 999) < ($1.rate ?? 999) }
         }
         summary = rows
+        applyCurrentSort()
+    }
+
+    private func applySort(_ key: String) {
+        RollupColumnSort.toggle(current: &sortKey, ascending: &sortAscending, key: key)
+        applyCurrentSort()
+    }
+
+    private func applyCurrentSort() {
+        summary.sort { lhs, rhs in
+            let result: ComparisonResult
+            switch sortKey {
+            case "label": result = RollupColumnSort.label(lhs.label, rhs.label)
+            case "count": result = RollupColumnSort.count(lhs.storeCount, rhs.storeCount)
+            case "pph": result = RollupColumnSort.number(lhs.pph, rhs.pph, empty: 999)
+            case "util": result = RollupColumnSort.number(lhs.util, rhs.util)
+            case "status": result = RollupColumnSort.health(lhs.health, rhs.health)
+            default: result = RollupColumnSort.number(lhs.rate, rhs.rate, empty: 999)
+            }
+            return RollupColumnSort.ordered(result, ascending: sortAscending)
+        }
     }
 }
 
@@ -3925,6 +4029,8 @@ struct PrepRollupTable: View {
     @EnvironmentObject private var headerPin: LaborHeaderPin
     @State private var grain: LaborRollupGrain? = .division
     @State private var summary: [PrepRollupRow] = []
+    @State private var sortKey = "pnr"
+    @State private var sortAscending = false
 
     private var expanded: Bool { headerPin.rollupExpanded }
 
@@ -3945,7 +4051,13 @@ struct PrepRollupTable: View {
                 .buttonStyle(.plain)
                 if expanded {
                     VStack(alignment: .leading, spacing: 10) {
-                    PrepMetricHeader(label: grain.columnTitle, showCount: grain != .store)
+                    PrepMetricHeader(
+                        label: grain.columnTitle,
+                        showCount: grain != .store,
+                        active: sortKey,
+                        ascending: sortAscending,
+                        onSelect: applySort
+                    )
                     ForEach(summary) { row in
                         PrepMetricLine(
                             label: row.label,
@@ -3982,6 +4094,25 @@ struct PrepRollupTable: View {
             rows.sort { ($0.pnr ?? -1) > ($1.pnr ?? -1) }
         }
         summary = rows
+        applyCurrentSort()
+    }
+
+    private func applySort(_ key: String) {
+        RollupColumnSort.toggle(current: &sortKey, ascending: &sortAscending, key: key)
+        applyCurrentSort()
+    }
+
+    private func applyCurrentSort() {
+        summary.sort { lhs, rhs in
+            let result: ComparisonResult
+            switch sortKey {
+            case "label": result = RollupColumnSort.label(lhs.label, rhs.label)
+            case "count": result = RollupColumnSort.count(lhs.storeCount, rhs.storeCount)
+            case "status": result = RollupColumnSort.health(lhs.health, rhs.health)
+            default: result = RollupColumnSort.number(lhs.pnr, rhs.pnr)
+            }
+            return RollupColumnSort.ordered(result, ascending: sortAscending)
+        }
     }
 }
 
@@ -4659,6 +4790,8 @@ struct FiveStarRollupTable: View {
     @EnvironmentObject private var headerPin: LaborHeaderPin
     @State private var grain: LaborRollupGrain? = .division
     @State private var summary: [FiveStarRollupRow] = []
+    @State private var sortKey = "presub"
+    @State private var sortAscending = false
 
     private var expanded: Bool { headerPin.rollupExpanded }
 
@@ -4679,7 +4812,13 @@ struct FiveStarRollupTable: View {
                 .buttonStyle(.plain)
                 if expanded {
                     VStack(alignment: .leading, spacing: 10) {
-                    FiveStarMetricHeader(label: grain.columnTitle, showCount: grain != .store)
+                    FiveStarMetricHeader(
+                        label: grain.columnTitle,
+                        showCount: grain != .store,
+                        active: sortKey,
+                        ascending: sortAscending,
+                        onSelect: applySort
+                    )
                     ForEach(summary) { row in
                         FiveStarMetricLine(
                             label: row.label,
@@ -4733,6 +4872,30 @@ struct FiveStarRollupTable: View {
             rows.sort { ($0.presub ?? -1) > ($1.presub ?? -1) }
         }
         summary = rows
+        applyCurrentSort()
+    }
+
+    private func applySort(_ key: String) {
+        RollupColumnSort.toggle(current: &sortKey, ascending: &sortAscending, key: key)
+        applyCurrentSort()
+    }
+
+    private func applyCurrentSort() {
+        summary.sort { lhs, rhs in
+            let result: ComparisonResult
+            switch sortKey {
+            case "label": result = RollupColumnSort.label(lhs.label, rhs.label)
+            case "count": result = RollupColumnSort.count(lhs.storeCount, rhs.storeCount)
+            case "rating": result = RollupColumnSort.number(lhs.rating, rhs.rating, empty: 99)
+            case "flash": result = RollupColumnSort.number(lhs.flash, rhs.flash)
+            case "coe": result = RollupColumnSort.number(lhs.coe, rhs.coe)
+            case "ott": result = RollupColumnSort.number(lhs.ott, rhs.ott, empty: 999)
+            case "oth": result = RollupColumnSort.number(lhs.oth, rhs.oth, empty: 999)
+            case "status": result = RollupColumnSort.health(lhs.health, rhs.health)
+            default: result = RollupColumnSort.number(lhs.presub, rhs.presub)
+            }
+            return RollupColumnSort.ordered(result, ascending: sortAscending)
+        }
     }
 }
 
@@ -5483,6 +5646,8 @@ struct LaborRollupTable: View {
     @EnvironmentObject private var headerPin: LaborHeaderPin
     @State private var grain: LaborRollupGrain? = .division
     @State private var summary: [LaborRollupRow] = []
+    @State private var sortKey = "tva"
+    @State private var sortAscending = false
 
     private var expanded: Bool { headerPin.rollupExpanded }
 
@@ -5503,7 +5668,13 @@ struct LaborRollupTable: View {
                     .buttonStyle(.plain)
                     if expanded {
                     VStack(alignment: .leading, spacing: 10) {
-                        LaborMetricHeader(label: grain.columnTitle, showCount: grain != .store)
+                        LaborMetricHeader(
+                            label: grain.columnTitle,
+                            showCount: grain != .store,
+                            active: sortKey,
+                            ascending: sortAscending,
+                            onSelect: applySort
+                        )
                         ForEach(summary) { row in
                             LaborMetricLine(
                                 label: row.label,
@@ -5559,6 +5730,31 @@ struct LaborRollupTable: View {
             rows.sort { ($0.tva ?? -999) > ($1.tva ?? -999) }
         }
         summary = rows
+        applyCurrentSort()
+    }
+
+    private func applySort(_ key: String) {
+        RollupColumnSort.toggle(current: &sortKey, ascending: &sortAscending, key: key)
+        applyCurrentSort()
+    }
+
+    private func applyCurrentSort() {
+        summary.sort { lhs, rhs in
+            let result: ComparisonResult
+            switch sortKey {
+            case "label": result = RollupColumnSort.label(lhs.label, rhs.label)
+            case "count": result = RollupColumnSort.count(lhs.storeCount, rhs.storeCount)
+            case "cost": result = RollupColumnSort.number(lhs.cost, rhs.cost)
+            case "act": result = RollupColumnSort.number(lhs.act, rhs.act)
+            case "eff": result = RollupColumnSort.number(lhs.efficiency, rhs.efficiency, empty: 999)
+            case "uplh": result = RollupColumnSort.number(lhs.uplh, rhs.uplh)
+            case "wage": result = RollupColumnSort.number(lhs.wage, rhs.wage)
+            case "aiv": result = RollupColumnSort.number(lhs.aiv, rhs.aiv)
+            case "status": result = RollupColumnSort.health(HeartbeatMath.laborHealth(lhs.tva), HeartbeatMath.laborHealth(rhs.tva))
+            default: result = RollupColumnSort.number(lhs.tva, rhs.tva, empty: -999)
+            }
+            return RollupColumnSort.ordered(result, ascending: sortAscending)
+        }
     }
 }
 
@@ -6477,6 +6673,8 @@ struct LostRevenueRollupTable: View {
     @EnvironmentObject private var headerPin: LaborHeaderPin
     @State private var grain: LaborRollupGrain? = .division
     @State private var summary: [LostRevenueRollupRow] = []
+    @State private var sortKey = "lost"
+    @State private var sortAscending = false
 
     private var expanded: Bool { headerPin.rollupExpanded }
 
@@ -6497,7 +6695,13 @@ struct LostRevenueRollupTable: View {
                 .buttonStyle(.plain)
                 if expanded {
                     VStack(alignment: .leading, spacing: 10) {
-                    LostRevenueMetricHeader(label: grain.columnTitle, showCount: grain != .store)
+                    LostRevenueMetricHeader(
+                        label: grain.columnTitle,
+                        showCount: grain != .store,
+                        active: sortKey,
+                        ascending: sortAscending,
+                        onSelect: applySort
+                    )
                     ForEach(summary) { row in
                         LostRevenueMetricLine(
                             label: row.label,
@@ -6553,6 +6757,31 @@ struct LostRevenueRollupTable: View {
             rows.sort { ($0.lost ?? -1) > ($1.lost ?? -1) }
         }
         summary = rows
+        applyCurrentSort()
+    }
+
+    private func applySort(_ key: String) {
+        RollupColumnSort.toggle(current: &sortKey, ascending: &sortAscending, key: key)
+        applyCurrentSort()
+    }
+
+    private func applyCurrentSort() {
+        summary.sort { lhs, rhs in
+            let result: ComparisonResult
+            switch sortKey {
+            case "label": result = RollupColumnSort.label(lhs.label, rhs.label)
+            case "count": result = RollupColumnSort.count(lhs.storeCount, rhs.storeCount)
+            case "pct": result = RollupColumnSort.number(lhs.pct, rhs.pct)
+            case "goal": result = RollupColumnSort.number(lhs.goal, rhs.goal)
+            case "sales": result = RollupColumnSort.number(lhs.sales, rhs.sales)
+            case "post": result = RollupColumnSort.number(lhs.post, rhs.post)
+            case "refund": result = RollupColumnSort.number(lhs.refund, rhs.refund)
+            case "missed": result = RollupColumnSort.number(lhs.missed, rhs.missed)
+            case "status": result = RollupColumnSort.health(lhs.health, rhs.health)
+            default: result = RollupColumnSort.number(lhs.lost, rhs.lost)
+            }
+            return RollupColumnSort.ordered(result, ascending: sortAscending)
+        }
     }
 }
 
@@ -7463,6 +7692,8 @@ struct ScheduleRollupTable: View {
     @EnvironmentObject private var headerPin: LaborHeaderPin
     @State private var grain: LaborRollupGrain? = .division
     @State private var summary: [ScheduleRollupRow] = []
+    @State private var sortKey = "efficiency"
+    @State private var sortAscending = true
 
     private var expanded: Bool { headerPin.rollupExpanded }
 
@@ -7483,7 +7714,13 @@ struct ScheduleRollupTable: View {
                 .buttonStyle(.plain)
                 if expanded {
                     VStack(alignment: .leading, spacing: 10) {
-                    ScheduleMetricHeader(label: grain.columnTitle, showCount: grain != .store)
+                    ScheduleMetricHeader(
+                        label: grain.columnTitle,
+                        showCount: grain != .store,
+                        active: sortKey,
+                        ascending: sortAscending,
+                        onSelect: applySort
+                    )
                     ForEach(summary) { row in
                         ScheduleMetricLine(
                             label: row.label,
@@ -7523,6 +7760,31 @@ struct ScheduleRollupTable: View {
             rows.sort { ($0.efficiency ?? 999) < ($1.efficiency ?? 999) }
         }
         summary = rows
+        applyCurrentSort()
+    }
+
+    private func applySort(_ key: String) {
+        RollupColumnSort.toggle(current: &sortKey, ascending: &sortAscending, key: key)
+        applyCurrentSort()
+    }
+
+    private func applyCurrentSort() {
+        summary.sort { lhs, rhs in
+            let result: ComparisonResult
+            switch sortKey {
+            case "label": result = RollupColumnSort.label(lhs.label, rhs.label)
+            case "count": result = RollupColumnSort.count(lhs.storeCount, rhs.storeCount)
+            case "staffing": result = RollupColumnSort.number(lhs.staffing, rhs.staffing, empty: 999)
+            case "under": result = RollupColumnSort.number(lhs.under, rhs.under)
+            case "over": result = RollupColumnSort.number(lhs.over, rhs.over)
+            case "status": result = RollupColumnSort.health(
+                HeartbeatMath.band(lhs.efficiency, good: HeartbeatMath.scheduleGoal, watch: HeartbeatMath.scheduleWatch),
+                HeartbeatMath.band(rhs.efficiency, good: HeartbeatMath.scheduleGoal, watch: HeartbeatMath.scheduleWatch)
+            )
+            default: result = RollupColumnSort.number(lhs.efficiency, rhs.efficiency, empty: 999)
+            }
+            return RollupColumnSort.ordered(result, ascending: sortAscending)
+        }
     }
 }
 
@@ -8153,6 +8415,8 @@ struct PPHRollupTable: View {
     @EnvironmentObject private var headerPin: LaborHeaderPin
     @State private var grain: LaborRollupGrain? = .division
     @State private var summary: [PPHRollupRow] = []
+    @State private var sortKey = "pph"
+    @State private var sortAscending = true
 
     private var expanded: Bool { headerPin.rollupExpanded }
 
@@ -8173,7 +8437,13 @@ struct PPHRollupTable: View {
                 .buttonStyle(.plain)
                 if expanded {
                     VStack(alignment: .leading, spacing: 10) {
-                    PPHMetricHeader(label: grain.columnTitle, showCount: grain != .store)
+                    PPHMetricHeader(
+                        label: grain.columnTitle,
+                        showCount: grain != .store,
+                        active: sortKey,
+                        ascending: sortAscending,
+                        onSelect: applySort
+                    )
                     ForEach(summary) { row in
                         PPHMetricLine(
                             label: row.label,
@@ -8211,6 +8481,26 @@ struct PPHRollupTable: View {
             rows.sort { ($0.pph ?? 999) < ($1.pph ?? 999) }
         }
         summary = rows
+        applyCurrentSort()
+    }
+
+    private func applySort(_ key: String) {
+        RollupColumnSort.toggle(current: &sortKey, ascending: &sortAscending, key: key)
+        applyCurrentSort()
+    }
+
+    private func applyCurrentSort() {
+        summary.sort { lhs, rhs in
+            let result: ComparisonResult
+            switch sortKey {
+            case "label": result = RollupColumnSort.label(lhs.label, rhs.label)
+            case "count": result = RollupColumnSort.count(lhs.storeCount, rhs.storeCount)
+            case "pickers": result = RollupColumnSort.count(lhs.pickers, rhs.pickers)
+            case "status": result = RollupColumnSort.health(lhs.health, rhs.health)
+            default: result = RollupColumnSort.number(lhs.pph, rhs.pph, empty: 999)
+            }
+            return RollupColumnSort.ordered(result, ascending: sortAscending)
+        }
     }
 }
 
