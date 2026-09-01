@@ -447,6 +447,40 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(merged.count, 2)
     }
 
+    func testPickPathPickerStaysWhenDivisionFilterIsOn() {
+        let scorecard = MetricRow(
+            section: .pickerScorecard,
+            division: "Jewel Osco",
+            operationsOM: "Shelly Selof",
+            storeNumber: "3503",
+            payload: ["pph": 101.6, "presub_pct": 6.78, "oos_pct": 1.48],
+            textPayload: ["shopper_id": "AALL215", "shopper_name": "AALL215", "district": "J2"]
+        )
+        let path = MetricRow(
+            section: .pickPathPicker,
+            division: "",
+            operationsOM: "",
+            storeNumber: "",
+            payload: ["compliance_pct": 66.19, "pph": 101.6, "orders": 200],
+            textPayload: ["shopper_id": "AALL215", "shopper_name": "AALL215"]
+        )
+        let other = MetricRow(
+            section: .pickerScorecard,
+            division: "SoCal",
+            operationsOM: "A",
+            storeNumber: "108",
+            payload: ["pph": 80],
+            textPayload: ["shopper_id": "ZZZ1", "shopper_name": "ZZZ1"]
+        )
+        var filters = DashboardFilters()
+        filters.division = "Jewel Osco"
+        let caches = PulseCaches.build(rows: [scorecard, path, other], filters: filters)
+        XCTAssertEqual(caches.filteredLatest[.pickPathPicker]?.count, 1)
+        XCTAssertEqual(caches.pickPathByShopper["aall215"]?.number("compliance_pct") ?? 0, 66.19, accuracy: 0.01)
+        XCTAssertEqual(caches.pickPathPickersByStore["3503"]?.first?.number("compliance_pct") ?? 0, 66.19, accuracy: 0.01)
+        XCTAssertEqual(caches.pphPickersByStore["3503"]?.first?.shopperName, "AALL215")
+    }
+
     @MainActor
     func testChecklistReadyAfterEveryKPIHasStatus() {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)

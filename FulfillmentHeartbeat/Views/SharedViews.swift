@@ -2413,15 +2413,28 @@ private struct PathShopperTable: View {
     private func rebuildPickers() {
         guard !columns.isEmpty else { pickers = []; return }
         var byKey: [String: PathShopperSnap] = [:]
+        func aliases(_ row: MetricRow) -> [String] {
+            HeartbeatMath.shopperAliases(row)
+        }
         func key(for row: MetricRow) -> String {
-            HeartbeatMath.shopperAliases(row).first ?? HeartbeatMath.canonicalShopper(row.shopperKey)
+            aliases(row).first ?? HeartbeatMath.canonicalShopper(row.shopperKey)
+        }
+        func pathFor(_ row: MetricRow) -> Double? {
+            if let value = row.number("compliance_pct") { return value }
+            for alias in aliases(row) {
+                if let value = store.pickPathPicker(forShopper: alias)?.number("compliance_pct") {
+                    return value
+                }
+            }
+            return nil
         }
         func merge(_ row: MetricRow, path: Double? = nil) {
             let id = key(for: row)
             guard !id.isEmpty else { return }
             var snap = byKey[id] ?? PathShopperSnap(id: id, name: row.shopperName)
             if snap.name.isEmpty { snap.name = row.shopperName }
-            if snap.path == nil { snap.path = path ?? row.number("compliance_pct") }
+            if snap.name.isEmpty { snap.name = row.shopperId ?? id }
+            if snap.path == nil { snap.path = path ?? pathFor(row) }
             if snap.presub == nil { snap.presub = row.number("presub_pct") }
             if snap.oos == nil { snap.oos = row.number("oos_pct") }
             if snap.pph == nil { snap.pph = row.number("pph") }
@@ -2436,15 +2449,11 @@ private struct PathShopperTable: View {
         }
         if section == .pickPath || section == .pickPathPicker {
             for row in store.pickPathPickers(forStore: storeNumber) {
-                merge(row, path: row.number("compliance_pct"))
+                merge(row, path: pathFor(row))
             }
         }
         for row in store.pphPickers(forStore: storeNumber) {
-            let pathRow = store.pickPathPicker(forShopper: row.shopperKey)
-                ?? store.pickPathPicker(forShopper: row.shopperName)
-                ?? store.pickPathPicker(forShopper: row.shopperId ?? "")
-            merge(row, path: pathRow?.number("compliance_pct"))
-            if let pathRow { merge(pathRow, path: pathRow.number("compliance_pct")) }
+            merge(row, path: pathFor(row))
         }
         pickers = byKey.values.sorted {
             let a = sortValue($0)

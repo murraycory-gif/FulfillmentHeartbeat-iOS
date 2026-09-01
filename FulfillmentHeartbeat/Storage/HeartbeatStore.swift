@@ -1505,7 +1505,14 @@ final class HeartbeatStore: ObservableObject {
                 self.install(self.pulse(from: light))
                 self.filterStamp += 1
             }
-            let heavy = PulseCaches.heavyExtras(latest: light.filteredLatest, roster: rosterCopy)
+            let heavy = PulseCaches.heavyExtras(
+                latest: {
+                    var merged = light.filteredLatest
+                    merged[.pickPathPicker] = latest[.pickPathPicker]
+                    return merged
+                }(),
+                roster: rosterCopy
+            )
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 guard !Task.isCancelled, self.filters == current else { return }
@@ -2068,7 +2075,14 @@ private struct PulseCaches {
         nextLatest.reserveCapacity(latest.count)
         if let allowed {
             for (section, rows) in latest {
-                nextLatest[section] = rows.filter { allowed.contains(HeartbeatMath.canonicalStore($0.storeNumber)) }
+                if section == .pickPathPicker {
+                    nextLatest[section] = rows
+                    continue
+                }
+                nextLatest[section] = rows.filter {
+                    let store = HeartbeatMath.canonicalStore($0.storeNumber)
+                    return store.isEmpty || allowed.contains(store)
+                }
             }
         } else {
             nextLatest = latest
@@ -2080,9 +2094,7 @@ private struct PulseCaches {
         let picker = heavy
             ? pickerIndexValues(pickers)
             : (index: [PickerFocus: [Int]](), health: [PickerFocus: Health]())
-        let path = heavy
-            ? pickPathIndexValues(scorecard: pickers, pathRows: latest[.pickPathPicker] ?? [])
-            : (buckets: [String: [MetricRow]](), byShopper: [String: MetricRow]())
+        let path = pickPathIndexValues(scorecard: pickers, pathRows: latest[.pickPathPicker] ?? [])
         let pph = heavy ? pphIndexValues(pickers) : [:]
         let districts = roster.values
             .filter { filters.includesDivision($0.division) }
