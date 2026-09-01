@@ -98,8 +98,7 @@ final class HubRouter: ObservableObject {
     var current: HubDestination { destination }
 
     init() {
-        let welcomeDone = UserDefaults.standard.bool(forKey: "hb.coach.welcome.v1")
-        destination = welcomeDone ? .dashboard : .upload
+        destination = .upload
     }
 
     func open(_ dest: HubDestination) {

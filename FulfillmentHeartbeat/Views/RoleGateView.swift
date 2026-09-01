@@ -32,7 +32,7 @@ struct RoleGateView: View {
             Text("Who’s looking?")
                 .font(.largeTitle.weight(.bold))
                 .foregroundStyle(AppTheme.text)
-            Text("Shown each time the app opens. Pick your seat, then the dashboard only includes that book of business.")
+            Text("Pick your seat after the master file loads. The dashboard only includes that book of business.")
                 .font(.title3)
                 .foregroundStyle(AppTheme.textSecondary)
             if store.sessionRole != nil {

@@ -23,7 +23,7 @@ final class HeartbeatStore: ObservableObject {
     @Published private(set) var filterStamp = 0
     @Published private(set) var linkedMasterName: String?
     @Published private(set) var linkedMasterLoadedAt: Date?
-    @Published var needsRolePick = true
+    @Published var needsRolePick = false
     @Published private(set) var sessionRole: HeartbeatRole?
 
     private let fileManager: FileManager
@@ -1336,8 +1336,8 @@ final class HeartbeatStore: ObservableObject {
             hydrating = false
             seeded = true
             lastImportedSection = sheets.first?.section
-            let names = loaded.joined(separator: ", ")
-            statusMessage = "Master load: \(loaded.count) scorecard\(loaded.count == 1 ? "" : "s") from \(filename) — \(names). Filters cleared so the new files are in view."
+            needsRolePick = true
+            statusMessage = nil
             await persistNow()
             isImporting = false
             importLabel = nil

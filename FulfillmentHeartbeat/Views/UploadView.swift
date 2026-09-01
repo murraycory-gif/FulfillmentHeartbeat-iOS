@@ -104,6 +104,10 @@ struct UploadView: View {
             Text(store.errorMessage ?? "")
         }
         .onChange(of: store.statusMessage) { _, message in
+            if store.needsRolePick {
+                showStatus = false
+                return
+            }
             showStatus = message != nil
         }
         .onChange(of: store.errorMessage) { _, message in
