@@ -469,6 +469,16 @@ final class HeartbeatStore: ObservableObject {
         rows.first { $0.section == .lostRevenue && $0.textPayload["lost_grain"] == "market" }
     }
 
+    func dynacapCoverageNote() -> String? {
+        let scored = allLatest(for: .dynacap).filter { $0.number("dynacap_rate", "pieces_per_hour") != nil }
+        let rosterCount = marketStores().count
+        guard !scored.isEmpty, rosterCount > 0 else { return nil }
+        let covered = Set(scored.map { HeartbeatMath.canonicalStore($0.storeNumber) }.filter { !$0.isEmpty })
+        guard covered.count < rosterCount / 2 else { return nil }
+        let markets = MarketRegion.uniqueNames(scored.map(\.division)).sorted().joined(separator: ", ")
+        return "Dynacap in this workbook is only \(covered.count) stores (\(markets.isEmpty ? "no market names" : markets)). Power BI exported with IS_OPP_STORE on. Clear that slicer, export all stores, replace the Dynacap tab, and reload."
+    }
+
     func laborNeedsReload() -> Bool {
         let stores = rows.filter { $0.section == .labor && $0.textPayload["labor_grain"] == "store" }
         guard !stores.isEmpty else { return false }
@@ -485,6 +495,21 @@ final class HeartbeatStore: ObservableObject {
         }
         let stores = Set(rows.map { HeartbeatMath.canonicalStore($0.storeNumber) }.filter { !$0.isEmpty })
         let shoppers = Set(rows.compactMap { $0.textPayload["shopper_id"] }.filter { !$0.isEmpty })
+        if section == .dynacap {
+            let named = rows.map { MarketRegion.canonicalName($0.division) }.filter { !$0.isEmpty }
+            let divisions = MarketRegion.uniqueNames(named).sorted()
+            var parts = [
+                "\(HeartbeatFormat.num(Double(rows.count))) rows",
+                "\(HeartbeatFormat.num(Double(stores.count))) stores",
+            ]
+            if !divisions.isEmpty {
+                parts.append(divisions.joined(separator: ", "))
+            }
+            if stores.count > 0, stores.count < 800 {
+                parts.append("Power BI export is filtered — turn off IS_OPP_STORE and re-export all stores so every market fills in")
+            }
+            return parts.joined(separator: " · ")
+        }
         if section == .lostRevenue {
             let hasTotal = rows.contains { $0.textPayload["lost_grain"] == "market" }
             return [

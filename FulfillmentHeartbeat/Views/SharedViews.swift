@@ -3009,8 +3009,20 @@ private struct DynacapMetricLine: View, Equatable {
             cell(HeartbeatFormat.num(pph, digits: 1), DynacapMath.pphHealth(pph))
             cell(DynacapMath.goalText, .none, brand: true)
             cell(HeartbeatFormat.pct(util), .none)
-            HealthBadge(health: health, prominent: true, compact: true)
-                .frame(width: 88, alignment: .trailing)
+            if rate == nil {
+                Text("NOT IN FILE")
+                    .font(.caption.weight(.heavy))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 5)
+                    .foregroundStyle(Color.white)
+                    .background(AppTheme.textTertiary, in: Capsule())
+                    .frame(width: 88, alignment: .trailing)
+            } else {
+                HealthBadge(health: health, prominent: true, compact: true)
+                    .frame(width: 88, alignment: .trailing)
+            }
         }
         .tableRowCard(health: health)
     }

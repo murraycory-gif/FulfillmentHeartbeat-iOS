@@ -226,6 +226,19 @@ struct SectionDetailView: View {
                 .background(AppTheme.warnSoft, in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous))
             }
 
+            if section == .dynacap, let coverage = store.dynacapCoverageNote() {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(AppTheme.warn)
+                    Text(coverage)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(AppTheme.text)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(AppTheme.warnSoft, in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous))
+            }
+
             if missingInFile {
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: "info.circle.fill")
