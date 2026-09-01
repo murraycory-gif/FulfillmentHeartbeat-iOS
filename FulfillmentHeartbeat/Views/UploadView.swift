@@ -508,8 +508,10 @@ final class HeartbeatFilePicker: NSObject, UIDocumentPickerDelegate {
                 UTType(filenameExtension: "xlsm") ?? .spreadsheet,
                 .spreadsheet,
                 .commaSeparatedText,
+                .item,
+                .data,
             ],
-            asCopy: true
+            asCopy: false
         )
         picker.delegate = self
         picker.allowsMultipleSelection = false
@@ -553,71 +555,70 @@ final class HeartbeatFilePicker: NSObject, UIDocumentPickerDelegate {
     }
 
     static func readPickedFile(_ url: URL) throws -> (data: Data, name: String) {
+        let name = url.lastPathComponent
         let accessed = url.startAccessingSecurityScopedResource()
         defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-
-        if let exported = exportSpreadsheet(from: url) {
-            if let ready = usableWorkbook(exported) { return (ready, url.lastPathComponent) }
-        }
-
-        let dest = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("HeartbeatImports", isDirectory: true)
-        try FileManager.default.createDirectory(at: dest, withIntermediateDirectories: true)
-        let localCopy = dest.appendingPathComponent(UUID().uuidString + "-" + url.lastPathComponent)
 
         if FileManager.default.isUbiquitousItem(at: url) {
             try? FileManager.default.startDownloadingUbiquitousItem(at: url)
         }
 
-        var lastSize = -1
-        var stableHits = 0
-        let deadline = Date().addingTimeInterval(60)
-        var materialized: URL?
-        while Date() < deadline {
-            var coordError: NSError?
-            NSFileCoordinator().coordinate(readingItemAt: url, options: [.forUploading], error: &coordError) { local in
-                let size = (try? FileManager.default.attributesOfItem(atPath: local.path)[.size] as? NSNumber)?.intValue ?? 0
-                if size > 64 {
-                    try? FileManager.default.removeItem(at: localCopy)
-                    try? FileManager.default.copyItem(at: local, to: localCopy)
-                    materialized = localCopy
-                    if size == lastSize { stableHits += 1 } else { stableHits = 0; lastSize = size }
+        var blobs: [Data] = []
+        if let doc = readUIDocument(url) { blobs.append(doc) }
+        if let exported = exportSpreadsheet(from: url) { blobs.append(exported) }
+        if let coordinated = coordinatedBytes(url, forUploading: false) { blobs.append(coordinated) }
+        if let uploaded = coordinatedBytes(url, forUploading: true) { blobs.append(uploaded) }
+        if FileManager.default.fileExists(atPath: url.path),
+           let direct = try? Data(contentsOf: url, options: [.uncached]) {
+            blobs.append(direct)
+        }
+
+        var lastRaw: Data?
+        for raw in blobs {
+            lastRaw = raw
+            if let ready = usableWorkbook(raw) { return (ready, name) }
+            let stripped = WorkbookParser.stripWrapper(raw)
+            if stripped.starts(with: [0x50, 0x4B, 0x03, 0x04]) { return (stripped, name) }
+        }
+
+        let sample = lastRaw ?? Data()
+        let head = sample.prefix(8).map { String(format: "%02X", $0) }.joined(separator: " ")
+        let eocd = ZipArchive.findEOCD(sample) != nil
+        throw importError("Could not unpack that OneDrive file (\(BuildStamp.label), \(sample.count) bytes, \(head), zip-end \(eocd ? "yes" : "no")). Open it in Excel → Share → Save to iCloud Drive, then Choose the iCloud copy.")
+    }
+
+    private static func readUIDocument(_ url: URL) -> Data? {
+        guard !Thread.isMainThread else { return nil }
+        let dest = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("HeartbeatImports", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dest, withIntermediateDirectories: true)
+        let copy = dest.appendingPathComponent(UUID().uuidString + ".xlsx")
+        try? FileManager.default.copyItem(at: url, to: copy)
+        let fileURL = FileManager.default.fileExists(atPath: copy.path) ? copy : url
+        let lock = DispatchSemaphore(value: 0)
+        var data: Data?
+        DispatchQueue.main.async {
+            let doc = HeartbeatXlsxDocument(fileURL: fileURL)
+            doc.open { ok in
+                if ok { data = doc.fileData }
+                doc.close { _ in
+                    if fileURL == copy { try? FileManager.default.removeItem(at: copy) }
+                    lock.signal()
                 }
             }
-            if materialized == nil {
-                NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordError) { local in
-                    let size = (try? FileManager.default.attributesOfItem(atPath: local.path)[.size] as? NSNumber)?.intValue ?? 0
-                    if size > 64 {
-                        try? FileManager.default.removeItem(at: localCopy)
-                        try? FileManager.default.copyItem(at: local, to: localCopy)
-                        materialized = localCopy
-                        if size == lastSize { stableHits += 1 } else { stableHits = 0; lastSize = size }
-                    }
-                }
-            }
-            if materialized != nil, lastSize >= 100_000, stableHits >= 1 { break }
-            if materialized != nil, lastSize >= 64, stableHits >= 4 { break }
-            Thread.sleep(forTimeInterval: 0.4)
         }
+        _ = lock.wait(timeout: .now() + 45)
+        return (data?.count ?? 0) > 64 ? data : nil
+    }
 
-        if materialized == nil, FileManager.default.fileExists(atPath: url.path) {
-            try? FileManager.default.copyItem(at: url, to: localCopy)
-            materialized = localCopy
+    private static func coordinatedBytes(_ url: URL, forUploading: Bool) -> Data? {
+        var data: Data?
+        var coordError: NSError?
+        let options: NSFileCoordinator.ReadingOptions = forUploading ? [.forUploading] : []
+        NSFileCoordinator().coordinate(readingItemAt: url, options: options, error: &coordError) { local in
+            data = try? Data(contentsOf: local, options: [.uncached])
         }
-
-        guard let fileURL = materialized, FileManager.default.fileExists(atPath: fileURL.path) else {
-            throw importError("Could not copy that file off OneDrive. Open it in Excel, wait until the workbook is fully loaded, close Excel, then Choose file again.")
-        }
-
-        var raw = try Data(contentsOf: fileURL, options: [.uncached])
-        try? FileManager.default.removeItem(at: fileURL)
-        raw = WorkbookParser.stripWrapper(raw)
-        if let ready = usableWorkbook(raw) { return (ready, url.lastPathComponent) }
-        if raw.count > 100_000 {
-            return (WorkbookParser.stripWrapper(raw), url.lastPathComponent)
-        }
-        let head = raw.prefix(8).map { String(format: "%02X", $0) }.joined(separator: " ")
-        throw importError("OneDrive did not hand over an .xlsx (\(raw.count) bytes, \(head)). Open the file in Excel, wait until it loads, then Choose file again.")
+        return (data?.count ?? 0) > 64 ? data : nil
     }
 
     private static func usableWorkbook(_ data: Data) -> Data? {
@@ -737,6 +738,18 @@ final class HeartbeatFilePicker: NSObject, UIDocumentPickerDelegate {
             controller = presented
         }
         return controller
+    }
+}
+
+final class HeartbeatXlsxDocument: UIDocument {
+    var fileData: Data?
+
+    override func contents(forType typeName: String) throws -> Any {
+        fileData ?? Data()
+    }
+
+    override func load(fromContents contents: Any, ofType typeName: String?) throws {
+        fileData = contents as? Data
     }
 }
 
