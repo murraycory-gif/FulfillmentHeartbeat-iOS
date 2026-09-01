@@ -253,6 +253,19 @@ struct SectionDetailView: View {
                 .background(AppTheme.blueSoft, in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous))
             }
 
+            if section == .preSubOOS, snapshots.isEmpty {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(AppTheme.warn)
+                    Text("No Pre-Sub OOS rows loaded. Add a master tab named Pre-Sub OOS and paste the Division / Area / Store View export (DEPARTMENT_NM + STORE_ID). Or upload that file on the Pre-Sub card. Do not use the 5 Star Pre-Sub column — that is a different report.")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(AppTheme.text)
+                }
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(AppTheme.warnSoft, in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous))
+            }
+
             if section == .labor {
                 laborStatusTiles
             } else if section == .lostRevenue {

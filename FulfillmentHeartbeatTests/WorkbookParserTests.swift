@@ -82,7 +82,22 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertEqual(WorkbookParser.section(fromSheetName: "Pre-Sub OOS"), .preSubOOS)
         XCTAssertEqual(WorkbookParser.section(fromSheetName: "Pre Substitution OOS%"), .preSubOOS)
         XCTAssertEqual(WorkbookParser.section(fromSheetName: "Aisle Mapper"), .aisleMapper)
-        XCTAssertNil(WorkbookParser.section(fromSheetName: "Sheet1"))
+        XCTAssertEqual(WorkbookParser.section(fromSheetName: "Pre Substitution OOS% - Division, Area, Store View.xlsx"), .preSubOOS)
+        XCTAssertEqual(WorkbookParser.section(fromSheetName: "Export"), nil)
+    }
+
+    func testPreSubOOSParsesDepartmentNMWithoutIdentityRow() {
+        let csv = """
+        DEPARTMENT_NM,ALCOHOLIC BEVERAGES,BAKERY,GROCERY,MEAT,PRODUCE,DAIRY,DELI,Total
+        4818,0,0.1,0.05,0.2,0.01,0.03,0.04,0.063
+        1,0.02,0.08,0.0188,0.02,0.008,0.017,0.01,0.0199
+        Total,0.06,0.14,0.05,0.09,0.03,0.06,0.07,0.057
+        """
+        let rows = WorkbookParser.parseCSV(csv)
+        XCTAssertEqual(WorkbookParser.classifySheet(name: "Export", rows: rows), .preSubOOS)
+        XCTAssertEqual(Set(rows.map(\.storeNumber)), Set(["4818", "1"]))
+        XCTAssertEqual(rows.first { $0.storeNumber == "4818" }?.payload["mi_pct"] ?? 0, 6.3, accuracy: 0.05)
+        XCTAssertEqual(rows.first { $0.storeNumber == "1" }?.textPayload["presub_dept"], "1")
     }
 
     func testDynacapDailyReportHeadersMapRateAndStore() {

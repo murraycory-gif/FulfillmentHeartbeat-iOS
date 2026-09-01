@@ -120,7 +120,8 @@ enum WorkbookParser {
                     parsed = parseLaborSheet(data: sheet, strings: strings)
                 }
                 guard !parsed.isEmpty else { return }
-                guard let section = classifySheet(name: entry.name, rows: parsed) else { return }
+                guard let section = classifySheet(name: entry.name, rows: parsed)
+                    ?? classifySheet(name: filename, rows: parsed) else { return }
                 if let existing = found[section] {
                     let named = entry.name.lowercased().contains(section.rawValue) || entry.name.lowercased().contains(section.short.lowercased())
                     if !named, existing.rows.count >= parsed.count { return }
@@ -198,7 +199,8 @@ enum WorkbookParser {
         if name.contains("lost") && name.contains("revenue") { return .lostRevenue }
         if name.contains("loss") && name.contains("revenue") { return .lostRevenue }
         if name.contains("pre sub") || name.contains("presub") || name.contains("pre-sub")
-            || (name.contains("substitution") && name.contains("oos")) {
+            || (name.contains("substitution") && name.contains("oos"))
+            || (name.contains("department") && name.contains("nm") && name.contains("oos")) {
             return .preSubOOS
         }
         if name.contains("aisle mapper") || (name.contains("aisle") && name.contains("sequence")) {
@@ -273,12 +275,13 @@ enum WorkbookParser {
                 ridToPath[rid] = target
             }
         }
+        let cleaned = stripNS(wb)
         var out: [(name: String, path: String)] = []
         if let regex = try? NSRegularExpression(pattern: #"<sheet\b[^>]*>"#, options: []) {
-            let range = NSRange(wb.startIndex..., in: wb)
-            for match in regex.matches(in: wb, range: range) {
-                guard let tagRange = Range(match.range, in: wb) else { continue }
-                let tag = String(wb[tagRange])
+            let range = NSRange(cleaned.startIndex..., in: cleaned)
+            for match in regex.matches(in: cleaned, range: range) {
+                guard let tagRange = Range(match.range, in: cleaned) else { continue }
+                let tag = String(cleaned[tagRange])
                 let name = xmlAttr(tag, "name")
                 let rid = xmlAttr(tag, "r:id")
                 guard !name.isEmpty else { continue }
@@ -287,7 +290,7 @@ enum WorkbookParser {
             }
         }
         if out.isEmpty {
-            let titles = matches(in: wb, pattern: #"<sheet[^>]*name="([^"]+)""#)
+            let titles = matches(in: cleaned, pattern: #"<sheet[^>]*name="([^"]+)""#)
             return Swift.zip(titles, fallback).map { ($0, $1) } + fallback.dropFirst(titles.count).map { ("Sheet", $0) }
         }
         return out
@@ -807,19 +810,28 @@ enum WorkbookParser {
     private static func isMissingItemsDeptRow(_ row: [String]) -> Bool {
         let blob = row.map { $0.lowercased() }.joined(separator: " ")
         if blob.contains("department desc") { return true }
+        if isPreSubDeptRow(row) { return true }
         let hits = row.filter { MissingItemDept.match($0) != nil }.count
         return hits >= 4
     }
 
+    private static func isPreSubDeptRow(_ row: [String]) -> Bool {
+        row.contains { cell in
+            let compact = cell.lowercased().replacingOccurrences(of: "[^a-z0-9]+", with: "", options: .regularExpression)
+            return compact == "departmentnm" || compact == "departmentname"
+        }
+    }
+
     private static func isPreSubHeaderRow(_ row: [String]) -> Bool {
         let blob = row.map { $0.lowercased() }.joined(separator: " ")
-        return blob.contains("pre-sub") || blob.contains("presub") || blob.contains("pre sub oos")
+        return blob.contains("pre-sub") || blob.contains("presub") || blob.contains("pre sub oos") || blob.contains("pre sub")
     }
 
     private static func parsePreSubOOS(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {
-        guard let deptRowIndex = matrix.firstIndex(where: isMissingItemsDeptRow) else { return nil }
+        guard let deptRowIndex = matrix.firstIndex(where: { isPreSubDeptRow($0) || isMissingItemsDeptRow($0) }) else { return nil }
         let identityRow = deptRowIndex + 1 < matrix.count ? matrix[deptRowIndex + 1] : []
-        guard isPreSubHeaderRow(identityRow) || isPreSubHeaderRow(matrix[deptRowIndex]) else { return nil }
+        let namedPreSub = isPreSubDeptRow(matrix[deptRowIndex]) || isPreSubHeaderRow(identityRow) || isPreSubHeaderRow(matrix[deptRowIndex])
+        guard namedPreSub else { return nil }
 
         let deptRow = matrix[deptRowIndex]
         var keyByCol: [Int: String] = [:]
@@ -842,9 +854,14 @@ enum WorkbookParser {
         }
         guard let storeIdx else { return nil }
 
+        let identityLooksLikeStore = looksLikeStoreNumber(
+            storeIdx < identityRow.count ? identityRow[storeIdx] : ""
+        )
+        let dataStart = identityLooksLikeStore ? deptRowIndex + 1 : deptRowIndex + 2
+
         var out: [ParsedWorkbookRow] = []
         out.reserveCapacity(max(0, matrix.count - deptRowIndex))
-        for line in matrix.dropFirst(deptRowIndex + 2) {
+        for line in matrix.dropFirst(dataStart) {
             let storeRaw = storeIdx < line.count ? line[storeIdx].trimmingCharacters(in: .whitespacesAndNewlines) : ""
             if storeRaw.lowercased().hasPrefix("applied") { continue }
             if isTotalCell(storeRaw) { continue }
@@ -876,6 +893,9 @@ enum WorkbookParser {
 
     private static func parseMissingItems(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {
         guard let deptRowIndex = matrix.firstIndex(where: isMissingItemsDeptRow) else { return nil }
+        if isPreSubDeptRow(matrix[deptRowIndex]) { return nil }
+        let identityRow = deptRowIndex + 1 < matrix.count ? matrix[deptRowIndex + 1] : []
+        if isPreSubHeaderRow(identityRow) || isPreSubHeaderRow(matrix[deptRowIndex]) { return nil }
         let deptRow = matrix[deptRowIndex]
         var keyByCol: [Int: String] = [:]
         for (index, cell) in deptRow.enumerated() {
@@ -887,7 +907,6 @@ enum WorkbookParser {
         }
         guard keyByCol.count >= 4 else { return nil }
 
-        let identityRow = deptRowIndex + 1 < matrix.count ? matrix[deptRowIndex + 1] : []
         var divIdx: Int?
         var distIdx: Int?
         var omIdx: Int?
