@@ -98,7 +98,7 @@ enum WorkbookParser {
         }
         guard ext == "xlsx" || ext == "xlsm" || data.starts(with: [0x50, 0x4B]) || extractZipPayload(data) != nil else { throw ParseError.unsupported }
         let payload = extractZipPayload(data) ?? data
-        guard let zip = ZipArchive(data: payload) else { throw ParseError.unreadable }
+        guard let zip = ZipArchive(data: payload) ?? ZipArchive(data: data) else { throw ParseError.unreadable }
         let strings = zip.file(named: "xl/sharedStrings.xml").flatMap { String(data: $0, encoding: .utf8) }.map(SharedStrings.parse) ?? []
         let titles = sheetTitles(from: zip)
         let paths = zip.worksheetPaths()
@@ -2490,6 +2490,57 @@ final class ZipArchive {
     private var files: [String: Data] = [:]
 
     init?(data: Data) {
+        if !parseCentralDirectory(data) {
+            parseLocalHeaders(data)
+        }
+        if files.isEmpty { return nil }
+    }
+
+    private func parseCentralDirectory(_ data: Data) -> Bool {
+        guard let eocd = Self.findEOCD(data) else { return false }
+        let storedCD = Int(u32(data, eocd + 16))
+        let cdSize = Int(u32(data, eocd + 12))
+        let records = Int(u16(data, eocd + 10))
+        guard records > 0, cdSize > 46, eocd >= cdSize else { return false }
+        let inferred = eocd - cdSize
+        var cdStart = storedCD
+        if inferred >= 0, inferred + 4 <= data.count, u32(data, inferred) == 0x02014b50 {
+            cdStart = inferred
+        } else if storedCD + 4 <= data.count, u32(data, storedCD) == 0x02014b50 {
+            cdStart = storedCD
+        } else {
+            return false
+        }
+        let prefix = max(0, cdStart - storedCD)
+        var off = cdStart
+        let cdEnd = min(data.count, cdStart + cdSize + 4)
+        var seen = 0
+        while off + 46 <= cdEnd, seen < 512 {
+            if u32(data, off) != 0x02014b50 { break }
+            let flags = u16(data, off + 8)
+            let method = u16(data, off + 10)
+            var compSize = Int(u32(data, off + 20))
+            var uncompSize = Int(u32(data, off + 24))
+            let nameLen = Int(u16(data, off + 28))
+            let extraLen = Int(u16(data, off + 30))
+            let commentLen = Int(u16(data, off + 32))
+            let localOff = Int(u32(data, off + 42)) + prefix
+            let nameStart = off + 46
+            guard nameStart + nameLen <= data.count else { break }
+            let name = String(data: data.subdata(in: nameStart..<(nameStart + nameLen)), encoding: .utf8) ?? ""
+            let extraStart = nameStart + nameLen
+            if extraStart + extraLen <= data.count {
+                Self.applyZip64Sizes(data: data, extraStart: extraStart, extraLen: extraLen, compSize: &compSize, uncompSize: &uncompSize)
+            }
+            _ = flags
+            extract(data: data, localOff: localOff, name: name, method: method, compSize: compSize, uncompSize: uncompSize)
+            off = extraStart + extraLen + commentLen
+            seen += 1
+        }
+        return files["xl/workbook.xml"] != nil || !files.isEmpty
+    }
+
+    private func parseLocalHeaders(_ data: Data) {
         var offset = 0
         let count = data.count
         while offset + 4 <= count, offset < 131_072, u32(data, offset) != 0x04034b50 {
@@ -2504,33 +2555,89 @@ final class ZipArchive {
             }
             let flags = u16(data, offset + 6)
             let method = u16(data, offset + 8)
-            let compSize = Int(u32(data, offset + 18))
-            let uncompSize = Int(u32(data, offset + 22))
+            var compSize = Int(u32(data, offset + 18))
+            var uncompSize = Int(u32(data, offset + 22))
             let nameLen = Int(u16(data, offset + 26))
             let extraLen = Int(u16(data, offset + 28))
             let nameStart = offset + 30
-            guard nameStart + nameLen <= count else { return nil }
+            guard nameStart + nameLen <= count else {
+                offset += 1
+                continue
+            }
             let name = String(data: data.subdata(in: nameStart..<(nameStart + nameLen)), encoding: .utf8) ?? ""
-            let dataStart = nameStart + nameLen + extraLen
+            let extraStart = nameStart + nameLen
+            if extraStart + extraLen <= count {
+                Self.applyZip64Sizes(data: data, extraStart: extraStart, extraLen: extraLen, compSize: &compSize, uncompSize: &uncompSize)
+            }
+            let dataStart = extraStart + extraLen
             if flags & 0x08 != 0, compSize == 0 {
-                return nil
-            }
-            guard dataStart + compSize <= count else { return nil }
-            let payload = data.subdata(in: dataStart..<(dataStart + max(compSize, 0)))
-            if method == 0 {
-                files[name] = payload
-            } else if method == 8 {
-                if let inflated = inflate(payload, uncompressedSize: uncompSize) {
-                    files[name] = inflated
+                var scan = dataStart
+                while scan + 4 <= count {
+                    let next = u32(data, scan)
+                    if next == 0x04034b50 || next == 0x02014b50 || next == 0x08074b50 { break }
+                    scan += 1
+                    if scan - dataStart > 50_000_000 { break }
                 }
+                offset = scan
+                if offset + 4 <= count, u32(data, offset) == 0x08074b50 { offset += 16 }
+                continue
             }
-            offset = dataStart + compSize
+            extract(data: data, localOff: offset, name: name, method: method, compSize: compSize, uncompSize: uncompSize)
+            offset = dataStart + max(compSize, 0)
             if flags & 0x08 != 0 {
                 if offset + 4 <= count, u32(data, offset) == 0x08074b50 { offset += 16 }
                 else { offset += 12 }
             }
         }
-        if files.isEmpty { return nil }
+    }
+
+    private func extract(data: Data, localOff: Int, name: String, method: UInt16, compSize: Int, uncompSize: Int) {
+        guard !name.isEmpty, localOff + 30 <= data.count, u32(data, localOff) == 0x04034b50 else { return }
+        let nameLen = Int(u16(data, localOff + 26))
+        let extraLen = Int(u16(data, localOff + 28))
+        let dataStart = localOff + 30 + nameLen + extraLen
+        let size = max(compSize, 0)
+        guard dataStart + size <= data.count else { return }
+        let payload = data.subdata(in: dataStart..<(dataStart + size))
+        if method == 0 {
+            files[name] = payload
+        } else if method == 8 {
+            if let inflated = inflate(payload, uncompressedSize: uncompSize) {
+                files[name] = inflated
+            }
+        }
+    }
+
+    private static func findEOCD(_ data: Data) -> Int? {
+        guard data.count >= 22 else { return nil }
+        let floor = max(0, data.count - 65_557)
+        var i = data.count - 22
+        while i >= floor {
+            if u32(data, i) == 0x06054b50 { return i }
+            i -= 1
+        }
+        return nil
+    }
+
+    private static func applyZip64Sizes(data: Data, extraStart: Int, extraLen: Int, compSize: inout Int, uncompSize: inout Int) {
+        var cursor = extraStart
+        let end = extraStart + extraLen
+        while cursor + 4 <= end {
+            let headerID = u16(data, cursor)
+            let blockSize = Int(u16(data, cursor + 2))
+            let blockStart = cursor + 4
+            let blockEnd = min(end, blockStart + blockSize)
+            if headerID == 1 {
+                var field = blockStart
+                if uncompSize == 0xFFFFFFFF, field + 8 <= blockEnd {
+                    uncompSize = Int(u64(data, field)); field += 8
+                }
+                if compSize == 0xFFFFFFFF, field + 8 <= blockEnd {
+                    compSize = Int(u64(data, field))
+                }
+            }
+            cursor = blockEnd
+        }
     }
 
     func file(named name: String) -> Data? {
@@ -2657,4 +2764,8 @@ private func u32(_ data: Data, _ offset: Int) -> UInt32 {
         | (UInt32(data[offset + 1]) << 8)
         | (UInt32(data[offset + 2]) << 16)
         | (UInt32(data[offset + 3]) << 24)
+}
+
+private func u64(_ data: Data, _ offset: Int) -> UInt64 {
+    UInt64(u32(data, offset)) | (UInt64(u32(data, offset + 4)) << 32)
 }
