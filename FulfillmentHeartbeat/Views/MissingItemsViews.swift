@@ -38,10 +38,10 @@ struct MissingItemsCategoryFilter: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
 
     private var allOn: Bool { selected.isEmpty }
+    private var compact: Bool { sizeClass != .regular }
     private var columns: Int {
-        if sizeClass != .regular || width < 420 { return 2 }
-        if width < 700 { return 3 }
-        return min(4, MissingItemDept.allCases.count + 1)
+        if compact { return 2 }
+        return Int(ceil(Double(MissingItemDept.allCases.count + 1) / 2.0))
     }
 
     var body: some View {
@@ -54,26 +54,29 @@ struct MissingItemsCategoryFilter: View {
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(AppTheme.textSecondary)
                 Spacer(minLength: 8)
-                if !allOn {
-                    Button("Clear") {
-                        selected = []
-                    }
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(AppTheme.blue)
-                    .buttonStyle(.plain)
+                Button("Clear") {
+                    var txn = Transaction()
+                    txn.animation = nil
+                    withTransaction(txn) { selected = [] }
                 }
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(AppTheme.blue)
+                .buttonStyle(.plain)
+                .opacity(allOn ? 0 : 1)
+                .disabled(allOn)
+                .accessibilityHidden(allOn)
             }
             Text(allOn ? "Tap a department to focus the table. Tap more to add." : "Tap again to remove. Clear to show every department.")
                 .font(.caption)
                 .foregroundStyle(AppTheme.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
             LazyVGrid(
-                columns: Array(repeating: GridItem(.flexible(minimum: 140), spacing: 8), count: columns),
+                columns: Array(repeating: GridItem(.flexible(), spacing: compact ? 8 : 6), count: columns),
                 alignment: .leading,
-                spacing: 8
+                spacing: compact ? 8 : 6
             ) {
                 filterChip(title: "All", subtitle: "Every dept", on: allOn) {
-                    selected = []
+                    apply([])
                 }
                 ForEach(MissingItemDept.allCases) { dept in
                     filterChip(title: dept.short, subtitle: dept.code, on: selected.contains(dept)) {
@@ -91,43 +94,68 @@ struct MissingItemsCategoryFilter: View {
         )
     }
 
+    private func apply(_ next: Set<MissingItemDept>) {
+        var txn = Transaction()
+        txn.animation = nil
+        withTransaction(txn) { selected = next }
+    }
+
     private func toggle(_ dept: MissingItemDept) {
-        if selected.isEmpty {
-            selected = [dept]
+        var next = selected
+        if next.isEmpty {
+            apply([dept])
             return
         }
-        if selected.contains(dept) {
-            selected.remove(dept)
+        if next.contains(dept) {
+            next.remove(dept)
         } else {
-            selected.insert(dept)
+            next.insert(dept)
         }
-        if selected.count == MissingItemDept.allCases.count {
-            selected = []
+        if next.isEmpty || next.count == MissingItemDept.allCases.count {
+            apply([])
+            return
         }
+        apply(next)
     }
 
     private func filterChip(title: String, subtitle: String, on: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.subheadline.weight(.bold))
-                    .foregroundStyle(on ? .white : AppTheme.text)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
-                Text(subtitle)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(on ? Color.white.opacity(0.86) : AppTheme.textSecondary)
-                    .lineLimit(1)
+            Group {
+                if compact {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(title)
+                            .font(.subheadline.weight(.bold))
+                            .foregroundStyle(on ? .white : AppTheme.text)
+                            .lineLimit(1)
+                        Text(subtitle)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(on ? Color.white.opacity(0.86) : AppTheme.textSecondary)
+                            .lineLimit(1)
+                    }
+                } else {
+                    HStack(spacing: 4) {
+                        Text(title)
+                            .font(.subheadline.weight(.bold))
+                            .foregroundStyle(on ? .white : AppTheme.text)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                        Spacer(minLength: 0)
+                        Text(subtitle)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(on ? Color.white.opacity(0.86) : AppTheme.textSecondary)
+                            .lineLimit(1)
+                    }
+                }
             }
-            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, minHeight: compact ? 44 : 36, alignment: .leading)
+            .padding(.horizontal, compact ? 12 : 10)
+            .padding(.vertical, compact ? 8 : 6)
             .background(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: compact ? 12 : 10, style: .continuous)
                     .fill(on ? AppTheme.blue : AppTheme.blueSoft)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: compact ? 12 : 10, style: .continuous)
                     .stroke(on ? AppTheme.blue : AppTheme.cardBorder, lineWidth: 1)
             )
         }

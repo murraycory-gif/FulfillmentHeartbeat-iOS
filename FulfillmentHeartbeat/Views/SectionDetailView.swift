@@ -279,6 +279,7 @@ struct SectionDetailView: View {
             } else if section == .missingItems || section == .preSubOOS {
                 missingItemsStatusTiles
                 MissingItemsCategoryFilter(selected: $miCategories, width: pageWidth)
+                    .animation(nil, value: miCategories)
             } else {
                 LazyVGrid(
                     columns: HubLayout.grid(HubLayout.kpiColumns(width: pageWidth), spacing: 14, minWidth: 150),
