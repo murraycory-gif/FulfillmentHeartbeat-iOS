@@ -60,6 +60,13 @@ enum HeartbeatAssist {
             ]
         case .checklist:
             return []
+        case .sales:
+            return [
+                "Who has the most eComm sales?",
+                "Which stores have the highest AOV?",
+                "What's the HD vs DUG mix?",
+                "Which district is leading sales?",
+            ]
         case .lostRevenue:
             return [
                 "Who is the worst district for lost revenue?",
@@ -995,6 +1002,8 @@ enum HeartbeatAssist {
             switch section {
             case .lostRevenue:
                 return HeartbeatFormat.money(sum(rows, "lost_revenue"))
+            case .sales:
+                return HeartbeatFormat.money(sum(rows, "sales_dollars"))
             case .fiveStar:
                 return HeartbeatFormat.stars(HeartbeatMath.average(rows.compactMap { $0.number("star_rating") }))
             case .pickPath, .pickPathPicker:

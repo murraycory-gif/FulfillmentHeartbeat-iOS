@@ -11,6 +11,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
     case labor = "labor"
     case pickerScorecard = "picker_scorecard"
     case lostRevenue = "lost_revenue"
+    case sales = "sales"
     case missingItems = "missing_items"
     case aisleMapper = "aisle_mapper"
     case preSubOOS = "pre_sub_oos"
@@ -30,6 +31,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .labor: return "Labor"
         case .pickerScorecard: return "Picker ScoreCard"
         case .lostRevenue: return "Loss Revenue"
+        case .sales: return "Sales"
         case .missingItems: return "Missing Items"
         case .aisleMapper: return "Aisle Mapper"
         case .preSubOOS: return "Pre-Sub OOS"
@@ -49,6 +51,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .labor: return "Labor"
         case .pickerScorecard: return "Pickers"
         case .lostRevenue: return "Lost Rev"
+        case .sales: return "Sales"
         case .missingItems: return "MI"
         case .aisleMapper: return "Aisle Map"
         case .preSubOOS: return "Pre-Sub"
@@ -68,6 +71,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .labor: return "Upload LABOR Store View Thru Week.xlsx for store totals. Optional: Total company day file for week and day drill-in. Each upload replaces the last Labor load."
         case .pickerScorecard: return "Shopper-level totals for PPH, Presubs, OOS, pick hours, subs, orders, DUG, OTH eligibility, OTH5, OTT, and refunds."
         case .lostRevenue: return "Total lost revenue opportunity by store. Upload Breakdown Week.xlsx from the Lost Revenue report."
+        case .sales: return "eComm sales, orders, HD, and DUG by store. Upload the Sales ScoreCard export. Tab name in the master file is Sales."
         case .missingItems: return "Share of items without an aisle in store tag subscription data. Upload the department-wise MI export. 5% or less is healthy."
         case .aisleMapper: return "Latest aisle mapper and aisle sequence update by store. Upload the Latest Aisle Mapper and Sequence Update Date By Store export. Dates show on the Pick Path store table."
         case .preSubOOS: return "Pre-substitution OOS% by store and department. Upload Pre Substitution OOS% Division Area Store View. 5% or less is healthy."
@@ -87,6 +91,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .labor: return "STORE_ID · Sch Effi% · Empower Hrs · Sch_Hrs · ActHrs · Earned Hrs · CostTrgt% · ActCost% · Target vs Actual% · Charged Hrs  (or the day file with WEEK_ID · D_DATE)"
         case .pickerScorecard: return "STORE · PICKER · Total Pure PPH · Presub · OOS · Hours · Subs · Orders · DUG · OTH Elig · OTH5 · OTT · Refund"
         case .lostRevenue: return "Store · eComm Sales · Total Lost Revenue (Total Opportunity) · Total Lost Revenue % (Total Opportunity)"
+        case .sales: return "Store · Division · District · Sales $ · Orders · HD Orders · DUG Orders · AOV"
         case .missingItems: return "Division · District · OM · Store · 301 Grocery · 303 Alcohol · 304 Pharmacy · 306 Food Service · 309 Deli · 311 GM/HBC · 314 Dairy · 315 Floral · 316 Bakery · 317 Frozen · 328 Coffee Kiosk · 329 Produce · 330 Seafood · 333 Meat · 336 Bakery Pkgd · Total"
         case .aisleMapper: return "Division · District · OM · Store · Latest Aisle Mapper Update Date · Latest Aisle Sequence Update Date"
         case .preSubOOS: return "STORE_ID · Alcohol · Bakery · Bakery Pkgd · Dairy · Deli · Floral · Food Service · Frozen · GM/HBC · Grocery · Meat · Pharmacy · Produce · Seafood · Total Pre-Sub OOS%"
@@ -105,6 +110,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .labor: return "Labor ScoreCard"
         case .pickerScorecard: return "Picker ScoreCard"
         case .lostRevenue: return "Loss Revenue ScoreCard"
+        case .sales: return "Sales ScoreCard"
         case .missingItems: return "Missing Items ScoreCard"
         case .aisleMapper: return "Aisle Mapper"
         case .preSubOOS: return "Pre-Sub OOS ScoreCard"
@@ -124,6 +130,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .labor: return "dollarsign.circle.fill"
         case .pickerScorecard: return "person.2.fill"
         case .lostRevenue: return "chart.line.downtrend.xyaxis"
+        case .sales: return "cart.fill"
         case .missingItems: return "tag.slash.fill"
         case .aisleMapper: return "map.fill"
         case .preSubOOS: return "cart.badge.minus"
@@ -149,6 +156,8 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
             return URL(string: "https://app.powerbi.com/groups/me/apps/d973ff03-651f-4e52-9e7a-8e5bff14b5e6/reports/5e149f25-b69e-4d6d-83c7-2bea61f951e3/ReportSectioneea6916e080ade11f562?experience=power-bi")
         case .lostRevenue:
             return URL(string: "https://app.powerbi.com/groups/me/apps/d973ff03-651f-4e52-9e7a-8e5bff14b5e6/reports/dac4848e-a28a-4e12-bfbb-b386da90f344/e57401a67b0f2379a0b3?ctid=b7f604a0-00a9-4188-9248-42f3a5aac2e9&experience=power-bi")
+        case .sales:
+            return URL(string: "https://app.powerbi.com/groups/me/apps/f0978345-5d6c-4de3-a8af-fee82058b466/reports/1bcd4b2b-3b1f-4070-81b4-3ba9bc3ddf62/ReportSection1642f46a8648ce60246c?experience=power-bi")
         case .missingItems:
             return URL(string: "https://app.powerbi.com/groups/me/apps/d973ff03-651f-4e52-9e7a-8e5bff14b5e6/reports/47829fe7-c57f-4c65-a557-f35c99a1e851/2a870f3cf2c35df0a38b?ctid=b7f604a0-00a9-4188-9248-42f3a5aac2e9&experience=power-bi")
         case .aisleMapper:
@@ -163,11 +172,11 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
     }
 
     static var dashboardCards: [MetricSection] {
-        [.lostRevenue, .missingItems, .fiveStar, .preSubOOS, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pickerScorecard, .pph, .labor]
+        [.sales, .lostRevenue, .missingItems, .fiveStar, .preSubOOS, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pickerScorecard, .pph, .labor]
     }
 
     static var uploadOrder: [MetricSection] {
-        [.lostRevenue, .missingItems, .fiveStar, .preSubOOS, .pickPath, .pickPathPicker, .aisleMapper, .prepNotReady, .dynacap, .scheduleQuality, .pph, .labor, .pickerScorecard, .preSubOOSItem]
+        [.sales, .lostRevenue, .missingItems, .fiveStar, .preSubOOS, .pickPath, .pickPathPicker, .aisleMapper, .prepNotReady, .dynacap, .scheduleQuality, .pph, .labor, .pickerScorecard, .preSubOOSItem]
     }
 
     static var checklistSections: [MetricSection] {
@@ -458,7 +467,7 @@ struct SectionSummary: Identifiable, Equatable {
         if section == .pickerScorecard {
             return HeartbeatFormat.num(headline)
         }
-        if section == .lostRevenue {
+        if section == .lostRevenue || section == .sales {
             return HeartbeatFormat.money(headline)
         }
         if section == .labor {
@@ -488,13 +497,13 @@ enum HeartbeatMath {
         var cards = dashboardCallouts(summaries)
         if role == .evp {
             cards.removeAll { $0.section == .pickerScorecard }
-            return pinnedCallouts(cards, pin: [.lostRevenue, .fiveStar, .dynacap], restRiskWatch: !storeScoped)
+            return pinnedCallouts(cards, pin: [.sales, .lostRevenue, .fiveStar, .dynacap], restRiskWatch: !storeScoped)
         }
         if role == .director {
-            return pinnedCallouts(cards, pin: [.lostRevenue, .fiveStar, .labor, .dynacap, .pickerScorecard], restRiskWatch: !storeScoped)
+            return pinnedCallouts(cards, pin: [.sales, .lostRevenue, .fiveStar, .labor, .dynacap, .pickerScorecard], restRiskWatch: !storeScoped)
         }
         if role == .districtManager {
-            return pinnedCallouts(cards, pin: [.lostRevenue, .fiveStar, .labor, .dynacap], restRiskWatch: !storeScoped)
+            return pinnedCallouts(cards, pin: [.sales, .lostRevenue, .fiveStar, .labor, .dynacap], restRiskWatch: !storeScoped)
         }
         if storeScoped { return cards }
         guard role?.showsOnlyRiskAndWatch == true else { return cards }
@@ -646,6 +655,8 @@ enum HeartbeatMath {
         switch section {
         case .lostRevenue:
             return HeartbeatFormat.money(rows.compactMap { $0.number("lost_revenue") }.reduce(0, +))
+        case .sales:
+            return HeartbeatFormat.money(rows.compactMap { $0.number("sales_dollars") }.reduce(0, +))
         case .missingItems:
             return HeartbeatFormat.pct(average(rows.compactMap { $0.number(MissingItemDept.totalKey) }))
         case .preSubOOS:
@@ -685,6 +696,8 @@ enum HeartbeatMath {
             return fiveStarActionFlags(rows, includeAll: includeAll)
         case .lostRevenue:
             return lostRevenueActionFlags(rows)
+        case .sales:
+            return salesActionFlags(rows)
         case .missingItems:
             return missingItemsActionFlags(rows)
         case .preSubOOS:
@@ -1201,6 +1214,8 @@ enum HeartbeatMath {
             return pickerHealth(row)
         case .lostRevenue:
             return lostRevenueHealth(row)
+        case .sales:
+            return salesHealth(row)
         case .missingItems:
             return missingItemsHealth(row)
         case .preSubOOS:
@@ -1425,6 +1440,30 @@ enum HeartbeatMath {
                 lastUploadedAt: upload?.uploadedAt,
                 lostRevenuePct: pct
             )
+        case .sales:
+            let dollars = latest.compactMap { $0.number("sales_dollars") }.reduce(0, +)
+            let plan = latest.compactMap { $0.number("sales_plan") }.reduce(0, +)
+            let planPct: Double? = {
+                if let direct = average(latest.compactMap { $0.number("sales_plan_pct") }) { return direct }
+                return plan > 0 ? dollars / plan * 100 : nil
+            }()
+            let yoy = average(latest.compactMap { $0.number("sales_yoy_pct") })
+            let orders = latest.compactMap { $0.number("sales_orders") }.reduce(0, +)
+            let healthValue = salesHealth(planPct: planPct, yoy: yoy)
+            return SectionSummary(
+                section: section,
+                storeCount: latest.count,
+                headline: latest.isEmpty ? nil : dollars,
+                headlineLabel: "eComm sales",
+                secondary: latest.isEmpty
+                    ? "No Sales rows in this filter"
+                    : "\(HeartbeatFormat.num(orders, digits: 0)) orders · AOV \(HeartbeatFormat.money(orders > 0 ? dollars / orders : nil))",
+                health: latest.isEmpty ? .none : (healthValue == .none ? .good : healthValue),
+                watchCount: latest.filter { salesHealth($0) == .watch }.count,
+                riskCount: latest.filter { salesHealth($0) == .risk }.count,
+                lastFilename: upload?.filename,
+                lastUploadedAt: upload?.uploadedAt
+            )
         case .missingItems:
             let headline = average(latest.compactMap { $0.number(MissingItemDept.totalKey) })
             let healthy = latest.filter { missingItemsHealth($0) == .good }.count
@@ -1504,6 +1543,9 @@ enum HeartbeatMath {
     static let laborWatch = 3.0
     static let lostRevenueGood = 3.0
     static let lostRevenueWatch = 5.0
+    static let salesPlanGood = 100.0
+    static let salesPlanWatch = 95.0
+    static let salesYoyWatch = -5.0
     static let missingItemsGoal = 5.0
     static let missingItemsWatch = 6.50
     static let pickPathGoal = 90.0
@@ -1642,6 +1684,18 @@ enum HeartbeatMath {
         let healthy = stores.filter { lostRevenueHealth($0) == .good }.count
         let watch = stores.filter { lostRevenueHealth($0) == .watch }.count
         let risk = stores.filter { lostRevenueHealth($0) == .risk }.count
+        return [
+            FiveStarFlag(name: "Healthy", value: "", health: .good, stores: healthy),
+            FiveStarFlag(name: "Watch", value: "", health: watch == 0 ? .good : .watch, stores: watch),
+            FiveStarFlag(name: "At Risk", value: "", health: risk == 0 ? .good : .risk, stores: risk),
+        ]
+    }
+
+    static func salesActionFlags(_ rows: [MetricRow]) -> [FiveStarFlag] {
+        let stores = rows.filter { !isIgnoredStore($0.storeNumber) && !$0.storeNumber.isEmpty }
+        let healthy = stores.filter { salesHealth($0) == .good }.count
+        let watch = stores.filter { salesHealth($0) == .watch }.count
+        let risk = stores.filter { salesHealth($0) == .risk }.count
         return [
             FiveStarFlag(name: "Healthy", value: "", health: .good, stores: healthy),
             FiveStarFlag(name: "Watch", value: "", health: watch == 0 ? .good : .watch, stores: watch),
@@ -2020,6 +2074,24 @@ enum HeartbeatMath {
         band(pct, good: lostRevenueGood, watch: lostRevenueWatch, invert: true)
     }
 
+    static func salesHealth(_ row: MetricRow) -> Health {
+        let plan = salesHealth(planPct: row.number("sales_plan_pct"), yoy: row.number("sales_yoy_pct"))
+        if plan != .none { return plan }
+        return row.number("sales_dollars") == nil ? .none : .good
+    }
+
+    static func salesHealth(planPct: Double?, yoy: Double?) -> Health {
+        if let planPct {
+            return band(planPct, good: salesPlanGood, watch: salesPlanWatch)
+        }
+        if let yoy {
+            if yoy >= 0 { return .good }
+            if yoy >= salesYoyWatch { return .watch }
+            return .risk
+        }
+        return .none
+    }
+
     static func missingItemsRate(_ row: MetricRow, depts: [MissingItemDept] = []) -> Double? {
         if depts.isEmpty || depts.count == MissingItemDept.allCases.count {
             return row.number(MissingItemDept.totalKey)
@@ -2279,6 +2351,8 @@ enum HeartbeatMath {
             return -pickerComposite(row)
         case .lostRevenue:
             return row.number("lost_revenue") ?? 0
+        case .sales:
+            return row.number("sales_dollars") ?? 0
         case .missingItems, .preSubOOS, .preSubOOSItem:
             return row.number(section == .preSubOOSItem ? "presub_pct" : MissingItemDept.totalKey) ?? 0
         case .aisleMapper:
@@ -2388,6 +2462,8 @@ enum HeartbeatMath {
                 value = pickerComposite(row)
             case .lostRevenue:
                 value = row.number("lost_revenue")
+            case .sales:
+                value = row.number("sales_dollars")
             case .missingItems, .preSubOOS:
                 value = row.number(MissingItemDept.totalKey)
             case .aisleMapper:
@@ -3255,6 +3331,11 @@ struct StoreCellViewModel {
             return StoreCellViewModel(
                 primary: HeartbeatFormat.money(row.number("lost_revenue")),
                 extra: "\(HeartbeatFormat.pct(row.number("lost_revenue_pct"))) of \(HeartbeatFormat.money(row.number("ecomm_sales"))) sales"
+            )
+        case .sales:
+            return StoreCellViewModel(
+                primary: HeartbeatFormat.money(row.number("sales_dollars")),
+                extra: "\(HeartbeatFormat.num(row.number("sales_orders"), digits: 0)) orders · AOV \(HeartbeatFormat.money(row.number("sales_aov")))"
             )
         case .missingItems, .preSubOOS:
             let rate = row.number(MissingItemDept.totalKey)

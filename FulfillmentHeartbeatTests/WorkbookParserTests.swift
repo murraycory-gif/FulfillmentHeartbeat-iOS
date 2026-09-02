@@ -77,6 +77,8 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertEqual(WorkbookParser.section(fromSheetName: "Picker ScorCard"), .pickerScorecard)
         XCTAssertEqual(WorkbookParser.section(fromSheetName: "Path Picker"), .pickPathPicker)
         XCTAssertEqual(WorkbookParser.section(fromSheetName: "Loss Revenue"), .lostRevenue)
+        XCTAssertEqual(WorkbookParser.section(fromSheetName: "Sales"), .sales)
+        XCTAssertEqual(WorkbookParser.section(fromSheetName: "Sales ScoreCard"), .sales)
         XCTAssertEqual(WorkbookParser.section(fromSheetName: "MI"), .missingItems)
         XCTAssertEqual(WorkbookParser.section(fromSheetName: "Missing Items"), .missingItems)
         XCTAssertEqual(WorkbookParser.section(fromSheetName: "Pre-Sub OOS"), .preSubOOS)
@@ -86,6 +88,21 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertEqual(WorkbookParser.section(fromSheetName: "Pre-Sub OOS Item"), .preSubOOSItem)
         XCTAssertEqual(WorkbookParser.section(fromSheetName: "Pre Sub OOS Item"), .preSubOOSItem)
         XCTAssertEqual(WorkbookParser.section(fromSheetName: "Pre-Sub OOS"), .preSubOOS)
+    }
+
+    func testSalesParsesOutlineWeekTotals() {
+        let csv = SampleMarket.templateCSV(for: .sales)
+        let rows = WorkbookParser.parseCSV(csv)
+        XCTAssertEqual(WorkbookParser.classifySheet(name: "Sales", rows: rows), .sales)
+        XCTAssertEqual(Set(rows.map(\.storeNumber)), Set(["1", "606", "3427"]))
+        let jewel = rows.first { $0.storeNumber == "1" }!
+        XCTAssertEqual(jewel.division, "Jewel Osco")
+        XCTAssertEqual(jewel.textPayload["district"], "J1")
+        XCTAssertEqual(jewel.payload["sales_dollars"] ?? 0, 4500, accuracy: 0.5)
+        XCTAssertEqual(jewel.payload["sales_orders"] ?? 0, 50, accuracy: 0.1)
+        XCTAssertEqual(jewel.payload["sales_hd_orders"] ?? 0, 10, accuracy: 0.1)
+        XCTAssertEqual(jewel.payload["sales_dug_orders"] ?? 0, 40, accuracy: 0.1)
+        XCTAssertEqual(jewel.payload["sales_aov"] ?? 0, 90, accuracy: 0.5)
     }
 
     func testPreSubOOSItemParsesBPNRowsAndSkipsTotal() {

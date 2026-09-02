@@ -2305,7 +2305,7 @@ private struct PulseCaches {
 
     static func storeRoster(from rows: [MetricRow]) -> [String: HeartbeatMath.StoreIdentity] {
         let messy: Set<MetricSection> = [
-            .scheduleQuality, .dynacap, .pickerScorecard, .pickPathPicker, .lostRevenue, .preSubOOS
+            .scheduleQuality, .dynacap, .pickerScorecard, .pickPathPicker, .lostRevenue, .sales, .preSubOOS
         ]
         let primary = rows.filter { !messy.contains($0.section) }
         let fallback = rows.filter { messy.contains($0.section) }

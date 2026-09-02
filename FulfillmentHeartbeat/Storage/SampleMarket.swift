@@ -469,6 +469,20 @@ enum SampleMarket {
             Total,,, ,7536605,48582,0.017726681974178,133599,616674.06,0.00644613854646754,247768.28,85017,0.0112805434277105,368905.78
             Applied filters: BPN DESC top 20 by OOS
             """
+        case .sales:
+            return """
+            Week,,,202627,,,,,,,,
+            Weekday,,,1-SUNDAY,,,,Total,,,,
+            Division,District,Store,Sales $,Orders,HD Orders,DUG Orders,Sales $,Orders,HD Orders,DUG Orders
+            Jewel Osco,Total,,10000,100,20,80,10000,100,20,80
+            ,J1,Total,10000,100,20,80,10000,100,20,80
+            ,,1,4500,50,10,40,4500,50,10,40
+            ,,606,5500,50,10,40,5500,50,10,40
+            Haggen,Total,,2100,20,2,18,2100,20,2,18
+            ,39,Total,2100,20,2,18,2100,20,2,18
+            ,,3427,2100,20,2,18,2100,20,2,18
+            Applied filters: ORDER_TYPE is DUG or DELIVERY
+            """
         }
     }
 

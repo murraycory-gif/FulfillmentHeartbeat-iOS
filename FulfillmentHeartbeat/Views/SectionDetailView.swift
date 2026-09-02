@@ -120,6 +120,14 @@ struct SectionDetailView: View {
                         .listRowBackground(AppTheme.bg)
                 }
                 LostRevenueTable(rows: lostRevenueRows)
+            } else if section == .sales {
+                Section {
+                    SalesRollupTable()
+                        .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(AppTheme.bg)
+                }
+                SalesTable(rows: snapshots)
             } else if section == .missingItems || section == .preSubOOS {
                 Section {
                     MissingItemsRollupTable(depts: visibleMIDepts, pageWidth: pageWidth, section: section)
@@ -274,6 +282,8 @@ struct SectionDetailView: View {
 
             if section == .labor {
                 laborStatusTiles
+            } else if section == .sales {
+                salesStatusTiles
             } else if section == .lostRevenue {
                 lostRevenueStatusTiles
             } else if section == .missingItems || section == .preSubOOS {
@@ -392,6 +402,14 @@ struct SectionDetailView: View {
                 ("Lost revenue", HeartbeatFormat.money(dollars)),
                 ("Lost %", HeartbeatFormat.pct(sales > 0 ? dollars / sales * 100 : summary.lostRevenuePct)),
                 ("eComm sales", HeartbeatFormat.money(sales)),
+            ]
+        case .sales:
+            let dollars = rows.compactMap { $0.number("sales_dollars") }.reduce(0, +)
+            let orders = rows.compactMap { $0.number("sales_orders") }.reduce(0, +)
+            return [
+                ("eComm sales", HeartbeatFormat.money(dollars)),
+                ("Orders", HeartbeatFormat.num(orders, digits: 0)),
+                ("AOV", HeartbeatFormat.money(orders > 0 ? dollars / orders : nil)),
             ]
         case .missingItems, .preSubOOS:
             let healthy = rows.filter { HeartbeatMath.missingItemsHealth($0) == .good }.count
@@ -581,6 +599,34 @@ struct SectionDetailView: View {
         }
         callout("Above 2.5%", HeartbeatFormat.num(Double(atRisk)), "At risk stores", atRisk == 0 ? .good : .risk, unit: "stores", selected: prepFocus == .above25) {
             prepFocus = .above25
+        }
+    }
+
+    @ViewBuilder
+    private var salesStatusTiles: some View {
+        let rows = snapshots.filter { !$0.storeNumber.isEmpty }
+        let sales = rows.compactMap { $0.number("sales_dollars") }.reduce(0, +)
+        let orders = rows.compactMap { $0.number("sales_orders") }.reduce(0, +)
+        let hd = rows.compactMap { $0.number("sales_hd_orders") }.reduce(0, +)
+        let dug = rows.compactMap { $0.number("sales_dug_orders") }.reduce(0, +)
+        VStack(spacing: 14) {
+            LazyVGrid(
+                columns: HubLayout.grid(HubLayout.kpiColumns(width: pageWidth, sizeClass: sizeClass), spacing: 14, minWidth: 150),
+                spacing: 14
+            ) {
+                callout("eComm sales", HeartbeatFormat.money(rows.isEmpty ? nil : sales), "In this filter", summary.health)
+                callout("Orders", HeartbeatFormat.num(orders, digits: 0), "DUG + Home Delivery", .none, brand: true)
+                callout("AOV", HeartbeatFormat.money(orders > 0 ? sales / orders : nil), "Sales / orders", .none, brand: true)
+                callout("Stores", HeartbeatFormat.num(Double(rows.count)), "With sales this week", .none)
+            }
+            LazyVGrid(
+                columns: HubLayout.grid(min(3, HubLayout.kpiColumns(width: pageWidth, sizeClass: sizeClass)), spacing: 12, minWidth: 150),
+                spacing: 12
+            ) {
+                callout("HD orders", HeartbeatFormat.num(hd, digits: 0), "Home Delivery", .none)
+                callout("DUG orders", HeartbeatFormat.num(dug, digits: 0), "Drive Up & Go", .none)
+                callout("HD mix", HeartbeatFormat.pct(orders > 0 ? hd / orders * 100 : nil), "Share of orders", .none)
+            }
         }
     }
 

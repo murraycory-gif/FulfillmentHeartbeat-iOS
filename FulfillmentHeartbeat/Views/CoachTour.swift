@@ -54,7 +54,7 @@ enum CoachTour: Equatable {
                 CoachStep(
                     icon: "doc.badge.plus",
                     heading: "Master load",
-                    body: "Pick one .xlsx that has a tab per KPI. Name the sheets Lost Revenue, MI, 5 Star, Pre-Sub OOS, Pre-Sub OOS Item, Pick Path, Path Picker, Aisle Mapper, Prep, Dynacap, Schedule, PPH, Labor, and Picker ScoreCard — or leave the Power BI headers and we map them. Link the file so next week you can reload from the same place."
+                    body: "Pick one .xlsx that has a tab per KPI. Name the sheets Sales, Lost Revenue, MI, 5 Star, Pre-Sub OOS, Pre-Sub OOS Item, Pick Path, Path Picker, Aisle Mapper, Prep, Dynacap, Schedule, PPH, Labor, and Picker ScoreCard — or leave the Power BI headers and we map them. Link the file so next week you can reload from the same place."
                 ),
                 CoachStep(
                     icon: "square.grid.2x2",
@@ -83,6 +83,19 @@ enum CoachTour: Equatable {
                     icon: "arrow.left.arrow.right",
                     heading: "Swipe the scorecards",
                     body: "Swipe left or right to the next page. Upload / Settings is not in the swipe path — use the sidebar for that."
+                ),
+            ]
+        case .sales:
+            return [
+                CoachStep(
+                    icon: "cart.fill",
+                    heading: "Sales callouts",
+                    body: "Tiles show eComm sales, orders, AOV, and HD vs DUG for the current filter. The week in the blue banner is the week from the Sales tab."
+                ),
+                CoachStep(
+                    icon: "tablecells",
+                    heading: "Markets and stores",
+                    body: "Markets or districts roll up first, then every store. Sort any column. Same header filters apply."
                 ),
             ]
         case .lostRevenue:

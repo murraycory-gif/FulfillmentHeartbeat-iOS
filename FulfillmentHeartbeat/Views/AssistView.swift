@@ -184,6 +184,8 @@ struct HeartbeatAssistSheet: View {
         switch router.current {
         case .dashboard:
             return "You're on the dashboard for \(book). I'll name the at-risk KPIs, worst districts, and the stores to work first."
+        case .sales:
+            return "You're on Sales for \(book). I'll rank divisions and stores by Sales $, orders, AOV, and HD vs DUG."
         case .lostRevenue:
             return "You're on Loss Revenue for \(book). I'll break dollars by district, store, and bucket (OOS, refunds, cancels, kill switch)."
         case .missingItems:

@@ -19,6 +19,7 @@ enum PulseMail {
 
     enum SharePage: String, CaseIterable, Identifiable, Hashable, Sendable {
         case dashboard
+        case sales
         case lostRevenue
         case missingItems
         case fiveStar
@@ -36,6 +37,7 @@ enum PulseMail {
         var title: String {
             switch self {
             case .dashboard: return "Dashboard"
+            case .sales: return MetricSection.sales.bannerTitle
             case .lostRevenue: return "Loss Revenue ScoreCard"
             case .missingItems: return MetricSection.missingItems.bannerTitle
             case .fiveStar: return MetricSection.fiveStar.bannerTitle
@@ -53,6 +55,7 @@ enum PulseMail {
         var symbol: String {
             switch self {
             case .dashboard: return "waveform.path.ecg"
+            case .sales: return MetricSection.sales.symbol
             case .lostRevenue: return MetricSection.lostRevenue.symbol
             case .missingItems: return MetricSection.missingItems.symbol
             case .fiveStar: return MetricSection.fiveStar.symbol
@@ -70,6 +73,7 @@ enum PulseMail {
         var section: MetricSection? {
             switch self {
             case .dashboard: return nil
+            case .sales: return .sales
             case .lostRevenue: return .lostRevenue
             case .missingItems: return .missingItems
             case .fiveStar: return .fiveStar
@@ -86,7 +90,7 @@ enum PulseMail {
     }
 
     static let pageOrder: [MetricSection] = [
-        .lostRevenue, .missingItems, .fiveStar, .preSubOOS, .pickPath, .prepNotReady, .dynacap,
+        .sales, .lostRevenue, .missingItems, .fiveStar, .preSubOOS, .pickPath, .prepNotReady, .dynacap,
         .scheduleQuality, .pickerScorecard, .pph, .labor,
     ]
 
@@ -215,6 +219,7 @@ enum PulseMail {
         case .missingItems: flags = HeartbeatMath.missingItemsActionFlags(rows)
         case .preSubOOS: flags = HeartbeatMath.missingItemsActionFlags(rows)
         case .lostRevenue: flags = HeartbeatMath.lostRevenueActionFlags(rows)
+        case .sales: flags = HeartbeatMath.salesActionFlags(rows)
         default:
             return []
         }
@@ -312,6 +317,18 @@ enum PulseMail {
         let scored = rows.filter { !$0.storeNumber.isEmpty }
         var items: [String] = []
         switch section {
+        case .sales:
+            let sales = scored.compactMap { $0.number("sales_dollars") }.reduce(0, +)
+            let orders = scored.compactMap { $0.number("sales_orders") }.reduce(0, +)
+            let hd = scored.compactMap { $0.number("sales_hd_orders") }.reduce(0, +)
+            let dug = scored.compactMap { $0.number("sales_dug_orders") }.reduce(0, +)
+            items = [
+                tile("eComm sales", HeartbeatFormat.money(scored.isEmpty ? nil : sales), "In this filter", summary?.health ?? .none),
+                tile("Orders", HeartbeatFormat.num(orders, digits: 0), "DUG + Home Delivery", .none, brand: true),
+                tile("AOV", HeartbeatFormat.money(orders > 0 ? sales / orders : nil), "Sales / orders", .none, brand: true),
+                tile("HD orders", HeartbeatFormat.num(hd, digits: 0), "Home Delivery", .none),
+                tile("DUG orders", HeartbeatFormat.num(dug, digits: 0), "Drive Up & Go", .none),
+            ]
         case .lostRevenue:
             let healthy = scored.filter { HeartbeatMath.lostRevenueHealth($0) == .good }.count
             let watch = scored.filter { HeartbeatMath.lostRevenueHealth($0) == .watch }.count
@@ -571,6 +588,7 @@ enum PulseMail {
         case .pph: return ["Store", "PPH", "Pickers", "Goal", "Status"]
         case .labor: return ["Store", "Tgt vs Act", "CostTrgt%", "ActCost%", "Sch Effi%", "UPLH", "Wage", "AIV", "Status"]
         case .lostRevenue: return ["Store", "Lost $", "Lost %", "Goal", "Sales", "Post", "Refund", "Missed", "Status"]
+        case .sales: return ["Store", "Sales $", "Orders", "HD", "DUG", "AOV", "Status"]
         case .missingItems, .preSubOOS:
             return ["Store"] + MissingItemDept.allCases.map(\.title) + ["Total", "Status"]
         case .preSubOOSItem:
@@ -636,6 +654,12 @@ enum PulseMail {
             html += cell(HeartbeatFormat.money(row.number("post_sub_oos_foregone")))
             html += cell(HeartbeatFormat.money(row.number("refund_lost", "refund_amt")))
             html += cell(HeartbeatFormat.money(row.number("missed_sales")))
+        case .sales:
+            html += cell(HeartbeatFormat.money(row.number("sales_dollars")))
+            html += cell(HeartbeatFormat.num(row.number("sales_orders"), digits: 0))
+            html += cell(HeartbeatFormat.num(row.number("sales_hd_orders"), digits: 0))
+            html += cell(HeartbeatFormat.num(row.number("sales_dug_orders"), digits: 0))
+            html += cell(HeartbeatFormat.money(row.number("sales_aov")))
         case .missingItems, .preSubOOS:
             for dept in MissingItemDept.allCases {
                 let value = row.number(dept.rawValue)

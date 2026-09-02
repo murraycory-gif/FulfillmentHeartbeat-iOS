@@ -82,6 +82,8 @@ extension HeartbeatMath {
             return diagnosePrep(rowForStore(latest, .prepNotReady, store) ?? row)
         case .dynacap:
             return diagnoseDynacap(row, labor: labor, pph: pph)
+        case .sales:
+            return []
         case .lostRevenue:
             return diagnoseLost(row, pickers: pickers)
         case .missingItems:

@@ -201,6 +201,7 @@ enum WorkbookParser {
             .replacingOccurrences(of: "-", with: " ")
         if name.contains("lost") && name.contains("revenue") { return .lostRevenue }
         if name.contains("loss") && name.contains("revenue") { return .lostRevenue }
+        if name == "sales" || name.hasPrefix("sales ") || name.contains("sales score") { return .sales }
         if (name.contains("pre sub") || name.contains("presub") || name.contains("pre-sub")
             || (name.contains("substitution") && name.contains("oos")))
             && (name.contains("item") || name.contains("bpn")) {
@@ -244,6 +245,7 @@ enum WorkbookParser {
             text.formUnion(row.textPayload.keys)
         }
         if keys.contains("lost_revenue") { return .lostRevenue }
+        if keys.contains("sales_dollars") || keys.contains("sales_plan_pct") || keys.contains("sales_yoy_pct") { return .sales }
         if keys.contains("mi_pct") || keys.contains("mi_grocery") {
             if sample.contains(where: { $0.textPayload["presub_dept"] == "1" }) { return .preSubOOS }
             return .missingItems
@@ -556,6 +558,8 @@ enum WorkbookParser {
             parsed = labor
         } else if let lost = parseLostRevenue(matrix), !lost.isEmpty {
             parsed = lost
+        } else if let sales = parseSales(matrix), !sales.isEmpty {
+            parsed = sales
         } else if let items = parsePreSubOOSItem(matrix), !items.isEmpty {
             parsed = items
         } else if let presub = parsePreSubOOS(matrix), !presub.isEmpty {
@@ -592,6 +596,12 @@ enum WorkbookParser {
     }
 
     static func dataWindow(from matrix: [[String]]) -> String? {
+        if matrix.contains(where: isSalesHeader), let week = salesWeek(from: Array(matrix.prefix(6))), !week.isEmpty {
+            if week.count == 6, let yr = Int(week.prefix(4)), let wk = Int(week.suffix(2)) {
+                return "Week \(wk), \(yr)"
+            }
+            return "Week \(week)"
+        }
         let blob = matrix.suffix(8).flatMap { $0 }.joined(separator: " ")
         let lower = blob.lowercased()
         guard lower.contains("applied filter") else { return nil }
@@ -817,6 +827,101 @@ enum WorkbookParser {
         if lower.contains("kill switch") && (lower.contains("lost sales") || lower.contains("$90")) { return "kill_switch_lost" }
         if lower.contains("kill switch") { return "kill_switch_lost" }
         if lower.contains("reduced capacity") { return "reduced_capacity" }
+        return ""
+    }
+
+    private static func isSalesHeader(_ row: [String]) -> Bool {
+        let names = row.map { $0.lowercased() }
+        let hasDivision = names.contains { $0.contains("division") }
+        let hasStore = names.contains { $0.contains("store") }
+        let hasSales = names.contains { $0.contains("sales") }
+        let hasOrders = names.contains { $0.contains("order") }
+        return hasDivision && hasStore && hasSales && hasOrders
+    }
+
+    private static func parseSales(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {
+        guard let headerIdx = matrix.firstIndex(where: isSalesHeader) else { return nil }
+        let headers = matrix[headerIdx]
+        var divisionIdx: Int?
+        var districtIdx: Int?
+        var storeIdx: Int?
+        var salesIdx: [Int] = []
+        var ordersIdx: [Int] = []
+        var hdIdx: [Int] = []
+        var dugIdx: [Int] = []
+        for (index, raw) in headers.enumerated() {
+            let lower = raw.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+            if lower == "division" { divisionIdx = index; continue }
+            if lower == "district" { districtIdx = index; continue }
+            if lower == "store" || lower == "store_id" || lower == "store id" { storeIdx = index; continue }
+            if lower.contains("sales") { salesIdx.append(index); continue }
+            if lower.contains("hd") { hdIdx.append(index); continue }
+            if lower.contains("dug") { dugIdx.append(index); continue }
+            if lower.contains("order") { ordersIdx.append(index); continue }
+        }
+        guard let storeIdx, !salesIdx.isEmpty else { return nil }
+        let salesCol = salesIdx[salesIdx.count - 1]
+        let ordersCol = ordersIdx.last
+        let hdCol = hdIdx.last
+        let dugCol = dugIdx.last
+        let week = salesWeek(from: Array(matrix.prefix(headerIdx)))
+        var lastDivision = ""
+        var lastDistrict = ""
+        var out: [ParsedWorkbookRow] = []
+        out.reserveCapacity(max(matrix.count - headerIdx, 1))
+        for line in matrix.dropFirst(headerIdx + 1) {
+            if line.allSatisfy({ $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) { continue }
+            let blob = line.joined(separator: " ").lowercased()
+            if blob.contains("applied filter") { continue }
+            func cell(_ index: Int?) -> String {
+                guard let index, index < line.count else { return "" }
+                return line[index].trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            let rawDivision = cell(divisionIdx)
+            let rawDistrict = cell(districtIdx)
+            let rawStore = cell(storeIdx)
+            if !rawDivision.isEmpty { lastDivision = rawDivision }
+            if !rawDistrict.isEmpty { lastDistrict = rawDistrict }
+            if isTotalCell(rawStore) || isTotalCell(rawDivision) { continue }
+            if rawStore.isEmpty { continue }
+            let store = HeartbeatMath.canonicalStore(rawStore)
+            if store.isEmpty || HeartbeatMath.isIgnoredStore(store) { continue }
+            var payload: [String: Double] = [:]
+            if let sales = cellNumber(cell(salesCol)) { payload["sales_dollars"] = sales }
+            if let ordersCol, let orders = cellNumber(cell(ordersCol)) { payload["sales_orders"] = orders }
+            if let hdCol, let hd = cellNumber(cell(hdCol)) { payload["sales_hd_orders"] = hd }
+            if let dugCol, let dug = cellNumber(cell(dugCol)) { payload["sales_dug_orders"] = dug }
+            if let sales = payload["sales_dollars"], let orders = payload["sales_orders"], orders > 0 {
+                payload["sales_aov"] = sales / orders
+            }
+            if payload["sales_dollars"] == nil && payload["sales_orders"] == nil { continue }
+            var text: [String: String] = ["sales_grain": "store"]
+            if !lastDistrict.isEmpty { text["district"] = lastDistrict }
+            if !week.isEmpty { text["sales_week"] = week }
+            out.append(
+                ParsedWorkbookRow(
+                    division: lastDivision,
+                    operationsOM: "",
+                    storeNumber: store,
+                    storeName: nil,
+                    recordedOn: week.isEmpty ? nil : week,
+                    payload: payload,
+                    textPayload: text
+                )
+            )
+        }
+        return out.isEmpty ? nil : out
+    }
+
+    private static func salesWeek(from rows: [[String]]) -> String {
+        for row in rows {
+            for value in row {
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.range(of: #"^20\d{4}$"#, options: .regularExpression) != nil {
+                    return trimmed
+                }
+            }
+        }
         return ""
     }
 
