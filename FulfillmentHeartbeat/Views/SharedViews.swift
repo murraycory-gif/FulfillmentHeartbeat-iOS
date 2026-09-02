@@ -4290,40 +4290,13 @@ struct FiveStarTable: View {
             }
         } else {
             Section {
-                Button {
+                HubStoreCard(count: rows.count, expanded: expanded) {
                     let next = !headerPin.storesExpanded
                     headerPin.storesExpanded = next
                     headerPin.tableOpen = next
                     if !next { headerPin.pinned = false }
                     if next { rebuildOrder(sort: sort, ascending: ascending) }
-                } label: {
-                    HubTableHeader(
-                            icon: "storefront.fill",
-                            title: "Store",
-                            accessory: "\(HeartbeatFormat.num(Double(rows.count))) stores  ·  tap to \(expanded ? "collapse" : "expand")",
-                            expanded: expanded
-                        )
-                }
-                .buttonStyle(.plain)
-                .background(AppTheme.tableFill)
-                .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                        .stroke(AppTheme.blue, lineWidth: 2.5)
-                )
-                .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: expanded ? 4 : 20, trailing: 20))
-                .listRowSeparator(.hidden)
-                .listRowBackground(AppTheme.bg)
-                .onAppear {
-                    headerPin.tableOpen = headerPin.storesExpanded
-                    headerPin.storeCount = rows.count
-                    headerPin.active = sort.key
-                    headerPin.ascending = ascending
-                    headerPin.onSelect = applyHeaderSort
-                }
-            }
-            if expanded {
-                Section {
+                } content: {
                     HubPhonePane(minWidth: 820) {
                         VStack(spacing: 0) {
                             FiveStarMetricHeader(
@@ -4358,12 +4331,18 @@ struct FiveStarTable: View {
                             }
                         }
                     }
-                    .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 8, trailing: 12))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(AppTheme.tableFill)
                 }
-                .transaction { $0.animation = nil }
-                .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
+                .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 20, trailing: 20))
+                .listRowSeparator(.hidden)
+                .listRowBackground(AppTheme.bg)
+                .onAppear {
+                    headerPin.tableOpen = headerPin.storesExpanded
+                    headerPin.storeCount = rows.count
+                    headerPin.active = sort.key
+                    headerPin.ascending = ascending
+                    headerPin.onSelect = applyHeaderSort
+                    if expanded { rebuildOrder(sort: sort, ascending: ascending) }
+                }
                 .onChange(of: store.filterStamp) { _, _ in
                     limit = 50
                     rebuildOrder(sort: sort, ascending: ascending)
@@ -4379,6 +4358,7 @@ struct FiveStarTable: View {
                     headerPin.storeCount = rows.count
                 }
             }
+            .transaction { $0.animation = nil }
         }
     }
 
@@ -6937,9 +6917,17 @@ struct LostRevenueTable: View {
                             }
                         }
                     }
-                    .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 8, trailing: 12))
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 12)
+                    .background(AppTheme.tableFill)
+                    .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                            .stroke(AppTheme.blue, lineWidth: 2.5)
+                    )
+                    .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 20, trailing: 20))
                     .listRowSeparator(.hidden)
-                    .listRowBackground(AppTheme.tableFill)
+                    .listRowBackground(AppTheme.bg)
                 }
                 .transaction { $0.animation = nil }
                 .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
@@ -9468,6 +9456,39 @@ private struct HubPhoneTableModifier: ViewModifier {
                     .frame(minWidth: minWidth, alignment: .topLeading)
             }
         }
+    }
+}
+
+struct HubStoreCard<Content: View>: View {
+    let count: Int
+    var expanded: Bool
+    let toggle: () -> Void
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
+            Button(action: toggle) {
+                HubTableHeader(
+                    icon: "storefront.fill",
+                    title: "Store",
+                    accessory: "\(HeartbeatFormat.num(Double(count))) stores  ·  tap to \(expanded ? "collapse" : "expand")",
+                    expanded: expanded
+                )
+            }
+            .buttonStyle(.plain)
+            if expanded {
+                content
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 12)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppTheme.tableFill)
+        .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                .stroke(AppTheme.blue, lineWidth: 2.5)
+        )
     }
 }
 

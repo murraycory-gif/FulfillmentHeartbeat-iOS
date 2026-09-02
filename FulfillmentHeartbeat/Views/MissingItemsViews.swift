@@ -214,40 +214,13 @@ struct MissingItemsTable: View {
             }
         } else {
             Section {
-                Button {
+                HubStoreCard(count: rows.count, expanded: expanded) {
                     let next = !headerPin.storesExpanded
                     headerPin.storesExpanded = next
                     headerPin.tableOpen = next
                     if !next { headerPin.pinned = false }
                     if next { rebuildOrder(sort: sort, ascending: ascending) }
-                } label: {
-                    HubTableHeader(
-                        icon: "storefront.fill",
-                        title: "Store",
-                        accessory: "\(HeartbeatFormat.num(Double(rows.count))) stores  ·  tap to \(expanded ? "collapse" : "expand")",
-                        expanded: expanded
-                    )
-                }
-                .buttonStyle(.plain)
-                .background(AppTheme.tableFill)
-                .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                        .stroke(AppTheme.blue, lineWidth: 2.5)
-                )
-                .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: expanded ? 4 : 20, trailing: 20))
-                .listRowSeparator(.hidden)
-                .listRowBackground(AppTheme.bg)
-                .onAppear {
-                    headerPin.tableOpen = headerPin.storesExpanded
-                    headerPin.storeCount = rows.count
-                    headerPin.active = sort.key
-                    headerPin.ascending = ascending
-                    headerPin.onSelect = applyHeaderSort
-                }
-            }
-            if expanded {
-                Section {
+                } content: {
                     MissingItemsStoreGrid(
                         snaps: snaps,
                         depts: depts,
@@ -272,12 +245,18 @@ struct MissingItemsTable: View {
                             )
                         }
                     )
-                    .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 16, trailing: 20))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(AppTheme.tableFill)
                 }
-                .transaction { $0.animation = nil }
-                .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
+                .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 20, trailing: 20))
+                .listRowSeparator(.hidden)
+                .listRowBackground(AppTheme.bg)
+                .onAppear {
+                    headerPin.tableOpen = headerPin.storesExpanded
+                    headerPin.storeCount = rows.count
+                    headerPin.active = sort.key
+                    headerPin.ascending = ascending
+                    headerPin.onSelect = applyHeaderSort
+                    if expanded { rebuildOrder(sort: sort, ascending: ascending) }
+                }
                 .onChange(of: store.filterStamp) { _, _ in
                     limit = 80
                     rebuildOrder(sort: sort, ascending: ascending)
@@ -296,6 +275,7 @@ struct MissingItemsTable: View {
                     rebuildOrder(sort: sort, ascending: ascending)
                 }
             }
+            .transaction { $0.animation = nil }
         }
     }
 
