@@ -81,19 +81,19 @@ struct HubBanner: View {
         let compact = sizeClass != .regular
         let bar = HStack(spacing: 10) {
             Image(systemName: icon)
-                .font((compact ? Font.headline : Font.title2).weight(.semibold))
+                .font(.title2.weight(.semibold))
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font((compact ? Font.headline : Font.title2).weight(.bold))
+                    .font(.title2.weight(.bold))
                     .lineLimit(compact ? 2 : 1)
-                    .minimumScaleFactor(0.75)
+                    .minimumScaleFactor(0.8)
                     .fixedSize(horizontal: false, vertical: true)
                 if let accessory, !accessory.isEmpty {
                     Text(accessory)
-                        .font(.caption.weight(.semibold))
+                        .font(.subheadline.weight(.semibold))
                         .opacity(0.9)
                         .lineLimit(compact ? 2 : 1)
-                        .minimumScaleFactor(0.7)
+                        .minimumScaleFactor(0.75)
                 }
             }
             Spacer(minLength: 8)
@@ -859,6 +859,9 @@ struct HubChromePill: View {
     var showsChevron: Bool = true
     var spinning: Bool = false
     let action: () -> Void
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
+    private var compactPills: Bool { sizeClass != .regular }
 
     var body: some View {
         Button(action: action) {
@@ -885,10 +888,10 @@ struct HubChromePill: View {
                         .font(.caption.weight(.bold))
                 }
             }
-            .font(.subheadline.weight(.semibold))
+            .font((compactPills ? Font.caption : Font.subheadline).weight(.semibold))
             .foregroundStyle(.white)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
+            .padding(.horizontal, compactPills ? 10 : 14)
+            .padding(.vertical, compactPills ? 8 : 10)
             .background(AppTheme.blue, in: Capsule(style: .continuous))
         }
         .buttonStyle(.plain)
@@ -927,22 +930,12 @@ struct FilterBar: View {
 
     private var pills: some View {
         HStack(spacing: 8) {
-            if sizeClass == .regular {
-                ForEach(FilterFocus.allCases) { focus in
-                    HubChromePill(
-                        title: pillTitle(for: focus),
-                        symbol: focus.symbol
-                    ) {
-                        openFilters(focus)
-                    }
-                }
-            } else {
+            ForEach(FilterFocus.allCases) { focus in
                 HubChromePill(
-                    title: compactFilterTitle,
-                    symbol: "line.3.horizontal.decrease",
-                    badge: store.filters.isActive ? max(1, store.filters.summaryParts.filter { $0.active }.count) : 0
+                    title: pillTitle(for: focus),
+                    symbol: focus.symbol
                 ) {
-                    openFilters(.region)
+                    openFilters(focus)
                 }
             }
             HubChromePill(
@@ -1453,22 +1446,21 @@ struct StoreTable: View {
             }
         } else {
             Section {
-                ForEach(sortedRows) { row in
-                    storeRow(row)
-                        .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
-                        .listRowBackground(AppTheme.card)
-                }
-            } header: {
-                HStack(spacing: 0) {
-                    ForEach(Column.allCases) { column in
-                        sortHeader(column)
+                HubPhonePane(minWidth: 640) {
+                    VStack(spacing: 0) {
+                        HStack(spacing: 0) {
+                            ForEach(Column.allCases) { column in
+                                sortHeader(column)
+                            }
+                        }
+                        .padding(.vertical, 8)
+                        ForEach(sortedRows) { row in
+                            storeRow(row)
+                        }
                     }
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 8)
-                .background(AppTheme.card)
-                .textCase(nil)
-                .listRowInsets(EdgeInsets())
+                .listRowInsets(EdgeInsets(top: 0, leading: 12, bottom: 0, trailing: 12))
+                .listRowBackground(AppTheme.card)
             }
         }
     }
@@ -4301,52 +4293,43 @@ struct FiveStarTable: View {
             }
             if expanded {
                 Section {
-                    FiveStarMetricHeader(
-                        label: "Store",
-                        showCount: false,
-                        active: sort.key,
-                        ascending: ascending,
-                        onSelect: applyHeaderSort
-                    )
-                    .background(
-                        GeometryReader { geo in
-                            Color.clear.preference(
-                                key: LaborHeaderMinYKey.self,
-                                value: (geo.frame(in: .global).minY / 12).rounded() * 12
+                    HubPhonePane(minWidth: 820) {
+                        VStack(spacing: 0) {
+                            FiveStarMetricHeader(
+                                label: "Store",
+                                showCount: false,
+                                active: sort.key,
+                                ascending: ascending,
+                                onSelect: applyHeaderSort
                             )
+                            ForEach(Array(snaps.prefix(limit))) { snap in
+                                FiveStarStoreRow(
+                                    snap: snap,
+                                    expanded: openStore == snap.storeNumber,
+                                    onToggle: {
+                                        openStore = openStore == snap.storeNumber ? nil : snap.storeNumber
+                                    }
+                                )
+                                .padding(.vertical, 5)
+                            }
+                            if orderedCount > snaps.count {
+                                Button {
+                                    limit += 50
+                                    rebuildOrder(sort: sort, ascending: ascending)
+                                } label: {
+                                    Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(AppTheme.blue)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 12)
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
-                    )
-                    .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
+                    }
+                    .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 8, trailing: 12))
                     .listRowSeparator(.hidden)
                     .listRowBackground(AppTheme.tableFill)
-                    ForEach(Array(snaps.prefix(limit))) { snap in
-                        FiveStarStoreRow(
-                            snap: snap,
-                            expanded: openStore == snap.storeNumber,
-                            onToggle: {
-                                openStore = openStore == snap.storeNumber ? nil : snap.storeNumber
-                            }
-                        )
-                        .listRowInsets(EdgeInsets(top: 5, leading: 20, bottom: 5, trailing: 20))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.tableFill)
-                    }
-                    if orderedCount > snaps.count {
-                        Button {
-                            limit += 50
-                            rebuildOrder(sort: sort, ascending: ascending)
-                        } label: {
-                            Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(AppTheme.blue)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                        }
-                        .buttonStyle(.plain)
-                        .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 16, trailing: 20))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.tableFill)
-                    }
                 }
                 .transaction { $0.animation = nil }
                 .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
@@ -6878,52 +6861,43 @@ struct LostRevenueTable: View {
             }
             if expanded {
                 Section {
-                    LostRevenueMetricHeader(
-                        label: "Store",
-                        showCount: false,
-                        active: sort.key,
-                        ascending: ascending,
-                        onSelect: applyHeaderSort
-                    )
-                    .background(
-                        GeometryReader { geo in
-                            Color.clear.preference(
-                                key: LaborHeaderMinYKey.self,
-                                value: (geo.frame(in: .global).minY / 12).rounded() * 12
+                    HubPhonePane(minWidth: 860) {
+                        VStack(spacing: 0) {
+                            LostRevenueMetricHeader(
+                                label: "Store",
+                                showCount: false,
+                                active: sort.key,
+                                ascending: ascending,
+                                onSelect: applyHeaderSort
                             )
+                            ForEach(Array(snaps.prefix(limit))) { snap in
+                                LostRevenueStoreRow(
+                                    snap: snap,
+                                    expanded: openStore == snap.storeNumber,
+                                    onToggle: {
+                                        openStore = openStore == snap.storeNumber ? nil : snap.storeNumber
+                                    }
+                                )
+                                .padding(.vertical, 5)
+                            }
+                            if orderedCount > snaps.count {
+                                Button {
+                                    limit += 50
+                                    rebuildOrder(sort: sort, ascending: ascending)
+                                } label: {
+                                    Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(AppTheme.blue)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 12)
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
-                    )
-                    .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
+                    }
+                    .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 8, trailing: 12))
                     .listRowSeparator(.hidden)
                     .listRowBackground(AppTheme.tableFill)
-                    ForEach(Array(snaps.prefix(limit))) { snap in
-                        LostRevenueStoreRow(
-                            snap: snap,
-                            expanded: openStore == snap.storeNumber,
-                            onToggle: {
-                                openStore = openStore == snap.storeNumber ? nil : snap.storeNumber
-                            }
-                        )
-                        .listRowInsets(EdgeInsets(top: 5, leading: 20, bottom: 5, trailing: 20))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.tableFill)
-                    }
-                    if orderedCount > snaps.count {
-                        Button {
-                            limit += 50
-                            rebuildOrder(sort: sort, ascending: ascending)
-                        } label: {
-                            Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(AppTheme.blue)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                        }
-                        .buttonStyle(.plain)
-                        .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 16, trailing: 20))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.tableFill)
-                    }
                 }
                 .transaction { $0.animation = nil }
                 .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
@@ -9378,6 +9352,35 @@ extension View {
         self
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(AppTheme.bg.ignoresSafeArea())
+    }
+
+    func hubPhoneTable(minWidth: CGFloat = 780) -> some View {
+        modifier(HubPhoneTableModifier(minWidth: minWidth))
+    }
+}
+
+private struct HubPhoneTableModifier: ViewModifier {
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    var minWidth: CGFloat
+
+    func body(content: Content) -> some View {
+        if sizeClass == .regular {
+            content
+        } else {
+            ScrollView(.horizontal, showsIndicators: true) {
+                content
+                    .frame(minWidth: minWidth, alignment: .topLeading)
+            }
+        }
+    }
+}
+
+struct HubPhonePane<Content: View>: View {
+    var minWidth: CGFloat = 780
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        content.hubPhoneTable(minWidth: minWidth)
     }
 }
 
