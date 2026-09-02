@@ -189,6 +189,17 @@ struct HubTableHeader: View {
         .padding(.vertical, 13)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(AppTheme.blue)
+        .clipShape(
+            UnevenRoundedRectangle(
+                cornerRadii: RectangleCornerRadii(
+                    topLeading: AppTheme.radiusL,
+                    bottomLeading: expanded ? 0 : AppTheme.radiusL,
+                    bottomTrailing: expanded ? 0 : AppTheme.radiusL,
+                    topTrailing: AppTheme.radiusL
+                ),
+                style: .continuous
+            )
+        )
         .contentShape(Rectangle())
     }
 }
@@ -9477,6 +9488,7 @@ struct HubStoreCard<Content: View>: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
         .hubScorecardChrome()
     }
 }
