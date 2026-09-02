@@ -9256,6 +9256,7 @@ struct PickerStoreExpand: View {
 
 struct HubChromeModifier: ViewModifier {
     @EnvironmentObject private var router: HubRouter
+    @EnvironmentObject private var store: HeartbeatStore
     @Environment(\.horizontalSizeClass) private var sizeClass
     var showBack: Bool
     var showsFilters: Bool
@@ -9270,8 +9271,40 @@ struct HubChromeModifier: ViewModifier {
             .toolbar(.hidden, for: .navigationBar)
             .toolbar(removing: .sidebarToggle)
             .safeAreaInset(edge: .top, spacing: 0) {
-                HubBrandBar(showBack: showBack, showsFilters: showsFilters)
+                VStack(spacing: 0) {
+                    HubBrandBar(showBack: showBack, showsFilters: showsFilters)
+                    if sizeClass == .regular {
+                        HubStickyPageBanner(
+                            icon: bannerIcon,
+                            title: bannerTitle,
+                            accessory: router.current == .upload ? nil : store.filters.summary,
+                            trailing: bannerTrailing
+                        )
+                    }
+                }
+                .background(AppTheme.bg)
             }
+    }
+
+    private var bannerIcon: String {
+        router.current == .dashboard ? "waveform.path.ecg" : router.current.symbol
+    }
+
+    private var bannerTitle: String {
+        switch router.current {
+        case .dashboard: return "Operational Heartbeat"
+        case .upload: return "Upload"
+        case .checklist: return "Fulfillment Checklist"
+        default: return router.current.section?.bannerTitle ?? router.current.title
+        }
+    }
+
+    private var bannerTrailing: String? {
+        if router.current == .upload { return nil }
+        if let section = router.current.section {
+            return store.dataWindow(for: section)
+        }
+        return store.sharedDataWindow()
     }
 }
 
@@ -9300,6 +9333,7 @@ struct HubBrandBar: View {
                         FilterBar()
                     }
                 }
+                compactPageBanner
             } else {
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .center, spacing: 12) {
@@ -9335,7 +9369,32 @@ struct HubBrandBar: View {
         }
     }
 
-    private var compact: Bool { sizeClass != .regular }
+    private var compactPageBanner: some View {
+        HubBanner(
+            icon: router.current.symbol,
+            title: compactBannerTitle,
+            accessory: store.filters.summary,
+            trailing: compactBannerWindow,
+            clipped: false
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    private var compactBannerTitle: String {
+        switch router.current {
+        case .dashboard: return "Operational Heartbeat"
+        case .upload: return "Upload"
+        case .checklist: return "Checklist"
+        default: return router.current.title
+        }
+    }
+
+    private var compactBannerWindow: String? {
+        if let section = router.current.section {
+            return store.dataWindow(for: section)
+        }
+        return store.sharedDataWindow()
+    }
 
     private var regularBar: some View {
         ZStack {
@@ -9532,6 +9591,7 @@ struct ChecklistShopperDisclosure: View {
 
 struct FulfillmentChecklistCard: View {
     @EnvironmentObject private var store: HeartbeatStore
+    @Environment(\.horizontalSizeClass) private var sizeClass
     var showsHeader: Bool = true
     var startsExpanded: Bool = false
     @State private var expanded = false
@@ -9565,12 +9625,14 @@ struct FulfillmentChecklistCard: View {
 
     private var pageScroll: some View {
         VStack(spacing: 0) {
-            HubStickyPageBanner(
-                icon: HubDestination.checklist.symbol,
-                title: "Operational Heartbeat Checklist",
-                accessory: "\(store.filters.summary)  ·  \(store.checklistOpenCount) open",
-                trailing: store.sharedDataWindow()
-            )
+            if sizeClass == .regular {
+                HubStickyPageBanner(
+                    icon: HubDestination.checklist.symbol,
+                    title: "Operational Heartbeat Checklist",
+                    accessory: "\(store.filters.summary)  ·  \(store.checklistOpenCount) open",
+                    trailing: store.sharedDataWindow()
+                )
+            }
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 14) {
                     Text("Action items for at-risk and watch metrics in this filter. Work them in order.")

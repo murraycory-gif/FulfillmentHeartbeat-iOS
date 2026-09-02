@@ -3,6 +3,7 @@ import SwiftUI
 struct SectionDetailView: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var router: HubRouter
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @StateObject private var laborHeaderPin = LaborHeaderPin()
     let section: MetricSection
     @State private var pickerFocus: PickerFocus = .all
@@ -27,12 +28,14 @@ struct SectionDetailView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HubStickyPageBanner(
-                icon: section.symbol,
-                title: section.bannerTitle,
-                accessory: store.filters.summary,
-                trailing: store.dataWindow(for: section)
-            )
+            if sizeClass == .regular {
+                HubStickyPageBanner(
+                    icon: section.symbol,
+                    title: section.bannerTitle,
+                    accessory: store.filters.summary,
+                    trailing: store.dataWindow(for: section)
+                )
+            }
             List {
             Section {
                 pageIntro
@@ -607,7 +610,7 @@ struct SectionDetailView: View {
         let post = rows.compactMap { $0.number("post_sub_oos_foregone") }.reduce(0, +)
         VStack(spacing: 14) {
             LazyVGrid(
-                columns: HubLayout.grid(min(4, HubLayout.kpiColumns(width: pageWidth)), spacing: 14, minWidth: 150),
+                columns: HubLayout.grid(pageWidth < 520 ? 1 : min(4, HubLayout.kpiColumns(width: pageWidth)), spacing: 14, minWidth: pageWidth < 520 ? 280 : 150),
                 spacing: 14
             ) {
                 callout("Total lost revenue", HeartbeatFormat.money(dollars), "Total Opportunity", summary.health, selected: lostRevenueFocus == .all) {
@@ -643,7 +646,7 @@ struct SectionDetailView: View {
         let risk = rows.filter { HeartbeatMath.missingItemsHealth($0) == .risk }.count
         VStack(spacing: 14) {
             LazyVGrid(
-                columns: HubLayout.grid(min(4, HubLayout.kpiColumns(width: pageWidth)), spacing: 14, minWidth: 150),
+                columns: HubLayout.grid(pageWidth < 520 ? 1 : min(4, HubLayout.kpiColumns(width: pageWidth)), spacing: 14, minWidth: pageWidth < 520 ? 280 : 150),
                 spacing: 14
             ) {
                 callout(section == .preSubOOS ? "Avg Pre-Sub OOS" : "Avg missing items", summary.headlineText, "5% healthy · 5.01–6.50% watch · over 6.50% at risk", summary.health, selected: missingItemsFocus == .all) {
@@ -793,7 +796,7 @@ struct SectionDetailView: View {
         let aiv = laborRollup("aiv_impact_pct")
         VStack(spacing: 14) {
             LazyVGrid(
-                columns: HubLayout.grid(min(4, HubLayout.kpiColumns(width: pageWidth)), spacing: 14, minWidth: 150),
+                columns: HubLayout.grid(pageWidth < 520 ? 1 : min(4, HubLayout.kpiColumns(width: pageWidth)), spacing: 14, minWidth: pageWidth < 520 ? 280 : 150),
                 spacing: 14
             ) {
                 callout("Target vs Actual", HeartbeatFormat.pct(tva), "0% healthy · 0.01–3% watch · over 3% risk", HeartbeatMath.laborHealth(tva), selected: laborFocus == .all) {
@@ -904,7 +907,7 @@ struct SectionDetailView: View {
         compact: Bool = false,
         action: (() -> Void)? = nil
     ) -> some View {
-        PickerFocusTile(title: title, value: value, detail: detail, health: health, selected: selected, brand: brand, unit: unit, compact: compact, action: action)
+        PickerFocusTile(title: title, value: value, detail: detail, health: health, selected: selected, brand: brand, unit: unit, compact: compact || sizeClass != .regular, action: action)
     }
 
     private func pickerTileDetail(_ focus: PickerFocus) -> String {
@@ -952,22 +955,34 @@ struct PickerFocusTile: View {
                 tile
             }
         }
-        .frame(maxWidth: .infinity, minHeight: compact ? 148 : 176, maxHeight: compact ? 148 : 176)
+        .frame(maxWidth: .infinity, minHeight: compact ? 132 : 176)
     }
 
     private var tile: some View {
-        VStack(alignment: .leading, spacing: compact ? 6 : 10) {
-            HStack(alignment: .center, spacing: compact ? 6 : 8) {
+        VStack(alignment: .leading, spacing: compact ? 8 : 10) {
+            if compact {
                 Text(title)
-                    .font((compact ? Font.headline : Font.title3).weight(.bold))
+                    .font(.headline.weight(.bold))
                     .foregroundStyle(AppTheme.text)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-                    .multilineTextAlignment(.leading)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                if health != .none {
-                    HealthBadge(health: health, prominent: true, compact: compact)
-                        .layoutPriority(1)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack {
+                    if health != .none {
+                        HealthBadge(health: health, prominent: true, compact: true)
+                    }
+                    Spacer(minLength: 0)
+                }
+            } else {
+                HStack(alignment: .center, spacing: 8) {
+                    Text(title)
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(AppTheme.text)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    if health != .none {
+                        HealthBadge(health: health, prominent: true, compact: compact)
+                    }
                 }
             }
             HStack(alignment: .firstTextBaseline, spacing: 8) {
