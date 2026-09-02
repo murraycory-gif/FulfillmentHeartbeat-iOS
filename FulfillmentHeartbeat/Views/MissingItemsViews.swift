@@ -35,10 +35,13 @@ private enum MILayout {
 struct MissingItemsCategoryFilter: View {
     @Binding var selected: Set<MissingItemDept>
     var width: CGFloat = 980
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     private var allOn: Bool { selected.isEmpty }
     private var columns: Int {
-        Int(ceil(Double(MissingItemDept.allCases.count + 1) / 2.0))
+        if sizeClass != .regular || width < 420 { return 2 }
+        if width < 700 { return 3 }
+        return min(4, MissingItemDept.allCases.count + 1)
     }
 
     var body: some View {
@@ -63,10 +66,11 @@ struct MissingItemsCategoryFilter: View {
             Text(allOn ? "Tap a department to focus the table. Tap more to add." : "Tap again to remove. Clear to show every department.")
                 .font(.caption)
                 .foregroundStyle(AppTheme.textTertiary)
+                .fixedSize(horizontal: false, vertical: true)
             LazyVGrid(
-                columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: columns),
+                columns: Array(repeating: GridItem(.flexible(minimum: 140), spacing: 8), count: columns),
                 alignment: .leading,
-                spacing: 6
+                spacing: 8
             ) {
                 filterChip(title: "All", subtitle: "Every dept", on: allOn) {
                     selected = []
@@ -104,27 +108,26 @@ struct MissingItemsCategoryFilter: View {
 
     private func filterChip(title: String, subtitle: String, on: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            HStack(spacing: 4) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.subheadline.weight(.bold))
                     .foregroundStyle(on ? .white : AppTheme.text)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                Spacer(minLength: 0)
+                    .minimumScaleFactor(0.85)
                 Text(subtitle)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(on ? Color.white.opacity(0.86) : AppTheme.textSecondary)
                     .lineLimit(1)
             }
-            .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
             .background(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(on ? AppTheme.blue : AppTheme.blueSoft)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .stroke(on ? AppTheme.blue : AppTheme.cardBorder, lineWidth: 1)
             )
         }
