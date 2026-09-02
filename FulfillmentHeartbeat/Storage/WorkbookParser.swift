@@ -974,6 +974,7 @@ enum WorkbookParser {
         guard !blocks.isEmpty else { return nil }
 
         let weekBlock: SalesBlock = {
+            if let named = blocks.first(where: { $0.label == "Week" }) { return named }
             if let named = blocks.last(where: { $0.label == "Week" }) { return named }
             return blocks[blocks.count - 1]
         }()
@@ -1006,8 +1007,7 @@ enum WorkbookParser {
             if isTotalCell(rawStore) || isTotalCell(rawDivision) { continue }
             if rawStore.isEmpty { continue }
             let store = HeartbeatMath.canonicalStore(rawStore)
-            if store.isEmpty || HeartbeatMath.isIgnoredStore(store) { continue }
-
+            if store.isEmpty { continue }
             var payload: [String: Double] = [:]
             applySalesBlock(weekBlock, line: line, prefix: "sales_", payload: &payload)
             if payload["sales_dollars"] == nil && payload["sales_orders"] == nil { continue }

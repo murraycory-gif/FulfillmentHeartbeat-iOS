@@ -61,7 +61,7 @@ private enum SalesRollupBuilder {
     }
 
     static func source(from rows: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
-        let stores = rows.filter { $0.textPayload["sales_grain"] != "day" && !HeartbeatMath.isIgnoredStore($0.storeNumber) && !$0.storeNumber.isEmpty }
+        let stores = rows.filter { $0.textPayload["sales_grain"] != "day" && !$0.storeNumber.isEmpty }
         return RollupMarketFill.scoped(stores, filters: filters)
     }
 
