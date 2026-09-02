@@ -156,9 +156,6 @@ struct MainHubView: View {
                         .hubChrome(showsFilters: false)
                 }
             }
-                        .hubChrome(showsFilters: false)
-                }
-            }
         }
         .environmentObject(router)
         .environmentObject(coach)
