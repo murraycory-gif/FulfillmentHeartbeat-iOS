@@ -9273,16 +9273,8 @@ struct HubChromeModifier: ViewModifier {
                 content
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .safeAreaInset(edge: .top, spacing: 0) {
-                        VStack(spacing: 0) {
-                            HubBrandBar(showBack: showBack, showsFilters: showsFilters)
-                            HubStickyPageBanner(
-                                icon: bannerIcon,
-                                title: bannerTitle,
-                                accessory: router.current == .upload ? nil : store.filters.summary,
-                                trailing: bannerTrailing
-                            )
-                        }
-                        .background(AppTheme.bg)
+                        HubBrandBar(showBack: showBack, showsFilters: showsFilters)
+                            .background(AppTheme.bg)
                     }
             }
         }
@@ -9292,27 +9284,6 @@ struct HubChromeModifier: ViewModifier {
         .tint(AppTheme.blue)
         .toolbar(.hidden, for: .navigationBar)
         .toolbar(removing: .sidebarToggle)
-    }
-
-    private var bannerIcon: String {
-        router.current == .dashboard ? "waveform.path.ecg" : router.current.symbol
-    }
-
-    private var bannerTitle: String {
-        switch router.current {
-        case .dashboard: return "Operational Heartbeat"
-        case .upload: return "Upload"
-        case .checklist: return "Fulfillment Checklist"
-        default: return router.current.section?.bannerTitle ?? router.current.title
-        }
-    }
-
-    private var bannerTrailing: String? {
-        if router.current == .upload { return nil }
-        if let section = router.current.section {
-            return store.dataWindow(for: section)
-        }
-        return store.sharedDataWindow()
     }
 }
 
