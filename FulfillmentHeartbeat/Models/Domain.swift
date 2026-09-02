@@ -91,7 +91,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .labor: return "STORE_ID · Sch Effi% · Empower Hrs · Sch_Hrs · ActHrs · Earned Hrs · CostTrgt% · ActCost% · Target vs Actual% · Charged Hrs  (or the day file with WEEK_ID · D_DATE)"
         case .pickerScorecard: return "STORE · PICKER · Total Pure PPH · Presub · OOS · Hours · Subs · Orders · DUG · OTH Elig · OTH5 · OTT · Refund"
         case .lostRevenue: return "Store · eComm Sales · Total Lost Revenue (Total Opportunity) · Total Lost Revenue % (Total Opportunity)"
-        case .sales: return "Store · Division · District · Sales $ · Orders · HD Orders · DUG Orders · AOV"
+        case .sales: return "Store · District · Sales $ · Sales YoY % · Orders · AOS · AIV · Items · weekday breakout"
         case .missingItems: return "Division · District · OM · Store · 301 Grocery · 303 Alcohol · 304 Pharmacy · 306 Food Service · 309 Deli · 311 GM/HBC · 314 Dairy · 315 Floral · 316 Bakery · 317 Frozen · 328 Coffee Kiosk · 329 Produce · 330 Seafood · 333 Meat · 336 Bakery Pkgd · Total"
         case .aisleMapper: return "Division · District · OM · Store · Latest Aisle Mapper Update Date · Latest Aisle Sequence Update Date"
         case .preSubOOS: return "STORE_ID · Alcohol · Bakery · Bakery Pkgd · Dairy · Deli · Floral · Food Service · Frozen · GM/HBC · Grocery · Meat · Pharmacy · Produce · Seafood · Total Pre-Sub OOS%"
@@ -1449,6 +1449,9 @@ enum HeartbeatMath {
             }()
             let yoy = average(latest.compactMap { $0.number("sales_yoy_pct") })
             let orders = latest.compactMap { $0.number("sales_orders") }.reduce(0, +)
+            let up = latest.filter { salesHealth($0) == .good }.count
+            let flat = latest.filter { salesHealth($0) == .watch }.count
+            let down = latest.filter { salesHealth($0) == .risk }.count
             let healthValue = salesHealth(planPct: planPct, yoy: yoy)
             return SectionSummary(
                 section: section,
@@ -1457,7 +1460,7 @@ enum HeartbeatMath {
                 headlineLabel: "eComm sales",
                 secondary: latest.isEmpty
                     ? "No Sales rows in this filter"
-                    : "\(HeartbeatFormat.num(orders, digits: 0)) orders · AOV \(HeartbeatFormat.money(orders > 0 ? dollars / orders : nil))",
+                    : "\(up) up · \(flat) flat · \(down) down",
                 health: latest.isEmpty ? .none : (healthValue == .none ? .good : healthValue),
                 watchCount: latest.filter { salesHealth($0) == .watch }.count,
                 riskCount: latest.filter { salesHealth($0) == .risk }.count,
@@ -2075,19 +2078,19 @@ enum HeartbeatMath {
     }
 
     static func salesHealth(_ row: MetricRow) -> Health {
-        let plan = salesHealth(planPct: row.number("sales_plan_pct"), yoy: row.number("sales_yoy_pct"))
-        if plan != .none { return plan }
+        let scored = salesHealth(planPct: row.number("sales_plan_pct"), yoy: row.number("sales_yoy_pct"))
+        if scored != .none { return scored }
         return row.number("sales_dollars") == nil ? .none : .good
     }
 
     static func salesHealth(planPct: Double?, yoy: Double?) -> Health {
+        if let yoy {
+            if yoy > 0.05 { return .good }
+            if yoy >= -0.05 { return .watch }
+            return .risk
+        }
         if let planPct {
             return band(planPct, good: salesPlanGood, watch: salesPlanWatch)
-        }
-        if let yoy {
-            if yoy >= 0 { return .good }
-            if yoy >= salesYoyWatch { return .watch }
-            return .risk
         }
         return .none
     }
@@ -3335,7 +3338,7 @@ struct StoreCellViewModel {
         case .sales:
             return StoreCellViewModel(
                 primary: HeartbeatFormat.money(row.number("sales_dollars")),
-                extra: "\(HeartbeatFormat.num(row.number("sales_orders"), digits: 0)) orders · AOV \(HeartbeatFormat.money(row.number("sales_aov")))"
+                extra: "YoY \(HeartbeatFormat.pct(row.number("sales_yoy_pct"))) · \(HeartbeatFormat.num(row.number("sales_orders"), digits: 0)) orders"
             )
         case .missingItems, .preSubOOS:
             let rate = row.number(MissingItemDept.totalKey)

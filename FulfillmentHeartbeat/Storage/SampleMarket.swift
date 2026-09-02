@@ -471,16 +471,14 @@ enum SampleMarket {
             """
         case .sales:
             return """
-            Week,,,202627,,,,,,,,
-            Weekday,,,1-SUNDAY,,,,Total,,,,
-            Division,District,Store,Sales $,Orders,HD Orders,DUG Orders,Sales $,Orders,HD Orders,DUG Orders
-            Jewel Osco,Total,,10000,100,20,80,10000,100,20,80
-            ,J1,Total,10000,100,20,80,10000,100,20,80
-            ,,1,4500,50,10,40,4500,50,10,40
-            ,,606,5500,50,10,40,5500,50,10,40
-            Haggen,Total,,2100,20,2,18,2100,20,2,18
-            ,39,Total,2100,20,2,18,2100,20,2,18
-            ,,3427,2100,20,2,18,2100,20,2,18
+            Week,,202627,,,,,,,,,,,
+            Weekday,,1-SUNDAY,,,,,Total,,,,,
+            District,Store,Sales $,Sales YoY %,Orders,AOS,AIV,Sales $,Sales YoY %,Orders,AOS,AIV
+            J1,Total,10000,0.10,100,100,4.2,10000,0.10,100,100,4.2
+            ,1,4500,0.12,50,90,4.1,4500,0.12,50,90,4.1
+            ,606,5500,-0.04,50,110,4.3,5500,-0.04,50,110,4.3
+            39,Total,2100,0.00,20,105,3.8,2100,0.00,20,105,3.8
+            ,3427,2100,0.00,20,105,3.8,2100,0.00,20,105,3.8
             Applied filters: ORDER_TYPE is DUG or DELIVERY
             """
         }

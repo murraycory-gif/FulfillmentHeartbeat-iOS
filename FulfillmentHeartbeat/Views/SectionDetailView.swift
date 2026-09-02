@@ -607,25 +607,26 @@ struct SectionDetailView: View {
         let rows = snapshots.filter { !$0.storeNumber.isEmpty }
         let sales = rows.compactMap { $0.number("sales_dollars") }.reduce(0, +)
         let orders = rows.compactMap { $0.number("sales_orders") }.reduce(0, +)
-        let hd = rows.compactMap { $0.number("sales_hd_orders") }.reduce(0, +)
-        let dug = rows.compactMap { $0.number("sales_dug_orders") }.reduce(0, +)
+        let up = rows.filter { HeartbeatMath.salesHealth($0) == .good }.count
+        let flat = rows.filter { HeartbeatMath.salesHealth($0) == .watch }.count
+        let down = rows.filter { HeartbeatMath.salesHealth($0) == .risk }.count
         VStack(spacing: 14) {
             LazyVGrid(
                 columns: HubLayout.grid(HubLayout.kpiColumns(width: pageWidth, sizeClass: sizeClass), spacing: 14, minWidth: 150),
                 spacing: 14
             ) {
                 callout("eComm sales", HeartbeatFormat.money(rows.isEmpty ? nil : sales), "In this filter", summary.health)
-                callout("Orders", HeartbeatFormat.num(orders, digits: 0), "DUG + Home Delivery", .none, brand: true)
-                callout("AOV", HeartbeatFormat.money(orders > 0 ? sales / orders : nil), "Sales / orders", .none, brand: true)
-                callout("Stores", HeartbeatFormat.num(Double(rows.count)), "With sales this week", .none)
+                callout("Healthy", HeartbeatFormat.num(Double(up)), "Sales YoY over 0%", .good, unit: "stores")
+                callout("Watch", HeartbeatFormat.num(Double(flat)), "Flat YoY", flat == 0 ? .good : .watch, unit: "stores")
+                callout("At Risk", HeartbeatFormat.num(Double(down)), "Sales YoY below 0%", down == 0 ? .good : .risk, unit: "stores")
             }
             LazyVGrid(
                 columns: HubLayout.grid(min(3, HubLayout.kpiColumns(width: pageWidth, sizeClass: sizeClass)), spacing: 12, minWidth: 150),
                 spacing: 12
             ) {
-                callout("HD orders", HeartbeatFormat.num(hd, digits: 0), "Home Delivery", .none)
-                callout("DUG orders", HeartbeatFormat.num(dug, digits: 0), "Drive Up & Go", .none)
-                callout("HD mix", HeartbeatFormat.pct(orders > 0 ? hd / orders * 100 : nil), "Share of orders", .none)
+                callout("Orders", HeartbeatFormat.num(orders, digits: 0), "DUG + Home Delivery", .none, brand: true)
+                callout("AOS", HeartbeatFormat.money(orders > 0 ? sales / orders : nil), "Average order size", .none, brand: true)
+                callout("Stores", HeartbeatFormat.num(Double(rows.count)), "With sales this week", .none)
             }
         }
     }

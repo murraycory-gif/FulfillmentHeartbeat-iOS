@@ -588,7 +588,7 @@ enum PulseMail {
         case .pph: return ["Store", "PPH", "Pickers", "Goal", "Status"]
         case .labor: return ["Store", "Tgt vs Act", "CostTrgt%", "ActCost%", "Sch Effi%", "UPLH", "Wage", "AIV", "Status"]
         case .lostRevenue: return ["Store", "Lost $", "Lost %", "Goal", "Sales", "Post", "Refund", "Missed", "Status"]
-        case .sales: return ["Store", "Sales $", "Orders", "HD", "DUG", "AOV", "Status"]
+        case .sales: return ["Store", "Sales $", "YoY %", "Orders", "AOS", "AIV", "Items", "Status"]
         case .missingItems, .preSubOOS:
             return ["Store"] + MissingItemDept.allCases.map(\.title) + ["Total", "Status"]
         case .preSubOOSItem:
@@ -655,11 +655,12 @@ enum PulseMail {
             html += cell(HeartbeatFormat.money(row.number("refund_lost", "refund_amt")))
             html += cell(HeartbeatFormat.money(row.number("missed_sales")))
         case .sales:
-            html += cell(HeartbeatFormat.money(row.number("sales_dollars")))
+            html += cell(HeartbeatFormat.money(row.number("sales_dollars")), HeartbeatMath.salesHealth(row))
+            html += cell(HeartbeatFormat.pct(row.number("sales_yoy_pct")), HeartbeatMath.salesHealth(row))
             html += cell(HeartbeatFormat.num(row.number("sales_orders"), digits: 0))
-            html += cell(HeartbeatFormat.num(row.number("sales_hd_orders"), digits: 0))
-            html += cell(HeartbeatFormat.num(row.number("sales_dug_orders"), digits: 0))
-            html += cell(HeartbeatFormat.money(row.number("sales_aov")))
+            html += cell(HeartbeatFormat.money(row.number("sales_aos") ?? row.number("sales_aov")))
+            html += cell(HeartbeatFormat.num(row.number("sales_aiv"), digits: 2))
+            html += cell(HeartbeatFormat.num(row.number("sales_items"), digits: 0))
         case .missingItems, .preSubOOS:
             for dept in MissingItemDept.allCases {
                 let value = row.number(dept.rawValue)

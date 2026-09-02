@@ -96,13 +96,15 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertEqual(WorkbookParser.classifySheet(name: "Sales", rows: rows), .sales)
         XCTAssertEqual(Set(rows.map(\.storeNumber)), Set(["1", "606", "3427"]))
         let jewel = rows.first { $0.storeNumber == "1" }!
-        XCTAssertEqual(jewel.division, "Jewel Osco")
         XCTAssertEqual(jewel.textPayload["district"], "J1")
         XCTAssertEqual(jewel.payload["sales_dollars"] ?? 0, 4500, accuracy: 0.5)
         XCTAssertEqual(jewel.payload["sales_orders"] ?? 0, 50, accuracy: 0.1)
-        XCTAssertEqual(jewel.payload["sales_hd_orders"] ?? 0, 10, accuracy: 0.1)
-        XCTAssertEqual(jewel.payload["sales_dug_orders"] ?? 0, 40, accuracy: 0.1)
-        XCTAssertEqual(jewel.payload["sales_aov"] ?? 0, 90, accuracy: 0.5)
+        XCTAssertEqual(jewel.payload["sales_yoy_pct"] ?? 0, 12, accuracy: 0.2)
+        XCTAssertEqual(HeartbeatMath.salesHealth(jewel), .good)
+        let down = rows.first { $0.storeNumber == "606" }!
+        XCTAssertEqual(HeartbeatMath.salesHealth(down), .risk)
+        let flat = rows.first { $0.storeNumber == "3427" }!
+        XCTAssertEqual(HeartbeatMath.salesHealth(flat), .watch)
     }
 
     func testPreSubOOSItemParsesBPNRowsAndSkipsTotal() {

@@ -835,11 +835,61 @@ enum WorkbookParser {
 
     private static func isSalesHeader(_ row: [String]) -> Bool {
         let names = row.map { $0.lowercased() }
-        let hasDivision = names.contains { $0.contains("division") }
+        let hasPlace = names.contains { $0.contains("division") || $0.contains("district") }
         let hasStore = names.contains { $0.contains("store") }
         let hasSales = names.contains { $0.contains("sales") }
-        let hasOrders = names.contains { $0.contains("order") }
-        return hasDivision && hasStore && hasSales && hasOrders
+        return hasPlace && hasStore && hasSales
+    }
+
+    private struct SalesBlock {
+        var label: String
+        var sales: Int?
+        var yoy: Int?
+        var orders: Int?
+        var ordersYoy: Int?
+        var aos: Int?
+        var aosYoy: Int?
+        var aiv: Int?
+        var aivYoy: Int?
+        var ipt: Int?
+        var iptYoy: Int?
+        var items: Int?
+        var itemsYoy: Int?
+        var hd: Int?
+        var dug: Int?
+    }
+
+    private static func salesField(_ raw: String) -> String? {
+        let lower = raw.lowercased()
+        if lower.contains("hd") { return "hd" }
+        if lower.contains("dug") { return "dug" }
+        if lower.contains("sales") && (lower.contains("yoy") || lower.contains("%")) { return "yoy" }
+        if lower.contains("sales") { return "sales" }
+        if lower.contains("order") && (lower.contains("yoy") || lower.contains("%")) { return "orders_yoy" }
+        if lower.contains("order") { return "orders" }
+        if lower.contains("aos") && (lower.contains("yoy") || lower.contains("%")) { return "aos_yoy" }
+        if lower.contains("aos") { return "aos" }
+        if (lower.contains("item") && (lower.contains("txn") || lower.contains("p/txn") || lower.contains("p txn")))
+            && (lower.contains("yoy") || lower.contains("%")) { return "ipt_yoy" }
+        if lower.contains("item") && (lower.contains("txn") || lower.contains("p/txn") || lower.contains("p txn")) { return "ipt" }
+        if lower.contains("total item") && (lower.contains("yoy") || lower.contains("%")) { return "items_yoy" }
+        if lower.contains("total item") { return "items" }
+        if lower.contains("aiv") && (lower.contains("yoy") || lower.contains("%")) { return "aiv_yoy" }
+        if lower.contains("aiv") { return "aiv" }
+        return nil
+    }
+
+    private static func salesDayName(_ raw: String) -> String {
+        let lower = raw.lowercased()
+        if lower.contains("sun") { return "Sunday" }
+        if lower.contains("mon") { return "Monday" }
+        if lower.contains("tue") { return "Tuesday" }
+        if lower.contains("wed") { return "Wednesday" }
+        if lower.contains("thu") { return "Thursday" }
+        if lower.contains("fri") { return "Friday" }
+        if lower.contains("sat") { return "Saturday" }
+        if lower.contains("total") || lower.contains("week") { return "Week" }
+        return raw.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static func parseSales(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {
@@ -848,25 +898,68 @@ enum WorkbookParser {
         var divisionIdx: Int?
         var districtIdx: Int?
         var storeIdx: Int?
-        var salesIdx: [Int] = []
-        var ordersIdx: [Int] = []
-        var hdIdx: [Int] = []
-        var dugIdx: [Int] = []
         for (index, raw) in headers.enumerated() {
             let lower = raw.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-            if lower == "division" { divisionIdx = index; continue }
-            if lower == "district" { districtIdx = index; continue }
-            if lower == "store" || lower == "store_id" || lower == "store id" { storeIdx = index; continue }
-            if lower.contains("sales") { salesIdx.append(index); continue }
-            if lower.contains("hd") { hdIdx.append(index); continue }
-            if lower.contains("dug") { dugIdx.append(index); continue }
-            if lower.contains("order") { ordersIdx.append(index); continue }
+            if lower == "division" { divisionIdx = index }
+            if lower == "district" { districtIdx = index }
+            if lower == "store" || lower == "store_id" || lower == "store id" { storeIdx = index }
         }
-        guard let storeIdx, !salesIdx.isEmpty else { return nil }
-        let salesCol = salesIdx[salesIdx.count - 1]
-        let ordersCol = ordersIdx.last
-        let hdCol = hdIdx.last
-        let dugCol = dugIdx.last
+        guard let storeIdx else { return nil }
+
+        var weekdayLabels = Array(repeating: "", count: headers.count)
+        if headerIdx > 0 {
+            let above = matrix[headerIdx - 1]
+            var last = ""
+            for index in 0..<headers.count {
+                let raw = index < above.count ? above[index].trimmingCharacters(in: .whitespacesAndNewlines) : ""
+                if !raw.isEmpty && raw.lowercased() != "weekday" { last = salesDayName(raw) }
+                weekdayLabels[index] = last
+            }
+        }
+
+        var blocks: [SalesBlock] = []
+        var current: SalesBlock?
+        for index in 0..<headers.count {
+            if index == storeIdx || index == divisionIdx || index == districtIdx { continue }
+            guard let field = salesField(headers[index]) else { continue }
+            if field == "sales" {
+                if let current { blocks.append(current) }
+                current = SalesBlock(label: weekdayLabels.indices.contains(index) ? weekdayLabels[index] : "")
+            }
+            guard current != nil else { continue }
+            switch field {
+            case "sales": current?.sales = index
+            case "yoy": current?.yoy = index
+            case "orders": current?.orders = index
+            case "orders_yoy": current?.ordersYoy = index
+            case "aos": current?.aos = index
+            case "aos_yoy": current?.aosYoy = index
+            case "aiv": current?.aiv = index
+            case "aiv_yoy": current?.aivYoy = index
+            case "ipt": current?.ipt = index
+            case "ipt_yoy": current?.iptYoy = index
+            case "items": current?.items = index
+            case "items_yoy": current?.itemsYoy = index
+            case "hd": current?.hd = index
+            case "dug": current?.dug = index
+            default: break
+            }
+        }
+        if let current { blocks.append(current) }
+        guard !blocks.isEmpty else { return nil }
+
+        let weekBlock: SalesBlock = {
+            if let named = blocks.last(where: { $0.label == "Week" }) { return named }
+            return blocks[blocks.count - 1]
+        }()
+        var dayBlocks: [SalesBlock] = []
+        var seen = Set<String>()
+        for block in blocks where block.label != "Week" && !block.label.isEmpty {
+            if seen.contains(block.label) { continue }
+            seen.insert(block.label)
+            dayBlocks.append(block)
+        }
+
         let week = salesWeek(from: Array(matrix.prefix(headerIdx)))
         var lastDivision = ""
         var lastDistrict = ""
@@ -884,23 +977,27 @@ enum WorkbookParser {
             let rawDistrict = cell(districtIdx)
             let rawStore = cell(storeIdx)
             if !rawDivision.isEmpty { lastDivision = rawDivision }
-            if !rawDistrict.isEmpty { lastDistrict = rawDistrict }
+            if !rawDistrict.isEmpty && !isTotalCell(rawDistrict) { lastDistrict = rawDistrict }
             if isTotalCell(rawStore) || isTotalCell(rawDivision) { continue }
             if rawStore.isEmpty { continue }
             let store = HeartbeatMath.canonicalStore(rawStore)
             if store.isEmpty || HeartbeatMath.isIgnoredStore(store) { continue }
+
             var payload: [String: Double] = [:]
-            if let sales = cellNumber(cell(salesCol)) { payload["sales_dollars"] = sales }
-            if let ordersCol, let orders = cellNumber(cell(ordersCol)) { payload["sales_orders"] = orders }
-            if let hdCol, let hd = cellNumber(cell(hdCol)) { payload["sales_hd_orders"] = hd }
-            if let dugCol, let dug = cellNumber(cell(dugCol)) { payload["sales_dug_orders"] = dug }
-            if let sales = payload["sales_dollars"], let orders = payload["sales_orders"], orders > 0 {
+            applySalesBlock(weekBlock, line: line, prefix: "sales_", payload: &payload)
+            if payload["sales_dollars"] == nil && payload["sales_orders"] == nil { continue }
+            if payload["sales_aov"] == nil, let sales = payload["sales_dollars"], let orders = payload["sales_orders"], orders > 0 {
                 payload["sales_aov"] = sales / orders
             }
-            if payload["sales_dollars"] == nil && payload["sales_orders"] == nil { continue }
+            for (offset, block) in dayBlocks.enumerated() {
+                applySalesBlock(block, line: line, prefix: "sales_d\(offset)_", payload: &payload)
+            }
             var text: [String: String] = ["sales_grain": "store"]
             if !lastDistrict.isEmpty { text["district"] = lastDistrict }
             if !week.isEmpty { text["sales_week"] = week }
+            if !dayBlocks.isEmpty {
+                text["sales_days"] = dayBlocks.map(\.label).joined(separator: ",")
+            }
             out.append(
                 ParsedWorkbookRow(
                     division: lastDivision,
@@ -916,7 +1013,45 @@ enum WorkbookParser {
         return out.isEmpty ? nil : out
     }
 
+    private static func applySalesBlock(_ block: SalesBlock, line: [String], prefix: String, payload: inout [String: Double]) {
+        func value(_ index: Int?, scalePct: Bool = false) -> Double? {
+            guard let index, index < line.count else { return nil }
+            guard var number = cellNumber(line[index]) else { return nil }
+            if scalePct, abs(number) <= 5 { number *= 100 }
+            return number
+        }
+        if let sales = value(block.sales) { payload[prefix + "dollars"] = sales }
+        if let yoy = value(block.yoy, scalePct: true) { payload[prefix + "yoy_pct"] = yoy }
+        if let orders = value(block.orders) { payload[prefix + "orders"] = orders }
+        if let ordersYoy = value(block.ordersYoy, scalePct: true) { payload[prefix + "orders_yoy_pct"] = ordersYoy }
+        if let aos = value(block.aos) { payload[prefix + "aos"] = aos }
+        if let aosYoy = value(block.aosYoy, scalePct: true) { payload[prefix + "aos_yoy_pct"] = aosYoy }
+        if let aiv = value(block.aiv) { payload[prefix + "aiv"] = aiv }
+        if let aivYoy = value(block.aivYoy, scalePct: true) { payload[prefix + "aiv_yoy_pct"] = aivYoy }
+        if let ipt = value(block.ipt) { payload[prefix + "ipt"] = ipt }
+        if let iptYoy = value(block.iptYoy, scalePct: true) { payload[prefix + "ipt_yoy_pct"] = iptYoy }
+        if let items = value(block.items) { payload[prefix + "items"] = items }
+        if let itemsYoy = value(block.itemsYoy, scalePct: true) { payload[prefix + "items_yoy_pct"] = itemsYoy }
+        if let hd = value(block.hd) { payload[prefix + "hd_orders"] = hd }
+        if let dug = value(block.dug) { payload[prefix + "dug_orders"] = dug }
+        if payload[prefix + "aos"] != nil {
+            payload[prefix + "aov"] = payload[prefix + "aos"]
+        } else if let sales = payload[prefix + "dollars"], let orders = payload[prefix + "orders"], orders > 0 {
+            payload[prefix + "aov"] = sales / orders
+        }
+    }
+
     private static func salesWeek(from rows: [[String]]) -> String {
+        for row in rows {
+            let joined = row.joined(separator: " ").lowercased()
+            guard joined.contains("week") && !joined.contains("weekday") else { continue }
+            for value in row {
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.range(of: #"^20\d{4}$"#, options: .regularExpression) != nil {
+                    return trimmed
+                }
+            }
+        }
         for row in rows {
             for value in row {
                 let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2462,7 +2597,7 @@ enum WorkbookParser {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty { return nil }
         let cleaned = trimmed.replacingOccurrences(of: "[%$,]", with: "", options: .regularExpression)
-        if let value = Double(cleaned) { return value }
+        if let value = Double(cleaned), value.isFinite { return value }
         return nil
     }
 

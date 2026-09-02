@@ -1,15 +1,58 @@
 import SwiftUI
 
+private struct SalesPack {
+    let sales: Double?
+    let yoy: Double?
+    let orders: Double?
+    let ordersYoy: Double?
+    let aos: Double?
+    let aiv: Double?
+    let items: Double?
+    let ipt: Double?
+    let hd: Double?
+    let dug: Double?
+    let health: Health
+
+    init(_ row: MetricRow, prefix: String = "sales_") {
+        sales = row.number(prefix + "dollars")
+        yoy = row.number(prefix + "yoy_pct")
+        orders = row.number(prefix + "orders")
+        ordersYoy = row.number(prefix + "orders_yoy_pct")
+        aos = row.number(prefix + "aos") ?? row.number(prefix + "aov")
+        aiv = row.number(prefix + "aiv")
+        items = row.number(prefix + "items")
+        ipt = row.number(prefix + "ipt")
+        hd = row.number(prefix + "hd_orders")
+        dug = row.number(prefix + "dug_orders")
+        health = HeartbeatMath.salesHealth(planPct: nil, yoy: yoy)
+    }
+
+    init(rows: [MetricRow]) {
+        let sales = rows.compactMap { $0.number("sales_dollars") }.reduce(0, +)
+        let orders = rows.compactMap { $0.number("sales_orders") }.reduce(0, +)
+        let items = rows.compactMap { $0.number("sales_items") }.reduce(0, +)
+        let hd = rows.compactMap { $0.number("sales_hd_orders") }.reduce(0, +)
+        let dug = rows.compactMap { $0.number("sales_dug_orders") }.reduce(0, +)
+        let yoyWeight = rows.reduce(0.0) { $0 + (($1.number("sales_yoy_pct") ?? 0) * ($1.number("sales_dollars") ?? 0)) }
+        self.sales = sales
+        self.orders = orders
+        self.items = items
+        self.hd = hd
+        self.dug = dug
+        self.yoy = sales > 0 ? yoyWeight / sales : HeartbeatMath.average(rows.compactMap { $0.number("sales_yoy_pct") })
+        self.aos = orders > 0 ? sales / orders : HeartbeatMath.average(rows.compactMap { $0.number("sales_aos") ?? $0.number("sales_aov") })
+        self.aiv = HeartbeatMath.average(rows.compactMap { $0.number("sales_aiv") })
+        self.ipt = HeartbeatMath.average(rows.compactMap { $0.number("sales_ipt") })
+        self.ordersYoy = HeartbeatMath.average(rows.compactMap { $0.number("sales_orders_yoy_pct") })
+        self.health = HeartbeatMath.salesHealth(planPct: nil, yoy: yoy)
+    }
+}
+
 private struct SalesRollupRow: Identifiable {
     var id: String { label }
     let label: String
     let storeCount: Int
-    let sales: Double?
-    let orders: Double?
-    let hd: Double?
-    let dug: Double?
-    let aov: Double?
-    let health: Health
+    let pack: SalesPack
 }
 
 private enum SalesRollupBuilder {
@@ -18,7 +61,7 @@ private enum SalesRollupBuilder {
     }
 
     static func source(from rows: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
-        let stores = rows.filter { !HeartbeatMath.isIgnoredStore($0.storeNumber) && !$0.storeNumber.isEmpty }
+        let stores = rows.filter { $0.textPayload["sales_grain"] != "day" && !HeartbeatMath.isIgnoredStore($0.storeNumber) && !$0.storeNumber.isEmpty }
         return RollupMarketFill.scoped(stores, filters: filters)
     }
 
@@ -27,33 +70,16 @@ private enum SalesRollupBuilder {
         for row in stores {
             let key: String
             switch grain {
-            case .division:
-                key = RollupMarketFill.divisionKey(row.division)
-            case .district:
-                key = RollupMarketFill.districtKey(row.district)
-            case .store:
-                key = HeartbeatMath.canonicalStore(row.storeNumber)
+            case .division: key = RollupMarketFill.divisionKey(row.division)
+            case .district: key = RollupMarketFill.districtKey(row.district)
+            case .store: key = HeartbeatMath.canonicalStore(row.storeNumber)
             }
             guard !key.isEmpty else { continue }
             buckets[key, default: []].append(row)
         }
-        return buckets.keys.sorted().compactMap { key in
-            let pack = buckets[key] ?? []
-            guard !pack.isEmpty else { return nil }
-            let sales = pack.compactMap { $0.number("sales_dollars") }.reduce(0, +)
-            let orders = pack.compactMap { $0.number("sales_orders") }.reduce(0, +)
-            let hd = pack.compactMap { $0.number("sales_hd_orders") }.reduce(0, +)
-            let dug = pack.compactMap { $0.number("sales_dug_orders") }.reduce(0, +)
-            return SalesRollupRow(
-                label: key,
-                storeCount: Set(pack.map(\.storeNumber)).count,
-                sales: sales,
-                orders: orders,
-                hd: hd,
-                dug: dug,
-                aov: orders > 0 ? sales / orders : nil,
-                health: sales > 0 ? .good : .none
-            )
+        return buckets.keys.sorted().map { key in
+            let packRows = buckets[key] ?? []
+            return SalesRollupRow(label: key, storeCount: Set(packRows.map(\.storeNumber)).count, pack: SalesPack(rows: packRows))
         }
     }
 }
@@ -74,10 +100,13 @@ struct SalesMetricHeader: View {
                     .frame(width: 58, alignment: .trailing)
             }
             head("Sales $", key: "sales")
+            head("YoY %", key: "yoy")
             head("Orders", key: "orders")
-            head("HD", key: "hd")
-            head("DUG", key: "dug")
-            head("AOV", key: "aov")
+            head("Ord YoY", key: "ordersYoy")
+            head("AOS", key: "aos")
+            head("AIV", key: "aiv")
+            head("Items/Txn", key: "ipt")
+            head("Items", key: "items")
             head("Status", key: "status", alignment: .trailing)
                 .frame(width: 88, alignment: .trailing)
         }
@@ -117,42 +146,50 @@ struct SalesMetricHeader: View {
 private struct SalesMetricLine: View {
     let label: String
     var count: Int? = nil
-    let sales: Double?
-    let orders: Double?
-    let hd: Double?
-    let dug: Double?
-    let aov: Double?
+    let pack: SalesPack
+    var showsChevron: Bool = false
+    var expanded: Bool = false
 
     var body: some View {
-        let health: Health = (sales ?? 0) > 0 ? .good : .none
         HStack(spacing: 6) {
-            Text(label)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(AppTheme.text)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            HStack(spacing: 6) {
+                if showsChevron {
+                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(AppTheme.blue)
+                        .frame(width: 12)
+                }
+                Text(label)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(AppTheme.text)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
                     .font(.subheadline.weight(.semibold).monospacedDigit())
                     .foregroundStyle(AppTheme.textSecondary)
                     .frame(width: 58, alignment: .trailing)
             }
-            cell(HeartbeatFormat.money(sales), health)
-            cell(HeartbeatFormat.num(orders, digits: 0), .none)
-            cell(HeartbeatFormat.num(hd, digits: 0), .none)
-            cell(HeartbeatFormat.num(dug, digits: 0), .none)
-            cell(HeartbeatFormat.money(aov), .none, brand: true)
-            HealthBadge(health: health, prominent: true, compact: true)
+            cell(HeartbeatFormat.money(pack.sales), pack.health)
+            cell(HeartbeatFormat.pct(pack.yoy), pack.health)
+            cell(HeartbeatFormat.num(pack.orders, digits: 0), .none)
+            cell(HeartbeatFormat.pct(pack.ordersYoy), .none)
+            cell(HeartbeatFormat.money(pack.aos), .none, brand: true)
+            cell(HeartbeatFormat.num(pack.aiv, digits: 2), .none)
+            cell(HeartbeatFormat.num(pack.ipt, digits: 1), .none)
+            cell(HeartbeatFormat.num(pack.items, digits: 0), .none)
+            HealthBadge(health: pack.health == .none && (pack.sales ?? 0) > 0 ? .good : pack.health, prominent: true, compact: true)
                 .frame(width: 88, alignment: .trailing)
         }
-        .tableRowCard(health: health)
+        .tableRowCard(health: pack.health)
     }
 
     private func cell(_ value: String, _ health: Health, brand: Bool = false) -> some View {
         Text(value)
             .font(.subheadline.weight(.bold).monospacedDigit())
-            .foregroundStyle(brand ? AppTheme.blue : AppTheme.text)
+            .foregroundStyle(brand ? AppTheme.blue : ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
             .frame(maxWidth: .infinity, alignment: .trailing)
@@ -160,8 +197,26 @@ private struct SalesMetricLine: View {
             .padding(.horizontal, 6)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(brand ? AppTheme.blueSoft : Color.clear)
+                    .fill(brand ? AppTheme.blueSoft : wash(health))
             )
+    }
+
+    private func ink(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.text
+        }
+    }
+
+    private func wash(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.okSoft
+        case .watch: return AppTheme.warnSoft
+        case .risk: return AppTheme.badSoft
+        case .none: return Color.clear
+        }
     }
 }
 
@@ -170,7 +225,7 @@ struct SalesRollupTable: View {
     @EnvironmentObject private var headerPin: LaborHeaderPin
     @State private var grain: LaborRollupGrain? = .division
     @State private var summary: [SalesRollupRow] = []
-    @State private var sortKey = "sales"
+    @State private var sortKey = "yoy"
     @State private var sortAscending = false
 
     private var expanded: Bool { headerPin.rollupExpanded }
@@ -204,11 +259,7 @@ struct SalesRollupTable: View {
                                     SalesMetricLine(
                                         label: row.label,
                                         count: grain == .store ? nil : row.storeCount,
-                                        sales: row.sales,
-                                        orders: row.orders,
-                                        hd: row.hd,
-                                        dug: row.dug,
-                                        aov: row.aov
+                                        pack: row.pack
                                     )
                                 }
                             }
@@ -237,19 +288,20 @@ struct SalesRollupTable: View {
         let next = SalesRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
-        let source = SalesRollupBuilder.source(from: store.allLatest(for: .sales), filters: store.filters)
-        var rows = SalesRollupBuilder.rows(from: source, grain: next)
+        var rows = SalesRollupBuilder.rows(from: SalesRollupBuilder.source(from: store.allLatest(for: .sales), filters: store.filters), grain: next)
         rows.sort { lhs, rhs in
             let result: ComparisonResult
             switch sortKey {
             case "label": result = RollupColumnSort.label(lhs.label, rhs.label)
             case "count": result = RollupColumnSort.count(lhs.storeCount, rhs.storeCount)
-            case "orders": result = RollupColumnSort.number(lhs.orders, rhs.orders)
-            case "hd": result = RollupColumnSort.number(lhs.hd, rhs.hd)
-            case "dug": result = RollupColumnSort.number(lhs.dug, rhs.dug)
-            case "aov": result = RollupColumnSort.number(lhs.aov, rhs.aov)
-            case "status": result = RollupColumnSort.health(lhs.health, rhs.health)
-            default: result = RollupColumnSort.number(lhs.sales, rhs.sales)
+            case "orders": result = RollupColumnSort.number(lhs.pack.orders, rhs.pack.orders)
+            case "ordersYoy": result = RollupColumnSort.number(lhs.pack.ordersYoy, rhs.pack.ordersYoy)
+            case "aos": result = RollupColumnSort.number(lhs.pack.aos, rhs.pack.aos)
+            case "aiv": result = RollupColumnSort.number(lhs.pack.aiv, rhs.pack.aiv)
+            case "ipt": result = RollupColumnSort.number(lhs.pack.ipt, rhs.pack.ipt)
+            case "items": result = RollupColumnSort.number(lhs.pack.items, rhs.pack.items)
+            case "status", "yoy": result = RollupColumnSort.number(lhs.pack.yoy, rhs.pack.yoy)
+            default: result = RollupColumnSort.number(lhs.pack.sales, rhs.pack.sales)
             }
             return RollupColumnSort.ordered(result, ascending: sortAscending)
         }
@@ -261,22 +313,24 @@ private struct SalesLineSnap: Identifiable {
     let id: String
     let storeNumber: String
     let label: String
-    let sales: Double?
-    let orders: Double?
-    let hd: Double?
-    let dug: Double?
-    let aov: Double?
+    let pack: SalesPack
+    let days: [(name: String, pack: SalesPack)]
 
     init(_ row: MetricRow) {
         storeNumber = row.storeNumber
         id = row.storeNumber
-        let name = row.storeName.map { "\(row.storeNumber) | \($0)" } ?? row.storeNumber
-        label = row.division.isEmpty ? name : "\(name) | \(row.division)"
-        sales = row.number("sales_dollars")
-        orders = row.number("sales_orders")
-        hd = row.number("sales_hd_orders")
-        dug = row.number("sales_dug_orders")
-        aov = row.number("sales_aov")
+        let place = row.district.isEmpty ? row.division : row.district
+        label = place.isEmpty ? row.storeNumber : "\(row.storeNumber) | \(place)"
+        pack = SalesPack(row)
+        let names = (row.textPayload["sales_days"] ?? "")
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && $0 != "Week" }
+        days = names.enumerated().compactMap { index, name in
+            let day = SalesPack(row, prefix: "sales_d\(index)_")
+            guard day.sales != nil || day.orders != nil else { return nil }
+            return (name, day)
+        }
     }
 }
 
@@ -284,9 +338,10 @@ struct SalesTable: View {
     @EnvironmentObject private var headerPin: LaborHeaderPin
     @EnvironmentObject private var store: HeartbeatStore
     let rows: [MetricRow]
-    @State private var sortKey = "sales"
-    @State private var sortAscending = false
+    @State private var sortKey = "yoy"
+    @State private var sortAscending = true
     @State private var snaps: [SalesLineSnap] = []
+    @State private var openStore: String?
     @State private var limit = 50
     @State private var orderedCount = 0
 
@@ -313,37 +368,51 @@ struct SalesTable: View {
                     if !next { headerPin.pinned = false }
                     if next { rebuild() }
                 } content: {
-                    VStack(spacing: 0) {
-                        SalesMetricHeader(
-                            label: "Store",
-                            showCount: false,
-                            active: sortKey,
-                            ascending: sortAscending,
-                            onSelect: applySort
-                        )
-                        ForEach(Array(snaps.prefix(limit))) { snap in
-                            SalesMetricLine(
-                                label: snap.label,
-                                sales: snap.sales,
-                                orders: snap.orders,
-                                hd: snap.hd,
-                                dug: snap.dug,
-                                aov: snap.aov
+                    HubAdaptiveHScroll {
+                        VStack(spacing: 0) {
+                            SalesMetricHeader(
+                                label: "Store",
+                                showCount: false,
+                                active: sortKey,
+                                ascending: sortAscending,
+                                onSelect: applySort
                             )
-                            .padding(.vertical, 5)
-                        }
-                        if orderedCount > snaps.count {
-                            Button {
-                                limit += 50
-                                rebuild()
-                            } label: {
-                                Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(AppTheme.blue)
-                                    .frame(maxWidth: .infinity)
-                                    .padding(.vertical, 12)
+                            ForEach(Array(snaps.prefix(limit))) { snap in
+                                let open = openStore == snap.storeNumber
+                                Button {
+                                    openStore = open ? nil : snap.storeNumber
+                                } label: {
+                                    VStack(alignment: .leading, spacing: 6) {
+                                        SalesMetricLine(
+                                            label: snap.label,
+                                            pack: snap.pack,
+                                            showsChevron: !snap.days.isEmpty,
+                                            expanded: open
+                                        )
+                                        if open {
+                                            ForEach(Array(snap.days.enumerated()), id: \.offset) { _, day in
+                                                SalesMetricLine(label: day.name, pack: day.pack)
+                                                    .padding(.leading, 18)
+                                            }
+                                        }
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                                .padding(.vertical, 5)
                             }
-                            .buttonStyle(.plain)
+                            if orderedCount > snaps.prefix(limit).count {
+                                Button {
+                                    limit += 50
+                                    rebuild()
+                                } label: {
+                                    Text("Show more · \(HeartbeatFormat.num(Double(min(limit, orderedCount)))) of \(HeartbeatFormat.num(Double(orderedCount)))")
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(AppTheme.blue)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 12)
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
                     }
                 }
@@ -366,7 +435,7 @@ struct SalesTable: View {
     }
 
     private func applySort(_ key: String) {
-        if sortKey == key { sortAscending.toggle() } else { sortKey = key; sortAscending = key == "label" }
+        if sortKey == key { sortAscending.toggle() } else { sortKey = key; sortAscending = key == "label" || key == "yoy" }
         headerPin.active = sortKey
         headerPin.ascending = sortAscending
         rebuild()
@@ -378,11 +447,14 @@ struct SalesTable: View {
             let result: ComparisonResult
             switch sortKey {
             case "label": result = RollupColumnSort.label(lhs.label, rhs.label)
-            case "orders": result = RollupColumnSort.number(lhs.orders, rhs.orders)
-            case "hd": result = RollupColumnSort.number(lhs.hd, rhs.hd)
-            case "dug": result = RollupColumnSort.number(lhs.dug, rhs.dug)
-            case "aov": result = RollupColumnSort.number(lhs.aov, rhs.aov)
-            default: result = RollupColumnSort.number(lhs.sales, rhs.sales)
+            case "orders": result = RollupColumnSort.number(lhs.pack.orders, rhs.pack.orders)
+            case "ordersYoy": result = RollupColumnSort.number(lhs.pack.ordersYoy, rhs.pack.ordersYoy)
+            case "aos": result = RollupColumnSort.number(lhs.pack.aos, rhs.pack.aos)
+            case "aiv": result = RollupColumnSort.number(lhs.pack.aiv, rhs.pack.aiv)
+            case "ipt": result = RollupColumnSort.number(lhs.pack.ipt, rhs.pack.ipt)
+            case "items": result = RollupColumnSort.number(lhs.pack.items, rhs.pack.items)
+            case "status", "yoy": result = RollupColumnSort.number(lhs.pack.yoy, rhs.pack.yoy)
+            default: result = RollupColumnSort.number(lhs.pack.sales, rhs.pack.sales)
             }
             return RollupColumnSort.ordered(result, ascending: sortAscending)
         }
