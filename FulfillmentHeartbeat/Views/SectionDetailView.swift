@@ -1094,13 +1094,3 @@ private struct CalloutLiftStyle: ButtonStyle {
         .environmentObject(HeartbeatStore())
         .environmentObject(HubRouter())
 }
-ressed ? 0.988 : 1)
-            .animation(.easeOut(duration: 0.16), value: configuration.isPressed)
-    }
-}
-
-#Preview {
-    SectionDetailView(section: .fiveStar)
-        .environmentObject(HeartbeatStore())
-        .environmentObject(HubRouter())
-}
