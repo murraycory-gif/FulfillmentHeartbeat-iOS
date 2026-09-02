@@ -1444,7 +1444,7 @@ final class HeartbeatStore: ObservableObject {
                 latest[section] = HeartbeatMath.materializePickPath(sectionRows, roster: roster)
             } else if section == .preSubOOSItem {
                 latest[section] = HeartbeatMath.applyRoster(sectionRows, roster: roster)
-            } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady || section == .pph || section == .lostRevenue || section == .missingItems || section == .preSubOOS {
+            } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady || section == .pph || section == .lostRevenue || section == .missingItems || section == .preSubOOS || section == .sales {
                 let source = section == .lostRevenue
                     ? sectionRows.filter { $0.textPayload["lost_grain"] != "market" }
                     : sectionRows
@@ -2020,7 +2020,7 @@ private struct PulseCaches {
                 latest[section] = HeartbeatMath.materializePickPath(sectionRows, roster: roster)
             } else if section == .preSubOOSItem {
                 latest[section] = HeartbeatMath.applyRoster(sectionRows, roster: roster)
-            } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady || section == .pph || section == .lostRevenue || section == .missingItems || section == .preSubOOS {
+            } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady || section == .pph || section == .lostRevenue || section == .missingItems || section == .preSubOOS || section == .sales {
                 let source = section == .lostRevenue
                     ? sectionRows.filter { $0.textPayload["lost_grain"] != "market" }
                     : sectionRows

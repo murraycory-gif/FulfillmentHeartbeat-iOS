@@ -907,45 +907,70 @@ enum WorkbookParser {
         guard let storeIdx else { return nil }
 
         var weekdayLabels = Array(repeating: "", count: headers.count)
-        if headerIdx > 0 {
-            let above = matrix[headerIdx - 1]
+        let lookback = matrix[max(0, headerIdx - 3)..<headerIdx]
+        for above in lookback.reversed() {
+            if !above.contains(where: { $0.lowercased().contains("sun") || $0.lowercased().contains("weekday") || $0.lowercased().contains("monday") }) {
+                continue
+            }
             var last = ""
             for index in 0..<headers.count {
                 let raw = index < above.count ? above[index].trimmingCharacters(in: .whitespacesAndNewlines) : ""
                 if !raw.isEmpty && raw.lowercased() != "weekday" { last = salesDayName(raw) }
                 weekdayLabels[index] = last
             }
+            break
         }
 
         var blocks: [SalesBlock] = []
-        var current: SalesBlock?
+        var starts: [Int] = []
         for index in 0..<headers.count {
             if index == storeIdx || index == divisionIdx || index == districtIdx { continue }
-            guard let field = salesField(headers[index]) else { continue }
-            if field == "sales" {
-                if let current { blocks.append(current) }
-                current = SalesBlock(label: weekdayLabels.indices.contains(index) ? weekdayLabels[index] : "")
-            }
-            guard current != nil else { continue }
-            switch field {
-            case "sales": current?.sales = index
-            case "yoy": current?.yoy = index
-            case "orders": current?.orders = index
-            case "orders_yoy": current?.ordersYoy = index
-            case "aos": current?.aos = index
-            case "aos_yoy": current?.aosYoy = index
-            case "aiv": current?.aiv = index
-            case "aiv_yoy": current?.aivYoy = index
-            case "ipt": current?.ipt = index
-            case "ipt_yoy": current?.iptYoy = index
-            case "items": current?.items = index
-            case "items_yoy": current?.itemsYoy = index
-            case "hd": current?.hd = index
-            case "dug": current?.dug = index
-            default: break
-            }
+            if salesField(headers[index]) == "sales" { starts.append(index) }
         }
-        if let current { blocks.append(current) }
+        if starts.isEmpty {
+            let firstMetric = max(storeIdx, divisionIdx ?? -1, districtIdx ?? -1) + 1
+            if firstMetric < headers.count { starts = [firstMetric] }
+        }
+        for (offset, start) in starts.enumerated() {
+            let end = offset + 1 < starts.count ? starts[offset + 1] : headers.count
+            var block = SalesBlock(label: weekdayLabels.indices.contains(start) ? weekdayLabels[start] : "")
+            let width = end - start
+            if width >= 10 {
+                block.sales = start
+                block.yoy = start + 1
+                block.orders = start + 2
+                block.ordersYoy = start + 3
+                block.aos = start + 4
+                block.aosYoy = start + 5
+                block.aiv = start + 6
+                block.aivYoy = start + 7
+                block.ipt = start + 8
+                block.iptYoy = start + 9
+                block.items = start + 10
+                if width > 11 { block.itemsYoy = start + 11 }
+            }
+            for index in start..<end {
+                guard let field = salesField(headers[index]) else { continue }
+                switch field {
+                case "sales": block.sales = index
+                case "yoy": block.yoy = index
+                case "orders": block.orders = index
+                case "orders_yoy": block.ordersYoy = index
+                case "aos": block.aos = index
+                case "aos_yoy": block.aosYoy = index
+                case "aiv": block.aiv = index
+                case "aiv_yoy": block.aivYoy = index
+                case "ipt": block.ipt = index
+                case "ipt_yoy": block.iptYoy = index
+                case "items": block.items = index
+                case "items_yoy": block.itemsYoy = index
+                case "hd": block.hd = index
+                case "dug": block.dug = index
+                default: break
+                }
+            }
+            blocks.append(block)
+        }
         guard !blocks.isEmpty else { return nil }
 
         let weekBlock: SalesBlock = {
