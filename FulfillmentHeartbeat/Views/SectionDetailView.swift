@@ -278,9 +278,7 @@ struct SectionDetailView: View {
                 lostRevenueStatusTiles
             } else if section == .missingItems || section == .preSubOOS {
                 missingItemsStatusTiles
-                if sizeClass == .regular {
-                    MissingItemsCategoryFilter(selected: $miCategories, width: pageWidth)
-                }
+                MissingItemsCategoryFilter(selected: $miCategories, width: pageWidth)
             } else {
                 LazyVGrid(
                     columns: HubLayout.grid(HubLayout.kpiColumns(width: pageWidth), spacing: 14, minWidth: 150),
