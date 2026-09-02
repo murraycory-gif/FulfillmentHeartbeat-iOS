@@ -157,7 +157,7 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         case .lostRevenue:
             return URL(string: "https://app.powerbi.com/groups/me/apps/d973ff03-651f-4e52-9e7a-8e5bff14b5e6/reports/dac4848e-a28a-4e12-bfbb-b386da90f344/e57401a67b0f2379a0b3?ctid=b7f604a0-00a9-4188-9248-42f3a5aac2e9&experience=power-bi")
         case .sales:
-            return URL(string: "https://app.powerbi.com/groups/me/apps/f0978345-5d6c-4de3-a8af-fee82058b466/reports/1bcd4b2b-3b1f-4070-81b4-3ba9bc3ddf62/ReportSection1642f46a8648ce60246c?experience=power-bi")
+            return URL(string: "https://app.powerbi.com/groups/me/apps/f0978345-5d6c-4de3-a8af-fee82058b466/reports/1bcd4b2b-3b1f-4070-81b4-3ba9bc3ddf62/ReportSection32d8740c6be3cdc72f2c?experience=power-bi")
         case .missingItems:
             return URL(string: "https://app.powerbi.com/groups/me/apps/d973ff03-651f-4e52-9e7a-8e5bff14b5e6/reports/47829fe7-c57f-4c65-a557-f35c99a1e851/2a870f3cf2c35df0a38b?ctid=b7f604a0-00a9-4188-9248-42f3a5aac2e9&experience=power-bi")
         case .aisleMapper:
