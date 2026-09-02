@@ -56,8 +56,10 @@ for device in devices:
     tunnel = str(conn.get("tunnelState") or "").lower()
     transport = str(conn.get("transportType") or "").lower()
     pairing = str(conn.get("pairingState") or "").lower()
-    is_ipad = "iPad" in name or "iPad" in marketing or str(hardware.get("deviceType") or "").startswith("iPad")
-    if not is_ipad:
+    is_pad = "iPad" in name or "iPad" in marketing or str(hardware.get("deviceType") or "").startswith("iPad")
+    is_phone = "iPhone" in name or "iPhone" in marketing or str(hardware.get("deviceType") or "").startswith("iPhone")
+    allow_phone = os.environ.get("ALLOW_PHONE", "").strip() == "1" or bool(want)
+    if not is_pad and not (allow_phone and is_phone):
         continue
     if want and ident.lower() != want:
         continue
