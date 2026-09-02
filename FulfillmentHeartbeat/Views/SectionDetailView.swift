@@ -36,12 +36,6 @@ struct SectionDetailView: View {
                     trailing: store.dataWindow(for: section)
                 )
             }
-            if sizeClass != .regular, section == .missingItems || section == .preSubOOS {
-                MissingItemsCategoryFilter(selected: $miCategories, width: pageWidth)
-                    .padding(.horizontal, 12)
-                    .padding(.top, 4)
-                    .padding(.bottom, 8)
-            }
             List {
             Section {
                 pageIntro
@@ -1093,6 +1087,16 @@ private struct CalloutLiftStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.988 : 1)
+            .animation(.easeOut(duration: 0.16), value: configuration.isPressed)
+    }
+}
+
+#Preview {
+    SectionDetailView(section: .fiveStar)
+        .environmentObject(HeartbeatStore())
+        .environmentObject(HubRouter())
+}
+ressed ? 0.988 : 1)
             .animation(.easeOut(duration: 0.16), value: configuration.isPressed)
     }
 }
