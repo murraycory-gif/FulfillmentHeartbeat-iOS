@@ -53,7 +53,7 @@ struct UploadView: View {
                                 },
                                 onClear: { store.clearSection(section) }
                             )
-                            .frame(maxWidth: .infinity, minHeight: 428, maxHeight: .infinity, alignment: .top)
+                            .frame(maxWidth: .infinity, minHeight: pageWidth < 700 ? 260 : 428, maxHeight: .infinity, alignment: .top)
                         }
                     }
 

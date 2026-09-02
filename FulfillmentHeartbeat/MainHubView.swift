@@ -144,9 +144,18 @@ struct MainHubView: View {
                         .tabItem { Label("Dashboard", systemImage: HubDestination.dashboard.symbol) }
                         .tag(HubDestination.dashboard)
                         .hubChrome(showsFilters: true)
+                    NavigationStack {
+                        CompactSectionList()
+                    }
+                    .tabItem { Label("Pages", systemImage: "rectangle.stack.fill") }
+                    .tag(HubDestination.checklist)
+                    .hubChrome(showsFilters: true)
                     NavigationStack { UploadView() }
                         .tabItem { Label("Upload", systemImage: HubDestination.upload.symbol) }
                         .tag(HubDestination.upload)
+                        .hubChrome(showsFilters: false)
+                }
+            }
                         .hubChrome(showsFilters: false)
                 }
             }
@@ -214,8 +223,15 @@ struct MainHubView: View {
 
     private var tabSelection: Binding<HubDestination> {
         Binding(
-            get: { router.current == .upload ? .upload : .dashboard },
-            set: { router.destination = $0 }
+            get: {
+                if router.current == .upload { return .upload }
+                if router.current == .dashboard { return .dashboard }
+                return .checklist
+            },
+            set: { dest in
+                if dest == .checklist { return }
+                router.destination = dest
+            }
         )
     }
 
@@ -366,4 +382,54 @@ struct MainHubView: View {
 #Preview {
     MainHubView()
         .environmentObject(HeartbeatStore())
+}
+
+struct CompactSectionList: View {
+    @EnvironmentObject private var store: HeartbeatStore
+    @EnvironmentObject private var router: HubRouter
+
+    private var pages: [HubDestination] {
+        HubDestination.sectionItems.filter { $0 != .dashboard }
+    }
+
+    var body: some View {
+        List {
+            Section("ScoreCards") {
+                ForEach(pages) { dest in
+                    NavigationLink {
+                        compactPage(for: dest)
+                    } label: {
+                        Label(dest.title, systemImage: dest.symbol)
+                            .foregroundStyle(AppTheme.text)
+                    }
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
+        .background(AppTheme.bg)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            HubStickyPageBanner(
+                icon: "rectangle.stack.fill",
+                title: "Pages",
+                accessory: "Open any scorecard"
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func compactPage(for dest: HubDestination) -> some View {
+        switch dest {
+        case .checklist:
+            ChecklistView().hubPageCanvas()
+        case .upload:
+            UploadView().hubPageCanvas()
+        case .dashboard:
+            DashboardView().hubPageCanvas()
+        default:
+            if let section = dest.section {
+                SectionDetailView(section: section).hubPageCanvas()
+            }
+        }
+    }
 }

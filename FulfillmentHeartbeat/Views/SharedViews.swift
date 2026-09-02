@@ -75,28 +75,31 @@ struct HubBanner: View {
     var accessory: String? = nil
     var trailing: String? = nil
     var clipped: Bool = true
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
+        let compact = sizeClass != .regular
         let bar = HStack(spacing: 10) {
             Image(systemName: icon)
-                .font(.title2.weight(.semibold))
+                .font((compact ? Font.headline : Font.title2).weight(.semibold))
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.title2.weight(.bold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+                    .font((compact ? Font.headline : Font.title2).weight(.bold))
+                    .lineLimit(compact ? 2 : 1)
+                    .minimumScaleFactor(0.75)
+                    .fixedSize(horizontal: false, vertical: true)
                 if let accessory, !accessory.isEmpty {
                     Text(accessory)
-                        .font(.subheadline.weight(.semibold))
+                        .font(.caption.weight(.semibold))
                         .opacity(0.9)
-                        .lineLimit(1)
+                        .lineLimit(compact ? 2 : 1)
                         .minimumScaleFactor(0.7)
                 }
             }
             Spacer(minLength: 8)
             if let trailing, !trailing.isEmpty {
                 Text(trailing)
-                    .font(.subheadline.weight(.bold))
+                    .font(.caption.weight(.bold))
                     .lineLimit(2)
                     .minimumScaleFactor(0.7)
                     .multilineTextAlignment(.trailing)
@@ -122,10 +125,11 @@ struct HubStickyPageBanner: View {
     var title: String
     var accessory: String? = nil
     var trailing: String? = nil
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
         HubBanner(icon: icon, title: title, accessory: accessory, trailing: trailing)
-            .padding(.horizontal, 20)
+            .padding(.horizontal, sizeClass == .regular ? 20 : 12)
             .padding(.top, 4)
             .padding(.bottom, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -9255,43 +9259,12 @@ struct HubBrandBar: View {
     @State private var showAssist = false
 
     var body: some View {
-        VStack(spacing: 10) {
-            ZStack {
-                HStack(spacing: 10) {
-                    if sizeClass == .regular {
-                        HubIconButton(symbol: "sidebar.left", label: "Menu", chrome: true) {
-                            router.toggleSidebar()
-                        }
-                    }
-                    if showBack {
-                        HubIconButton(symbol: "chevron.left", label: "Dashboard", chrome: true) {
-                            router.open(.dashboard)
-                        }
-                    }
-                    Spacer(minLength: 8)
-                    HubChromePill(
-                        title: "Who's looking",
-                        symbol: "person.crop.circle",
-                        showsChevron: false
-                    ) {
-                        store.reopenRoleGate()
-                    }
-                    .accessibilityLabel("Change who's looking")
-                    if router.current != .checklist {
-                        HubChromePill(
-                            title: "Assist",
-                            symbol: "waveform.path.ecg",
-                            showsChevron: false
-                        ) {
-                            showAssist = true
-                        }
-                        .accessibilityLabel("Heartbeat Assist, build \(BuildStamp.label)")
-                    }
-                }
-                BeatingHeartbeatMark(height: markHeight, showsTrace: true)
-                    .allowsHitTesting(false)
+        VStack(spacing: compact ? 8 : 10) {
+            if compact {
+                compactBar
+            } else {
+                regularBar
             }
-            .frame(minHeight: markHeight + 8)
 
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .center, spacing: 12) {
@@ -9314,15 +9287,75 @@ struct HubBrandBar: View {
                 }
             }
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 6)
-        .padding(.bottom, 12)
+        .padding(.horizontal, compact ? 12 : 20)
+        .padding(.top, compact ? 4 : 6)
+        .padding(.bottom, compact ? 8 : 12)
         .frame(maxWidth: .infinity)
         .background(AppTheme.bg)
         .fullScreenCover(isPresented: $showAssist) {
             HeartbeatAssistSheet()
                 .environmentObject(store)
                 .environmentObject(router)
+        }
+    }
+
+    private var compact: Bool { sizeClass != .regular }
+
+    private var regularBar: some View {
+        ZStack {
+            HStack(spacing: 10) {
+                HubIconButton(symbol: "sidebar.left", label: "Menu", chrome: true) {
+                    router.toggleSidebar()
+                }
+                if showBack {
+                    HubIconButton(symbol: "chevron.left", label: "Dashboard", chrome: true) {
+                        router.open(.dashboard)
+                    }
+                }
+                Spacer(minLength: 8)
+                roleAssistPills
+            }
+            BeatingHeartbeatMark(height: markHeight, showsTrace: true)
+                .allowsHitTesting(false)
+        }
+        .frame(minHeight: markHeight + 8)
+    }
+
+    private var compactBar: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            BeatingHeartbeatMark(height: 34, showsTrace: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 8) {
+                if showBack {
+                    HubIconButton(symbol: "chevron.left", label: "Dashboard", chrome: true) {
+                        router.open(.dashboard)
+                    }
+                }
+                Spacer(minLength: 4)
+                roleAssistPills
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var roleAssistPills: some View {
+        HubChromePill(
+            title: compact ? "Role" : "Who's looking",
+            symbol: "person.crop.circle",
+            showsChevron: false
+        ) {
+            store.reopenRoleGate()
+        }
+        .accessibilityLabel("Change who's looking")
+        if router.current != .checklist {
+            HubChromePill(
+                title: "Assist",
+                symbol: "waveform.path.ecg",
+                showsChevron: false
+            ) {
+                showAssist = true
+            }
+            .accessibilityLabel("Heartbeat Assist, build \(BuildStamp.label)")
         }
     }
 

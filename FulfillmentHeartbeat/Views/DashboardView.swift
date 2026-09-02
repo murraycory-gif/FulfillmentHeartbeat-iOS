@@ -34,7 +34,7 @@ struct DashboardView: View {
                         open(card.section)
                     }
                     .equatable()
-                    .listRowInsets(EdgeInsets(top: 6, leading: 20, bottom: 6, trailing: 20))
+                    .listRowInsets(EdgeInsets(top: 6, leading: sizeClass == .regular ? 20 : 12, bottom: 6, trailing: sizeClass == .regular ? 20 : 12))
                     .listRowSeparator(.hidden)
                     .listRowBackground(AppTheme.bg)
                 }
@@ -112,48 +112,17 @@ struct DashLostBanner: View {
     var grain: DashScopeGrain? = nil
     var width: CGFloat = 980
     let action: () -> Void
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
+    private var compact: Bool { sizeClass != .regular || width < 700 }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Button(action: action) {
-                HStack(spacing: 16) {
-                    DashCardGlyph(symbol: summary.section.symbol, health: summary.health)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Loss Revenue ScoreCard")
-                            .font(.title2.weight(.bold))
-                            .foregroundStyle(AppTheme.text)
-                        Text("Total Lost Revenue (Total Opportunity)")
-                            .font(.title3.weight(.semibold))
-                            .foregroundStyle(AppTheme.textSecondary)
-                        Text(riskLine)
-                            .font(.title3.weight(.bold))
-                            .foregroundStyle(dashInk(summary.riskCount == 0 ? .good : summary.health))
-                    }
-                    Spacer(minLength: 8)
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text(summary.headlineText)
-                            .font(.system(size: 34, weight: .bold, design: .rounded).monospacedDigit())
-                            .foregroundStyle(dashInk(summary.health))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.5)
-                        Text("Dollars")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(AppTheme.textSecondary)
-                    }
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text(HeartbeatFormat.pct(summary.lostRevenuePct))
-                            .font(.system(size: 34, weight: .bold, design: .rounded).monospacedDigit())
-                            .foregroundStyle(dashInk(summary.health))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.5)
-                        Text("Lost %")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(AppTheme.textSecondary)
-                    }
-                    HealthBadge(health: summary.health, prominent: true)
-                    Image(systemName: "chevron.right")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(AppTheme.textTertiary)
+                if compact {
+                    compactHeader
+                } else {
+                    wideHeader
                 }
             }
             .buttonStyle(DashLiftStyle())
@@ -163,6 +132,98 @@ struct DashLostBanner: View {
             }
         }
         .modifier(DashCardChrome(health: summary.health))
+    }
+
+    private var wideHeader: some View {
+        HStack(spacing: 16) {
+            DashCardGlyph(symbol: summary.section.symbol, health: summary.health)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Loss Revenue ScoreCard")
+                    .font(.title2.weight(.bold))
+                    .foregroundStyle(AppTheme.text)
+                Text("Total Lost Revenue (Total Opportunity)")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(AppTheme.textSecondary)
+                Text(riskLine)
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(dashInk(summary.riskCount == 0 ? .good : summary.health))
+            }
+            Spacer(minLength: 8)
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(summary.headlineText)
+                    .font(.system(size: 34, weight: .bold, design: .rounded).monospacedDigit())
+                    .foregroundStyle(dashInk(summary.health))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+                Text("Dollars")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(AppTheme.textSecondary)
+            }
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(HeartbeatFormat.pct(summary.lostRevenuePct))
+                    .font(.system(size: 34, weight: .bold, design: .rounded).monospacedDigit())
+                    .foregroundStyle(dashInk(summary.health))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+                Text("Lost %")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(AppTheme.textSecondary)
+            }
+            HealthBadge(health: summary.health, prominent: true)
+            Image(systemName: "chevron.right")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(AppTheme.textTertiary)
+        }
+    }
+
+    private var compactHeader: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
+                DashCardGlyph(symbol: summary.section.symbol, health: summary.health, compact: true)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Loss Revenue ScoreCard")
+                        .font(.headline.weight(.bold))
+                        .foregroundStyle(AppTheme.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("Total Lost Revenue (Total Opportunity)")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(AppTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "chevron.right")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(AppTheme.textTertiary)
+                    .padding(.top, 6)
+            }
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(summary.headlineText)
+                        .font(.system(size: 26, weight: .bold, design: .rounded).monospacedDigit())
+                        .foregroundStyle(dashInk(summary.health))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                    Text("Dollars")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppTheme.textSecondary)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(HeartbeatFormat.pct(summary.lostRevenuePct))
+                        .font(.system(size: 26, weight: .bold, design: .rounded).monospacedDigit())
+                        .foregroundStyle(dashInk(summary.health))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                    Text("Lost %")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppTheme.textSecondary)
+                }
+                Spacer(minLength: 4)
+                HealthBadge(health: summary.health, prominent: true)
+            }
+            Text(riskLine)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(dashInk(summary.riskCount == 0 ? .good : summary.health))
+        }
     }
 
     private var riskLine: String {
@@ -357,7 +418,10 @@ struct DashCallout: View, Equatable {
     let grains: [DashScopePack]
     let grain: DashScopeGrain?
     let action: () -> Void
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var width: CGFloat = 980
+
+    private var compact: Bool { sizeClass != .regular || width < 700 }
 
     static func == (lhs: DashCallout, rhs: DashCallout) -> Bool {
         lhs.card == rhs.card && lhs.flags == rhs.flags && lhs.grains == rhs.grains && lhs.grain == rhs.grain
@@ -370,29 +434,10 @@ struct DashCallout: View, Equatable {
             } else {
                 VStack(alignment: .leading, spacing: 12) {
                     Button(action: action) {
-                        HStack(spacing: 16) {
-                            DashCardGlyph(symbol: card.section.symbol, health: card.health)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(card.section == .pickPath ? "Pick Path Compliance" : card.section.title)
-                                    .font(.title2.weight(.bold))
-                                    .foregroundStyle(AppTheme.text)
-                                Text(card.headlineLabel)
-                                    .font(.title3)
-                                    .foregroundStyle(AppTheme.textSecondary)
-                                Text(riskLine(for: card))
-                                    .font(.title3.weight(.bold))
-                                    .foregroundStyle(dashInk(card.riskCount == 0 ? .good : .risk))
-                            }
-                            Spacer(minLength: 8)
-                            Text(card.headlineText)
-                                .font(.system(size: 32, weight: .bold, design: .rounded).monospacedDigit())
-                                .foregroundStyle(dashInk(card.health))
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.55)
-                            HealthBadge(health: card.health, prominent: true)
-                            Image(systemName: "chevron.right")
-                                .font(.title3.weight(.semibold))
-                                .foregroundStyle(AppTheme.textTertiary)
+                        if compact {
+                            compactHeader
+                        } else {
+                            wideHeader
                         }
                     }
                     .buttonStyle(DashLiftStyle())
@@ -405,6 +450,73 @@ struct DashCallout: View, Equatable {
             }
         }
         .readWidth($width)
+    }
+
+    private var titleText: String {
+        card.section == .pickPath ? "Pick Path Compliance" : card.section.title
+    }
+
+    private var wideHeader: some View {
+        HStack(spacing: 16) {
+            DashCardGlyph(symbol: card.section.symbol, health: card.health)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(titleText)
+                    .font(.title2.weight(.bold))
+                    .foregroundStyle(AppTheme.text)
+                Text(card.headlineLabel)
+                    .font(.title3)
+                    .foregroundStyle(AppTheme.textSecondary)
+                Text(riskLine(for: card))
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(dashInk(card.riskCount == 0 ? .good : .risk))
+            }
+            Spacer(minLength: 8)
+            Text(card.headlineText)
+                .font(.system(size: 32, weight: .bold, design: .rounded).monospacedDigit())
+                .foregroundStyle(dashInk(card.health))
+                .lineLimit(1)
+                .minimumScaleFactor(0.55)
+            HealthBadge(health: card.health, prominent: true)
+            Image(systemName: "chevron.right")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(AppTheme.textTertiary)
+        }
+    }
+
+    private var compactHeader: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
+                DashCardGlyph(symbol: card.section.symbol, health: card.health, compact: true)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(titleText)
+                        .font(.headline.weight(.bold))
+                        .foregroundStyle(AppTheme.text)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(card.headlineLabel)
+                        .font(.subheadline)
+                        .foregroundStyle(AppTheme.textSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                Image(systemName: "chevron.right")
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(AppTheme.textTertiary)
+                    .padding(.top, 6)
+            }
+            HStack(alignment: .center, spacing: 10) {
+                Text(card.headlineText)
+                    .font(.system(size: 28, weight: .bold, design: .rounded).monospacedDigit())
+                    .foregroundStyle(dashInk(card.health))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                Spacer(minLength: 8)
+                Text(riskLine(for: card))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(dashInk(card.riskCount == 0 ? .good : .risk))
+                    .multilineTextAlignment(.trailing)
+                HealthBadge(health: card.health, prominent: true)
+            }
+        }
     }
 
     @ViewBuilder
@@ -448,18 +560,19 @@ struct DashCallout: View, Equatable {
 private struct DashCardGlyph: View {
     let symbol: String
     let health: Health
+    var compact: Bool = false
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: compact ? 12 : 14, style: .continuous)
                 .fill(dashWash(health))
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: compact ? 12 : 14, style: .continuous)
                 .stroke(dashInk(health).opacity(0.18), lineWidth: 1)
             Image(systemName: symbol)
-                .font(.title.weight(.semibold))
+                .font((compact ? Font.title3 : Font.title).weight(.semibold))
                 .foregroundStyle(dashInk(health))
         }
-        .frame(width: 56, height: 56)
+        .frame(width: compact ? 44 : 56, height: compact ? 44 : 56)
         .shadow(color: dashInk(health).opacity(0.16), radius: 4, y: 2)
     }
 }
