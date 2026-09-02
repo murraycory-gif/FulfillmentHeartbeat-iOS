@@ -2142,6 +2142,7 @@ struct PickPathMetricHeader: View {
         .tracking(0.4)
         .lineLimit(1)
         .minimumScaleFactor(0.65)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func head(_ title: String, key: String, alignment: Alignment = .trailing) -> some View {
@@ -3200,6 +3201,7 @@ struct DynacapMetricHeader: View {
         .tracking(0.4)
         .lineLimit(1)
         .minimumScaleFactor(0.65)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func head(_ title: String, key: String, alignment: Alignment = .trailing) -> some View {
@@ -3995,6 +3997,7 @@ struct PrepMetricHeader: View {
         .tracking(0.4)
         .lineLimit(1)
         .minimumScaleFactor(0.65)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func head(_ title: String, key: String, alignment: Alignment = .trailing) -> some View {
@@ -4750,6 +4753,7 @@ struct FiveStarMetricHeader: View {
         .tracking(0.4)
         .lineLimit(1)
         .minimumScaleFactor(0.65)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func head(_ title: String, key: String, alignment: Alignment = .trailing) -> some View {
@@ -6639,6 +6643,7 @@ struct LostRevenueMetricHeader: View {
         .tracking(0.4)
         .lineLimit(1)
         .minimumScaleFactor(0.65)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func head(_ title: String, key: String, alignment: Alignment = .trailing) -> some View {
@@ -8378,6 +8383,7 @@ struct PPHMetricHeader: View {
         .tracking(0.4)
         .lineLimit(1)
         .minimumScaleFactor(0.65)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func head(_ title: String, key: String, alignment: Alignment = .trailing) -> some View {
@@ -9069,6 +9075,7 @@ struct PickerMetricHeader: View {
         .tracking(0.4)
         .lineLimit(1)
         .minimumScaleFactor(0.65)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func head(_ title: String, key: String, alignment: Alignment = .trailing) -> some View {
@@ -9469,15 +9476,22 @@ struct HubAdaptiveHScroll<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
-        if sizeClass == .regular {
-            content
-                .frame(maxWidth: .infinity, alignment: .leading)
-        } else {
-            ScrollView(.horizontal, showsIndicators: true) {
+        Group {
+            if HubLayout.isPhone(sizeClass) {
+                ViewThatFits(in: .horizontal) {
+                    content
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    ScrollView(.horizontal, showsIndicators: true) {
+                        content
+                            .frame(minWidth: 780, maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+            } else {
                 content
-                    .fixedSize(horizontal: true, vertical: false)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
