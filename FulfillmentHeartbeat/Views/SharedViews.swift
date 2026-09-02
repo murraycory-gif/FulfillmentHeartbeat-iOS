@@ -9396,6 +9396,8 @@ struct HubBrandBar: View {
         return store.sharedDataWindow()
     }
 
+    private var compact: Bool { sizeClass != .regular }
+
     private var regularBar: some View {
         ZStack {
             HStack(spacing: 10) {
