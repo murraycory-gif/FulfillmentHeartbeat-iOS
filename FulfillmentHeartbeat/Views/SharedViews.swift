@@ -9323,16 +9323,17 @@ struct HubBrandBar: View {
 
     private var compactBar: some View {
         VStack(alignment: .leading, spacing: 8) {
-            BeatingHeartbeatMark(height: 34, showsTrace: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 8) {
-                if showBack {
-                    HubIconButton(symbol: "chevron.left", label: "Dashboard", chrome: true) {
-                        router.open(.dashboard)
-                    }
+                HubIconButton(symbol: "sidebar.left", label: "Menu", chrome: true) {
+                    router.showCompactMenu = true
                 }
-                Spacer(minLength: 4)
+                BeatingHeartbeatMark(height: 30, showsTrace: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .clipped()
+            }
+            HStack(spacing: 8) {
                 roleAssistPills
+                Spacer(minLength: 0)
             }
         }
     }

@@ -99,6 +99,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
 final class HubRouter: ObservableObject {
     @Published var destination: HubDestination
     @Published private(set) var sidebarNonce = 0
+    @Published var showCompactMenu = false
 
     var current: HubDestination { destination }
 
@@ -139,26 +140,16 @@ struct MainHubView: View {
                 .tint(AppTheme.blue)
                 .toolbar(removing: .sidebarToggle)
             } else {
-                TabView(selection: tabSelection) {
-                    NavigationStack { DashboardView() }
-                        .tabItem { Label("Dashboard", systemImage: HubDestination.dashboard.symbol) }
-                        .tag(HubDestination.dashboard)
-                        .hubChrome(showsFilters: true)
-                    NavigationStack {
-                        CompactSectionList()
-                    }
-                    .tabItem { Label("Pages", systemImage: "rectangle.stack.fill") }
-                    .tag(HubDestination.checklist)
-                    .hubChrome(showsFilters: true)
-                    NavigationStack { UploadView() }
-                        .tabItem { Label("Upload", systemImage: HubDestination.upload.symbol) }
-                        .tag(HubDestination.upload)
-                        .hubChrome(showsFilters: false)
-                }
+                detail
             }
         }
         .environmentObject(router)
         .environmentObject(coach)
+        .sheet(isPresented: $router.showCompactMenu) {
+            CompactNavSheet()
+                .environmentObject(store)
+                .environmentObject(router)
+        }
         .onAppear {
             guard !store.needsRolePick else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
@@ -216,20 +207,6 @@ struct MainHubView: View {
                 .allowsHitTesting(true)
             }
         }
-    }
-
-    private var tabSelection: Binding<HubDestination> {
-        Binding(
-            get: {
-                if router.current == .upload { return .upload }
-                if router.current == .dashboard { return .dashboard }
-                return .checklist
-            },
-            set: { dest in
-                if dest == .checklist { return }
-                router.destination = dest
-            }
-        )
     }
 
     private var sidebar: some View {
@@ -381,52 +358,43 @@ struct MainHubView: View {
         .environmentObject(HeartbeatStore())
 }
 
-struct CompactSectionList: View {
+struct CompactNavSheet: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var router: HubRouter
 
-    private var pages: [HubDestination] {
-        HubDestination.sectionItems.filter { $0 != .dashboard }
-    }
-
     var body: some View {
-        List {
-            Section("ScoreCards") {
-                ForEach(pages) { dest in
-                    NavigationLink {
-                        compactPage(for: dest)
-                    } label: {
-                        Label(dest.title, systemImage: dest.symbol)
-                            .foregroundStyle(AppTheme.text)
+        NavigationStack {
+            List {
+                Section("Sections") {
+                    ForEach(HubDestination.sectionItems) { item in
+                        navRow(item)
+                    }
+                }
+                Section("Settings") {
+                    ForEach(HubDestination.settingsItems) { item in
+                        navRow(item)
                     }
                 }
             }
+            .listStyle(.insetGrouped)
+            .navigationTitle("Heartbeat")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { router.showCompactMenu = false }
+                }
+            }
         }
-        .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(AppTheme.bg)
-        .safeAreaInset(edge: .top, spacing: 0) {
-            HubStickyPageBanner(
-                icon: "rectangle.stack.fill",
-                title: "Pages",
-                accessory: "Open any scorecard"
-            )
-        }
+        .presentationDetents([.large])
     }
 
-    @ViewBuilder
-    private func compactPage(for dest: HubDestination) -> some View {
-        switch dest {
-        case .checklist:
-            ChecklistView().hubPageCanvas()
-        case .upload:
-            UploadView().hubPageCanvas()
-        case .dashboard:
-            DashboardView().hubPageCanvas()
-        default:
-            if let section = dest.section {
-                SectionDetailView(section: section).hubPageCanvas()
-            }
+    private func navRow(_ item: HubDestination) -> some View {
+        Button {
+            router.open(item)
+            router.showCompactMenu = false
+        } label: {
+            Label(item.title, systemImage: item.symbol)
+                .foregroundStyle(router.destination == item ? AppTheme.blue : AppTheme.text)
         }
     }
 }

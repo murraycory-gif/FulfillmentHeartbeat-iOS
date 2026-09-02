@@ -113,6 +113,7 @@ struct DashLostBanner: View {
     var width: CGFloat = 980
     let action: () -> Void
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @State private var flagsOpen = false
 
     private var compact: Bool { sizeClass != .regular || width < 700 }
 
@@ -126,7 +127,32 @@ struct DashLostBanner: View {
                 }
             }
             .buttonStyle(DashLiftStyle())
-            DashFlagGrid(flags: flags, columns: 3)
+            if compact {
+                if !flags.isEmpty {
+                    Button {
+                        flagsOpen.toggle()
+                    } label: {
+                        HStack(spacing: 8) {
+                            Text("\(flags.count) metrics")
+                                .font(.subheadline.weight(.bold))
+                                .foregroundStyle(AppTheme.blue)
+                            Text("tap to \(flagsOpen ? "collapse" : "expand")")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(AppTheme.textSecondary)
+                            Spacer(minLength: 4)
+                            Image(systemName: flagsOpen ? "chevron.up" : "chevron.down")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(AppTheme.blue)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    if flagsOpen {
+                        DashFlagGrid(flags: flags, columns: 1)
+                    }
+                }
+            } else {
+                DashFlagGrid(flags: flags, columns: 3)
+            }
             if let grain, !grains.isEmpty {
                 DashScopeStrip(section: summary.section, grain: grain, packs: grains, width: width)
             }
@@ -420,6 +446,7 @@ struct DashCallout: View, Equatable {
     let action: () -> Void
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var width: CGFloat = 980
+    @State private var flagsOpen = false
 
     private var compact: Bool { sizeClass != .regular || width < 700 }
 
@@ -441,7 +468,11 @@ struct DashCallout: View, Equatable {
                         }
                     }
                     .buttonStyle(DashLiftStyle())
-                    flagBlock(flags)
+                    if compact {
+                        compactFlagBlock(flags)
+                    } else {
+                        flagBlock(flags)
+                    }
                     if let grain, !grains.isEmpty {
                         DashScopeStrip(section: card.section, grain: grain, packs: grains, width: width)
                     }
@@ -515,6 +546,34 @@ struct DashCallout: View, Equatable {
                     .foregroundStyle(dashInk(card.riskCount == 0 ? .good : .risk))
                     .multilineTextAlignment(.trailing)
                 HealthBadge(health: card.health, prominent: true)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func compactFlagBlock(_ flags: [HeartbeatMath.FiveStarFlag]) -> some View {
+        if flags.isEmpty {
+            EmptyView()
+        } else {
+            Button {
+                flagsOpen.toggle()
+            } label: {
+                HStack(spacing: 8) {
+                    Text("\(flags.count) metrics")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(AppTheme.blue)
+                    Text("tap to \(flagsOpen ? "collapse" : "expand")")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppTheme.textSecondary)
+                    Spacer(minLength: 4)
+                    Image(systemName: flagsOpen ? "chevron.up" : "chevron.down")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(AppTheme.blue)
+                }
+            }
+            .buttonStyle(.plain)
+            if flagsOpen {
+                DashFlagGrid(flags: flags, columns: 1)
             }
         }
     }
