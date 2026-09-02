@@ -2138,8 +2138,8 @@ struct PickPathMetricHeader: View {
             head("Status", key: "status", alignment: .trailing)
                 .frame(width: PickPathMath.statusW, alignment: .trailing)
         }
-        .font(.caption2.weight(.semibold))
-        .tracking(0.4)
+        .font(.caption.weight(.bold))
+        .tracking(0.3)
         .lineLimit(1)
         .minimumScaleFactor(0.65)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -2154,7 +2154,7 @@ struct PickPathMetricHeader: View {
                     .font(.caption2.weight(.bold))
             }
         }
-        .foregroundStyle(selected ? AppTheme.blue : AppTheme.textTertiary)
+        .foregroundStyle(selected ? AppTheme.blue : AppTheme.text)
         .frame(maxWidth: alignment == .leading ? nil : .infinity, alignment: alignment)
         .contentShape(Rectangle())
         return Group {
@@ -3197,8 +3197,8 @@ struct DynacapMetricHeader: View {
             head("Status", key: "status", alignment: .trailing)
                 .frame(width: 88, alignment: .trailing)
         }
-        .font(.caption2.weight(.semibold))
-        .tracking(0.4)
+        .font(.caption.weight(.bold))
+        .tracking(0.3)
         .lineLimit(1)
         .minimumScaleFactor(0.65)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -3213,7 +3213,7 @@ struct DynacapMetricHeader: View {
                     .font(.caption2.weight(.bold))
             }
         }
-        .foregroundStyle(selected ? AppTheme.blue : AppTheme.textTertiary)
+        .foregroundStyle(selected ? AppTheme.blue : AppTheme.text)
         .frame(maxWidth: alignment == .leading ? nil : .infinity, alignment: alignment)
         .contentShape(Rectangle())
         return Group {
@@ -3993,8 +3993,8 @@ struct PrepMetricHeader: View {
             head("Status", key: "status", alignment: .trailing)
                 .frame(width: 88, alignment: .trailing)
         }
-        .font(.caption2.weight(.semibold))
-        .tracking(0.4)
+        .font(.caption.weight(.bold))
+        .tracking(0.3)
         .lineLimit(1)
         .minimumScaleFactor(0.65)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -4009,7 +4009,7 @@ struct PrepMetricHeader: View {
                     .font(.caption2.weight(.bold))
             }
         }
-        .foregroundStyle(selected ? AppTheme.blue : AppTheme.textTertiary)
+        .foregroundStyle(selected ? AppTheme.blue : AppTheme.text)
         .frame(maxWidth: alignment == .leading ? nil : .infinity, alignment: alignment)
         .contentShape(Rectangle())
         return Group {
@@ -4729,8 +4729,8 @@ struct FiveStarMetricHeader: View {
             head("Status", key: "status", alignment: .trailing)
                 .frame(width: 88, alignment: .trailing)
         }
-        .font(.caption2.weight(.semibold))
-        .tracking(0.4)
+        .font(.caption.weight(.bold))
+        .tracking(0.3)
         .lineLimit(1)
         .minimumScaleFactor(0.65)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -4745,7 +4745,7 @@ struct FiveStarMetricHeader: View {
                     .font(.caption2.weight(.bold))
             }
         }
-        .foregroundStyle(selected ? AppTheme.blue : AppTheme.textTertiary)
+        .foregroundStyle(selected ? AppTheme.blue : AppTheme.text)
         .frame(maxWidth: alignment == .leading ? nil : .infinity, alignment: alignment)
         .contentShape(Rectangle())
         return Group {
@@ -5623,8 +5623,8 @@ struct LaborMetricHeader: View {
             head("Status", key: "status", alignment: .trailing)
                 .frame(width: 88, alignment: .trailing)
         }
-        .font(.caption2.weight(.semibold))
-        .tracking(0.4)
+        .font(.caption.weight(.bold))
+        .tracking(0.3)
         .lineLimit(1)
         .minimumScaleFactor(0.7)
     }
@@ -5638,7 +5638,7 @@ struct LaborMetricHeader: View {
                     .font(.caption2.weight(.bold))
             }
         }
-        .foregroundStyle(selected ? AppTheme.blue : AppTheme.textTertiary)
+        .foregroundStyle(selected ? AppTheme.blue : AppTheme.text)
         .frame(maxWidth: alignment == .leading ? nil : .infinity, alignment: alignment)
         .contentShape(Rectangle())
         return Group {
@@ -6619,8 +6619,8 @@ struct LostRevenueMetricHeader: View {
             head("Status", key: "status", alignment: .trailing)
                 .frame(width: 88, alignment: .trailing)
         }
-        .font(.caption2.weight(.semibold))
-        .tracking(0.4)
+        .font(.caption.weight(.bold))
+        .tracking(0.3)
         .lineLimit(1)
         .minimumScaleFactor(0.65)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -6635,7 +6635,7 @@ struct LostRevenueMetricHeader: View {
                     .font(.caption2.weight(.bold))
             }
         }
-        .foregroundStyle(selected ? AppTheme.blue : AppTheme.textTertiary)
+        .foregroundStyle(selected ? AppTheme.blue : AppTheme.text)
         .frame(maxWidth: alignment == .leading ? nil : .infinity, alignment: alignment)
         .contentShape(Rectangle())
         return Group {
@@ -7641,8 +7641,8 @@ struct ScheduleMetricHeader: View {
             head("Status", key: "status", alignment: .trailing)
                 .frame(width: 88, alignment: .trailing)
         }
-        .font(.caption2.weight(.semibold))
-        .tracking(0.4)
+        .font(.caption.weight(.bold))
+        .tracking(0.3)
         .lineLimit(2)
         .minimumScaleFactor(0.5)
     }
@@ -7656,7 +7656,7 @@ struct ScheduleMetricHeader: View {
                     .font(.caption2.weight(.bold))
             }
         }
-        .foregroundStyle(selected ? AppTheme.blue : AppTheme.textTertiary)
+        .foregroundStyle(selected ? AppTheme.blue : AppTheme.text)
         .frame(maxWidth: alignment == .leading ? nil : .infinity, alignment: alignment)
         .contentShape(Rectangle())
         return Group {
@@ -8367,8 +8367,8 @@ struct PPHMetricHeader: View {
             head("Status", key: "status", alignment: .trailing)
                 .frame(width: 88, alignment: .trailing)
         }
-        .font(.caption2.weight(.semibold))
-        .tracking(0.4)
+        .font(.caption.weight(.bold))
+        .tracking(0.3)
         .lineLimit(1)
         .minimumScaleFactor(0.65)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -8383,7 +8383,7 @@ struct PPHMetricHeader: View {
                     .font(.caption2.weight(.bold))
             }
         }
-        .foregroundStyle(selected ? AppTheme.blue : AppTheme.textTertiary)
+        .foregroundStyle(selected ? AppTheme.blue : AppTheme.text)
         .frame(maxWidth: alignment == .leading ? nil : .infinity, alignment: alignment)
         .contentShape(Rectangle())
         return Group {
@@ -9059,8 +9059,8 @@ struct PickerMetricHeader: View {
             head("Status", key: "status", alignment: .trailing)
                 .frame(width: 88, alignment: .trailing)
         }
-        .font(.caption2.weight(.semibold))
-        .tracking(0.4)
+        .font(.caption.weight(.bold))
+        .tracking(0.3)
         .lineLimit(1)
         .minimumScaleFactor(0.65)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -9075,7 +9075,7 @@ struct PickerMetricHeader: View {
                     .font(.caption2.weight(.bold))
             }
         }
-        .foregroundStyle(selected ? AppTheme.blue : AppTheme.textTertiary)
+        .foregroundStyle(selected ? AppTheme.blue : AppTheme.text)
         .frame(maxWidth: alignment == .leading ? nil : .infinity, alignment: alignment)
         .contentShape(Rectangle())
         return Group {

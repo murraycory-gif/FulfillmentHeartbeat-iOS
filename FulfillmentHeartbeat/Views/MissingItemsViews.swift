@@ -819,7 +819,7 @@ struct MissingItemsMetricHeader: View {
             }
             Text(dept.short.uppercased())
         }
-        .foregroundStyle(selected ? AppTheme.blue : AppTheme.textTertiary)
+        .foregroundStyle(selected ? AppTheme.blue : AppTheme.text)
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
         return Group {
@@ -842,7 +842,7 @@ struct MissingItemsMetricHeader: View {
                     .font(.caption2.weight(.bold))
             }
         }
-        .foregroundStyle(selected ? AppTheme.blue : AppTheme.textTertiary)
+        .foregroundStyle(selected ? AppTheme.blue : AppTheme.text)
         .frame(maxWidth: alignment == .leading ? nil : .infinity, alignment: alignment)
         .contentShape(Rectangle())
         return Group {
@@ -1232,8 +1232,8 @@ private struct PreSubItemHeader: View {
             head("Status", key: "status", alignment: .trailing)
                 .frame(width: 88, alignment: .trailing)
         }
-        .font(.caption2.weight(.semibold))
-        .tracking(0.4)
+        .font(.caption.weight(.bold))
+        .tracking(0.3)
         .lineLimit(1)
         .minimumScaleFactor(0.65)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1249,7 +1249,7 @@ private struct PreSubItemHeader: View {
                         .font(.caption2.weight(.bold))
                 }
             }
-            .foregroundStyle(selected ? AppTheme.blue : AppTheme.textTertiary)
+            .foregroundStyle(selected ? AppTheme.blue : AppTheme.text)
             .frame(maxWidth: alignment == .leading ? nil : .infinity, alignment: alignment)
             .contentShape(Rectangle())
         }
