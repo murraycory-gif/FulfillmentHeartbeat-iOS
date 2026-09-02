@@ -220,22 +220,31 @@ struct BrandButtonStyle: ButtonStyle {
 }
 
 enum HubLayout {
+    /// Phone-only layouts. iPad is `.regular` even in split view — never use raw width
+    /// alone to decide phone UI or iPad pages pick up compact chrome, 2-up tiles,
+    /// and forced horizontal tables.
+    static func isPhone(_ sizeClass: UserInterfaceSizeClass?) -> Bool {
+        sizeClass != .regular
+    }
+
     static func flagColumns(count: Int, width: CGFloat) -> Int {
         guard count > 0 else { return 1 }
         let chip = width >= 980 ? 210.0 : 188.0
         return max(1, min(count, Int(max(width, chip) / chip)))
     }
 
-    static func kpiColumns(width: CGFloat) -> Int {
-        if width < 520 { return 2 }
+    static func kpiColumns(width: CGFloat, sizeClass: UserInterfaceSizeClass? = .regular) -> Int {
+        if isPhone(sizeClass) {
+            return width >= 640 ? 3 : 2
+        }
         if width >= 1100 { return 5 }
         if width >= 860 { return 4 }
-        if width >= 640 { return 3 }
-        return 2
+        return 4
     }
 
-    static func uploadColumns(width: CGFloat) -> Int {
-        width >= 720 ? 2 : 1
+    static func uploadColumns(width: CGFloat, sizeClass: UserInterfaceSizeClass? = .regular) -> Int {
+        if isPhone(sizeClass) { return 1 }
+        return width >= 720 ? 2 : 2
     }
 
     static func grid(_ count: Int, spacing: CGFloat = 12, minWidth: CGFloat = 140) -> [GridItem] {

@@ -281,7 +281,7 @@ struct SectionDetailView: View {
                 MissingItemsCategoryFilter(selected: $miCategories, width: pageWidth)
             } else {
                 LazyVGrid(
-                    columns: HubLayout.grid(HubLayout.kpiColumns(width: pageWidth), spacing: 14, minWidth: 150),
+                    columns: HubLayout.grid(HubLayout.kpiColumns(width: pageWidth, sizeClass: sizeClass), spacing: 14, minWidth: 150),
                     spacing: 14
                 ) {
                     if section == .pph {
@@ -610,7 +610,7 @@ struct SectionDetailView: View {
         let post = rows.compactMap { $0.number("post_sub_oos_foregone") }.reduce(0, +)
         VStack(spacing: 14) {
             LazyVGrid(
-                columns: HubLayout.grid(sizeClass != .regular && pageWidth < 520 ? 2 : min(4, HubLayout.kpiColumns(width: pageWidth)), spacing: 14, minWidth: 150),
+                columns: HubLayout.grid(HubLayout.kpiColumns(width: pageWidth, sizeClass: sizeClass), spacing: 14, minWidth: 150),
                 spacing: 14
             ) {
                 callout("Total lost revenue", HeartbeatFormat.money(dollars), "Total Opportunity", summary.health, selected: lostRevenueFocus == .all) {
@@ -627,7 +627,7 @@ struct SectionDetailView: View {
                 }
             }
             LazyVGrid(
-                columns: HubLayout.grid(min(4, HubLayout.kpiColumns(width: pageWidth)), spacing: 12, minWidth: 150),
+                columns: HubLayout.grid(min(4, HubLayout.kpiColumns(width: pageWidth, sizeClass: sizeClass)), spacing: 12, minWidth: 150),
                 spacing: 12
             ) {
                 callout("Lost revenue %", HeartbeatFormat.pct(pct), "Total Opportunity", summary.health)
@@ -646,7 +646,7 @@ struct SectionDetailView: View {
         let risk = rows.filter { HeartbeatMath.missingItemsHealth($0) == .risk }.count
         VStack(spacing: 14) {
             LazyVGrid(
-                columns: HubLayout.grid(sizeClass != .regular && pageWidth < 520 ? 2 : min(4, HubLayout.kpiColumns(width: pageWidth)), spacing: 14, minWidth: 150),
+                columns: HubLayout.grid(HubLayout.kpiColumns(width: pageWidth, sizeClass: sizeClass), spacing: 14, minWidth: 150),
                 spacing: 14
             ) {
                 callout(section == .preSubOOS ? "Avg Pre-Sub OOS" : "Avg missing items", summary.headlineText, "5% healthy · 5.01–6.50% watch · over 6.50% at risk", summary.health, selected: missingItemsFocus == .all) {
@@ -663,7 +663,7 @@ struct SectionDetailView: View {
                 }
             }
             LazyVGrid(
-                columns: HubLayout.grid(min(3, HubLayout.kpiColumns(width: pageWidth)), spacing: 12, minWidth: 150),
+                columns: HubLayout.grid(min(3, HubLayout.kpiColumns(width: pageWidth, sizeClass: sizeClass)), spacing: 12, minWidth: 150),
                 spacing: 12
             ) {
                 callout("Goal", "5%", "Or less is healthy", .none, brand: true)
@@ -796,7 +796,7 @@ struct SectionDetailView: View {
         let aiv = laborRollup("aiv_impact_pct")
         VStack(spacing: 14) {
             LazyVGrid(
-                columns: HubLayout.grid(sizeClass != .regular && pageWidth < 520 ? 2 : min(4, HubLayout.kpiColumns(width: pageWidth)), spacing: 14, minWidth: 150),
+                columns: HubLayout.grid(HubLayout.kpiColumns(width: pageWidth, sizeClass: sizeClass), spacing: 14, minWidth: 150),
                 spacing: 14
             ) {
                 callout("Target vs Actual", HeartbeatFormat.pct(tva), "0% healthy · 0.01–3% watch · over 3% risk", HeartbeatMath.laborHealth(tva), selected: laborFocus == .all) {

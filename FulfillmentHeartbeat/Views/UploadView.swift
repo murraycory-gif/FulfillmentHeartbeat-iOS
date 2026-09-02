@@ -125,7 +125,7 @@ struct UploadView: View {
     }
 
     private var uploadColumns: [GridItem] {
-        HubLayout.grid(HubLayout.uploadColumns(width: pageWidth), spacing: 16)
+        HubLayout.grid(HubLayout.uploadColumns(width: pageWidth, sizeClass: sizeClass), spacing: 16)
     }
 
     private func beginMasterImport() {
