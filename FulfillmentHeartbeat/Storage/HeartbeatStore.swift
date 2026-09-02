@@ -2013,16 +2013,36 @@ private struct PulseCaches {
             bySection[row.section, default: []].append(row)
         }
         var identitySource: [MetricRow] = []
+        var identityFallback: [MetricRow] = []
+        let messyIdentity: Set<MetricSection> = [
+            .scheduleQuality, .dynacap, .pickerScorecard, .pickPathPicker, .lostRevenue, .preSubOOS
+        ]
         for (section, list) in bySection {
-            if section != .scheduleQuality && section != .dynacap && section != .pickerScorecard && section != .pickPathPicker && section != .lostRevenue && section != .preSubOOS {
+            if messyIdentity.contains(section) {
+                identityFallback.append(contentsOf: list)
+            } else {
                 identitySource.append(contentsOf: list)
             }
         }
-        let roster = HeartbeatMath.storeRoster(
+        var roster = HeartbeatMath.storeRoster(
             identitySource.isEmpty
                 ? rows.filter { $0.section != .pickerScorecard && $0.section != .pickPathPicker }
                 : identitySource
         )
+        if !identityFallback.isEmpty {
+            let extra = HeartbeatMath.storeRoster(identityFallback)
+            for (number, identity) in extra {
+                if var current = roster[number] {
+                    if current.division.isEmpty { current.division = identity.division }
+                    if current.district.isEmpty { current.district = identity.district }
+                    if current.om.isEmpty { current.om = identity.om }
+                    if current.name == nil { current.name = identity.name }
+                    roster[number] = current
+                } else {
+                    roster[number] = identity
+                }
+            }
+        }
         var latest: [MetricSection: [MetricRow]] = [:]
         latest.reserveCapacity(MetricSection.allCases.count)
         for section in MetricSection.allCases {
@@ -2081,9 +2101,15 @@ private struct PulseCaches {
                     nextLatest[section] = rows
                     continue
                 }
-                nextLatest[section] = rows.filter {
-                    let store = HeartbeatMath.canonicalStore($0.storeNumber)
-                    return store.isEmpty || allowed.contains(store)
+                nextLatest[section] = rows.filter { row in
+                    let store = HeartbeatMath.canonicalStore(row.storeNumber)
+                    if !store.isEmpty, allowed.contains(store) { return true }
+                    if !store.isEmpty, roster[store] != nil { return false }
+                    if !filters.includesDivision(row.division) { return false }
+                    if !filters.includesDistrict(row.district) { return false }
+                    if !filters.includesOM(row.operationsOM) { return false }
+                    if !filters.includesStore(store) { return false }
+                    return true
                 }
             }
         } else {
