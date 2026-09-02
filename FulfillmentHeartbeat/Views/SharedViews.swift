@@ -9262,28 +9262,36 @@ struct HubChromeModifier: ViewModifier {
     var showsFilters: Bool
 
     func body(content: Content) -> some View {
-        content
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(AppTheme.bg.ignoresSafeArea())
-            .navigationBarTitleDisplayMode(.inline)
-            .navigationTitle("")
-            .tint(AppTheme.blue)
-            .toolbar(.hidden, for: .navigationBar)
-            .toolbar(removing: .sidebarToggle)
-            .safeAreaInset(edge: .top, spacing: 0) {
+        Group {
+            if sizeClass != .regular {
                 VStack(spacing: 0) {
                     HubBrandBar(showBack: showBack, showsFilters: showsFilters)
-                    if sizeClass == .regular {
-                        HubStickyPageBanner(
-                            icon: bannerIcon,
-                            title: bannerTitle,
-                            accessory: router.current == .upload ? nil : store.filters.summary,
-                            trailing: bannerTrailing
-                        )
-                    }
+                    content
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 }
-                .background(AppTheme.bg)
+            } else {
+                content
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .safeAreaInset(edge: .top, spacing: 0) {
+                        VStack(spacing: 0) {
+                            HubBrandBar(showBack: showBack, showsFilters: showsFilters)
+                            HubStickyPageBanner(
+                                icon: bannerIcon,
+                                title: bannerTitle,
+                                accessory: router.current == .upload ? nil : store.filters.summary,
+                                trailing: bannerTrailing
+                            )
+                        }
+                        .background(AppTheme.bg)
+                    }
             }
+        }
+        .background(AppTheme.bg.ignoresSafeArea())
+        .navigationBarTitleDisplayMode(.inline)
+        .navigationTitle("")
+        .tint(AppTheme.blue)
+        .toolbar(.hidden, for: .navigationBar)
+        .toolbar(removing: .sidebarToggle)
     }
 
     private var bannerIcon: String {
