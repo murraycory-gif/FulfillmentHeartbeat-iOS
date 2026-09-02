@@ -1495,14 +1495,14 @@ struct StoreTable: View {
         } label: {
             HStack(spacing: 4) {
                 Text(column.title(for: section).uppercased())
-                    .font(.caption2.weight(.semibold))
-                    .tracking(0.6)
+                    .font(.caption.weight(.bold))
+                    .tracking(0.3)
                 if sort == column {
                     Image(systemName: ascending ? "chevron.up" : "chevron.down")
                         .font(.caption2.weight(.bold))
                 }
             }
-            .foregroundStyle(sort == column ? AppTheme.blue : AppTheme.textTertiary)
+            .foregroundStyle(sort == column ? AppTheme.blue : AppTheme.text)
             .frame(maxWidth: .infinity, alignment: .leading)
             .contentShape(Rectangle())
         }
