@@ -119,35 +119,36 @@ struct MissingItemsCategoryFilter: View {
     }
 
     private func filterChip(title: String, subtitle: String, on: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Group {
-                if compact {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(title)
-                            .font(.subheadline.weight(.bold))
-                            .foregroundStyle(on ? .white : AppTheme.text)
-                            .lineLimit(1)
-                        Text(subtitle)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(on ? Color.white.opacity(0.86) : AppTheme.textSecondary)
-                            .lineLimit(1)
-                    }
-                } else {
-                    HStack(spacing: 4) {
-                        Text(title)
-                            .font(.subheadline.weight(.bold))
-                            .foregroundStyle(on ? .white : AppTheme.text)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                        Spacer(minLength: 0)
-                        Text(subtitle)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(on ? Color.white.opacity(0.86) : AppTheme.textSecondary)
-                            .lineLimit(1)
-                    }
+        let label = Group {
+            if compact {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(on ? .white : AppTheme.text)
+                        .lineLimit(1)
+                    Text(subtitle)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(on ? Color.white.opacity(0.86) : AppTheme.textSecondary)
+                        .lineLimit(1)
+                }
+            } else {
+                HStack(spacing: 4) {
+                    Text(title)
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(on ? .white : AppTheme.text)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                    Spacer(minLength: 0)
+                    Text(subtitle)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(on ? Color.white.opacity(0.86) : AppTheme.textSecondary)
+                        .lineLimit(1)
                 }
             }
-            .frame(maxWidth: .infinity, minHeight: compact ? 44 : 36, alignment: .leading)
+        }
+
+        return label
+            .frame(maxWidth: .infinity, minHeight: compact ? 48 : 36, alignment: .leading)
             .padding(.horizontal, compact ? 12 : 10)
             .padding(.vertical, compact ? 8 : 6)
             .background(
@@ -158,10 +159,11 @@ struct MissingItemsCategoryFilter: View {
                 RoundedRectangle(cornerRadius: compact ? 12 : 10, style: .continuous)
                     .stroke(on ? AppTheme.blue : AppTheme.cardBorder, lineWidth: 1)
             )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("\(title) \(subtitle)")
-        .accessibilityAddTraits(on ? .isSelected : [])
+            .contentShape(Rectangle())
+            .onTapGesture(perform: action)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(title) \(subtitle)")
+            .accessibilityAddTraits(on ? [.isButton, .isSelected] : .isButton)
     }
 }
 

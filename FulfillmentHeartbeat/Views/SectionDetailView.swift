@@ -36,6 +36,12 @@ struct SectionDetailView: View {
                     trailing: store.dataWindow(for: section)
                 )
             }
+            if sizeClass != .regular, section == .missingItems || section == .preSubOOS {
+                MissingItemsCategoryFilter(selected: $miCategories, width: pageWidth)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 4)
+                    .padding(.bottom, 8)
+            }
             List {
             Section {
                 pageIntro
@@ -278,8 +284,9 @@ struct SectionDetailView: View {
                 lostRevenueStatusTiles
             } else if section == .missingItems || section == .preSubOOS {
                 missingItemsStatusTiles
-                MissingItemsCategoryFilter(selected: $miCategories, width: pageWidth)
-                    .animation(nil, value: miCategories)
+                if sizeClass == .regular {
+                    MissingItemsCategoryFilter(selected: $miCategories, width: pageWidth)
+                }
             } else {
                 LazyVGrid(
                     columns: HubLayout.grid(HubLayout.kpiColumns(width: pageWidth), spacing: 14, minWidth: 150),
