@@ -497,18 +497,19 @@ enum HeartbeatMath {
         var cards = dashboardCallouts(summaries)
         if role == .evp {
             cards.removeAll { $0.section == .pickerScorecard }
-            return pinnedCallouts(cards, pin: [.sales, .lostRevenue, .fiveStar, .dynacap], restRiskWatch: !storeScoped)
         }
-        if role == .director {
-            return pinnedCallouts(cards, pin: [.sales, .lostRevenue, .fiveStar, .labor, .dynacap, .pickerScorecard], restRiskWatch: !storeScoped)
+        var pin: [MetricSection] = [.sales, .lostRevenue]
+        if role == .evp {
+            pin.append(contentsOf: [.fiveStar, .dynacap])
+        } else if role == .director {
+            pin.append(contentsOf: [.fiveStar, .labor, .dynacap, .pickerScorecard])
+        } else if role == .districtManager {
+            pin.append(contentsOf: [.fiveStar, .labor, .dynacap])
         }
-        if role == .districtManager {
-            return pinnedCallouts(cards, pin: [.sales, .lostRevenue, .fiveStar, .labor, .dynacap], restRiskWatch: !storeScoped)
-        }
-        if storeScoped { return cards }
-        guard role?.showsOnlyRiskAndWatch == true else { return cards }
-        let focused = cards.filter { $0.health == .risk || $0.health == .watch }
-        return focused.isEmpty ? cards : focused
+        let restRiskWatch = !storeScoped && (
+            role == .evp || role == .director || role == .districtManager || role?.showsOnlyRiskAndWatch == true
+        )
+        return pinnedCallouts(cards, pin: pin, restRiskWatch: restRiskWatch)
     }
 
     private static func pinnedCallouts(
