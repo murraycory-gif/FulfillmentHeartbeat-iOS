@@ -14,7 +14,7 @@ private struct SalesRollupRow: Identifiable {
 
 private enum SalesRollupBuilder {
     static func grain(for filters: DashboardFilters) -> LaborRollupGrain? {
-        LaborRollupBuilder.grain(for: filters)
+        RollupMarketFill.grain(for: filters)
     }
 
     static func source(from rows: [MetricRow], filters: DashboardFilters) -> [MetricRow] {

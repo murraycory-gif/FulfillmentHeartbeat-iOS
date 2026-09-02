@@ -596,11 +596,14 @@ enum WorkbookParser {
     }
 
     static func dataWindow(from matrix: [[String]]) -> String? {
-        if matrix.contains(where: isSalesHeader), let week = salesWeek(from: Array(matrix.prefix(6))), !week.isEmpty {
-            if week.count == 6, let yr = Int(week.prefix(4)), let wk = Int(week.suffix(2)) {
-                return "Week \(wk), \(yr)"
+        if matrix.contains(where: isSalesHeader) {
+            let week = salesWeek(from: Array(matrix.prefix(6)))
+            if !week.isEmpty {
+                if week.count == 6, let yr = Int(week.prefix(4)), let wk = Int(week.suffix(2)) {
+                    return "Week \(wk), \(yr)"
+                }
+                return "Week \(week)"
             }
-            return "Week \(week)"
         }
         let blob = matrix.suffix(8).flatMap { $0 }.joined(separator: " ")
         let lower = blob.lowercased()
