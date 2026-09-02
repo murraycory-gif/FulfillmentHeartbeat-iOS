@@ -70,16 +70,24 @@ private enum SalesRollupBuilder {
         for row in stores {
             let key: String
             switch grain {
-            case .division: key = RollupMarketFill.divisionKey(row.division)
-            case .district: key = RollupMarketFill.districtKey(row.district)
-            case .store: key = HeartbeatMath.canonicalStore(row.storeNumber)
+            case .division:
+                key = RollupMarketFill.divisionKey(row.division)
+                if key == "Unassigned" { continue }
+            case .district:
+                key = RollupMarketFill.districtKey(row.district)
+                if key == "Unassigned" { continue }
+            case .store:
+                key = HeartbeatMath.canonicalStore(row.storeNumber)
             }
-            guard !key.isEmpty else { continue }
+            guard !key.isEmpty, row.number("sales_dollars") != nil || row.number("sales_orders") != nil else { continue }
             buckets[key, default: []].append(row)
         }
-        return buckets.keys.sorted().map { key in
+        return buckets.keys.sorted().compactMap { key in
+            if key == "Unassigned" { return nil }
             let packRows = buckets[key] ?? []
-            return SalesRollupRow(label: key, storeCount: Set(packRows.map(\.storeNumber)).count, pack: SalesPack(rows: packRows))
+            let pack = SalesPack(rows: packRows)
+            guard pack.sales != nil || pack.orders != nil else { return nil }
+            return SalesRollupRow(label: key, storeCount: Set(packRows.map(\.storeNumber)).count, pack: pack)
         }
     }
 }
@@ -442,7 +450,11 @@ struct SalesTable: View {
     }
 
     private func rebuild() {
-        var next = rows.map(SalesLineSnap.init)
+        var next = rows.compactMap { row -> SalesLineSnap? in
+            let snap = SalesLineSnap(row)
+            guard snap.pack.sales != nil || snap.pack.orders != nil else { return nil }
+            return snap
+        }
         next.sort { lhs, rhs in
             let result: ComparisonResult
             switch sortKey {
