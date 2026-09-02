@@ -227,6 +227,7 @@ enum HubLayout {
     }
 
     static func kpiColumns(width: CGFloat) -> Int {
+        if width < 520 { return 2 }
         if width >= 1100 { return 5 }
         if width >= 860 { return 4 }
         if width >= 640 { return 3 }

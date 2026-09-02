@@ -541,6 +541,8 @@ struct FulfillmentWordmark: View {
         }
         .font(.system(size: height * 0.48, weight: .bold, design: .default))
         .tracking(-0.8)
+        .lineLimit(1)
+        .fixedSize(horizontal: true, vertical: false)
         .overlay(alignment: .bottom) {
             Capsule()
                 .fill(
@@ -564,63 +566,80 @@ struct BeatingHeartbeatMark: View {
     var showsWordmark: Bool = true
 
     var body: some View {
+        ViewThatFits(in: .horizontal) {
+            markRow
+            VStack(alignment: .center, spacing: height * 0.18) {
+                if showsWordmark {
+                    FulfillmentWordmark(height: min(height, 56))
+                }
+                heartBlock
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Fulfillment Heartbeat")
+    }
+
+    private var markRow: some View {
         HStack(alignment: .center, spacing: height * 0.16) {
             if showsWordmark {
                 FulfillmentWordmark(height: height)
             }
-            ZStack(alignment: .leading) {
-                if showsTrace {
-                    LogoECGUI(lineWidth: height * 0.11)
-                        .frame(width: height * 1.42, height: height * 0.70)
-                        .offset(x: height * 0.88, y: height * 0.04)
-                        .allowsHitTesting(false)
-                }
-                HeartShape()
-                    .fill(
-                        LinearGradient(
-                            colors: [
-                                Color(hex: "2E6FD4"),
-                                AppTheme.heart,
-                                Color(hex: "00245F"),
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .overlay {
-                        HeartShape()
-                            .fill(
-                                RadialGradient(
-                                    colors: [
-                                        Color.white.opacity(0.38),
-                                        Color.white.opacity(0.06),
-                                        Color.clear,
-                                    ],
-                                    center: UnitPoint(x: 0.34, y: 0.26),
-                                    startRadius: 1,
-                                    endRadius: height * 0.62
-                                )
-                            )
-                    }
-                    .overlay {
-                        HeartShape()
-                            .stroke(
-                                LinearGradient(
-                                    colors: [Color.white.opacity(0.45), Color.white.opacity(0.05)],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                ),
-                                lineWidth: 1.2
-                            )
-                    }
-                    .shadow(color: Color.black.opacity(0.28), radius: 3, x: 1.2, y: 3)
-                    .shadow(color: AppTheme.heart.opacity(0.40), radius: 8, y: 3)
-                    .frame(width: height, height: height)
-            }
-            .frame(width: showsTrace ? height * 2.32 : height, height: height, alignment: .leading)
+            heartBlock
         }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Fulfillment Heartbeat")
+    }
+
+    private var heartBlock: some View {
+        ZStack(alignment: .leading) {
+            if showsTrace {
+                LogoECGUI(lineWidth: height * 0.11)
+                    .frame(width: height * 1.42, height: height * 0.70)
+                    .offset(x: height * 0.88, y: height * 0.04)
+                    .allowsHitTesting(false)
+            }
+            HeartShape()
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(hex: "2E6FD4"),
+                            AppTheme.heart,
+                            Color(hex: "00245F"),
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .overlay {
+                    HeartShape()
+                        .fill(
+                            RadialGradient(
+                                colors: [
+                                    Color.white.opacity(0.38),
+                                    Color.white.opacity(0.06),
+                                    Color.clear,
+                                ],
+                                center: UnitPoint(x: 0.34, y: 0.26),
+                                startRadius: 1,
+                                endRadius: height * 0.62
+                            )
+                        )
+                }
+                .overlay {
+                    HeartShape()
+                        .stroke(
+                            LinearGradient(
+                                colors: [Color.white.opacity(0.45), Color.white.opacity(0.05)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            ),
+                            lineWidth: 1.2
+                        )
+                }
+                .shadow(color: Color.black.opacity(0.28), radius: 3, x: 1.2, y: 3)
+                .shadow(color: AppTheme.heart.opacity(0.40), radius: 8, y: 3)
+                .frame(width: height, height: height)
+        }
+        .frame(width: showsTrace ? height * 2.32 : height, height: height, alignment: .leading)
     }
 }
 
@@ -2209,6 +2228,7 @@ struct PickPathRollupTable: View {
                 }
                 .buttonStyle(.plain)
                 if expanded {
+                    ScrollView(.horizontal, showsIndicators: true) {
                     VStack(alignment: .leading, spacing: 10) {
                     PickPathMetricHeader(
                         label: grain.columnTitle,
@@ -2227,7 +2247,10 @@ struct PickPathRollupTable: View {
                         )
                     }
                                     }
-                    .padding(16)
+                    .fixedSize(horizontal: true, vertical: false)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 12)
                 }
             }
             .background(AppTheme.tableFill)
@@ -3263,6 +3286,7 @@ struct DynacapRollupTable: View {
                 }
                 .buttonStyle(.plain)
                 if expanded {
+                    ScrollView(.horizontal, showsIndicators: true) {
                     VStack(alignment: .leading, spacing: 10) {
                     DynacapMetricHeader(
                         label: grain.columnTitle,
@@ -3281,7 +3305,10 @@ struct DynacapRollupTable: View {
                         )
                     }
                                     }
-                    .padding(16)
+                    .fixedSize(horizontal: true, vertical: false)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 12)
                 }
             }
             .background(AppTheme.tableFill)
@@ -4055,6 +4082,7 @@ struct PrepRollupTable: View {
                 }
                 .buttonStyle(.plain)
                 if expanded {
+                    ScrollView(.horizontal, showsIndicators: true) {
                     VStack(alignment: .leading, spacing: 10) {
                     PrepMetricHeader(
                         label: grain.columnTitle,
@@ -4071,7 +4099,10 @@ struct PrepRollupTable: View {
                         )
                     }
                                     }
-                    .padding(16)
+                    .fixedSize(horizontal: true, vertical: false)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 12)
                 }
             }
             .background(AppTheme.tableFill)
@@ -4807,6 +4838,7 @@ struct FiveStarRollupTable: View {
                 }
                 .buttonStyle(.plain)
                 if expanded {
+                    ScrollView(.horizontal, showsIndicators: true) {
                     VStack(alignment: .leading, spacing: 10) {
                     FiveStarMetricHeader(
                         label: grain.columnTitle,
@@ -4828,7 +4860,10 @@ struct FiveStarRollupTable: View {
                         )
                     }
                                     }
-                    .padding(16)
+                    .fixedSize(horizontal: true, vertical: false)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 12)
                 }
             }
             .background(AppTheme.tableFill)
@@ -5663,6 +5698,7 @@ struct LaborRollupTable: View {
                     }
                     .buttonStyle(.plain)
                     if expanded {
+                    ScrollView(.horizontal, showsIndicators: true) {
                     VStack(alignment: .leading, spacing: 10) {
                         LaborMetricHeader(
                             label: grain.columnTitle,
@@ -5685,7 +5721,10 @@ struct LaborRollupTable: View {
                             )
                         }
                                         }
-                    .padding(16)
+                    .fixedSize(horizontal: true, vertical: false)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 12)
                 }
                 }
                 .background(AppTheme.tableFill)
@@ -6690,6 +6729,7 @@ struct LostRevenueRollupTable: View {
                 }
                 .buttonStyle(.plain)
                 if expanded {
+                    ScrollView(.horizontal, showsIndicators: true) {
                     VStack(alignment: .leading, spacing: 10) {
                     LostRevenueMetricHeader(
                         label: grain.columnTitle,
@@ -6712,7 +6752,10 @@ struct LostRevenueRollupTable: View {
                         )
                     }
                                     }
-                    .padding(16)
+                    .fixedSize(horizontal: true, vertical: false)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 12)
                 }
             }
             .background(AppTheme.tableFill)
@@ -7700,6 +7743,7 @@ struct ScheduleRollupTable: View {
                 }
                 .buttonStyle(.plain)
                 if expanded {
+                    ScrollView(.horizontal, showsIndicators: true) {
                     VStack(alignment: .leading, spacing: 10) {
                     ScheduleMetricHeader(
                         label: grain.columnTitle,
@@ -7719,7 +7763,10 @@ struct ScheduleRollupTable: View {
                         )
                     }
                                     }
-                    .padding(16)
+                    .fixedSize(horizontal: true, vertical: false)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 12)
                 }
             }
             .background(AppTheme.tableFill)
@@ -8423,6 +8470,7 @@ struct PPHRollupTable: View {
                 }
                 .buttonStyle(.plain)
                 if expanded {
+                    ScrollView(.horizontal, showsIndicators: true) {
                     VStack(alignment: .leading, spacing: 10) {
                     PPHMetricHeader(
                         label: grain.columnTitle,
@@ -8440,7 +8488,10 @@ struct PPHRollupTable: View {
                         )
                     }
                                     }
-                    .padding(16)
+                    .fixedSize(horizontal: true, vertical: false)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 12)
                 }
             }
             .background(AppTheme.tableFill)

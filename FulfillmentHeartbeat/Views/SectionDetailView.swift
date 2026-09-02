@@ -17,7 +17,7 @@ struct SectionDetailView: View {
     @State private var missingItemsFocus: MissingItemsFocus = .all
     @State private var miCategories: Set<MissingItemDept> = []
     @State private var showTables = false
-    @State private var pageWidth: CGFloat = 1000
+    @State private var pageWidth: CGFloat = 390
 
     private var summary: SectionSummary { store.summary(for: section) }
     private var snapshots: [MetricRow] { store.displayRows(for: section) }
