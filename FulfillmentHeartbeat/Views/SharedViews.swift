@@ -2228,7 +2228,7 @@ struct PickPathRollupTable: View {
                 }
                 .buttonStyle(.plain)
                 if expanded {
-                    ScrollView(.horizontal, showsIndicators: true) {
+                    HubAdaptiveHScroll {
                     VStack(alignment: .leading, spacing: 10) {
                     PickPathMetricHeader(
                         label: grain.columnTitle,
@@ -2247,7 +2247,6 @@ struct PickPathRollupTable: View {
                         )
                     }
                                     }
-                    .fixedSize(horizontal: true, vertical: false)
                     }
                     .padding(.horizontal, 12)
                     .padding(.bottom, 12)
@@ -3286,7 +3285,7 @@ struct DynacapRollupTable: View {
                 }
                 .buttonStyle(.plain)
                 if expanded {
-                    ScrollView(.horizontal, showsIndicators: true) {
+                    HubAdaptiveHScroll {
                     VStack(alignment: .leading, spacing: 10) {
                     DynacapMetricHeader(
                         label: grain.columnTitle,
@@ -3305,7 +3304,6 @@ struct DynacapRollupTable: View {
                         )
                     }
                                     }
-                    .fixedSize(horizontal: true, vertical: false)
                     }
                     .padding(.horizontal, 12)
                     .padding(.bottom, 12)
@@ -4082,7 +4080,7 @@ struct PrepRollupTable: View {
                 }
                 .buttonStyle(.plain)
                 if expanded {
-                    ScrollView(.horizontal, showsIndicators: true) {
+                    HubAdaptiveHScroll {
                     VStack(alignment: .leading, spacing: 10) {
                     PrepMetricHeader(
                         label: grain.columnTitle,
@@ -4099,7 +4097,6 @@ struct PrepRollupTable: View {
                         )
                     }
                                     }
-                    .fixedSize(horizontal: true, vertical: false)
                     }
                     .padding(.horizontal, 12)
                     .padding(.bottom, 12)
@@ -4838,7 +4835,7 @@ struct FiveStarRollupTable: View {
                 }
                 .buttonStyle(.plain)
                 if expanded {
-                    ScrollView(.horizontal, showsIndicators: true) {
+                    HubAdaptiveHScroll {
                     VStack(alignment: .leading, spacing: 10) {
                     FiveStarMetricHeader(
                         label: grain.columnTitle,
@@ -4860,7 +4857,6 @@ struct FiveStarRollupTable: View {
                         )
                     }
                                     }
-                    .fixedSize(horizontal: true, vertical: false)
                     }
                     .padding(.horizontal, 12)
                     .padding(.bottom, 12)
@@ -5698,7 +5694,7 @@ struct LaborRollupTable: View {
                     }
                     .buttonStyle(.plain)
                     if expanded {
-                    ScrollView(.horizontal, showsIndicators: true) {
+                    HubAdaptiveHScroll {
                     VStack(alignment: .leading, spacing: 10) {
                         LaborMetricHeader(
                             label: grain.columnTitle,
@@ -5721,7 +5717,6 @@ struct LaborRollupTable: View {
                             )
                         }
                                         }
-                    .fixedSize(horizontal: true, vertical: false)
                     }
                     .padding(.horizontal, 12)
                     .padding(.bottom, 12)
@@ -6729,7 +6724,7 @@ struct LostRevenueRollupTable: View {
                 }
                 .buttonStyle(.plain)
                 if expanded {
-                    ScrollView(.horizontal, showsIndicators: true) {
+                    HubAdaptiveHScroll {
                     VStack(alignment: .leading, spacing: 10) {
                     LostRevenueMetricHeader(
                         label: grain.columnTitle,
@@ -6752,7 +6747,6 @@ struct LostRevenueRollupTable: View {
                         )
                     }
                                     }
-                    .fixedSize(horizontal: true, vertical: false)
                     }
                     .padding(.horizontal, 12)
                     .padding(.bottom, 12)
@@ -7743,7 +7737,7 @@ struct ScheduleRollupTable: View {
                 }
                 .buttonStyle(.plain)
                 if expanded {
-                    ScrollView(.horizontal, showsIndicators: true) {
+                    HubAdaptiveHScroll {
                     VStack(alignment: .leading, spacing: 10) {
                     ScheduleMetricHeader(
                         label: grain.columnTitle,
@@ -7763,7 +7757,6 @@ struct ScheduleRollupTable: View {
                         )
                     }
                                     }
-                    .fixedSize(horizontal: true, vertical: false)
                     }
                     .padding(.horizontal, 12)
                     .padding(.bottom, 12)
@@ -8470,7 +8463,7 @@ struct PPHRollupTable: View {
                 }
                 .buttonStyle(.plain)
                 if expanded {
-                    ScrollView(.horizontal, showsIndicators: true) {
+                    HubAdaptiveHScroll {
                     VStack(alignment: .leading, spacing: 10) {
                     PPHMetricHeader(
                         label: grain.columnTitle,
@@ -8488,7 +8481,6 @@ struct PPHRollupTable: View {
                         )
                     }
                                     }
-                    .fixedSize(horizontal: true, vertical: false)
                     }
                     .padding(.horizontal, 12)
                     .padding(.bottom, 12)
@@ -9467,6 +9459,23 @@ private struct HubPhoneTableModifier: ViewModifier {
             ScrollView(.horizontal, showsIndicators: true) {
                 content
                     .frame(minWidth: minWidth, alignment: .topLeading)
+            }
+        }
+    }
+}
+
+struct HubAdaptiveHScroll<Content: View>: View {
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        if sizeClass == .regular {
+            content
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            ScrollView(.horizontal, showsIndicators: true) {
+                content
+                    .fixedSize(horizontal: true, vertical: false)
             }
         }
     }

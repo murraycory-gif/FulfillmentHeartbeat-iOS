@@ -117,7 +117,7 @@ struct DashLostBanner: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var flagsOpen = false
 
-    private var compact: Bool { sizeClass != .regular || width < 700 }
+    private var compact: Bool { sizeClass != .regular }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -450,7 +450,7 @@ struct DashCallout: View, Equatable {
     @State private var width: CGFloat = 980
     @State private var flagsOpen = false
 
-    private var compact: Bool { sizeClass != .regular || width < 700 }
+    private var compact: Bool { sizeClass != .regular }
 
     static func == (lhs: DashCallout, rhs: DashCallout) -> Bool {
         lhs.card == rhs.card && lhs.flags == rhs.flags && lhs.grains == rhs.grains && lhs.grain == rhs.grain
