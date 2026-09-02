@@ -9284,37 +9284,48 @@ struct HubBrandBar: View {
     @State private var showAssist = false
 
     var body: some View {
-        VStack(spacing: compact ? 8 : 10) {
+        VStack(spacing: compact ? 6 : 10) {
             if compact {
                 compactBar
             } else {
                 regularBar
             }
 
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .center, spacing: 12) {
-                    DayGreeting(font: greetingFont)
+            if compact {
+                VStack(alignment: .leading, spacing: 6) {
+                    DayGreeting(font: .headline.weight(.bold))
                         .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                        .layoutPriority(1)
-                    Spacer(minLength: 8)
+                        .minimumScaleFactor(0.8)
                     if showsFilters {
                         FilterBar()
                     }
                 }
-                VStack(alignment: .leading, spacing: 8) {
-                    DayGreeting(font: greetingFont)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                    if showsFilters {
-                        FilterBar()
+            } else {
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .center, spacing: 12) {
+                        DayGreeting(font: greetingFont)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                            .layoutPriority(1)
+                        Spacer(minLength: 8)
+                        if showsFilters {
+                            FilterBar()
+                        }
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        DayGreeting(font: greetingFont)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                        if showsFilters {
+                            FilterBar()
+                        }
                     }
                 }
             }
         }
         .padding(.horizontal, compact ? 12 : 20)
-        .padding(.top, compact ? 4 : 6)
-        .padding(.bottom, compact ? 8 : 12)
+        .padding(.top, compact ? 2 : 6)
+        .padding(.bottom, compact ? 6 : 12)
         .frame(maxWidth: .infinity)
         .background(AppTheme.bg)
         .fullScreenCover(isPresented: $showAssist) {
@@ -9347,19 +9358,14 @@ struct HubBrandBar: View {
     }
 
     private var compactBar: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 8) {
-                HubIconButton(symbol: "sidebar.left", label: "Menu", chrome: true) {
-                    router.showCompactMenu = true
-                }
-                BeatingHeartbeatMark(height: 30, showsTrace: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .clipped()
+        HStack(spacing: 8) {
+            HubIconButton(symbol: "sidebar.left", label: "Menu", chrome: true) {
+                router.showCompactMenu = true
             }
-            HStack(spacing: 8) {
-                roleAssistPills
-                Spacer(minLength: 0)
-            }
+            BeatingHeartbeatMark(height: 26, showsTrace: true)
+                .layoutPriority(1)
+            Spacer(minLength: 4)
+            roleAssistPills
         }
     }
 

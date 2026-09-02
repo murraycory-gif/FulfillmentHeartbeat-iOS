@@ -17,12 +17,14 @@ struct DashboardView: View {
 
     private var dashboardBody: some View {
         VStack(spacing: 0) {
-            HubStickyPageBanner(
-                icon: "waveform.path.ecg",
-                title: "Operational Heartbeat",
-                accessory: store.filters.summary,
-                trailing: store.sharedDataWindow()
-            )
+            if sizeClass == .regular {
+                HubStickyPageBanner(
+                    icon: "waveform.path.ecg",
+                    title: "Operational Heartbeat",
+                    accessory: store.filters.summary,
+                    trailing: store.sharedDataWindow()
+                )
+            }
             List {
                 ForEach(briefingCards) { card in
                     DashCallout(
