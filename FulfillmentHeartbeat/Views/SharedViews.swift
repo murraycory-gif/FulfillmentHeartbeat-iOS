@@ -2143,6 +2143,9 @@ struct PickPathMetricHeader: View {
         .lineLimit(1)
         .minimumScaleFactor(0.65)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 4)
+        .padding(.top, 6)
+        .padding(.bottom, 8)
     }
 
     private func head(_ title: String, key: String, alignment: Alignment = .trailing) -> some View {
@@ -3202,6 +3205,9 @@ struct DynacapMetricHeader: View {
         .lineLimit(1)
         .minimumScaleFactor(0.65)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 4)
+        .padding(.top, 6)
+        .padding(.bottom, 8)
     }
 
     private func head(_ title: String, key: String, alignment: Alignment = .trailing) -> some View {
@@ -3998,6 +4004,9 @@ struct PrepMetricHeader: View {
         .lineLimit(1)
         .minimumScaleFactor(0.65)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 4)
+        .padding(.top, 6)
+        .padding(.bottom, 8)
     }
 
     private func head(_ title: String, key: String, alignment: Alignment = .trailing) -> some View {
@@ -4734,6 +4743,9 @@ struct FiveStarMetricHeader: View {
         .lineLimit(1)
         .minimumScaleFactor(0.65)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 4)
+        .padding(.top, 6)
+        .padding(.bottom, 8)
     }
 
     private func head(_ title: String, key: String, alignment: Alignment = .trailing) -> some View {
@@ -6624,6 +6636,9 @@ struct LostRevenueMetricHeader: View {
         .lineLimit(1)
         .minimumScaleFactor(0.65)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 4)
+        .padding(.top, 6)
+        .padding(.bottom, 8)
     }
 
     private func head(_ title: String, key: String, alignment: Alignment = .trailing) -> some View {
@@ -6849,40 +6864,13 @@ struct LostRevenueTable: View {
             }
         } else {
             Section {
-                Button {
+                HubStoreCard(count: rows.count, expanded: expanded) {
                     let next = !headerPin.storesExpanded
                     headerPin.storesExpanded = next
                     headerPin.tableOpen = next
                     if !next { headerPin.pinned = false }
                     if next { rebuildOrder(sort: sort, ascending: ascending) }
-                } label: {
-                    HubTableHeader(
-                            icon: "storefront.fill",
-                            title: "Store",
-                            accessory: "\(HeartbeatFormat.num(Double(rows.count))) stores  ·  tap to \(expanded ? "collapse" : "expand")",
-                            expanded: expanded
-                        )
-                }
-                .buttonStyle(.plain)
-                .background(AppTheme.tableFill)
-                .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                        .stroke(AppTheme.blue, lineWidth: 2.5)
-                )
-                .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: expanded ? 4 : 20, trailing: 20))
-                .listRowSeparator(.hidden)
-                .listRowBackground(AppTheme.bg)
-                .onAppear {
-                    headerPin.tableOpen = headerPin.storesExpanded
-                    headerPin.storeCount = rows.count
-                    headerPin.active = sort.key
-                    headerPin.ascending = ascending
-                    headerPin.onSelect = applyHeaderSort
-                }
-            }
-            if expanded {
-                Section {
+                } content: {
                     HubPhonePane(minWidth: 860) {
                         VStack(spacing: 0) {
                             LostRevenueMetricHeader(
@@ -6917,20 +6905,18 @@ struct LostRevenueTable: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 12)
-                    .background(AppTheme.tableFill)
-                    .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                            .stroke(AppTheme.blue, lineWidth: 2.5)
-                    )
-                    .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 20, trailing: 20))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(AppTheme.bg)
                 }
-                .transaction { $0.animation = nil }
-                .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
+                .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 20, trailing: 20))
+                .listRowSeparator(.hidden)
+                .listRowBackground(AppTheme.bg)
+                .onAppear {
+                    headerPin.tableOpen = headerPin.storesExpanded
+                    headerPin.storeCount = rows.count
+                    headerPin.active = sort.key
+                    headerPin.ascending = ascending
+                    headerPin.onSelect = applyHeaderSort
+                    if expanded { rebuildOrder(sort: sort, ascending: ascending) }
+                }
                 .onChange(of: store.filterStamp) { _, _ in
                     limit = 50
                     rebuildOrder(sort: sort, ascending: ascending)
@@ -6946,6 +6932,7 @@ struct LostRevenueTable: View {
                     headerPin.storeCount = rows.count
                 }
             }
+            .transaction { $0.animation = nil }
         }
     }
 
@@ -8372,6 +8359,9 @@ struct PPHMetricHeader: View {
         .lineLimit(1)
         .minimumScaleFactor(0.65)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 4)
+        .padding(.top, 6)
+        .padding(.bottom, 8)
     }
 
     private func head(_ title: String, key: String, alignment: Alignment = .trailing) -> some View {
@@ -9064,6 +9054,9 @@ struct PickerMetricHeader: View {
         .lineLimit(1)
         .minimumScaleFactor(0.65)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 4)
+        .padding(.top, 6)
+        .padding(.bottom, 8)
     }
 
     private func head(_ title: String, key: String, alignment: Alignment = .trailing) -> some View {
@@ -9478,17 +9471,13 @@ struct HubStoreCard<Content: View>: View {
             .buttonStyle(.plain)
             if expanded {
                 content
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 12)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 10)
+                    .padding(.bottom, 16)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppTheme.tableFill)
-        .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                .stroke(AppTheme.blue, lineWidth: 2.5)
-        )
+        .hubScorecardChrome()
     }
 }
 

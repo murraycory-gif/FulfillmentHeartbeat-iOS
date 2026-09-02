@@ -805,6 +805,9 @@ struct MissingItemsMetricHeader: View {
         .lineLimit(1)
         .minimumScaleFactor(0.65)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 4)
+        .padding(.top, 6)
+        .padding(.bottom, 8)
     }
 
     private func deptHead(_ dept: MissingItemDept) -> some View {
@@ -1237,6 +1240,9 @@ private struct PreSubItemHeader: View {
         .lineLimit(1)
         .minimumScaleFactor(0.65)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 4)
+        .padding(.top, 6)
+        .padding(.bottom, 8)
     }
 
     private func head(_ title: String, key: String, alignment: Alignment = .trailing) -> some View {

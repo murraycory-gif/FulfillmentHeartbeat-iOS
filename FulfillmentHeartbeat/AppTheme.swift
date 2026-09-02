@@ -148,6 +148,19 @@ extension View {
     func tableRowCard(health: Health) -> some View {
         modifier(TableRowChrome(health: health))
     }
+
+    func hubScorecardChrome() -> some View {
+        self
+            .background(
+                RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                    .fill(AppTheme.tableFill)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                    .strokeBorder(AppTheme.blue, lineWidth: 2.5)
+            )
+            .padding(3)
+    }
 }
 
 extension Color {
