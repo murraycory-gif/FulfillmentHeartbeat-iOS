@@ -1434,10 +1434,7 @@ final class HeartbeatStore: ObservableObject {
         unfilteredWarmTask?.cancel()
         unfilteredWarmTask = nil
         pulseGeneration += 1
-        let identitySource = rows.filter {
-            $0.section != .scheduleQuality && $0.section != .dynacap && $0.section != .pickerScorecard && $0.section != .pickPathPicker && $0.section != .lostRevenue && $0.section != .preSubOOS
-        }
-        roster = HeartbeatMath.storeRoster(identitySource.isEmpty ? rows.filter { $0.section != .pickerScorecard && $0.section != .pickPathPicker } : identitySource)
+        roster = PulseCaches.storeRoster(from: rows)
         var latest: [MetricSection: [MetricRow]] = [:]
         for section in MetricSection.allCases {
             let sectionRows = rows.filter { $0.section == section }
@@ -2012,37 +2009,7 @@ private struct PulseCaches {
         for row in rows {
             bySection[row.section, default: []].append(row)
         }
-        var identitySource: [MetricRow] = []
-        var identityFallback: [MetricRow] = []
-        let messyIdentity: Set<MetricSection> = [
-            .scheduleQuality, .dynacap, .pickerScorecard, .pickPathPicker, .lostRevenue, .preSubOOS
-        ]
-        for (section, list) in bySection {
-            if messyIdentity.contains(section) {
-                identityFallback.append(contentsOf: list)
-            } else {
-                identitySource.append(contentsOf: list)
-            }
-        }
-        var roster = HeartbeatMath.storeRoster(
-            identitySource.isEmpty
-                ? rows.filter { $0.section != .pickerScorecard && $0.section != .pickPathPicker }
-                : identitySource
-        )
-        if !identityFallback.isEmpty {
-            let extra = HeartbeatMath.storeRoster(identityFallback)
-            for (number, identity) in extra {
-                if var current = roster[number] {
-                    if current.division.isEmpty { current.division = identity.division }
-                    if current.district.isEmpty { current.district = identity.district }
-                    if current.om.isEmpty { current.om = identity.om }
-                    if current.name == nil { current.name = identity.name }
-                    roster[number] = current
-                } else {
-                    roster[number] = identity
-                }
-            }
-        }
+        var roster = storeRoster(from: rows)
         var latest: [MetricSection: [MetricRow]] = [:]
         latest.reserveCapacity(MetricSection.allCases.count)
         for section in MetricSection.allCases {
@@ -2104,7 +2071,9 @@ private struct PulseCaches {
                 nextLatest[section] = rows.filter { row in
                     let store = HeartbeatMath.canonicalStore(row.storeNumber)
                     if !store.isEmpty, allowed.contains(store) { return true }
-                    if !store.isEmpty, roster[store] != nil { return false }
+                    if !store.isEmpty, let identity = roster[store], !identity.division.isEmpty {
+                        return false
+                    }
                     if !filters.includesDivision(row.division) { return false }
                     if !filters.includesDistrict(row.district) { return false }
                     if !filters.includesOM(row.operationsOM) { return false }
@@ -2332,6 +2301,33 @@ private struct PulseCaches {
             )
         }
         return out
+    }
+
+    static func storeRoster(from rows: [MetricRow]) -> [String: HeartbeatMath.StoreIdentity] {
+        let messy: Set<MetricSection> = [
+            .scheduleQuality, .dynacap, .pickerScorecard, .pickPathPicker, .lostRevenue, .preSubOOS
+        ]
+        let primary = rows.filter { !messy.contains($0.section) }
+        let fallback = rows.filter { messy.contains($0.section) }
+        var roster = HeartbeatMath.storeRoster(
+            primary.isEmpty
+                ? rows.filter { $0.section != .pickerScorecard && $0.section != .pickPathPicker }
+                : primary
+        )
+        guard !fallback.isEmpty else { return roster }
+        let extra = HeartbeatMath.storeRoster(fallback)
+        for (number, identity) in extra {
+            if var current = roster[number] {
+                if current.division.isEmpty { current.division = identity.division }
+                if current.district.isEmpty { current.district = identity.district }
+                if current.om.isEmpty { current.om = identity.om }
+                if current.name == nil { current.name = identity.name }
+                roster[number] = current
+            } else {
+                roster[number] = identity
+            }
+        }
+        return roster
     }
 
     private static func pickerStoreSet(

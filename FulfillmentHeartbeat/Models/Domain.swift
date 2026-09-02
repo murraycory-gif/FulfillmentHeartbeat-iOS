@@ -1314,7 +1314,7 @@ enum HeartbeatMath {
             let underRisk = latest.filter { ($0.number("under_schedule_pct", "under_scheduled") ?? 0) > scheduleVarianceWatch }.count
             let overRisk = latest.filter { ($0.number("over_schedule_pct", "over_scheduled") ?? 0) > scheduleVarianceWatch }.count
             let calloutHealth: Health = {
-                if underRisk > 0 || overRisk > 0 { return .risk }
+                if risk > 0 || underRisk > 0 || overRisk > 0 { return .risk }
                 if watch > 0 { return .watch }
                 return latest.isEmpty ? .none : .good
             }()
@@ -1346,7 +1346,7 @@ enum HeartbeatMath {
                 secondary: latest.isEmpty
                     ? "No stores in view"
                     : "\(atGoal) of \(latest.count) at 80 · \(atRisk) below 74",
-                health: band(headline, good: pphGoal, watch: pphRisk),
+                health: latest.isEmpty ? .none : band(headline, good: pphGoal, watch: pphRisk),
                 watchCount: watch,
                 riskCount: risk,
                 lastFilename: upload?.filename,
@@ -2346,7 +2346,7 @@ enum HeartbeatMath {
     }
 
     static func band(_ value: Double?, good: Double, watch: Double, invert: Bool = false) -> Health {
-        guard let value else { return .watch }
+        guard let value else { return .none }
         if invert {
             if value <= good { return .good }
             if value <= watch { return .watch }
