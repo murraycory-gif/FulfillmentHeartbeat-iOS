@@ -36,6 +36,7 @@ struct ScorecardPager: UIViewControllerRepresentable {
 
         if coordinator.filterStamp != filterStamp {
             coordinator.filterStamp = filterStamp
+            coordinator.reloadHydrated()
             return
         }
 
@@ -95,12 +96,23 @@ struct ScorecardPager: UIViewControllerRepresentable {
 
         func hydrate(_ dest: HubDestination) {
             let host = host(for: dest)
-            guard !host.hydrated else { return }
             let root = page(dest)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(AppTheme.bg.ignoresSafeArea())
             host.rootView = AnyView(root)
             host.hydrated = true
+        }
+
+        func reloadHydrated() {
+            let dest = displayed
+            for (key, host) in cache where host.hydrated {
+                host.hydrated = false
+                host.rootView = Self.blank
+            }
+            hydrate(dest)
+            for neighbor in neighbors(of: dest) {
+                hydrate(neighbor)
+            }
         }
 
         func neighbors(of dest: HubDestination) -> [HubDestination] {
