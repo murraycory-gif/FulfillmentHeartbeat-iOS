@@ -273,11 +273,7 @@ struct DashScopeStrip: View {
     var body: some View {
         VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
             Button {
-                let next = !expanded
-                expanded = next
-                if next, flags.isEmpty, !packs.isEmpty {
-                    flags = store.dashboardGrainFlags(section: section, grain: grain, packs: packs)
-                }
+                expanded.toggle()
             } label: {
                     HStack(spacing: 8) {
                         Image(systemName: grain.symbol)
@@ -304,7 +300,8 @@ struct DashScopeStrip: View {
                             pack: pack,
                             grain: grain,
                             flags: flags[pack.id] ?? [],
-                            width: width
+                            width: width,
+                            section: section
                         )
                     }
                 }
@@ -317,18 +314,25 @@ struct DashScopeStrip: View {
 }
 
 struct DashScopeGrainCard: View {
+    @EnvironmentObject private var store: HeartbeatStore
     let pack: DashScopePack
     let grain: DashScopeGrain
     let flags: [HeartbeatMath.FiveStarFlag]
     let width: CGFloat
+    let section: MetricSection
     @State private var open = false
+    @State private var children: [DashScopeLine] = []
 
     private var line: DashScopeLine { pack.line }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Button {
-                if !pack.children.isEmpty { open.toggle() }
+                let next = !open
+                open = next
+                if next, children.isEmpty, grain != .store {
+                    children = store.dashboardGrainChildren(section: section, label: pack.line.label)
+                }
             } label: {
                 HStack(spacing: 10) {
                     Text(line.label)
@@ -347,7 +351,7 @@ struct DashScopeGrainCard: View {
                             .foregroundStyle(AppTheme.textSecondary)
                     }
                     HealthBadge(health: line.health, prominent: true, compact: true)
-                    if !pack.children.isEmpty {
+                    if grain != .store {
                         Image(systemName: open ? "chevron.up" : "chevron.down")
                             .font(.caption.weight(.bold))
                             .foregroundStyle(AppTheme.blue)
@@ -362,7 +366,7 @@ struct DashScopeGrainCard: View {
                 )
             }
             if open {
-                ForEach(pack.children) { child in
+                ForEach(children) { child in
                     HStack(spacing: 8) {
                         Text(child.label)
                             .font(.subheadline.weight(.semibold))
