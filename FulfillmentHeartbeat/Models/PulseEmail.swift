@@ -173,37 +173,71 @@ enum PulseMail {
             let fill = cardFill(card.health)
             var flagHTML = ""
             if !flags.isEmpty {
-                var cells = ""
-                for flag in flags {
-                    cells += """
-                    <td style="background:#fff;border:1px solid #E4E9F4;border-radius:10px;padding:8px 10px">
-                    <div style="font-size:11px;color:#5C677A;font-weight:700">\(esc(flag.name))</div>
-                    <div style="font-size:16px;font-weight:700;margin-top:2px;color:\(ink(flag.health))">\(esc(flagCaption(flag))) \(pill(flag.health))</div>
-                    </td>
-                    """
-                }
-                flagHTML = "<table class=\"layout\" width=\"100%\" cellspacing=\"8\" cellpadding=\"0\"><tr>\(cells)</tr></table>"
+                flagHTML = flagGridHTML(flags)
             }
             let title = card.section == .pickPath ? "Pick Path Compliance" : card.section.title
             cards += """
-            <table width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 10px;background:\(fill.bg);border:1px solid \(fill.border);border-radius:14px">
+            <table width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 14px;background:\(fill.bg);border:1px solid \(fill.border);border-radius:14px">
             <tr>
-            <td style="padding:12px 14px">
-            <div style="font-size:18px;font-weight:700;color:#141A29">\(esc(title))</div>
-            <div style="color:#5C677A;font-size:13px">\(esc(card.headlineLabel))</div>
+            <td style="padding:14px 16px">
+            <table width="100%" cellspacing="0" cellpadding="0">
+            <tr>
+            <td valign="top">
+            <div style="font-size:20px;font-weight:700;color:#141A29">\(esc(title))</div>
+            <div style="color:#5C677A;font-size:13px;margin-top:2px">\(esc(card.headlineLabel))</div>
             <div style="font-weight:700;margin-top:4px;color:\(card.riskCount == 0 ? ink(.good) : ink(.risk))">\(esc(riskLine(card.section, card)))</div>
+            </td>
+            <td valign="top" align="right" style="width:150px">
+            <div style="font-size:26px;font-weight:700;color:\(ink(card.health))">\(esc(card.headlineText))</div>
+            <div style="margin-top:4px">\(pill(card.health))</div>
+            </td>
+            </tr>
+            </table>
             \(flagHTML)
             \(grainHTML(card.section, snap: snap, grain: grain))
-            </td>
-            <td valign="top" style="padding:12px 14px;text-align:right;white-space:nowrap">
-            <div style="font-size:28px;font-weight:700;color:\(ink(card.health))">\(esc(card.headlineText))</div>
-            \(pill(card.health))
             </td>
             </tr>
             </table>
             """
         }
         return pageWrap(title: "Operational Heartbeat", filter: snap.filterSummary, trailing: sharedWindow(snap), inner: cards)
+    }
+
+    private static func flagGridHTML(_ flags: [HeartbeatMath.FiveStarFlag]) -> String {
+        guard !flags.isEmpty else { return "" }
+        let cols = flags.count <= 3 ? max(flags.count, 1) : (flags.count == 4 ? 2 : 3)
+        var rows = ""
+        var i = 0
+        while i < flags.count {
+            var cells = ""
+            let end = min(i + cols, flags.count)
+            for flag in flags[i..<end] {
+                let unit = flag.stores == 1 ? String(flag.unit.dropLast()) : flag.unit
+                let stores = "\(HeartbeatFormat.num(Double(flag.stores))) \(unit)"
+                let valueLine = flag.value.isEmpty
+                    ? ""
+                    : "<div style=\"font-size:18px;font-weight:700;margin-top:4px;color:\(ink(flag.health))\">\(esc(flag.value))</div>"
+                cells += """
+                <td width="\(100 / cols)%" valign="top" style="padding:4px">
+                <table width="100%" cellspacing="0" cellpadding="0" style="background:#fff;border:1px solid #E4E9F4;border-radius:10px">
+                <tr><td style="padding:10px 12px">
+                <div style="font-size:11px;color:#5C677A;font-weight:700">\(esc(flag.name))</div>
+                \(valueLine)
+                <div style="font-size:13px;font-weight:600;margin-top:4px;color:#5C677A">\(esc(stores)) \(pill(flag.health))</div>
+                </td></tr>
+                </table>
+                </td>
+                """
+            }
+            if end - i < cols {
+                for _ in 0..<(cols - (end - i)) {
+                    cells += "<td width=\"\(100 / cols)%\"></td>"
+                }
+            }
+            rows += "<tr>\(cells)</tr>"
+            i = end
+        }
+        return "<table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin-top:10px\">\(rows)</table>"
     }
 
     private static func flagCaption(_ flag: HeartbeatMath.FiveStarFlag) -> String {
