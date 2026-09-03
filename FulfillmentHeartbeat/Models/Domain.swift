@@ -1699,7 +1699,8 @@ enum HeartbeatMath {
     }
 
     static func salesActionFlags(_ rows: [MetricRow]) -> [FiveStarFlag] {
-        let stores = rows.filter { !$0.storeNumber.isEmpty }
+        let stores = rows.filter { $0.textPayload["sales_grain"] != "company" && !$0.storeNumber.isEmpty }
+        let healthy = stores.filter { salesHealth($0) == .good }.count
         let watch = stores.filter { salesHealth($0) == .watch }.count
         let risk = stores.filter { salesHealth($0) == .risk }.count
         return [
