@@ -915,6 +915,7 @@ struct HubChromePill: View {
     var showsChevron: Bool = true
     var spinning: Bool = false
     var selected: Bool = false
+    var prominent: Bool = false
     let action: () -> Void
     @Environment(\.horizontalSizeClass) private var sizeClass
 
@@ -925,7 +926,7 @@ struct HubChromePill: View {
             HStack(spacing: 6) {
                 if spinning {
                     ProgressView()
-                        .tint(AppTheme.blue)
+                        .tint(prominent ? Color.white : AppTheme.blue)
                         .controlSize(.small)
                 } else {
                     Image(systemName: symbol)
@@ -936,7 +937,7 @@ struct HubChromePill: View {
                 if badge > 0 {
                     Text("\(badge)")
                         .font(.caption2.weight(.bold))
-                        .foregroundStyle(AppTheme.blue)
+                        .foregroundStyle(prominent ? Color.white : AppTheme.blue)
                 }
                 if showsChevron {
                     Image(systemName: "chevron.down")
@@ -944,13 +945,13 @@ struct HubChromePill: View {
                 }
             }
             .font((compactPills ? Font.caption : Font.subheadline).weight(.semibold))
-            .foregroundStyle(AppTheme.blue)
+            .foregroundStyle(prominent ? Color.white : AppTheme.blue)
             .padding(.horizontal, compactPills ? 8 : 10)
             .padding(.vertical, compactPills ? 7 : 8)
             .frame(minHeight: 44)
             .background(
                 Capsule(style: .continuous)
-                    .fill(selected ? AppTheme.blueSoft : Color.clear)
+                    .fill(prominent ? AppTheme.blue : (selected ? AppTheme.blueSoft : Color.clear))
             )
             .contentShape(Capsule())
         }
@@ -967,11 +968,6 @@ struct FilterBar: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            if store.filters.isActive {
-                Button("Clear") { store.clearFilters() }
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(AppTheme.blue)
-            }
             ViewThatFits(in: .horizontal) {
                 pills
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -990,15 +986,19 @@ struct FilterBar: View {
     }
 
     private var pills: some View {
-        HStack(spacing: 8) {
-            ForEach(FilterFocus.allCases) { focus in
-                HubChromePill(
-                    title: pillTitle(for: focus),
-                    symbol: focus.symbol,
-                    selected: !store.filters.values(for: focus).isEmpty
-                ) {
-                    openFilters(focus)
-                }
+        HStack(spacing: 10) {
+            HubChromePill(
+                title: store.filters.isActive ? compactFilterTitle : "Filters",
+                symbol: "line.3.horizontal.decrease.circle",
+                selected: store.filters.isActive
+            ) {
+                openFilters(.region)
+            }
+            if store.filters.isActive {
+                Button("Clear") { store.clearFilters() }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(AppTheme.blue)
+                    .frame(minHeight: 44)
             }
             HubChromePill(
                 title: "Share",
@@ -1244,14 +1244,29 @@ struct FilterSheet: View {
     @State private var draft = DashboardFilters()
     @State private var confirmLeave = false
     @State private var options: [(id: String, label: String)] = []
-
-    private var focus: FilterFocus { initialFocus }
+    @State private var focus: FilterFocus = .region
     private var isDirty: Bool { draft != original }
     private var focusValues: [String] { draft.values(for: focus) }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 16) {
+                HStack(spacing: 8) {
+                    ForEach(FilterFocus.allCases) { item in
+                        Button {
+                            focus = item
+                            options = store.filterChoices(focus: item, draft: draft)
+                        } label: {
+                            Text(item.chipTitle)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(focus == item ? Color.white : AppTheme.blue)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 8)
+                                .background(focus == item ? AppTheme.blue : AppTheme.blueSoft, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
                 Text("Search or tap rows. Select more than one \(focus.chipTitle.lowercased()).")
                     .font(.subheadline)
                     .foregroundStyle(AppTheme.textSecondary)
@@ -1299,7 +1314,8 @@ struct FilterSheet: View {
         .onAppear {
             original = store.filters
             draft = store.filters
-            options = store.filterChoices(focus: focus, draft: store.filters)
+            focus = initialFocus
+            options = store.filterChoices(focus: initialFocus, draft: store.filters)
         }
     }
 
@@ -9455,7 +9471,8 @@ struct HubBrandBar: View {
             HubChromePill(
                 title: "Assist",
                 symbol: "waveform.path.ecg",
-                showsChevron: false
+                showsChevron: false,
+                prominent: true
             ) {
                 showAssist = true
             }
