@@ -459,7 +459,38 @@ struct EmptyHint: View {
     }
 }
 
-struct HubIconButton: View {
+struct HubNavControl: View {
+    let symbol: String
+    let title: String
+    var filled: Bool = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: symbol)
+                    .font(.body.weight(.bold))
+                Text(title)
+                    .font(.subheadline.weight(.bold))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(filled ? Color.white : AppTheme.blue)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .frame(minHeight: 44)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(filled ? AppTheme.blue : Color.white)
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .stroke(filled ? Color.clear : AppTheme.blue.opacity(0.35), lineWidth: 1.5)
+            )
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+    }
+}
     let symbol: String
     var label: String = ""
     var emphasized: Bool = false
@@ -9374,12 +9405,12 @@ struct HubBrandBar: View {
 
     private var regularBar: some View {
         ZStack {
-            HStack(spacing: 10) {
-                HubIconButton(symbol: "sidebar.left", label: "Menu", chrome: true) {
+            HStack(spacing: 12) {
+                HubNavControl(symbol: "line.3.horizontal", title: "Menu") {
                     router.toggleSidebar()
                 }
                 if showBack {
-                    HubIconButton(symbol: "chevron.left", label: "Dashboard", chrome: true) {
+                    HubNavControl(symbol: "chevron.left", title: "Back", filled: true) {
                         router.open(.dashboard)
                     }
                 }
@@ -9393,9 +9424,14 @@ struct HubBrandBar: View {
     }
 
     private var compactBar: some View {
-        HStack(spacing: 8) {
-            HubIconButton(symbol: "sidebar.left", label: "Menu", chrome: true) {
+        HStack(spacing: 10) {
+            HubNavControl(symbol: "line.3.horizontal", title: "Menu") {
                 router.showCompactMenu = true
+            }
+            if showBack {
+                HubNavControl(symbol: "chevron.left", title: "Back", filled: true) {
+                    router.open(.dashboard)
+                }
             }
             BeatingHeartbeatMark(height: 26, showsTrace: true)
                 .layoutPriority(1)
