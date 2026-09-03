@@ -166,7 +166,16 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func dashboardGrains(for section: MetricSection) -> [DashScopePack] {
-        cachedGrainPacks[section] ?? []
+        if let cached = cachedGrainPacks[section], !cached.isEmpty {
+            return cached
+        }
+        return PulseCaches.grainPacks(
+            latest: filteredLatest,
+            grain: effectiveDashboardGrain,
+            hidePicker: sessionRole == .evp,
+            stores: cachedStores,
+            roster: roster
+        )[section] ?? []
     }
 
     func dashboardGrainFlags(
@@ -2238,7 +2247,7 @@ private struct PulseCaches {
         var out: [MetricSection: [DashScopePack]] = [:]
         for section in MetricSection.dashboardCards {
             if hidePicker, section == .pickerScorecard { continue }
-            let rows = latest[section] ?? []
+            let rows = HeartbeatMath.rowsFillingRoster(latest[section] ?? [], roster: roster)
             let lines: [DashScopeLine]
             if grain == .store, !stores.isEmpty {
                 lines = Array(HeartbeatMath.dashboardStoreLines(
@@ -2250,13 +2259,30 @@ private struct PulseCaches {
             } else {
                 lines = Array(HeartbeatMath.dashboardScopeLines(section: section, rows: rows, grain: grain).prefix(cap))
             }
+            let fallback: [DashScopeLine]
+            if lines.isEmpty, grain == .region {
+                fallback = MarketRegion.allCases.map {
+                    DashScopeLine(label: $0.rawValue, value: "—", health: .none, count: 0)
+                }
+            } else if lines.isEmpty, grain == .division {
+                fallback = MarketRegion.officialDivisions.map {
+                    DashScopeLine(label: $0, value: "—", health: .none, count: 0)
+                }
+            } else {
+                fallback = lines
+            }
             let markets = grain == .region
                 ? HeartbeatMath.dashboardScopeLines(section: section, rows: rows, grain: .division)
                 : []
-            out[section] = lines.map { line in
+            out[section] = fallback.map { line in
                 var children: [DashScopeLine] = []
                 if grain == .region {
                     children = markets.filter { MarketRegion.containing($0.label)?.rawValue == line.label }
+                    if children.isEmpty, let region = MarketRegion.allCases.first(where: { $0.rawValue == line.label }) {
+                        children = region.gateDivisions.map {
+                            DashScopeLine(label: $0, value: "—", health: .none, count: 0)
+                        }
+                    }
                 } else if grain == .district {
                     let scoped = rows.filter { RollupMarketFill.districtKey($0.district) == line.label }
                     children = Array(HeartbeatMath.dashboardScopeLines(section: section, rows: scoped, grain: .store).prefix(40))

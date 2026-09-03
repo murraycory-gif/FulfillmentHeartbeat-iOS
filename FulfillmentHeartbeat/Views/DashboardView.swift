@@ -155,7 +155,7 @@ struct DashLostBanner: View {
             } else {
                 DashFlagGrid(flags: flags, columns: 3)
             }
-            if let grain, !grains.isEmpty {
+            if let grain {
                 DashScopeStrip(section: summary.section, grain: grain, packs: grains, width: width)
             }
         }
@@ -271,15 +271,14 @@ struct DashScopeStrip: View {
     @State private var flags: [String: [HeartbeatMath.FiveStarFlag]] = [:]
 
     var body: some View {
-        if !packs.isEmpty {
-            VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
-                Button {
-                    let next = !expanded
-                    expanded = next
-                    if next, flags.isEmpty {
-                        flags = store.dashboardGrainFlags(section: section, grain: grain, packs: packs)
-                    }
-                } label: {
+        VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
+            Button {
+                let next = !expanded
+                expanded = next
+                if next, flags.isEmpty, !packs.isEmpty {
+                    flags = store.dashboardGrainFlags(section: section, grain: grain, packs: packs)
+                }
+            } label: {
                     HStack(spacing: 8) {
                         Image(systemName: grain.symbol)
                             .font(.subheadline.weight(.semibold))
@@ -314,7 +313,6 @@ struct DashScopeStrip: View {
                 expanded = false
                 flags = [:]
             }
-        }
     }
 }
 
@@ -509,7 +507,7 @@ struct DashCallout: View, Equatable {
                     } else {
                         flagBlock(flags)
                     }
-                    if let grain, !grains.isEmpty {
+                    if let grain {
                         DashScopeStrip(section: card.section, grain: grain, packs: grains, width: width)
                     }
                 }

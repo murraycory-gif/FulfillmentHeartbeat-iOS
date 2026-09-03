@@ -534,6 +534,25 @@ enum HeartbeatMath {
         return out
     }
 
+    static func rowsFillingRoster(_ rows: [MetricRow], roster: [String: StoreIdentity]) -> [MetricRow] {
+        guard !roster.isEmpty else { return rows }
+        return rows.map { row in
+            let store = canonicalStore(row.storeNumber)
+            guard let identity = roster[store] else { return row }
+            var next = row
+            if next.division.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                next.division = identity.division
+            }
+            if next.district.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                next.district = identity.district
+            }
+            if next.operationsOM.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                next.operationsOM = identity.om
+            }
+            return next
+        }
+    }
+
     static func dashboardScopeKey(_ row: MetricRow, grain: DashScopeGrain) -> String? {
         switch grain {
         case .region:
