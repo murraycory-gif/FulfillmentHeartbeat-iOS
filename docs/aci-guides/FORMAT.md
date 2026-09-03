@@ -24,6 +24,8 @@ Use this layout for every new feature or TestFlight drop. Do not invent a new st
 
 This drop: Version 1.0 · Build 343 · HB-0827.72 — Sales ScoreCard + file reload.
 
+Next drop draft: `NEXT-READOUT.md` (Build 352 · HB-0827.81).
+
 ## Generate
 ```bash
 cd docs/aci-guides
