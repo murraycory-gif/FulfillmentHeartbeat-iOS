@@ -136,12 +136,12 @@ enum PulseMail {
         h1{font-size:22px;margin:0 0 4px;color:#003DA5}
         .sub{color:#5C677A;font-size:13px;margin:0 0 18px}
         table.layout{width:100%;border-collapse:separate;border-spacing:8px 8px}
-        table.layout td{width:33%;vertical-align:top}
+        table.layout td{vertical-align:top}
         table.data{width:100%;border-collapse:collapse;font-size:12px}
-        th{text-align:left;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:#8A93A3;padding:6px 8px;border-bottom:1px solid #E4E9F4}
+        th{text-align:left;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:#8A93A3;padding:6px 8px;border-bottom:1px solid #E4E9F4;white-space:nowrap}
         td{padding:6px 8px;border-bottom:1px solid #EEF1F6}
-        td.num{text-align:right;font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap}
-        .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;color:#fff}
+        td.num,.num,.nw{text-align:right;font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap}
+        .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;color:#fff;white-space:nowrap}
         .good{background:#059669;color:#fff}
         .watch{background:#D97706;color:#fff}
         .risk{background:#DC2626;color:#fff}
@@ -187,8 +187,8 @@ enum PulseMail {
             <div style="color:#5C677A;font-size:13px;margin-top:2px">\(esc(card.headlineLabel))</div>
             <div style="font-weight:700;margin-top:4px;color:\(card.riskCount == 0 ? ink(.good) : ink(.risk))">\(esc(riskLine(card.section, card)))</div>
             </td>
-            <td valign="top" align="right" style="width:150px">
-            <div style="font-size:26px;font-weight:700;color:\(ink(card.health))">\(esc(card.headlineText))</div>
+            <td valign="top" align="right" style="width:170px;white-space:nowrap">
+            <div class="nw" style="font-size:24px;font-weight:700;color:\(ink(card.health));text-align:right">\(esc(card.headlineText))</div>
             <div style="margin-top:4px">\(pill(card.health))</div>
             </td>
             </tr>
@@ -205,39 +205,28 @@ enum PulseMail {
 
     private static func flagGridHTML(_ flags: [HeartbeatMath.FiveStarFlag]) -> String {
         guard !flags.isEmpty else { return "" }
-        let cols = flags.count <= 3 ? max(flags.count, 1) : (flags.count == 4 ? 2 : 3)
-        var rows = ""
-        var i = 0
-        while i < flags.count {
-            var cells = ""
-            let end = min(i + cols, flags.count)
-            for flag in flags[i..<end] {
-                let unit = flag.stores == 1 ? String(flag.unit.dropLast()) : flag.unit
-                let stores = "\(HeartbeatFormat.num(Double(flag.stores))) \(unit)"
-                let valueLine = flag.value.isEmpty
-                    ? ""
-                    : "<div style=\"font-size:18px;font-weight:700;margin-top:4px;color:\(ink(flag.health))\">\(esc(flag.value))</div>"
-                cells += """
-                <td width="\(100 / cols)%" valign="top" style="padding:4px">
-                <table width="100%" cellspacing="0" cellpadding="0" style="background:#fff;border:1px solid #E4E9F4;border-radius:10px">
-                <tr><td style="padding:10px 12px">
-                <div style="font-size:11px;color:#5C677A;font-weight:700">\(esc(flag.name))</div>
-                \(valueLine)
-                <div style="font-size:13px;font-weight:600;margin-top:4px;color:#5C677A">\(esc(stores)) \(pill(flag.health))</div>
-                </td></tr>
-                </table>
-                </td>
-                """
-            }
-            if end - i < cols {
-                for _ in 0..<(cols - (end - i)) {
-                    cells += "<td width=\"\(100 / cols)%\"></td>"
-                }
-            }
-            rows += "<tr>\(cells)</tr>"
-            i = end
+        let cols = flags.count
+        var cells = ""
+        for flag in flags {
+            let unit = flag.stores == 1 ? String(flag.unit.dropLast()) : flag.unit
+            let stores = "\(HeartbeatFormat.num(Double(flag.stores)))&nbsp;\(esc(unit))"
+            let valueLine = flag.value.isEmpty
+                ? ""
+                : "<div class=\"nw\" style=\"font-size:17px;font-weight:700;margin-top:4px;color:\(ink(flag.health));text-align:left\">\(esc(flag.value))</div>"
+            cells += """
+            <td width="\(100 / max(cols, 1))%" valign="top" style="padding:4px">
+            <table width="100%" cellspacing="0" cellpadding="0" style="background:#fff;border:1px solid #E4E9F4;border-radius:10px">
+            <tr><td style="padding:10px 10px">
+            <div style="font-size:11px;color:#5C677A;font-weight:700;white-space:nowrap">\(esc(flag.name))</div>
+            \(valueLine)
+            <div class="nw" style="font-size:12px;font-weight:600;margin-top:4px;color:#5C677A;text-align:left">\(stores)</div>
+            <div style="margin-top:6px">\(pill(flag.health))</div>
+            </td></tr>
+            </table>
+            </td>
+            """
         }
-        return "<table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin-top:10px\">\(rows)</table>"
+        return "<table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin-top:10px\"><tr>\(cells)</tr></table>"
     }
 
     private static func flagCaption(_ flag: HeartbeatMath.FiveStarFlag) -> String {
@@ -268,10 +257,10 @@ enum PulseMail {
             let count = grain == .store ? "" : (line.count == 1 ? "1 store" : "\(line.count) stores")
             body += """
             <tr>
-            <td style="padding:6px 8px;font-weight:700">\(esc(line.label))</td>
-            <td class="num" style="padding:6px 8px;color:\(ink(line.health))">\(esc(line.value))</td>
-            <td class="muted" style="padding:6px 8px">\(esc(count))</td>
-            <td style="padding:6px 8px;text-align:right">\(pill(line.health))</td>
+            <td style="padding:6px 8px;font-weight:700;white-space:nowrap">\(esc(line.label))</td>
+            <td class="num" style="padding:6px 8px;color:\(ink(line.health));white-space:nowrap">\(esc(line.value))</td>
+            <td class="muted nw" style="padding:6px 8px;text-align:left">\(esc(count))</td>
+            <td style="padding:6px 8px;text-align:right;white-space:nowrap;width:88px">\(pill(line.health))</td>
             </tr>
             """
         }

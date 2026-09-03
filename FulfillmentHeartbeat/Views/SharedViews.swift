@@ -1188,11 +1188,14 @@ struct RecapWebView: UIViewRepresentable {
     let html: String
 
     func makeUIView(context: Context) -> WKWebView {
-        let web = WKWebView()
+        let config = WKWebViewConfiguration()
+        let web = WKWebView(frame: .zero, configuration: config)
         web.isOpaque = false
         web.backgroundColor = .clear
         web.scrollView.backgroundColor = .clear
         web.scrollView.contentInsetAdjustmentBehavior = .never
+        web.scrollView.alwaysBounceHorizontal = true
+        web.scrollView.showsHorizontalScrollIndicator = true
         return web
     }
 
