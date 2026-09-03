@@ -543,8 +543,8 @@ enum HeartbeatMath {
             if next.division.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 next.division = identity.division
             }
-            if next.district.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                next.district = identity.district
+            if next.district.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !identity.district.isEmpty {
+                next.textPayload["district"] = identity.district
             }
             if next.operationsOM.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 next.operationsOM = identity.om
