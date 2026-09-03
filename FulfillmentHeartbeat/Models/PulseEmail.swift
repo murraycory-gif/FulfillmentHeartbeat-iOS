@@ -243,7 +243,7 @@ enum PulseMail {
         return """
         <div style="margin-top:10px;font-size:12px;font-weight:700;color:#003DA5">\(esc(grain.title)) · \(lines.count) \(lines.count == 1 ? String(grain.unit.dropLast()) : grain.unit)</div>
         <table class="data" width="100%" cellspacing="0" cellpadding="0" style="margin-top:6px">
-        <tr><th>\(esc(grain.title.dropLast()))</th><th class="num">Value</th><th></th><th></th></tr>
+        <tr><th>\(esc(String(grain.title.dropLast())))</th><th class="num">Value</th><th></th><th></th></tr>
         \(body)
         </table>
         """
