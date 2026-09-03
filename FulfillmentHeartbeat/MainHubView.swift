@@ -334,6 +334,71 @@ struct MainHubView: View {
     }
 }
 
+private struct ImportProgressOverlay: View {
+    @EnvironmentObject private var store: HeartbeatStore
+
+    var body: some View {
+        if store.isImporting {
+            ZStack {
+                Color.black.opacity(0.22).ignoresSafeArea()
+                card
+            }
+            .allowsHitTesting(true)
+        }
+    }
+
+    private var card: some View {
+        VStack(spacing: 14) {
+            ProgressView()
+                .scaleEffect(1.2)
+                .tint(AppTheme.blue)
+            Text(store.importLabel ?? "Reading workbook…")
+                .font(.headline)
+                .multilineTextAlignment(.center)
+            countBlock
+            noteBlock
+        }
+        .padding(28)
+        .frame(maxWidth: 360)
+        .background(
+            RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                .fill(AppTheme.card)
+        )
+        .shadow(color: .black.opacity(0.12), radius: 24, y: 10)
+    }
+
+    @ViewBuilder
+    private var countBlock: some View {
+        if store.importExpected > 0 {
+            Text("\(store.importLoaded) of \(store.importExpected) scorecards loaded")
+                .font(.title3.weight(.bold))
+                .foregroundStyle(AppTheme.blue)
+                .multilineTextAlignment(.center)
+            ProgressView(
+                value: Double(store.importLoaded),
+                total: Double(max(store.importExpected, 1))
+            )
+            .tint(AppTheme.blue)
+            .padding(.horizontal, 8)
+        }
+    }
+
+    @ViewBuilder
+    private var noteBlock: some View {
+        if store.importMissing.isEmpty {
+            Text("Stay in the app until every scorecard is counted.")
+                .font(.subheadline)
+                .foregroundStyle(AppTheme.textSecondary)
+                .multilineTextAlignment(.center)
+        } else {
+            Text("Missing: \(store.importMissing.joined(separator: ", "))")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(AppTheme.risk)
+                .multilineTextAlignment(.center)
+        }
+    }
+}
+
 #Preview {
     MainHubView()
         .environmentObject(HeartbeatStore())
