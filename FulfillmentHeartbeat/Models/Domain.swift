@@ -734,7 +734,8 @@ enum HeartbeatMath {
         var map: [String: MetricRow] = [:]
         for row in rows {
             let number = canonicalStore(row.storeNumber)
-            if isIgnoredStore(number) { continue }
+            if isIgnoredStore(number), row.section != .sales { continue }
+            if row.textPayload["sales_grain"] == "company" || row.textPayload["sales_grain"] == "day" { continue }
             let key = number.isEmpty
                 ? "\(row.division)|\(row.operationsOM)|\(row.storeName ?? "")"
                 : number
@@ -1442,7 +1443,9 @@ enum HeartbeatMath {
                 lostRevenuePct: pct
             )
         case .sales:
-            let dollars = latest.compactMap { $0.number("sales_dollars") }.reduce(0, +)
+            let company = rows.first { $0.textPayload["sales_grain"] == "company" }
+            let dollars = company?.number("sales_dollars")
+                ?? latest.compactMap { $0.number("sales_dollars") }.reduce(0, +)
             let plan = latest.compactMap { $0.number("sales_plan") }.reduce(0, +)
             let planPct: Double? = {
                 if let direct = average(latest.compactMap { $0.number("sales_plan_pct") }) { return direct }

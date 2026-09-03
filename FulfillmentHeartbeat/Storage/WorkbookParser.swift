@@ -1004,7 +1004,29 @@ enum WorkbookParser {
             let rawStore = cell(storeIdx)
             if !rawDivision.isEmpty { lastDivision = rawDivision }
             if !rawDistrict.isEmpty && !isTotalCell(rawDistrict) { lastDistrict = rawDistrict }
-            if isTotalCell(rawStore) || isTotalCell(rawDivision) { continue }
+            if isTotalCell(rawDivision) {
+                if rawStore.isEmpty || isTotalCell(rawStore) {
+                    var payload: [String: Double] = [:]
+                    applySalesBlock(weekBlock, line: line, prefix: "sales_", payload: &payload)
+                    if payload["sales_dollars"] != nil {
+                        var text: [String: String] = ["sales_grain": "company"]
+                        if !week.isEmpty { text["sales_week"] = week }
+                        out.append(
+                            ParsedWorkbookRow(
+                                division: "",
+                                operationsOM: "",
+                                storeNumber: "",
+                                storeName: "Total Sales $",
+                                recordedOn: week.isEmpty ? nil : week,
+                                payload: payload,
+                                textPayload: text
+                            )
+                        )
+                    }
+                }
+                continue
+            }
+            if isTotalCell(rawStore) { continue }
             if rawStore.isEmpty { continue }
             let store = HeartbeatMath.canonicalStore(rawStore)
             if store.isEmpty { continue }
