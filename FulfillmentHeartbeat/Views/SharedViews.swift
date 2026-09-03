@@ -9351,8 +9351,11 @@ struct HubBrandBar: View {
                     DayGreeting(font: .headline.weight(.bold))
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
-                    if showsFilters {
-                        FilterBar()
+                    HStack(spacing: 8) {
+                        rolePill
+                        if showsFilters {
+                            FilterBar()
+                        }
                     }
                 }
                 compactPageBanner
@@ -9364,6 +9367,7 @@ struct HubBrandBar: View {
                             .minimumScaleFactor(0.7)
                             .layoutPriority(1)
                         Spacer(minLength: 8)
+                        rolePill
                         if showsFilters {
                             FilterBar()
                         }
@@ -9372,8 +9376,11 @@ struct HubBrandBar: View {
                         DayGreeting(font: greetingFont)
                             .lineLimit(1)
                             .minimumScaleFactor(0.75)
-                        if showsFilters {
-                            FilterBar()
+                        HStack(spacing: 10) {
+                            rolePill
+                            if showsFilters {
+                                FilterBar()
+                            }
                         }
                     }
                 }
@@ -9432,7 +9439,7 @@ struct HubBrandBar: View {
                     }
                 }
                 Spacer(minLength: 8)
-                roleAssistPills
+                assistButton
             }
             BeatingHeartbeatMark(height: markHeight, showsTrace: true)
                 .allowsHitTesting(false)
@@ -9453,12 +9460,11 @@ struct HubBrandBar: View {
             BeatingHeartbeatMark(height: 26, showsTrace: true)
                 .layoutPriority(1)
             Spacer(minLength: 4)
-            roleAssistPills
+            assistButton
         }
     }
 
-    @ViewBuilder
-    private var roleAssistPills: some View {
+    private var rolePill: some View {
         HubChromePill(
             title: compact ? "Role" : "Who's looking",
             symbol: "person.crop.circle",
@@ -9467,15 +9473,29 @@ struct HubBrandBar: View {
             store.reopenRoleGate()
         }
         .accessibilityLabel("Change who's looking")
+    }
+
+    @ViewBuilder
+    private var assistButton: some View {
         if router.current != .checklist {
-            HubChromePill(
-                title: "Assist",
-                symbol: "waveform.path.ecg",
-                showsChevron: false,
-                prominent: true
-            ) {
+            Button {
                 showAssist = true
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "sparkles")
+                        .font(.body.weight(.bold))
+                    Text(compact ? "Assist" : "Heartbeat Assist")
+                        .font(.subheadline.weight(.bold))
+                        .lineLimit(1)
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, compact ? 12 : 16)
+                .padding(.vertical, compact ? 9 : 11)
+                .frame(minHeight: 44)
+                .background(AppTheme.blue, in: Capsule(style: .continuous))
+                .shadow(color: AppTheme.blue.opacity(0.35), radius: 8, y: 3)
             }
+            .buttonStyle(.plain)
             .accessibilityLabel("Heartbeat Assist, build \(BuildStamp.label)")
         }
     }
