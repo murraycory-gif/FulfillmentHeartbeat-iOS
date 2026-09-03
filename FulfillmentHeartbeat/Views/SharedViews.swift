@@ -491,6 +491,8 @@ struct HubNavControl: View {
         .accessibilityLabel(title)
     }
 }
+
+struct HubIconButton: View {
     let symbol: String
     var label: String = ""
     var emphasized: Bool = false
