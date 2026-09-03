@@ -196,10 +196,26 @@ struct MainHubView: View {
                         Text(store.importLabel ?? "Reading workbook…")
                             .font(.headline)
                             .multilineTextAlignment(.center)
-                        Text("The dashboard stays responsive while the file is read.")
-                            .font(.subheadline)
-                            .foregroundStyle(AppTheme.textSecondary)
-                            .multilineTextAlignment(.center)
+                        if store.importExpected > 0 {
+                            Text("\(store.importLoaded) of \(store.importExpected) scorecards loaded")
+                                .font(.title3.weight(.bold))
+                                .foregroundStyle(AppTheme.blue)
+                                .multilineTextAlignment(.center)
+                            ProgressView(value: Double(store.importLoaded), total: Double(max(store.importExpected, 1)))
+                                .tint(AppTheme.blue)
+                                .padding(.horizontal, 8)
+                        }
+                        if !store.importMissing.isEmpty {
+                            Text("Missing: \(store.importMissing.joined(separator: ", "))")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(AppTheme.risk)
+                                .multilineTextAlignment(.center)
+                        } else {
+                            Text("Stay in the app until every scorecard is counted.")
+                                .font(.subheadline)
+                                .foregroundStyle(AppTheme.textSecondary)
+                                .multilineTextAlignment(.center)
+                        }
                     }
                     .padding(28)
                     .frame(maxWidth: 360)

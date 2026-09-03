@@ -17,6 +17,9 @@ final class HeartbeatStore: ObservableObject {
     @Published var lastImportedSection: MetricSection? = nil
     @Published var isImporting = false
     @Published var importLabel: String?
+    @Published var importLoaded = 0
+    @Published var importExpected = 0
+    @Published var importMissing: [String] = []
     @Published var pendingExternalName: String?
     @Published var waitingForFileSection: MetricSection?
     @Published private(set) var isReady = false
@@ -1363,12 +1366,22 @@ final class HeartbeatStore: ObservableObject {
         guard !isImporting else { return false }
         isImporting = true
         importLabel = "Reading master workbook…"
+        importLoaded = 0
+        importExpected = MetricSection.uploadOrder.count
+        importMissing = []
         errorMessage = nil
         do {
             let sheets = try await Task.detached(priority: .userInitiated) {
-                try WorkbookParser.parseMaster(data: data, filename: filename)
+                try WorkbookParser.parseMaster(data: data, filename: filename) { loaded, total, name in
+                    Task { @MainActor in
+                        self.importLoaded = loaded
+                        self.importExpected = total
+                        self.importLabel = name
+                    }
+                }
             }.value
-            importLabel = "Updating \(sheets.count) scorecards…"
+            importLabel = "Updating \(sheets.count) of \(MetricSection.uploadOrder.count) scorecards…"
+            importLoaded = sheets.count
             var nextRows = rows
             var nextUploads = uploads
             var loaded: [String] = []
@@ -1405,10 +1418,13 @@ final class HeartbeatStore: ObservableObject {
             lastImportedSection = sheets.first { $0.section == .pickerScorecard }?.section ?? sheets.first?.section
             let loaded = Set(sheets.map(\.section))
             let missing = MetricSection.uploadOrder.filter { !loaded.contains($0) }
+            importMissing = missing.map(\.title)
+            importLoaded = sheets.count
+            importExpected = MetricSection.uploadOrder.count
             if missing.isEmpty {
-                statusMessage = "Loaded \(sheets.count) scorecards from the master file."
+                statusMessage = "Loaded \(sheets.count) of \(MetricSection.uploadOrder.count) scorecards."
             } else {
-                statusMessage = "Loaded \(sheets.count) scorecards. Not in this file: \(missing.map(\.title).joined(separator: ", "))."
+                statusMessage = "Loaded \(sheets.count) of \(MetricSection.uploadOrder.count) scorecards. Missing: \(missing.map(\.title).joined(separator: ", ")). Add those tabs to the master file or use the individual upload cards."
             }
             needsRolePick = true
             isImporting = false

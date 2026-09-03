@@ -93,7 +93,11 @@ enum WorkbookParser {
         var rows: [ParsedWorkbookRow]
     }
 
-    static func parseMaster(data: Data, filename: String) throws -> [ParsedSheet] {
+    static func parseMaster(
+        data: Data,
+        filename: String,
+        onProgress: ((Int, Int, String) -> Void)? = nil
+    ) throws -> [ParsedSheet] {
         let ext = (filename as NSString).pathExtension.lowercased()
         if ext == "csv" || ext == "txt" || looksLikeCSV(data) {
             throw ParseError.unsupported
@@ -111,9 +115,12 @@ enum WorkbookParser {
         let sheetsToRead = sheetMap(from: zip)
         if sheetsToRead.isEmpty { throw ParseError.unreadable }
 
+        let expected = MetricSection.uploadOrder.count
+        onProgress?(0, expected, "Reading workbook…")
         var found: [MetricSection: ParsedSheet] = [:]
         for entry in sheetsToRead {
             autoreleasepool {
+                onProgress?(found.count, expected, entry.name)
                 guard let sheet = zip.file(named: entry.path) ?? zip.file(named: entry.path.replacingOccurrences(of: "xl/", with: "")),
                       !sheet.isEmpty else { return }
                 let hinted = section(fromSheetName: entry.name)
@@ -131,6 +138,7 @@ enum WorkbookParser {
                     if !named, existing.rows.count >= parsed.count { return }
                 }
                 found[section] = ParsedSheet(section: section, sheetName: entry.name, rows: parsed)
+                onProgress?(found.count, expected, section.title)
             }
         }
         let sheets = MetricSection.uploadOrder.compactMap { found[$0] }
