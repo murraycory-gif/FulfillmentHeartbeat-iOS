@@ -16,20 +16,21 @@ Create one sheet per KPI. Use these tab names:
 
 | # | Tab name | Scorecard |
 |---|---|---|
-| 1 | `Lost Revenue` | Loss Revenue |
-| 2 | `MI` | Missing Items |
-| 3 | `5 Star` | 5 Star Metrics |
-| 4 | `Pre-Sub OOS` | Pre-Sub OOS |
-| 5 | `Pre-Sub OOS Item` | Item rows on the Pre-Sub OOS page |
-| 6 | `Pick Path` | Pick Path Compliance |
-| 7 | `Path Picker` | Pick Path Compliance Picker |
-| 8 | `Aisle Mapper` | Aisle Mapper dates on Pick Path |
-| 9 | `Prep Not Ready` | Prep Not Ready |
-| 10 | `Dynacap` | Dynacap Setting |
-| 11 | `Schedule Quality` | Schedule Quality |
-| 12 | `PPH` | PPH Pure Picks Per Hour |
-| 13 | `Labor` | Labor |
-| 14 | `Picker ScoreCard` | Picker ScoreCard |
+| 1 | `Sales` | Sales ScoreCard |
+| 2 | `Lost Revenue` | Loss Revenue |
+| 3 | `MI` | Missing Items |
+| 4 | `5 Star` | 5 Star Metrics |
+| 5 | `Pre-Sub OOS` | Pre-Sub OOS |
+| 6 | `Pre-Sub OOS Item` | Item rows on the Pre-Sub OOS page |
+| 7 | `Pick Path` | Pick Path Compliance |
+| 8 | `Path Picker` | Pick Path Compliance Picker |
+| 9 | `Aisle Mapper` | Aisle Mapper dates on Pick Path |
+| 10 | `Prep Not Ready` | Prep Not Ready |
+| 11 | `Dynacap` | Dynacap Setting |
+| 12 | `Schedule Quality` | Schedule Quality |
+| 13 | `PPH` | PPH Pure Picks Per Hour |
+| 14 | `Labor` | Labor |
+| 15 | `Picker ScoreCard` | Picker ScoreCard |
 
 Paste the matching Power BI export onto each tab. Headers can stay as the export — we already map those.
 

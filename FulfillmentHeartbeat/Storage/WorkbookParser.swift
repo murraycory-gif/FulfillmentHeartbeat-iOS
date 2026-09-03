@@ -224,6 +224,7 @@ enum WorkbookParser {
         if name.contains("picker") && (name.contains("score") || name.contains("card") || name.contains("scor") || name.contains("shopper")) {
             return .pickerScorecard
         }
+        if name.contains("picker") && name.contains("scor") { return .pickerScorecard }
         if (name.contains("pick path") || name.contains("path compliance"))
             && (name.contains("picker") || name.contains("employee") || name.contains("shopper")) {
             return .pickPathPicker
@@ -3316,7 +3317,6 @@ final class ZipArchive {
         let dataStart = localOff + 30 + nameLen + extraLen
         let size = max(meta.compSize, 0)
         guard dataStart + size <= data.count else { return nil }
-        if meta.uncompSize > 48_000_000 { return nil }
         let payload = data.subdata(in: dataStart..<(dataStart + size))
         if meta.method == 0 {
             return payload

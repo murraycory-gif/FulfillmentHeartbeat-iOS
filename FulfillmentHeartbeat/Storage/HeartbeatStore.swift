@@ -1402,9 +1402,15 @@ final class HeartbeatStore: ObservableObject {
                 await MainActor.run { self.mergeHeavy(heavy) }
             }
             seeded = true
-            lastImportedSection = sheets.first?.section
+            lastImportedSection = sheets.first { $0.section == .pickerScorecard }?.section ?? sheets.first?.section
+            let loaded = Set(sheets.map(\.section))
+            let missing = MetricSection.uploadOrder.filter { !loaded.contains($0) }
+            if missing.isEmpty {
+                statusMessage = "Loaded \(sheets.count) scorecards from the master file."
+            } else {
+                statusMessage = "Loaded \(sheets.count) scorecards. Not in this file: \(missing.map(\.title).joined(separator: ", "))."
+            }
             needsRolePick = true
-            statusMessage = nil
             isImporting = false
             importLabel = nil
             Task { await persistNow() }
