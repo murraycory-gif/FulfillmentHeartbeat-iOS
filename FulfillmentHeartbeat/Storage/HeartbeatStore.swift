@@ -1368,15 +1368,20 @@ final class HeartbeatStore: ObservableObject {
 
     private func parseMasterOffMain(data: Data, filename: String) async throws -> [WorkbookParser.ParsedSheet] {
         try await withCheckedThrowingContinuation { continuation in
+            let tick: @Sendable (Int, Int, String) -> Void = { loaded, total, name in
+                Task { @MainActor [weak self] in
+                    self?.importLoaded = loaded
+                    self?.importExpected = total
+                    self?.importLabel = name
+                }
+            }
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
-                    let sheets = try WorkbookParser.parseMaster(data: data, filename: filename) { loaded, total, name in
-                        DispatchQueue.main.async {
-                            self.importLoaded = loaded
-                            self.importExpected = total
-                            self.importLabel = name
-                        }
-                    }
+                    let sheets = try WorkbookParser.parseMaster(
+                        data: data,
+                        filename: filename,
+                        onProgress: tick
+                    )
                     continuation.resume(returning: sheets)
                 } catch {
                     continuation.resume(throwing: error)
