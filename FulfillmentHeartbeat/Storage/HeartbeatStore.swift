@@ -1902,7 +1902,9 @@ final class HeartbeatStore: ObservableObject {
         }
         rows[.pickPathPicker] = displayRows(for: .pickPathPicker)
         let grain: String?
-        if !filters.division.isEmpty || !filters.district.isEmpty || !filters.om.isEmpty || !filters.store.isEmpty {
+        if !filters.store.isEmpty || !filters.om.isEmpty || !filters.district.isEmpty {
+            grain = "store"
+        } else if !filters.division.isEmpty {
             grain = "district"
         } else {
             grain = "division"

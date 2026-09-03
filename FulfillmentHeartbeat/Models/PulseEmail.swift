@@ -166,8 +166,9 @@ enum PulseMail {
 
     private static func dashboardHTML(_ snap: Snapshot) -> String {
         var cards = ""
+        let grain = dashGrain(snap)
         for card in snap.summaries {
-            let flags = dashboardFlags(card.section, snap: snap)
+            let flags = dashboardFlagModels(card.section, snap: snap)
             let fill = cardFill(card.health)
             var flagHTML = ""
             if !flags.isEmpty {
@@ -175,8 +176,8 @@ enum PulseMail {
                 for flag in flags {
                     cells += """
                     <td style="background:#fff;border:1px solid #E4E9F4;border-radius:10px;padding:8px 10px">
-                    <div style="font-size:11px;color:#5C677A;font-weight:700">\(esc(flag.0))</div>
-                    <div style="font-size:16px;font-weight:700;margin-top:2px;color:\(ink(flag.2))">\(esc(flag.1)) \(pill(flag.2))</div>
+                    <div style="font-size:11px;color:#5C677A;font-weight:700">\(esc(flag.name))</div>
+                    <div style="font-size:16px;font-weight:700;margin-top:2px;color:\(ink(flag.health))">\(esc(flagCaption(flag))) \(pill(flag.health))</div>
                     </td>
                     """
                 }
@@ -191,6 +192,7 @@ enum PulseMail {
             <div style="color:#5C677A;font-size:13px">\(esc(card.headlineLabel))</div>
             <div style="font-weight:700;margin-top:4px;color:\(card.riskCount == 0 ? ink(.good) : ink(.risk))">\(esc(riskLine(card.section, card)))</div>
             \(flagHTML)
+            \(grainHTML(card.section, snap: snap, grain: grain))
             </td>
             <td valign="top" style="padding:12px 14px;text-align:right;white-space:nowrap">
             <div style="font-size:28px;font-weight:700;color:\(ink(card.health))">\(esc(card.headlineText))</div>
@@ -203,27 +205,71 @@ enum PulseMail {
         return pageWrap(title: "Operational Heartbeat", filter: snap.filterSummary, trailing: sharedWindow(snap), inner: cards)
     }
 
-    private static func dashboardFlags(_ section: MetricSection, snap: Snapshot) -> [(String, String, Health)] {
-        let rows = snap.rows[section] ?? []
-        let flags: [HeartbeatMath.FiveStarFlag]
-        switch section {
-        case .fiveStar: flags = HeartbeatMath.fiveStarActionFlags(rows)
-        case .scheduleQuality: flags = HeartbeatMath.scheduleActionFlags(rows)
-        case .pickPath:
-            flags = HeartbeatMath.pickPathActionFlags(stores: rows, shoppers: snap.rows[.pickPathPicker] ?? [])
-        case .pph:
-            flags = HeartbeatMath.pphActionFlags(stores: rows, shoppers: snap.rows[.pickerScorecard] ?? [])
-        case .dynacap: flags = HeartbeatMath.dynacapActionFlags(rows)
-        case .pickerScorecard: flags = HeartbeatMath.pickerActionFlags(rows)
-        case .labor: flags = HeartbeatMath.laborActionFlags(rows)
-        case .missingItems: flags = HeartbeatMath.missingItemsActionFlags(rows)
-        case .preSubOOS: flags = HeartbeatMath.missingItemsActionFlags(rows)
-        case .lostRevenue: flags = HeartbeatMath.lostRevenueActionFlags(rows)
-        case .sales: flags = HeartbeatMath.salesActionFlags(rows)
-        default:
-            return []
+    private static func flagCaption(_ flag: HeartbeatMath.FiveStarFlag) -> String {
+        var parts: [String] = []
+        if !flag.value.isEmpty { parts.append(flag.value) }
+        if flag.stores > 0 || flag.value.isEmpty {
+            let unit = flag.stores == 1 ? String(flag.unit.dropLast()) : flag.unit
+            parts.append("\(HeartbeatFormat.num(Double(flag.stores))) \(unit)")
         }
-        return flags.map { ($0.name, $0.value, $0.health) }
+        return parts.joined(separator: " · ")
+    }
+
+    private static func dashGrain(_ snap: Snapshot) -> DashScopeGrain {
+        switch snap.grain {
+        case "store": return .store
+        case "district": return .district
+        default: return .division
+        }
+    }
+
+    private static func grainHTML(_ section: MetricSection, snap: Snapshot, grain: DashScopeGrain) -> String {
+        let rows = (snap.rows[section] ?? []).filter { $0.textPayload["sales_grain"] != "company" }
+        let lines = HeartbeatMath.dashboardScopeLines(section: section, rows: rows, grain: grain)
+            .filter { $0.label != "Unassigned" && !$0.label.isEmpty }
+        guard !lines.isEmpty else { return "" }
+        var body = ""
+        for line in lines {
+            let count = grain == .store ? "" : (line.count == 1 ? "1 store" : "\(line.count) stores")
+            body += """
+            <tr>
+            <td style="padding:6px 8px;font-weight:700">\(esc(line.label))</td>
+            <td class="num" style="padding:6px 8px;color:\(ink(line.health))">\(esc(line.value))</td>
+            <td class="muted" style="padding:6px 8px">\(esc(count))</td>
+            <td style="padding:6px 8px;text-align:right">\(pill(line.health))</td>
+            </tr>
+            """
+        }
+        return """
+        <div style="margin-top:10px;font-size:12px;font-weight:700;color:#003DA5">\(esc(grain.title)) · \(lines.count) \(lines.count == 1 ? String(grain.unit.dropLast()) : grain.unit)</div>
+        <table class="data" width="100%" cellspacing="0" cellpadding="0" style="margin-top:6px">
+        <tr><th>\(esc(grain.title.dropLast()))</th><th class="num">Value</th><th></th><th></th></tr>
+        \(body)
+        </table>
+        """
+    }
+
+    private static func dashboardFlagModels(_ section: MetricSection, snap: Snapshot) -> [HeartbeatMath.FiveStarFlag] {
+        let rows = snap.rows[section] ?? []
+        switch section {
+        case .fiveStar: return HeartbeatMath.fiveStarActionFlags(rows)
+        case .scheduleQuality: return HeartbeatMath.scheduleActionFlags(rows)
+        case .pickPath:
+            return HeartbeatMath.pickPathActionFlags(stores: rows, shoppers: snap.rows[.pickPathPicker] ?? [])
+        case .pph:
+            return HeartbeatMath.pphActionFlags(stores: rows, shoppers: snap.rows[.pickerScorecard] ?? [])
+        case .dynacap: return HeartbeatMath.dynacapActionFlags(rows)
+        case .pickerScorecard: return HeartbeatMath.pickerActionFlags(rows)
+        case .labor: return HeartbeatMath.laborActionFlags(rows)
+        case .missingItems, .preSubOOS: return HeartbeatMath.missingItemsActionFlags(rows)
+        case .lostRevenue: return HeartbeatMath.lostRevenueActionFlags(rows)
+        case .sales: return HeartbeatMath.salesActionFlags(rows)
+        default: return []
+        }
+    }
+
+    private static func dashboardFlags(_ section: MetricSection, snap: Snapshot) -> [(String, String, Health)] {
+        dashboardFlagModels(section, snap: snap).map { ($0.name, flagCaption($0), $0.health) }
     }
 
     private static func sectionHTML(_ section: MetricSection, snap: Snapshot) -> String {
