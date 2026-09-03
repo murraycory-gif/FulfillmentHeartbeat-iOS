@@ -2329,6 +2329,7 @@ private struct PulseCaches {
                 roster[number] = identity
             }
         }
+        HeartbeatMath.fillDivisionsFromDistrict(in: &roster)
         return roster
     }
 

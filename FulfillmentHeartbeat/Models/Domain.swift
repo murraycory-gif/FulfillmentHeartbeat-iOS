@@ -1017,6 +1017,7 @@ enum HeartbeatMath {
             if current.name == nil, let name = row.storeName, !name.isEmpty { current.name = name }
             map[number] = current
         }
+        fillDivisionsFromDistrict(in: &map)
         for (number, override) in identityOverrides {
             var current = map[number] ?? override
             if !override.division.isEmpty { current.division = override.division }
@@ -1029,6 +1030,25 @@ enum HeartbeatMath {
             map.removeValue(forKey: number)
         }
         return map
+    }
+
+    static func fillDivisionsFromDistrict(in map: inout [String: StoreIdentity]) {
+        var byDistrict: [String: String] = [:]
+        for identity in map.values {
+            let district = normalize(canonicalDistrict(identity.district))
+            let division = MarketRegion.canonicalName(identity.division)
+            if !district.isEmpty, !division.isEmpty {
+                byDistrict[district] = division
+            }
+        }
+        guard !byDistrict.isEmpty else { return }
+        for (number, identity) in map where identity.division.isEmpty {
+            let district = normalize(canonicalDistrict(identity.district))
+            guard let division = byDistrict[district] else { continue }
+            var next = identity
+            next.division = division
+            map[number] = next
+        }
     }
 
     static func materializeDistrictMetric(_ rows: [MetricRow], roster: [String: StoreIdentity]) -> [MetricRow] {
@@ -1135,19 +1155,30 @@ enum HeartbeatMath {
     }
 
     static func applyRoster(_ rows: [MetricRow], roster: [String: StoreIdentity]) -> [MetricRow] {
-        rows.map { row in
+        var districtDivision: [String: String] = [:]
+        for identity in roster.values {
+            let district = normalize(canonicalDistrict(identity.district))
+            let division = MarketRegion.canonicalName(identity.division)
+            if !district.isEmpty, !division.isEmpty {
+                districtDivision[district] = division
+            }
+        }
+        return rows.map { row in
             let number = canonicalStore(row.storeNumber)
             let known = roster[number]
             var text = row.textPayload
             if let district = known?.district, !district.isEmpty {
                 text["district"] = district
             }
+            let districtKey = normalize(canonicalDistrict(known?.district.isEmpty == false ? known!.district : row.district))
+            let division: String = {
+                if let known = known?.division, !known.isEmpty { return MarketRegion.canonicalName(known) }
+                if let mapped = districtDivision[districtKey] { return mapped }
+                return MarketRegion.canonicalName(row.division)
+            }()
             return MetricRow(
                 section: row.section,
-                division: {
-                    if let known = known?.division, !known.isEmpty { return MarketRegion.canonicalName(known) }
-                    return MarketRegion.canonicalName(row.division)
-                }(),
+                division: division,
                 operationsOM: known?.om.isEmpty == false ? known!.om : row.operationsOM,
                 storeNumber: number,
                 storeName: row.storeName ?? known?.name,
