@@ -107,13 +107,12 @@ enum WorkbookParser {
             throw ParseError.wrapped("Work OneDrive encrypted this workbook (Intune). Heartbeat is not a managed app, so that copy is unreadable. Open it in Excel → Share → Save to iCloud Drive, then Choose the iCloud file — or tap Reload if this workbook is already linked.")
         }
         let strings = zip.file(named: "xl/sharedStrings.xml").flatMap { String(data: $0, encoding: .utf8) }.map(SharedStrings.parse) ?? []
+        zip.release("xl/sharedStrings.xml")
         let sheetsToRead = sheetMap(from: zip)
         if sheetsToRead.isEmpty { throw ParseError.unreadable }
 
-        let lock = NSLock()
         var found: [MetricSection: ParsedSheet] = [:]
-        DispatchQueue.concurrentPerform(iterations: sheetsToRead.count) { index in
-            let entry = sheetsToRead[index]
+        for entry in sheetsToRead {
             autoreleasepool {
                 guard let sheet = zip.file(named: entry.path) ?? zip.file(named: entry.path.replacingOccurrences(of: "xl/", with: "")),
                       !sheet.isEmpty else { return }
@@ -123,19 +122,15 @@ enum WorkbookParser {
                 if parsed.isEmpty, hinted == .labor || hinted == nil {
                     parsed = parseLaborSheet(data: sheet, strings: strings)
                 }
+                zip.release(entry.path)
                 guard !parsed.isEmpty else { return }
                 guard let section = hinted ?? classifySheet(name: entry.name, rows: parsed)
                     ?? classifySheet(name: filename, rows: parsed) else { return }
-                lock.lock()
                 if let existing = found[section] {
                     let named = entry.name.lowercased().contains(section.rawValue) || entry.name.lowercased().contains(section.short.lowercased())
-                    if !named, existing.rows.count >= parsed.count {
-                        lock.unlock()
-                        return
-                    }
+                    if !named, existing.rows.count >= parsed.count { return }
                 }
                 found[section] = ParsedSheet(section: section, sheetName: entry.name, rows: parsed)
-                lock.unlock()
             }
         }
         let sheets = MetricSection.uploadOrder.compactMap { found[$0] }
@@ -3189,13 +3184,30 @@ private func attr(_ tag: String, _ name: String) -> String? {
 }
 
 final class ZipArchive {
-    private var files: [String: Data] = [:]
+    private struct Meta {
+        var localOff: Int
+        var method: UInt16
+        var compSize: Int
+        var uncompSize: Int
+    }
+
+    private let data: Data
+    private var index: [String: Meta] = [:]
+    private var cache: [String: Data] = [:]
 
     init?(data: Data) {
+        self.data = data
         if !parseCentralDirectory(data) {
             parseLocalHeaders(data)
         }
-        if files.isEmpty { return nil }
+        if index.isEmpty { return nil }
+    }
+
+    private static func keep(_ name: String) -> Bool {
+        name == "xl/workbook.xml"
+            || name == "xl/sharedStrings.xml"
+            || name.hasPrefix("xl/worksheets/")
+            || name.hasPrefix("xl/_rels/")
     }
 
     private func parseCentralDirectory(_ data: Data) -> Bool {
@@ -3234,12 +3246,13 @@ final class ZipArchive {
             if extraStart + extraLen <= data.count {
                 Self.applyZip64Sizes(data: data, extraStart: extraStart, extraLen: extraLen, compSize: &compSize, uncompSize: &uncompSize)
             }
-            _ = flags
-            extract(data: data, localOff: localOff, name: name, method: method, compSize: compSize, uncompSize: uncompSize)
+            if Self.keep(name) {
+                index[name] = Meta(localOff: localOff, method: method, compSize: compSize, uncompSize: uncompSize)
+            }
             off = extraStart + extraLen + commentLen
             seen += 1
         }
-        return files["xl/workbook.xml"] != nil || !files.isEmpty
+        return index["xl/workbook.xml"] != nil || !index.isEmpty
     }
 
     private func parseLocalHeaders(_ data: Data) {
@@ -3284,7 +3297,9 @@ final class ZipArchive {
                 if offset + 4 <= count, u32(data, offset) == 0x08074b50 { offset += 16 }
                 continue
             }
-            extract(data: data, localOff: offset, name: name, method: method, compSize: compSize, uncompSize: uncompSize)
+            if Self.keep(name) {
+                index[name] = Meta(localOff: offset, method: method, compSize: compSize, uncompSize: uncompSize)
+            }
             offset = dataStart + max(compSize, 0)
             if flags & 0x08 != 0 {
                 if offset + 4 <= count, u32(data, offset) == 0x08074b50 { offset += 16 }
@@ -3293,21 +3308,45 @@ final class ZipArchive {
         }
     }
 
-    private func extract(data: Data, localOff: Int, name: String, method: UInt16, compSize: Int, uncompSize: Int) {
-        guard !name.isEmpty, localOff + 30 <= data.count, u32(data, localOff) == 0x04034b50 else { return }
+    private func extract(meta: Meta) -> Data? {
+        let localOff = meta.localOff
+        guard localOff + 30 <= data.count, u32(data, localOff) == 0x04034b50 else { return nil }
         let nameLen = Int(u16(data, localOff + 26))
         let extraLen = Int(u16(data, localOff + 28))
         let dataStart = localOff + 30 + nameLen + extraLen
-        let size = max(compSize, 0)
-        guard dataStart + size <= data.count else { return }
+        let size = max(meta.compSize, 0)
+        guard dataStart + size <= data.count else { return nil }
+        if meta.uncompSize > 48_000_000 { return nil }
         let payload = data.subdata(in: dataStart..<(dataStart + size))
-        if method == 0 {
-            files[name] = payload
-        } else if method == 8 {
-            if let inflated = inflate(payload, uncompressedSize: uncompSize) {
-                files[name] = inflated
-            }
+        if meta.method == 0 {
+            return payload
         }
+        if meta.method == 8 {
+            return inflate(payload, uncompressedSize: meta.uncompSize)
+        }
+        return nil
+    }
+
+    func file(named name: String) -> Data? {
+        if let cached = cache[name] { return cached }
+        guard let meta = index[name] else { return nil }
+        guard let payload = extract(meta: meta) else { return nil }
+        cache[name] = payload
+        return payload
+    }
+
+    func release(_ name: String) {
+        cache.removeValue(forKey: name)
+    }
+
+    func entryNames() -> [String] {
+        Array(index.keys)
+    }
+
+    func worksheetPaths() -> [String] {
+        index.keys
+            .filter { $0.hasPrefix("xl/worksheets/") && $0.hasSuffix(".xml") }
+            .sorted { sheetIndex($0) < sheetIndex($1) }
     }
 
     static func findEOCD(_ data: Data) -> Int? {
@@ -3340,20 +3379,6 @@ final class ZipArchive {
             }
             cursor = blockEnd
         }
-    }
-
-    func file(named name: String) -> Data? {
-        files[name]
-    }
-
-    func entryNames() -> [String] {
-        Array(files.keys)
-    }
-
-    func worksheetPaths() -> [String] {
-        files.keys
-            .filter { $0.hasPrefix("xl/worksheets/") && $0.hasSuffix(".xml") }
-            .sorted { sheetIndex($0) < sheetIndex($1) }
     }
 
     private func sheetIndex(_ path: String) -> Int {
