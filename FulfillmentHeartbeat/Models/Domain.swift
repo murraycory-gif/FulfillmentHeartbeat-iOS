@@ -574,12 +574,7 @@ enum HeartbeatMath {
     }
 
     static func dashboardScopeLines(section: MetricSection, rows: [MetricRow], grain: DashScopeGrain) -> [DashScopeLine] {
-        let source: [MetricRow]
-        if section == .pickerScorecard {
-            source = latestPerShopper(rows)
-        } else {
-            source = latestPerStore(rows)
-        }
+        let source = section == .pickerScorecard ? latestPerShopper(rows) : rows
         var buckets: [String: [MetricRow]] = [:]
         for row in source {
             guard let key = dashboardScopeKey(row, grain: grain) else { continue }
@@ -770,7 +765,7 @@ enum HeartbeatMath {
                 map[key] = row
             }
         }
-        return map.values.sorted { HeartbeatFormat.storeOrder($0.storeNumber, $1.storeNumber) }
+        return Array(map.values)
     }
 
     static func latestPerShopper(_ rows: [MetricRow]) -> [MetricRow] {

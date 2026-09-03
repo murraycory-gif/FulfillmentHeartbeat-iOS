@@ -1334,7 +1334,7 @@ final class HeartbeatStore: ObservableObject {
             at: 0
         )
         let caches = await Task.detached(priority: .userInitiated) {
-            PulseCaches.build(rows: nextRows, filters: DashboardFilters(), uploads: nextUploads)
+            PulseCaches.build(rows: nextRows, filters: DashboardFilters(), uploads: nextUploads, heavy: false, grain: .region)
         }.value
         hydrating = true
         rows = nextRows
@@ -1342,6 +1342,10 @@ final class HeartbeatStore: ObservableObject {
         filters = DashboardFilters()
         install(caches)
         hydrating = false
+        Task.detached(priority: .utility) {
+            let heavy = PulseCaches.heavyExtras(latest: caches.filteredLatest, roster: caches.roster)
+            await MainActor.run { self.mergeHeavy(heavy) }
+        }
         let stores = Set(incoming.map(\.storeNumber).filter { !$0.isEmpty }).count
         if section == .pickPathPicker {
             statusMessage = "Imported \(incoming.count) pickers into Pick Path Compliance Picker. Open a store on Pick Path to see them."
@@ -1385,7 +1389,7 @@ final class HeartbeatStore: ObservableObject {
                 loaded.append(sheet.section.short)
             }
             let caches = await Task.detached(priority: .userInitiated) {
-                PulseCaches.build(rows: nextRows, filters: DashboardFilters(), uploads: nextUploads)
+                PulseCaches.build(rows: nextRows, filters: DashboardFilters(), uploads: nextUploads, heavy: false, grain: .region)
             }.value
             hydrating = true
             rows = nextRows
@@ -1393,6 +1397,10 @@ final class HeartbeatStore: ObservableObject {
             filters = DashboardFilters()
             install(caches)
             hydrating = false
+            Task.detached(priority: .utility) {
+                let heavy = PulseCaches.heavyExtras(latest: caches.filteredLatest, roster: caches.roster)
+                await MainActor.run { self.mergeHeavy(heavy) }
+            }
             seeded = true
             lastImportedSection = sheets.first?.section
             needsRolePick = true
@@ -1745,7 +1753,8 @@ final class HeartbeatStore: ObservableObject {
                     rows: decoded.rows,
                     filters: loadedFilters,
                     uploads: decoded.uploads,
-                    heavy: false
+                    heavy: false,
+                    grain: .region
                 )
                 await MainActor.run {
                     self.hydrating = true
@@ -1757,23 +1766,13 @@ final class HeartbeatStore: ObservableObject {
                     self.install(caches)
                     self.hydrating = false
                     self.isReady = true
-                    self.warmUnfilteredPulse()
                 }
                 if url != dest {
                     try? PulseDisk.write(decoded, to: dest)
                 }
-                let heavy = PulseCaches.refilter(
-                    latest: caches.latestBySection,
-                    roster: caches.roster,
-                    filters: loadedFilters,
-                    uploads: decoded.uploads,
-                    laborMarket: decoded.rows.first {
-                        $0.section == .labor && $0.textPayload["labor_grain"] == "market"
-                    },
-                    lostRevenueMarket: decoded.rows.first {
-                        $0.section == .lostRevenue && $0.textPayload["lost_grain"] == "market"
-                    },
-                    heavy: true
+                let heavy = PulseCaches.heavyExtras(
+                    latest: caches.filteredLatest,
+                    roster: caches.roster
                 )
                 await MainActor.run {
                     self.mergeHeavy(heavy)
@@ -2018,7 +2017,7 @@ private struct PulseCaches {
         var checklistGroups: [MetricSection: [ChecklistDriverGroup]]
     }
 
-    static func build(rows: [MetricRow], filters: DashboardFilters, uploads: [UploadRecord], heavy: Bool = true) -> PulseCaches {
+    static func build(rows: [MetricRow], filters: DashboardFilters, uploads: [UploadRecord], heavy: Bool = true, grain: DashScopeGrain? = .region) -> PulseCaches {
         var bySection: [MetricSection: [MetricRow]] = [:]
         bySection.reserveCapacity(16)
         for row in rows {
@@ -2059,7 +2058,8 @@ private struct PulseCaches {
             uploads: uploads,
             laborMarket: (bySection[.labor] ?? []).first { $0.textPayload["labor_grain"] == "market" },
             lostRevenueMarket: (bySection[.lostRevenue] ?? []).first { $0.textPayload["lost_grain"] == "market" },
-            heavy: heavy
+            heavy: heavy,
+            grain: grain
         )
     }
 
@@ -2106,7 +2106,9 @@ private struct PulseCaches {
         let picker = heavy
             ? pickerIndexValues(pickers)
             : (index: [PickerFocus: [Int]](), health: [PickerFocus: Health]())
-        let path = pickPathIndexValues(scorecard: pickers, pathRows: latest[.pickPathPicker] ?? [])
+        let path = heavy
+            ? pickPathIndexValues(scorecard: pickers, pathRows: latest[.pickPathPicker] ?? [])
+            : (buckets: [String: [MetricRow]](), byShopper: [String: MetricRow]())
         let pph = heavy ? pphIndexValues(pickers) : [:]
         let districts = roster.values
             .filter { filters.includesDivision($0.division) }
@@ -2129,7 +2131,7 @@ private struct PulseCaches {
             if !filters.includesOM(identity.om) { continue }
             if seen[number] == nil { seen[number] = identity.name }
         }
-        let stores = seen.keys.sorted(by: HeartbeatFormat.storeOrder).map { ($0, seen[$0] ?? nil) }
+        let stores = seen.keys.sorted().map { ($0, seen[$0] ?? nil) }
         var pphByStore: [String: Double] = [:]
         for row in nextLatest[.pph] ?? [] {
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
