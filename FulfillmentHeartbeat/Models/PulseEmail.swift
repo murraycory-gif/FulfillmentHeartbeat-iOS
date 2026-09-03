@@ -572,30 +572,22 @@ enum PulseMail {
             }
         }
         guard !buckets.isEmpty else { return "" }
-        let headers = [grain == "district" ? "District" : "Division", "Stores"] + storeHeaders(section).filter { $0 != "Store" && $0 != "Shopper" }
-        let head = headers.map { "<th>\(esc($0))</th>" }.joined()
-        var body = ""
+        var cards = ""
         let ordered = buckets.keys.sorted()
         for key in ordered {
             let group = buckets[key] ?? []
-            if group.isEmpty {
-                body += "<tr><td><b>\(esc(key))</b></td><td class=\"num\">0</td>"
-                body += String(repeating: "<td class=\"num\">—</td>", count: max(0, headers.count - 2))
-                body += "</tr>"
-                continue
-            }
+            if group.isEmpty { continue }
             let sample = group.sorted { HeartbeatFormat.storeOrder($0.storeNumber, $1.storeNumber) }.first
             guard var fake = sample else { continue }
             fake.storeNumber = key
             fake.payload = averagedPayload(group)
             let health = worst(group, section: section)
-            body += "<tr><td><b>\(esc(key))</b></td><td class=\"num\">\(group.count)</td>"
-            body += storeCells(section, row: fake, pickerCount: group.count, health: health)
-            body += "</tr>"
+            let count = group.count == 1 ? "1 store" : "\(group.count) stores"
+            cards += metricCard(title: key, detail: count, metrics: metricLine(section, row: fake, pickerCount: group.count), health: health)
         }
         let title = grain == "district" ? "By district" : "Markets"
-        return bar(title, "\(buckets.count) \(grain == "district" ? "districts" : "divisions")")
-            + "<div style=\"width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch\"><table class=\"data\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\"><tr>\(head)</tr>\(body)</table></div>"
+        let filled = buckets.filter { !$0.value.isEmpty }.count
+        return bar(title, "\(filled) \(grain == "district" ? "districts" : "divisions")") + cards
     }
 
     private static func averagedPayload(_ rows: [MetricRow]) -> [String: Double] {
@@ -619,34 +611,155 @@ enum PulseMail {
 
     private static func storeTable(_ section: MetricSection, rows: [MetricRow], pickerCounts: [String: Int]) -> String {
         let title = section == .pickerScorecard ? "Shopper" : "Store"
-        if rows.isEmpty {
+        let usable = rows.filter { !$0.storeNumber.isEmpty || section == .pickerScorecard }
+        if usable.isEmpty {
             return bar(title, "No rows in this view")
         }
-        let cap = section == .pickerScorecard ? 200 : rows.count
-        let headers = storeHeaders(section)
-        let head = headers.map { "<th>\(esc($0))</th>" }.joined()
-        var body = ""
         let ordered: [MetricRow]
         if section == .pickerScorecard {
-            ordered = Array(rows.prefix(cap))
+            ordered = usable
         } else {
-            ordered = Array(rows.sorted { HeartbeatFormat.storeOrder($0.storeNumber, $1.storeNumber) }.prefix(cap))
+            ordered = usable.sorted { HeartbeatFormat.storeOrder($0.storeNumber, $1.storeNumber) }
         }
+        var cards = ""
         for row in ordered {
             let health = HeartbeatMath.health(for: section, row: row)
             let label = section == .pickerScorecard
                 ? "\(row.shopperName) · \(row.storeNumber)"
-                : (row.division.isEmpty ? row.storeNumber : "\(row.storeNumber)  |  \(row.division)")
-            body += "<tr><td>\(esc(label))</td>"
-            body += storeCells(section, row: row, pickerCount: pickerCounts[HeartbeatMath.canonicalStore(row.storeNumber)] ?? 0, health: health)
-            body += "</tr>"
+                : placeLabel(row)
+            cards += metricCard(
+                title: label,
+                detail: nil,
+                metrics: metricLine(section, row: row, pickerCount: pickerCounts[HeartbeatMath.canonicalStore(row.storeNumber)] ?? 0),
+                health: health
+            )
         }
-        var note = "\(HeartbeatFormat.num(Double(rows.count))) \(title.lowercased())s · showing \(ordered.count)"
-        if rows.count > ordered.count {
-            note += " of \(HeartbeatFormat.num(Double(rows.count))) · open the app for the rest"
+        return bar(title, "\(HeartbeatFormat.num(Double(ordered.count))) \(title.lowercased())s") + cards
+    }
+
+    private static func placeLabel(_ row: MetricRow) -> String {
+        var parts = [row.storeNumber]
+        let district = HeartbeatMath.canonicalDistrict(row.district)
+        if !district.isEmpty { parts.append(district) }
+        var market = MarketRegion.canonicalName(row.division)
+        if market.isEmpty { market = row.division.trimmingCharacters(in: .whitespacesAndNewlines) }
+        if !market.isEmpty, market.caseInsensitiveCompare(district) != .orderedSame {
+            parts.append(market)
         }
-        return bar(title, note)
-            + "<div style=\"width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch\"><table class=\"data\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\"><tr>\(head)</tr>\(body)</table></div>"
+        return parts.joined(separator: " | ")
+    }
+
+    private static func metricCard(title: String, detail: String?, metrics: String, health: Health) -> String {
+        let extra = (detail?.isEmpty == false) ? " · \(esc(detail!))" : ""
+        return """
+        <table width="100%" cellspacing="0" cellpadding="0" style="border-bottom:1px solid #EEF1F6">
+        <tr>
+        <td style="padding:8px 4px 2px;font-weight:700;font-size:13px">\(esc(title))\(extra)</td>
+        <td style="padding:8px 4px 2px;text-align:right;width:88px">\(pill(health))</td>
+        </tr>
+        <tr>
+        <td colspan="2" style="padding:0 4px 8px;color:#5C677A;font-size:12px;line-height:1.45">\(esc(metrics))</td>
+        </tr>
+        </table>
+        """
+    }
+
+    private static func metricLine(_ section: MetricSection, row: MetricRow, pickerCount: Int) -> String {
+        switch section {
+        case .sales:
+            return [
+                "Sales \(HeartbeatFormat.money(row.number("sales_dollars")))",
+                "YoY \(HeartbeatFormat.pct(row.number("sales_yoy_pct")))",
+                "Orders \(HeartbeatFormat.num(row.number("sales_orders"), digits: 0))",
+                "AOS \(HeartbeatFormat.money(row.number("sales_aos") ?? row.number("sales_aov")))",
+                "AIV \(HeartbeatFormat.num(row.number("sales_aiv"), digits: 2))",
+                "Items \(HeartbeatFormat.num(row.number("sales_items"), digits: 0))",
+            ].joined(separator: " · ")
+        case .lostRevenue:
+            return [
+                "Lost \(HeartbeatFormat.money(row.number("lost_revenue")))",
+                "Lost % \(HeartbeatFormat.pct(row.number("lost_revenue_pct")))",
+                "Goal 3.00%",
+                "Sales \(HeartbeatFormat.money(row.number("ecomm_sales")))",
+                "Post \(HeartbeatFormat.money(row.number("post_sub_oos_foregone")))",
+                "Refund \(HeartbeatFormat.money(row.number("refund_lost", "refund_amt")))",
+                "Missed \(HeartbeatFormat.money(row.number("missed_sales")))",
+            ].joined(separator: " · ")
+        case .missingItems, .preSubOOS:
+            var parts = ["Total \(HeartbeatFormat.pct(row.number(MissingItemDept.totalKey)))"]
+            for dept in MissingItemDept.allCases {
+                if let value = row.number(dept.rawValue) {
+                    parts.append("\(dept.title) \(HeartbeatFormat.pct(value))")
+                }
+            }
+            return parts.joined(separator: " · ")
+        case .fiveStar:
+            return [
+                "Rating \(HeartbeatFormat.stars(row.number("star_rating")))",
+                "Flash \(HeartbeatFormat.pct(row.number("flash_pct")))",
+                "Presub \(HeartbeatFormat.pct(row.number("presub_pct")))",
+                "COE \(HeartbeatFormat.pct(row.number("coe_pct")))",
+                "OTT \(HeartbeatFormat.pct(row.number("ott_pct")))",
+                "OTH5 \(HeartbeatFormat.pct(row.number("oth5_pct")))",
+            ].joined(separator: " · ")
+        case .pickPath, .pickPathPicker:
+            return [
+                "Pick path \(HeartbeatFormat.pct(row.number("compliance_pct")))",
+                "PPH \(HeartbeatFormat.num(row.number("pph"), digits: 1))",
+                "Orders \(HeartbeatFormat.num(row.number("orders") ?? row.number("picks_total")))",
+                "Mapper \(HeartbeatFormat.shortDate(AisleMapperMath.mapperISO(row)))",
+                "Sequence \(HeartbeatFormat.shortDate(AisleMapperMath.sequenceISO(row)))",
+            ].joined(separator: " · ")
+        case .prepNotReady:
+            return "PNR \(HeartbeatFormat.pct(row.number("pnr_rate_pct"))) · Goal \(HeartbeatFormat.num(HeartbeatMath.pnrGoal, digits: 1))% · Watch \(HeartbeatFormat.num(HeartbeatMath.pnrWatch, digits: 1))%"
+        case .dynacap:
+            return [
+                "Rate \(HeartbeatFormat.num(row.number("dynacap_rate", "pieces_per_hour"), digits: 1))",
+                "PPH \(HeartbeatFormat.num(row.number("pph"), digits: 1))",
+                "Goal \(HeartbeatFormat.num(HeartbeatMath.dynacapGoal, digits: 0))",
+                "Util \(HeartbeatFormat.pct(row.number("utilization_pct")))",
+            ].joined(separator: " · ")
+        case .scheduleQuality:
+            return [
+                "Eff \(HeartbeatFormat.pct(row.number("schedule_efficiency_pct")))",
+                "Staffing \(HeartbeatFormat.pct(row.number("staffing_efficiency_pct")))",
+                "Goal 90%",
+                "Under \(HeartbeatFormat.pct(row.number("under_schedule_pct", "under_scheduled")))",
+                "Over \(HeartbeatFormat.pct(row.number("over_schedule_pct", "over_scheduled")))",
+            ].joined(separator: " · ")
+        case .pph:
+            return "PPH \(HeartbeatFormat.num(row.number("pph"), digits: 1)) · Pickers \(HeartbeatFormat.num(Double(pickerCount))) · Goal 80.0"
+        case .labor:
+            return [
+                "Tgt vs Act \(HeartbeatFormat.pct(row.number("target_vs_actual_pct")))",
+                "CostTrgt \(HeartbeatFormat.pct(row.number("cost_trgt_pct")))",
+                "ActCost \(HeartbeatFormat.pct(row.number("act_cost_pct")))",
+                "Sch Eff \(HeartbeatFormat.pct(row.number("schedule_efficiency_pct")))",
+                "UPLH \(HeartbeatFormat.pct(row.number("uplh_impact_pct")))",
+                "Wage \(HeartbeatFormat.pct(row.number("wage_impact_pct")))",
+                "AIV \(HeartbeatFormat.pct(row.number("aiv_impact_pct")))",
+            ].joined(separator: " · ")
+        case .pickerScorecard:
+            return [
+                "PPH \(HeartbeatFormat.num(row.number("pph"), digits: 1))",
+                "Presub \(HeartbeatFormat.pct(row.number("presub_pct")))",
+                "OOS \(HeartbeatFormat.pct(row.number("oos_pct")))",
+                "OTT \(HeartbeatFormat.pct(row.number("ott_pct")))",
+                "OTH5 \(HeartbeatFormat.pct(row.number("oth5_pct")))",
+                "Refund \(HeartbeatFormat.money(row.number("refund_amt")))",
+            ].joined(separator: " · ")
+        case .preSubOOSItem:
+            return [
+                row.textPayload["bpn"] ?? "",
+                "Pre-Sub \(HeartbeatFormat.pct(row.number("presub_pct")))",
+                "Units \(HeartbeatFormat.num(row.number("presub_count"), digits: 0))",
+                "$ Pre-Sub \(HeartbeatFormat.money(row.number("presub_dollars")))",
+                "OOS \(HeartbeatFormat.pct(row.number("oos_pct")))",
+                "$ OOS \(HeartbeatFormat.money(row.number("oos_dollars")))",
+            ].filter { !$0.isEmpty }.joined(separator: " · ")
+        case .aisleMapper:
+            return "Mapper \(HeartbeatFormat.shortDate(AisleMapperMath.mapperISO(row))) · Sequence \(HeartbeatFormat.shortDate(AisleMapperMath.sequenceISO(row)))"
+        }
     }
 
     private static func storeHeaders(_ section: MetricSection) -> [String] {
