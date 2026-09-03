@@ -1405,9 +1405,9 @@ final class HeartbeatStore: ObservableObject {
             lastImportedSection = sheets.first?.section
             needsRolePick = true
             statusMessage = nil
-            await persistNow()
             isImporting = false
             importLabel = nil
+            Task { await persistNow() }
             return true
         } catch {
             if fallbackToPicker {

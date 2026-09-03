@@ -110,23 +110,32 @@ enum WorkbookParser {
         let sheetsToRead = sheetMap(from: zip)
         if sheetsToRead.isEmpty { throw ParseError.unreadable }
 
+        let lock = NSLock()
         var found: [MetricSection: ParsedSheet] = [:]
-        for entry in sheetsToRead {
+        DispatchQueue.concurrentPerform(iterations: sheetsToRead.count) { index in
+            let entry = sheetsToRead[index]
             autoreleasepool {
                 guard let sheet = zip.file(named: entry.path) ?? zip.file(named: entry.path.replacingOccurrences(of: "xl/", with: "")),
                       !sheet.isEmpty else { return }
-                var parsed = rows(fromSheet: sheet, strings: strings)
-                if parsed.isEmpty {
+                let hinted = section(fromSheetName: entry.name)
+                let matrix = SheetXML.parse(data: sheet, strings: strings)
+                var parsed = rows(from: matrix, prefer: hinted)
+                if parsed.isEmpty, hinted == .labor || hinted == nil {
                     parsed = parseLaborSheet(data: sheet, strings: strings)
                 }
                 guard !parsed.isEmpty else { return }
-                guard let section = classifySheet(name: entry.name, rows: parsed)
+                guard let section = hinted ?? classifySheet(name: entry.name, rows: parsed)
                     ?? classifySheet(name: filename, rows: parsed) else { return }
+                lock.lock()
                 if let existing = found[section] {
                     let named = entry.name.lowercased().contains(section.rawValue) || entry.name.lowercased().contains(section.short.lowercased())
-                    if !named, existing.rows.count >= parsed.count { return }
+                    if !named, existing.rows.count >= parsed.count {
+                        lock.unlock()
+                        return
+                    }
                 }
                 found[section] = ParsedSheet(section: section, sheetName: entry.name, rows: parsed)
+                lock.unlock()
             }
         }
         let sheets = MetricSection.uploadOrder.compactMap { found[$0] }
@@ -548,40 +557,53 @@ enum WorkbookParser {
     }()
 
     private static func rows(fromSheet data: Data, strings: [String]) -> [ParsedWorkbookRow] {
-        let matrix = SheetXML.parse(data: data, strings: strings)
-        return rows(from: matrix)
+        rows(from: SheetXML.parse(data: data, strings: strings), prefer: nil)
     }
 
-    private static func rows(from matrix: [[String]]) -> [ParsedWorkbookRow] {
+    private static func rows(from matrix: [[String]], prefer: MetricSection? = nil) -> [ParsedWorkbookRow] {
         let parsed: [ParsedWorkbookRow]
-        if let labor = parseLabor(matrix), !labor.isEmpty {
-            parsed = labor
-        } else if let lost = parseLostRevenue(matrix), !lost.isEmpty {
-            parsed = lost
-        } else if let sales = parseSales(matrix), !sales.isEmpty {
-            parsed = sales
-        } else if let items = parsePreSubOOSItem(matrix), !items.isEmpty {
-            parsed = items
-        } else if let presub = parsePreSubOOS(matrix), !presub.isEmpty {
-            parsed = presub
-        } else if let missing = parseMissingItems(matrix), !missing.isEmpty {
-            parsed = missing
-        } else if let aisle = parseAisleMapper(matrix), !aisle.isEmpty {
-            parsed = aisle
-        } else if let prep = parsePrepHours(matrix), !prep.isEmpty {
-            parsed = prep
-        } else if let pickers = parsePickerWide(matrix), !pickers.isEmpty {
-            parsed = pickers
-        } else if let outline = parseOutline(matrix), !outline.isEmpty {
-            parsed = outline
-        } else if let stores = parseStoreWeek(matrix), !stores.isEmpty {
-            parsed = stores
-        } else if let pickers = parseEmployeeWeek(matrix), !pickers.isEmpty {
-            parsed = pickers
+        if let prefer, let targeted = rows(from: matrix, section: prefer), !targeted.isEmpty {
+            parsed = targeted
         } else {
-            parsed = parseFlat(matrix)
+            parsed = rowsUnhinted(matrix)
         }
         return stampWindow(parsed, matrix: matrix)
+    }
+
+    private static func rows(from matrix: [[String]], section: MetricSection) -> [ParsedWorkbookRow]? {
+        switch section {
+        case .labor: return parseLabor(matrix)
+        case .lostRevenue: return parseLostRevenue(matrix)
+        case .sales: return parseSales(matrix)
+        case .preSubOOSItem: return parsePreSubOOSItem(matrix)
+        case .preSubOOS: return parsePreSubOOS(matrix)
+        case .missingItems: return parseMissingItems(matrix)
+        case .aisleMapper: return parseAisleMapper(matrix)
+        case .prepNotReady: return parsePrepHours(matrix)
+        case .pickerScorecard: return parsePickerWide(matrix) ?? parseEmployeeWeek(matrix)
+        case .pickPathPicker: return parseEmployeeWeek(matrix) ?? parsePickerWide(matrix)
+        case .pickPath: return parseStoreWeek(matrix) ?? parseOutline(matrix)
+        case .fiveStar, .pph, .dynacap, .scheduleQuality:
+            return parseStoreWeek(matrix) ?? parseOutline(matrix) ?? parseFlat(matrix)
+        default:
+            return nil
+        }
+    }
+
+    private static func rowsUnhinted(_ matrix: [[String]]) -> [ParsedWorkbookRow] {
+        if let labor = parseLabor(matrix), !labor.isEmpty { return labor }
+        if let lost = parseLostRevenue(matrix), !lost.isEmpty { return lost }
+        if let sales = parseSales(matrix), !sales.isEmpty { return sales }
+        if let items = parsePreSubOOSItem(matrix), !items.isEmpty { return items }
+        if let presub = parsePreSubOOS(matrix), !presub.isEmpty { return presub }
+        if let missing = parseMissingItems(matrix), !missing.isEmpty { return missing }
+        if let aisle = parseAisleMapper(matrix), !aisle.isEmpty { return aisle }
+        if let prep = parsePrepHours(matrix), !prep.isEmpty { return prep }
+        if let pickers = parsePickerWide(matrix), !pickers.isEmpty { return pickers }
+        if let outline = parseOutline(matrix), !outline.isEmpty { return outline }
+        if let stores = parseStoreWeek(matrix), !stores.isEmpty { return stores }
+        if let pickers = parseEmployeeWeek(matrix), !pickers.isEmpty { return pickers }
+        return parseFlat(matrix)
     }
 
     private static func stampWindow(_ rows: [ParsedWorkbookRow], matrix: [[String]]) -> [ParsedWorkbookRow] {
@@ -2733,16 +2755,37 @@ enum CSVReader {
 
 enum SharedStrings {
     static func parse(_ xml: String) -> [String] {
-        let cleaned = stripNS(xml)
         var out: [String] = []
-        let sis = matches(in: cleaned, pattern: "<si[\\s\\S]*?</si>")
-        for si in sis {
-            let texts = matches(in: si, pattern: "<t(?:\\s[^>]*)?>([\\s\\S]*?)</t>")
-            if texts.isEmpty {
-                out.append("")
-            } else {
-                out.append(texts.map(unescape).joined())
+        out.reserveCapacity(8192)
+        var cursor = xml.startIndex
+        while let si = xml.range(of: "<si", range: cursor..<xml.endIndex) {
+            let after = si.upperBound
+            guard after < xml.endIndex else { break }
+            let mark = xml[after]
+            if mark != " " && mark != ">" && mark != "/" {
+                cursor = after
+                continue
             }
+            guard let openEnd = xml.range(of: ">", range: after..<xml.endIndex) else { break }
+            guard let close = xml.range(of: "</si>", range: openEnd.upperBound..<xml.endIndex) else { break }
+            let body = xml[openEnd.upperBound..<close.lowerBound]
+            var text = ""
+            var origin = body.startIndex
+            while let tOpen = body.range(of: "<t", range: origin..<body.endIndex) {
+                let tAfter = tOpen.upperBound
+                guard tAfter < body.endIndex else { break }
+                let tMark = body[tAfter]
+                if tMark != " " && tMark != ">" && tMark != "/" {
+                    origin = tAfter
+                    continue
+                }
+                guard let gt = body.range(of: ">", range: tAfter..<body.endIndex) else { break }
+                guard let tClose = body.range(of: "</t>", range: gt.upperBound..<body.endIndex) else { break }
+                text += unescape(String(body[gt.upperBound..<tClose.lowerBound]))
+                origin = tClose.upperBound
+            }
+            out.append(text)
+            cursor = close.upperBound
         }
         return out
     }
