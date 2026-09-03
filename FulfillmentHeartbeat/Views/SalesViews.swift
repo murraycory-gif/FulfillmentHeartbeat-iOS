@@ -331,8 +331,15 @@ private struct SalesLineSnap: Identifiable {
     init(_ row: MetricRow) {
         storeNumber = row.storeNumber
         id = row.storeNumber
-        let place = row.district.isEmpty ? row.division : row.district
-        label = place.isEmpty ? row.storeNumber : "\(row.storeNumber) | \(place)"
+        var parts = [row.storeNumber]
+        let district = HeartbeatMath.canonicalDistrict(row.district)
+        if !district.isEmpty { parts.append(district) }
+        var market = MarketRegion.canonicalName(row.division)
+        if market.isEmpty { market = row.division.trimmingCharacters(in: .whitespacesAndNewlines) }
+        if !market.isEmpty, market.caseInsensitiveCompare(district) != .orderedSame {
+            parts.append(market)
+        }
+        label = parts.joined(separator: " | ")
         pack = SalesPack(row)
         let names = (row.textPayload["sales_days"] ?? "")
             .split(separator: ",")
