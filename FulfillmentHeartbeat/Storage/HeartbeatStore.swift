@@ -1210,9 +1210,15 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func importMasterWorkbook(data: Data, filename: String, sourceURL: URL? = nil) {
+        guard !isImporting else { return }
+        isImporting = true
+        importLabel = "Reading master workbook…"
+        importLoaded = 0
+        importExpected = MetricSection.uploadOrder.count
+        importMissing = []
         _ = saveToDocuments(data, filename: filename)
         Task {
-            let ok = await runMasterImport(data: data, filename: filename, fallbackToPicker: false)
+            let ok = await runMasterImport(data: data, filename: filename, fallbackToPicker: false, alreadyOpen: true)
             if ok {
                 rememberMasterFile(url: sourceURL, filename: filename)
             }
@@ -1246,10 +1252,8 @@ final class HeartbeatStore: ObservableObject {
             defer { if accessed { url.stopAccessingSecurityScopedResource() } }
             importLabel = "Downloading \(linkedMasterName ?? url.lastPathComponent)…"
             let file = try HeartbeatFilePicker.readPickedFile(url)
-            isImporting = false
-            importLabel = nil
             _ = saveToDocuments(file.data, filename: file.name)
-            let ok = await runMasterImport(data: file.data, filename: file.name, fallbackToPicker: false)
+            let ok = await runMasterImport(data: file.data, filename: file.name, fallbackToPicker: false, alreadyOpen: true)
             if ok {
                 rememberMasterFile(url: url, filename: file.name)
             }
@@ -1362,24 +1366,37 @@ final class HeartbeatStore: ObservableObject {
         await persistNow()
     }
 
-    private func runMasterImport(data: Data, filename: String, fallbackToPicker: Bool) async -> Bool {
-        guard !isImporting else { return false }
-        isImporting = true
-        importLabel = "Reading master workbook…"
-        importLoaded = 0
-        importExpected = MetricSection.uploadOrder.count
-        importMissing = []
+    private func parseMasterOffMain(data: Data, filename: String) async throws -> [WorkbookParser.ParsedSheet] {
+        try await withCheckedThrowingContinuation { continuation in
+            DispatchQueue.global(qos: .userInitiated).async {
+                do {
+                    let sheets = try WorkbookParser.parseMaster(data: data, filename: filename) { loaded, total, name in
+                        DispatchQueue.main.async {
+                            self.importLoaded = loaded
+                            self.importExpected = total
+                            self.importLabel = name
+                        }
+                    }
+                    continuation.resume(returning: sheets)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    private func runMasterImport(data: Data, filename: String, fallbackToPicker: Bool, alreadyOpen: Bool = false) async -> Bool {
+        if !alreadyOpen {
+            guard !isImporting else { return false }
+            isImporting = true
+            importLabel = "Reading master workbook…"
+            importLoaded = 0
+            importExpected = MetricSection.uploadOrder.count
+            importMissing = []
+        }
         errorMessage = nil
         do {
-            let sheets = try await Task.detached(priority: .userInitiated) {
-                try WorkbookParser.parseMaster(data: data, filename: filename) { loaded, total, name in
-                    Task { @MainActor in
-                        self.importLoaded = loaded
-                        self.importExpected = total
-                        self.importLabel = name
-                    }
-                }
-            }.value
+            let sheets = try await parseMasterOffMain(data: data, filename: filename)
             importLabel = "Updating \(sheets.count) of \(MetricSection.uploadOrder.count) scorecards…"
             importLoaded = sheets.count
             var nextRows = rows
