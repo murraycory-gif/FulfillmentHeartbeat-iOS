@@ -1416,8 +1416,8 @@ final class HeartbeatStore: ObservableObject {
             }
             seeded = true
             lastImportedSection = sheets.first { $0.section == .pickerScorecard }?.section ?? sheets.first?.section
-            let loaded = Set(sheets.map(\.section))
-            let missing = MetricSection.uploadOrder.filter { !loaded.contains($0) }
+            let loadedSections = Set(sheets.map(\.section))
+            let missing = MetricSection.uploadOrder.filter { !loadedSections.contains($0) }
             importMissing = missing.map(\.title)
             importLoaded = sheets.count
             importExpected = MetricSection.uploadOrder.count
