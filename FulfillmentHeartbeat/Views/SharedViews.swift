@@ -914,6 +914,7 @@ struct HubChromePill: View {
     var badge: Int = 0
     var showsChevron: Bool = true
     var spinning: Bool = false
+    var selected: Bool = false
     let action: () -> Void
     @Environment(\.horizontalSizeClass) private var sizeClass
 
@@ -924,7 +925,7 @@ struct HubChromePill: View {
             HStack(spacing: 6) {
                 if spinning {
                     ProgressView()
-                        .tint(.white)
+                        .tint(AppTheme.blue)
                         .controlSize(.small)
                 } else {
                     Image(systemName: symbol)
@@ -935,22 +936,26 @@ struct HubChromePill: View {
                 if badge > 0 {
                     Text("\(badge)")
                         .font(.caption2.weight(.bold))
-                        .padding(.horizontal, 5)
-                        .padding(.vertical, 1)
-                        .background(Color.white.opacity(0.22), in: Capsule())
+                        .foregroundStyle(AppTheme.blue)
                 }
                 if showsChevron {
                     Image(systemName: "chevron.down")
-                        .font(.caption.weight(.bold))
+                        .font(.caption.weight(.semibold))
                 }
             }
             .font((compactPills ? Font.caption : Font.subheadline).weight(.semibold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, compactPills ? 10 : 14)
-            .padding(.vertical, compactPills ? 8 : 10)
-            .background(AppTheme.blue, in: Capsule(style: .continuous))
+            .foregroundStyle(AppTheme.blue)
+            .padding(.horizontal, compactPills ? 8 : 10)
+            .padding(.vertical, compactPills ? 7 : 8)
+            .frame(minHeight: 44)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(selected ? AppTheme.blueSoft : Color.clear)
+            )
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(title)
     }
 }
 
@@ -989,7 +994,8 @@ struct FilterBar: View {
             ForEach(FilterFocus.allCases) { focus in
                 HubChromePill(
                     title: pillTitle(for: focus),
-                    symbol: focus.symbol
+                    symbol: focus.symbol,
+                    selected: !store.filters.values(for: focus).isEmpty
                 ) {
                     openFilters(focus)
                 }
