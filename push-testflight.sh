@@ -17,4 +17,5 @@ xcodebuild \
   archive \
   -archivePath "$ARCHIVE"
 echo "ARCHIVE DONE: $ARCHIVE"
-open "$ARCHIVE"
+open -a Xcode "$(pwd)/FulfillmentHeartbeat.xcworkspace"
+open -a Xcode "$ARCHIVE"
