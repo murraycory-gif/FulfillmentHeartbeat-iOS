@@ -467,25 +467,18 @@ struct HubNavControl: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 Image(systemName: symbol)
-                    .font(.body.weight(.bold))
+                    .font(.subheadline.weight(.semibold))
                 Text(title)
-                    .font(.subheadline.weight(.bold))
+                    .font(.subheadline.weight(.semibold))
                     .lineLimit(1)
             }
-            .foregroundStyle(filled ? Color.white : AppTheme.blue)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 11)
+            .foregroundStyle(AppTheme.blue)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
             .frame(minHeight: 44)
-            .background(
-                Capsule(style: .continuous)
-                    .fill(filled ? AppTheme.blue : Color.white)
-            )
-            .overlay(
-                Capsule(style: .continuous)
-                    .stroke(filled ? Color.clear : AppTheme.blue.opacity(0.35), lineWidth: 1.5)
-            )
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
@@ -9407,12 +9400,12 @@ struct HubBrandBar: View {
 
     private var regularBar: some View {
         ZStack {
-            HStack(spacing: 12) {
+            HStack(spacing: 4) {
                 HubNavControl(symbol: "line.3.horizontal", title: "Menu") {
                     router.toggleSidebar()
                 }
                 if showBack {
-                    HubNavControl(symbol: "chevron.left", title: "Back", filled: true) {
+                    HubNavControl(symbol: "chevron.left", title: "Dashboard") {
                         router.open(.dashboard)
                     }
                 }
@@ -9431,7 +9424,7 @@ struct HubBrandBar: View {
                 router.showCompactMenu = true
             }
             if showBack {
-                HubNavControl(symbol: "chevron.left", title: "Back", filled: true) {
+                HubNavControl(symbol: "chevron.left", title: "Dashboard") {
                     router.open(.dashboard)
                 }
             }
@@ -9465,7 +9458,7 @@ struct HubBrandBar: View {
     }
 
     private var markHeight: CGFloat {
-        sizeClass == .regular ? 62 : 44
+        sizeClass == .regular ? 48 : 36
     }
 
     private var greetingFont: Font {
