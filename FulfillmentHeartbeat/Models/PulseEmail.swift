@@ -244,7 +244,8 @@ enum PulseMail {
         switch snap.grain {
         case "store": return .store
         case "district": return .district
-        default: return .division
+        case "division": return .division
+        default: return .region
         }
     }
 

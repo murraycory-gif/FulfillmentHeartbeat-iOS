@@ -302,7 +302,7 @@ struct DashScopeStrip: View {
                 if expanded {
                     ForEach(packs) { pack in
                         DashScopeGrainCard(
-                            line: pack.line,
+                            pack: pack,
                             grain: grain,
                             flags: flags[pack.id] ?? [],
                             width: width
@@ -319,36 +319,70 @@ struct DashScopeStrip: View {
 }
 
 struct DashScopeGrainCard: View {
-    let line: DashScopeLine
+    let pack: DashScopePack
     let grain: DashScopeGrain
     let flags: [HeartbeatMath.FiveStarFlag]
     let width: CGFloat
+    @State private var open = false
+
+    private var line: DashScopeLine { pack.line }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 10) {
-                Text(line.label)
-                    .font(.headline.weight(.bold))
-                    .foregroundStyle(AppTheme.text)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
-                Spacer(minLength: 8)
-                Text(line.value)
-                    .font(.title3.weight(.bold).monospacedDigit())
-                    .foregroundStyle(dashInk(line.health == .none ? .good : line.health))
-                    .lineLimit(1)
-                if grain != .store {
-                    Text(line.count == 1 ? "1 store" : "\(line.count) stores")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(AppTheme.textSecondary)
+            Button {
+                if !pack.children.isEmpty { open.toggle() }
+            } label: {
+                HStack(spacing: 10) {
+                    Text(line.label)
+                        .font(.headline.weight(.bold))
+                        .foregroundStyle(AppTheme.text)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                    Spacer(minLength: 8)
+                    Text(line.value)
+                        .font(.title3.weight(.bold).monospacedDigit())
+                        .foregroundStyle(dashInk(line.health == .none ? .good : line.health))
+                        .lineLimit(1)
+                    if grain != .store {
+                        Text(line.count == 1 ? "1 store" : "\(line.count) stores")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(AppTheme.textSecondary)
+                    }
+                    HealthBadge(health: line.health, prominent: true, compact: true)
+                    if !pack.children.isEmpty {
+                        Image(systemName: open ? "chevron.up" : "chevron.down")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(AppTheme.blue)
+                    }
                 }
-                HealthBadge(health: line.health, prominent: true, compact: true)
             }
+            .buttonStyle(.plain)
             if !flags.isEmpty {
                 DashFlagGrid(
                     flags: flags,
                     columns: HubLayout.flagColumns(count: flags.count, width: max(width - 24, 200))
                 )
+            }
+            if open {
+                ForEach(pack.children) { child in
+                    HStack(spacing: 8) {
+                        Text(child.label)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(AppTheme.text)
+                            .lineLimit(1)
+                        Spacer(minLength: 4)
+                        Text(child.value)
+                            .font(.subheadline.weight(.bold).monospacedDigit())
+                            .foregroundStyle(dashInk(child.health == .none ? .good : child.health))
+                        if grain != .store {
+                            Text(child.count == 1 ? "1 store" : "\(child.count) stores")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(AppTheme.textSecondary)
+                        }
+                        HealthBadge(health: child.health, prominent: true, compact: true)
+                    }
+                    .padding(.leading, 12)
+                }
             }
         }
         .padding(12)

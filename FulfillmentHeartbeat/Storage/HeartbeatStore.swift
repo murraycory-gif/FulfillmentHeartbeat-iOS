@@ -177,7 +177,7 @@ final class HeartbeatStore: ObservableObject {
         PulseCaches.grainFlags(section: section, grain: grain, packs: packs, latest: filteredLatest)
     }
 
-    var effectiveDashboardGrain: DashScopeGrain? {
+    var effectiveDashboardGrain: DashScopeGrain {
         if !filters.store.isEmpty || !filters.om.isEmpty || !filters.district.isEmpty {
             return .store
         }
@@ -187,7 +187,7 @@ final class HeartbeatStore: ObservableObject {
         if !filters.region.isEmpty {
             return .division
         }
-        return sessionRole?.dashboardGrain
+        return sessionRole?.dashboardGrain ?? .region
     }
 
     var pickerBoard: HeartbeatMath.PickerBoard { cachedPickerBoard }
@@ -1592,7 +1592,13 @@ final class HeartbeatStore: ObservableObject {
     private func installCompanyWideFast() {
         filteredLatest = latestBySection
         refreshFilterOptions()
-        cachedGrainPacks = [:]
+        cachedGrainPacks = PulseCaches.grainPacks(
+            latest: latestBySection,
+            grain: effectiveDashboardGrain,
+            hidePicker: sessionRole == .evp,
+            stores: roster.keys.sorted().map { ($0, roster[$0]?.name) },
+            roster: roster
+        )
         objectWillChange.send()
     }
 
@@ -1901,14 +1907,7 @@ final class HeartbeatStore: ObservableObject {
             rows[section] = displayRows(for: section)
         }
         rows[.pickPathPicker] = displayRows(for: .pickPathPicker)
-        let grain: String?
-        if !filters.store.isEmpty || !filters.om.isEmpty || !filters.district.isEmpty {
-            grain = "store"
-        } else if !filters.division.isEmpty {
-            grain = "district"
-        } else {
-            grain = "division"
-        }
+        let grain = effectiveDashboardGrain.rawValue
         return PulseMail.Snapshot(
             filterSummary: filters.summary,
             grain: grain,
@@ -2230,7 +2229,12 @@ private struct PulseCaches {
         roster: [String: HeartbeatMath.StoreIdentity] = [:]
     ) -> [MetricSection: [DashScopePack]] {
         guard let grain else { return [:] }
-        let cap = grain == .store ? max(stores.count, 80) : 24
+        let cap: Int
+        switch grain {
+        case .region: cap = 8
+        case .store: cap = max(stores.count, 80)
+        default: cap = 24
+        }
         var out: [MetricSection: [DashScopePack]] = [:]
         for section in MetricSection.dashboardCards {
             if hidePicker, section == .pickerScorecard { continue }
@@ -2246,7 +2250,19 @@ private struct PulseCaches {
             } else {
                 lines = Array(HeartbeatMath.dashboardScopeLines(section: section, rows: rows, grain: grain).prefix(cap))
             }
-            out[section] = lines.map { DashScopePack(line: $0, flags: []) }
+            let markets = grain == .region
+                ? HeartbeatMath.dashboardScopeLines(section: section, rows: rows, grain: .division)
+                : []
+            out[section] = lines.map { line in
+                var children: [DashScopeLine] = []
+                if grain == .region {
+                    children = markets.filter { MarketRegion.containing($0.label)?.rawValue == line.label }
+                } else if grain == .district {
+                    let scoped = rows.filter { RollupMarketFill.districtKey($0.district) == line.label }
+                    children = Array(HeartbeatMath.dashboardScopeLines(section: section, rows: scoped, grain: .store).prefix(40))
+                }
+                return DashScopePack(line: line, flags: [], children: children)
+            }
         }
         return out
     }

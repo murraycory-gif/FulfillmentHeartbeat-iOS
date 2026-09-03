@@ -536,6 +536,10 @@ enum HeartbeatMath {
 
     static func dashboardScopeKey(_ row: MetricRow, grain: DashScopeGrain) -> String? {
         switch grain {
+        case .region:
+            let market = RollupMarketFill.divisionKey(row.division)
+            guard !market.isEmpty, market != "Unassigned" else { return nil }
+            return MarketRegion.containing(market)?.rawValue
         case .division:
             let key = RollupMarketFill.divisionKey(row.division)
             return key.isEmpty ? nil : key
@@ -2694,9 +2698,9 @@ enum HeartbeatRole: String, CaseIterable, Identifiable, Sendable {
 
     var showsOnlyRiskAndWatch: Bool { self != .backstage }
 
-    var dashboardGrain: DashScopeGrain? {
+    var dashboardGrain: DashScopeGrain {
         switch self {
-        case .backstage: return nil
+        case .backstage: return .region
         case .evp: return .division
         case .director: return .district
         case .districtManager, .om: return .store
@@ -2705,12 +2709,14 @@ enum HeartbeatRole: String, CaseIterable, Identifiable, Sendable {
 }
 
 enum DashScopeGrain: String, Sendable, Equatable {
+    case region
     case division
     case district
     case store
 
     var title: String {
         switch self {
+        case .region: return "Regions"
         case .division: return "Markets"
         case .district: return "Districts"
         case .store: return "Stores"
@@ -2719,6 +2725,7 @@ enum DashScopeGrain: String, Sendable, Equatable {
 
     var unit: String {
         switch self {
+        case .region: return "regions"
         case .division: return "markets"
         case .district: return "districts"
         case .store: return "stores"
@@ -2727,6 +2734,7 @@ enum DashScopeGrain: String, Sendable, Equatable {
 
     var symbol: String {
         switch self {
+        case .region: return "globe.americas.fill"
         case .division: return "map.fill"
         case .district: return "square.grid.2x2.fill"
         case .store: return "storefront.fill"
@@ -2745,6 +2753,7 @@ struct DashScopeLine: Identifiable, Equatable, Sendable {
 struct DashScopePack: Identifiable, Equatable, Sendable {
     var line: DashScopeLine
     var flags: [HeartbeatMath.FiveStarFlag]
+    var children: [DashScopeLine] = []
     var id: String { line.label }
 }
 
