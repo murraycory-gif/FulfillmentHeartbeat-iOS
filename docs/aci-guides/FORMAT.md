@@ -22,6 +22,8 @@ Use this layout for every new feature or TestFlight drop. Do not invent a new st
 - Tight spacing; screenshots sit under the step they explain
 - Always print the current `BuildStamp` so testers can match the sidebar
 
+This drop: Version 1.0 · Build 343 · HB-0827.72 — Sales ScoreCard + file reload.
+
 ## Generate
 ```bash
 cd docs/aci-guides
