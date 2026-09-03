@@ -393,7 +393,7 @@ private struct ImportProgressOverlay: View {
         } else {
             Text("Missing: \(store.importMissing.joined(separator: ", "))")
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(AppTheme.risk)
+                .foregroundStyle(AppTheme.bad)
                 .multilineTextAlignment(.center)
         }
     }
