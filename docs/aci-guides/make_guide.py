@@ -16,8 +16,8 @@ ATT = Path("/workspace/attachments")
 OUT = ROOT / "Fulfillment-Heartbeat-ACI-Test-Users-Update-Guide.pdf"
 
 VERSION_NAME = "1.0"
-BUILD = "343"
-STAMP = "HB-0827.72"
+BUILD = "366"
+STAMP = "HB-0827.95"
 AUDIENCE = "ACI Test Users"
 VERSION = f"Version {VERSION_NAME}  ·  Build {BUILD}  ·  {STAMP}"
 
@@ -180,11 +180,11 @@ def main():
     files = img("IMG_0183.jpeg")
     pick = img("IMG_0184.jpeg")
     reading = img("IMG_0185.jpeg")
-    sales = img("IMG_0434.PNG")
-    dash = img("Open Items Heartbeat 8.png")
+    dash = img("Open Items Heartbeat 15.png")
+    header_shot = img("Open Items Heartbeat 14.png")
 
     c = canvas.Canvas(str(OUT), pagesize=letter)
-    pages = 4
+    pages = 5
 
     # PAGE 1 — update
     header(c, 1, pages, cropped)
@@ -193,25 +193,25 @@ def main():
     y = section(c, "What changed in this drop", y)
     y = draw_wrapped(
         c,
-        "Build 343 adds the Sales ScoreCard page and dashboard callout. Sales is always the first card on Operational Heartbeat. Loss Revenue is always second. Health on Sales is Sales YoY %: over 0% is Healthy, flat is Watch, below 0% is At Risk. After you update, reload the master workbook so Sales numbers refresh.",
+        "Build 366 is the TestFlight drop after the Sales ScoreCard launch. Dashboard callouts now have a collapsed Regions / Markets / Districts / Stores row that follows your filter. Share email lists every filtered store as a readable card. Master upload is faster and safer on iPhone 14. After you update, reload the master workbook so every tester is on the same file.",
         MARGIN, y, CONTENT_W, size=9.5, leading=13,
     )
     y -= 10
     y = section(c, "Update Heartbeat in TestFlight", y)
     y = step_block(
         c, 1, "Open TestFlight from the Home Screen",
-        "Find the TestFlight app on the iPad Home Screen and tap it. Do not open the old Heartbeat icon first — update inside TestFlight so you get Build 343.",
+        "Find the TestFlight app on the iPad or iPhone Home Screen and tap it. Do not open the old Heartbeat icon first — update inside TestFlight so you get Build 366.",
         y,
     )
     y -= 8
-    pair_h = 210
+    pair_h = 200
     left_w = (CONTENT_W - 12) / 2
     draw_img(c, home, MARGIN, y, left_w, pair_h)
     draw_img(c, tf, MARGIN + left_w + 12, y, left_w, pair_h)
     y -= pair_h + 14
     y = step_block(
         c, 2, "Tap Update on Fulfillment Heartbeat",
-        "On the TestFlight app page, confirm Version 1.0 Build 343. Tap Update. When it finishes, open Heartbeat. The sidebar stamp must read HB-0827.72  1.0 (343). If it shows an older stamp, tap Update again.",
+        "On the TestFlight app page, confirm Version 1.0 Build 366. Tap Update. When it finishes, open Heartbeat. The sidebar stamp must read HB-0827.95  1.0 (366). If it shows an older stamp, tap Update again.",
         y,
     )
     c.showPage()
@@ -223,7 +223,7 @@ def main():
     y = section(c, "Reload the master file", y)
     y = draw_wrapped(
         c,
-        "New Sales data does not appear until you load the workbook again. Use the master Excel file that includes a tab named exactly Sales. You can also use the individual Sales upload card. Prefer iCloud Files if OneDrive fails on a work iPad.",
+        "New code does not change numbers until you load the workbook again. Use the current week master Excel. Tab names must match the list on page 5. Prefer iCloud Files if OneDrive fails on a work iPad. Keep the device awake while it reads.",
         MARGIN, y, CONTENT_W, size=9.5, leading=13,
     )
     y -= 10
@@ -249,7 +249,7 @@ def main():
     y = section(c, "Select the workbook", y)
     y = step_block(
         c, 5, "Tap the master Excel file",
-        "Select Heartbeat Master Week 27.xlsx or the current week file your team posted. The Sales tab name must be Sales. Individual Sales exports also work from the Sales card on Upload.",
+        "Select Heartbeat Master Week 27.xlsx or the current week file your team posted. Individual scorecard exports still work from their cards on Upload if you are patching one tab.",
         y,
     )
     y -= 8
@@ -258,41 +258,68 @@ def main():
     y -= 234
     y = step_block(
         c, 6, "Wait for Reading master workbook",
-        "Keep the iPad awake until the banner says the file is loaded. Then Who’s looking appears. Pick your role. Company view shows every store. Region, Director, District, and OM views show only your scope.",
+        "Keep the device awake until the banner finishes. Who’s looking appears next. Pick your role. Company view shows every store. Region, Director, District, and OM views show only your scope. iPhone 14 testers should stay in the app until the role screen appears — do not force-quit mid-read.",
         y,
     )
     y -= 8
     draw_img(c, reading, MARGIN, y, CONTENT_W, 210)
     c.showPage()
 
-    # PAGE 4 — new features
+    # PAGE 4 — dashboard + chrome
     header(c, 4, pages, cropped)
     footer(c)
     y = H - 112
-    y = section(c, "New: Sales ScoreCard", y)
+    y = section(c, "Dashboard callouts follow the filter", y)
     y = draw_wrapped(
         c,
-        "Dashboard order is Sales, then Loss Revenue, then the rest. The Sales card uses Total Sales $ from the export Total column. Open Sales ScoreCard for week totals, YoY, orders, AOS, AIV, items, and tap a store to see Sunday through Saturday.",
+        "Each scorecard card on Operational Heartbeat now has a collapsed row under the metrics. All filters show Regions (tap a region for its markets). A Division filter shows Districts (tap a district for stores). An OM, district, or store filter shows Stores. Rows stay closed until you tap them.",
         MARGIN, y, CONTENT_W, size=9.5, leading=13,
     )
     y -= 8
-    draw_img(c, dash, MARGIN, y, CONTENT_W, 188)
-    y -= 200
+    draw_img(c, dash, MARGIN, y, CONTENT_W, 220)
+    y -= 232
+    y = section(c, "Cleaner header", y)
     y = draw_wrapped(
         c,
-        "Sales ScoreCard page — markets and stores. Status follows Sales YoY %. Empty Unassigned market rows are hidden. Reload data if Sales still shows the previous week.",
-        MARGIN, y, CONTENT_W, size=9, leading=12, color=MUTED,
+        "Menu is on the left. Heartbeat Assist is the blue button on the right. Who’s looking sits to the left of Filters and Share. Filters opens one sheet for Region, Division, District, OM, and Store. Clear still wipes the whole set.",
+        MARGIN, y, CONTENT_W, size=9.5, leading=13,
     )
     y -= 8
-    draw_img(c, sales, MARGIN, y, CONTENT_W, 188)
-    y -= 200
+    draw_img(c, header_shot, MARGIN, y, CONTENT_W, 168)
+    c.showPage()
+
+    # PAGE 5 — share + tabs
+    header(c, 5, pages, cropped)
+    footer(c)
+    y = H - 112
+    y = section(c, "Share email and device notes", y)
+    y = draw_wrapped(
+        c,
+        "Share uses Apple Mail only. Pick Dashboard, all pages except Checklist, or individual pages. The email lists every store in the current filter as a stacked card: store | district | market, status, then the metrics for that page. Wide tables no longer clip off the right edge of Mail.",
+        MARGIN, y, CONTENT_W, size=9.5, leading=13,
+    )
+    y -= 12
+    y = section(c, "Load speed and iPhone 14", y)
+    y = draw_wrapped(
+        c,
+        "Master upload reads one sheet at a time so the iPad stays cooler and iPhone 14 does not quit mid-file. The role screen can appear before picker extras finish. If Sales or a scorecard looks empty after load, tap Reload on Upload once. Do not start a second import while Reading master workbook is showing.",
+        MARGIN, y, CONTENT_W, size=9.5, leading=13,
+    )
+    y -= 14
     y = section(c, "Master file tab names", y)
     tabs = (
         "Sales  ·  Lost Revenue  ·  Missing Items  ·  5 Star  ·  Pre-Sub OOS  ·  "
         "Pre Sub OOS Item  ·  Pick Path  ·  Aisle Mapper  ·  Prep Not Ready  ·  "
         "Dynacap  ·  Schedule Quality  ·  Picker ScoreCard  ·  PPH  ·  Labor"
     )
-    draw_wrapped(c, tabs, MARGIN, y, CONTENT_W, size=8.5, leading=12, color=TEXT)
+    y = draw_wrapped(c, tabs, MARGIN, y, CONTENT_W, size=8.5, leading=12, color=TEXT)
+    y -= 16
+    y = section(c, "Confirm you are on this build", y)
+    draw_wrapped(
+        c,
+        "Sidebar stamp must read HB-0827.95  1.0 (366). If it does not, open TestFlight and tap Update, then reload the master file.",
+        MARGIN, y, CONTENT_W, size=9.5, leading=13,
+    )
 
     c.save()
     print(OUT)
