@@ -96,6 +96,20 @@ private enum SalesRollupBuilder {
     }
 }
 
+private enum SalesCols {
+    static let label: CGFloat = 248
+    static let count: CGFloat = 58
+    static let sales: CGFloat = 100
+    static let yoy: CGFloat = 84
+    static let orders: CGFloat = 64
+    static let ordersYoy: CGFloat = 84
+    static let aos: CGFloat = 80
+    static let aiv: CGFloat = 56
+    static let ipt: CGFloat = 76
+    static let items: CGFloat = 64
+    static let status: CGFloat = 88
+}
+
 struct SalesMetricHeader: View {
     let label: String
     var showCount: Bool = false
@@ -104,23 +118,23 @@ struct SalesMetricHeader: View {
     var onSelect: ((String) -> Void)? = nil
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 8) {
             head(label, key: "label", alignment: .leading)
-                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                .frame(width: SalesCols.label, alignment: .leading)
             if showCount {
                 head("Stores", key: "count", alignment: .trailing)
-                    .frame(width: 58, alignment: .trailing)
+                    .frame(width: SalesCols.count, alignment: .trailing)
             }
-            head("Sales $", key: "sales")
-            head("YoY %", key: "yoy")
-            head("Orders", key: "orders")
-            head("Ord YoY", key: "ordersYoy")
-            head("AOS", key: "aos")
-            head("AIV", key: "aiv")
-            head("Items/Txn", key: "ipt")
-            head("Items", key: "items")
+            head("Sales $", key: "sales").frame(width: SalesCols.sales, alignment: .trailing)
+            head("YoY %", key: "yoy").frame(width: SalesCols.yoy, alignment: .trailing)
+            head("Orders", key: "orders").frame(width: SalesCols.orders, alignment: .trailing)
+            head("Ord YoY", key: "ordersYoy").frame(width: SalesCols.ordersYoy, alignment: .trailing)
+            head("AOS", key: "aos").frame(width: SalesCols.aos, alignment: .trailing)
+            head("AIV", key: "aiv").frame(width: SalesCols.aiv, alignment: .trailing)
+            head("Items/Txn", key: "ipt").frame(width: SalesCols.ipt, alignment: .trailing)
+            head("Items", key: "items").frame(width: SalesCols.items, alignment: .trailing)
             head("Status", key: "status", alignment: .trailing)
-                .frame(width: 88, alignment: .trailing)
+                .frame(width: SalesCols.status, alignment: .trailing)
         }
         .font(.caption.weight(.bold))
         .tracking(0.3)
@@ -142,7 +156,7 @@ struct SalesMetricHeader: View {
             }
         }
         .foregroundStyle(selected ? AppTheme.blue : AppTheme.text)
-        .frame(maxWidth: alignment == .leading ? nil : .infinity, alignment: alignment)
+        .frame(maxWidth: .infinity, alignment: alignment)
         .contentShape(Rectangle())
         return Group {
             if let onSelect {
@@ -163,7 +177,7 @@ private struct SalesMetricLine: View {
     var expanded: Bool = false
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 8) {
             HStack(spacing: 6) {
                 if showsChevron {
                     Image(systemName: expanded ? "chevron.down" : "chevron.right")
@@ -175,38 +189,38 @@ private struct SalesMetricLine: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(AppTheme.text)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+                    .minimumScaleFactor(0.85)
             }
-            .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            .frame(width: SalesCols.label, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
                     .font(.subheadline.weight(.semibold).monospacedDigit())
                     .foregroundStyle(AppTheme.textSecondary)
-                    .frame(width: 58, alignment: .trailing)
+                    .frame(width: SalesCols.count, alignment: .trailing)
             }
-            cell(HeartbeatFormat.money(pack.sales), pack.health)
-            cell(HeartbeatFormat.pct(pack.yoy), pack.health)
-            cell(HeartbeatFormat.num(pack.orders, digits: 0), .none)
-            cell(HeartbeatFormat.pct(pack.ordersYoy), .none)
-            cell(HeartbeatFormat.money(pack.aos), .none, brand: true)
-            cell(HeartbeatFormat.num(pack.aiv, digits: 2), .none)
-            cell(HeartbeatFormat.num(pack.ipt, digits: 1), .none)
-            cell(HeartbeatFormat.num(pack.items, digits: 0), .none)
+            cell(HeartbeatFormat.money(pack.sales), pack.health, width: SalesCols.sales)
+            cell(HeartbeatFormat.pct(pack.yoy), pack.health, width: SalesCols.yoy)
+            cell(HeartbeatFormat.num(pack.orders, digits: 0), .none, width: SalesCols.orders)
+            cell(HeartbeatFormat.pct(pack.ordersYoy), .none, width: SalesCols.ordersYoy)
+            cell(HeartbeatFormat.money(pack.aos), .none, brand: true, width: SalesCols.aos)
+            cell(HeartbeatFormat.num(pack.aiv, digits: 2), .none, width: SalesCols.aiv)
+            cell(HeartbeatFormat.num(pack.ipt, digits: 1), .none, width: SalesCols.ipt)
+            cell(HeartbeatFormat.num(pack.items, digits: 0), .none, width: SalesCols.items)
             HealthBadge(health: pack.health == .none && (pack.sales ?? 0) > 0 ? .good : pack.health, prominent: true, compact: true)
-                .frame(width: 88, alignment: .trailing)
+                .frame(width: SalesCols.status, alignment: .trailing)
         }
         .tableRowCard(health: pack.health)
     }
 
-    private func cell(_ value: String, _ health: Health, brand: Bool = false) -> some View {
+    private func cell(_ value: String, _ health: Health, brand: Bool = false, width: CGFloat) -> some View {
         Text(value)
             .font(.subheadline.weight(.bold).monospacedDigit())
             .foregroundStyle(brand ? AppTheme.blue : ink(health))
             .lineLimit(1)
-            .minimumScaleFactor(0.55)
-            .frame(maxWidth: .infinity, alignment: .trailing)
+            .minimumScaleFactor(0.8)
+            .frame(width: width, alignment: .trailing)
             .padding(.vertical, 6)
-            .padding(.horizontal, 6)
+            .padding(.horizontal, 4)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(brand ? AppTheme.blueSoft : wash(health))
