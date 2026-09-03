@@ -131,17 +131,18 @@ enum PulseMail {
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <style>
-        body{margin:0;padding:16px;background:#F5F7FC;color:#141A29;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
-        .wrap{max-width:1100px;margin:0 auto}
+        body{margin:0;padding:12px;background:#F5F7FC;color:#141A29;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+        .wrap{width:100%;max-width:100%;margin:0 auto;overflow-x:auto}
         h1{font-size:22px;margin:0 0 4px;color:#003DA5}
         .sub{color:#5C677A;font-size:13px;margin:0 0 18px}
-        table.layout{width:100%;border-collapse:separate;border-spacing:8px 8px}
-        table.layout td{vertical-align:top}
-        table.data{width:100%;border-collapse:collapse;font-size:12px}
-        th{text-align:left;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:#8A93A3;padding:6px 8px;border-bottom:1px solid #E4E9F4;white-space:nowrap}
-        td{padding:6px 8px;border-bottom:1px solid #EEF1F6}
-        td.num,.num,.nw{text-align:right;font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap}
-        .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;color:#fff;white-space:nowrap}
+        table.layout{width:100%;border-collapse:separate;border-spacing:8px 8px;table-layout:fixed}
+        table.layout td{vertical-align:top;width:25%}
+        table.data{width:100%;border-collapse:collapse;font-size:11px;table-layout:fixed}
+        th{text-align:left;font-size:9px;letter-spacing:.04em;text-transform:uppercase;color:#8A93A3;padding:5px 4px;border-bottom:1px solid #E4E9F4;word-break:break-word}
+        td{padding:5px 4px;border-bottom:1px solid #EEF1F6;word-break:break-word}
+        td.num,.num{text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
+        .nw{text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
+        .pill{display:inline-block;padding:2px 6px;border-radius:999px;font-size:9px;font-weight:700;color:#fff}
         .good{background:#059669;color:#fff}
         .watch{background:#D97706;color:#fff}
         .risk{background:#DC2626;color:#fff}
@@ -217,7 +218,7 @@ enum PulseMail {
             <td width="\(100 / max(cols, 1))%" valign="top" style="padding:4px">
             <table width="100%" cellspacing="0" cellpadding="0" style="background:#fff;border:1px solid #E4E9F4;border-radius:10px">
             <tr><td style="padding:10px 10px">
-            <div style="font-size:11px;color:#5C677A;font-weight:700;white-space:nowrap">\(esc(flag.name))</div>
+            <div style="font-size:11px;color:#5C677A;font-weight:700">\(esc(flag.name))</div>
             \(valueLine)
             <div class="nw" style="font-size:12px;font-weight:600;margin-top:4px;color:#5C677A;text-align:left">\(stores)</div>
             <div style="margin-top:6px">\(pill(flag.health))</div>
@@ -375,7 +376,7 @@ enum PulseMail {
         let fill = tileFill(health, brand: brand)
         let badge = health == .none ? "" : pill(health)
         return """
-        <td valign="top" style="width:25%;background:\(fill.bg);border:1px solid \(fill.border);border-radius:14px;padding:12px 14px">
+        <td valign="top" style="width:25%;background:\(fill.bg);border:1px solid \(fill.border);border-radius:14px;padding:10px 10px">
         <div style="font-size:12px;font-weight:700;color:#141A29">\(esc(label)) \(badge)</div>
         <div style="font-size:26px;font-weight:700;margin-top:6px;color:\(fill.ink)">\(esc(value))</div>
         <div style="font-size:12px;color:#5C677A;margin-top:4px">\(esc(detail))</div>
@@ -594,7 +595,7 @@ enum PulseMail {
         }
         let title = grain == "district" ? "By district" : "Markets"
         return bar(title, "\(buckets.count) \(grain == "district" ? "districts" : "divisions")")
-            + "<table class=\"data\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\"><tr>\(head)</tr>\(body)</table>"
+            + "<div style=\"width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch\"><table class=\"data\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\"><tr>\(head)</tr>\(body)</table></div>"
     }
 
     private static func averagedPayload(_ rows: [MetricRow]) -> [String: Double] {
@@ -645,7 +646,7 @@ enum PulseMail {
             note += " of \(HeartbeatFormat.num(Double(rows.count))) · open the app for the rest"
         }
         return bar(title, note)
-            + "<table class=\"data\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\"><tr>\(head)</tr>\(body)</table>"
+            + "<div style=\"width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch\"><table class=\"data\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\"><tr>\(head)</tr>\(body)</table></div>"
     }
 
     private static func storeHeaders(_ section: MetricSection) -> [String] {
@@ -656,11 +657,11 @@ enum PulseMail {
         case .dynacap: return ["Store", "Rate", "PPH", "Goal", "Util", "Status"]
         case .scheduleQuality: return ["Store", "Efficiency", "Staffing % (Pch vs Tgt)", "Goal", "Under", "Over", "Status"]
         case .pph: return ["Store", "PPH", "Pickers", "Goal", "Status"]
-        case .labor: return ["Store", "Tgt vs Act", "CostTrgt%", "ActCost%", "Sch Effi%", "UPLH", "Wage", "AIV", "Status"]
-        case .lostRevenue: return ["Store", "Lost $", "Lost %", "Goal", "Sales", "Post", "Refund", "Missed", "Status"]
-        case .sales: return ["Store", "Sales $", "YoY %", "Orders", "AOS", "AIV", "Items", "Status"]
+        case .labor: return ["Store", "Tgt vs Act", "CostTrgt%", "ActCost%", "Status"]
+        case .lostRevenue: return ["Store", "Lost $", "Lost %", "Sales", "Status"]
+        case .sales: return ["Store", "Sales $", "YoY %", "Orders", "AOS", "Status"]
         case .missingItems, .preSubOOS:
-            return ["Store"] + MissingItemDept.allCases.map(\.title) + ["Total", "Status"]
+            return ["Store", "Total", "Status"]
         case .preSubOOSItem:
             return ["Store", "Item", "Pre-Sub %", "Units", "$ Pre-Sub", "OOS %", "$ OOS", "Status"]
         case .aisleMapper:
@@ -712,30 +713,16 @@ enum PulseMail {
             html += cell(HeartbeatFormat.pct(row.number("target_vs_actual_pct")))
             html += cell(HeartbeatFormat.pct(row.number("cost_trgt_pct")))
             html += cell(HeartbeatFormat.pct(row.number("act_cost_pct")))
-            html += cell(HeartbeatFormat.pct(row.number("schedule_efficiency_pct")))
-            html += cell(HeartbeatFormat.pct(row.number("uplh_impact_pct")))
-            html += cell(HeartbeatFormat.pct(row.number("wage_impact_pct")))
-            html += cell(HeartbeatFormat.pct(row.number("aiv_impact_pct")))
         case .lostRevenue:
             html += cell(HeartbeatFormat.money(row.number("lost_revenue")), HeartbeatMath.health(for: .lostRevenue, row: row))
             html += cell(HeartbeatFormat.pct(row.number("lost_revenue_pct")))
-            html += cell("3.00%")
             html += cell(HeartbeatFormat.money(row.number("ecomm_sales")))
-            html += cell(HeartbeatFormat.money(row.number("post_sub_oos_foregone")))
-            html += cell(HeartbeatFormat.money(row.number("refund_lost", "refund_amt")))
-            html += cell(HeartbeatFormat.money(row.number("missed_sales")))
         case .sales:
             html += cell(HeartbeatFormat.money(row.number("sales_dollars")), HeartbeatMath.salesHealth(row))
             html += cell(HeartbeatFormat.pct(row.number("sales_yoy_pct")), HeartbeatMath.salesHealth(row))
             html += cell(HeartbeatFormat.num(row.number("sales_orders"), digits: 0))
             html += cell(HeartbeatFormat.money(row.number("sales_aos") ?? row.number("sales_aov")))
-            html += cell(HeartbeatFormat.num(row.number("sales_aiv"), digits: 2))
-            html += cell(HeartbeatFormat.num(row.number("sales_items"), digits: 0))
         case .missingItems, .preSubOOS:
-            for dept in MissingItemDept.allCases {
-                let value = row.number(dept.rawValue)
-                html += cell(HeartbeatFormat.pct(value), HeartbeatMath.missingItemsHealth(pct: value))
-            }
             html += cell(HeartbeatFormat.pct(row.number(MissingItemDept.totalKey)), HeartbeatMath.health(for: section, row: row))
         case .aisleMapper:
             html += cell(HeartbeatFormat.shortDate(AisleMapperMath.mapperISO(row)), AisleMapperMath.health(AisleMapperMath.mapperISO(row)))
