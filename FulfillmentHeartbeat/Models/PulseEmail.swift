@@ -136,10 +136,11 @@ enum PulseMail {
         h1{font-size:22px;margin:0 0 4px;color:#003DA5}
         .sub{color:#5C677A;font-size:13px;margin:0 0 18px}
         table.layout{width:100%;border-collapse:separate;border-spacing:8px 8px}
+        table.layout td{width:33%;vertical-align:top}
         table.data{width:100%;border-collapse:collapse;font-size:12px}
         th{text-align:left;font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:#8A93A3;padding:6px 8px;border-bottom:1px solid #E4E9F4}
-        td{padding:6px 8px;border-bottom:1px solid #EEF1F6;white-space:nowrap}
-        td.num{text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
+        td{padding:6px 8px;border-bottom:1px solid #EEF1F6}
+        td.num{text-align:right;font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap}
         .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;color:#fff}
         .good{background:#059669;color:#fff}
         .watch{background:#D97706;color:#fff}
