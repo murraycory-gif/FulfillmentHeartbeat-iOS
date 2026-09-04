@@ -163,38 +163,40 @@ struct HubTableHeader: View {
     var title: String
     var accessory: String
     var expanded: Bool
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
-        HStack(spacing: 10) {
+        let phone = HubLayout.isPhone(sizeClass)
+        HStack(spacing: phone ? 8 : 10) {
             Image(systemName: icon)
-                .font(.title3.weight(.semibold))
-            VStack(alignment: .leading, spacing: 2) {
+                .font((phone ? Font.callout : Font.title3).weight(.semibold))
+            VStack(alignment: .leading, spacing: 1) {
                 Text(title)
-                    .font(.title3.weight(.bold))
+                    .font((phone ? Font.subheadline : Font.title3).weight(.bold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
                 Text(accessory)
-                    .font(.subheadline.weight(.semibold))
+                    .font((phone ? Font.caption2 : Font.subheadline).weight(.semibold))
                     .opacity(0.9)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.75)
+                    .minimumScaleFactor(0.7)
             }
-            Spacer(minLength: 8)
+            Spacer(minLength: 6)
             Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                .font(.headline.weight(.semibold))
+                .font((phone ? Font.caption : Font.headline).weight(.semibold))
         }
         .foregroundStyle(Color.white)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 13)
+        .padding(.horizontal, phone ? 10 : 16)
+        .padding(.vertical, phone ? 8 : 13)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(AppTheme.blue)
         .clipShape(
             UnevenRoundedRectangle(
                 cornerRadii: RectangleCornerRadii(
-                    topLeading: AppTheme.radiusL,
-                    bottomLeading: expanded ? 0 : AppTheme.radiusL,
-                    bottomTrailing: expanded ? 0 : AppTheme.radiusL,
-                    topTrailing: AppTheme.radiusL
+                    topLeading: phone ? 10 : AppTheme.radiusL,
+                    bottomLeading: expanded ? 0 : (phone ? 10 : AppTheme.radiusL),
+                    bottomTrailing: expanded ? 0 : (phone ? 10 : AppTheme.radiusL),
+                    topTrailing: phone ? 10 : AppTheme.radiusL
                 ),
                 style: .continuous
             )
@@ -1242,6 +1244,7 @@ struct RecapWebView: UIViewRepresentable {
 struct FilterSheet: View {
     @EnvironmentObject private var store: HeartbeatStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var sizeClass
     var initialFocus: FilterFocus = .region
     @State private var original = DashboardFilters()
     @State private var draft = DashboardFilters()
@@ -1253,18 +1256,21 @@ struct FilterSheet: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 16) {
-                HStack(spacing: 8) {
+            VStack(spacing: HubLayout.isPhone(sizeClass) ? 10 : 16) {
+                LazyVGrid(
+                    columns: HubLayout.grid(HubLayout.isPhone(sizeClass) ? 3 : FilterFocus.allCases.count, spacing: 8, minWidth: 72),
+                    spacing: 8
+                ) {
                     ForEach(FilterFocus.allCases) { item in
                         Button {
                             focus = item
                             options = store.filterChoices(focus: item, draft: draft)
                         } label: {
                             Text(item.chipTitle)
-                                .font(.subheadline.weight(.semibold))
+                                .font((HubLayout.isPhone(sizeClass) ? Font.caption2 : Font.subheadline).weight(.semibold))
                                 .foregroundStyle(focus == item ? Color.white : AppTheme.blue)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 8)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, HubLayout.isPhone(sizeClass) ? 7 : 8)
                                 .background(focus == item ? AppTheme.blue : AppTheme.blueSoft, in: Capsule())
                         }
                         .buttonStyle(.plain)
@@ -9627,7 +9633,7 @@ extension View {
             .background(AppTheme.bg.ignoresSafeArea())
     }
 
-    func hubPhoneTable(minWidth: CGFloat = 780) -> some View {
+    func hubPhoneTable(minWidth: CGFloat = 720) -> some View {
         modifier(HubPhoneTableModifier(minWidth: minWidth))
     }
 }

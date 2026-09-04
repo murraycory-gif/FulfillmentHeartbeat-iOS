@@ -243,6 +243,7 @@ enum HubLayout {
     static func phoneBannerTitleFont() -> Font { .subheadline.weight(.bold) }
     static func phoneBannerIconFont() -> Font { .callout.weight(.semibold) }
     static var phoneControlHeight: CGFloat { 30 }
+    static var phoneInset: CGFloat { 12 }
 
     static func flagColumns(count: Int, width: CGFloat) -> Int {
         guard count > 0 else { return 1 }

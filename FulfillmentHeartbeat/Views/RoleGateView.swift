@@ -2,8 +2,11 @@ import SwiftUI
 
 struct RoleGateView: View {
     @EnvironmentObject private var store: HeartbeatStore
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var role: HeartbeatRole?
     @State private var query = ""
+
+    private var phone: Bool { HubLayout.isPhone(sizeClass) }
 
     var body: some View {
         ZStack {
@@ -17,8 +20,8 @@ struct RoleGateView: View {
                         roleStep
                     }
                 }
-                .padding(.horizontal, 28)
-                .padding(.vertical, 32)
+                .padding(.horizontal, phone ? 16 : 28)
+                .padding(.vertical, phone ? 16 : 32)
                 .frame(maxWidth: 720)
                 .frame(maxWidth: .infinity)
             }
@@ -28,12 +31,12 @@ struct RoleGateView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
-            BeatingHeartbeatMark(height: 56, showsTrace: true)
+            BeatingHeartbeatMark(height: phone ? 36 : 56, showsTrace: true)
             Text("Who’s looking?")
-                .font(.largeTitle.weight(.bold))
+                .font(phone ? .title2.weight(.bold) : .largeTitle.weight(.bold))
                 .foregroundStyle(AppTheme.text)
             Text("Pick your seat after the master file loads. The dashboard only includes that book of business.")
-                .font(.title3)
+                .font(phone ? .subheadline : .title3)
                 .foregroundStyle(AppTheme.textSecondary)
             if store.sessionRole != nil {
                 Button("Stay in this view") {
@@ -56,18 +59,18 @@ struct RoleGateView: View {
                         role = item
                     }
                 } label: {
-                    HStack(alignment: .top, spacing: 16) {
+                    HStack(alignment: .top, spacing: phone ? 12 : 16) {
                         Image(systemName: item.symbol)
-                            .font(.title2.weight(.semibold))
+                            .font((phone ? Font.body : Font.title2).weight(.semibold))
                             .foregroundStyle(AppTheme.blue)
-                            .frame(width: 36, height: 36)
+                            .frame(width: phone ? 28 : 36, height: phone ? 28 : 36)
                         VStack(alignment: .leading, spacing: 4) {
                             Text(item.title)
-                                .font(.title3.weight(.bold))
+                                .font((phone ? Font.headline : Font.title3).weight(.bold))
                                 .foregroundStyle(AppTheme.text)
                                 .multilineTextAlignment(.leading)
                             Text(item.detail)
-                                .font(.subheadline)
+                                .font(phone ? .caption : .subheadline)
                                 .foregroundStyle(AppTheme.textSecondary)
                                 .multilineTextAlignment(.leading)
                         }

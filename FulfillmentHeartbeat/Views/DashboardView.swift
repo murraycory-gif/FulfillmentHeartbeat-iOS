@@ -558,13 +558,14 @@ struct DashCallout: View, Equatable {
                 DashCardGlyph(symbol: card.section.symbol, health: card.health, compact: true)
                 VStack(alignment: .leading, spacing: 3) {
                     Text(titleText)
-                        .font(.headline.weight(.bold))
+                        .font(.subheadline.weight(.bold))
                         .foregroundStyle(AppTheme.text)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.8)
                     Text(card.headlineLabel)
-                        .font(.subheadline)
+                        .font(.caption)
                         .foregroundStyle(AppTheme.textSecondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(1)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 Image(systemName: "chevron.right")
@@ -574,13 +575,13 @@ struct DashCallout: View, Equatable {
             }
             HStack(alignment: .center, spacing: 10) {
                 Text(card.headlineText)
-                    .font(.system(size: 28, weight: .bold, design: .rounded).monospacedDigit())
+                    .font(.system(size: 22, weight: .bold, design: .rounded).monospacedDigit())
                     .foregroundStyle(dashInk(card.health))
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
                 Spacer(minLength: 8)
                 Text(riskLine(for: card))
-                    .font(.subheadline.weight(.semibold))
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(dashInk(card.riskCount == 0 ? .good : .risk))
                     .multilineTextAlignment(.trailing)
                 HealthBadge(health: card.health, prominent: true)
@@ -669,7 +670,7 @@ private struct DashCardGlyph: View {
                 .font((compact ? Font.title3 : Font.title).weight(.semibold))
                 .foregroundStyle(dashInk(health))
         }
-        .frame(width: compact ? 44 : 56, height: compact ? 44 : 56)
+        .frame(width: compact ? 36 : 56, height: compact ? 36 : 56)
         .shadow(color: dashInk(health).opacity(0.16), radius: 4, y: 2)
     }
 }
@@ -684,36 +685,38 @@ private struct DashLiftStyle: ButtonStyle {
 
 private struct DashCardChrome: ViewModifier {
     let health: Health
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     func body(content: Content) -> some View {
+        let phone = HubLayout.isPhone(sizeClass)
         content
-            .padding(18)
+            .padding(phone ? 12 : 18)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                RoundedRectangle(cornerRadius: phone ? 12 : 16, style: .continuous)
                     .fill(Color.white)
                     .overlay {
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        RoundedRectangle(cornerRadius: phone ? 12 : 16, style: .continuous)
                             .fill(dashWash(health).opacity(0.42))
                     }
             }
             .overlay(alignment: .leading) {
                 Capsule()
                     .fill(dashInk(health))
-                    .frame(width: 5)
-                    .padding(.vertical, 14)
+                    .frame(width: phone ? 4 : 5)
+                    .padding(.vertical, phone ? 10 : 14)
             }
             .overlay {
                 if health == .risk {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(Color(red: 220 / 255, green: 38 / 255, blue: 38 / 255), lineWidth: 2.5)
+                    RoundedRectangle(cornerRadius: phone ? 12 : 16, style: .continuous)
+                        .stroke(Color(red: 220 / 255, green: 38 / 255, blue: 38 / 255), lineWidth: phone ? 2 : 2.5)
                 } else {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    RoundedRectangle(cornerRadius: phone ? 12 : 16, style: .continuous)
                         .stroke(Color.black.opacity(0.05), lineWidth: 1)
                 }
             }
-            .shadow(color: Color.black.opacity(0.08), radius: 6, y: 3)
-            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .shadow(color: Color.black.opacity(0.08), radius: phone ? 4 : 6, y: 3)
+            .contentShape(RoundedRectangle(cornerRadius: phone ? 12 : 16, style: .continuous))
     }
 }
 
