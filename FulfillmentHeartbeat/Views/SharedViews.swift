@@ -5860,23 +5860,25 @@ struct LaborRollupTable: View {
 
 struct LaborWeekFilterBar: View {
     @EnvironmentObject private var store: HeartbeatStore
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
         let weeks = store.laborWeekIds()
+        let phone = HubLayout.isPhone(sizeClass)
         if weeks.isEmpty {
             EmptyView()
         } else {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: phone ? 6 : 8) {
                 Text("Week")
                     .font(.caption.weight(.bold))
                     .foregroundStyle(AppTheme.textSecondary)
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        chip("All weeks", selected: store.laborWeekFilter.isEmpty) {
+                    HStack(spacing: phone ? 6 : 8) {
+                        chip("All weeks", selected: store.laborWeekFilter.isEmpty, phone: phone) {
                             store.setLaborWeekFilter("")
                         }
                         ForEach(weeks, id: \.self) { week in
-                            chip(week, selected: store.laborWeekFilter == week) {
+                            chip(week, selected: store.laborWeekFilter == week, phone: phone) {
                                 store.setLaborWeekFilter(week)
                             }
                         }
@@ -5886,13 +5888,14 @@ struct LaborWeekFilterBar: View {
         }
     }
 
-    private func chip(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+    private func chip(_ title: String, selected: Bool, phone: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.caption.weight(.semibold))
+                .font((phone ? Font.caption2 : Font.caption).weight(.semibold))
                 .foregroundStyle(selected ? Color.white : AppTheme.blue)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 7)
+                .padding(.horizontal, phone ? 10 : 12)
+                .frame(minHeight: phone ? HubLayout.phoneControlHeight : 32)
+                .padding(.vertical, phone ? 4 : 7)
                 .background(selected ? AppTheme.blue : AppTheme.blueSoft, in: Capsule())
         }
         .buttonStyle(.plain)

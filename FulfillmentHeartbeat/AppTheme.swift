@@ -233,6 +233,9 @@ struct BrandButtonStyle: ButtonStyle {
 }
 
 enum HubLayout {
+    /// One app. iPad = `.regular` chrome and tables. iPhone = compact chrome.
+    /// New features (filters, week chips, shoppers, share) must ship on both
+    /// paths — never iPad-only logic unless the control is iPad-only (sticky headers).
     /// Phone-only layouts. iPad is `.regular` even in split view — never use raw width
     /// alone to decide phone UI or iPad pages pick up compact chrome, 2-up tiles,
     /// and forced horizontal tables.
