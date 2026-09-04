@@ -38,10 +38,23 @@ struct RootView: View {
 }
 
 struct LaunchSplashView: View {
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
     var body: some View {
         ZStack {
             AppTheme.bg.ignoresSafeArea()
-            BeatingHeartbeatMark(height: 92, showsTrace: true)
+            if HubLayout.isPhone(sizeClass) {
+                VStack(spacing: 18) {
+                    FulfillmentWordmark(height: 52)
+                    BeatingHeartbeatMark(height: 72, showsTrace: true, showsWordmark: false)
+                    Text("Heartbeat")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(Color(hex: "00A9E0"))
+                }
+                .padding(.horizontal, 28)
+            } else {
+                BeatingHeartbeatMark(height: 92, showsTrace: true)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityLabel("Fulfillment Heartbeat")
