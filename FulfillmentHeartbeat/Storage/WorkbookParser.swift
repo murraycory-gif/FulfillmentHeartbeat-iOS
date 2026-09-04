@@ -124,13 +124,22 @@ enum WorkbookParser {
                 guard let sheet = zip.file(named: entry.path) ?? zip.file(named: entry.path.replacingOccurrences(of: "xl/", with: "")),
                       !sheet.isEmpty else { return }
                 let hinted = section(fromSheetName: entry.name)
-                let matrix = SheetXML.parse(data: sheet, strings: strings)
-                var parsed = rows(from: matrix, prefer: hinted)
-                if parsed.isEmpty, hinted == .pickerScorecard {
-                    parsed = parsePickerWide(matrix) ?? parseEmployeeWeek(matrix) ?? []
+                var parsed: [ParsedWorkbookRow] = []
+                if hinted == .pickerScorecard || hinted == .pickPathPicker || sheet.count > 3_500_000 {
+                    parsed = parsePickerStreaming(data: sheet, strings: strings)
+                    if parsed.isEmpty {
+                        parsed = parseEmployeeStreaming(data: sheet, strings: strings)
+                    }
                 }
-                if parsed.isEmpty, hinted == .labor || hinted == nil {
-                    parsed = parseLaborSheet(data: sheet, strings: strings)
+                if parsed.isEmpty {
+                    let matrix = SheetXML.parse(data: sheet, strings: strings)
+                    parsed = rows(from: matrix, prefer: hinted)
+                    if parsed.isEmpty, hinted == .pickerScorecard {
+                        parsed = parsePickerWide(matrix) ?? parseEmployeeWeek(matrix) ?? []
+                    }
+                    if parsed.isEmpty, hinted == .labor || hinted == nil {
+                        parsed = parseLaborSheet(data: sheet, strings: strings)
+                    }
                 }
                 zip.release(entry.path)
                 guard !parsed.isEmpty else { return }
@@ -2088,6 +2097,110 @@ enum WorkbookParser {
             )
         }
         return out.isEmpty ? nil : out
+    }
+
+    private static func parsePickerStreaming(data: Data, strings: [String]) -> [ParsedWorkbookRow] {
+        var storeIdx: Int?
+        var empIdx: Int?
+        var lastMetric: [String: Int] = [:]
+        var ready = false
+        var carryStore = ""
+        var out: [ParsedWorkbookRow] = []
+        out.reserveCapacity(4096)
+        SheetXML.forEachRow(data: data, strings: strings) { line in
+            if !ready {
+                let names = line.map(normHeader)
+                let store = names.firstIndex { storeKeys.contains($0) || $0 == "store" || $0.hasPrefix("store") }
+                let picker = names.firstIndex {
+                    shopperIdKeys.contains($0) || shopperNameKeys.contains($0)
+                        || $0.contains("picker") || $0.contains("shopper")
+                }
+                if store != nil, picker != nil {
+                    storeIdx = store
+                    empIdx = picker
+                    for (index, name) in names.enumerated() where pickerMetricKeys[name] != nil {
+                        lastMetric[name] = index
+                    }
+                    if !lastMetric.isEmpty { ready = true }
+                }
+                return
+            }
+            func cell(_ index: Int) -> String { index < line.count ? line[index] : "" }
+            guard let storeIdx, let empIdx else { return }
+            let storeRaw = cell(storeIdx).trimmingCharacters(in: .whitespacesAndNewlines)
+            if storeRaw.lowercased().hasPrefix("applied") { return }
+            if looksLikeStoreNumber(storeRaw) { carryStore = storeRaw }
+            if isTotalCell(storeRaw) { return }
+            let picker = cell(empIdx).trimmingCharacters(in: .whitespacesAndNewlines)
+            if picker.isEmpty || isTotalCell(picker) || carryStore.isEmpty { return }
+            var payload: [String: Double] = [:]
+            for (name, index) in lastMetric {
+                guard let value = cellNumber(cell(index)) else { continue }
+                applyPickerMetric(&payload, header: name, value: value)
+            }
+            guard !payload.isEmpty else { return }
+            out.append(
+                ParsedWorkbookRow(
+                    division: "",
+                    operationsOM: "",
+                    storeNumber: HeartbeatMath.canonicalStore(carryStore),
+                    storeName: nil,
+                    recordedOn: nil,
+                    payload: payload,
+                    textPayload: ["shopper_id": picker, "shopper_name": picker]
+                )
+            )
+        }
+        return out
+    }
+
+    private static func parseEmployeeStreaming(data: Data, strings: [String]) -> [ParsedWorkbookRow] {
+        var empIdx: Int?
+        var storeIdx: Int?
+        var lastMetric: [String: Int] = [:]
+        var ready = false
+        var out: [ParsedWorkbookRow] = []
+        out.reserveCapacity(4096)
+        SheetXML.forEachRow(data: data, strings: strings) { line in
+            if !ready {
+                let names = line.map(normHeader)
+                let picker = names.firstIndex { shopperIdKeys.contains($0) || shopperNameKeys.contains($0) }
+                let store = names.firstIndex { storeKeys.contains($0) || $0 == "store" }
+                let hasMetric = names.contains { $0.contains("pickpath") || $0.contains("compliance") || $0.contains("purepph") || $0 == "pph" }
+                if picker != nil, hasMetric {
+                    empIdx = picker
+                    storeIdx = store
+                    for (index, name) in names.enumerated() where index != picker && !name.isEmpty {
+                        lastMetric[name] = index
+                    }
+                    ready = true
+                }
+                return
+            }
+            func cell(_ index: Int) -> String { index < line.count ? line[index] : "" }
+            guard let empIdx else { return }
+            let picker = cell(empIdx).trimmingCharacters(in: .whitespacesAndNewlines)
+            if picker.isEmpty || isTotalCell(picker) || picker.lowercased().hasPrefix("applied") { return }
+            let storeRaw = storeIdx.map { cell($0) } ?? ""
+            var payload: [String: Double] = [:]
+            for (name, index) in lastMetric {
+                guard let value = cellNumber(cell(index)) else { continue }
+                applyMetric(&payload, header: name, value: value)
+            }
+            guard payload["compliance_pct"] != nil || payload["pph"] != nil else { return }
+            out.append(
+                ParsedWorkbookRow(
+                    division: "",
+                    operationsOM: "",
+                    storeNumber: HeartbeatMath.canonicalStore(storeRaw),
+                    storeName: nil,
+                    recordedOn: nil,
+                    payload: payload,
+                    textPayload: ["shopper_id": picker, "shopper_name": picker]
+                )
+            )
+        }
+        return out
     }
 
     /// WEEK_ID across the top, STORE_ID or OM_AREA down the side, Total block last.
