@@ -6206,7 +6206,7 @@ struct LaborStoreExpand: View {
             Text("By week")
                 .font(.subheadline.weight(.bold))
             if weeks.isEmpty {
-                Text("This Labor file is store totals. Week and day drill-in needs the Total company day export.")
+                Text("No week or day rows for this store. Replace the Labor tab with the WEEK_ID + D_DATE export (LABOR day file), then Reload.")
                     .font(.subheadline)
                     .foregroundStyle(AppTheme.textSecondary)
             } else {

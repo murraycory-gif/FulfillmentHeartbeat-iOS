@@ -1491,9 +1491,14 @@ enum WorkbookParser {
         SheetXML.forEachRow(data: data, strings: strings) { row in
             if header.isEmpty {
                 let names = row.map(normHeader)
-                if names.contains("storeid") && names.contains(where: { $0.contains("costtrgt") || $0.contains("targetvsactual") }) {
+                let hasStore = names.contains("storeid") || names.contains("store")
+                let hasWeek = names.contains("weekid") || names.contains("ddate")
+                let hasMetric = names.contains(where: {
+                    $0.contains("costtrgt") || $0.contains("targetvsactual") || $0.contains("scheffi") || $0.contains("actcost")
+                })
+                if hasStore && hasMetric {
                     header = row
-                    storeView = !names.contains("weekid")
+                    storeView = !hasWeek
                 }
                 return
             }
@@ -1742,10 +1747,37 @@ enum WorkbookParser {
                             "week": week,
                             "district": bucket.district,
                             "days_json": json,
-                            "parser_rev": "7",
+                            "parser_rev": "9",
                         ]
                     )
                 )
+                for day in uniqueDays {
+                    var dayPayload: [String: Double] = [:]
+                    if let value = day.scheduleEfficiencyPct { dayPayload["schedule_efficiency_pct"] = value }
+                    if let value = day.schHrs { dayPayload["sch_hrs"] = value }
+                    if let value = day.empowerHrs { dayPayload["empower_hrs"] = value }
+                    if let value = day.earnedHrs { dayPayload["earned_hrs"] = value }
+                    if let value = day.earnedHrsUtil { dayPayload["earned_hrs_util"] = value }
+                    if let value = day.actCostPct { dayPayload["act_cost_pct"] = value }
+                    if let value = day.overSchedulePct { dayPayload["over_schedule_pct"] = value }
+                    if let value = day.chargedHrs { dayPayload["charged_hrs"] = value }
+                    out.append(
+                        ParsedWorkbookRow(
+                            division: bucket.division,
+                            operationsOM: "",
+                            storeNumber: store,
+                            storeName: nil,
+                            recordedOn: day.date,
+                            payload: dayPayload,
+                            textPayload: [
+                                "labor_grain": "day",
+                                "week": week,
+                                "district": bucket.district,
+                                "parser_rev": "9",
+                            ]
+                        )
+                    )
+                }
             }
             var storePayload: [String: Double] = [:]
             if costWeight > 0 { storePayload["cost_trgt_pct"] = weightedCost / costWeight }
