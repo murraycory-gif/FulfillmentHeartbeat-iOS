@@ -8771,6 +8771,7 @@ private struct PPHStoreExpand: View {
 struct PickerScoreTable: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var headerPin: LaborHeaderPin
+    @Environment(\.horizontalSizeClass) private var sizeClass
     var focus: PickerFocus = .all
 
     private enum Column: String, CaseIterable, Identifiable {
@@ -8872,34 +8873,46 @@ struct PickerScoreTable: View {
             }
             if expanded {
                 Section {
-                    PickerMetricHeader(
-                        label: "Shopper",
-                        active: sort.key,
-                        ascending: ascending,
-                        showRefund: true,
-                        onSelect: applyHeaderSort
-                    )
-                    .background(
-                        GeometryReader { geo in
-                            Color.clear.preference(
-                                key: LaborHeaderMinYKey.self,
-                                value: (geo.frame(in: .global).minY / 12).rounded() * 12
+                    if !HubLayout.isPhone(sizeClass) {
+                        PickerMetricHeader(
+                            label: "Shopper",
+                            active: sort.key,
+                            ascending: ascending,
+                            showRefund: true,
+                            onSelect: applyHeaderSort
+                        )
+                        .background(
+                            GeometryReader { geo in
+                                Color.clear.preference(
+                                    key: LaborHeaderMinYKey.self,
+                                    value: (geo.frame(in: .global).minY / 12).rounded() * 12
+                                )
+                            }
+                        )
+                        .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(AppTheme.tableFill)
+                    }
+                    ForEach(Array(snaps.prefix(limit))) { snap in
+                        if HubLayout.isPhone(sizeClass) {
+                            PickerPhoneCard(
+                                snap: snap,
+                                expanded: openShopper == snap.id.uuidString,
+                                onToggle: {
+                                    openShopper = openShopper == snap.id.uuidString ? nil : snap.id.uuidString
+                                }
+                            )
+                        } else {
+                            PickerStoreRow(
+                                snap: snap,
+                                expanded: openShopper == snap.id.uuidString,
+                                onToggle: {
+                                    openShopper = openShopper == snap.id.uuidString ? nil : snap.id.uuidString
+                                },
+                                showRefund: true
                             )
                         }
-                    )
-                    .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(AppTheme.tableFill)
-                    ForEach(Array(snaps.prefix(limit))) { snap in
-                        PickerStoreRow(
-                            snap: snap,
-                            expanded: openShopper == snap.id.uuidString,
-                            onToggle: {
-                                openShopper = openShopper == snap.id.uuidString ? nil : snap.id.uuidString
-                            },
-                            showRefund: true
-                        )
-                        .listRowInsets(EdgeInsets(top: 5, leading: 20, bottom: 5, trailing: 20))
+                        .listRowInsets(EdgeInsets(top: 5, leading: HubLayout.isPhone(sizeClass) ? 12 : 20, bottom: 5, trailing: HubLayout.isPhone(sizeClass) ? 12 : 20))
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.tableFill)
                     }
@@ -9089,6 +9102,91 @@ private struct PickerCheapLine: View, Equatable {
         case .watch: return AppTheme.warn
         case .risk: return AppTheme.bad
         case .none: return AppTheme.textTertiary
+        }
+    }
+}
+
+struct PickerPhoneCard: View {
+    let snap: PickerLineSnap
+    let expanded: Bool
+    let onToggle: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button(action: onToggle) {
+                HStack(alignment: .top, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(snap.label)
+                            .font(.subheadline.weight(.bold))
+                            .foregroundStyle(AppTheme.text)
+                            .lineLimit(2)
+                        Text(placeLine)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(AppTheme.textSecondary)
+                            .lineLimit(1)
+                    }
+                    Spacer(minLength: 6)
+                    HealthBadge(health: snap.health, compact: true)
+                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(AppTheme.textTertiary)
+                }
+            }
+            .buttonStyle(.plain)
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
+                metric("PPH", snap.pph, snap.pphHealth)
+                metric("Presub", snap.presub, snap.presubHealth)
+                metric("OOS", snap.oos, snap.oosHealth)
+                metric("OTT", snap.ott, snap.ottHealth)
+                metric("OTH5", snap.oth5, snap.oth5Health)
+                metric("Refund", snap.refund, snap.refundHealth)
+            }
+            if expanded {
+                PickerStoreExpand(snap: snap)
+            }
+        }
+        .padding(10)
+        .tableRowCard(health: snap.health)
+    }
+
+    private var placeLine: String {
+        let store = snap.storeNumber.isEmpty ? "—" : snap.storeNumber
+        let division = snap.division.isEmpty ? "" : " · \(snap.division)"
+        return "Store \(store)\(division)"
+    }
+
+    private func metric(_ name: String, _ value: String, _ health: Health) -> some View {
+        HStack {
+            Text(name)
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(AppTheme.textTertiary)
+            Spacer(minLength: 4)
+            Text(value)
+                .font(.caption.weight(.bold).monospacedDigit())
+                .foregroundStyle(ink(health))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
+        .background(wash(health), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private func ink(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.text
+        }
+    }
+
+    private func wash(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.okSoft
+        case .watch: return AppTheme.warnSoft
+        case .risk: return AppTheme.badSoft
+        case .none: return AppTheme.card
         }
     }
 }

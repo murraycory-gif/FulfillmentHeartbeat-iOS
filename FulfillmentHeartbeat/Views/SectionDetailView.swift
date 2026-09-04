@@ -289,6 +289,13 @@ struct SectionDetailView: View {
             } else if section == .missingItems || section == .preSubOOS {
                 missingItemsStatusTiles
                 MissingItemsCategoryFilter(selected: $miCategories, width: pageWidth)
+            } else if section == .pickerScorecard {
+                LazyVGrid(
+                    columns: HubLayout.grid(HubLayout.isPhone(sizeClass) ? 2 : HubLayout.kpiColumns(width: pageWidth, sizeClass: sizeClass), spacing: HubLayout.isPhone(sizeClass) ? 8 : 14, minWidth: HubLayout.isPhone(sizeClass) ? 140 : 150),
+                    spacing: HubLayout.isPhone(sizeClass) ? 8 : 14
+                ) {
+                    pickerStatusTiles
+                }
             } else {
                 LazyVGrid(
                     columns: HubLayout.grid(HubLayout.kpiColumns(width: pageWidth, sizeClass: sizeClass), spacing: 14, minWidth: 150),
@@ -304,8 +311,6 @@ struct SectionDetailView: View {
                         scheduleStatusTiles
                     } else if section == .fiveStar {
                         fiveStarStatusTiles
-                    } else if section == .pickerScorecard {
-                        pickerStatusTiles
                     } else if section == .prepNotReady {
                         prepStatusTiles
                     } else {
@@ -1002,7 +1007,7 @@ struct PickerFocusTile: View {
                 tile
             }
         }
-        .frame(maxWidth: .infinity, minHeight: compact ? 132 : 176)
+        .frame(maxWidth: .infinity, minHeight: compact ? 96 : 176)
     }
 
     private var tile: some View {
@@ -1034,7 +1039,7 @@ struct PickerFocusTile: View {
             }
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(value)
-                    .font(.system(size: compact ? 26 : 34, weight: .semibold, design: .rounded).monospacedDigit())
+                    .font(.system(size: compact ? 22 : 34, weight: .semibold, design: .rounded).monospacedDigit())
                     .foregroundStyle(ink)
                     .lineLimit(1)
                     .minimumScaleFactor(0.55)
