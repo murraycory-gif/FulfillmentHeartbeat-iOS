@@ -125,10 +125,14 @@ enum WorkbookParser {
                       !sheet.isEmpty else { return }
                 let hinted = section(fromSheetName: entry.name)
                 var parsed: [ParsedWorkbookRow] = []
-                if hinted == .pickerScorecard || hinted == .pickPathPicker || sheet.count > 3_500_000 {
-                    parsed = parsePickerStreaming(data: sheet, strings: strings)
+                if hinted == .pickerScorecard || hinted == .pickPathPicker {
+                    parsed = hinted == .pickPathPicker
+                        ? parseEmployeeStreaming(data: sheet, strings: strings)
+                        : parsePickerStreaming(data: sheet, strings: strings)
                     if parsed.isEmpty {
-                        parsed = parseEmployeeStreaming(data: sheet, strings: strings)
+                        parsed = hinted == .pickPathPicker
+                            ? parsePickerStreaming(data: sheet, strings: strings)
+                            : parseEmployeeStreaming(data: sheet, strings: strings)
                     }
                 }
                 if parsed.isEmpty {
@@ -2102,11 +2106,11 @@ enum WorkbookParser {
     private static func parsePickerStreaming(data: Data, strings: [String]) -> [ParsedWorkbookRow] {
         var storeIdx: Int?
         var empIdx: Int?
-        var lastMetric: [String: Int] = [:]
+        var metricColumns: [String: [Int]] = [:]
         var ready = false
         var carryStore = ""
         var out: [ParsedWorkbookRow] = []
-        out.reserveCapacity(4096)
+        out.reserveCapacity(8192)
         SheetXML.forEachRow(data: data, strings: strings) { line in
             if !ready {
                 let names = line.map(normHeader)
@@ -2118,10 +2122,11 @@ enum WorkbookParser {
                 if store != nil, picker != nil {
                     storeIdx = store
                     empIdx = picker
-                    for (index, name) in names.enumerated() where pickerMetricKeys[name] != nil {
-                        lastMetric[name] = index
+                    for (index, name) in names.enumerated() {
+                        guard pickerMetricKeys[name] != nil else { continue }
+                        metricColumns[name, default: []].append(index)
                     }
-                    if !lastMetric.isEmpty { ready = true }
+                    if !metricColumns.isEmpty { ready = true }
                 }
                 return
             }
@@ -2134,8 +2139,15 @@ enum WorkbookParser {
             let picker = cell(empIdx).trimmingCharacters(in: .whitespacesAndNewlines)
             if picker.isEmpty || isTotalCell(picker) || carryStore.isEmpty { return }
             var payload: [String: Double] = [:]
-            for (name, index) in lastMetric {
-                guard let value = cellNumber(cell(index)) else { continue }
+            for (name, indexes) in metricColumns {
+                var value: Double?
+                for index in indexes.reversed() {
+                    if let parsed = cellNumber(cell(index)) {
+                        value = parsed
+                        break
+                    }
+                }
+                guard let value else { continue }
                 applyPickerMetric(&payload, header: name, value: value)
             }
             guard !payload.isEmpty else { return }
@@ -2157,10 +2169,10 @@ enum WorkbookParser {
     private static func parseEmployeeStreaming(data: Data, strings: [String]) -> [ParsedWorkbookRow] {
         var empIdx: Int?
         var storeIdx: Int?
-        var lastMetric: [String: Int] = [:]
+        var metricColumns: [String: [Int]] = [:]
         var ready = false
         var out: [ParsedWorkbookRow] = []
-        out.reserveCapacity(4096)
+        out.reserveCapacity(8192)
         SheetXML.forEachRow(data: data, strings: strings) { line in
             if !ready {
                 let names = line.map(normHeader)
@@ -2171,7 +2183,7 @@ enum WorkbookParser {
                     empIdx = picker
                     storeIdx = store
                     for (index, name) in names.enumerated() where index != picker && !name.isEmpty {
-                        lastMetric[name] = index
+                        metricColumns[name, default: []].append(index)
                     }
                     ready = true
                 }
@@ -2183,8 +2195,15 @@ enum WorkbookParser {
             if picker.isEmpty || isTotalCell(picker) || picker.lowercased().hasPrefix("applied") { return }
             let storeRaw = storeIdx.map { cell($0) } ?? ""
             var payload: [String: Double] = [:]
-            for (name, index) in lastMetric {
-                guard let value = cellNumber(cell(index)) else { continue }
+            for (name, indexes) in metricColumns {
+                var value: Double?
+                for index in indexes.reversed() {
+                    if let parsed = cellNumber(cell(index)) {
+                        value = parsed
+                        break
+                    }
+                }
+                guard let value else { continue }
                 applyMetric(&payload, header: name, value: value)
             }
             guard payload["compliance_pct"] != nil || payload["pph"] != nil else { return }
