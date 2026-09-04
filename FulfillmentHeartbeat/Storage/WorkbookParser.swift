@@ -2876,7 +2876,6 @@ enum SheetXML {
         rows.reserveCapacity(4096)
         var cursor = xml.startIndex
         while let rowStart = xml.range(of: "<row", range: cursor..<xml.endIndex) {
-            if rows.count >= 12_000 { break }
             let after = rowStart.upperBound
             guard after < xml.endIndex else { break }
             let mark = xml[after]
