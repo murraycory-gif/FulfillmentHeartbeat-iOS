@@ -138,7 +138,7 @@ enum WorkbookParser {
                             : parseEmployeeStreaming(data: sheet, strings: strings)
                     }
                 }
-                if parsed.isEmpty {
+                if parsed.isEmpty, sheet.count < 8_000_000 {
                     let matrix = SheetXML.parse(data: sheet, strings: strings)
                     parsed = rows(from: matrix, prefer: hinted)
                     if parsed.isEmpty, hinted == .pickerScorecard {
@@ -1751,33 +1751,6 @@ enum WorkbookParser {
                         ]
                     )
                 )
-                for day in uniqueDays {
-                    var dayPayload: [String: Double] = [:]
-                    if let value = day.scheduleEfficiencyPct { dayPayload["schedule_efficiency_pct"] = value }
-                    if let value = day.schHrs { dayPayload["sch_hrs"] = value }
-                    if let value = day.empowerHrs { dayPayload["empower_hrs"] = value }
-                    if let value = day.earnedHrs { dayPayload["earned_hrs"] = value }
-                    if let value = day.earnedHrsUtil { dayPayload["earned_hrs_util"] = value }
-                    if let value = day.actCostPct { dayPayload["act_cost_pct"] = value }
-                    if let value = day.overSchedulePct { dayPayload["over_schedule_pct"] = value }
-                    if let value = day.chargedHrs { dayPayload["charged_hrs"] = value }
-                    out.append(
-                        ParsedWorkbookRow(
-                            division: bucket.division,
-                            operationsOM: "",
-                            storeNumber: store,
-                            storeName: nil,
-                            recordedOn: day.date,
-                            payload: dayPayload,
-                            textPayload: [
-                                "labor_grain": "day",
-                                "week": week,
-                                "district": bucket.district,
-                                "parser_rev": "9",
-                            ]
-                        )
-                    )
-                }
             }
             var storePayload: [String: Double] = [:]
             if costWeight > 0 { storePayload["cost_trgt_pct"] = weightedCost / costWeight }
