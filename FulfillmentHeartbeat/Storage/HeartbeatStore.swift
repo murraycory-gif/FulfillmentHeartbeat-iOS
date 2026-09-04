@@ -27,6 +27,7 @@ final class HeartbeatStore: ObservableObject {
     @Published private(set) var linkedMasterName: String?
     @Published private(set) var linkedMasterLoadedAt: Date?
     @Published var needsRolePick = false
+    @Published private(set) var sessionRole: HeartbeatRole?
     @Published var laborWeekFilter = ""
 
     private let fileManager: FileManager
