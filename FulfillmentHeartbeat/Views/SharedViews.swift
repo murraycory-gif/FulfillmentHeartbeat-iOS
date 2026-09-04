@@ -78,37 +78,36 @@ struct HubBanner: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
-        let compact = sizeClass != .regular
-        let bar = HStack(spacing: 10) {
+        let compact = HubLayout.isPhone(sizeClass)
+        let bar = HStack(spacing: compact ? 8 : 10) {
             Image(systemName: icon)
-                .font(.title2.weight(.semibold))
-            VStack(alignment: .leading, spacing: 2) {
+                .font(compact ? HubLayout.phoneBannerIconFont() : .title2.weight(.semibold))
+            VStack(alignment: .leading, spacing: compact ? 1 : 2) {
                 Text(title)
-                    .font(.title2.weight(.bold))
-                    .lineLimit(compact ? 2 : 1)
-                    .minimumScaleFactor(0.8)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .font(compact ? HubLayout.phoneBannerTitleFont() : .title2.weight(.bold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
                 if let accessory, !accessory.isEmpty {
                     Text(accessory)
-                        .font(.subheadline.weight(.semibold))
+                        .font(compact ? .caption2.weight(.semibold) : .subheadline.weight(.semibold))
                         .opacity(0.9)
-                        .lineLimit(compact ? 2 : 1)
-                        .minimumScaleFactor(0.75)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
                 }
             }
-            Spacer(minLength: 8)
+            Spacer(minLength: 6)
             if let trailing, !trailing.isEmpty {
                 Text(trailing)
-                    .font(.caption.weight(.bold))
+                    .font(compact ? .caption2.weight(.bold) : .caption.weight(.bold))
                     .lineLimit(2)
-                    .minimumScaleFactor(0.7)
+                    .minimumScaleFactor(0.65)
                     .multilineTextAlignment(.trailing)
                     .opacity(0.95)
             }
         }
         .foregroundStyle(Color.white)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 13)
+        .padding(.horizontal, compact ? 10 : 16)
+        .padding(.vertical, compact ? 7 : 13)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(AppTheme.blue)
 
@@ -464,20 +463,24 @@ struct HubNavControl: View {
     let title: String
     var filled: Bool = false
     let action: () -> Void
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
+        let phone = HubLayout.isPhone(sizeClass)
         Button(action: action) {
-            HStack(spacing: 6) {
+            HStack(spacing: phone ? 4 : 6) {
                 Image(systemName: symbol)
-                    .font(.subheadline.weight(.semibold))
-                Text(title)
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
+                    .font((phone ? Font.caption : Font.subheadline).weight(.semibold))
+                if !phone {
+                    Text(title)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                }
             }
             .foregroundStyle(AppTheme.blue)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
-            .frame(minHeight: 44)
+            .padding(.horizontal, phone ? 8 : 10)
+            .padding(.vertical, phone ? 6 : 8)
+            .frame(minHeight: phone ? HubLayout.phoneControlHeight : 44)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -944,11 +947,11 @@ struct HubChromePill: View {
                         .font(.caption.weight(.semibold))
                 }
             }
-            .font((compactPills ? Font.caption : Font.subheadline).weight(.semibold))
+            .font((compactPills ? Font.caption2 : Font.subheadline).weight(.semibold))
             .foregroundStyle(prominent ? Color.white : AppTheme.blue)
             .padding(.horizontal, compactPills ? 8 : 10)
-            .padding(.vertical, compactPills ? 7 : 8)
-            .frame(minHeight: 44)
+            .padding(.vertical, compactPills ? 5 : 8)
+            .frame(minHeight: compactPills ? HubLayout.phoneControlHeight : 44)
             .background(
                 Capsule(style: .continuous)
                     .fill(prominent ? AppTheme.blue : (selected ? AppTheme.blueSoft : Color.clear))
@@ -996,9 +999,9 @@ struct FilterBar: View {
             }
             if store.filters.isActive {
                 Button("Clear") { store.clearFilters() }
-                    .font(.subheadline.weight(.semibold))
+                    .font(HubLayout.isPhone(sizeClass) ? .caption2.weight(.semibold) : .subheadline.weight(.semibold))
                     .foregroundStyle(AppTheme.blue)
-                    .frame(minHeight: 44)
+                    .frame(minHeight: HubLayout.isPhone(sizeClass) ? HubLayout.phoneControlHeight : 44)
             }
             HubChromePill(
                 title: "Share",
@@ -9342,20 +9345,10 @@ struct HubBrandBar: View {
         VStack(spacing: compact ? 6 : 10) {
             if compact {
                 compactBar
-            } else {
-                regularBar
-            }
-
-            if compact {
-                VStack(alignment: .leading, spacing: 6) {
-                    DayGreeting(font: .headline.weight(.bold))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                    HStack(spacing: 8) {
-                        rolePill
-                        if showsFilters {
-                            FilterBar()
-                        }
+                HStack(spacing: 6) {
+                    rolePill
+                    if showsFilters {
+                        FilterBar()
                     }
                 }
                 compactPageBanner
@@ -9406,7 +9399,7 @@ struct HubBrandBar: View {
             trailing: compactBannerWindow,
             clipped: false
         )
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: compact ? 10 : 14, style: .continuous))
     }
 
     private var compactBannerTitle: String {
@@ -9448,7 +9441,7 @@ struct HubBrandBar: View {
     }
 
     private var compactBar: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
             HubNavControl(symbol: "line.3.horizontal", title: "Menu") {
                 router.showCompactMenu = true
             }
@@ -9457,8 +9450,16 @@ struct HubBrandBar: View {
                     router.open(.dashboard)
                 }
             }
-            BeatingHeartbeatMark(height: 26, showsTrace: true)
-                .layoutPriority(1)
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Heartbeat")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(AppTheme.blue)
+                    .lineLimit(1)
+                DayGreeting(font: .caption.weight(.semibold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            .layoutPriority(1)
             Spacer(minLength: 4)
             assistButton
         }
@@ -9481,19 +9482,27 @@ struct HubBrandBar: View {
             Button {
                 showAssist = true
             } label: {
-                HStack(spacing: 8) {
+                if compact {
                     Image(systemName: "sparkles")
-                        .font(.body.weight(.bold))
-                    Text(compact ? "Assist" : "Heartbeat Assist")
-                        .font(.subheadline.weight(.bold))
-                        .lineLimit(1)
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 30, height: 30)
+                        .background(AppTheme.blue, in: Circle())
+                } else {
+                    HStack(spacing: 8) {
+                        Image(systemName: "sparkles")
+                            .font(.body.weight(.bold))
+                        Text("Heartbeat Assist")
+                            .font(.subheadline.weight(.bold))
+                            .lineLimit(1)
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 11)
+                    .frame(minHeight: 44)
+                    .background(AppTheme.blue, in: Capsule(style: .continuous))
+                    .shadow(color: AppTheme.blue.opacity(0.35), radius: 8, y: 3)
                 }
-                .foregroundStyle(.white)
-                .padding(.horizontal, compact ? 12 : 16)
-                .padding(.vertical, compact ? 9 : 11)
-                .frame(minHeight: 44)
-                .background(AppTheme.blue, in: Capsule(style: .continuous))
-                .shadow(color: AppTheme.blue.opacity(0.35), radius: 8, y: 3)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Heartbeat Assist, build \(BuildStamp.label)")
