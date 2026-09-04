@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""ACI tester guide — locked Fulfillment Heartbeat format.
-
-Update BUILD / STAMP / screenshots for each TestFlight drop, then:
-    python3 make_guide.py
-"""
+"""ACI tester guide — locked Fulfillment Heartbeat format."""
 from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 from reportlab.lib.pagesizes import letter
@@ -16,8 +12,8 @@ ATT = Path("/workspace/attachments")
 OUT = ROOT / "Fulfillment-Heartbeat-ACI-Test-Users-Update-Guide.pdf"
 
 VERSION_NAME = "1.0"
-BUILD = "366"
-STAMP = "HB-0827.95"
+BUILD = "374"
+STAMP = "HB-0828.03"
 AUDIENCE = "ACI Test Users"
 VERSION = f"Version {VERSION_NAME}  ·  Build {BUILD}  ·  {STAMP}"
 
@@ -48,12 +44,7 @@ def wordmark_path() -> Path:
     uy = end[3] + 8
     for i in range(end[2] - x):
         t = i / max(end[2] - x - 1, 1)
-        color = (
-            0,
-            int(61 + (169 - 61) * t),
-            int(165 + (224 - 165) * t),
-            255,
-        )
+        color = (0, int(61 + (169 - 61) * t), int(165 + (224 - 165) * t), 255)
         draw.line([(x + i, uy), (x + i, uy + 5)], fill=color)
     heart_src = REPO / "FulfillmentHeartbeat/Assets.xcassets/HeartbeatMark.imageset/HeartbeatMark@3x.png"
     heart = Image.open(heart_src).convert("RGBA").resize((120, 120), Image.Resampling.LANCZOS)
@@ -157,6 +148,9 @@ def img(name):
     p = ATT / name
     if p.exists():
         return p
+    alt = Path("/workspace/artifacts/searched_images") / name
+    if alt.exists():
+        return alt
     raise FileNotFoundError(name)
 
 
@@ -166,6 +160,37 @@ def step_block(c, n, title, body, y, width=CONTENT_W):
     c.setFont("Helvetica-Bold", 10.5)
     c.drawString(MARGIN + 22, y, title)
     return draw_wrapped(c, body, MARGIN + 22, y - 14, width - 22, size=9.5, leading=12.5)
+
+
+def make_mac_panel() -> Path:
+    dest = ROOT / "mac-install-panel.png"
+    font_b = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28)
+    font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 22)
+    panel = Image.new("RGB", (1400, 520), (245, 247, 252))
+    draw = ImageDraw.Draw(panel)
+    steps = [
+        ("1", "Open the Mac App Store", "Search TestFlight and click Get / Install."),
+        ("2", "Open TestFlight on the Mac", "Sign in with the same Apple ID used on your iPad invite."),
+        ("3", "Open the Heartbeat invite", "Use the email invite or the app already listed under Apps."),
+        ("4", "Install Fulfillment Heartbeat", "Confirm Version 1.0 Build 374, then click Install / Update."),
+    ]
+    icon_path = Path("/workspace/artifacts/searched_images/DcH3m.jpg")
+    icon = None
+    if icon_path.exists():
+        icon = Image.open(icon_path).convert("RGBA").resize((88, 88), Image.Resampling.LANCZOS)
+    y = 28
+    for num, title, body in steps:
+        draw.rounded_rectangle((24, y, 1376, y + 108), 16, fill=(255, 255, 255), outline=(201, 212, 232), width=2)
+        draw.ellipse((48, y + 28, 96, y + 76), fill=(0, 61, 165))
+        bbox = draw.textbbox((0, 0), num, font=font_b)
+        draw.text((72 - (bbox[2] - bbox[0]) / 2, y + 36), num, font=font_b, fill=(255, 255, 255))
+        draw.text((120, y + 22), title, font=font_b, fill=(0, 61, 165))
+        draw.text((120, y + 60), body, font=font, fill=(20, 26, 41))
+        if icon and num == "1":
+            panel.paste(icon, (1280, y + 10), icon)
+        y += 120
+    panel.save(dest)
+    return dest
 
 
 def main():
@@ -182,48 +207,55 @@ def main():
     reading = img("IMG_0185.jpeg")
     dash = img("Open Items Heartbeat 15.png")
     header_shot = img("Open Items Heartbeat 14.png")
+    tf_devices = Path("/workspace/artifacts/searched_images/shSow.jpg")
+    mac_panel = make_mac_panel()
 
     c = canvas.Canvas(str(OUT), pagesize=letter)
-    pages = 5
+    pages = 6
 
-    # PAGE 1 — update
     header(c, 1, pages, cropped)
     footer(c)
     y = H - 112
-    y = section(c, "What changed in this drop", y)
+    y = section(c, "Version for this drop", y)
     y = draw_wrapped(
         c,
-        "Build 366 is the TestFlight drop after the Sales ScoreCard launch. Dashboard callouts now have a collapsed Regions / Markets / Districts / Stores row that follows your filter. Share email lists every filtered store as a readable card. Master upload is faster and safer on iPhone 14. After you update, reload the master workbook so every tester is on the same file.",
+        "Version 1.0  ·  Build 374  ·  HB-0828.03. Sidebar stamp after update must read HB-0828.03  1.0 (374). This build is for iPhone, iPad, and Apple silicon Mac.",
+        MARGIN, y, CONTENT_W, size=10, leading=13,
+    )
+    y -= 10
+    y = section(c, "What changed", y)
+    y = draw_wrapped(
+        c,
+        "Heartbeat now runs on MacBook with the same iPad layout. Master load shows X of 15 scorecards and names any missing tabs. The large Picker ScoreCard sheet is no longer skipped. Sheets read one at a time so iPhone 14 does not quit mid-file. Dashboard callouts stay collapsed by filter: company shows regions and markets, division shows districts and stores, OM shows stores. Who’s looking sits left of Filters. Assist is the blue button. Share email uses Apple Mail with stacked store cards so columns are not cut off.",
         MARGIN, y, CONTENT_W, size=9.5, leading=13,
     )
     y -= 10
-    y = section(c, "Update Heartbeat in TestFlight", y)
+    y = section(c, "Update on iPad or iPhone", y)
     y = step_block(
         c, 1, "Open TestFlight from the Home Screen",
-        "Find the TestFlight app on the iPad or iPhone Home Screen and tap it. Do not open the old Heartbeat icon first — update inside TestFlight so you get Build 366.",
+        "Tap TestFlight first. Do not open the old Heartbeat icon until Update finishes.",
         y,
     )
     y -= 8
-    pair_h = 200
+    pair_h = 188
     left_w = (CONTENT_W - 12) / 2
     draw_img(c, home, MARGIN, y, left_w, pair_h)
     draw_img(c, tf, MARGIN + left_w + 12, y, left_w, pair_h)
-    y -= pair_h + 14
-    y = step_block(
+    y -= pair_h + 12
+    step_block(
         c, 2, "Tap Update on Fulfillment Heartbeat",
-        "On the TestFlight app page, confirm Version 1.0 Build 366. Tap Update. When it finishes, open Heartbeat. The sidebar stamp must read HB-0827.95  1.0 (366). If it shows an older stamp, tap Update again.",
+        "Confirm Version 1.0 Build 374. Tap Update. Open Heartbeat and check the sidebar stamp HB-0828.03  1.0 (374).",
         y,
     )
     c.showPage()
 
-    # PAGE 2 — choose file
     header(c, 2, pages, cropped)
     footer(c)
     y = H - 112
     y = section(c, "Reload the master file", y)
     y = draw_wrapped(
         c,
-        "New code does not change numbers until you load the workbook again. Use the current week master Excel. Tab names must match the list on page 5. Prefer iCloud Files if OneDrive fails on a work iPad. Keep the device awake while it reads.",
+        "New code does not change numbers until you load the workbook again. Use the current week master Excel. Prefer iCloud Files if OneDrive fails on a work iPad.",
         MARGIN, y, CONTENT_W, size=9.5, leading=13,
     )
     y -= 10
@@ -235,89 +267,101 @@ def main():
     y -= 8
     draw_img(c, upload, MARGIN, y, CONTENT_W, 248)
     y -= 260
-    y = step_block(
+    step_block(
         c, 4, "Open Files and pick the shared folder",
-        "In the iOS file picker, choose iCloud Drive (or the folder that was shared with you). Open the Heartbeat folder that holds the master workbook.",
+        "In the file picker, choose iCloud Drive or the folder that was shared with you. Open the Heartbeat folder that holds the master workbook.",
         y,
     )
     c.showPage()
 
-    # PAGE 3 — select and wait
     header(c, 3, pages, cropped)
     footer(c)
     y = H - 112
     y = section(c, "Select the workbook", y)
     y = step_block(
         c, 5, "Tap the master Excel file",
-        "Select Heartbeat Master Week 27.xlsx or the current week file your team posted. Individual scorecard exports still work from their cards on Upload if you are patching one tab.",
+        "Select Heartbeat Master Week 27.xlsx or the current week file. Individual cards still replace one KPI if you are patching one tab.",
         y,
     )
     y -= 8
-    draw_img(c, files, MARGIN, y, CONTENT_W * 0.48, 220)
-    draw_img(c, pick, MARGIN + CONTENT_W * 0.52, y, CONTENT_W * 0.48, 220)
-    y -= 234
+    draw_img(c, files, MARGIN, y, CONTENT_W * 0.48, 210)
+    draw_img(c, pick, MARGIN + CONTENT_W * 0.52, y, CONTENT_W * 0.48, 210)
+    y -= 224
     y = step_block(
-        c, 6, "Wait for Reading master workbook",
-        "Keep the device awake until the banner finishes. Who’s looking appears next. Pick your role. Company view shows every store. Region, Director, District, and OM views show only your scope. iPhone 14 testers should stay in the app until the role screen appears — do not force-quit mid-read.",
+        c, 6, "Watch X of 15 scorecards",
+        "The popup counts loaded tabs. Picker ScoreCard is the large sheet and takes the longest. If a tab is missing it is listed in red. Stay in the app until Who’s looking appears.",
         y,
     )
     y -= 8
-    draw_img(c, reading, MARGIN, y, CONTENT_W, 210)
+    draw_img(c, reading, MARGIN, y, CONTENT_W, 200)
     c.showPage()
 
-    # PAGE 4 — dashboard + chrome
     header(c, 4, pages, cropped)
     footer(c)
     y = H - 112
-    y = section(c, "Dashboard callouts follow the filter", y)
+    y = section(c, "Dashboard and header", y)
     y = draw_wrapped(
         c,
-        "Each scorecard card on Operational Heartbeat now has a collapsed row under the metrics. All filters show Regions (tap a region for its markets). A Division filter shows Districts (tap a district for stores). An OM, district, or store filter shows Stores. Rows stay closed until you tap them.",
+        "Callouts stay Sales then Loss Revenue first. Under each card, tap the collapsed row to open regions, markets, districts, or stores for the current filter. Menu is on the left. Assist is the blue button on the right.",
         MARGIN, y, CONTENT_W, size=9.5, leading=13,
     )
     y -= 8
     draw_img(c, dash, MARGIN, y, CONTENT_W, 220)
     y -= 232
-    y = section(c, "Cleaner header", y)
-    y = draw_wrapped(
+    draw_img(c, header_shot, MARGIN, y, CONTENT_W, 168)
+    y -= 180
+    y = section(c, "Share email", y)
+    draw_wrapped(
         c,
-        "Menu is on the left. Heartbeat Assist is the blue button on the right. Who’s looking sits to the left of Filters and Share. Filters opens one sheet for Region, Division, District, OM, and Store. Clear still wipes the whole set.",
+        "Share uses Apple Mail only. Pick Dashboard, all pages except Checklist, or individual pages. Every store in the filter is a stacked card so numbers stay on the page.",
         MARGIN, y, CONTENT_W, size=9.5, leading=13,
     )
-    y -= 8
-    draw_img(c, header_shot, MARGIN, y, CONTENT_W, 168)
     c.showPage()
 
-    # PAGE 5 — share + tabs
     header(c, 5, pages, cropped)
     footer(c)
     y = H - 112
-    y = section(c, "Share email and device notes", y)
+    y = section(c, "Now available on Mac computers", y)
     y = draw_wrapped(
         c,
-        "Share uses Apple Mail only. Pick Dashboard, all pages except Checklist, or individual pages. The email lists every store in the current filter as a stacked card: store | district | market, status, then the metrics for that page. Wide tables no longer clip off the right edge of Mail.",
+        "Apple silicon MacBook (M1, M2, M3, M4) installs the same TestFlight build. Layout matches the iPad. Intel Macs need the Mac Catalyst archive when that build is posted. Use the same Apple ID that received the tester invite.",
         MARGIN, y, CONTENT_W, size=9.5, leading=13,
     )
-    y -= 12
-    y = section(c, "Load speed and iPhone 14", y)
-    y = draw_wrapped(
-        c,
-        "Master upload reads one sheet at a time so the iPad stays cooler and iPhone 14 does not quit mid-file. The role screen can appear before picker extras finish. If Sales or a scorecard looks empty after load, tap Reload on Upload once. Do not start a second import while Reading master workbook is showing.",
-        MARGIN, y, CONTENT_W, size=9.5, leading=13,
+    y -= 8
+    if tf_devices.exists():
+        draw_img(c, tf_devices, MARGIN, y, CONTENT_W, 168)
+        y -= 180
+    y = step_block(
+        c, 7, "Install TestFlight on the Mac, then Heartbeat",
+        "Mac App Store → search TestFlight → Get. Open TestFlight → accept Heartbeat → Install. Confirm Version 1.0 Build 374. The window opens at iPad size. Load the master file from iCloud Drive the same way as the iPad.",
+        y,
     )
-    y -= 14
-    y = section(c, "Master file tab names", y)
+    y -= 8
+    draw_img(c, mac_panel, MARGIN, y, CONTENT_W, 210)
+    c.showPage()
+
+    header(c, 6, pages, cropped)
+    footer(c)
+    y = H - 112
+    y = section(c, "Master file tab names (15)", y)
     tabs = (
         "Sales  ·  Lost Revenue  ·  Missing Items  ·  5 Star  ·  Pre-Sub OOS  ·  "
-        "Pre Sub OOS Item  ·  Pick Path  ·  Aisle Mapper  ·  Prep Not Ready  ·  "
-        "Dynacap  ·  Schedule Quality  ·  Picker ScoreCard  ·  PPH  ·  Labor"
+        "Pre-Sub OOS Item  ·  Pick Path  ·  Path Picker  ·  Aisle Mapper  ·  "
+        "Prep Not Ready  ·  Dynacap  ·  Schedule Quality  ·  Picker ScoreCard  ·  PPH  ·  Labor"
     )
     y = draw_wrapped(c, tabs, MARGIN, y, CONTENT_W, size=8.5, leading=12, color=TEXT)
     y -= 16
-    y = section(c, "Confirm you are on this build", y)
+    y = section(c, "Confirm the build", y)
+    y = draw_wrapped(
+        c,
+        "Sidebar stamp must read HB-0828.03  1.0 (374) on iPhone, iPad, and Mac. If it does not, open TestFlight and tap Update, then reload the master file.",
+        MARGIN, y, CONTENT_W, size=9.5, leading=13,
+    )
+    y -= 16
+    y = section(c, "If a scorecard is missing after load", y)
     draw_wrapped(
         c,
-        "Sidebar stamp must read HB-0827.95  1.0 (366). If it does not, open TestFlight and tap Update, then reload the master file.",
+        "The popup lists the missing tab names. Add that exact tab to the master workbook or use the individual upload card. Picker ScoreCard must be named Picker ScoreCard or Picker ScorCard.",
         MARGIN, y, CONTENT_W, size=9.5, leading=13,
     )
 
