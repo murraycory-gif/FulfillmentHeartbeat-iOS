@@ -284,6 +284,7 @@ struct SectionDetailView: View {
             }
 
             if section == .labor {
+                LaborWeekFilterBar()
                 laborStatusTiles
             } else if section == .sales {
                 salesStatusTiles
@@ -478,7 +479,7 @@ struct SectionDetailView: View {
     }
 
     private var laborRows: [MetricRow] {
-        let scored = snapshots.filter { $0.number("target_vs_actual_pct") != nil }
+        let scored = store.laborTableRows().filter { $0.number("target_vs_actual_pct") != nil }
         switch laborFocus {
         case .all:
             return scored

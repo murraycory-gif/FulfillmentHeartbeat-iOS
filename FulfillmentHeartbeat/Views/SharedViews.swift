@@ -5808,7 +5808,7 @@ struct LaborRollupTable: View {
         let next = LaborRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
-        let source = LaborRollupBuilder.source(from: store.allLatest(for: .labor), filters: store.filters)
+        let source = LaborRollupBuilder.source(from: store.laborTableRows(), filters: store.filters)
         var rows = LaborRollupBuilder.rows(from: source, grain: next)
         if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
@@ -5855,6 +5855,47 @@ struct LaborRollupTable: View {
             }
             return RollupColumnSort.ordered(result, ascending: sortAscending)
         }
+    }
+}
+
+struct LaborWeekFilterBar: View {
+    @EnvironmentObject private var store: HeartbeatStore
+
+    var body: some View {
+        let weeks = store.laborWeekIds()
+        if weeks.isEmpty {
+            EmptyView()
+        } else {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Week")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(AppTheme.textSecondary)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        chip("All weeks", selected: store.laborWeekFilter.isEmpty) {
+                            store.setLaborWeekFilter("")
+                        }
+                        ForEach(weeks, id: \.self) { week in
+                            chip(week, selected: store.laborWeekFilter == week) {
+                                store.setLaborWeekFilter(week)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func chip(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(selected ? Color.white : AppTheme.blue)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(selected ? AppTheme.blue : AppTheme.blueSoft, in: Capsule())
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -6132,7 +6173,9 @@ struct LaborStoreExpand: View {
     @State private var openWeek: String?
 
     private var weeks: [MetricRow] {
-        store.laborWeeks(forStore: storeNumber)
+        let all = store.laborWeeks(forStore: storeNumber)
+        if store.laborWeekFilter.isEmpty { return all }
+        return all.filter { ($0.textPayload["week"] ?? $0.recordedOn ?? "") == store.laborWeekFilter }
     }
 
     var body: some View {
@@ -6145,7 +6188,9 @@ struct LaborStoreExpand: View {
         .padding(.horizontal, 4)
         .padding(.vertical, 10)
         .onAppear {
-            if openWeek == nil {
+            if let pinned = store.laborWeekFilter.isEmpty ? nil : store.laborWeekFilter {
+                openWeek = pinned
+            } else if openWeek == nil {
                 let latest = weeks.first
                 openWeek = latest?.textPayload["week"] ?? latest?.recordedOn
             }
@@ -6303,9 +6348,15 @@ struct LaborStoreExpand: View {
 
     private func displayDate(_ raw: String) -> String {
         guard raw.count >= 10 else { return raw.isEmpty ? "—" : raw }
-        let parts = raw.prefix(10).split(separator: "-")
-        guard parts.count == 3 else { return raw }
-        return "\(parts[1])/\(parts[2])/\(parts[0])"
+        let iso = String(raw.prefix(10))
+        let parser = DateFormatter()
+        parser.locale = Locale(identifier: "en_US_POSIX")
+        parser.dateFormat = "yyyy-MM-dd"
+        guard let date = parser.date(from: iso) else { return iso }
+        let show = DateFormatter()
+        show.locale = Locale(identifier: "en_US")
+        show.dateFormat = "EEEE M/d"
+        return show.string(from: date)
     }
 
     private func metric(_ name: String, _ value: String, _ health: Health, brand: Bool = false) -> some View {

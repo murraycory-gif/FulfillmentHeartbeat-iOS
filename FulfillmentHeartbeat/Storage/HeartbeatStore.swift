@@ -27,7 +27,7 @@ final class HeartbeatStore: ObservableObject {
     @Published private(set) var linkedMasterName: String?
     @Published private(set) var linkedMasterLoadedAt: Date?
     @Published var needsRolePick = false
-    @Published private(set) var sessionRole: HeartbeatRole?
+    @Published var laborWeekFilter = ""
 
     private let fileManager: FileManager
     private let snapshotURL: URL
@@ -484,9 +484,32 @@ final class HeartbeatStore: ObservableObject {
         Set(laborWeeksByStore.values.flatMap { weeks in
             weeks.compactMap { week -> String? in
                 let value = week.textPayload["week"] ?? week.recordedOn ?? ""
-                return value.isEmpty ? nil : value
+                return value.isEmpty || !value.hasPrefix("20") ? nil : value
             }
-        }).sorted()
+        }).sorted(by: >)
+    }
+
+    func setLaborWeekFilter(_ week: String) {
+        if week.isEmpty {
+            laborWeekFilter = ""
+        } else {
+            laborWeekFilter = laborWeekFilter == week ? "" : week
+        }
+        filterStamp += 1
+    }
+
+    func laborTableRows() -> [MetricRow] {
+        if laborWeekFilter.isEmpty {
+            return displayRows(for: .labor)
+        }
+        var out: [MetricRow] = []
+        out.reserveCapacity(laborWeeksByStore.count)
+        for weeks in laborWeeksByStore.values {
+            if let row = weeks.first(where: { ($0.textPayload["week"] ?? $0.recordedOn ?? "") == laborWeekFilter }) {
+                out.append(row)
+            }
+        }
+        return HeartbeatMath.filtered(out, filters: filters)
     }
 
     func laborWeekSpan() -> String {
