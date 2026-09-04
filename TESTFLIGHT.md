@@ -36,6 +36,14 @@ In Xcode:
 5. Organizer → **Distribute App** → **App Store Connect** → **Upload**.
 6. Leave “Upload your app’s symbols” on. Upload.
 
+That same iOS archive is the TestFlight build for iPhone, iPad, and Apple silicon Mac (Designed for iPad layout — same screens as the 12-inch iPad).
+
+To also keep a native Mac Catalyst archive:
+
+7. Scheme destination **My Mac (Mac Catalyst)** → **Product → Archive** → upload that archive to the same App Store Connect app.
+
+Mac testers: install **TestFlight** from the Mac App Store → open the Heartbeat invite → **Install**. Window opens at iPad size. Choose file uses the Mac file picker / iCloud Drive.
+
 Wait 5–15 minutes. App Store Connect → the app → **TestFlight**. Build status becomes **Ready to Test**.
 
 Export compliance is already answered in the app (`ITSAppUsesNonExemptEncryption = false`). You should not get a missing-compliance hold.

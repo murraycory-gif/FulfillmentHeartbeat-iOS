@@ -49,7 +49,19 @@ struct FulfillmentHeartbeatApp: App {
                     .compactMap { $0 as? UIWindowScene }
                     .flatMap(\.windows)
                     .forEach { $0.backgroundColor = launchUI }
+                #if targetEnvironment(macCatalyst)
+                UIApplication.shared.connectedScenes
+                    .compactMap { $0 as? UIWindowScene }
+                    .forEach { scene in
+                        scene.title = "Fulfillment Heartbeat"
+                        guard let size = scene.sizeRestrictions else { return }
+                        size.minimumSize = CGSize(width: 1100, height: 720)
+                    }
+                #endif
             }
         }
+        #if targetEnvironment(macCatalyst)
+        .defaultSize(width: 1280, height: 860)
+        #endif
     }
 }
