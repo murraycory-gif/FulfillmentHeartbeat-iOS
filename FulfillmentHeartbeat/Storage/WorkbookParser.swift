@@ -2164,15 +2164,15 @@ enum WorkbookParser {
         guard let headerIndex = matrix.firstIndex(where: { row in
             let names = Set(row.map(normHeader))
             let hasPicker = names.contains(where: { shopperIdKeys.contains($0) || shopperNameKeys.contains($0) })
-            let hasStore = names.contains(where: { storeKeys.contains($0) || $0 == "store" })
             let hasMetric = names.contains(where: {
                 $0.contains("pickpath") || $0.contains("compliance") || $0.contains("purepph") || $0 == "pph"
             })
-            return hasPicker && !hasStore && hasMetric
+            return hasPicker && hasMetric
         }) else { return nil }
 
         let header = matrix[headerIndex].map(normHeader)
         let empIdx = header.firstIndex { shopperIdKeys.contains($0) || shopperNameKeys.contains($0) }
+        let storeIdx = header.firstIndex { storeKeys.contains($0) || $0 == "store" }
         guard let empIdx else { return nil }
 
         var lastMetricColumn: [String: Int] = [:]
@@ -2188,6 +2188,11 @@ enum WorkbookParser {
             let picker = empIdx < line.count ? line[empIdx].trimmingCharacters(in: .whitespacesAndNewlines) : ""
             if picker.lowercased().hasPrefix("applied") { continue }
             if picker.isEmpty || isTotalCell(picker) { continue }
+            let storeRaw = storeIdx.flatMap { idx -> String? in
+                guard idx < line.count else { return nil }
+                return line[idx]
+            } ?? ""
+            let store = storeRaw.trimmingCharacters(in: .whitespacesAndNewlines)
 
             var payload: [String: Double] = [:]
             for (name, index) in lastMetricColumn {
@@ -2200,7 +2205,7 @@ enum WorkbookParser {
                 ParsedWorkbookRow(
                     division: "",
                     operationsOM: "",
-                    storeNumber: "",
+                    storeNumber: store,
                     storeName: nil,
                     recordedOn: week,
                     payload: payload,

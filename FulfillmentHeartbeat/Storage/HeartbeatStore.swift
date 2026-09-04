@@ -414,15 +414,16 @@ final class HeartbeatStore: ObservableObject {
 
     private func pickPathIndexValues(scorecard: [MetricRow], pathRows: [MetricRow]) -> (buckets: [String: [MetricRow]], byShopper: [String: MetricRow]) {
         var storesByShopper: [String: Set<String>] = [:]
+        var buckets: [String: [MetricRow]] = [:]
         for row in scorecard {
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
             guard !store.isEmpty else { continue }
+            buckets[store, default: []].append(row)
             for alias in HeartbeatMath.shopperAliases(row) {
                 storesByShopper[alias, default: []].insert(store)
             }
         }
         var byShopper: [String: MetricRow] = [:]
-        var buckets: [String: [MetricRow]] = [:]
         for row in pathRows {
             for alias in HeartbeatMath.shopperAliases(row) {
                 byShopper[alias] = row
@@ -439,7 +440,7 @@ final class HeartbeatStore: ObservableObject {
         }
         for store in buckets.keys {
             buckets[store]?.sort {
-                ($0.number("compliance_pct") ?? 999) < ($1.number("compliance_pct") ?? 999)
+                ($0.number("compliance_pct") ?? $0.number("pph") ?? 999) < ($1.number("compliance_pct") ?? $1.number("pph") ?? 999)
             }
         }
         return (buckets, byShopper)
@@ -2150,9 +2151,7 @@ private struct PulseCaches {
         let picker = heavy
             ? pickerIndexValues(pickers)
             : (index: [PickerFocus: [Int]](), health: [PickerFocus: Health]())
-        let path = heavy
-            ? pickPathIndexValues(scorecard: pickers, pathRows: latest[.pickPathPicker] ?? [])
-            : (buckets: [String: [MetricRow]](), byShopper: [String: MetricRow]())
+        let path = pickPathIndexValues(scorecard: pickers, pathRows: latest[.pickPathPicker] ?? nextLatest[.pickPathPicker] ?? [])
         let pph = heavy ? pphIndexValues(pickers) : [:]
         let districts = roster.values
             .filter { filters.includesDivision($0.division) }
@@ -2504,15 +2503,16 @@ private struct PulseCaches {
 
     private static func pickPathIndexValues(scorecard: [MetricRow], pathRows: [MetricRow]) -> (buckets: [String: [MetricRow]], byShopper: [String: MetricRow]) {
         var storesByShopper: [String: Set<String>] = [:]
+        var buckets: [String: [MetricRow]] = [:]
         for row in scorecard {
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
             guard !store.isEmpty else { continue }
+            buckets[store, default: []].append(row)
             for alias in HeartbeatMath.shopperAliases(row) {
                 storesByShopper[alias, default: []].insert(store)
             }
         }
         var byShopper: [String: MetricRow] = [:]
-        var buckets: [String: [MetricRow]] = [:]
         for row in pathRows {
             for alias in HeartbeatMath.shopperAliases(row) {
                 byShopper[alias] = row
