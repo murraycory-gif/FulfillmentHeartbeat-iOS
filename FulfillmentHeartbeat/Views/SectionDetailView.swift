@@ -148,19 +148,22 @@ struct SectionDetailView: View {
             .scrollContentBackground(.hidden)
             .environment(\.defaultMinListRowHeight, 1)
             .transaction { $0.animation = nil }
-            .background(
-                GeometryReader { geo in
-                    Color.clear.preference(
-                        key: LaborListTopKey.self,
-                        value: geo.frame(in: .global).minY
-                    )
+            .background {
+                if sizeClass == .regular {
+                    GeometryReader { geo in
+                        Color.clear.preference(
+                            key: LaborListTopKey.self,
+                            value: geo.frame(in: .global).minY
+                        )
+                    }
                 }
-            )
+            }
             .onPreferenceChange(LaborHeaderMinYKey.self) { minY in
+                guard sizeClass == .regular else { return }
                 laborHeaderPin.updatePin(headerMinY: minY)
             }
             .overlay(alignment: .top) {
-                if laborHeaderPin.storesExpanded && laborHeaderPin.pinned {
+                if sizeClass == .regular, laborHeaderPin.storesExpanded && laborHeaderPin.pinned {
                     if section == .labor {
                         LaborStickyStoreHeader()
                             .environmentObject(laborHeaderPin)

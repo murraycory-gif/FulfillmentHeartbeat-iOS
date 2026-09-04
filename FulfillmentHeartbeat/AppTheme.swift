@@ -286,7 +286,7 @@ extension View {
             }
         )
         .onPreferenceChange(HubWidthKey.self) { value in
-            if value > 0, abs(value - width.wrappedValue) > 1 {
+            if value > 0, abs(value - width.wrappedValue) > 12 {
                 width.wrappedValue = value
             }
         }

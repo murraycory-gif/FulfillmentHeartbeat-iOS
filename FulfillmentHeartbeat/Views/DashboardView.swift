@@ -263,6 +263,7 @@ struct DashLostBanner: View {
 
 struct DashScopeStrip: View {
     @EnvironmentObject private var store: HeartbeatStore
+    @Environment(\.horizontalSizeClass) private var sizeClass
     let section: MetricSection
     let grain: DashScopeGrain
     let packs: [DashScopePack]
@@ -295,7 +296,7 @@ struct DashScopeStrip: View {
                 }
                 .buttonStyle(.plain)
                 if expanded {
-                    ForEach(packs) { pack in
+                    ForEach(Array(packs.prefix(HubLayout.isPhone(sizeClass) ? 20 : packs.count))) { pack in
                         DashScopeGrainCard(
                             pack: pack,
                             grain: grain,
@@ -331,7 +332,7 @@ struct DashScopeGrainCard: View {
                 let next = !open
                 open = next
                 if next, children.isEmpty, grain != .store {
-                    children = store.dashboardGrainChildren(section: section, label: pack.line.label)
+                    children = Array(store.dashboardGrainChildren(section: section, label: pack.line.label).prefix(40))
                 }
             } label: {
                 HStack(spacing: 10) {

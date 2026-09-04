@@ -5640,10 +5640,14 @@ final class LaborHeaderPin: ObservableObject {
         }
         guard let headerMinY else { return }
         let top = listTop
+        let next: Bool
         if pinned {
-            if headerMinY > top + 44 { pinned = false }
-        } else if headerMinY <= top + 10 {
-            pinned = true
+            next = headerMinY <= top + 44
+        } else {
+            next = headerMinY <= top + 10
+        }
+        if next != pinned {
+            pinned = next
         }
     }
 }
