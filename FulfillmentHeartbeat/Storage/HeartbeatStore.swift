@@ -223,7 +223,23 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func pickPathPickers(forStore store: String) -> [MetricRow] {
-        pickPathPickersByStore[HeartbeatMath.canonicalStore(store)] ?? []
+        let want = HeartbeatMath.canonicalStore(store)
+        guard !want.isEmpty else { return [] }
+        if let exact = pickPathPickersByStore[want], !exact.isEmpty {
+            return exact
+        }
+        var matched: [MetricRow] = []
+        for (key, rows) in pickPathPickersByStore where HeartbeatMath.sameStore(key, want) {
+            matched.append(contentsOf: rows)
+        }
+        if !matched.isEmpty { return matched }
+        for section in [MetricSection.pickerScorecard, .pickPathPicker] {
+            let source = latestBySection[section] ?? filteredLatest[section] ?? []
+            for row in source where HeartbeatMath.sameStore(row.storeNumber, want) {
+                matched.append(row)
+            }
+        }
+        return matched
     }
 
     func pickPathPicker(forShopper raw: String) -> MetricRow? {

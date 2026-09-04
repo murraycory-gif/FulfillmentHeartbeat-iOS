@@ -2543,15 +2543,6 @@ private struct PathShopperTable: View {
             for row in store.pickPathPickers(forStore: storeNumber) {
                 merge(row, path: pathFor(row))
             }
-            let want = HeartbeatMath.canonicalStore(storeNumber)
-            if !want.isEmpty {
-                for row in store.displayRows(for: .pickPathPicker) where HeartbeatMath.canonicalStore(row.storeNumber) == want {
-                    merge(row, path: pathFor(row))
-                }
-                for row in store.displayRows(for: .pickerScorecard) where HeartbeatMath.canonicalStore(row.storeNumber) == want {
-                    merge(row, path: pathFor(row))
-                }
-            }
         }
         for row in store.pphPickers(forStore: storeNumber) {
             merge(row, path: pathFor(row))

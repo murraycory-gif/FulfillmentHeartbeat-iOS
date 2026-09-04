@@ -1000,7 +1000,18 @@ enum HeartbeatMath {
         if let value = Double(cleaned), value > 0, value < 1_000_000, value == value.rounded() {
             return String(Int(value))
         }
+        let digits = trimmed.filter(\.isNumber)
+        if let number = Int(digits), number > 0, digits.count <= 6 {
+            return String(number)
+        }
         return trimmed
+    }
+
+    static func sameStore(_ lhs: String, _ rhs: String) -> Bool {
+        let a = canonicalStore(lhs)
+        let b = canonicalStore(rhs)
+        if a.isEmpty || b.isEmpty { return false }
+        return a.caseInsensitiveCompare(b) == .orderedSame
     }
 
     static let ignoredStores: Set<String> = ["210", "239"]
