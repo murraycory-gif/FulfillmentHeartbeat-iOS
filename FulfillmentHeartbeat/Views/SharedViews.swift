@@ -473,11 +473,9 @@ struct HubNavControl: View {
             HStack(spacing: phone ? 4 : 6) {
                 Image(systemName: symbol)
                     .font((phone ? Font.caption : Font.subheadline).weight(.semibold))
-                if !phone {
-                    Text(title)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                }
+                Text(title)
+                    .font((phone ? Font.caption2 : Font.subheadline).weight(.semibold))
+                    .lineLimit(1)
             }
             .foregroundStyle(AppTheme.blue)
             .padding(.horizontal, phone ? 8 : 10)
@@ -9463,6 +9461,7 @@ struct HubBrandBar: View {
                 }
                 compactPageBanner
             } else {
+                regularBar
                 ViewThatFits(in: .horizontal) {
                     HStack(alignment: .center, spacing: 12) {
                         DayGreeting(font: greetingFont)
@@ -9533,7 +9532,7 @@ struct HubBrandBar: View {
     private var regularBar: some View {
         ZStack {
             HStack(spacing: 4) {
-                HubNavControl(symbol: "line.3.horizontal", title: "Menu") {
+                HubNavControl(symbol: "line.3.horizontal", title: "Pages") {
                     router.toggleSidebar()
                 }
                 if showBack {
@@ -9552,7 +9551,7 @@ struct HubBrandBar: View {
 
     private var compactBar: some View {
         HStack(spacing: 8) {
-            HubNavControl(symbol: "line.3.horizontal", title: "Menu") {
+            HubNavControl(symbol: "line.3.horizontal", title: "Pages") {
                 router.showCompactMenu = true
             }
             if showBack {
