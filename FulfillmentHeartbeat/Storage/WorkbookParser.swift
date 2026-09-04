@@ -126,6 +126,9 @@ enum WorkbookParser {
                 let hinted = section(fromSheetName: entry.name)
                 let matrix = SheetXML.parse(data: sheet, strings: strings)
                 var parsed = rows(from: matrix, prefer: hinted)
+                if parsed.isEmpty, hinted == .pickerScorecard {
+                    parsed = parsePickerWide(matrix) ?? parseEmployeeWeek(matrix) ?? []
+                }
                 if parsed.isEmpty, hinted == .labor || hinted == nil {
                     parsed = parseLaborSheet(data: sheet, strings: strings)
                 }
@@ -232,7 +235,9 @@ enum WorkbookParser {
         if name.contains("picker") && (name.contains("score") || name.contains("card") || name.contains("scor") || name.contains("shopper")) {
             return .pickerScorecard
         }
-        if name.contains("picker") && name.contains("scor") { return .pickerScorecard }
+        if name.contains("pickerscore") || name.contains("picker scor") || name == "psc" {
+            return .pickerScorecard
+        }
         if (name.contains("pick path") || name.contains("path compliance"))
             && (name.contains("picker") || name.contains("employee") || name.contains("shopper")) {
             return .pickPathPicker
@@ -343,11 +348,12 @@ enum WorkbookParser {
     private static let districtKeys = ["district", "dist", "distid", "districtnbr", "districtnumber"]
     private static let omAreaKeys = ["omarea", "om_area", "area", "market"]
     private static let storeKeys = [
-        "storenumber", "storenbr", "store", "storeid", "unit", "storenbr",
+        "storenumber", "storenbr", "store", "storeid", "unit", "storenbr", "location", "loc", "locationid",
     ]
     private static let nameKeys = ["storename", "unitname", "location", "storenm"]
     private static let shopperNameKeys = [
         "shopper", "shoppername", "picker", "pickername", "associate", "associatename", "teammember",
+        "name", "fullname", "pickernm", "shoppernm",
     ]
     private static let shopperIdKeys = [
         "shopperid", "pickerid", "associateid", "win", "userid", "associatewin",
@@ -1981,14 +1987,36 @@ enum WorkbookParser {
     }
 
     /// Weekly picker scorecard: STORE + PICKER, date blocks across the top, Total block last.
+    private static func pickerHeaderIndex(_ matrix: [[String]]) -> Int? {
+        func flags(_ row: [String]) -> (store: Bool, picker: Bool, metric: Bool) {
+            let names = row.map(normHeader)
+            let store = names.contains { storeKeys.contains($0) || $0 == "store" || $0.hasPrefix("store") }
+            let picker = names.contains {
+                shopperNameKeys.contains($0) || shopperIdKeys.contains($0)
+                    || $0.contains("picker") || $0.contains("shopper")
+            }
+            let metric = names.contains {
+                pickerMetricKeys[$0] != nil || $0.contains("pph") || $0.contains("presub")
+                    || $0.contains("oos") || $0.contains("order") || $0.contains("ott")
+            }
+            return (store, picker, metric)
+        }
+        for (index, row) in matrix.prefix(40).enumerated() {
+            let here = flags(row)
+            if here.store && here.picker && here.metric { return index }
+            if here.store && here.picker { return index }
+            if index + 1 < matrix.count {
+                let next = flags(matrix[index + 1])
+                if (here.store || next.store) && (here.picker || next.picker) && (here.metric || next.metric) {
+                    return here.metric ? index : index + 1
+                }
+            }
+        }
+        return nil
+    }
+
     private static func parsePickerWide(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {
-        guard let headerIndex = matrix.firstIndex(where: { row in
-            let names = Set(row.map(normHeader))
-            let hasStore = names.contains(where: { storeKeys.contains($0) || $0 == "store" })
-            let hasPicker = names.contains(where: { shopperNameKeys.contains($0) || shopperIdKeys.contains($0) })
-            let hasPPH = names.contains("pph") || names.contains("purepph") || names.contains("presuboos") || names.contains("presuboospct")
-            return hasStore && hasPicker && hasPPH
-        }) else { return nil }
+        guard let headerIndex = pickerHeaderIndex(matrix) else { return nil }
 
         let header = matrix[headerIndex].map(normHeader)
         func firstIndex(_ keys: [String]) -> Int? {
@@ -2833,7 +2861,8 @@ enum SheetXML {
 
     /// Safe string walk. The pointer scanner crashed on Power BI sheets.
     private static func walk(data: Data, strings: [String]) -> [[String]] {
-        guard var xml = String(data: data, encoding: .utf8) else { return [] }
+        guard var xml = String(data: data, encoding: .utf8)
+            ?? String(data: data, encoding: .isoLatin1) else { return [] }
         if xml.hasPrefix("\u{FEFF}") { xml.removeFirst() }
         if xml.contains("<x:") {
             xml = xml.replacingOccurrences(of: "<x:", with: "<").replacingOccurrences(of: "</x:", with: "</")
