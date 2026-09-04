@@ -126,9 +126,12 @@ enum WorkbookParser {
                 let hinted = section(fromSheetName: entry.name)
                 var parsed: [ParsedWorkbookRow] = []
                 if hinted == .pickerScorecard || hinted == .pickPathPicker {
+                    onProgress?(found.count, expected, "Reading \(entry.name)…")
                     parsed = hinted == .pickPathPicker
                         ? parseEmployeeStreaming(data: sheet, strings: strings)
-                        : parsePickerStreaming(data: sheet, strings: strings)
+                        : parsePickerStreaming(data: sheet, strings: strings) { count in
+                            onProgress?(found.count, expected, "\(entry.name)  \(count) shoppers")
+                        }
                     if parsed.isEmpty {
                         parsed = hinted == .pickPathPicker
                             ? parsePickerStreaming(data: sheet, strings: strings)
@@ -2103,15 +2106,17 @@ enum WorkbookParser {
         return out.isEmpty ? nil : out
     }
 
-    private static func parsePickerStreaming(data: Data, strings: [String]) -> [ParsedWorkbookRow] {
+    private static func parsePickerStreaming(data: Data, strings: [String], onTick: ((Int) -> Void)? = nil) -> [ParsedWorkbookRow] {
         var storeIdx: Int?
         var empIdx: Int?
         var metricColumns: [String: [Int]] = [:]
+        var keep: Set<Int>?
         var ready = false
         var carryStore = ""
         var out: [ParsedWorkbookRow] = []
+        var seen = 0
         out.reserveCapacity(8192)
-        SheetXML.forEachRow(data: data, strings: strings) { line in
+        SheetXML.forEachRow(data: data, strings: strings, keep: { keep }) { line in
             if !ready {
                 let names = line.map(normHeader)
                 let store = names.firstIndex { storeKeys.contains($0) || $0 == "store" || $0.hasPrefix("store") }
@@ -2126,10 +2131,24 @@ enum WorkbookParser {
                         guard pickerMetricKeys[name] != nil else { continue }
                         metricColumns[name, default: []].append(index)
                     }
-                    if !metricColumns.isEmpty { ready = true }
+                    if !metricColumns.isEmpty {
+                        for name in metricColumns.keys {
+                            if let tail = metricColumns[name]?.suffix(3) {
+                                metricColumns[name] = Array(tail)
+                            }
+                        }
+                        var cols = Set<Int>()
+                        if let store { cols.insert(store) }
+                        if let picker { cols.insert(picker) }
+                        for indexes in metricColumns.values { cols.formUnion(indexes) }
+                        keep = cols
+                        ready = true
+                    }
                 }
                 return
             }
+            seen += 1
+            if seen % 2500 == 0 { onTick?(out.count) }
             func cell(_ index: Int) -> String { index < line.count ? line[index] : "" }
             guard let storeIdx, let empIdx else { return }
             let storeRaw = cell(storeIdx).trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2969,7 +2988,7 @@ enum SheetXML {
         walk(data: data, strings: strings)
     }
 
-    static func forEachRow(data: Data, strings: [String], handle: ([String]) -> Void) {
+    static func forEachRow(data: Data, strings: [String], keep: (() -> Set<Int>?)? = nil, handle: ([String]) -> Void) {
         guard var xml = String(data: data, encoding: .utf8) else { return }
         if xml.hasPrefix("\u{FEFF}") { xml.removeFirst() }
         if xml.contains("<x:") {
@@ -2991,7 +3010,7 @@ enum SheetXML {
                 continue
             }
             guard let rowEnd = xml.range(of: "</row>", range: tagClose.upperBound..<xml.endIndex) else { break }
-            handle(walkCells(xml[tagClose.upperBound..<rowEnd.lowerBound], strings: strings))
+            handle(walkCells(xml[tagClose.upperBound..<rowEnd.lowerBound], strings: strings, keep: keep?()))
             cursor = rowEnd.upperBound
         }
     }
@@ -3028,7 +3047,7 @@ enum SheetXML {
         return rows
     }
 
-    private static func walkCells(_ inner: Substring, strings: [String]) -> [String] {
+    private static func walkCells(_ inner: Substring, strings: [String], keep: Set<Int>? = nil) -> [String] {
         var cells: [String] = []
         var origin = inner.startIndex
         while let cs = inner.range(of: "<c", range: origin..<inner.endIndex) {
@@ -3064,6 +3083,9 @@ enum SheetXML {
                 break
             }
             let column = columnIndex(ref)
+            if let keep, column >= 0, !keep.contains(column) {
+                continue
+            }
             if column < 0 {
                 cells.append(value)
             } else if column < 256 {
