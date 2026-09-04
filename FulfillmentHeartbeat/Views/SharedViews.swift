@@ -8900,23 +8900,25 @@ struct PickerScoreTable: View {
                         .listRowBackground(AppTheme.tableFill)
                     }
                     ForEach(Array(snaps.prefix(limit))) { snap in
-                        if HubLayout.isPhone(sizeClass) {
-                            PickerPhoneCard(
-                                snap: snap,
-                                expanded: openShopper == snap.id.uuidString,
-                                onToggle: {
-                                    openShopper = openShopper == snap.id.uuidString ? nil : snap.id.uuidString
-                                }
-                            )
-                        } else {
-                            PickerStoreRow(
-                                snap: snap,
-                                expanded: openShopper == snap.id.uuidString,
-                                onToggle: {
-                                    openShopper = openShopper == snap.id.uuidString ? nil : snap.id.uuidString
-                                },
-                                showRefund: true
-                            )
+                        Group {
+                            if HubLayout.isPhone(sizeClass) {
+                                PickerPhoneCard(
+                                    snap: snap,
+                                    expanded: openShopper == snap.id.uuidString,
+                                    onToggle: {
+                                        openShopper = openShopper == snap.id.uuidString ? nil : snap.id.uuidString
+                                    }
+                                )
+                            } else {
+                                PickerStoreRow(
+                                    snap: snap,
+                                    expanded: openShopper == snap.id.uuidString,
+                                    onToggle: {
+                                        openShopper = openShopper == snap.id.uuidString ? nil : snap.id.uuidString
+                                    },
+                                    showRefund: true
+                                )
+                            }
                         }
                         .listRowInsets(EdgeInsets(top: 5, leading: HubLayout.isPhone(sizeClass) ? 12 : 20, bottom: 5, trailing: HubLayout.isPhone(sizeClass) ? 12 : 20))
                         .listRowSeparator(.hidden)
