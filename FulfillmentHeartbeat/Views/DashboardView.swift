@@ -281,10 +281,10 @@ struct DashScopeStrip: View {
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(AppTheme.blue)
                         Text(grain.title)
-                            .font(.subheadline.weight(.bold))
+                            .font(AppTheme.rounded(.subheadline, weight: .bold))
                             .foregroundStyle(AppTheme.blue)
-                        Text("\(packs.count) \(packs.count == 1 ? String(grain.unit.dropLast()) : grain.unit)  ·  tap to \(expanded ? "collapse" : "expand")")
-                            .font(.caption.weight(.semibold))
+                        Text("\(packs.count) \(packs.count == 1 ? String(grain.unit.dropLast()) : grain.unit)  ·  Tap To \(expanded ? "Collapse" : "Expand")")
+                            .font(AppTheme.rounded(.caption, weight: .semibold))
                             .foregroundStyle(AppTheme.textSecondary)
                             .lineLimit(1)
                         Spacer(minLength: 8)
@@ -296,14 +296,30 @@ struct DashScopeStrip: View {
                 }
                 .buttonStyle(.plain)
                 if expanded {
-                    ForEach(Array(packs.prefix(HubLayout.isPhone(sizeClass) ? 20 : packs.count))) { pack in
-                        DashScopeGrainCard(
-                            pack: pack,
-                            grain: grain,
-                            flags: flags[pack.id] ?? [],
-                            width: width,
-                            section: section
+                    if section == .sales {
+                        let salesRows = SalesRollupBuilder.dashboardRows(
+                            from: SalesRollupBuilder.source(from: store.allLatest(for: .sales), filters: store.filters),
+                            grain: grain
                         )
+                        if HubLayout.isPhone(sizeClass) {
+                            VStack(spacing: 8) {
+                                ForEach(salesRows) { row in
+                                    OverviewSalesPhoneCard(label: row.label, count: row.storeCount, pack: row.pack)
+                                }
+                            }
+                        } else {
+                            OverviewSalesAlignedTable(title: grain.title, rows: salesRows, showCount: grain != .store)
+                        }
+                    } else {
+                        ForEach(Array(packs.prefix(HubLayout.isPhone(sizeClass) ? 20 : packs.count))) { pack in
+                            DashScopeGrainCard(
+                                pack: pack,
+                                grain: grain,
+                                flags: flags[pack.id] ?? [],
+                                width: width,
+                                section: section
+                            )
+                        }
                     }
                 }
             }
@@ -316,6 +332,7 @@ struct DashScopeStrip: View {
 
 struct DashScopeGrainCard: View {
     @EnvironmentObject private var store: HeartbeatStore
+    @Environment(\.horizontalSizeClass) private var sizeClass
     let pack: DashScopePack
     let grain: DashScopeGrain
     let flags: [HeartbeatMath.FiveStarFlag]
@@ -335,27 +352,55 @@ struct DashScopeGrainCard: View {
                     children = Array(store.dashboardGrainChildren(section: section, label: pack.line.label).prefix(40))
                 }
             } label: {
-                HStack(spacing: 10) {
-                    Text(line.label)
-                        .font(.headline.weight(.bold))
-                        .foregroundStyle(AppTheme.text)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.75)
-                    Spacer(minLength: 8)
-                    Text(line.value)
-                        .font(.title3.weight(.bold).monospacedDigit())
-                        .foregroundStyle(dashInk(line.health == .none ? .good : line.health))
-                        .lineLimit(1)
-                    if grain != .store {
-                        Text(line.count == 1 ? "1 store" : "\(line.count) stores")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(AppTheme.textSecondary)
+                if HubLayout.isPhone(sizeClass) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text(line.label)
+                                .font(AppTheme.rounded(.subheadline, weight: .bold))
+                                .foregroundStyle(AppTheme.text)
+                                .lineLimit(2)
+                                .minimumScaleFactor(0.8)
+                            Spacer()
+                            HealthBadge(health: line.health == .none ? .good : line.health, prominent: true, compact: true)
+                        }
+                        Text(line.value)
+                            .font(AppTheme.rounded(.title3, weight: .bold).monospacedDigit())
+                            .foregroundStyle(dashInk(line.health == .none ? .good : line.health))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                        if grain != .store {
+                            Text(line.count == 1 ? "1 Store" : "\(line.count) Stores")
+                                .font(AppTheme.rounded(.caption, weight: .semibold))
+                                .foregroundStyle(AppTheme.textSecondary)
+                        }
                     }
-                    HealthBadge(health: line.health, prominent: true, compact: true)
-                    if grain != .store {
-                        Image(systemName: open ? "chevron.up" : "chevron.down")
-                            .font(.caption.weight(.bold))
-                            .foregroundStyle(AppTheme.blue)
+                } else {
+                    HStack(spacing: 10) {
+                        Text(line.label)
+                            .font(AppTheme.rounded(.subheadline, weight: .bold))
+                            .foregroundStyle(AppTheme.text)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.75)
+                            .frame(width: 168, alignment: .leading)
+                        if grain != .store {
+                            Text(line.count == 1 ? "1 Store" : "\(line.count) Stores")
+                                .font(AppTheme.rounded(.subheadline, weight: .semibold))
+                                .foregroundStyle(AppTheme.textSecondary)
+                                .frame(width: 88, alignment: .trailing)
+                        }
+                        Text(line.value)
+                            .font(AppTheme.rounded(.subheadline, weight: .bold).monospacedDigit())
+                            .foregroundStyle(dashInk(line.health == .none ? .good : line.health))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                        HealthBadge(health: line.health == .none ? .good : line.health, prominent: true, compact: true)
+                            .frame(width: 84, alignment: .trailing)
+                        if grain != .store {
+                            Image(systemName: open ? "chevron.up" : "chevron.down")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(AppTheme.blue)
+                        }
                     }
                 }
             }

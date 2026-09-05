@@ -132,7 +132,7 @@ private enum OverviewCols {
     static let status: CGFloat = 92
 }
 
-private struct OverviewSalesAlignedTable: View {
+struct OverviewSalesAlignedTable: View {
     let title: String
     let rows: [SalesRollupRow]
     var showCount: Bool
@@ -238,7 +238,7 @@ private struct OverviewSalesAlignedTable: View {
     }
 }
 
-private struct SalesPack {
+struct SalesPack {
     let sales: Double?
     let yoy: Double?
     let orders: Double?
@@ -312,7 +312,7 @@ private struct SalesPack {
     }
 }
 
-private struct OverviewSalesPhoneCard: View {
+struct OverviewSalesPhoneCard: View {
     let label: String
     var count: Int? = nil
     let pack: SalesPack
@@ -367,14 +367,14 @@ private struct OverviewSalesPhoneCard: View {
     }
 }
 
-private struct SalesRollupRow: Identifiable {
+struct SalesRollupRow: Identifiable {
     var id: String { label }
     let label: String
     let storeCount: Int
     let pack: SalesPack
 }
 
-private enum SalesRollupBuilder {
+enum SalesRollupBuilder {
     static func grain(for filters: DashboardFilters) -> LaborRollupGrain? {
         RollupMarketFill.grain(for: filters)
     }
@@ -411,6 +411,25 @@ private enum SalesRollupBuilder {
             let pack = SalesPack(rows: packRows)
             guard pack.sales != nil || pack.orders != nil else { return nil }
             return SalesRollupRow(label: key, storeCount: Set(packRows.map(\.storeNumber)).count, pack: pack)
+        }
+    }
+
+    static func dashboardRows(from stores: [MetricRow], grain: DashScopeGrain) -> [SalesRollupRow] {
+        switch grain {
+        case .region:
+            return MarketRegion.allCases.compactMap { region in
+                let slice = stores.filter { region.contains($0.division) }
+                guard !slice.isEmpty else { return nil }
+                let pack = SalesPack(rows: slice)
+                guard pack.sales != nil || pack.orders != nil else { return nil }
+                return SalesRollupRow(label: region.rawValue, storeCount: Set(slice.map(\.storeNumber)).count, pack: pack)
+            }
+        case .division:
+            return rows(from: stores, grain: .division)
+        case .district:
+            return rows(from: stores, grain: .district)
+        case .store:
+            return rows(from: stores, grain: .store)
         }
     }
 }
