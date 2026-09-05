@@ -99,6 +99,24 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         }
     }
 
+    var overviewLead: String {
+        switch self {
+        case .sales: return "Sales"
+        case .lostRevenue: return "Loss Revenue"
+        case .fiveStar: return "5 Star"
+        case .preSubOOS: return "Pre-Sub OOS"
+        case .pickPath: return "Pick Path"
+        case .missingItems: return "Missing Items"
+        case .prepNotReady: return "Prep Not Ready"
+        case .dynacap: return "Dynacap"
+        case .scheduleQuality: return "Schedule"
+        case .pickerScorecard: return "Picker"
+        case .pph: return "PPH"
+        case .labor: return "Labor"
+        default: return short
+        }
+    }
+
     var overviewTitle: String {
         switch self {
         case .sales: return "Sales Overview"

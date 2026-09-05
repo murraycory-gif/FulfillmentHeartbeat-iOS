@@ -16,12 +16,7 @@ struct FulfillmentOverviewView: View {
                     trailing: store.sharedDataWindow()
                 )
                 ForEach(MetricSection.overviewCards) { section in
-                    OverviewCalloutBar(
-                        section: section,
-                        summary: store.summary(for: section)
-                    ) {
-                        router.open(section: section)
-                    }
+                    OverviewMetricCard(section: section)
                 }
             }
             .padding(.horizontal, compact ? 12 : 20)
@@ -32,40 +27,63 @@ struct FulfillmentOverviewView: View {
     }
 }
 
-private struct OverviewCalloutBar: View {
+private struct OverviewMetricCard: View {
+    @EnvironmentObject private var store: HeartbeatStore
+    @EnvironmentObject private var router: HubRouter
     let section: MetricSection
-    let summary: SectionSummary
-    let action: () -> Void
+
+    private var summary: SectionSummary { store.summary(for: section) }
+    private var expanded: Bool { section == .sales }
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                Image(systemName: section.symbol)
-                    .font(AppTheme.rounded(.title3, weight: .semibold))
-                    .frame(width: 28)
-                Text(section.overviewTitle)
-                    .font(AppTheme.rounded(.title3, weight: .bold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                Spacer(minLength: 8)
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(summary.headlineText)
-                        .font(AppTheme.rounded(.subheadline, weight: .bold))
-                    Text(statusLabel)
-                        .font(AppTheme.rounded(.caption2, weight: .semibold))
-                        .opacity(0.85)
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                if section != .sales {
+                    router.open(section: section)
                 }
-                Image(systemName: "chevron.right")
-                    .font(AppTheme.rounded(.footnote, weight: .bold))
-                    .opacity(0.7)
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: section.symbol)
+                        .font(AppTheme.rounded(.title3, weight: .semibold))
+                        .frame(width: 28)
+                    Text(section.overviewLead)
+                        .font(AppTheme.rounded(.title3, weight: .bold))
+                        .lineLimit(1)
+                    Text("|")
+                        .font(AppTheme.rounded(.title3, weight: .regular))
+                        .opacity(0.45)
+                    Text("Overview")
+                        .font(AppTheme.rounded(.title3, weight: .semibold))
+                        .opacity(0.62)
+                        .lineLimit(1)
+                    Spacer(minLength: 8)
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(summary.headlineText)
+                            .font(AppTheme.rounded(.subheadline, weight: .bold))
+                        Text(statusLabel)
+                            .font(AppTheme.rounded(.caption2, weight: .semibold))
+                            .opacity(0.8)
+                    }
+                    Image(systemName: expanded ? "chevron.up" : "chevron.right")
+                        .font(AppTheme.rounded(.footnote, weight: .bold))
+                        .opacity(0.7)
+                }
+                .foregroundStyle(Color.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(AppTheme.overviewBar)
             }
-            .foregroundStyle(Color.white)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(AppTheme.overviewBar, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .buttonStyle(.plain)
+            if section == .sales {
+                OverviewSalesBlock()
+            }
         }
-        .buttonStyle(.plain)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(AppTheme.overviewBar, lineWidth: 2.5)
+        )
     }
 
     private var statusLabel: String {

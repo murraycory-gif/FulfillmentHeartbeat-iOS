@@ -1,5 +1,118 @@
 import SwiftUI
 
+struct OverviewSalesBlock: View {
+    @EnvironmentObject private var store: HeartbeatStore
+
+    var body: some View {
+        let stores = SalesRollupBuilder.source(from: store.allLatest(for: .sales), filters: store.filters)
+        let total = SalesPack(rows: stores)
+        let mid = midRows(from: stores)
+        let days = dayRows(from: stores)
+        VStack(alignment: .leading, spacing: 16) {
+            overviewTable(title: scopeTitle, rows: [
+                SalesRollupRow(label: scopeTitle, storeCount: Set(stores.map(\.storeNumber)).count, pack: total)
+            ], showCount: true)
+            if !mid.rows.isEmpty {
+                overviewTable(title: mid.title, rows: mid.rows, showCount: mid.showCount)
+            }
+            if !days.isEmpty {
+                overviewTable(title: "By day", rows: days, showCount: false)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 12)
+        .padding(.bottom, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppTheme.tableFill)
+    }
+
+    private var scopeTitle: String {
+        let filters = store.filters
+        if !filters.store.isEmpty { return "Store \(filters.store)" }
+        if !filters.om.isEmpty { return filters.om }
+        if !filters.district.isEmpty { return filters.district }
+        if !filters.division.isEmpty { return filters.division }
+        if !filters.region.isEmpty { return filters.region }
+        return "Total company"
+    }
+
+    private func midRows(from stores: [MetricRow]) -> (title: String, rows: [SalesRollupRow], showCount: Bool) {
+        let filters = store.filters
+        if !filters.store.isEmpty {
+            return ("Stores", [], false)
+        }
+        if !filters.district.isEmpty || !filters.om.isEmpty {
+            let rows = SalesRollupBuilder.rows(from: stores, grain: .store)
+            return ("By store", rows, false)
+        }
+        if !filters.division.isEmpty {
+            return ("By district", SalesRollupBuilder.rows(from: stores, grain: .district), true)
+        }
+        if !filters.region.isEmpty {
+            return ("By market", SalesRollupBuilder.rows(from: stores, grain: .division), true)
+        }
+        return ("By region", regionRows(from: stores), true)
+    }
+
+    private func regionRows(from stores: [MetricRow]) -> [SalesRollupRow] {
+        MarketRegion.allCases.compactMap { region in
+            let slice = stores.filter { region.contains($0.division) }
+            guard !slice.isEmpty else { return nil }
+            let pack = SalesPack(rows: slice)
+            guard pack.sales != nil || pack.orders != nil else { return nil }
+            return SalesRollupRow(label: region.rawValue, storeCount: Set(slice.map(\.storeNumber)).count, pack: pack)
+        }
+    }
+
+    private func dayRows(from stores: [MetricRow]) -> [SalesRollupRow] {
+        let names = stores
+            .compactMap { $0.textPayload["sales_days"] }
+            .first { !$0.isEmpty }?
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && $0 != "Week" } ?? []
+        guard !names.isEmpty else { return [] }
+        return names.enumerated().compactMap { index, name in
+            let packs = stores.map { SalesPack($0, prefix: "sales_d\(index)_") }
+            let sales = packs.compactMap(\.sales).reduce(0, +)
+            let orders = packs.compactMap(\.orders).reduce(0, +)
+            let items = packs.compactMap(\.items).reduce(0, +)
+            guard sales > 0 || orders > 0 else { return nil }
+            let yoyWeight = zip(packs, stores).reduce(0.0) { $0 + (($1.0.yoy ?? 0) * ($1.0.sales ?? 0)) }
+            let pack = SalesPack(
+                sales: sales,
+                yoy: sales > 0 ? yoyWeight / sales : nil,
+                orders: orders,
+                ordersYoy: HeartbeatMath.average(packs.compactMap(\.ordersYoy)),
+                aos: orders > 0 ? sales / orders : nil,
+                aiv: HeartbeatMath.average(packs.compactMap(\.aiv)),
+                items: items,
+                ipt: HeartbeatMath.average(packs.compactMap(\.ipt)),
+                hd: packs.compactMap(\.hd).reduce(0, +),
+                dug: packs.compactMap(\.dug).reduce(0, +),
+                health: HeartbeatMath.salesHealth(planPct: nil, yoy: sales > 0 ? yoyWeight / sales : nil)
+            )
+            return SalesRollupRow(label: name, storeCount: stores.count, pack: pack)
+        }
+    }
+
+    private func overviewTable(title: String, rows: [SalesRollupRow], showCount: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(AppTheme.rounded(.subheadline, weight: .bold))
+                .foregroundStyle(AppTheme.text)
+            HubAdaptiveHScroll {
+                VStack(alignment: .leading, spacing: 8) {
+                    SalesMetricHeader(label: title == "By day" ? "Day" : "Scope", showCount: showCount)
+                    ForEach(rows) { row in
+                        SalesMetricLine(label: row.label, count: showCount ? row.storeCount : nil, pack: row.pack)
+                    }
+                }
+            }
+        }
+    }
+}
+
 private struct SalesPack {
     let sales: Double?
     let yoy: Double?
@@ -45,6 +158,32 @@ private struct SalesPack {
         self.ipt = HeartbeatMath.average(rows.compactMap { $0.number("sales_ipt") })
         self.ordersYoy = HeartbeatMath.average(rows.compactMap { $0.number("sales_orders_yoy_pct") })
         self.health = HeartbeatMath.salesHealth(planPct: nil, yoy: yoy)
+    }
+
+    init(
+        sales: Double?,
+        yoy: Double?,
+        orders: Double?,
+        ordersYoy: Double?,
+        aos: Double?,
+        aiv: Double?,
+        items: Double?,
+        ipt: Double?,
+        hd: Double?,
+        dug: Double?,
+        health: Health
+    ) {
+        self.sales = sales
+        self.yoy = yoy
+        self.orders = orders
+        self.ordersYoy = ordersYoy
+        self.aos = aos
+        self.aiv = aiv
+        self.items = items
+        self.ipt = ipt
+        self.hd = hd
+        self.dug = dug
+        self.health = health
     }
 }
 
