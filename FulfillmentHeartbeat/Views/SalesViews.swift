@@ -111,15 +111,140 @@ struct OverviewSalesBlock: View {
                     }
                 }
             } else {
-                HubAdaptiveHScroll {
-                    VStack(alignment: .leading, spacing: 8) {
-                        SalesMetricHeader(label: title == "By day" ? "Day" : "Scope", showCount: showCount)
-                        ForEach(rows) { row in
-                            SalesMetricLine(label: row.label, count: showCount ? row.storeCount : nil, pack: row.pack)
-                        }
-                    }
-                }
+                OverviewSalesAlignedTable(title: title, rows: rows, showCount: showCount)
             }
+        }
+    }
+}
+
+private enum OverviewCols {
+    static let gap: CGFloat = 10
+    static let label: CGFloat = 168
+    static let count: CGFloat = 64
+    static let sales: CGFloat = 132
+    static let yoy: CGFloat = 78
+    static let orders: CGFloat = 92
+    static let ordersYoy: CGFloat = 78
+    static let aos: CGFloat = 78
+    static let aiv: CGFloat = 56
+    static let ipt: CGFloat = 72
+    static let items: CGFloat = 96
+    static let status: CGFloat = 92
+}
+
+private struct OverviewSalesAlignedTable: View {
+    let title: String
+    let rows: [SalesRollupRow]
+    var showCount: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            OverviewSalesAlignedHeader(label: title == "By day" ? "Day" : "Scope", showCount: showCount)
+            ForEach(rows) { row in
+                OverviewSalesAlignedRow(
+                    label: row.label,
+                    count: showCount ? row.storeCount : nil,
+                    pack: row.pack,
+                    showCount: showCount
+                )
+            }
+        }
+    }
+}
+
+private struct OverviewSalesAlignedHeader: View {
+    let label: String
+    var showCount: Bool
+
+    var body: some View {
+        HStack(spacing: OverviewCols.gap) {
+            Text(label.uppercased())
+                .frame(width: OverviewCols.label, alignment: .leading)
+            if showCount {
+                Text("STORES")
+                    .frame(width: OverviewCols.count, alignment: .trailing)
+            }
+            Text("SALES $").frame(width: OverviewCols.sales, alignment: .trailing)
+            Text("YOY %").frame(width: OverviewCols.yoy, alignment: .trailing)
+            Text("ORDERS").frame(width: OverviewCols.orders, alignment: .trailing)
+            Text("ORD YOY").frame(width: OverviewCols.ordersYoy, alignment: .trailing)
+            Text("AOS").frame(width: OverviewCols.aos, alignment: .trailing)
+            Text("AIV").frame(width: OverviewCols.aiv, alignment: .trailing)
+            Text("ITEMS/TXN").frame(width: OverviewCols.ipt, alignment: .trailing)
+            Text("ITEMS").frame(width: OverviewCols.items, alignment: .trailing)
+            Text("STATUS").frame(width: OverviewCols.status, alignment: .trailing)
+        }
+        .font(AppTheme.rounded(.caption2, weight: .bold))
+        .foregroundStyle(AppTheme.textSecondary)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 4)
+    }
+}
+
+private struct OverviewSalesAlignedRow: View {
+    let label: String
+    var count: Int?
+    let pack: SalesPack
+    var showCount: Bool
+
+    var body: some View {
+        HStack(spacing: OverviewCols.gap) {
+            Text(label)
+                .font(AppTheme.rounded(.subheadline, weight: .semibold))
+                .foregroundStyle(AppTheme.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .frame(width: OverviewCols.label, alignment: .leading)
+            if showCount {
+                Text(HeartbeatFormat.num(Double(count ?? 0)))
+                    .font(AppTheme.rounded(.subheadline, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .frame(width: OverviewCols.count, alignment: .trailing)
+            }
+            value(HeartbeatFormat.money(pack.sales), pack.health, width: OverviewCols.sales)
+            value(HeartbeatFormat.pct(pack.yoy), pack.health, width: OverviewCols.yoy)
+            value(HeartbeatFormat.num(pack.orders, digits: 0), .none, width: OverviewCols.orders)
+            value(HeartbeatFormat.pct(pack.ordersYoy), .none, width: OverviewCols.ordersYoy)
+            value(HeartbeatFormat.money(pack.aos), .none, width: OverviewCols.aos, brand: true)
+            value(HeartbeatFormat.num(pack.aiv, digits: 2), .none, width: OverviewCols.aiv)
+            value(HeartbeatFormat.num(pack.ipt, digits: 1), .none, width: OverviewCols.ipt)
+            value(HeartbeatFormat.num(pack.items, digits: 0), .none, width: OverviewCols.items)
+            HealthBadge(health: pack.health == .none && (pack.sales ?? 0) > 0 ? .good : pack.health, prominent: true, compact: true)
+                .frame(width: OverviewCols.status, alignment: .trailing)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(AppTheme.healthWash(pack.health).opacity(0.55))
+        )
+        .overlay(alignment: .leading) {
+            Capsule()
+                .fill(pack.health == .none ? AppTheme.blue.opacity(0.35) : AppTheme.healthInk(pack.health))
+                .frame(width: 4)
+                .padding(.vertical, 8)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(pack.health == .risk ? AppTheme.bad.opacity(0.7) : Color.black.opacity(0.04), lineWidth: pack.health == .risk ? 1.5 : 1)
+        }
+    }
+
+    private func value(_ text: String, _ health: Health, width: CGFloat, brand: Bool = false) -> some View {
+        Text(text)
+            .font(AppTheme.rounded(.subheadline, weight: .bold).monospacedDigit())
+            .foregroundStyle(brand ? AppTheme.blue : ink(health))
+            .lineLimit(1)
+            .minimumScaleFactor(0.75)
+            .frame(width: width, alignment: .trailing)
+    }
+
+    private func ink(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.text
         }
     }
 }
