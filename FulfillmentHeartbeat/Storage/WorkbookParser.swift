@@ -112,7 +112,18 @@ enum WorkbookParser {
         }
         let strings = zip.file(named: "xl/sharedStrings.xml").flatMap { String(data: $0, encoding: .utf8) }.map(SharedStrings.parse) ?? []
         zip.release("xl/sharedStrings.xml")
-        let sheetsToRead = sheetMap(from: zip)
+        let sheetsToRead = sheetMap(from: zip).sorted { lhs, rhs in
+            func heavy(_ name: String) -> Bool {
+                switch section(fromSheetName: name) {
+                case .pickerScorecard, .pickPathPicker, .labor, .preSubOOSItem: return true
+                default: return false
+                }
+            }
+            let left = heavy(lhs.name)
+            let right = heavy(rhs.name)
+            if left != right { return !left && right }
+            return false
+        }
         if sheetsToRead.isEmpty { throw ParseError.unreadable }
 
         let expected = MetricSection.uploadOrder.count

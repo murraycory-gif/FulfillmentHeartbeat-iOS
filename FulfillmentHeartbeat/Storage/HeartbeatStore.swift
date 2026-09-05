@@ -1471,6 +1471,7 @@ final class HeartbeatStore: ObservableObject {
             rows = nextRows
             uploads = nextUploads
             filters = DashboardFilters()
+            rebuildLaborWeekIndex()
             install(caches)
             hydrating = false
             Task.detached(priority: .utility) {
@@ -1906,6 +1907,7 @@ final class HeartbeatStore: ObservableObject {
         pphPickersByStore = caches.pphPickersByStore
         cachedCardFlags = caches.cachedCardFlags
         cachedGrainPacks = caches.cachedGrainPacks
+        rebuildLaborWeekIndex()
         refreshChecklistOpenCount()
         objectWillChange.send()
     }
