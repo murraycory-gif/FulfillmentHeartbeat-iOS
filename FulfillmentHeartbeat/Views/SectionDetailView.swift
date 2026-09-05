@@ -145,6 +145,7 @@ struct SectionDetailView: View {
             }
             }
             .listStyle(.plain)
+            .listSectionSpacing(0)
             .scrollContentBackground(.hidden)
             .environment(\.defaultMinListRowHeight, 1)
             .transaction { $0.animation = nil }

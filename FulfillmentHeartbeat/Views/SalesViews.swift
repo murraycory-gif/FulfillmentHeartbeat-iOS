@@ -259,7 +259,7 @@ struct SalesRollupTable: View {
     var body: some View {
         Group {
             if let grain {
-                VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
+                VStack(alignment: .leading, spacing: 0) {
                     Button {
                         headerPin.rollupExpanded.toggle()
                     } label: {
@@ -292,8 +292,8 @@ struct SalesRollupTable: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
                         .padding(.horizontal, 16)
-                        .padding(.top, 10)
-                        .padding(.bottom, 16)
+                        .padding(.top, 8)
+                        .padding(.bottom, 14)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

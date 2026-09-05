@@ -1725,40 +1725,13 @@ struct PickPathTable: View {
             }
         } else {
             Section {
-                Button {
+                HubStoreCard(count: rows.count, expanded: expanded) {
                     let next = !headerPin.storesExpanded
                     headerPin.storesExpanded = next
                     headerPin.tableOpen = next
                     if !next { headerPin.pinned = false }
                     if next { rebuildOrder(sort: sort, ascending: ascending) }
-                } label: {
-                    HubTableHeader(
-                            icon: "storefront.fill",
-                            title: "Store",
-                            accessory: "\(HeartbeatFormat.num(Double(rows.count))) stores  ·  tap to \(expanded ? "collapse" : "expand")",
-                            expanded: expanded
-                        )
-                }
-                .buttonStyle(.plain)
-                .background(AppTheme.tableFill)
-                .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                        .stroke(AppTheme.blue, lineWidth: 2.5)
-                )
-                .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: expanded ? 4 : 20, trailing: 20))
-                .listRowSeparator(.hidden)
-                .listRowBackground(AppTheme.bg)
-                .onAppear {
-                    headerPin.tableOpen = headerPin.storesExpanded
-                    headerPin.storeCount = rows.count
-                    headerPin.active = sort.key
-                    headerPin.ascending = ascending
-                    headerPin.onSelect = applyHeaderSort
-                }
-            }
-            if expanded {
-                Section {
+                } content: {
                     PickPathMetricHeader(
                         label: "Store",
                         showCount: false,
@@ -1767,17 +1740,6 @@ struct PickPathTable: View {
                         ascending: ascending,
                         onSelect: applyHeaderSort
                     )
-                    .background(
-                        GeometryReader { geo in
-                            Color.clear.preference(
-                                key: LaborHeaderMinYKey.self,
-                                value: (geo.frame(in: .global).minY / 12).rounded() * 12
-                            )
-                        }
-                    )
-                    .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(AppTheme.tableFill)
                     ForEach(Array(snaps.prefix(limit))) { snap in
                         PickPathStoreRow(
                             snap: snap,
@@ -1786,9 +1748,6 @@ struct PickPathTable: View {
                                 openStore = openStore == snap.storeNumber ? nil : snap.storeNumber
                             }
                         )
-                        .listRowInsets(EdgeInsets(top: 5, leading: 20, bottom: 5, trailing: 20))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.tableFill)
                     }
                     if orderedCount > snaps.count {
                         Button {
@@ -1802,13 +1761,19 @@ struct PickPathTable: View {
                                 .padding(.vertical, 12)
                         }
                         .buttonStyle(.plain)
-                        .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 16, trailing: 20))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.tableFill)
                     }
                 }
-                .transaction { $0.animation = nil }
-                .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
+                .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 20, trailing: 20))
+                .listRowSeparator(.hidden)
+                .listRowBackground(AppTheme.bg)
+                .onAppear {
+                    headerPin.tableOpen = headerPin.storesExpanded
+                    headerPin.storeCount = rows.count
+                    headerPin.active = sort.key
+                    headerPin.ascending = ascending
+                    headerPin.onSelect = applyHeaderSort
+                    if expanded { rebuildOrder(sort: sort, ascending: ascending) }
+                }
                 .onChange(of: store.filterStamp) { _, _ in
                     limit = 50
                     rebuildOrder(sort: sort, ascending: ascending)
@@ -1819,11 +1784,8 @@ struct PickPathTable: View {
                     rebuildOrder(sort: sort, ascending: ascending)
                     headerPin.storeCount = rows.count
                 }
-                .onChange(of: rows.first?.storeNumber) { _, _ in
-                    rebuildOrder(sort: sort, ascending: ascending)
-                    headerPin.storeCount = rows.count
-                }
             }
+            .transaction { $0.animation = nil }
         }
     }
 
@@ -9720,7 +9682,7 @@ struct HubStoreCard<Content: View>: View {
     @ViewBuilder var content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
+        VStack(alignment: .leading, spacing: 0) {
             Button(action: toggle) {
                 HubTableHeader(
                     icon: "storefront.fill",
@@ -9733,8 +9695,8 @@ struct HubStoreCard<Content: View>: View {
             if expanded {
                 content
                     .padding(.horizontal, 16)
-                    .padding(.top, 10)
-                    .padding(.bottom, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 14)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
