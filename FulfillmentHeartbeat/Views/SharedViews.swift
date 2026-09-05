@@ -84,7 +84,7 @@ struct HubBanner: View {
                 .font(compact ? HubLayout.phoneBannerIconFont() : .title2.weight(.semibold))
             VStack(alignment: .leading, spacing: compact ? 1 : 2) {
                 Text(title)
-                    .font(compact ? HubLayout.phoneBannerTitleFont() : .title2.weight(.bold))
+                    .font(compact ? HubLayout.phoneBannerTitleFont() : AppTheme.rounded(.title2, weight: .bold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
                 if let accessory, !accessory.isEmpty {
@@ -174,6 +174,7 @@ struct HubTableHeader: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(title)
                     .font((phone ? Font.subheadline : Font.title3).weight(.bold))
+                    .fontDesign(.rounded)
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
                 Text(accessory)

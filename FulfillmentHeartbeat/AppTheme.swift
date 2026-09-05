@@ -3,10 +3,11 @@ import UIKit
 
 /// EnviroMap light paper: HUB canvas #F5F7FC, brand blue, quiet type.
 enum AppTheme {
-    /// Darker Albertsons blue — Fulfillment title, UI chrome, and all blue text.
-    static let blue = Color(hex: "003DA5")
-    static let blueSoft = Color(hex: "DCE6F4")
-    static let blueDeep = Color(hex: "003DA5")
+    /// Family Hub bar — near-black navy used for banners, chrome, and type accent.
+    static let ink = Color(hex: "111318")
+    static let blue = ink
+    static let blueSoft = Color(hex: "E8EAED")
+    static let blueDeep = ink
     /// Darker Albertsons blue — heart fill.
     static let heart = Color(hex: "003DA5")
     /// Lighter Albertsons blue — ECG pulse and "ment" in the wordmark.
@@ -30,6 +31,16 @@ enum AppTheme {
     static let warnSoft = Color(hex: "FEF3C7")
     static let bad = Color(hex: "DC2626")
     static let badSoft = Color(hex: "FEE2E2")
+
+    static func rounded(_ style: Font.TextStyle, weight: Font.Weight = .semibold) -> Font {
+        Font.system(style, design: .rounded).weight(weight)
+    }
+
+    static func rounded(size: CGFloat, weight: Font.Weight = .semibold) -> Font {
+        Font.system(size: size, weight: weight, design: .rounded)
+    }
+
+    static var bodyFont: Font { Font.system(.body, design: .rounded) }
 
     static let radiusL: CGFloat = 20
     static let radiusM: CGFloat = 14
@@ -243,8 +254,8 @@ enum HubLayout {
         sizeClass != .regular
     }
 
-    static func phoneBannerTitleFont() -> Font { .subheadline.weight(.bold) }
-    static func phoneBannerIconFont() -> Font { .callout.weight(.semibold) }
+    static func phoneBannerTitleFont() -> Font { AppTheme.rounded(.subheadline, weight: .bold) }
+    static func phoneBannerIconFont() -> Font { AppTheme.rounded(.callout, weight: .semibold) }
     static var phoneControlHeight: CGFloat { 30 }
     static var phoneInset: CGFloat { 12 }
 

@@ -18,16 +18,17 @@ struct FulfillmentHeartbeatApp: App {
         nav.configureWithTransparentBackground()
         nav.backgroundColor = launchUI
         nav.largeTitleTextAttributes = [
-            .foregroundColor: UIColor(red: 0.08, green: 0.10, blue: 0.16, alpha: 1),
-            .font: UIFont.systemFont(ofSize: 34, weight: .semibold),
+            .foregroundColor: UIColor(red: 0.07, green: 0.07, blue: 0.09, alpha: 1),
+            .font: UIFont.systemFont(ofSize: 34, weight: .bold).rounded,
         ]
         nav.titleTextAttributes = [
-            .foregroundColor: UIColor(red: 0.08, green: 0.10, blue: 0.16, alpha: 1),
+            .foregroundColor: UIColor(red: 0.07, green: 0.07, blue: 0.09, alpha: 1),
+            .font: UIFont.systemFont(ofSize: 17, weight: .semibold).rounded,
         ]
         UINavigationBar.appearance().standardAppearance = nav
         UINavigationBar.appearance().scrollEdgeAppearance = nav
         UINavigationBar.appearance().compactAppearance = nav
-        UINavigationBar.appearance().tintColor = UIColor(red: 0.15, green: 0.42, blue: 0.95, alpha: 1)
+        UINavigationBar.appearance().tintColor = UIColor(red: 0.07, green: 0.07, blue: 0.09, alpha: 1)
     }
 
     var body: some Scene {
@@ -36,6 +37,7 @@ struct FulfillmentHeartbeatApp: App {
                 launch.ignoresSafeArea()
                 RootView()
                     .environmentObject(store)
+                    .environment(\.font, AppTheme.bodyFont)
             }
             .background(launch.ignoresSafeArea())
             .preferredColorScheme(.light)
@@ -63,5 +65,12 @@ struct FulfillmentHeartbeatApp: App {
         #if targetEnvironment(macCatalyst)
         .defaultSize(width: 1280, height: 860)
         #endif
+    }
+}
+
+private extension UIFont {
+    var rounded: UIFont {
+        guard let descriptor = fontDescriptor.withDesign(.rounded) else { return self }
+        return UIFont(descriptor: descriptor, size: pointSize)
     }
 }
