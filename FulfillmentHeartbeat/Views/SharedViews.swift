@@ -8882,7 +8882,7 @@ struct PickerScoreTable: View {
                     headerPin.active = sort.key
                     headerPin.ascending = ascending
                     headerPin.onSelect = applyHeaderSort
-                    rebuildPage()
+                    if expanded { rebuildPage() }
                 }
                 .onChange(of: focus) { _, _ in
                     limit = 50

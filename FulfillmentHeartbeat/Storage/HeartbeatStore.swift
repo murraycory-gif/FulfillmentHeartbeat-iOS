@@ -258,21 +258,21 @@ final class HeartbeatStore: ObservableObject {
     func pickerPage(focus: PickerFocus, sort: PickerSort, ascending: Bool, limit: Int) -> [MetricRow] {
         let pickers = filteredLatest[.pickerScorecard] ?? []
         guard !pickers.isEmpty else { return [] }
-        var idxs = pickerIndex[focus] ?? []
-        if idxs.contains(where: { !pickers.indices.contains($0) }) {
-            rebuildPickerIndex(pickers)
-            idxs = pickerIndex[focus] ?? []
+        var idxs = (pickerIndex[focus] ?? []).filter { pickers.indices.contains($0) }
+        if idxs.isEmpty {
+            if focus == .all {
+                idxs = Array(pickers.indices)
+            } else {
+                return []
+            }
         }
-        if idxs.isEmpty, focus == .all {
-            idxs = Array(pickers.indices)
-        }
-        idxs.removeAll { !pickers.indices.contains($0) }
+        let cap = min(max(limit, 1), idxs.count)
         idxs.sort { lhs, rhs in
             let result = comparePickers(pickers[lhs], pickers[rhs], sort: sort)
             return ascending ? result == .orderedAscending : result == .orderedDescending
         }
-        if idxs.count > limit {
-            idxs = Array(idxs.prefix(limit))
+        if idxs.count > cap {
+            idxs = Array(idxs.prefix(cap))
         }
         return idxs.map { pickers[$0] }
     }
@@ -1924,15 +1924,20 @@ final class HeartbeatStore: ObservableObject {
     private func mergeHeavy(_ bits: PulseCaches.HeavyBits) {
         cachedPickerBoard = bits.pickerBoard
         cachedChecklistGroups = bits.checklistGroups
-        let pickers = filteredLatest[.pickerScorecard] ?? []
-        let built = pickerIndexValues(pickers)
-        pickerIndex = built.index
-        pickerFocusHealth = built.health
         pickPathPickersByStore = bits.pickPathPickersByStore
         pickPathByShopper = bits.pickPathByShopper
         pphPickersByStore = bits.pphPickersByStore
         refreshChecklistOpenCount()
-        objectWillChange.send()
+        let pickers = filteredLatest[.pickerScorecard] ?? []
+        let count = pickers.count
+        Task.detached(priority: .utility) {
+            let built = PulseCaches.pickerBuckets(pickers)
+            await MainActor.run {
+                guard (self.filteredLatest[.pickerScorecard] ?? []).count == count else { return }
+                self.pickerIndex = built.index
+                self.pickerFocusHealth = built.health
+            }
+        }
     }
 
     private func mergeHeavy(_ caches: PulseCaches) {
@@ -2487,6 +2492,10 @@ private struct PulseCaches {
             allowed.insert(number)
         }
         return allowed
+    }
+
+    static func pickerBuckets(_ pickers: [MetricRow]) -> (index: [PickerFocus: [Int]], health: [PickerFocus: Health]) {
+        pickerIndexValues(pickers)
     }
 
     private static func pickerIndexValues(_ pickers: [MetricRow]) -> (index: [PickerFocus: [Int]], health: [PickerFocus: Health]) {
