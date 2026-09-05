@@ -47,9 +47,6 @@ struct LaunchSplashView: View {
                 VStack(spacing: 18) {
                     FulfillmentWordmark(height: 52)
                     BeatingHeartbeatMark(height: 72, showsTrace: true, showsWordmark: false)
-                    Text("Heartbeat")
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(Color(hex: "00A9E0"))
                 }
                 .padding(.horizontal, 28)
             } else {
