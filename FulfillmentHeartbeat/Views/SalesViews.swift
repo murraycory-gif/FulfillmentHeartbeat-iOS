@@ -138,70 +138,102 @@ private struct OverviewSalesAlignedTable: View {
     var showCount: Bool
 
     var body: some View {
-        Grid(alignment: .trailing, horizontalSpacing: 12, verticalSpacing: 8) {
-            GridRow {
-                Text(title == "By day" ? "DAY" : "SCOPE")
-                    .gridColumnAlignment(.leading)
-                    .frame(minWidth: 128, maxWidth: .infinity, alignment: .leading)
-                Text("STORES")
-                Text("SALES $")
-                Text("YOY %")
-                Text("ORDERS")
-                Text("ORD YOY")
-                Text("AOS")
-                Text("AIV")
-                Text("ITEMS/TXN")
-                Text("ITEMS")
-                Text("STATUS")
-            }
-            .font(AppTheme.rounded(.caption2, weight: .bold))
-            .foregroundStyle(AppTheme.textSecondary)
-
-            ForEach(rows) { row in
-                GridRow {
-                    Text(row.label)
-                        .font(AppTheme.rounded(.subheadline, weight: .semibold))
-                        .foregroundStyle(AppTheme.text)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
-                        .gridColumnAlignment(.leading)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    Text(HeartbeatFormat.num(Double(row.storeCount)))
-                        .font(AppTheme.rounded(.subheadline, weight: .semibold).monospacedDigit())
-                        .foregroundStyle(AppTheme.textSecondary)
-                    cell(HeartbeatFormat.money(row.pack.sales), row.pack.health)
-                    cell(HeartbeatFormat.pct(row.pack.yoy), row.pack.health)
-                    cell(HeartbeatFormat.num(row.pack.orders, digits: 0), .none)
-                    cell(HeartbeatFormat.pct(row.pack.ordersYoy), .none)
-                    cell(HeartbeatFormat.money(row.pack.aos), .none, brand: true)
-                    cell(HeartbeatFormat.num(row.pack.aiv, digits: 2), .none)
-                    cell(HeartbeatFormat.num(row.pack.ipt, digits: 1), .none)
-                    cell(HeartbeatFormat.num(row.pack.items, digits: 0), .none)
-                    HealthBadge(
-                        health: row.pack.health == .none && (row.pack.sales ?? 0) > 0 ? .good : row.pack.health,
-                        prominent: true,
-                        compact: true
-                    )
-                }
+        VStack(alignment: .leading, spacing: 0) {
+            row(
+                label: title == "By day" ? "Day" : "Scope",
+                stores: "Stores",
+                values: ["Sales $", "YoY %", "Orders", "Ord YoY", "AOS", "AIV", "Items/Txn", "Items"],
+                status: "Status",
+                health: nil,
+                header: true
+            )
+            ForEach(Array(rows.enumerated()), id: \.element.id) { index, item in
+                row(
+                    label: item.label,
+                    stores: HeartbeatFormat.num(Double(item.storeCount)),
+                    values: [
+                        HeartbeatFormat.money(item.pack.sales),
+                        HeartbeatFormat.pct(item.pack.yoy),
+                        HeartbeatFormat.num(item.pack.orders, digits: 0),
+                        HeartbeatFormat.pct(item.pack.ordersYoy),
+                        HeartbeatFormat.money(item.pack.aos),
+                        HeartbeatFormat.num(item.pack.aiv, digits: 2),
+                        HeartbeatFormat.num(item.pack.ipt, digits: 1),
+                        HeartbeatFormat.num(item.pack.items, digits: 0)
+                    ],
+                    status: nil,
+                    health: item.pack.health == .none && (item.pack.sales ?? 0) > 0 ? .good : item.pack.health,
+                    header: false,
+                    yoyRisk: (item.pack.yoy ?? 0) < 0,
+                    stripe: index.isMultiple(of: 2)
+                )
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity)
     }
 
-    private func cell(_ text: String, _ health: Health, brand: Bool = false) -> some View {
-        Text(text)
-            .font(AppTheme.rounded(.subheadline, weight: .bold).monospacedDigit())
-            .foregroundStyle(brand ? AppTheme.blue : ink(health))
+    private func row(
+        label: String,
+        stores: String,
+        values: [String],
+        status: String?,
+        health: Health?,
+        header: Bool,
+        yoyRisk: Bool = false,
+        stripe: Bool = false
+    ) -> some View {
+        HStack(spacing: 6) {
+            Text(header ? label.uppercased() : label)
+                .font(AppTheme.rounded(header ? .caption2 : .subheadline, weight: header ? .bold : .semibold))
+                .foregroundStyle(header ? AppTheme.textSecondary : AppTheme.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .frame(width: 132, alignment: .leading)
+            cell(stores, header: header, secondary: true)
+            ForEach(Array(values.enumerated()), id: \.offset) { index, text in
+                cell(
+                    text,
+                    header: header,
+                    tone: header ? nil : tone(index: index, yoyRisk: yoyRisk, health: health)
+                )
+            }
+            Group {
+                if header {
+                    Text(status ?? "STATUS")
+                        .font(AppTheme.rounded(.caption2, weight: .bold))
+                        .foregroundStyle(AppTheme.textSecondary)
+                } else if let health {
+                    HealthBadge(health: health, prominent: true, compact: true)
+                }
+            }
+            .frame(width: 84, alignment: .trailing)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, header ? 6 : 9)
+        .background(stripe ? AppTheme.blueSoft.opacity(0.35) : Color.clear)
+    }
+
+    private func cell(_ text: String, header: Bool, secondary: Bool = false, tone: Health? = nil) -> some View {
+        Text(header ? text.uppercased() : text)
+            .font(AppTheme.rounded(header ? .caption2 : .subheadline, weight: header ? .bold : .bold).monospacedDigit())
+            .foregroundStyle(header ? AppTheme.textSecondary : ink(tone, secondary: secondary))
             .lineLimit(1)
-            .minimumScaleFactor(0.75)
+            .minimumScaleFactor(0.7)
+            .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
-    private func ink(_ health: Health) -> Color {
+    private func tone(index: Int, yoyRisk: Bool, health: Health?) -> Health? {
+        if index == 0 || index == 1 { return yoyRisk ? .risk : health }
+        return nil
+    }
+
+    private func ink(_ health: Health?, secondary: Bool) -> Color {
+        if secondary { return AppTheme.textSecondary }
         switch health {
         case .good: return AppTheme.ok
         case .watch: return AppTheme.warn
         case .risk: return AppTheme.bad
-        case .none: return AppTheme.text
+        default: return AppTheme.text
         }
     }
 }
