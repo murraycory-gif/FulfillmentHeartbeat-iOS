@@ -5163,7 +5163,7 @@ enum LaborRollupGrain {
     var title: String {
         switch self {
         case .division: return "Markets"
-        case .district: return "By district"
+        case .district: return "By District"
         case .store: return "Store"
         }
     }
@@ -6214,7 +6214,7 @@ struct LaborStoreExpand: View {
             laborGrid(from: week, health: health)
             if isOpen {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("By day")
+                    Text("By Day")
                         .font(.subheadline.weight(.bold))
                     if days.isEmpty {
                         Text("No charged days in this week.")

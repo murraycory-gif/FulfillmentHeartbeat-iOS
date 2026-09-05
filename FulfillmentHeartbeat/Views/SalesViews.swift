@@ -19,7 +19,7 @@ struct OverviewSalesBlock: View {
                 overviewTable(title: mid.title, rows: mid.rows, showCount: mid.showCount)
             }
             if !days.isEmpty {
-                overviewTable(title: "By day", rows: days, showCount: false)
+                overviewTable(title: "By Day", rows: days, showCount: false)
             }
         }
         .padding(.horizontal, phone ? 10 : 14)
@@ -36,7 +36,7 @@ struct OverviewSalesBlock: View {
         if !filters.district.isEmpty { return filters.district }
         if !filters.division.isEmpty { return filters.division }
         if !filters.region.isEmpty { return filters.region }
-        return "Total company"
+        return "Total Company"
     }
 
     private func midRows(from stores: [MetricRow]) -> (title: String, rows: [SalesRollupRow], showCount: Bool) {
@@ -46,15 +46,15 @@ struct OverviewSalesBlock: View {
         }
         if !filters.district.isEmpty || !filters.om.isEmpty {
             let rows = SalesRollupBuilder.rows(from: stores, grain: .store)
-            return ("By store", rows, false)
+            return ("By Store", rows, false)
         }
         if !filters.division.isEmpty {
-            return ("By district", SalesRollupBuilder.rows(from: stores, grain: .district), true)
+            return ("By District", SalesRollupBuilder.rows(from: stores, grain: .district), true)
         }
         if !filters.region.isEmpty {
-            return ("By market", SalesRollupBuilder.rows(from: stores, grain: .division), true)
+            return ("By Market", SalesRollupBuilder.rows(from: stores, grain: .division), true)
         }
-        return ("By region", regionRows(from: stores), true)
+        return ("By Region", regionRows(from: stores), true)
     }
 
     private func regionRows(from stores: [MetricRow]) -> [SalesRollupRow] {
@@ -102,7 +102,7 @@ struct OverviewSalesBlock: View {
     private func overviewTable(title: String, rows: [SalesRollupRow], showCount: Bool) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
-                .font(AppTheme.rounded(.subheadline, weight: .bold))
+                .font(AppTheme.rounded(.title3, weight: .bold))
                 .foregroundStyle(AppTheme.text)
             if phone {
                 VStack(spacing: 8) {
@@ -140,7 +140,7 @@ private struct OverviewSalesAlignedTable: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             row(
-                label: title == "By day" ? "Day" : "Scope",
+                label: title == "By Day" ? "Day" : "Scope",
                 stores: "Stores",
                 values: ["Sales $", "YoY %", "Orders", "Ord YoY", "AOS", "AIV", "Items/Txn", "Items"],
                 status: "Status",

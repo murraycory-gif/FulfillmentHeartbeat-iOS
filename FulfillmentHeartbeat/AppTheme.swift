@@ -3,14 +3,13 @@ import UIKit
 
 /// EnviroMap light paper: HUB canvas #F5F7FC, brand blue, quiet type.
 enum AppTheme {
-    /// Darker Albertsons blue — Fulfillment title, UI chrome, and all blue text.
-    static let blue = Color(hex: "003DA5")
-    static let blueSoft = Color(hex: "DCE6F4")
-    static let blueDeep = Color(hex: "003DA5")
-    /// Darker Albertsons navy — Fulfillment Overview callout bars only.
-    static let overviewBar = Color(hex: "00285C")
+    /// Overview callout navy — banners, chrome, and blue text through the app.
+    static let blue = Color(hex: "00285C")
+    static let blueSoft = Color(hex: "D6DEEA")
+    static let blueDeep = Color(hex: "00285C")
+    static let overviewBar = blue
     /// Darker Albertsons blue — heart fill.
-    static let heart = Color(hex: "003DA5")
+    static let heart = Color(hex: "00285C")
     /// Lighter Albertsons blue — ECG pulse and "ment" in the wordmark.
     static let pulse = Color(hex: "00A9E0")
 

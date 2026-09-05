@@ -428,7 +428,7 @@ private enum MissingItemsGrain {
     var title: String {
         switch self {
         case .division: return "Markets"
-        case .district: return "By district"
+        case .district: return "By District"
         case .store: return "Store"
         }
     }

@@ -586,7 +586,7 @@ enum PulseMail {
             let count = group.count == 1 ? "1 store" : "\(group.count) stores"
             cards += metricCard(title: key, detail: count, metrics: metricLine(section, row: fake, pickerCount: group.count), health: health)
         }
-        let title = grain == "district" ? "By district" : "Markets"
+        let title = grain == "district" ? "By District" : "Markets"
         let filled = buckets.filter { !$0.value.isEmpty }.count
         return bar(title, "\(filled) \(grain == "district" ? "districts" : "divisions")") + cards
     }
