@@ -99,6 +99,14 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         }
     }
 
+    var overviewTitle: String {
+        switch self {
+        case .sales: return "Sales Overview"
+        case .lostRevenue: return "Loss Revenue"
+        default: return title
+        }
+    }
+
     var bannerTitle: String {
         switch self {
         case .fiveStar: return "5 Star ScoreCard"
@@ -169,6 +177,10 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
         default:
             return nil
         }
+    }
+
+    static var overviewCards: [MetricSection] {
+        [.sales, .lostRevenue, .fiveStar, .preSubOOS, .pickPath, .missingItems, .prepNotReady, .dynacap, .scheduleQuality, .pickerScorecard, .pph, .labor]
     }
 
     static var dashboardCards: [MetricSection] {

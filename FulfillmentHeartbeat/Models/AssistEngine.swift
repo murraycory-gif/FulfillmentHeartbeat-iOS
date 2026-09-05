@@ -58,6 +58,12 @@ enum HeartbeatAssist {
                 "Which shoppers should we coach first?",
                 "How do we fix it today?",
             ]
+        case .fulfillmentOverview:
+            return [
+                "What's at risk on the overview?",
+                "Which scorecard should we open first?",
+                "Who is the worst market right now?",
+            ]
         case .checklist:
             return []
         case .sales:

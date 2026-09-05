@@ -2,6 +2,7 @@ import SwiftUI
 
 enum HubDestination: String, CaseIterable, Identifiable, Hashable {
     case dashboard
+    case fulfillmentOverview
     case upload
     case fiveStar
     case pickPath
@@ -22,6 +23,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
     var title: String {
         switch self {
         case .dashboard: return "Dashboard"
+        case .fulfillmentOverview: return "Fulfillment Overview"
         case .checklist: return "Checklist"
         case .upload: return "Upload"
         case .fiveStar: return MetricSection.fiveStar.title
@@ -42,6 +44,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
     var symbol: String {
         switch self {
         case .dashboard: return "square.grid.2x2.fill"
+        case .fulfillmentOverview: return "square.grid.3x3.fill"
         case .checklist: return "checklist"
         case .upload: return "square.and.arrow.up"
         case .fiveStar: return MetricSection.fiveStar.symbol
@@ -73,7 +76,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         case .lostRevenue: return .lostRevenue
         case .missingItems: return .missingItems
         case .preSubOOS: return .preSubOOS
-        case .dashboard, .checklist, .upload: return nil
+        case .dashboard, .fulfillmentOverview, .checklist, .upload: return nil
         }
     }
 
@@ -95,7 +98,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
-    static var sectionItems: [HubDestination] { [.dashboard, .sales, .lostRevenue, .missingItems, .fiveStar, .preSubOOS, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pickerScorecard, .pph, .labor, .checklist] }
+    static var sectionItems: [HubDestination] { [.dashboard, .fulfillmentOverview, .sales, .lostRevenue, .missingItems, .fiveStar, .preSubOOS, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pickerScorecard, .pph, .labor, .checklist] }
     static var settingsItems: [HubDestination] { [.upload] }
     static var primaryTabs: [HubDestination] { [.dashboard, .upload] }
     static var metricItems: [HubDestination] { [.sales, .lostRevenue, .missingItems, .fiveStar, .preSubOOS, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pickerScorecard, .pph, .labor] }
@@ -273,7 +276,7 @@ struct MainHubView: View {
         switch dest {
         case .upload:
             return .none
-        case .dashboard, .checklist:
+        case .dashboard, .fulfillmentOverview, .checklist:
             return store.summaries.map(\.health).max(by: { healthRank($0) < healthRank($1) }) ?? .none
         default:
             guard let section = dest.section else { return .none }
@@ -322,6 +325,8 @@ struct MainHubView: View {
         switch dest {
         case .dashboard:
             DashboardView().hubPageCanvas()
+        case .fulfillmentOverview:
+            FulfillmentOverviewView().hubPageCanvas()
         case .checklist:
             ChecklistView().hubPageCanvas()
         case .upload:

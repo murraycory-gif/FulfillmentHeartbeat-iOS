@@ -85,6 +85,14 @@ enum CoachTour: Equatable {
                     body: "Swipe left or right to the next page. Upload / Settings is not in the swipe path — use the sidebar for that."
                 ),
             ]
+        case .fulfillmentOverview:
+            return [
+                CoachStep(
+                    icon: "square.grid.3x3.fill",
+                    heading: "Fulfillment Overview",
+                    body: "Each dark bar is a scorecard. Sales first, then Loss Revenue, 5 Star, Pre-Sub OOS, Pick Path, and the rest. Tap a bar to open that page."
+                ),
+            ]
         case .sales:
             return [
                 CoachStep(

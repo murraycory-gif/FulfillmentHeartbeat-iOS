@@ -9532,6 +9532,7 @@ struct HubBrandBar: View {
     private var compactBannerTitle: String {
         switch router.current {
         case .dashboard: return "Operational Heartbeat"
+        case .fulfillmentOverview: return "Fulfillment Overview"
         case .upload: return "Upload"
         case .checklist: return "Checklist"
         default: return router.current.title

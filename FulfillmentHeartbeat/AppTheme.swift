@@ -7,6 +7,8 @@ enum AppTheme {
     static let blue = Color(hex: "003DA5")
     static let blueSoft = Color(hex: "DCE6F4")
     static let blueDeep = Color(hex: "003DA5")
+    /// Darker Albertsons navy — Fulfillment Overview callout bars only.
+    static let overviewBar = Color(hex: "00285C")
     /// Darker Albertsons blue — heart fill.
     static let heart = Color(hex: "003DA5")
     /// Lighter Albertsons blue — ECG pulse and "ment" in the wordmark.
