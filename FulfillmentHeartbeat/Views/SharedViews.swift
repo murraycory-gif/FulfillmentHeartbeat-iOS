@@ -8831,7 +8831,7 @@ struct PickerScoreTable: View {
 
     @State private var sort = Column.pph
     @State private var ascending = true
-    @State private var limit = 50
+    @State private var limit = 30
     @State private var snaps: [PickerLineSnap] = []
     @State private var openShopper: String?
 
