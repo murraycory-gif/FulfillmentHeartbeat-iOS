@@ -28,7 +28,7 @@ struct FulfillmentHeartbeatApp: App {
         UINavigationBar.appearance().standardAppearance = nav
         UINavigationBar.appearance().scrollEdgeAppearance = nav
         UINavigationBar.appearance().compactAppearance = nav
-        UINavigationBar.appearance().tintColor = UIColor(red: 0.07, green: 0.07, blue: 0.09, alpha: 1)
+        UINavigationBar.appearance().tintColor = UIColor(red: 0.00, green: 0.24, blue: 0.65, alpha: 1)
     }
 
     var body: some Scene {
