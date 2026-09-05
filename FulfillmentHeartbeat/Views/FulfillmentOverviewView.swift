@@ -30,10 +30,12 @@ struct FulfillmentOverviewView: View {
 private struct OverviewMetricCard: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var router: HubRouter
+    @Environment(\.horizontalSizeClass) private var sizeClass
     let section: MetricSection
 
     private var summary: SectionSummary { store.summary(for: section) }
     private var expanded: Bool { section == .sales }
+    private var phone: Bool { HubLayout.isPhone(sizeClass) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -42,35 +44,33 @@ private struct OverviewMetricCard: View {
                     router.open(section: section)
                 }
             } label: {
-                HStack(spacing: 12) {
+                HStack(spacing: phone ? 8 : 12) {
                     Image(systemName: section.symbol)
-                        .font(AppTheme.rounded(.title3, weight: .semibold))
-                        .frame(width: 28)
+                        .font(AppTheme.rounded(phone ? .body : .title3, weight: .semibold))
+                        .frame(width: phone ? 22 : 28)
                     Text(section.overviewLead)
-                        .font(AppTheme.rounded(.title3, weight: .bold))
+                        .font(AppTheme.rounded(phone ? .body : .title3, weight: .bold))
                         .lineLimit(1)
                     Text("|")
-                        .font(AppTheme.rounded(.title3, weight: .regular))
+                        .font(AppTheme.rounded(phone ? .body : .title3, weight: .regular))
                         .opacity(0.45)
                     Text("Overview")
-                        .font(AppTheme.rounded(.title3, weight: .semibold))
+                        .font(AppTheme.rounded(phone ? .callout : .title3, weight: .semibold))
                         .opacity(0.62)
                         .lineLimit(1)
-                    Spacer(minLength: 8)
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text(summary.headlineText)
-                            .font(AppTheme.rounded(.subheadline, weight: .bold))
-                        Text(statusLabel)
-                            .font(AppTheme.rounded(.caption2, weight: .semibold))
-                            .opacity(0.8)
-                    }
+                    Spacer(minLength: 6)
+                    Text(summary.headlineText)
+                        .font(AppTheme.rounded(.subheadline, weight: .bold))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                    HealthBadge(health: summary.health, prominent: true, compact: true)
                     Image(systemName: expanded ? "chevron.up" : "chevron.right")
                         .font(AppTheme.rounded(.footnote, weight: .bold))
                         .opacity(0.7)
                 }
                 .foregroundStyle(Color.white)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
+                .padding(.horizontal, phone ? 12 : 16)
+                .padding(.vertical, phone ? 10 : 14)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(AppTheme.overviewBar)
             }
@@ -79,20 +79,10 @@ private struct OverviewMetricCard: View {
                 OverviewSalesBlock()
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: phone ? 14 : 18, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: phone ? 14 : 18, style: .continuous)
                 .stroke(AppTheme.overviewBar, lineWidth: 2.5)
         )
-    }
-
-    private var statusLabel: String {
-        if summary.storeCount == 0 { return "No data" }
-        switch summary.health {
-        case .risk: return "At risk"
-        case .watch: return "Watch"
-        case .good: return "Healthy"
-        case .none: return "\(summary.storeCount) stores"
-        }
     }
 }

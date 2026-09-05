@@ -2,6 +2,9 @@ import SwiftUI
 
 struct OverviewSalesBlock: View {
     @EnvironmentObject private var store: HeartbeatStore
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
+    private var phone: Bool { HubLayout.isPhone(sizeClass) }
 
     var body: some View {
         let stores = SalesRollupBuilder.source(from: store.allLatest(for: .sales), filters: store.filters)
@@ -19,9 +22,9 @@ struct OverviewSalesBlock: View {
                 overviewTable(title: "By day", rows: days, showCount: false)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.top, 12)
-        .padding(.bottom, 16)
+        .padding(.horizontal, phone ? 10 : 14)
+        .padding(.top, phone ? 10 : 12)
+        .padding(.bottom, phone ? 12 : 16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(AppTheme.tableFill)
     }
@@ -101,11 +104,19 @@ struct OverviewSalesBlock: View {
             Text(title)
                 .font(AppTheme.rounded(.subheadline, weight: .bold))
                 .foregroundStyle(AppTheme.text)
-            HubAdaptiveHScroll {
-                VStack(alignment: .leading, spacing: 8) {
-                    SalesMetricHeader(label: title == "By day" ? "Day" : "Scope", showCount: showCount)
+            if phone {
+                VStack(spacing: 8) {
                     ForEach(rows) { row in
-                        SalesMetricLine(label: row.label, count: showCount ? row.storeCount : nil, pack: row.pack)
+                        OverviewSalesPhoneCard(label: row.label, count: showCount ? row.storeCount : nil, pack: row.pack)
+                    }
+                }
+            } else {
+                HubAdaptiveHScroll {
+                    VStack(alignment: .leading, spacing: 8) {
+                        SalesMetricHeader(label: title == "By day" ? "Day" : "Scope", showCount: showCount)
+                        ForEach(rows) { row in
+                            SalesMetricLine(label: row.label, count: showCount ? row.storeCount : nil, pack: row.pack)
+                        }
                     }
                 }
             }
@@ -184,6 +195,61 @@ private struct SalesPack {
         self.hd = hd
         self.dug = dug
         self.health = health
+    }
+}
+
+private struct OverviewSalesPhoneCard: View {
+    let label: String
+    var count: Int? = nil
+    let pack: SalesPack
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(label)
+                    .font(AppTheme.rounded(.subheadline, weight: .bold))
+                    .foregroundStyle(AppTheme.text)
+                    .lineLimit(1)
+                if let count {
+                    Text("\(count) stores")
+                        .font(AppTheme.rounded(.caption, weight: .semibold))
+                        .foregroundStyle(AppTheme.textSecondary)
+                }
+                Spacer()
+                HealthBadge(health: pack.health == .none && (pack.sales ?? 0) > 0 ? .good : pack.health, prominent: true, compact: true)
+            }
+            HStack {
+                phoneMetric("Sales $", HeartbeatFormat.money(pack.sales))
+                phoneMetric("YoY", HeartbeatFormat.pct(pack.yoy))
+            }
+            HStack {
+                phoneMetric("Orders", HeartbeatFormat.num(pack.orders, digits: 0))
+                phoneMetric("Ord YoY", HeartbeatFormat.pct(pack.ordersYoy))
+            }
+            HStack {
+                phoneMetric("AOS", HeartbeatFormat.money(pack.aos))
+                phoneMetric("AIV", HeartbeatFormat.num(pack.aiv, digits: 2))
+            }
+            HStack {
+                phoneMetric("Items/Txn", HeartbeatFormat.num(pack.ipt, digits: 1))
+                phoneMetric("Items", HeartbeatFormat.num(pack.items, digits: 0))
+            }
+        }
+        .tableRowCard(health: pack.health)
+    }
+
+    private func phoneMetric(_ title: String, _ value: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title.uppercased())
+                .font(AppTheme.rounded(.caption2, weight: .bold))
+                .foregroundStyle(AppTheme.textSecondary)
+            Text(value)
+                .font(AppTheme.rounded(.subheadline, weight: .bold))
+                .foregroundStyle(AppTheme.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
