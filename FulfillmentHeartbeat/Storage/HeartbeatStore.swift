@@ -257,7 +257,16 @@ final class HeartbeatStore: ObservableObject {
 
     func pickerPage(focus: PickerFocus, sort: PickerSort, ascending: Bool, limit: Int) -> [MetricRow] {
         let pickers = filteredLatest[.pickerScorecard] ?? []
+        guard !pickers.isEmpty else { return [] }
         var idxs = pickerIndex[focus] ?? []
+        if idxs.contains(where: { !pickers.indices.contains($0) }) {
+            rebuildPickerIndex(pickers)
+            idxs = pickerIndex[focus] ?? []
+        }
+        if idxs.isEmpty, focus == .all {
+            idxs = Array(pickers.indices)
+        }
+        idxs.removeAll { !pickers.indices.contains($0) }
         idxs.sort { lhs, rhs in
             let result = comparePickers(pickers[lhs], pickers[rhs], sort: sort)
             return ascending ? result == .orderedAscending : result == .orderedDescending
@@ -1915,8 +1924,10 @@ final class HeartbeatStore: ObservableObject {
     private func mergeHeavy(_ bits: PulseCaches.HeavyBits) {
         cachedPickerBoard = bits.pickerBoard
         cachedChecklistGroups = bits.checklistGroups
-        pickerIndex = bits.pickerIndex
-        pickerFocusHealth = bits.pickerFocusHealth
+        let pickers = filteredLatest[.pickerScorecard] ?? []
+        let built = pickerIndexValues(pickers)
+        pickerIndex = built.index
+        pickerFocusHealth = built.health
         pickPathPickersByStore = bits.pickPathPickersByStore
         pickPathByShopper = bits.pickPathByShopper
         pphPickersByStore = bits.pphPickersByStore
