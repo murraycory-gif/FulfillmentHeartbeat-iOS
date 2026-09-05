@@ -142,8 +142,8 @@ struct SalesMetricHeader: View {
         .minimumScaleFactor(0.65)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 4)
-        .padding(.top, 6)
-        .padding(.bottom, 8)
+        .padding(.top, 2)
+        .padding(.bottom, 6)
     }
 
     private func head(_ title: String, key: String, alignment: Alignment = .trailing) -> some View {
@@ -291,9 +291,9 @@ struct SalesRollupTable: View {
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 8)
-                        .padding(.bottom, 14)
+                        .padding(.horizontal, 12)
+                        .padding(.top, 4)
+                        .padding(.bottom, 12)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

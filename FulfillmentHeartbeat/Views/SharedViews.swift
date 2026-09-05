@@ -163,6 +163,7 @@ struct HubTableHeader: View {
     var title: String
     var accessory: String
     var expanded: Bool
+    var embedded: Bool = false
     @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
@@ -187,15 +188,15 @@ struct HubTableHeader: View {
         }
         .foregroundStyle(Color.white)
         .padding(.horizontal, phone ? 10 : 16)
-        .padding(.vertical, phone ? 8 : 13)
+        .padding(.vertical, phone ? 8 : 12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(AppTheme.blue)
         .clipShape(
             UnevenRoundedRectangle(
                 cornerRadii: RectangleCornerRadii(
                     topLeading: phone ? 10 : AppTheme.radiusL,
-                    bottomLeading: expanded ? 0 : (phone ? 10 : AppTheme.radiusL),
-                    bottomTrailing: expanded ? 0 : (phone ? 10 : AppTheme.radiusL),
+                    bottomLeading: (expanded || embedded) ? 0 : (phone ? 10 : AppTheme.radiusL),
+                    bottomTrailing: (expanded || embedded) ? 0 : (phone ? 10 : AppTheme.radiusL),
                     topTrailing: phone ? 10 : AppTheme.radiusL
                 ),
                 style: .continuous
@@ -9688,15 +9689,16 @@ struct HubStoreCard<Content: View>: View {
                     icon: "storefront.fill",
                     title: "Store",
                     accessory: "\(HeartbeatFormat.num(Double(count))) stores  ·  tap to \(expanded ? "collapse" : "expand")",
-                    expanded: expanded
+                    expanded: expanded,
+                    embedded: true
                 )
             }
             .buttonStyle(.plain)
             if expanded {
                 content
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-                    .padding(.bottom, 14)
+                    .padding(.horizontal, 12)
+                    .padding(.top, 4)
+                    .padding(.bottom, 12)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
