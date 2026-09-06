@@ -110,8 +110,10 @@ struct ScorecardPager: UIViewControllerRepresentable {
                 host.rootView = Self.blank
             }
             hydrate(dest)
-            for neighbor in neighbors(of: dest) {
-                hydrate(neighbor)
+            if HubLayout.hydrateNeighbors {
+                for neighbor in neighbors(of: dest) {
+                    hydrate(neighbor)
+                }
             }
         }
 
@@ -125,7 +127,12 @@ struct ScorecardPager: UIViewControllerRepresentable {
         }
 
         func dehydrate(keeping dest: HubDestination) {
-            let keep = Set(neighbors(of: dest) + [dest])
+            let keep: Set<HubDestination>
+            if HubLayout.hydrateNeighbors {
+                keep = Set(neighbors(of: dest) + [dest])
+            } else {
+                keep = [dest]
+            }
             for (key, host) in cache where host.hydrated && !keep.contains(key) {
                 host.rootView = Self.blank
                 host.hydrated = false
@@ -135,7 +142,11 @@ struct ScorecardPager: UIViewControllerRepresentable {
         func snap(to dest: HubDestination, animated: Bool) {
             guard let pager else { return }
             hydrate(dest)
-            for neighbor in neighbors(of: dest) { hydrate(neighbor) }
+            if HubLayout.hydrateNeighbors {
+                for neighbor in neighbors(of: dest) {
+                    hydrate(neighbor)
+                }
+            }
             displayed = dest
             pager.dataSource = nil
             pager.setViewControllers([host(for: dest)], direction: .forward, animated: false)

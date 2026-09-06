@@ -2349,8 +2349,8 @@ private struct PulseCaches {
         let cap: Int
         switch grain {
         case .region: cap = 8
-        case .store: cap = max(min(stores.count, 80), 24)
-        default: cap = 24
+        case .store: cap = max(min(stores.count, HubLayout.storeGrainCap), 12)
+        default: cap = HubLayout.grainCap
         }
         var out: [MetricSection: [DashScopePack]] = [:]
         for section in MetricSection.dashboardCards {

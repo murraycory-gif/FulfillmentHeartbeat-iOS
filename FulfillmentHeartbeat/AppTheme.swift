@@ -282,6 +282,16 @@ enum HubLayout {
     static func grid(_ count: Int, spacing: CGFloat = 12, minWidth: CGFloat = 140) -> [GridItem] {
         Array(repeating: GridItem(.flexible(minimum: minWidth), spacing: spacing), count: max(1, count))
     }
+
+    /// 4GB phones (iPhone 13 and older) and 4GB iPads. Import and pager stay lighter.
+    static var constrained: Bool {
+        ProcessInfo.processInfo.physicalMemory < 5_500_000_000
+    }
+
+    static var grainCap: Int { constrained ? 12 : 24 }
+    static var storeGrainCap: Int { constrained ? 16 : 80 }
+    static var pickerCap: Int { constrained ? 20 : 50 }
+    static var hydrateNeighbors: Bool { !constrained }
 }
 
 private struct HubWidthKey: PreferenceKey {
