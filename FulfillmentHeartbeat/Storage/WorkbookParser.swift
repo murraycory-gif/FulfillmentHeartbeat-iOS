@@ -1512,6 +1512,9 @@ enum WorkbookParser {
     ) -> [ParsedWorkbookRow] {
         if let packed = zip.compressedPayload(named: path) ?? zip.compressedPayload(named: path.replacingOccurrences(of: "xl/", with: "")),
            packed.method == 8 {
+            if packed.uncomp > 8_000_000 {
+                return parseLaborLatestWeek(compressed: packed.bytes, strings: strings, onTick: onTick)
+            }
             return parseLaborSheet(compressed: packed.bytes, strings: strings, onTick: onTick)
         }
         if let sheet = zip.file(named: path) ?? zip.file(named: path.replacingOccurrences(of: "xl/", with: "")), !sheet.isEmpty {
@@ -1545,6 +1548,67 @@ enum WorkbookParser {
             parsed = compactShoppers(parsed)
         }
         return parsed
+    }
+
+    private static func parseLaborLatestWeek(
+        compressed: Data,
+        strings: [String],
+        onTick: ((Int, String) -> Void)?
+    ) -> [ParsedWorkbookRow] {
+        var bestWeek = ""
+        var stores: [String: (division: String, district: String, eff: Double?, emp: Double?, sch: Double?, act: Double?)] = [:]
+        stores.reserveCapacity(2200)
+        var seen = 0
+        SheetXML.forEachRowInflating(
+            compressed: compressed,
+            strings: strings,
+            handleRaw: { data in
+                seen += 1
+                let weekRaw = SheetXML.rawCell(data, letter: "A", strings: strings)
+                let storeRaw = SheetXML.rawCell(data, letter: "E", strings: strings)
+                guard let week = usableValue(weekRaw), week.hasPrefix("20"), week.count >= 6 else { return }
+                if !bestWeek.isEmpty, week < bestWeek { return }
+                guard let store = usableValue(storeRaw), looksLikeStoreNumber(store), Double(store) ?? 0 < 200_000 else { return }
+                if week > bestWeek {
+                    bestWeek = week
+                    stores.removeAll(keepingCapacity: true)
+                }
+                let key = HeartbeatMath.canonicalStore(store)
+                stores[key] = (
+                    division: SheetXML.rawCell(data, letter: "B", strings: strings),
+                    district: SheetXML.rawCell(data, letter: "C", strings: strings),
+                    eff: cellNumber(SheetXML.rawCell(data, letter: "G", strings: strings)),
+                    emp: cellNumber(SheetXML.rawCell(data, letter: "H", strings: strings)),
+                    sch: cellNumber(SheetXML.rawCell(data, letter: "I", strings: strings)),
+                    act: cellNumber(SheetXML.rawCell(data, letter: "J", strings: strings))
+                )
+                if seen % 20000 == 0 {
+                    onTick?(stores.count, "stores")
+                }
+            }
+        )
+        onTick?(stores.count, "stores")
+        return stores.map { store, value in
+            var payload: [String: Double] = [:]
+            if let eff = value.eff { payload["schedule_efficiency_pct"] = eff <= 1.5 ? eff : eff / 100 }
+            if let emp = value.emp { payload["empower_hrs"] = emp }
+            if let sch = value.sch { payload["sch_hrs"] = sch }
+            if let act = value.act { payload["act_hrs"] = act }
+            return ParsedWorkbookRow(
+                division: value.division,
+                operationsOM: "",
+                storeNumber: store,
+                storeName: nil,
+                recordedOn: nil,
+                payload: payload,
+                textPayload: [
+                    "labor_grain": "store",
+                    "week": bestWeek,
+                    "district": value.district,
+                    "parser_rev": "9",
+                ]
+            )
+        }
     }
 
     private static func parseLaborSheet(
@@ -3236,6 +3300,20 @@ enum SheetXML {
         walk(data: data, strings: strings)
     }
 
+    static func rawCell(_ inner: Data, letter: String, strings: [String]) -> String {
+        let needle = Data("r=\"\(letter)".utf8)
+        guard let start = inner.range(of: needle) else { return "" }
+        let limit = inner.index(start.lowerBound, offsetBy: 180, limitedBy: inner.endIndex) ?? inner.endIndex
+        let window = inner[start.lowerBound..<limit]
+        let shared = window.range(of: Data("t=\"s\"".utf8)) != nil
+        guard let open = window.range(of: Data("<v>".utf8)) else { return "" }
+        var cursor = open.upperBound
+        while cursor < window.endIndex, window[cursor] != 0x3C { cursor = window.index(after: cursor) }
+        let raw = String(data: window[open.upperBound..<cursor], encoding: .ascii) ?? ""
+        if shared, let index = Int(raw), strings.indices.contains(index) { return strings[index] }
+        return raw
+    }
+
     static func colLetter(_ index: Int) -> String {
         var value = index
         var out = ""
@@ -3272,7 +3350,8 @@ enum SheetXML {
         strings: [String],
         keep: (() -> Set<Int>?)? = nil,
         include: ((Data) -> Bool)? = nil,
-        handle: ([String]) -> Void
+        handleRaw: ((Data) -> Void)? = nil,
+        handle: ([String]) -> Void = { _ in }
     ) {
         var stream = z_stream()
         var status: Int32 = compressed.withUnsafeBytes { srcBuf in
@@ -3317,6 +3396,11 @@ enum SheetXML {
                 guard let gt = pending.range(of: Data(">".utf8), in: after..<end) else { break }
                 let inner = pending[gt.upperBound..<close.lowerBound]
                 let slice = Data(inner)
+                if let handleRaw {
+                    handleRaw(slice)
+                    pending.removeSubrange(0..<end)
+                    continue
+                }
                 if let include, !include(slice) {
                     pending.removeSubrange(0..<end)
                     continue
