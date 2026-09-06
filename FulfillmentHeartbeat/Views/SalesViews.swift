@@ -445,6 +445,8 @@ enum SalesRollupBuilder {
             return SalesRollupRow(label: name, storeCount: Set(stores.map(\.storeNumber)).count, pack: pack)
         }
     }
+
+    static func dashboardRows(from stores: [MetricRow], grain: DashScopeGrain) -> [SalesRollupRow] {
         switch grain {
         case .region:
             return MarketRegion.allCases.compactMap { region in
