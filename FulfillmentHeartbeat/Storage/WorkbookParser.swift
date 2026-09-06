@@ -136,7 +136,7 @@ enum WorkbookParser {
                 if hinted == .labor {
                     onProgress?(found.count, expected, "Unpacking Labor…")
                     parsed = parseLaborFromZip(zip: zip, path: entry.path, strings: strings) { count, unit in
-                        onProgress?(found.count, expected, "Labor  \(count) \(unit)")
+                        onProgress?(min(found.count + 1, expected), expected, "Labor  \(count) \(unit)")
                     }
                 } else if hinted == .pickerScorecard || hinted == .pickPathPicker {
                     onProgress?(found.count, expected, "Reading \(entry.name)…")
@@ -1606,8 +1606,8 @@ enum WorkbookParser {
                 return
             }
             seen += 1
-            if seen % 2000 == 0 {
-                onTick?(seen, storeView ? "stores" : "days")
+            if seen % 8000 == 0 {
+                onTick?(seen, storeView ? "stores" : "rows")
             }
             if storeView {
                 if let parsed = laborStoreRow(row, header: header, names: names) {
@@ -1721,7 +1721,7 @@ enum WorkbookParser {
         )
     }
 
-    private struct LaborWeekAcc {
+    private final class LaborWeekAcc {
         var division: String
         var district: String
         var tva: Double?
@@ -1732,16 +1732,25 @@ enum WorkbookParser {
         var wage: Double?
         var aiv: Double?
         var days: [LaborDay] = []
+
+        init(division: String, district: String) {
+            self.division = division
+            self.district = district
+        }
     }
 
     private static func mergeLabor(_ acc: inout [String: [String: LaborWeekAcc]], _ row: ParsedWorkbookRow) {
         let store = row.storeNumber
         let week = row.textPayload["week"] ?? ""
         guard !store.isEmpty, !week.isEmpty else { return }
-        var bucket = acc[store]?[week] ?? LaborWeekAcc(
-            division: row.division,
-            district: row.textPayload["district"] ?? ""
-        )
+        if acc[store] == nil { acc[store] = [:] }
+        let bucket: LaborWeekAcc
+        if let existing = acc[store]?[week] {
+            bucket = existing
+        } else {
+            bucket = LaborWeekAcc(division: row.division, district: row.textPayload["district"] ?? "")
+            acc[store]?[week] = bucket
+        }
         if bucket.tva == nil { bucket.tva = row.payload["target_vs_actual_pct"] }
         if bucket.cost == nil { bucket.cost = row.payload["cost_trgt_pct"] }
         if bucket.dollars == nil { bucket.dollars = row.payload["act_cost_dollar"] }
@@ -1764,9 +1773,6 @@ enum WorkbookParser {
                 chargedHrs: row.payload["charged_hrs"]
             )
         )
-        var storeWeeks = acc[store] ?? [:]
-        storeWeeks[week] = bucket
-        acc[store] = storeWeeks
     }
 
     private static func flattenLabor(_ acc: [String: [String: LaborWeekAcc]]) -> [ParsedWorkbookRow] {
