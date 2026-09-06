@@ -1474,7 +1474,6 @@ final class HeartbeatStore: ObservableObject {
         } else {
             statusMessage = "Loaded \(importLoaded) of \(MetricSection.uploadOrder.count) scorecards. Missing: \(missing.map(\.title).joined(separator: ", "))."
         }
-        needsRolePick = true
         if dismissOverlay {
             isImporting = false
             importLabel = nil
