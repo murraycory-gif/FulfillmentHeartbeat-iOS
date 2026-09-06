@@ -155,6 +155,10 @@ enum WorkbookParser {
                     ) { count in
                         onProgress?(found.count, expected, "\(entry.name)  \(count) shoppers")
                     }
+                } else if hinted == .sales {
+                    onProgress?(found.count, expected, "Reading Sales…")
+                    parsed = parseSalesFromZip(zip: zip, path: entry.path, strings: strings)
+                    zip.release(entry.path)
                 } else {
                     onProgress?(found.count, expected, "Unpacking \(entry.name)…")
                     guard let sheet = zip.file(named: entry.path) ?? zip.file(named: entry.path.replacingOccurrences(of: "xl/", with: "")),
