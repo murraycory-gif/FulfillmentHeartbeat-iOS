@@ -269,12 +269,19 @@ struct DashScopeStrip: View {
     let packs: [DashScopePack]
     var width: CGFloat
     @State private var expanded = false
-    @State private var flags: [String: [HeartbeatMath.FiveStarFlag]] = [:]
+    @State private var salesRows: [SalesRollupRow] = []
 
     var body: some View {
-        VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
+        VStack(alignment: .leading, spacing: expanded ? 10 : 8) {
             Button {
-                expanded.toggle()
+                let next = !expanded
+                expanded = next
+                if next, section == .sales, salesRows.isEmpty {
+                    salesRows = SalesRollupBuilder.dashboardRows(
+                        from: SalesRollupBuilder.source(from: store.allLatest(for: .sales), filters: store.filters),
+                        grain: grain
+                    )
+                }
             } label: {
                     HStack(spacing: 8) {
                         Image(systemName: grain.symbol)
@@ -297,35 +304,33 @@ struct DashScopeStrip: View {
                 .buttonStyle(.plain)
                 if expanded {
                     if section == .sales {
-                        let salesRows = SalesRollupBuilder.dashboardRows(
-                            from: SalesRollupBuilder.source(from: store.allLatest(for: .sales), filters: store.filters),
-                            grain: grain
-                        )
                         if HubLayout.isPhone(sizeClass) {
                             VStack(spacing: 8) {
-                                ForEach(salesRows) { row in
+                                ForEach(salesRows.prefix(20)) { row in
                                     OverviewSalesPhoneCard(label: row.label, count: row.storeCount, pack: row.pack)
                                 }
                             }
                         } else {
-                            OverviewSalesAlignedTable(title: grain.title, rows: salesRows, showCount: grain != .store)
+                            OverviewSalesAlignedTable(title: grain.title, rows: Array(salesRows.prefix(20)), showCount: grain != .store)
                         }
                     } else {
-                        ForEach(Array(packs.prefix(HubLayout.isPhone(sizeClass) ? 20 : packs.count))) { pack in
-                            DashScopeGrainCard(
-                                pack: pack,
-                                grain: grain,
-                                flags: flags[pack.id] ?? [],
-                                width: width,
-                                section: section
-                            )
+                        LazyVStack(spacing: 8) {
+                            ForEach(Array(packs.prefix(12))) { pack in
+                                DashScopeGrainCard(
+                                    pack: pack,
+                                    grain: grain,
+                                    flags: [],
+                                    width: width,
+                                    section: section
+                                )
+                            }
                         }
                     }
                 }
             }
             .onChange(of: packs.map(\.id).joined(separator: "|")) { _, _ in
                 expanded = false
-                flags = [:]
+                salesRows = []
             }
     }
 }
@@ -564,7 +569,7 @@ struct DashCallout: View, Equatable {
                 .modifier(DashCardChrome(health: card.health))
             }
         }
-        .readWidth($width)
+    }
     }
 
     private var titleText: String {
