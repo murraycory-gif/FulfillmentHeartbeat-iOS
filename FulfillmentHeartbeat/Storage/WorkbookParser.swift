@@ -1618,8 +1618,8 @@ enum WorkbookParser {
                 return
             }
             seen += 1
-            if seen % 12000 == 0 {
-                onTick?(seen, storeView ? "stores" : "rows")
+            if seen % 4000 == 0 {
+                onTick?(max(acc.count, storeRows.count), "stores")
             }
             if !layoutReady {
                 layoutReady = true
@@ -1687,7 +1687,16 @@ enum WorkbookParser {
             )
         }
         if let compressed {
-            SheetXML.forEachRowInflating(compressed: compressed, strings: strings, keep: { keep }, handle: handle)
+            SheetXML.forEachRowInflating(
+                compressed: compressed,
+                strings: strings,
+                keep: { keep },
+                include: { data in
+                    if header.isEmpty { return true }
+                    return SheetXML.columnLooksLikeStore(data, letter: SheetXML.colLetter(max(idxStore, 4)))
+                },
+                handle: handle
+            )
         } else if let data {
             SheetXML.forEachRowBytes(data: data, strings: strings, keep: { keep }, handle: handle)
         }
@@ -3220,6 +3229,33 @@ enum SheetXML {
         walk(data: data, strings: strings)
     }
 
+    static func colLetter(_ index: Int) -> String {
+        var value = index
+        var out = ""
+        repeat {
+            out = String(UnicodeScalar(65 + value % 26)!) + out
+            value = value / 26 - 1
+        } while value >= 0
+        return out
+    }
+
+    static func columnLooksLikeStore(_ inner: Data, letter: String) -> Bool {
+        let needle = Data("r=\"\(letter)".utf8)
+        guard let start = inner.range(of: needle) else { return false }
+        let window = inner[start.lowerBound..<min(inner.endIndex, start.lowerBound + 80)]
+        guard let v = window.range(of: Data("<v>".utf8)) else { return false }
+        let digits = window[v.upperBound..<min(window.endIndex, v.upperBound + 8)]
+        var n = 0
+        var count = 0
+        for byte in digits {
+            if byte == 0x3C { break }
+            guard byte >= 0x30, byte <= 0x39 else { return false }
+            n = n * 10 + Int(byte - 0x30)
+            count += 1
+        }
+        return count >= 3 && count <= 5 && n < 200_000
+    }
+
     static func forEachRow(data: Data, strings: [String], keep: (() -> Set<Int>?)? = nil, handle: ([String]) -> Void) {
         forEachRowBytes(data: data, strings: strings, keep: keep, handle: handle)
     }
@@ -3228,6 +3264,7 @@ enum SheetXML {
         compressed: Data,
         strings: [String],
         keep: (() -> Set<Int>?)? = nil,
+        include: ((Data) -> Bool)? = nil,
         handle: ([String]) -> Void
     ) {
         var stream = z_stream()
@@ -3272,7 +3309,12 @@ enum SheetXML {
                 }
                 guard let gt = pending.range(of: Data(">".utf8), in: after..<end) else { break }
                 let inner = pending[gt.upperBound..<close.lowerBound]
-                if let xml = String(data: inner, encoding: .utf8) ?? String(data: Data(inner), encoding: .isoLatin1) {
+                let slice = Data(inner)
+                if let include, !include(slice) {
+                    pending.removeSubrange(0..<end)
+                    continue
+                }
+                if let xml = String(data: slice, encoding: .utf8) ?? String(data: slice, encoding: .isoLatin1) {
                     handle(walkCells(Substring(xml), strings: strings, keep: keep?()))
                 }
                 pending.removeSubrange(0..<end)
