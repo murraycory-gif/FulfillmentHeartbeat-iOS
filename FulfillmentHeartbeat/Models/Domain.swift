@@ -740,42 +740,27 @@ enum HeartbeatMath {
         pathPickers: [MetricRow] = [],
         includeAll: Bool = false
     ) -> [FiveStarFlag] {
-        switch section {
-        case .fiveStar:
-            return fiveStarActionFlags(rows, includeAll: includeAll)
-        case .lostRevenue:
-            return lostRevenueActionFlags(rows)
-        case .sales:
-            return salesActionFlags(rows)
-        case .missingItems:
-            return missingItemsActionFlags(rows)
-        case .preSubOOS:
-            return missingItemsActionFlags(rows)
-        case .scheduleQuality:
-            return scheduleActionFlags(rows, includeAll: includeAll)
-        case .labor:
-            return laborActionFlags(rows)
-        case .pph:
-            return pphActionFlags(stores: rows, shoppers: pickers)
-        case .dynacap:
-            return dynacapActionFlags(rows)
-        case .pickPath, .pickPathPicker:
-            return pickPathActionFlags(stores: rows, shoppers: pathPickers)
-        case .pickerScorecard:
-            return pickerActionFlags(rows)
-        case .prepNotReady:
-            let stores = rows.filter { !isIgnoredStore($0.storeNumber) && !$0.storeNumber.isEmpty }
-            let healthy = stores.filter { health(for: .prepNotReady, row: $0) == .good }.count
-            let watch = stores.filter { health(for: .prepNotReady, row: $0) == .watch }.count
-            let risk = stores.filter { health(for: .prepNotReady, row: $0) == .risk }.count
-            return [
-                FiveStarFlag(name: "Healthy", value: "", health: .good, stores: healthy),
-                FiveStarFlag(name: "Watch", value: "", health: watch == 0 ? .good : .watch, stores: watch),
-                FiveStarFlag(name: "At Risk", value: "", health: risk == 0 ? .good : .risk, stores: risk),
-            ]
-        case .aisleMapper, .preSubOOSItem:
-            return []
+        if section == .sales { return salesActionFlags(rows) }
+        if section == .pickerScorecard {
+            let shoppers = rows.filter { !$0.shopperName.isEmpty || !$0.shopperKey.isEmpty }
+            let healthy = shoppers.filter { health(for: .pickerScorecard, row: $0) == .good }.count
+            let watch = shoppers.filter { health(for: .pickerScorecard, row: $0) == .watch }.count
+            let risk = shoppers.filter { health(for: .pickerScorecard, row: $0) == .risk }.count
+            return bandFlags(healthy: healthy, watch: watch, risk: risk, unit: "shoppers")
         }
+        let stores = rows.filter { !isIgnoredStore($0.storeNumber) && !$0.storeNumber.isEmpty }
+        let healthy = stores.filter { health(for: section, row: $0) == .good }.count
+        let watch = stores.filter { health(for: section, row: $0) == .watch }.count
+        let risk = stores.filter { health(for: section, row: $0) == .risk }.count
+        return bandFlags(healthy: healthy, watch: watch, risk: risk, unit: "stores")
+    }
+
+    static func bandFlags(healthy: Int, watch: Int, risk: Int, unit: String = "stores") -> [FiveStarFlag] {
+        [
+            FiveStarFlag(name: "Healthy", value: "", health: .good, stores: healthy, unit: unit),
+            FiveStarFlag(name: "Watch", value: "", health: watch == 0 ? .good : .watch, stores: watch, unit: unit),
+            FiveStarFlag(name: "At Risk", value: "", health: risk == 0 ? .good : .risk, stores: risk, unit: unit),
+        ]
     }
 
     static func latestPerStore(_ rows: [MetricRow]) -> [MetricRow] {
@@ -1794,9 +1779,9 @@ enum HeartbeatMath {
         let watch = stores.filter { salesHealth($0) == .watch }.count
         let risk = stores.filter { salesHealth($0) == .risk }.count
         return [
-            FiveStarFlag(name: "Healthy", value: "", health: .good, stores: healthy),
-            FiveStarFlag(name: "Watch", value: "", health: watch == 0 ? .good : .watch, stores: watch),
-            FiveStarFlag(name: "At Risk", value: "", health: risk == 0 ? .good : .risk, stores: risk),
+            FiveStarFlag(name: "Healthy", value: "Positive ID", health: .good, stores: healthy),
+            FiveStarFlag(name: "Watch", value: "Slightly under", health: watch == 0 ? .good : .watch, stores: watch),
+            FiveStarFlag(name: "At Risk", value: "Negative ID", health: risk == 0 ? .good : .risk, stores: risk),
         ]
     }
 
@@ -2179,8 +2164,8 @@ enum HeartbeatMath {
 
     static func salesHealth(planPct: Double?, yoy: Double?) -> Health {
         if let yoy {
-            if yoy > 0.05 { return .good }
-            if yoy >= -0.05 { return .watch }
+            if yoy > 0 { return .good }
+            if yoy >= -0.03 { return .watch }
             return .risk
         }
         if let planPct {

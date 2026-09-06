@@ -107,6 +107,17 @@ private func dashInk(_ health: Health) -> Color { AppTheme.healthInk(health) }
 
 private func dashWash(_ health: Health) -> Color { AppTheme.healthWash(health) }
 
+private func statusFlags(_ flags: [HeartbeatMath.FiveStarFlag]) -> [HeartbeatMath.FiveStarFlag] {
+    let named = Dictionary(uniqueKeysWithValues: flags.map { ($0.name.lowercased(), $0) })
+    func pick(_ name: String, health: Health) -> HeartbeatMath.FiveStarFlag {
+        named[name.lowercased()] ?? HeartbeatMath.FiveStarFlag(name: name, value: "", health: health, stores: 0)
+    }
+    if named["healthy"] != nil || named["watch"] != nil || named["at risk"] != nil {
+        return [pick("Healthy", health: .good), pick("Watch", health: .watch), pick("At Risk", health: .risk)]
+    }
+    return Array(flags.prefix(3))
+}
+
 struct DashLostBanner: View {
     let summary: SectionSummary
     let flags: [HeartbeatMath.FiveStarFlag]
@@ -131,50 +142,10 @@ struct DashLostBanner: View {
             .buttonStyle(DashLiftStyle())
             if compact {
                 if !flags.isEmpty {
-                    Button {
-                        flagsOpen.toggle()
-                    } label: {
-                        HStack(spacing: 8) {
-                            Text("\(flags.count) metrics")
-                                .font(.subheadline.weight(.bold))
-                                .foregroundStyle(AppTheme.blue)
-                            Text("tap to \(flagsOpen ? "collapse" : "expand")")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(AppTheme.textSecondary)
-                            Spacer(minLength: 4)
-                            Image(systemName: flagsOpen ? "chevron.up" : "chevron.down")
-                                .font(.caption.weight(.bold))
-                                .foregroundStyle(AppTheme.blue)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    if flagsOpen {
-                        DashFlagGrid(flags: flags, columns: 1)
-                    }
+                    DashFlagGrid(flags: statusFlags(flags), columns: 3)
                 }
             } else {
-                if !flags.isEmpty {
-                    Button {
-                        flagsOpen.toggle()
-                    } label: {
-                        HStack(spacing: 8) {
-                            Text("\(flags.count) metrics")
-                                .font(.subheadline.weight(.bold))
-                                .foregroundStyle(AppTheme.blue)
-                            Text("tap to \(flagsOpen ? "collapse" : "expand")")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(AppTheme.textSecondary)
-                            Spacer(minLength: 4)
-                            Image(systemName: flagsOpen ? "chevron.up" : "chevron.down")
-                                .font(.caption.weight(.bold))
-                                .foregroundStyle(AppTheme.blue)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    if flagsOpen {
-                        DashFlagGrid(flags: flags, columns: 3)
-                    }
-                }
+                DashFlagGrid(flags: statusFlags(flags), columns: 3)
             }
             if let grain {
                 DashScopeStrip(section: summary.section, grain: grain, packs: grains, width: width)
@@ -304,25 +275,30 @@ struct DashScopeStrip: View {
                     )
                 }
             } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: grain.symbol)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(AppTheme.blue)
-                        Text(grain.title)
-                            .font(AppTheme.rounded(.subheadline, weight: .bold))
-                            .foregroundStyle(AppTheme.blue)
-                        Text("\(packs.count) \(packs.count == 1 ? String(grain.unit.dropLast()) : grain.unit)  ·  Tap To \(expanded ? "Collapse" : "Expand")")
-                            .font(AppTheme.rounded(.caption, weight: .semibold))
-                            .foregroundStyle(AppTheme.textSecondary)
-                            .lineLimit(1)
-                        Spacer(minLength: 8)
-                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                            .font(.caption.weight(.bold))
-                            .foregroundStyle(AppTheme.blue)
-                    }
-                    .contentShape(Rectangle())
+                HStack(spacing: 10) {
+                    Image(systemName: grain.symbol)
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(Color.white)
+                    Text(grain.title)
+                        .font(AppTheme.rounded(.subheadline, weight: .bold))
+                        .foregroundStyle(Color.white)
+                    Text("\(packs.count) \(packs.count == 1 ? String(grain.unit.dropLast()) : grain.unit)")
+                        .font(AppTheme.rounded(.caption, weight: .semibold))
+                        .foregroundStyle(Color.white.opacity(0.85))
+                    Spacer(minLength: 8)
+                    Text(expanded ? "Tap to collapse" : "Tap to expand")
+                        .font(AppTheme.rounded(.caption, weight: .bold))
+                        .foregroundStyle(Color.white)
+                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(Color.white)
                 }
-                .buttonStyle(.plain)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(AppTheme.blue, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
                 if expanded {
                     if section == .sales {
                         if HubLayout.isPhone(sizeClass) {
@@ -477,14 +453,9 @@ struct DashFlagGrid: View {
 
     var body: some View {
         if !flags.isEmpty {
-            let cols = max(1, columns)
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(Array(stride(from: 0, to: flags.count, by: cols)), id: \.self) { start in
-                    HStack(alignment: .top, spacing: 8) {
-                        ForEach(Array(flags[start..<min(start + cols, flags.count)])) { flag in
-                            DashFlagChip(flag: flag)
-                        }
-                    }
+            HStack(alignment: .top, spacing: 8) {
+                ForEach(flags) { flag in
+                    DashFlagChip(flag: flag)
                 }
             }
         }
@@ -495,35 +466,30 @@ private struct DashFlagChip: View {
     let flag: HeartbeatMath.FiveStarFlag
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
             Text(flag.name)
                 .font(.subheadline.weight(.bold))
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
-            HStack(spacing: 6) {
-                if !flag.value.isEmpty {
-                    Text(flag.value)
-                        .font(.title3.weight(.bold).monospacedDigit())
-                        .foregroundStyle(dashInk(flag.health == .none ? .good : flag.health))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                }
-                if flag.stores > 0 || flag.value.isEmpty {
-                    Text(flag.stores == 1 ? "1 \(String(flag.unit.dropLast()))" : "\(HeartbeatFormat.num(Double(flag.stores))) \(flag.unit)")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(flag.value.isEmpty ? dashInk(flag.health) : AppTheme.textSecondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                }
-                if flag.health != .none {
-                    HealthBadge(health: flag.health, prominent: true, compact: true)
-                }
+            if !flag.value.isEmpty {
+                Text(flag.value)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
             }
-            .lineLimit(1)
+            HStack(spacing: 6) {
+                Text(flag.stores == 1 ? "1 \(String(flag.unit.dropLast()))" : "\(HeartbeatFormat.num(Double(flag.stores))) \(flag.unit)")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(dashInk(flag.health == .none ? .good : flag.health))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                HealthBadge(health: flag.health == .none ? .good : flag.health, prominent: true, compact: true)
+            }
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 8)
+        .padding(.vertical, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -566,11 +532,7 @@ struct DashCallout: View, Equatable {
                         }
                     }
                     .buttonStyle(DashLiftStyle())
-                    if compact {
-                        compactFlagBlock(flags)
-                    } else {
-                        compactFlagBlock(flags)
-                    }
+                    DashFlagGrid(flags: statusFlags(flags), columns: 3)
                     if let grain {
                         DashScopeStrip(section: card.section, grain: grain, packs: grains, width: width)
                     }
