@@ -36,7 +36,6 @@ struct ScorecardPager: UIViewControllerRepresentable {
 
         if coordinator.filterStamp != filterStamp {
             coordinator.filterStamp = filterStamp
-            coordinator.reloadHydrated()
             return
         }
 

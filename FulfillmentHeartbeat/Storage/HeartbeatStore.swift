@@ -1779,9 +1779,18 @@ final class HeartbeatStore: ObservableObject {
     private func installCompanyWideFast() {
         filteredLatest = latestBySection
         refreshFilterOptions()
+        cachedSummaries = MetricSection.dashboardCards.map { section in
+            HeartbeatMath.summarize(
+                section,
+                rows: latestBySection[section] ?? [],
+                upload: uploads.first { $0.section == section }
+            )
+        }
+        cachedCardFlags = PulseCaches.cardFlags(latest: latestBySection)
         if cachedGrainPacks.isEmpty {
             cachedGrainPacks = PulseCaches.placeholderGrainPacks(grain: effectiveDashboardGrain)
         }
+        objectWillChange.send()
     }
 
     private func warmUnfilteredPulse() {
