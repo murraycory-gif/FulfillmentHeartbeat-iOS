@@ -435,17 +435,17 @@ enum SalesRollupBuilder {
 }
 
 private enum SalesCols {
-    static let label: CGFloat = 248
-    static let count: CGFloat = 58
-    static let sales: CGFloat = 100
-    static let yoy: CGFloat = 84
-    static let orders: CGFloat = 64
-    static let ordersYoy: CGFloat = 84
-    static let aos: CGFloat = 80
-    static let aiv: CGFloat = 56
+    static let label: CGFloat = 200
+    static let count: CGFloat = 64
+    static let sales: CGFloat = 128
+    static let yoy: CGFloat = 80
+    static let orders: CGFloat = 80
+    static let ordersYoy: CGFloat = 80
+    static let aos: CGFloat = 84
+    static let aiv: CGFloat = 60
     static let ipt: CGFloat = 76
-    static let items: CGFloat = 64
-    static let status: CGFloat = 88
+    static let items: CGFloat = 96
+    static let status: CGFloat = 92
 }
 
 struct SalesMetricHeader: View {
@@ -629,9 +629,9 @@ struct SalesRollupTable: View {
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
                         }
-                        .padding(.horizontal, 12)
-                        .padding(.top, 4)
-                        .padding(.bottom, 12)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 8)
+                        .padding(.bottom, 14)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

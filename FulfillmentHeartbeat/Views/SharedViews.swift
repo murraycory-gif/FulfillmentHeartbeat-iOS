@@ -9720,12 +9720,20 @@ struct HubAdaptiveHScroll<Content: View>: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     ScrollView(.horizontal, showsIndicators: true) {
                         content
+                            .padding(.horizontal, 8)
                             .frame(minWidth: 780, maxWidth: .infinity, alignment: .leading)
                     }
                 }
             } else {
-                content
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                ViewThatFits(in: .horizontal) {
+                    content
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    ScrollView(.horizontal, showsIndicators: true) {
+                        content
+                            .padding(.horizontal, 10)
+                            .frame(minWidth: 1080, alignment: .leading)
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
