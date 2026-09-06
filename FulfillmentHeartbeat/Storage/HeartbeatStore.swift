@@ -1164,9 +1164,6 @@ final class HeartbeatStore: ObservableObject {
 
     func clearFilters() {
         sessionRole = .backstage
-        if isCompanyWide(unfilteredPulse) == false {
-            unfilteredPulse = nil
-        }
         commitFilters(DashboardFilters())
     }
 
@@ -1652,9 +1649,15 @@ final class HeartbeatStore: ObservableObject {
 
     private func applyFilters() {
         refilterTask?.cancel()
-        if !filters.isActive, let pulse = unfilteredPulse, isCompanyWide(pulse), !pulse.checklistGroups.isEmpty {
-            install(pulse)
+        if !filters.isActive {
+            if let pulse = unfilteredPulse, isCompanyWide(pulse) {
+                install(pulse)
+                filterStamp += 1
+                return
+            }
+            installCompanyWideFast()
             filterStamp += 1
+            warmUnfilteredPulse()
             return
         }
 
