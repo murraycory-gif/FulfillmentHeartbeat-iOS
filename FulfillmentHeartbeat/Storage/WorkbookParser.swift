@@ -1591,6 +1591,13 @@ enum WorkbookParser {
                     header = row
                     names = mapped
                     storeView = !hasWeek
+                    if !hasWeek {
+                        idxWeek = 0
+                        idxStore = 4
+                        idxDiv = mapped.firstIndex(of: "divisionnm") ?? 1
+                        idxDist = mapped.firstIndex(of: "district") ?? 2
+                        storeView = false
+                    }
                     var cols = Set<Int>()
                     for (index, key) in mapped.enumerated() where laborKeepColumn(key) {
                         cols.insert(index)
@@ -2333,6 +2340,11 @@ enum WorkbookParser {
                         guard pickerMetricKeys[name] != nil else { continue }
                         metricColumns[name, default: []].append(index)
                     }
+                    if names.first == "date" || names.first == "weekid" || (names.first ?? "").contains("date") {
+                        storeIdx = 0
+                        empIdx = 1
+                        metricColumns = metricColumns.mapValues { $0.map { max(0, $0 - 1) } }
+                    }
                     if !metricColumns.isEmpty {
                         for name in metricColumns.keys {
                             if let tail = metricColumns[name]?.suffix(3) {
@@ -2353,12 +2365,17 @@ enum WorkbookParser {
             if seen % 2500 == 0 { onTick?(out.count) }
             func cell(_ index: Int) -> String { index < line.count ? line[index] : "" }
             guard let storeIdx, let empIdx else { return }
-            let storeRaw = cell(storeIdx).trimmingCharacters(in: .whitespacesAndNewlines)
+            var storeRaw = cell(storeIdx).trimmingCharacters(in: .whitespacesAndNewlines)
+            var picker = cell(empIdx).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !looksLikeStoreNumber(storeRaw), looksLikeStoreNumber(cell(0)), cell(1).rangeOfCharacter(from: .letters) != nil {
+                storeRaw = cell(0)
+                picker = cell(1)
+            }
             if storeRaw.lowercased().hasPrefix("applied") { return }
             if looksLikeStoreNumber(storeRaw) { carryStore = storeRaw }
             if isTotalCell(storeRaw) { return }
-            let picker = cell(empIdx).trimmingCharacters(in: .whitespacesAndNewlines)
             if picker.isEmpty || isTotalCell(picker) || carryStore.isEmpty { return }
+            if looksLikeStoreNumber(picker) { return }
             var payload: [String: Double] = [:]
             for (name, indexes) in metricColumns {
                 var value: Double?
