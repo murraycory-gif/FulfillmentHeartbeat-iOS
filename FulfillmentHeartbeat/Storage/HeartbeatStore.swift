@@ -569,7 +569,7 @@ final class HeartbeatStore: ObservableObject {
         if laborMarketRow() == nil, laborWeekIds().isEmpty { return true }
         return stores.contains {
             let rev = $0.textPayload["parser_rev"] ?? ""
-            return rev != "7" && rev != "8"
+            return rev != "7" && rev != "8" && rev != "9"
         }
     }
 
@@ -676,7 +676,10 @@ final class HeartbeatStore: ObservableObject {
     private func rebuildLaborWeekIndex() {
         var buckets: [String: [MetricRow]] = [:]
         buckets.reserveCapacity(512)
-        for row in rows where row.section == .labor && row.textPayload["labor_grain"] == "week" {
+        for row in rows where row.section == .labor {
+            let grain = row.textPayload["labor_grain"] ?? ""
+            let week = row.textPayload["week"] ?? ""
+            guard grain == "week" || (grain == "store" && week.hasPrefix("20")) else { continue }
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
             guard !store.isEmpty, !HeartbeatMath.isIgnoredStore(store) else { continue }
             buckets[store, default: []].append(row)
