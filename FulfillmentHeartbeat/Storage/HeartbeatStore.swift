@@ -1450,7 +1450,9 @@ final class HeartbeatStore: ObservableObject {
                     section: sheet.section,
                     filename: "\(filename) · \(sheet.sheetName)",
                     rowCount: incoming.count,
-                    validation: Self.importAudit(section: sheet.section, rows: incoming)
+                    validation: incoming.count > 8_000
+                        ? "\(incoming.count) rows"
+                        : Self.importAudit(section: sheet.section, rows: incoming)
                 ),
                 at: 0
             )
@@ -1511,12 +1513,19 @@ final class HeartbeatStore: ObservableObject {
                     }
                 }
             }
-            DispatchQueue.global(qos: .utility).async {
+            let lightReady: @Sendable ([WorkbookParser.ParsedSheet]) -> Void = { sheets in
+                Task { @MainActor [weak self] in
+                    guard let self, !sheets.isEmpty else { return }
+                    await self.applyMasterSheets(sheets, filename: filename, dismissOverlay: true, note: nil)
+                }
+            }
+            DispatchQueue.global(qos: .userInitiated).async {
                 do {
                     let sheets = try WorkbookParser.parseMaster(
                         data: data,
                         filename: filename,
-                        onProgress: tick
+                        onProgress: tick,
+                        onLightReady: lightReady
                     )
                     continuation.resume(returning: sheets)
                 } catch {
@@ -1544,7 +1553,12 @@ final class HeartbeatStore: ObservableObject {
         errorMessage = nil
         do {
             let sheets = try await parseMasterOffMain(data: data, filename: filename)
-            await applyMasterSheets(sheets, filename: filename, dismissOverlay: true, note: nil)
+            let heavy = sheets.filter { Self.deferredSections.contains($0.section) }
+            if !heavy.isEmpty {
+                await applyMasterSheets(heavy, filename: filename, dismissOverlay: true, note: nil)
+            } else if sheets.contains(where: { !Self.deferredSections.contains($0.section) }) == false {
+                await applyMasterSheets(sheets, filename: filename, dismissOverlay: true, note: nil)
+            }
             Task { await persistNow() }
             return true
         } catch {
