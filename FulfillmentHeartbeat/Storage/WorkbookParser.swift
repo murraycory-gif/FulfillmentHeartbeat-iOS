@@ -925,8 +925,9 @@ enum WorkbookParser {
             if !row.contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) { return }
             matrix.append(row)
         }
-        if let compressed = zip.compressedPayload(path), compressed.count > 80 {
-            SheetXML.forEachRowInflating(compressed: compressed, strings: strings, keep: nil, handle: handle)
+        if let packed = zip.compressedPayload(named: path) ?? zip.compressedPayload(named: path.replacingOccurrences(of: "xl/", with: "")),
+           packed.bytes.count > 80 {
+            SheetXML.forEachRowInflating(compressed: packed.bytes, strings: strings, keep: nil, handle: handle)
         } else if let data = zip.file(named: path) ?? zip.file(named: path.replacingOccurrences(of: "xl/", with: "")), !data.isEmpty {
             SheetXML.forEachRowBytes(data: data, strings: strings, keep: nil, handle: handle)
         }
