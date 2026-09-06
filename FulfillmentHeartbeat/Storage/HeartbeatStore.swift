@@ -1480,15 +1480,17 @@ final class HeartbeatStore: ObservableObject {
         let loadedSections = Set(uploads.map(\.section))
         let missing = MetricSection.uploadOrder.filter { !loadedSections.contains($0) }
         importMissing = missing.map(\.title)
+        importLoaded = MetricSection.uploadOrder.count - missing.count
+        importExpected = MetricSection.uploadOrder.count
         importProgress.missing = importMissing
-        importProgress.loaded = MetricSection.uploadOrder.count - missing.count
-        importProgress.expected = MetricSection.uploadOrder.count
+        importProgress.loaded = importLoaded
+        importProgress.expected = importExpected
         if let note {
             statusMessage = note
         } else if missing.isEmpty {
-            statusMessage = "Loaded \(importLoaded) of \(MetricSection.uploadOrder.count) scorecards."
+            statusMessage = "Loaded \(importProgress.loaded) of \(MetricSection.uploadOrder.count) scorecards."
         } else {
-            statusMessage = "Loaded \(importLoaded) of \(MetricSection.uploadOrder.count) scorecards. Missing: \(missing.map(\.title).joined(separator: ", "))."
+            statusMessage = "Loaded \(importProgress.loaded) of \(MetricSection.uploadOrder.count) scorecards. Missing: \(missing.map(\.title).joined(separator: ", "))."
         }
         if dismissOverlay {
             isImporting = false
@@ -1542,11 +1544,7 @@ final class HeartbeatStore: ObservableObject {
         errorMessage = nil
         do {
             let sheets = try await parseMasterOffMain(data: data, filename: filename)
-            let heavy: Set<MetricSection> = [.labor, .pickerScorecard, .pickPathPicker, .preSubOOSItem]
-            let incoming = seeded
-                ? sheets.filter { heavy.contains($0.section) }
-                : sheets
-            await applyMasterSheets(incoming.isEmpty ? sheets : incoming, filename: filename, dismissOverlay: true, note: nil)
+            await applyMasterSheets(sheets, filename: filename, dismissOverlay: true, note: nil)
             Task { await persistNow() }
             return true
         } catch {
@@ -1882,6 +1880,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func load() {
+        isReady = true
         let lightFile = snapshotURL
         let heavyFile = heavyURL
         let candidates = [snapshotURL] + Self.legacySnapshotURLs()

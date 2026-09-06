@@ -1520,7 +1520,8 @@ enum WorkbookParser {
         if let packed = zip.compressedPayload(named: path) ?? zip.compressedPayload(named: path.replacingOccurrences(of: "xl/", with: "")),
            packed.method == 8 {
             if packed.uncomp > 8_000_000, let range = zip.compressedRange(named: path) ?? zip.compressedRange(named: path.replacingOccurrences(of: "xl/", with: "")) {
-                return parseLaborLatestWeek(zipData: zip.rawBytes, offset: range.offset, size: range.size, strings: strings, onTick: onTick)
+                let fast = parseLaborLatestWeek(zipData: zip.rawBytes, offset: range.offset, size: range.size, strings: strings, onTick: onTick)
+                if !fast.isEmpty { return fast }
             }
             return parseLaborSheet(compressed: packed.bytes, strings: strings, onTick: onTick)
         }
