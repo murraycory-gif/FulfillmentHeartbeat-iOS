@@ -2133,6 +2133,8 @@ enum WorkbookParser {
         }
         return Array(last.values)
     }
+
+    private static func parsePickerStreaming(data: Data, strings: [String], onTick: ((Int) -> Void)? = nil) -> [ParsedWorkbookRow] {
         var storeIdx: Int?
         var empIdx: Int?
         var metricColumns: [String: [Int]] = [:]
