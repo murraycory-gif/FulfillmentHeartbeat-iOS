@@ -204,11 +204,12 @@ def main():
 
     home = img("IMG_0181.jpg")
     tf = img("IMG_0179.PNG")
-    upload = img("IMG_0182.jpeg")
+    upload = ROOT / "upload-current.png"
     files = img("IMG_0183.jpeg")
     pick = img("IMG_0184.jpeg")
     reading = img("IMG_0185.jpeg")
-    dash = img("Open Items Heartbeat 15.png")
+    dash = ROOT / "dash-current.jpg"
+    labor = ROOT / "labor-current.png"
     header_shot = img("Open Items Heartbeat 14.png")
     tf_devices = Path("/workspace/artifacts/searched_images/shSow.jpg")
     mac_panel = make_mac_panel()
@@ -309,10 +310,10 @@ def main():
         MARGIN, y, CONTENT_W, size=9.5, leading=13,
     )
     y -= 8
-    draw_img(c, dash, MARGIN, y, CONTENT_W, 220)
-    y -= 232
-    draw_img(c, header_shot, MARGIN, y, CONTENT_W, 168)
-    y -= 180
+    draw_img(c, dash, MARGIN, y, CONTENT_W, 200)
+    y -= 212
+    draw_img(c, labor, MARGIN, y, CONTENT_W, 188)
+    y -= 200
     y = section(c, "Share email", y)
     draw_wrapped(
         c,
