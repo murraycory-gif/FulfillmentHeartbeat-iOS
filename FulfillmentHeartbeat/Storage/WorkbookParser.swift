@@ -131,39 +131,49 @@ enum WorkbookParser {
         var found: [MetricSection: ParsedSheet] = [:]
         for entry in sheetsToRead {
             autoreleasepool {
-                onProgress?(found.count, expected, "Unpacking \(entry.name)…")
-                guard let sheet = zip.file(named: entry.path) ?? zip.file(named: entry.path.replacingOccurrences(of: "xl/", with: "")),
-                      !sheet.isEmpty else { return }
                 let hinted = section(fromSheetName: entry.name)
                 var parsed: [ParsedWorkbookRow] = []
                 if hinted == .labor {
-                    onProgress?(found.count, expected, "Reading Labor…")
-                    parsed = parseLaborSheet(data: sheet, strings: strings) { count, unit in
-                        onProgress?(found.count, expected, "Labor  \(count) \(unit)")
-                    }
-                }
-                if hinted == .pickerScorecard || hinted == .pickPathPicker {
-                    onProgress?(found.count, expected, "Reading \(entry.name)…")
-                    parsed = hinted == .pickPathPicker
-                        ? parseEmployeeStreaming(data: sheet, strings: strings)
-                        : parsePickerStreaming(data: sheet, strings: strings) { count in
-                            onProgress?(found.count, expected, "\(entry.name)  \(count) shoppers")
+                    onProgress?(found.count, expected, "Unpacking Labor…")
+                    if let packed = zip.compressedPayload(named: entry.path) ?? zip.compressedPayload(named: entry.path.replacingOccurrences(of: "xl/", with: "")),
+                       packed.method == 8 {
+                        parsed = parseLaborSheet(compressed: packed.bytes, strings: strings) { count, unit in
+                            onProgress?(found.count, expected, "Labor  \(count) \(unit)")
                         }
-                    if !parsed.isEmpty {
-                        parsed = compactShoppers(parsed)
+                    } else if let sheet = zip.file(named: entry.path) ?? zip.file(named: entry.path.replacingOccurrences(of: "xl/", with: "")),
+                              !sheet.isEmpty {
+                        parsed = parseLaborSheet(data: sheet, strings: strings) { count, unit in
+                            onProgress?(found.count, expected, "Labor  \(count) \(unit)")
+                        }
+                        zip.release(entry.path)
                     }
+                } else {
+                    onProgress?(found.count, expected, "Unpacking \(entry.name)…")
+                    guard let sheet = zip.file(named: entry.path) ?? zip.file(named: entry.path.replacingOccurrences(of: "xl/", with: "")),
+                          !sheet.isEmpty else { return }
+                    if hinted == .pickerScorecard || hinted == .pickPathPicker {
+                        onProgress?(found.count, expected, "Reading \(entry.name)…")
+                        parsed = hinted == .pickPathPicker
+                            ? parseEmployeeStreaming(data: sheet, strings: strings)
+                            : parsePickerStreaming(data: sheet, strings: strings) { count in
+                                onProgress?(found.count, expected, "\(entry.name)  \(count) shoppers")
+                            }
+                        if !parsed.isEmpty {
+                            parsed = compactShoppers(parsed)
+                        }
+                    }
+                    if parsed.isEmpty, sheet.count < 3_000_000 {
+                        let matrix = SheetXML.parse(data: sheet, strings: strings)
+                        parsed = rows(from: matrix, prefer: hinted)
+                        if parsed.isEmpty, hinted == .pickerScorecard {
+                            parsed = parsePickerWide(matrix) ?? parseEmployeeWeek(matrix) ?? []
+                        }
+                        if parsed.isEmpty, hinted == nil {
+                            parsed = parseLaborSheet(data: sheet, strings: strings)
+                        }
+                    }
+                    zip.release(entry.path)
                 }
-                if parsed.isEmpty, sheet.count < 3_000_000 {
-                    let matrix = SheetXML.parse(data: sheet, strings: strings)
-                    parsed = rows(from: matrix, prefer: hinted)
-                    if parsed.isEmpty, hinted == .pickerScorecard {
-                        parsed = parsePickerWide(matrix) ?? parseEmployeeWeek(matrix) ?? []
-                    }
-                    if parsed.isEmpty, hinted == nil {
-                        parsed = parseLaborSheet(data: sheet, strings: strings)
-                    }
-                }
-                zip.release(entry.path)
                 guard !parsed.isEmpty else { return }
                 guard let section = hinted ?? classifySheet(name: entry.name, rows: parsed)
                     ?? classifySheet(name: filename, rows: parsed) else { return }
@@ -1494,7 +1504,8 @@ enum WorkbookParser {
     }
 
     private static func parseLaborSheet(
-        data: Data,
+        data: Data? = nil,
+        compressed: Data? = nil,
         strings: [String],
         onTick: ((Int, String) -> Void)? = nil
     ) -> [ParsedWorkbookRow] {
@@ -1517,7 +1528,7 @@ enum WorkbookParser {
         var seen = 0
         acc.reserveCapacity(2200)
         storeRows.reserveCapacity(2200)
-        SheetXML.forEachRowBytes(data: data, strings: strings, keep: { keep }) { row in
+        let handle: ([String]) -> Void = { row in
             if header.isEmpty {
                 let mapped = row.map(normHeader)
                 let hasStore = mapped.contains("storeid") || mapped.contains("store")
@@ -1605,6 +1616,11 @@ enum WorkbookParser {
                     textPayload: ["labor_grain": "day", "week": week, "district": district]
                 )
             )
+        }
+        if let compressed {
+            SheetXML.forEachRowInflating(compressed: compressed, strings: strings, keep: { keep }, handle: handle)
+        } else if let data {
+            SheetXML.forEachRowBytes(data: data, strings: strings, keep: { keep }, handle: handle)
         }
         if storeView { return storeRows }
         return flattenLabor(acc)
@@ -3105,7 +3121,63 @@ enum SheetXML {
         forEachRowBytes(data: data, strings: strings, keep: keep, handle: handle)
     }
 
-    /// Walk rows from raw bytes so a 80MB Labor sheet is never one String.
+    static func forEachRowInflating(
+        compressed: Data,
+        strings: [String],
+        keep: (() -> Set<Int>?)? = nil,
+        handle: ([String]) -> Void
+    ) {
+        var stream = z_stream()
+        var status: Int32 = compressed.withUnsafeBytes { srcBuf in
+            guard let src = srcBuf.bindMemory(to: Bytef.self).baseAddress else { return Z_ERRNO }
+            stream.next_in = UnsafeMutablePointer(mutating: src)
+            stream.avail_in = uInt(compressed.count)
+            return inflateInit2_(&stream, -MAX_WBITS, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size))
+        }
+        if status != Z_OK { return }
+        defer { inflateEnd(&stream) }
+        var pending = Data()
+        pending.reserveCapacity(256_000)
+        var chunk = Data(count: 262_144)
+        let closeToken = Data("</row>".utf8)
+        let openToken = Data("<row".utf8)
+        while true {
+            var produced = 0
+            status = chunk.withUnsafeMutableBytes { dstBuf in
+                guard let dst = dstBuf.bindMemory(to: Bytef.self).baseAddress else { return Z_ERRNO }
+                stream.next_out = dst
+                stream.avail_out = uInt(chunk.count)
+                return inflate(&stream, Z_NO_FLUSH)
+            }
+            produced = chunk.count - Int(stream.avail_out)
+            if produced > 0 {
+                pending.append(chunk.prefix(produced))
+            }
+            while let close = pending.range(of: closeToken) {
+                let end = close.upperBound
+                guard let open = pending.range(of: openToken, in: 0..<end) else {
+                    pending.removeSubrange(0..<end)
+                    continue
+                }
+                let after = open.upperBound
+                guard after < pending.count else { break }
+                let mark = pending[after]
+                if mark != 0x20 && mark != 0x3E && mark != 0x2F {
+                    pending.removeSubrange(0..<after)
+                    continue
+                }
+                guard let gt = pending.range(of: Data(">".utf8), in: after..<end) else { break }
+                let inner = pending[gt.upperBound..<close.lowerBound]
+                if let xml = String(data: inner, encoding: .utf8) ?? String(data: Data(inner), encoding: .isoLatin1) {
+                    handle(walkCells(Substring(xml), strings: strings, keep: keep?()))
+                }
+                pending.removeSubrange(0..<end)
+            }
+            if status == Z_STREAM_END { break }
+            if status != Z_OK && status != Z_BUF_ERROR { break }
+            if produced == 0, stream.avail_in == 0 { break }
+        }
+    }
     static func forEachRowBytes(data: Data, strings: [String], keep: (() -> Set<Int>?)? = nil, handle: ([String]) -> Void) {
         let rowOpen = Data("<row".utf8)
         let rowClose = Data("</row>".utf8)
@@ -3660,8 +3732,16 @@ final class ZipArchive {
         return payload
     }
 
-    func release(_ name: String) {
-        cache.removeValue(forKey: name)
+    func compressedPayload(named name: String) -> (bytes: Data, uncomp: Int, method: UInt16)? {
+        guard let meta = index[name] ?? index[name.replacingOccurrences(of: "xl/", with: "")] else { return nil }
+        let localOff = meta.localOff
+        guard localOff + 30 <= data.count, u32(data, localOff) == 0x04034b50 else { return nil }
+        let nameLen = Int(u16(data, localOff + 26))
+        let extraLen = Int(u16(data, localOff + 28))
+        let dataStart = localOff + 30 + nameLen + extraLen
+        let size = max(meta.compSize, 0)
+        guard dataStart + size <= data.count else { return nil }
+        return (data.subdata(in: dataStart..<(dataStart + size)), meta.uncompSize, meta.method)
     }
 
     func entryNames() -> [String] {
@@ -3771,10 +3851,10 @@ private func inflate(_ source: Data, uncompressedSize: Int) -> Data? {
 }
 
 private func usableInflateHint(_ uncompressedSize: Int, compressed: Int) -> Int {
-    if uncompressedSize > 64, uncompressedSize < 40_000_000 {
+    if uncompressedSize > 64, uncompressedSize <= 180_000_000 {
         return uncompressedSize
     }
-    return min(max(compressed * 8, 512_000), 8_000_000)
+    return min(max(compressed * 6, 1_000_000), 16_000_000)
 }
 
 private func inflateWindow(_ source: Data, uncompressedSize: Int, windowBits: Int32) -> Data? {
@@ -3807,8 +3887,8 @@ private func inflateWindow(_ source: Data, uncompressedSize: Int, windowBits: In
             return dest
         }
         if rc == Z_BUF_ERROR {
-            if size > 48_000_000 { return nil }
-            size = min(size * 2, 48_000_000)
+            if size >= 180_000_000 { return nil }
+            size = min(max(size * 2, size + 8_000_000), 180_000_000)
             continue
         }
         return nil
