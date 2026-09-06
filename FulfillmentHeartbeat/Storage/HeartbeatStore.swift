@@ -20,6 +20,7 @@ final class HeartbeatStore: ObservableObject {
     @Published var importLoaded = 0
     @Published var importExpected = 0
     @Published var importMissing: [String] = []
+    @Published var importReady: [String] = []
     @Published var pendingExternalName: String?
     @Published var waitingForFileSection: MetricSection?
     @Published private(set) var isReady = false
@@ -1487,16 +1488,9 @@ final class HeartbeatStore: ObservableObject {
                     self?.importLoaded = loaded
                     self?.importExpected = total
                     self?.importLabel = name
-                }
-            }
-            let light: @Sendable ([WorkbookParser.ParsedSheet]) -> Void = { [weak self] sheets in
-                Task { @MainActor [weak self] in
-                    await self?.applyMasterSheets(
-                        sheets,
-                        filename: filename,
-                        dismissOverlay: true,
-                        note: "Labor and Picker still loading…"
-                    )
+                    if loaded > 0, !(self?.importReady.contains(name) ?? true) {
+                        self?.importReady.append(name)
+                    }
                 }
             }
             DispatchQueue.global(qos: .utility).async {
@@ -1504,8 +1498,7 @@ final class HeartbeatStore: ObservableObject {
                     let sheets = try WorkbookParser.parseMaster(
                         data: data,
                         filename: filename,
-                        onProgress: tick,
-                        onLightReady: light
+                        onProgress: tick
                     )
                     continuation.resume(returning: sheets)
                 } catch {
@@ -1523,6 +1516,7 @@ final class HeartbeatStore: ObservableObject {
             importLoaded = 0
             importExpected = MetricSection.uploadOrder.count
             importMissing = []
+            importReady = []
         }
         errorMessage = nil
         do {

@@ -385,6 +385,17 @@ private struct ImportProgressOverlay: View {
             )
             .tint(AppTheme.blue)
             .padding(.horizontal, 8)
+            if !store.importReady.isEmpty {
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(store.importReady.suffix(8), id: \.self) { name in
+                        Text("✓  \(name)")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(AppTheme.textSecondary)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 4)
+            }
         }
     }
 

@@ -1519,8 +1519,8 @@ enum WorkbookParser {
     ) -> [ParsedWorkbookRow] {
         if let packed = zip.compressedPayload(named: path) ?? zip.compressedPayload(named: path.replacingOccurrences(of: "xl/", with: "")),
            packed.method == 8 {
-            if packed.uncomp > 8_000_000 {
-                return parseLaborLatestWeek(compressed: packed.bytes, strings: strings, onTick: onTick)
+            if packed.uncomp > 8_000_000, let range = zip.compressedRange(named: path) ?? zip.compressedRange(named: path.replacingOccurrences(of: "xl/", with: "")) {
+                return parseLaborLatestWeek(zipData: zip.rawBytes, offset: range.offset, size: range.size, strings: strings, onTick: onTick)
             }
             return parseLaborSheet(compressed: packed.bytes, strings: strings, onTick: onTick)
         }
@@ -1560,7 +1560,10 @@ enum WorkbookParser {
     }
 
     private static func parseLaborLatestWeek(
-        compressed: Data,
+        compressed: Data? = nil,
+        zipData: Data? = nil,
+        offset: Int = 0,
+        size: Int = 0,
         strings: [String],
         onTick: ((Int, String) -> Void)?
     ) -> [ParsedWorkbookRow] {
@@ -1568,8 +1571,13 @@ enum WorkbookParser {
         var stores: [String: (division: String, district: String, eff: Double?, emp: Double?, sch: Double?, act: Double?)] = [:]
         stores.reserveCapacity(2200)
         var seen = 0
+        let source = zipData ?? compressed ?? Data()
+        let origin = zipData == nil ? 0 : offset
+        let length = zipData == nil ? source.count : size
         SheetXML.forEachRowInflating(
-            compressed: compressed,
+            compressed: source,
+            offset: origin,
+            count: length,
             strings: strings,
             handleRaw: { data in
                 seen += 1
@@ -3403,6 +3411,8 @@ enum SheetXML {
 
     static func forEachRowInflating(
         compressed: Data,
+        offset: Int = 0,
+        count: Int? = nil,
         strings: [String],
         keep: (() -> Set<Int>?)? = nil,
         include: ((Data) -> Bool)? = nil,
@@ -3410,10 +3420,11 @@ enum SheetXML {
         handle: ([String]) -> Void = { _ in }
     ) {
         var stream = z_stream()
+        let span = count ?? max(0, compressed.count - offset)
         var status: Int32 = compressed.withUnsafeBytes { srcBuf in
-            guard let src = srcBuf.bindMemory(to: Bytef.self).baseAddress else { return Z_ERRNO }
-            stream.next_in = UnsafeMutablePointer(mutating: src)
-            stream.avail_in = uInt(compressed.count)
+            guard let src = srcBuf.bindMemory(to: Bytef.self).baseAddress, offset + span <= compressed.count else { return Z_ERRNO }
+            stream.next_in = UnsafeMutablePointer(mutating: src + offset)
+            stream.avail_in = uInt(span)
             return inflateInit2_(&stream, -MAX_WBITS, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size))
         }
         if status != Z_OK { return }
@@ -4024,6 +4035,20 @@ final class ZipArchive {
         }
         return payload
     }
+
+    func compressedRange(named name: String) -> (offset: Int, size: Int, uncomp: Int, method: UInt16)? {
+        guard let meta = index[name] ?? index[name.replacingOccurrences(of: "xl/", with: "")] else { return nil }
+        let localOff = meta.localOff
+        guard localOff + 30 <= data.count, u32(data, localOff) == 0x04034b50 else { return nil }
+        let nameLen = Int(u16(data, localOff + 26))
+        let extraLen = Int(u16(data, localOff + 28))
+        let dataStart = localOff + 30 + nameLen + extraLen
+        let size = max(meta.compSize, 0)
+        guard dataStart + size <= data.count else { return nil }
+        return (dataStart, size, meta.uncompSize, meta.method)
+    }
+
+    var rawBytes: Data { data }
 
     func compressedPayload(named name: String) -> (bytes: Data, uncomp: Int, method: UInt16)? {
         guard let meta = index[name] ?? index[name.replacingOccurrences(of: "xl/", with: "")] else { return nil }
