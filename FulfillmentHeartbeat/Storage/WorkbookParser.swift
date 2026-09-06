@@ -135,17 +135,18 @@ enum WorkbookParser {
                 var parsed: [ParsedWorkbookRow] = []
                 if hinted == .labor {
                     onProgress?(found.count, expected, "Unpacking Labor…")
-                    if let packed = zip.compressedPayload(named: entry.path) ?? zip.compressedPayload(named: entry.path.replacingOccurrences(of: "xl/", with: "")),
-                       packed.method == 8 {
-                        parsed = parseLaborSheet(compressed: packed.bytes, strings: strings) { count, unit in
-                            onProgress?(found.count, expected, "Labor  \(count) \(unit)")
-                        }
-                    } else if let sheet = zip.file(named: entry.path) ?? zip.file(named: entry.path.replacingOccurrences(of: "xl/", with: "")),
-                              !sheet.isEmpty {
-                        parsed = parseLaborSheet(data: sheet, strings: strings) { count, unit in
-                            onProgress?(found.count, expected, "Labor  \(count) \(unit)")
-                        }
-                        zip.release(entry.path)
+                    parsed = parseLaborFromZip(zip: zip, path: entry.path, strings: strings) { count, unit in
+                        onProgress?(found.count, expected, "Labor  \(count) \(unit)")
+                    }
+                } else if hinted == .pickerScorecard || hinted == .pickPathPicker {
+                    onProgress?(found.count, expected, "Reading \(entry.name)…")
+                    parsed = parsePickersFromZip(
+                        zip: zip,
+                        path: entry.path,
+                        strings: strings,
+                        pathPicker: hinted == .pickPathPicker
+                    ) { count in
+                        onProgress?(found.count, expected, "\(entry.name)  \(count) shoppers")
                     }
                 } else {
                     onProgress?(found.count, expected, "Unpacking \(entry.name)…")
@@ -1503,6 +1504,49 @@ enum WorkbookParser {
         return flattenLabor(acc)
     }
 
+    private static func parseLaborFromZip(
+        zip: ZipArchive,
+        path: String,
+        strings: [String],
+        onTick: ((Int, String) -> Void)?
+    ) -> [ParsedWorkbookRow] {
+        if let packed = zip.compressedPayload(named: path) ?? zip.compressedPayload(named: path.replacingOccurrences(of: "xl/", with: "")),
+           packed.method == 8 {
+            return parseLaborSheet(compressed: packed.bytes, strings: strings, onTick: onTick)
+        }
+        if let sheet = zip.file(named: path) ?? zip.file(named: path.replacingOccurrences(of: "xl/", with: "")), !sheet.isEmpty {
+            let rows = parseLaborSheet(data: sheet, strings: strings, onTick: onTick)
+            zip.release(path)
+            return rows
+        }
+        return []
+    }
+
+    private static func parsePickersFromZip(
+        zip: ZipArchive,
+        path: String,
+        strings: [String],
+        pathPicker: Bool,
+        onTick: ((Int) -> Void)?
+    ) -> [ParsedWorkbookRow] {
+        var parsed: [ParsedWorkbookRow] = []
+        if let packed = zip.compressedPayload(named: path) ?? zip.compressedPayload(named: path.replacingOccurrences(of: "xl/", with: "")),
+           packed.method == 8 {
+            parsed = pathPicker
+                ? parseEmployeeStreaming(compressed: packed.bytes, strings: strings)
+                : parsePickerStreaming(compressed: packed.bytes, strings: strings, onTick: onTick)
+        } else if let sheet = zip.file(named: path) ?? zip.file(named: path.replacingOccurrences(of: "xl/", with: "")), !sheet.isEmpty {
+            parsed = pathPicker
+                ? parseEmployeeStreaming(data: sheet, strings: strings)
+                : parsePickerStreaming(data: sheet, strings: strings, onTick: onTick)
+            zip.release(path)
+        }
+        if !parsed.isEmpty {
+            parsed = compactShoppers(parsed)
+        }
+        return parsed
+    }
+
     private static func parseLaborSheet(
         data: Data? = nil,
         compressed: Data? = nil,
@@ -2235,7 +2279,12 @@ enum WorkbookParser {
         return Array(last.values)
     }
 
-    private static func parsePickerStreaming(data: Data, strings: [String], onTick: ((Int) -> Void)? = nil) -> [ParsedWorkbookRow] {
+    private static func parsePickerStreaming(
+        data: Data? = nil,
+        compressed: Data? = nil,
+        strings: [String],
+        onTick: ((Int) -> Void)? = nil
+    ) -> [ParsedWorkbookRow] {
         var storeIdx: Int?
         var empIdx: Int?
         var metricColumns: [String: [Int]] = [:]
@@ -2245,7 +2294,7 @@ enum WorkbookParser {
         var out: [ParsedWorkbookRow] = []
         var seen = 0
         out.reserveCapacity(8192)
-        SheetXML.forEachRow(data: data, strings: strings, keep: { keep }) { line in
+        let handle: ([String]) -> Void = { line in
             if !ready {
                 let names = line.map(normHeader)
                 let store = names.firstIndex { storeKeys.contains($0) || $0 == "store" || $0.hasPrefix("store") }
@@ -2311,17 +2360,26 @@ enum WorkbookParser {
                 )
             )
         }
+        if let compressed {
+            SheetXML.forEachRowInflating(compressed: compressed, strings: strings, keep: { keep }, handle: handle)
+        } else if let data {
+            SheetXML.forEachRowBytes(data: data, strings: strings, keep: { keep }, handle: handle)
+        }
         return out
     }
 
-    private static func parseEmployeeStreaming(data: Data, strings: [String]) -> [ParsedWorkbookRow] {
+    private static func parseEmployeeStreaming(
+        data: Data? = nil,
+        compressed: Data? = nil,
+        strings: [String]
+    ) -> [ParsedWorkbookRow] {
         var empIdx: Int?
         var storeIdx: Int?
         var metricColumns: [String: [Int]] = [:]
         var ready = false
         var out: [ParsedWorkbookRow] = []
         out.reserveCapacity(8192)
-        SheetXML.forEachRow(data: data, strings: strings) { line in
+        let handle: ([String]) -> Void = { line in
             if !ready {
                 let names = line.map(normHeader)
                 let picker = names.firstIndex { shopperIdKeys.contains($0) || shopperNameKeys.contains($0) }
@@ -2367,10 +2425,13 @@ enum WorkbookParser {
                 )
             )
         }
+        if let compressed {
+            SheetXML.forEachRowInflating(compressed: compressed, strings: strings, keep: nil, handle: handle)
+        } else if let data {
+            SheetXML.forEachRowBytes(data: data, strings: strings, keep: nil, handle: handle)
+        }
         return out
     }
-
-    /// WEEK_ID across the top, STORE_ID or OM_AREA down the side, Total block last.
     private static func parseStoreWeek(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {
         guard let headerIndex = matrix.firstIndex(where: { row in
             let names = Set(row.map(normHeader))
