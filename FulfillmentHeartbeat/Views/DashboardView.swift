@@ -570,7 +570,6 @@ struct DashCallout: View, Equatable {
             }
         }
     }
-    }
 
     private var titleText: String {
         card.section == .pickPath ? "Pick Path Compliance" : card.section.title
