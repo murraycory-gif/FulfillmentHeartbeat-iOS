@@ -3744,6 +3744,10 @@ final class ZipArchive {
         return (data.subdata(in: dataStart..<(dataStart + size)), meta.uncompSize, meta.method)
     }
 
+    func release(_ name: String) {
+        cache.removeValue(forKey: name)
+    }
+
     func entryNames() -> [String] {
         Array(index.keys)
     }
