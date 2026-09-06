@@ -260,7 +260,12 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func pickerCount(for focus: PickerFocus) -> Int {
-        pickerIndex[focus]?.count ?? 0
+        if let indexed = pickerIndex[focus]?.count, indexed > 0 {
+            return indexed
+        }
+        let pickers = filteredLatest[.pickerScorecard] ?? []
+        if focus == .all { return pickers.count }
+        return pickerIndex[focus]?.count ?? 0
     }
 
     func pickerFocusHealth(for focus: PickerFocus) -> Health {
@@ -1999,6 +2004,12 @@ final class HeartbeatStore: ObservableObject {
         cachedPickerBoard = caches.cachedPickerBoard
         cachedChecklistGroups = caches.cachedChecklistGroups
         pickerIndex = caches.pickerIndex
+        if (pickerIndex[.all] ?? []).isEmpty {
+            let pickers = caches.filteredLatest[.pickerScorecard] ?? []
+            if !pickers.isEmpty {
+                pickerIndex[.all] = Array(pickers.indices)
+            }
+        }
         pickerFocusHealth = caches.pickerFocusHealth
         pickPathPickersByStore = caches.pickPathPickersByStore
         pickPathByShopper = caches.pickPathByShopper
@@ -2018,7 +2029,14 @@ final class HeartbeatStore: ObservableObject {
         pphPickersByStore = bits.pphPickersByStore
         refreshChecklistOpenCount()
         let pickers = filteredLatest[.pickerScorecard] ?? []
+        if !bits.pickerIndex.isEmpty {
+            pickerIndex = bits.pickerIndex
+            pickerFocusHealth = bits.pickerFocusHealth
+        } else if pickerIndex[.all] == nil || pickerIndex[.all]?.isEmpty == true, !pickers.isEmpty {
+            pickerIndex[.all] = Array(pickers.indices)
+        }
         let count = pickers.count
+        guard count > 0 else { return }
         Task.detached(priority: .utility) {
             let built = PulseCaches.pickerBuckets(pickers)
             await MainActor.run {
