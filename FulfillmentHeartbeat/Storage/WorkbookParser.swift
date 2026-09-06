@@ -136,6 +136,12 @@ enum WorkbookParser {
                       !sheet.isEmpty else { return }
                 let hinted = section(fromSheetName: entry.name)
                 var parsed: [ParsedWorkbookRow] = []
+                if hinted == .labor {
+                    onProgress?(found.count, expected, "Reading Labor…")
+                    parsed = parseLaborSheet(data: sheet, strings: strings) { count, unit in
+                        onProgress?(found.count, expected, "Labor  \(count) \(unit)")
+                    }
+                }
                 if hinted == .pickerScorecard || hinted == .pickPathPicker {
                     onProgress?(found.count, expected, "Reading \(entry.name)…")
                     parsed = hinted == .pickPathPicker
@@ -153,12 +159,9 @@ enum WorkbookParser {
                     if parsed.isEmpty, hinted == .pickerScorecard {
                         parsed = parsePickerWide(matrix) ?? parseEmployeeWeek(matrix) ?? []
                     }
-                    if parsed.isEmpty, hinted == .labor || hinted == nil {
+                    if parsed.isEmpty, hinted == nil {
                         parsed = parseLaborSheet(data: sheet, strings: strings)
                     }
-                }
-                if parsed.isEmpty, hinted == .labor {
-                    parsed = parseLaborSheet(data: sheet, strings: strings)
                 }
                 zip.release(entry.path)
                 guard !parsed.isEmpty else { return }
@@ -1489,8 +1492,13 @@ enum WorkbookParser {
         return flattenLabor(acc)
     }
 
-    private static func parseLaborSheet(data: Data, strings: [String]) -> [ParsedWorkbookRow] {
+    private static func parseLaborSheet(
+        data: Data,
+        strings: [String],
+        onTick: ((Int, String) -> Void)? = nil
+    ) -> [ParsedWorkbookRow] {
         var header: [String] = []
+        var names: [String] = []
         var week = ""
         var date = ""
         var division = ""
@@ -1498,24 +1506,36 @@ enum WorkbookParser {
         var acc: [String: [String: LaborWeekAcc]] = [:]
         var storeRows: [ParsedWorkbookRow] = []
         var storeView = false
+        var keep: Set<Int>?
+        var seen = 0
         acc.reserveCapacity(2200)
         storeRows.reserveCapacity(2200)
-        SheetXML.forEachRow(data: data, strings: strings) { row in
+        SheetXML.forEachRow(data: data, strings: strings, keep: { keep }) { row in
             if header.isEmpty {
-                let names = row.map(normHeader)
-                let hasStore = names.contains("storeid") || names.contains("store")
-                let hasWeek = names.contains("weekid") || names.contains("ddate")
-                let hasMetric = names.contains(where: {
+                let mapped = row.map(normHeader)
+                let hasStore = mapped.contains("storeid") || mapped.contains("store")
+                let hasWeek = mapped.contains("weekid") || mapped.contains("ddate")
+                let hasMetric = mapped.contains(where: {
                     $0.contains("costtrgt") || $0.contains("targetvsactual") || $0.contains("scheffi") || $0.contains("actcost")
                 })
                 if hasStore && hasMetric {
                     header = row
+                    names = mapped
                     storeView = !hasWeek
+                    var cols = Set<Int>()
+                    for (index, key) in mapped.enumerated() where laborKeepColumn(key) {
+                        cols.insert(index)
+                    }
+                    keep = cols
                 }
                 return
             }
+            seen += 1
+            if seen % 2000 == 0 {
+                onTick?(seen, storeView ? "stores" : "days")
+            }
             if storeView {
-                if let parsed = laborStoreRow(row, header: header) {
+                if let parsed = laborStoreRow(row, header: header, names: names) {
                     storeRows.append(parsed)
                 }
                 return
@@ -1523,6 +1543,7 @@ enum WorkbookParser {
             guard let parsed = laborRow(
                 row,
                 header: header,
+                names: names,
                 week: &week,
                 date: &date,
                 division: &division,
@@ -1534,13 +1555,22 @@ enum WorkbookParser {
         return flattenLabor(acc)
     }
 
-    private static func laborStoreRow(_ row: [String], header: [String]) -> ParsedWorkbookRow? {
-        let names = header.map(normHeader)
+    private static func laborKeepColumn(_ key: String) -> Bool {
+        key == "storeid" || key == "store" || key == "weekid" || key == "ddate"
+            || key == "divisionnm" || key == "division" || key == "district"
+            || key.contains("costtrgt") || key.contains("targetvsactual") || key.contains("scheffi")
+            || key.contains("actcost") || key.contains("acttrgt") || key.contains("empower")
+            || key.contains("acthrs") || key.contains("schhrs") || key.contains("earned")
+            || key.contains("uplh") || key.contains("wage") || key.contains("aiv")
+            || key.contains("charged") || key.contains("overschedule")
+    }
+
+    private static func laborStoreRow(_ row: [String], header: [String], names: [String]) -> ParsedWorkbookRow? {
         func cell(_ key: String) -> String {
             guard let index = names.firstIndex(of: key), index < row.count else { return "" }
             return row[index].trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        let storeRaw = cell("storeid")
+        let storeRaw = cell("storeid").isEmpty ? cell("store") : cell("storeid")
         let market = isTotalCell(storeRaw)
         let store: String
         if market {
@@ -1828,12 +1858,12 @@ enum WorkbookParser {
     private static func laborRow(
         _ row: [String],
         header: [String],
+        names: [String],
         week: inout String,
         date: inout String,
         division: inout String,
         district: inout String
     ) -> ParsedWorkbookRow? {
-        let names = header.map(normHeader)
         func cell(_ key: String) -> String {
             guard let index = names.firstIndex(of: key), index < row.count else { return "" }
             return row[index].trimmingCharacters(in: .whitespacesAndNewlines)
