@@ -96,7 +96,8 @@ enum WorkbookParser {
     static func parseMaster(
         data: Data,
         filename: String,
-        onProgress: ((Int, Int, String) -> Void)? = nil
+        onProgress: ((Int, Int, String) -> Void)? = nil,
+        onLightReady: (([ParsedSheet]) -> Void)? = nil
     ) throws -> [ParsedSheet] {
         let ext = (filename as NSString).pathExtension.lowercased()
         if ext == "csv" || ext == "txt" || looksLikeCSV(data) {
@@ -129,9 +130,15 @@ enum WorkbookParser {
         let expected = MetricSection.uploadOrder.count
         onProgress?(0, expected, "Reading workbook…")
         var found: [MetricSection: ParsedSheet] = [:]
+        var lightReleased = false
         for entry in sheetsToRead {
             autoreleasepool {
                 let hinted = section(fromSheetName: entry.name)
+                if !lightReleased, hinted == .labor || hinted == .pickerScorecard || hinted == .pickPathPicker || hinted == .preSubOOSItem {
+                    lightReleased = true
+                    onLightReady?(MetricSection.uploadOrder.compactMap { found[$0] })
+                    onProgress?(found.count, expected, "Finishing Labor and Picker…")
+                }
                 var parsed: [ParsedWorkbookRow] = []
                 if hinted == .labor {
                     onProgress?(found.count, expected, "Unpacking Labor…")

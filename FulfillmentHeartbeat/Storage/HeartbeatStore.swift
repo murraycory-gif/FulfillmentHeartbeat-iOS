@@ -1416,6 +1416,65 @@ final class HeartbeatStore: ObservableObject {
         await persistNow()
     }
 
+    private func applyMasterSheets(
+        _ sheets: [WorkbookParser.ParsedSheet],
+        filename: String,
+        dismissOverlay: Bool,
+        note: String?
+    ) async {
+        guard !sheets.isEmpty else { return }
+        var nextRows = rows
+        var nextUploads = uploads
+        for sheet in sheets {
+            let incoming = sheet.rows.map { $0.asRow(section: sheet.section) }
+            nextRows.removeAll { $0.section == sheet.section }
+            nextRows.append(contentsOf: incoming)
+            nextUploads.removeAll { $0.section == sheet.section }
+            nextUploads.insert(
+                UploadRecord(
+                    section: sheet.section,
+                    filename: "\(filename) · \(sheet.sheetName)",
+                    rowCount: incoming.count,
+                    validation: Self.importAudit(section: sheet.section, rows: incoming)
+                ),
+                at: 0
+            )
+        }
+        let caches = await Task.detached(priority: .userInitiated) {
+            PulseCaches.build(rows: nextRows, filters: DashboardFilters(), uploads: nextUploads, heavy: false, grain: .region)
+        }.value
+        hydrating = true
+        rows = nextRows
+        uploads = nextUploads
+        filters = DashboardFilters()
+        rebuildLaborWeekIndex()
+        install(caches)
+        hydrating = false
+        Task.detached(priority: .utility) {
+            let heavy = PulseCaches.heavyExtras(latest: caches.filteredLatest, roster: caches.roster)
+            await MainActor.run { self.mergeHeavy(heavy) }
+        }
+        seeded = true
+        lastImportedSection = sheets.first { $0.section == .pickerScorecard }?.section ?? sheets.first?.section
+        let loadedSections = Set(uploads.map(\.section))
+        let missing = MetricSection.uploadOrder.filter { !loadedSections.contains($0) }
+        importMissing = missing.map(\.title)
+        importLoaded = MetricSection.uploadOrder.count - missing.count
+        importExpected = MetricSection.uploadOrder.count
+        if let note {
+            statusMessage = note
+        } else if missing.isEmpty {
+            statusMessage = "Loaded \(importLoaded) of \(MetricSection.uploadOrder.count) scorecards."
+        } else {
+            statusMessage = "Loaded \(importLoaded) of \(MetricSection.uploadOrder.count) scorecards. Missing: \(missing.map(\.title).joined(separator: ", "))."
+        }
+        needsRolePick = true
+        if dismissOverlay {
+            isImporting = false
+            importLabel = nil
+        }
+    }
+
     private func parseMasterOffMain(data: Data, filename: String) async throws -> [WorkbookParser.ParsedSheet] {
         try await withCheckedThrowingContinuation { continuation in
             let tick: @Sendable (Int, Int, String) -> Void = { loaded, total, name in
@@ -1425,12 +1484,23 @@ final class HeartbeatStore: ObservableObject {
                     self?.importLabel = name
                 }
             }
+            let light: @Sendable ([WorkbookParser.ParsedSheet]) -> Void = { [weak self] sheets in
+                Task { @MainActor [weak self] in
+                    await self?.applyMasterSheets(
+                        sheets,
+                        filename: filename,
+                        dismissOverlay: true,
+                        note: "Labor and Picker still loading…"
+                    )
+                }
+            }
             DispatchQueue.global(qos: .utility).async {
                 do {
                     let sheets = try WorkbookParser.parseMaster(
                         data: data,
                         filename: filename,
-                        onProgress: tick
+                        onProgress: tick,
+                        onLightReady: light
                     )
                     continuation.resume(returning: sheets)
                 } catch {
@@ -1452,56 +1522,7 @@ final class HeartbeatStore: ObservableObject {
         errorMessage = nil
         do {
             let sheets = try await parseMasterOffMain(data: data, filename: filename)
-            importLabel = "Updating \(sheets.count) of \(MetricSection.uploadOrder.count) scorecards…"
-            importLoaded = sheets.count
-            var nextRows = rows
-            var nextUploads = uploads
-            var loaded: [String] = []
-            for sheet in sheets {
-                let incoming = sheet.rows.map { $0.asRow(section: sheet.section) }
-                nextRows.removeAll { $0.section == sheet.section }
-                nextRows.append(contentsOf: incoming)
-                nextUploads.removeAll { $0.section == sheet.section }
-                nextUploads.insert(
-                    UploadRecord(
-                        section: sheet.section,
-                        filename: "\(filename) · \(sheet.sheetName)",
-                        rowCount: incoming.count,
-                        validation: Self.importAudit(section: sheet.section, rows: incoming)
-                    ),
-                    at: 0
-                )
-                loaded.append(sheet.section.short)
-            }
-            let caches = await Task.detached(priority: .userInitiated) {
-                PulseCaches.build(rows: nextRows, filters: DashboardFilters(), uploads: nextUploads, heavy: false, grain: .region)
-            }.value
-            hydrating = true
-            rows = nextRows
-            uploads = nextUploads
-            filters = DashboardFilters()
-            rebuildLaborWeekIndex()
-            install(caches)
-            hydrating = false
-            Task.detached(priority: .utility) {
-                let heavy = PulseCaches.heavyExtras(latest: caches.filteredLatest, roster: caches.roster)
-                await MainActor.run { self.mergeHeavy(heavy) }
-            }
-            seeded = true
-            lastImportedSection = sheets.first { $0.section == .pickerScorecard }?.section ?? sheets.first?.section
-            let loadedSections = Set(sheets.map(\.section))
-            let missing = MetricSection.uploadOrder.filter { !loadedSections.contains($0) }
-            importMissing = missing.map(\.title)
-            importLoaded = sheets.count
-            importExpected = MetricSection.uploadOrder.count
-            if missing.isEmpty {
-                statusMessage = "Loaded \(sheets.count) of \(MetricSection.uploadOrder.count) scorecards."
-            } else {
-                statusMessage = "Loaded \(sheets.count) of \(MetricSection.uploadOrder.count) scorecards. Missing: \(missing.map(\.title).joined(separator: ", ")). Add those tabs to the master file or use the individual upload cards."
-            }
-            needsRolePick = true
-            isImporting = false
-            importLabel = nil
+            await applyMasterSheets(sheets, filename: filename, dismissOverlay: true, note: nil)
             Task { await persistNow() }
             return true
         } catch {
