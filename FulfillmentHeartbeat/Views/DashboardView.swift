@@ -153,7 +153,28 @@ struct DashLostBanner: View {
                     }
                 }
             } else {
-                DashFlagGrid(flags: flags, columns: 3)
+                if !flags.isEmpty {
+                    Button {
+                        flagsOpen.toggle()
+                    } label: {
+                        HStack(spacing: 8) {
+                            Text("\(flags.count) metrics")
+                                .font(.subheadline.weight(.bold))
+                                .foregroundStyle(AppTheme.blue)
+                            Text("tap to \(flagsOpen ? "collapse" : "expand")")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(AppTheme.textSecondary)
+                            Spacer(minLength: 4)
+                            Image(systemName: flagsOpen ? "chevron.up" : "chevron.down")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(AppTheme.blue)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    if flagsOpen {
+                        DashFlagGrid(flags: flags, columns: 3)
+                    }
+                }
             }
             if let grain {
                 DashScopeStrip(section: summary.section, grain: grain, packs: grains, width: width)
@@ -441,17 +462,11 @@ struct DashScopeGrainCard: View {
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.white.opacity(0.78))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(dashWash(line.health == .none ? .good : line.health).opacity(0.5))
-                }
+                .fill(Color.white)
         )
-        .overlay(alignment: .leading) {
-            Capsule()
-                .fill(dashInk(line.health == .none ? .good : line.health))
-                .frame(width: 4)
-                .padding(.vertical, 8)
+        .overlay {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.black.opacity(0.08), lineWidth: 1)
         }
     }
 }
@@ -508,22 +523,16 @@ private struct DashFlagChip: View {
             .lineLimit(1)
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Color.white.opacity(0.72))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .fill(dashWash(flag.health == .none ? .good : flag.health).opacity(0.55))
-                }
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(Color.white)
         )
-        .overlay(alignment: .leading) {
-            Capsule()
-                .fill(dashInk(flag.health == .none ? .good : flag.health))
-                .frame(width: 4)
-                .padding(.vertical, 8)
-        }
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color.black.opacity(0.08), lineWidth: 1)
+        )
     }
 }
 
@@ -560,7 +569,7 @@ struct DashCallout: View, Equatable {
                     if compact {
                         compactFlagBlock(flags)
                     } else {
-                        flagBlock(flags)
+                        compactFlagBlock(flags)
                     }
                     if let grain {
                         DashScopeStrip(section: card.section, grain: grain, packs: grains, width: width)
@@ -713,9 +722,9 @@ private struct DashCardGlyph: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: compact ? 12 : 14, style: .continuous)
-                .fill(dashWash(health))
+                .fill(AppTheme.blueSoft)
             RoundedRectangle(cornerRadius: compact ? 12 : 14, style: .continuous)
-                .stroke(dashInk(health).opacity(0.18), lineWidth: 1)
+                .stroke(AppTheme.blue.opacity(0.16), lineWidth: 1)
             Image(systemName: symbol)
                 .font((compact ? Font.title3 : Font.title).weight(.semibold))
                 .foregroundStyle(dashInk(health))
@@ -745,27 +754,18 @@ private struct DashCardChrome: ViewModifier {
             .background {
                 RoundedRectangle(cornerRadius: phone ? 12 : 16, style: .continuous)
                     .fill(Color.white)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: phone ? 12 : 16, style: .continuous)
-                            .fill(dashWash(health).opacity(0.42))
-                    }
             }
             .overlay(alignment: .leading) {
                 Capsule()
                     .fill(dashInk(health))
-                    .frame(width: phone ? 4 : 5)
+                    .frame(width: 4)
                     .padding(.vertical, phone ? 10 : 14)
             }
             .overlay {
-                if health == .risk {
-                    RoundedRectangle(cornerRadius: phone ? 12 : 16, style: .continuous)
-                        .stroke(Color(red: 220 / 255, green: 38 / 255, blue: 38 / 255), lineWidth: phone ? 2 : 2.5)
-                } else {
-                    RoundedRectangle(cornerRadius: phone ? 12 : 16, style: .continuous)
-                        .stroke(Color.black.opacity(0.05), lineWidth: 1)
-                }
+                RoundedRectangle(cornerRadius: phone ? 12 : 16, style: .continuous)
+                    .stroke(Color.black.opacity(0.08), lineWidth: 1)
             }
-            .shadow(color: Color.black.opacity(0.08), radius: phone ? 4 : 6, y: 3)
+            .shadow(color: Color.black.opacity(0.04), radius: 3, y: 1)
             .contentShape(RoundedRectangle(cornerRadius: phone ? 12 : 16, style: .continuous))
     }
 }
