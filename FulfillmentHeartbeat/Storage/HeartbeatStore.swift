@@ -1443,16 +1443,22 @@ final class HeartbeatStore: ObservableObject {
         let caches = await Task.detached(priority: .userInitiated) {
             PulseCaches.build(rows: nextRows, filters: DashboardFilters(), uploads: nextUploads, heavy: false, grain: .region)
         }.value
+        let firstOpen = !seeded
         hydrating = true
         rows = nextRows
         uploads = nextUploads
-        filters = DashboardFilters()
+        if firstOpen {
+            filters = DashboardFilters()
+            needsRolePick = true
+        }
         rebuildLaborWeekIndex()
         install(caches)
         hydrating = false
-        Task.detached(priority: .utility) {
-            let heavy = PulseCaches.heavyExtras(latest: caches.filteredLatest, roster: caches.roster)
-            await MainActor.run { self.mergeHeavy(heavy) }
+        if note == nil {
+            Task.detached(priority: .utility) {
+                let heavy = PulseCaches.heavyExtras(latest: caches.filteredLatest, roster: caches.roster)
+                await MainActor.run { self.mergeHeavy(heavy) }
+            }
         }
         seeded = true
         lastImportedSection = sheets.first { $0.section == .pickerScorecard }?.section ?? sheets.first?.section
@@ -1522,7 +1528,11 @@ final class HeartbeatStore: ObservableObject {
         errorMessage = nil
         do {
             let sheets = try await parseMasterOffMain(data: data, filename: filename)
-            await applyMasterSheets(sheets, filename: filename, dismissOverlay: true, note: nil)
+            let heavy: Set<MetricSection> = [.labor, .pickerScorecard, .pickPathPicker, .preSubOOSItem]
+            let incoming = seeded
+                ? sheets.filter { heavy.contains($0.section) }
+                : sheets
+            await applyMasterSheets(incoming.isEmpty ? sheets : incoming, filename: filename, dismissOverlay: true, note: nil)
             Task { await persistNow() }
             return true
         } catch {

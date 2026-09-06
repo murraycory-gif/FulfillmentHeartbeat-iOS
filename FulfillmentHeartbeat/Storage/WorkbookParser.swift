@@ -1544,7 +1544,9 @@ enum WorkbookParser {
            packed.method == 8 {
             parsed = pathPicker
                 ? parseEmployeeStreaming(compressed: packed.bytes, strings: strings)
-                : parsePickerStreaming(compressed: packed.bytes, strings: strings, onTick: onTick)
+                : (packed.uncomp > 8_000_000
+                    ? parsePickerFast(compressed: packed.bytes, strings: strings, onTick: onTick)
+                    : parsePickerStreaming(compressed: packed.bytes, strings: strings, onTick: onTick))
         } else if let sheet = zip.file(named: path) ?? zip.file(named: path.replacingOccurrences(of: "xl/", with: "")), !sheet.isEmpty {
             parsed = pathPicker
                 ? parseEmployeeStreaming(data: sheet, strings: strings)
@@ -2384,6 +2386,53 @@ enum WorkbookParser {
             )
         }
         return out.isEmpty ? nil : out
+    }
+
+    private static func parsePickerFast(
+        compressed: Data,
+        strings: [String],
+        onTick: ((Int) -> Void)?
+    ) -> [ParsedWorkbookRow] {
+        var last: [String: ParsedWorkbookRow] = [:]
+        last.reserveCapacity(8000)
+        var seen = 0
+        SheetXML.forEachRowInflating(
+            compressed: compressed,
+            strings: strings,
+            handleRaw: { data in
+                seen += 1
+                let storeRaw = SheetXML.rawCell(data, letter: "A", strings: strings)
+                let pickerRaw = SheetXML.rawCell(data, letter: "B", strings: strings)
+                guard looksLikeStoreNumber(storeRaw), Double(storeRaw) ?? 0 < 200_000 else { return }
+                let picker = pickerRaw.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !picker.isEmpty, picker.rangeOfCharacter(from: .letters) != nil, !isTotalCell(picker) else { return }
+                var payload: [String: Double] = [:]
+                if let pph = cellNumber(SheetXML.rawCell(data, letter: "C", strings: strings)) { payload["pph"] = pph }
+                if let presub = cellNumber(SheetXML.rawCell(data, letter: "D", strings: strings)) {
+                    payload["presub_oos_pct"] = presub <= 1.5 ? presub : presub / 100
+                }
+                if let oos = cellNumber(SheetXML.rawCell(data, letter: "E", strings: strings)) {
+                    payload["oos_pct"] = oos <= 1.5 ? oos : oos / 100
+                }
+                if let hours = cellNumber(SheetXML.rawCell(data, letter: "F", strings: strings)) { payload["pick_hours"] = hours }
+                if let picks = cellNumber(SheetXML.rawCell(data, letter: "G", strings: strings)) { payload["picks"] = picks }
+                if let orders = cellNumber(SheetXML.rawCell(data, letter: "I", strings: strings)) { payload["orders"] = orders }
+                guard !payload.isEmpty else { return }
+                let store = HeartbeatMath.canonicalStore(storeRaw)
+                last[store + "|" + picker] = ParsedWorkbookRow(
+                    division: "",
+                    operationsOM: "",
+                    storeNumber: store,
+                    storeName: nil,
+                    recordedOn: nil,
+                    payload: payload,
+                    textPayload: ["shopper_id": picker, "shopper_name": picker]
+                )
+                if seen % 4000 == 0 { onTick?(last.count) }
+            }
+        )
+        onTick?(last.count)
+        return Array(last.values)
     }
 
     private static func compactShoppers(_ rows: [ParsedWorkbookRow]) -> [ParsedWorkbookRow] {
