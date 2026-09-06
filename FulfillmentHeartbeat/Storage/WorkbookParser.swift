@@ -1077,20 +1077,62 @@ enum WorkbookParser {
         }
         guard !blocks.isEmpty else { return nil }
 
+        let weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+        let matrixWidth = max(headers.count, matrix.map(\.count).max() ?? 0)
+        var dayBlocks: [SalesBlock] = []
+        if let firstSales = starts.first {
+            for index in 0..<7 {
+                let start = firstSales + index * 12
+                guard start < matrixWidth else { break }
+                var block = SalesBlock(label: weekdays[index])
+                block.sales = start
+                block.yoy = start + 1
+                block.orders = start + 2
+                block.ordersYoy = start + 3
+                block.aos = start + 4
+                block.aosYoy = start + 5
+                block.aiv = start + 6
+                block.aivYoy = start + 7
+                block.ipt = start + 8
+                block.iptYoy = start + 9
+                block.items = start + 10
+                block.itemsYoy = start + 11
+                dayBlocks.append(block)
+            }
+        }
+        if dayBlocks.count < 7 {
+            let fallback = blocks.filter { salesDayName($0.label) != "Week" }
+            if fallback.count >= 7 {
+                dayBlocks = Array(fallback.prefix(7))
+            } else if blocks.count >= 7 {
+                dayBlocks = Array(blocks.prefix(7))
+            } else {
+                dayBlocks = fallback
+            }
+            for index in dayBlocks.indices where index < weekdays.count {
+                dayBlocks[index].label = weekdays[index]
+            }
+        }
+
         let weekBlock: SalesBlock = {
             if let named = blocks.last(where: { salesDayName($0.label) == "Week" }) { return named }
+            if let last = starts.last, last >= (starts.first ?? 0) + 7 * 12 {
+                var block = SalesBlock(label: "Week")
+                block.sales = last
+                block.yoy = last + 1
+                block.orders = last + 2
+                block.ordersYoy = last + 3
+                block.aos = last + 4
+                block.aosYoy = last + 5
+                block.aiv = last + 6
+                block.aivYoy = last + 7
+                block.ipt = last + 8
+                block.iptYoy = last + 9
+                block.items = last + 10
+                return block
+            }
             return blocks[blocks.count - 1]
         }()
-        let weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-        var dayBlocks = blocks.filter { salesDayName($0.label) != "Week" }
-        if dayBlocks.count >= 7 {
-            dayBlocks = Array(dayBlocks.prefix(7))
-        } else if blocks.count >= 7 {
-            dayBlocks = Array(blocks.prefix(7))
-        }
-        for index in dayBlocks.indices where index < weekdays.count {
-            dayBlocks[index].label = weekdays[index]
-        }
 
         let week = salesWeek(from: Array(matrix.prefix(headerIdx)))
         var lastDivision = ""
