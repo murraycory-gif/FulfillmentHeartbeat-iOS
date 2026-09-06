@@ -1570,9 +1570,14 @@ enum WorkbookParser {
         var idxDist = -1
         var metricIdx: [(Int, String, String)] = []
         var seen = 0
+        var layoutReady = false
         acc.reserveCapacity(2200)
         storeRows.reserveCapacity(2200)
         let handle: ([String]) -> Void = { row in
+            func cell(_ index: Int) -> String {
+                guard index >= 0, index < row.count else { return "" }
+                return row[index].trimmingCharacters(in: .whitespacesAndNewlines)
+            }
             if header.isEmpty {
                 let mapped = row.map(normHeader)
                 let hasStore = mapped.contains("storeid") || mapped.contains("store")
@@ -1606,18 +1611,30 @@ enum WorkbookParser {
                 return
             }
             seen += 1
-            if seen % 8000 == 0 {
+            if seen % 12000 == 0 {
                 onTick?(seen, storeView ? "stores" : "rows")
+            }
+            if !layoutReady {
+                layoutReady = true
+                let first = cell(0)
+                if first.count >= 6, first.hasPrefix("20"), looksLikeStoreNumber(first) == false || Double(first) ?? 0 >= 200_000 {
+                    storeView = false
+                    idxWeek = 0
+                    if idxStore < 0 || idxStore == 0 { idxStore = 4 }
+                    if idxDiv < 0 { idxDiv = 1 }
+                    if idxDist < 0 { idxDist = 2 }
+                    for index in 1..<min(row.count, 8) where looksLikeStoreNumber(cell(index)) {
+                        idxStore = index
+                        break
+                    }
+                    keep = Set(([idxWeek, idxStore, idxDiv, idxDist] + metricIdx.map(\.0)).filter { $0 >= 0 })
+                }
             }
             if storeView {
                 if let parsed = laborStoreRow(row, header: header, names: names) {
                     storeRows.append(parsed)
                 }
                 return
-            }
-            func cell(_ index: Int) -> String {
-                guard index >= 0, index < row.count else { return "" }
-                return row[index].trimmingCharacters(in: .whitespacesAndNewlines)
             }
             if idxWeek >= 0, let value = usableValue(cell(idxWeek)) {
                 week = Self.normalizeWeekID(value)
@@ -1642,7 +1659,8 @@ enum WorkbookParser {
                 district = value
             }
             let storeRaw = cell(idxStore)
-            guard let store = usableValue(storeRaw), looksLikeStoreNumber(store), !date.isEmpty else { return }
+            guard let store = usableValue(storeRaw), looksLikeStoreNumber(store), Double(store) ?? 0 < 200_000 else { return }
+            if date.isEmpty { date = week }
             var payload: [String: Double] = [:]
             for (index, rawHeader, key) in metricIdx where index < row.count {
                 guard let number = cellNumber(row[index]) else { continue }
@@ -2920,6 +2938,7 @@ enum WorkbookParser {
         guard !trimmed.isEmpty, !isTotalCell(trimmed) else { return false }
         let cleaned = trimmed.replacingOccurrences(of: ",", with: "")
         if let value = Double(cleaned), value > 0, value < 1_000_000, abs(value - value.rounded()) < 0.001 {
+            if value >= 200_000, value < 210_000 { return false }
             return true
         }
         guard trimmed.range(of: #"^\d{1,6}[A-Za-z]?$"#, options: .regularExpression) != nil else { return false }
