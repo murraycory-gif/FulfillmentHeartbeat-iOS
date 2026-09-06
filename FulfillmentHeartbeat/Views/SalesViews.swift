@@ -414,7 +414,37 @@ enum SalesRollupBuilder {
         }
     }
 
-    static func dashboardRows(from stores: [MetricRow], grain: DashScopeGrain) -> [SalesRollupRow] {
+    static func dayRows(from stores: [MetricRow]) -> [SalesRollupRow] {
+        let names = stores
+            .compactMap { $0.textPayload["sales_days"] }
+            .first { !$0.isEmpty }?
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && $0 != "Week" } ?? []
+        guard !names.isEmpty else { return [] }
+        return names.enumerated().compactMap { index, name in
+            let packs = stores.map { SalesPack($0, prefix: "sales_d\(index)_") }
+            let sales = packs.compactMap(\.sales).reduce(0, +)
+            let orders = packs.compactMap(\.orders).reduce(0, +)
+            let items = packs.compactMap(\.items).reduce(0, +)
+            guard sales > 0 || orders > 0 else { return nil }
+            let yoyWeight = zip(packs, stores).reduce(0.0) { $0 + (($1.0.yoy ?? 0) * ($1.0.sales ?? 0)) }
+            let pack = SalesPack(
+                sales: sales,
+                yoy: sales > 0 ? yoyWeight / sales : nil,
+                orders: orders,
+                ordersYoy: HeartbeatMath.average(packs.compactMap(\.ordersYoy)),
+                aos: orders > 0 ? sales / orders : nil,
+                aiv: HeartbeatMath.average(packs.compactMap(\.aiv)),
+                items: items,
+                ipt: HeartbeatMath.average(packs.compactMap(\.ipt)),
+                hd: packs.compactMap(\.hd).reduce(0, +),
+                dug: packs.compactMap(\.dug).reduce(0, +),
+                health: HeartbeatMath.salesHealth(planPct: nil, yoy: sales > 0 ? yoyWeight / sales : nil)
+            )
+            return SalesRollupRow(label: name, storeCount: Set(stores.map(\.storeNumber)).count, pack: pack)
+        }
+    }
         switch grain {
         case .region:
             return MarketRegion.allCases.compactMap { region in

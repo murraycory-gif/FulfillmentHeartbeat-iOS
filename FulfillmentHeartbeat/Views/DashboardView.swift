@@ -262,6 +262,7 @@ struct DashScopeStrip: View {
     var width: CGFloat
     @State private var expanded = false
     @State private var salesRows: [SalesRollupRow] = []
+    @State private var dayRows: [SalesRollupRow] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: expanded ? 10 : 8) {
@@ -269,10 +270,9 @@ struct DashScopeStrip: View {
                 let next = !expanded
                 expanded = next
                 if next, section == .sales, salesRows.isEmpty {
-                    salesRows = SalesRollupBuilder.dashboardRows(
-                        from: SalesRollupBuilder.source(from: store.allLatest(for: .sales), filters: store.filters),
-                        grain: grain
-                    )
+                    let source = SalesRollupBuilder.source(from: store.allLatest(for: .sales), filters: store.filters)
+                    salesRows = SalesRollupBuilder.dashboardRows(from: source, grain: grain)
+                    dayRows = SalesRollupBuilder.dayRows(from: source)
                 }
             } label: {
                 HStack(spacing: 10) {
@@ -307,8 +307,21 @@ struct DashScopeStrip: View {
                                     OverviewSalesPhoneCard(label: row.label, count: row.storeCount, pack: row.pack)
                                 }
                             }
+                            if !dayRows.isEmpty {
+                                Text("By Day")
+                                    .font(AppTheme.rounded(.subheadline, weight: .bold))
+                                    .foregroundStyle(AppTheme.text)
+                                    .padding(.top, 8)
+                                ForEach(dayRows) { row in
+                                    OverviewSalesPhoneCard(label: row.label, count: nil, pack: row.pack)
+                                }
+                            }
                         } else {
                             OverviewSalesAlignedTable(title: grain.title, rows: Array(salesRows.prefix(20)), showCount: grain != .store)
+                            if !dayRows.isEmpty {
+                                OverviewSalesAlignedTable(title: "By Day", rows: dayRows, showCount: false)
+                                    .padding(.top, 8)
+                            }
                         }
                     } else {
                         LazyVStack(spacing: 8) {
@@ -328,6 +341,7 @@ struct DashScopeStrip: View {
             .onChange(of: packs.map(\.id).joined(separator: "|")) { _, _ in
                 expanded = false
                 salesRows = []
+                dayRows = []
             }
     }
 }
