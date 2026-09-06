@@ -1059,12 +1059,12 @@ enum WorkbookParser {
             if let named = blocks.last(where: { $0.label == "Week" }) { return named }
             return blocks[blocks.count - 1]
         }()
-        var dayBlocks: [SalesBlock] = []
-        var seen = Set<String>()
-        for block in blocks where block.label != "Week" && !block.label.isEmpty {
-            if seen.contains(block.label) { continue }
-            seen.insert(block.label)
-            dayBlocks.append(block)
+        let weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+        var dayBlocks = blocks.filter { salesDayName($0.label) != "Week" }
+        if dayBlocks.count > 7 { dayBlocks = Array(dayBlocks.prefix(7)) }
+        for index in dayBlocks.indices where index < weekdays.count {
+            let named = salesDayName(dayBlocks[index].label)
+            dayBlocks[index].label = weekdays.contains(named) ? named : weekdays[index]
         }
 
         let week = salesWeek(from: Array(matrix.prefix(headerIdx)))
