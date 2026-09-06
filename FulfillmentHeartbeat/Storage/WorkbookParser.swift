@@ -1568,7 +1568,7 @@ enum WorkbookParser {
         onTick: ((Int, String) -> Void)?
     ) -> [ParsedWorkbookRow] {
         var bestWeek = ""
-        var stores: [String: (division: String, district: String, eff: Double?, emp: Double?, sch: Double?, act: Double?)] = [:]
+        var stores: [String: (division: String, district: String, payload: [String: Double])] = [:]
         stores.reserveCapacity(2200)
         var seen = 0
         let source = zipData ?? compressed ?? Data()
@@ -1591,13 +1591,33 @@ enum WorkbookParser {
                     stores.removeAll(keepingCapacity: true)
                 }
                 let key = HeartbeatMath.canonicalStore(store)
+                var payload: [String: Double] = [:]
+                func put(_ letter: String, header: String, key name: String) {
+                    let raw = SheetXML.rawCell(data, letter: letter, strings: strings)
+                    guard let number = cellNumber(raw) else { return }
+                    laborMetric(&payload, header: header, key: name, value: number)
+                }
+                put("F", "Sch Effi%", "scheffi")
+                put("G", "Empower Hrs", "empowerhrs")
+                put("H", "Sch_Hrs", "schhrs")
+                put("I", "ActHrs", "acthrs")
+                put("J", "Earned Hrs", "earnedhrs")
+                put("M", "ActCost$", "actcost$")
+                put("N", "CostTrgt%", "costtrgt")
+                put("O", "UPLH Impact", "uplhimpact")
+                put("P", "Wage Impact", "wageimpact")
+                put("Q", "AIV Impact", "aivimpact")
+                put("R", "ActCost%", "actcost")
+                put("S", "Target vs Actual%", "targetvsactual")
+                if payload["act_cost_pct"] == nil,
+                   let cost = payload["cost_trgt_pct"],
+                   let tva = payload["target_vs_actual_pct"] {
+                    payload["act_cost_pct"] = cost + tva
+                }
                 stores[key] = (
                     division: SheetXML.rawCell(data, letter: "B", strings: strings),
                     district: SheetXML.rawCell(data, letter: "C", strings: strings),
-                    eff: cellNumber(SheetXML.rawCell(data, letter: "G", strings: strings)),
-                    emp: cellNumber(SheetXML.rawCell(data, letter: "H", strings: strings)),
-                    sch: cellNumber(SheetXML.rawCell(data, letter: "I", strings: strings)),
-                    act: cellNumber(SheetXML.rawCell(data, letter: "J", strings: strings))
+                    payload: payload
                 )
                 if seen % 20000 == 0 {
                     onTick?(stores.count, "stores")
@@ -1605,27 +1625,56 @@ enum WorkbookParser {
             }
         )
         onTick?(stores.count, "stores")
-        return stores.map { store, value in
-            var payload: [String: Double] = [:]
-            if let eff = value.eff { payload["schedule_efficiency_pct"] = eff <= 1.5 ? eff : eff / 100 }
-            if let emp = value.emp { payload["empower_hrs"] = emp }
-            if let sch = value.sch { payload["sch_hrs"] = sch }
-            if let act = value.act { payload["act_hrs"] = act }
-            return ParsedWorkbookRow(
+        var rows = stores.map { store, value -> ParsedWorkbookRow in
+            ParsedWorkbookRow(
                 division: value.division,
                 operationsOM: "",
                 storeNumber: store,
                 storeName: nil,
                 recordedOn: nil,
-                payload: payload,
+                payload: value.payload,
                 textPayload: [
                     "labor_grain": "store",
                     "week": bestWeek,
                     "district": value.district,
-                    "parser_rev": "9",
+                    "parser_rev": "8",
                 ]
             )
         }
+        if !stores.isEmpty {
+            var total: [String: Double] = [:]
+            var counts: [String: Double] = [:]
+            for value in stores.values {
+                for (key, number) in value.payload {
+                    total[key, default: 0] += number
+                    counts[key, default: 0] += 1
+                }
+            }
+            var payload: [String: Double] = [:]
+            for (key, sum) in total {
+                if key.hasSuffix("_hrs") || key.contains("dollar") {
+                    payload[key] = sum
+                } else if let count = counts[key], count > 0 {
+                    payload[key] = sum / count
+                }
+            }
+            rows.append(
+                ParsedWorkbookRow(
+                    division: "",
+                    operationsOM: "",
+                    storeNumber: "TOTAL",
+                    storeName: nil,
+                    recordedOn: nil,
+                    payload: payload,
+                    textPayload: [
+                        "labor_grain": "market",
+                        "week": bestWeek,
+                        "parser_rev": "8",
+                    ]
+                )
+            )
+        }
+        return rows
     }
 
     private static func parseLaborSheet(
