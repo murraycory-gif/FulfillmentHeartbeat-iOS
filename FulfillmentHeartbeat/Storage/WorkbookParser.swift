@@ -3138,7 +3138,8 @@ enum SheetXML {
         defer { inflateEnd(&stream) }
         var pending = Data()
         pending.reserveCapacity(256_000)
-        var chunk = Data(count: 262_144)
+        let chunkSize = 262_144
+        var chunk = Data(count: chunkSize)
         let closeToken = Data("</row>".utf8)
         let openToken = Data("<row".utf8)
         while true {
@@ -3146,10 +3147,10 @@ enum SheetXML {
             status = chunk.withUnsafeMutableBytes { dstBuf in
                 guard let dst = dstBuf.bindMemory(to: Bytef.self).baseAddress else { return Z_ERRNO }
                 stream.next_out = dst
-                stream.avail_out = uInt(chunk.count)
+                stream.avail_out = uInt(chunkSize)
                 return inflate(&stream, Z_NO_FLUSH)
             }
-            produced = chunk.count - Int(stream.avail_out)
+            produced = chunkSize - Int(stream.avail_out)
             if produced > 0 {
                 pending.append(chunk.prefix(produced))
             }
