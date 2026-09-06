@@ -42,6 +42,7 @@ final class HeartbeatStore: ObservableObject {
 
     private let fileManager: FileManager
     private let snapshotURL: URL
+    private let heavyURL: URL
     private let checklistURL: URL
     private let masterLinkURL: URL
     private let filtersURL: URL
@@ -89,6 +90,7 @@ final class HeartbeatStore: ObservableObject {
             try? fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         }
         snapshotURL = root.appendingPathComponent("heartbeat.json")
+        heavyURL = root.appendingPathComponent("heartbeat-heavy.json")
         checklistURL = root.appendingPathComponent("checklist.json")
         masterLinkURL = root.appendingPathComponent("master-link.json")
         filtersURL = root.appendingPathComponent("filters.json")
@@ -1867,55 +1869,86 @@ final class HeartbeatStore: ObservableObject {
         return allowed
     }
 
+    private static let deferredSections: Set<MetricSection> = [
+        .pickerScorecard, .pickPathPicker, .preSubOOSItem
+    ]
+
+    private func lightRows(_ rows: [MetricRow]) -> [MetricRow] {
+        rows.filter { !Self.deferredSections.contains($0.section) }
+    }
+
+    private func heavyRows(_ rows: [MetricRow]) -> [MetricRow] {
+        rows.filter { Self.deferredSections.contains($0.section) }
+    }
+
     private func load() {
+        let lightFile = snapshotURL
+        let heavyFile = heavyURL
         let candidates = [snapshotURL] + Self.legacySnapshotURLs()
-        guard let url = candidates.first(where: { fileManager.fileExists(atPath: $0.path) }) else {
+        let existing = candidates.first(where: { fileManager.fileExists(atPath: $0.path) })
+        guard existing != nil || fileManager.fileExists(atPath: heavyFile.path) else {
             rebuildIndex()
             applyFilters()
             isReady = true
             return
         }
         let filterFile = filtersURL
-        let dest = snapshotURL
         Task.detached(priority: .userInitiated) {
             do {
-                let decoded = try PulseDisk.read(from: url)
+                let decoded = existing.flatMap { try? PulseDisk.read(from: $0) }
                 let overlayFilters: DashboardFilters? = {
                     guard let overlay = try? Data(contentsOf: filterFile),
                           let saved = try? JSONDecoder().decode(DashboardFilters.self, from: overlay)
                     else { return nil }
                     return saved
                 }()
-                let loadedFilters = overlayFilters ?? decoded.filters
+                let loadedFilters = overlayFilters ?? decoded?.filters ?? DashboardFilters()
+                let allRows = decoded?.rows ?? []
+                let light = allRows.filter { !Self.deferredSections.contains($0.section) }
                 let caches = PulseCaches.build(
-                    rows: decoded.rows,
+                    rows: light,
                     filters: loadedFilters,
-                    uploads: decoded.uploads,
+                    uploads: decoded?.uploads ?? [],
                     heavy: false,
                     grain: .region
                 )
                 await MainActor.run {
                     self.hydrating = true
-                    self.rows = decoded.rows
-                    self.uploads = decoded.uploads.sorted { $0.uploadedAt > $1.uploadedAt }
-                    self.seeded = decoded.seeded || !decoded.rows.isEmpty
+                    self.rows = light
+                    self.uploads = (decoded?.uploads ?? []).sorted { $0.uploadedAt > $1.uploadedAt }
+                    self.seeded = (decoded?.seeded ?? false) || !light.isEmpty
                     self.filters = loadedFilters
                     self.filters.sanitize()
                     self.install(caches)
                     self.hydrating = false
                     self.isReady = true
                 }
-                if url != dest {
-                    try? PulseDisk.write(decoded, to: dest)
+                var extra = allRows.filter { Self.deferredSections.contains($0.section) }
+                if extra.isEmpty, FileManager.default.fileExists(atPath: heavyFile.path) {
+                    extra = (try? PulseDisk.read(from: heavyFile))?.rows ?? []
                 }
-                let heavy = PulseCaches.heavyExtras(
-                    latest: caches.filteredLatest,
-                    roster: caches.roster
-                )
-                await MainActor.run {
-                    self.mergeHeavy(heavy)
-                    self.rebuildLaborWeekIndex()
-                    self.warmUnfilteredPulse()
+                if !extra.isEmpty {
+                    let merged = light + extra
+                    let full = PulseCaches.build(
+                        rows: merged,
+                        filters: loadedFilters,
+                        uploads: decoded?.uploads ?? [],
+                        heavy: false,
+                        grain: .region
+                    )
+                    await MainActor.run {
+                        self.hydrating = true
+                        self.rows = merged
+                        self.install(full)
+                        self.hydrating = false
+                        self.rebuildLaborWeekIndex()
+                    }
+                }
+                if let decoded, existing != lightFile {
+                    try? PulseDisk.write(
+                        HeartbeatSnapshot(rows: light, uploads: decoded.uploads, seeded: decoded.seeded, filters: loadedFilters),
+                        to: lightFile
+                    )
                 }
             } catch {
                 await MainActor.run {
@@ -2001,16 +2034,24 @@ final class HeartbeatStore: ObservableObject {
 
     private func persistNow() async {
         persistFilters()
-        let snapshot = HeartbeatSnapshot(
-            rows: rows,
+        let light = HeartbeatSnapshot(
+            rows: lightRows(rows),
             uploads: uploads,
             seeded: seeded,
             filters: filters
         )
-        let url = snapshotURL
+        let heavy = HeartbeatSnapshot(
+            rows: heavyRows(rows),
+            uploads: uploads,
+            seeded: seeded,
+            filters: filters
+        )
+        let lightURL = snapshotURL
+        let packedURL = heavyURL
         do {
-            try await Task.detached(priority: .userInitiated) {
-                try PulseDisk.write(snapshot, to: url)
+            try await Task.detached(priority: .utility) {
+                try PulseDisk.write(light, to: lightURL)
+                try PulseDisk.write(heavy, to: packedURL)
             }.value
         } catch {
             errorMessage = "Pulse did not save: \(error.localizedDescription). Keep Heartbeat open until the import finishes."
