@@ -344,12 +344,20 @@ private struct ImportProgressOverlay: View {
 
     var body: some View {
         if store.isImporting {
-            ZStack {
-                Color.black.opacity(0.22).ignoresSafeArea()
-                card
-            }
-            .allowsHitTesting(true)
+            ImportProgressCard(progress: store.importProgress)
         }
+    }
+}
+
+private struct ImportProgressCard: View {
+    @ObservedObject var progress: ImportProgress
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.22).ignoresSafeArea()
+            card
+        }
+        .allowsHitTesting(true)
     }
 
     private var card: some View {
@@ -357,11 +365,43 @@ private struct ImportProgressOverlay: View {
             ProgressView()
                 .scaleEffect(1.2)
                 .tint(AppTheme.blue)
-            Text(store.importLabel ?? "Reading workbook…")
+            Text(progress.label ?? "Reading workbook…")
                 .font(.headline)
                 .multilineTextAlignment(.center)
-            countBlock
-            noteBlock
+            if progress.expected > 0 {
+                Text("\(progress.loaded) of \(progress.expected) scorecards loaded")
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(AppTheme.blue)
+                    .multilineTextAlignment(.center)
+                ProgressView(
+                    value: Double(progress.loaded),
+                    total: Double(max(progress.expected, 1))
+                )
+                .tint(AppTheme.blue)
+                .padding(.horizontal, 8)
+                if !progress.ready.isEmpty {
+                    VStack(alignment: .leading, spacing: 3) {
+                        ForEach(progress.ready.suffix(8), id: \.self) { name in
+                            Text("✓  \(name)")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(AppTheme.textSecondary)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 4)
+                }
+            }
+            if progress.missing.isEmpty {
+                Text("Stay in the app until every scorecard is counted.")
+                    .font(.subheadline)
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .multilineTextAlignment(.center)
+            } else {
+                Text("Missing: \(progress.missing.joined(separator: ", "))")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(AppTheme.bad)
+                    .multilineTextAlignment(.center)
+            }
         }
         .padding(28)
         .frame(maxWidth: 360)
@@ -370,48 +410,6 @@ private struct ImportProgressOverlay: View {
                 .fill(AppTheme.card)
         )
         .shadow(color: .black.opacity(0.12), radius: 24, y: 10)
-    }
-
-    @ViewBuilder
-    private var countBlock: some View {
-        if store.importExpected > 0 {
-            Text("\(store.importLoaded) of \(store.importExpected) scorecards loaded")
-                .font(.title3.weight(.bold))
-                .foregroundStyle(AppTheme.blue)
-                .multilineTextAlignment(.center)
-            ProgressView(
-                value: Double(store.importLoaded),
-                total: Double(max(store.importExpected, 1))
-            )
-            .tint(AppTheme.blue)
-            .padding(.horizontal, 8)
-            if !store.importReady.isEmpty {
-                VStack(alignment: .leading, spacing: 3) {
-                    ForEach(store.importReady.suffix(8), id: \.self) { name in
-                        Text("✓  \(name)")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(AppTheme.textSecondary)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, 4)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var noteBlock: some View {
-        if store.importMissing.isEmpty {
-            Text("Stay in the app until every scorecard is counted.")
-                .font(.subheadline)
-                .foregroundStyle(AppTheme.textSecondary)
-                .multilineTextAlignment(.center)
-        } else {
-            Text("Missing: \(store.importMissing.joined(separator: ", "))")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(AppTheme.bad)
-                .multilineTextAlignment(.center)
-        }
     }
 }
 

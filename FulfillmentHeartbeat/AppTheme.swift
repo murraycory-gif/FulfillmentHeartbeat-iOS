@@ -291,7 +291,7 @@ enum HubLayout {
     static var grainCap: Int { constrained ? 12 : 24 }
     static var storeGrainCap: Int { constrained ? 16 : 80 }
     static var pickerCap: Int { constrained ? 20 : 50 }
-    static var hydrateNeighbors: Bool { !constrained }
+    static var hydrateNeighbors: Bool { false }
 }
 
 private struct HubWidthKey: PreferenceKey {

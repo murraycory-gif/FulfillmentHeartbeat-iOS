@@ -1,6 +1,14 @@
 import Foundation
 import UIKit
 
+final class ImportProgress: ObservableObject {
+    @Published var label: String?
+    @Published var loaded = 0
+    @Published var expected = 0
+    @Published var ready: [String] = []
+    @Published var missing: [String] = []
+}
+
 @MainActor
 final class HeartbeatStore: ObservableObject {
     @Published private(set) var rows: [MetricRow]
@@ -16,6 +24,7 @@ final class HeartbeatStore: ObservableObject {
     @Published var statusMessage: String?
     @Published var lastImportedSection: MetricSection? = nil
     @Published var isImporting = false
+    let importProgress = ImportProgress()
     @Published var importLabel: String?
     @Published var importLoaded = 0
     @Published var importExpected = 0
@@ -1469,8 +1478,9 @@ final class HeartbeatStore: ObservableObject {
         let loadedSections = Set(uploads.map(\.section))
         let missing = MetricSection.uploadOrder.filter { !loadedSections.contains($0) }
         importMissing = missing.map(\.title)
-        importLoaded = MetricSection.uploadOrder.count - missing.count
-        importExpected = MetricSection.uploadOrder.count
+        importProgress.missing = importMissing
+        importProgress.loaded = MetricSection.uploadOrder.count - missing.count
+        importProgress.expected = MetricSection.uploadOrder.count
         if let note {
             statusMessage = note
         } else if missing.isEmpty {
@@ -1488,11 +1498,12 @@ final class HeartbeatStore: ObservableObject {
         try await withCheckedThrowingContinuation { continuation in
             let tick: @Sendable (Int, Int, String) -> Void = { loaded, total, name in
                 Task { @MainActor [weak self] in
-                    self?.importLoaded = loaded
-                    self?.importExpected = total
-                    self?.importLabel = name
-                    if loaded > 0, !(self?.importReady.contains(name) ?? true) {
-                        self?.importReady.append(name)
+                    guard let self else { return }
+                    self.importProgress.loaded = loaded
+                    self.importProgress.expected = total
+                    self.importProgress.label = name
+                    if loaded > 0, !self.importProgress.ready.contains(name) {
+                        self.importProgress.ready.append(name)
                     }
                 }
             }
@@ -1520,6 +1531,11 @@ final class HeartbeatStore: ObservableObject {
             importExpected = MetricSection.uploadOrder.count
             importMissing = []
             importReady = []
+            importProgress.label = "Reading master workbook…"
+            importProgress.loaded = 0
+            importProgress.expected = MetricSection.uploadOrder.count
+            importProgress.ready = []
+            importProgress.missing = []
         }
         errorMessage = nil
         do {
