@@ -916,10 +916,9 @@ enum WorkbookParser {
 
     private static func isSalesHeader(_ row: [String]) -> Bool {
         let names = row.map { $0.lowercased() }
-        let hasPlace = names.contains { $0.contains("division") || $0.contains("district") }
         let hasStore = names.contains { $0.contains("store") }
         let hasSales = names.contains { $0.contains("sales") }
-        return hasPlace && hasStore && hasSales
+        return hasStore && hasSales
     }
 
     private struct SalesBlock {
@@ -990,7 +989,11 @@ enum WorkbookParser {
         var weekdayLabels = Array(repeating: "", count: headers.count)
         let lookback = matrix[max(0, headerIdx - 3)..<headerIdx]
         for above in lookback.reversed() {
-            if !above.contains(where: { $0.lowercased().contains("sun") || $0.lowercased().contains("weekday") || $0.lowercased().contains("monday") }) {
+            if !above.contains(where: {
+                let lower = $0.lowercased()
+                return lower.contains("sun") || lower.contains("weekday") || lower.contains("monday")
+                    || lower.contains("1-sun") || lower.contains("friday") || lower.contains("saturday")
+            }) {
                 continue
             }
             var last = ""
@@ -1055,16 +1058,18 @@ enum WorkbookParser {
         guard !blocks.isEmpty else { return nil }
 
         let weekBlock: SalesBlock = {
-            if let named = blocks.first(where: { $0.label == "Week" }) { return named }
-            if let named = blocks.last(where: { $0.label == "Week" }) { return named }
+            if let named = blocks.last(where: { salesDayName($0.label) == "Week" }) { return named }
             return blocks[blocks.count - 1]
         }()
         let weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
         var dayBlocks = blocks.filter { salesDayName($0.label) != "Week" }
-        if dayBlocks.count > 7 { dayBlocks = Array(dayBlocks.prefix(7)) }
+        if dayBlocks.count >= 7 {
+            dayBlocks = Array(dayBlocks.prefix(7))
+        } else if blocks.count >= 7 {
+            dayBlocks = Array(blocks.prefix(7))
+        }
         for index in dayBlocks.indices where index < weekdays.count {
-            let named = salesDayName(dayBlocks[index].label)
-            dayBlocks[index].label = weekdays.contains(named) ? named : weekdays[index]
+            dayBlocks[index].label = weekdays[index]
         }
 
         let week = salesWeek(from: Array(matrix.prefix(headerIdx)))
