@@ -131,7 +131,7 @@ enum WorkbookParser {
         var found: [MetricSection: ParsedSheet] = [:]
         for entry in sheetsToRead {
             autoreleasepool {
-                onProgress?(found.count, expected, entry.name)
+                onProgress?(found.count, expected, "Unpacking \(entry.name)…")
                 guard let sheet = zip.file(named: entry.path) ?? zip.file(named: entry.path.replacingOccurrences(of: "xl/", with: "")),
                       !sheet.isEmpty else { return }
                 let hinted = section(fromSheetName: entry.name)
@@ -1523,7 +1523,9 @@ enum WorkbookParser {
                 let hasStore = mapped.contains("storeid") || mapped.contains("store")
                 let hasWeek = mapped.contains("weekid") || mapped.contains("ddate")
                 let hasMetric = mapped.contains(where: {
-                    $0.contains("costtrgt") || $0.contains("targetvsactual") || $0.contains("scheffi") || $0.contains("actcost")
+                    $0.contains("costtrgt") || $0.contains("targetvsactual") || $0.contains("scheffi")
+                        || $0.contains("actcost") || $0.contains("acthrs") || $0.contains("earned")
+                        || $0.contains("empower") || $0 == "tva"
                 })
                 if hasStore && hasMetric {
                     header = row
@@ -3712,7 +3714,8 @@ final class ZipArchive {
 }
 
 private func inflate(_ source: Data, uncompressedSize: Int) -> Data? {
-    if let out = inflateWindow(source, uncompressedSize: uncompressedSize, windowBits: -MAX_WBITS), !out.isEmpty {
+    let hint = usableInflateHint(uncompressedSize, compressed: source.count)
+    if let out = inflateWindow(source, uncompressedSize: hint, windowBits: -MAX_WBITS), !out.isEmpty {
         return out
     }
     if let out = inflateWindow(source, uncompressedSize: uncompressedSize, windowBits: MAX_WBITS), !out.isEmpty {
@@ -3767,10 +3770,17 @@ private func inflate(_ source: Data, uncompressedSize: Int) -> Data? {
     return dest2
 }
 
+private func usableInflateHint(_ uncompressedSize: Int, compressed: Int) -> Int {
+    if uncompressedSize > 64, uncompressedSize < 40_000_000 {
+        return uncompressedSize
+    }
+    return min(max(compressed * 8, 512_000), 8_000_000)
+}
+
 private func inflateWindow(_ source: Data, uncompressedSize: Int, windowBits: Int32) -> Data? {
     guard !source.isEmpty else { return nil }
-    var size = uncompressedSize > 64 ? uncompressedSize : max(source.count * 16, 4096)
-    for _ in 0..<5 {
+    var size = usableInflateHint(uncompressedSize, compressed: source.count)
+    for _ in 0..<8 {
         var dest = Data(count: size)
         var produced = 0
         let rc: Int32 = source.withUnsafeBytes { srcBuf in
@@ -3797,7 +3807,8 @@ private func inflateWindow(_ source: Data, uncompressedSize: Int, windowBits: In
             return dest
         }
         if rc == Z_BUF_ERROR {
-            size *= 2
+            if size > 48_000_000 { return nil }
+            size = min(size * 2, 48_000_000)
             continue
         }
         return nil
