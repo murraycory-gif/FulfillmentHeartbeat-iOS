@@ -75,12 +75,13 @@ struct OverviewSalesBlock: View {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty && $0 != "Week" } ?? []
         guard !names.isEmpty else { return [] }
-        return names.enumerated().compactMap { index, name in
-            let packs = stores.map { SalesPack($0, prefix: "sales_d\(index)_") }
+        let ordered = SalesRollupBuilder.paddedWeekdays(names)
+        return ordered.enumerated().map { index, name in
+            let sourceIndex = names.firstIndex(of: name) ?? index
+            let packs = stores.map { SalesPack($0, prefix: "sales_d\(sourceIndex)_") }
             let sales = packs.compactMap(\.sales).reduce(0, +)
             let orders = packs.compactMap(\.orders).reduce(0, +)
             let items = packs.compactMap(\.items).reduce(0, +)
-            guard sales > 0 || orders > 0 else { return nil }
             let yoyWeight = zip(packs, stores).reduce(0.0) { $0 + (($1.0.yoy ?? 0) * ($1.0.sales ?? 0)) }
             let pack = SalesPack(
                 sales: sales,
@@ -422,12 +423,13 @@ enum SalesRollupBuilder {
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty && $0 != "Week" } ?? []
         guard !names.isEmpty else { return [] }
-        return names.enumerated().compactMap { index, name in
-            let packs = stores.map { SalesPack($0, prefix: "sales_d\(index)_") }
+        let ordered = paddedWeekdays(names)
+        return ordered.enumerated().map { index, name in
+            let sourceIndex = names.firstIndex(of: name) ?? index
+            let packs = stores.map { SalesPack($0, prefix: "sales_d\(sourceIndex)_") }
             let sales = packs.compactMap(\.sales).reduce(0, +)
             let orders = packs.compactMap(\.orders).reduce(0, +)
             let items = packs.compactMap(\.items).reduce(0, +)
-            guard sales > 0 || orders > 0 else { return nil }
             let yoyWeight = zip(packs, stores).reduce(0.0) { $0 + (($1.0.yoy ?? 0) * ($1.0.sales ?? 0)) }
             let pack = SalesPack(
                 sales: sales,
@@ -444,6 +446,15 @@ enum SalesRollupBuilder {
             )
             return SalesRollupRow(label: name, storeCount: Set(stores.map(\.storeNumber)).count, pack: pack)
         }
+    }
+
+    static func paddedWeekdays(_ names: [String]) -> [String] {
+        let week = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+        var out = names
+        for day in week where !out.contains(where: { $0.caseInsensitiveCompare(day) == .orderedSame }) {
+            out.append(day)
+        }
+        return week.filter { day in out.contains(where: { $0.caseInsensitiveCompare(day) == .orderedSame }) }
     }
 
     static func dashboardRows(from stores: [MetricRow], grain: DashScopeGrain) -> [SalesRollupRow] {
