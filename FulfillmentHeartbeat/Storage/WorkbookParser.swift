@@ -1508,6 +1508,12 @@ enum WorkbookParser {
         var storeRows: [ParsedWorkbookRow] = []
         var storeView = false
         var keep: Set<Int>?
+        var idxStore = -1
+        var idxWeek = -1
+        var idxDate = -1
+        var idxDiv = -1
+        var idxDist = -1
+        var metricIdx: [(Int, String, String)] = []
         var seen = 0
         acc.reserveCapacity(2200)
         storeRows.reserveCapacity(2200)
@@ -1528,6 +1534,17 @@ enum WorkbookParser {
                         cols.insert(index)
                     }
                     keep = cols
+                    idxStore = mapped.firstIndex(of: "storeid") ?? mapped.firstIndex(of: "store") ?? -1
+                    idxWeek = mapped.firstIndex(of: "weekid") ?? -1
+                    idxDate = mapped.firstIndex(of: "ddate") ?? -1
+                    idxDiv = mapped.firstIndex(of: "divisionnm") ?? mapped.firstIndex(of: "division") ?? -1
+                    idxDist = mapped.firstIndex(of: "district") ?? -1
+                    metricIdx = mapped.enumerated().compactMap { index, key in
+                        guard laborKeepColumn(key),
+                              !["storeid", "store", "weekid", "ddate", "divisionnm", "division", "district"].contains(key)
+                        else { return nil }
+                        return (index, row[index], key)
+                    }
                 }
                 return
             }
@@ -1541,16 +1558,51 @@ enum WorkbookParser {
                 }
                 return
             }
-            guard let parsed = laborRow(
-                row,
-                header: header,
-                names: names,
-                week: &week,
-                date: &date,
-                division: &division,
-                district: &district
-            ) else { return }
-            mergeLabor(&acc, parsed)
+            func cell(_ index: Int) -> String {
+                guard index >= 0, index < row.count else { return "" }
+                return row[index].trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            if idxWeek >= 0, let value = usableValue(cell(idxWeek)) {
+                week = Self.normalizeWeekID(value)
+            }
+            if week.lowercased().contains("applied") || isTotalCell(week) { return }
+            let dateRaw = cell(idxDate)
+            if isTotalCell(dateRaw) {
+                date = ""
+            } else if let value = excelSerialDate(dateRaw) ?? usableValue(dateRaw) {
+                date = value
+            }
+            let divRaw = cell(idxDiv)
+            if isTotalCell(divRaw) {
+                division = ""
+            } else if let value = usableValue(divRaw) {
+                division = value
+            }
+            let distRaw = cell(idxDist)
+            if isTotalCell(distRaw) {
+                district = ""
+            } else if let value = usableValue(distRaw) {
+                district = value
+            }
+            let storeRaw = cell(idxStore)
+            guard let store = usableValue(storeRaw), looksLikeStoreNumber(store), !date.isEmpty else { return }
+            var payload: [String: Double] = [:]
+            for (index, rawHeader, key) in metricIdx where index < row.count {
+                guard let number = cellNumber(row[index]) else { continue }
+                laborMetric(&payload, header: rawHeader, key: key, value: number)
+            }
+            mergeLabor(
+                &acc,
+                ParsedWorkbookRow(
+                    division: division,
+                    operationsOM: "",
+                    storeNumber: HeartbeatMath.canonicalStore(store),
+                    storeName: nil,
+                    recordedOn: date,
+                    payload: payload,
+                    textPayload: ["labor_grain": "day", "week": week, "district": district]
+                )
+            )
         }
         if storeView { return storeRows }
         return flattenLabor(acc)
@@ -3048,9 +3100,11 @@ enum SheetXML {
     }
 
     static func forEachRow(data: Data, strings: [String], keep: (() -> Set<Int>?)? = nil, handle: ([String]) -> Void) {
-        guard var xml = String(data: data, encoding: .utf8) else { return }
+        guard var xml = String(data: data, encoding: .utf8)
+            ?? String(data: data, encoding: .isoLatin1) else { return }
         if xml.hasPrefix("\u{FEFF}") { xml.removeFirst() }
-        if xml.contains("<x:") {
+        let head = xml.prefix(400)
+        if head.contains("<x:") {
             xml = xml.replacingOccurrences(of: "<x:", with: "<").replacingOccurrences(of: "</x:", with: "</")
         }
         var cursor = xml.startIndex
@@ -3122,6 +3176,17 @@ enum SheetXML {
             let selfClosing = openTag.hasSuffix("/>") || inner[inner.index(before: tagClose.lowerBound)] == "/"
             let type = attrValue(openTag, "t")
             let ref = attrValue(openTag, "r")
+            let column = columnIndex(ref)
+            if let keep, column >= 0, !keep.contains(column) {
+                if selfClosing {
+                    origin = tagClose.upperBound
+                } else if let close = inner.range(of: "</c>", range: tagClose.upperBound..<inner.endIndex) {
+                    origin = close.upperBound
+                } else {
+                    break
+                }
+                continue
+            }
             var value = ""
             if selfClosing {
                 origin = tagClose.upperBound
@@ -3142,9 +3207,6 @@ enum SheetXML {
                 break
             }
             let column = columnIndex(ref)
-            if let keep, column >= 0, !keep.contains(column) {
-                continue
-            }
             if column < 0 {
                 cells.append(value)
             } else if column < 256 {
