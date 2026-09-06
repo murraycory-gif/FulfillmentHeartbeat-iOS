@@ -3206,7 +3206,6 @@ enum SheetXML {
             } else {
                 break
             }
-            let column = columnIndex(ref)
             if column < 0 {
                 cells.append(value)
             } else if column < 256 {
