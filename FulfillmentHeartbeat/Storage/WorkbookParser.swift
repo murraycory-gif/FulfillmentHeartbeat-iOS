@@ -1517,7 +1517,7 @@ enum WorkbookParser {
         var seen = 0
         acc.reserveCapacity(2200)
         storeRows.reserveCapacity(2200)
-        SheetXML.forEachRow(data: data, strings: strings, keep: { keep }) { row in
+        SheetXML.forEachRowBytes(data: data, strings: strings, keep: { keep }) { row in
             if header.isEmpty {
                 let mapped = row.map(normHeader)
                 let hasStore = mapped.contains("storeid") || mapped.contains("store")
@@ -3100,31 +3100,36 @@ enum SheetXML {
     }
 
     static func forEachRow(data: Data, strings: [String], keep: (() -> Set<Int>?)? = nil, handle: ([String]) -> Void) {
-        guard var xml = String(data: data, encoding: .utf8)
-            ?? String(data: data, encoding: .isoLatin1) else { return }
-        if xml.hasPrefix("\u{FEFF}") { xml.removeFirst() }
-        let head = xml.prefix(400)
-        if head.contains("<x:") {
-            xml = xml.replacingOccurrences(of: "<x:", with: "<").replacingOccurrences(of: "</x:", with: "</")
-        }
-        var cursor = xml.startIndex
-        while let rowStart = xml.range(of: "<row", range: cursor..<xml.endIndex) {
-            let after = rowStart.upperBound
-            guard after < xml.endIndex else { break }
-            let mark = xml[after]
-            if mark != " " && mark != ">" && mark != "/" {
-                cursor = after
+        forEachRowBytes(data: data, strings: strings, keep: keep, handle: handle)
+    }
+
+    /// Walk rows from raw bytes so a 80MB Labor sheet is never one String.
+    static func forEachRowBytes(data: Data, strings: [String], keep: (() -> Set<Int>?)? = nil, handle: ([String]) -> Void) {
+        let rowOpen = Data("<row".utf8)
+        let rowClose = Data("</row>".utf8)
+        let gt = Data(">".utf8)
+        var origin = data.startIndex
+        while origin < data.endIndex, let open = data.range(of: rowOpen, in: origin..<data.endIndex) {
+            let after = open.upperBound
+            guard after < data.endIndex else { break }
+            let mark = data[after]
+            if mark != 0x20 && mark != 0x3E && mark != 0x2F {
+                origin = after
                 continue
             }
-            guard let tagClose = xml.range(of: ">", range: after..<xml.endIndex) else { break }
-            if xml[xml.index(before: tagClose.lowerBound)] == "/" {
+            guard let tagClose = data.range(of: gt, in: after..<data.endIndex) else { break }
+            let slash = data.index(before: tagClose.lowerBound)
+            if data[slash] == 0x2F {
                 handle([])
-                cursor = tagClose.upperBound
+                origin = tagClose.upperBound
                 continue
             }
-            guard let rowEnd = xml.range(of: "</row>", range: tagClose.upperBound..<xml.endIndex) else { break }
-            handle(walkCells(xml[tagClose.upperBound..<rowEnd.lowerBound], strings: strings, keep: keep?()))
-            cursor = rowEnd.upperBound
+            guard let close = data.range(of: rowClose, in: tagClose.upperBound..<data.endIndex) else { break }
+            let inner = data[tagClose.upperBound..<close.lowerBound]
+            if let xml = String(data: inner, encoding: .utf8) ?? String(data: Data(inner), encoding: .isoLatin1) {
+                handle(walkCells(Substring(xml), strings: strings, keep: keep?()))
+            }
+            origin = close.upperBound
         }
     }
 
