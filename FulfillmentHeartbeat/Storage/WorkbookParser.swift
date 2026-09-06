@@ -914,6 +914,21 @@ enum WorkbookParser {
         return ""
     }
 
+    private static func parseSalesFromZip(zip: ZipArchive, path: String, strings: [String]) -> [ParsedWorkbookRow] {
+        var matrix: [[String]] = []
+        matrix.reserveCapacity(4000)
+        let handle: ([String]) -> Void = { row in
+            if !row.contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) { return }
+            matrix.append(row)
+        }
+        if let compressed = zip.compressedPayload(path), compressed.count > 80 {
+            SheetXML.forEachRowInflating(compressed: compressed, strings: strings, keep: nil, handle: handle)
+        } else if let data = zip.file(named: path) ?? zip.file(named: path.replacingOccurrences(of: "xl/", with: "")), !data.isEmpty {
+            SheetXML.forEachRowBytes(data: data, strings: strings, keep: nil, handle: handle)
+        }
+        return parseSales(matrix) ?? []
+    }
+
     private static func isSalesHeader(_ row: [String]) -> Bool {
         let names = row.map { $0.lowercased() }
         let hasStore = names.contains { $0.contains("store") }
