@@ -1650,14 +1650,13 @@ final class HeartbeatStore: ObservableObject {
     private func applyFilters() {
         refilterTask?.cancel()
         if !filters.isActive {
-            if let pulse = unfilteredPulse, isCompanyWide(pulse) {
-                install(pulse)
-                filterStamp += 1
-                return
-            }
             installCompanyWideFast()
-            filterStamp += 1
-            warmUnfilteredPulse()
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 80_000_000)
+                guard let self, !self.filters.isActive else { return }
+                self.filterStamp += 1
+                self.warmUnfilteredPulse()
+            }
             return
         }
 
@@ -1669,10 +1668,6 @@ final class HeartbeatStore: ObservableObject {
         let lostMarket = lostRevenueMarketRow()
         let grain = effectiveDashboardGrain
         let hidePicker = sessionRole == .evp
-        if !current.isActive {
-            installCompanyWideFast()
-            filterStamp += 1
-        }
         refilterTask = Task.detached(priority: .userInitiated) {
             let light = PulseCaches.refilter(
                 latest: latest,
@@ -1790,7 +1785,6 @@ final class HeartbeatStore: ObservableObject {
         if cachedGrainPacks.isEmpty {
             cachedGrainPacks = PulseCaches.placeholderGrainPacks(grain: effectiveDashboardGrain)
         }
-        objectWillChange.send()
     }
 
     private func warmUnfilteredPulse() {
