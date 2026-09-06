@@ -1722,20 +1722,13 @@ enum WorkbookParser {
                     header = row
                     names = mapped
                     let weekHeader = mapped.firstIndex(of: "weekid") ?? mapped.firstIndex(of: "ddate")
-                    storeView = weekHeader == nil && mapped.firstIndex(of: "storeid") != nil
+                    storeView = weekHeader == nil
+                    idxStore = mapped.firstIndex(of: "storeid") ?? mapped.firstIndex(of: "store") ?? 0
+                    idxDiv = mapped.firstIndex(of: "divisionnm") ?? mapped.firstIndex(of: "division") ?? -1
+                    idxDist = mapped.firstIndex(of: "district") ?? -1
                     if weekHeader != nil {
                         idxWeek = mapped.firstIndex(of: "weekid") ?? -1
                         idxDate = mapped.firstIndex(of: "ddate") ?? -1
-                        idxStore = mapped.firstIndex(of: "storeid") ?? mapped.firstIndex(of: "store") ?? -1
-                        idxDiv = mapped.firstIndex(of: "divisionnm") ?? mapped.firstIndex(of: "division") ?? -1
-                        idxDist = mapped.firstIndex(of: "district") ?? -1
-                    } else {
-                        // Daily Report Labor: A=week 202617, E=store, G=Sch Effi. Header says STORE_ID on A.
-                        storeView = false
-                        idxWeek = 0
-                        idxStore = 4
-                        idxDiv = mapped.firstIndex(of: "divisionnm") ?? 1
-                        idxDist = mapped.firstIndex(of: "district") ?? 2
                     }
                     var cols = Set<Int>()
                     for (index, key) in mapped.enumerated() where laborKeepColumn(key) {
