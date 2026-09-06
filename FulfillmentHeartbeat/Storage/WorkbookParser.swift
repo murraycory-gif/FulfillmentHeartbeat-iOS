@@ -1471,7 +1471,7 @@ enum WorkbookParser {
         let headerRow = matrix[headerIndex]
         let names = headerRow.map(normHeader)
         if !names.contains("weekid") {
-            return matrix[(headerIndex + 1)...].compactMap { laborStoreRow($0, header: headerRow) }
+            return matrix[(headerIndex + 1)...].compactMap { laborStoreRow($0, header: headerRow, names: names) }
         }
         var acc: [String: [String: LaborWeekAcc]] = [:]
         var week = ""
@@ -1482,6 +1482,7 @@ enum WorkbookParser {
             guard let parsed = laborRow(
                 row,
                 header: headerRow,
+                names: names,
                 week: &week,
                 date: &date,
                 division: &division,
