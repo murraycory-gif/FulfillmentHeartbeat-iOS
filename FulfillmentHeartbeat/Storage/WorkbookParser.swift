@@ -1592,23 +1592,23 @@ enum WorkbookParser {
                 }
                 let key = HeartbeatMath.canonicalStore(store)
                 var payload: [String: Double] = [:]
-                func put(_ letter: String, header: String, key name: String) {
+                func metric(_ letter: String, _ header: String, _ name: String) {
                     let raw = SheetXML.rawCell(data, letter: letter, strings: strings)
                     guard let number = cellNumber(raw) else { return }
                     laborMetric(&payload, header: header, key: name, value: number)
                 }
-                put("F", "Sch Effi%", "scheffi")
-                put("G", "Empower Hrs", "empowerhrs")
-                put("H", "Sch_Hrs", "schhrs")
-                put("I", "ActHrs", "acthrs")
-                put("J", "Earned Hrs", "earnedhrs")
-                put("M", "ActCost$", "actcost$")
-                put("N", "CostTrgt%", "costtrgt")
-                put("O", "UPLH Impact", "uplhimpact")
-                put("P", "Wage Impact", "wageimpact")
-                put("Q", "AIV Impact", "aivimpact")
-                put("R", "ActCost%", "actcost")
-                put("S", "Target vs Actual%", "targetvsactual")
+                metric("F", "Sch Effi%", "scheffi")
+                metric("G", "Empower Hrs", "empowerhrs")
+                metric("H", "Sch_Hrs", "schhrs")
+                metric("I", "ActHrs", "acthrs")
+                metric("J", "Earned Hrs", "earnedhrs")
+                metric("M", "ActCost$", "actcost$")
+                metric("N", "CostTrgt%", "costtrgt")
+                metric("O", "UPLH Impact", "uplhimpact")
+                metric("P", "Wage Impact", "wageimpact")
+                metric("Q", "AIV Impact", "aivimpact")
+                metric("R", "ActCost%", "actcost")
+                metric("S", "Target vs Actual%", "targetvsactual")
                 if payload["act_cost_pct"] == nil,
                    let cost = payload["cost_trgt_pct"],
                    let tva = payload["target_vs_actual_pct"] {
