@@ -12,8 +12,8 @@ ATT = Path("/workspace/attachments")
 OUT = ROOT / "Fulfillment-Heartbeat-ACI-Test-Users-Update-Guide.pdf"
 
 VERSION_NAME = "1.0"
-BUILD = "374"
-STAMP = "HB-0828.03"
+BUILD = "434"
+STAMP = "HB-0828.63"
 AUDIENCE = "ACI Test Users"
 VERSION = f"Version {VERSION_NAME}  ·  Build {BUILD}  ·  {STAMP}"
 
@@ -151,6 +151,9 @@ def img(name):
     alt = Path("/workspace/artifacts/searched_images") / name
     if alt.exists():
         return alt
+    for fallback in ATT.iterdir():
+        if fallback.suffix.lower() in {".png", ".jpg", ".jpeg"} and "018" in fallback.name:
+            return fallback
     raise FileNotFoundError(name)
 
 
@@ -172,7 +175,7 @@ def make_mac_panel() -> Path:
         ("1", "Open the Mac App Store", "Search TestFlight and click Get / Install."),
         ("2", "Open TestFlight on the Mac", "Sign in with the same Apple ID used on your iPad invite."),
         ("3", "Open the Heartbeat invite", "Use the email invite or the app already listed under Apps."),
-        ("4", "Install Fulfillment Heartbeat", "Confirm Version 1.0 Build 374, then click Install / Update."),
+        ("4", "Install Fulfillment Heartbeat", "Confirm Version 1.0 Build 434, then click Install / Update."),
     ]
     icon_path = Path("/workspace/artifacts/searched_images/DcH3m.jpg")
     icon = None
@@ -219,21 +222,21 @@ def main():
     y = section(c, "Version for this drop", y)
     y = draw_wrapped(
         c,
-        "Version 1.0  ·  Build 374  ·  HB-0828.03. Sidebar stamp after update must read HB-0828.03  1.0 (374). This build is for iPhone, iPad, and Apple silicon Mac.",
+        "Version 1.0  ·  Build 434  ·  HB-0828.63. Sidebar stamp after update must read HB-0828.63  1.0 (434). This build is for iPhone, iPad, and Apple silicon Mac.",
         MARGIN, y, CONTENT_W, size=10, leading=13,
     )
     y -= 10
     y = section(c, "What changed", y)
     y = draw_wrapped(
         c,
-        "Heartbeat now runs on MacBook with the same iPad layout. Master load shows X of 15 scorecards and names any missing tabs. The large Picker ScoreCard sheet is no longer skipped. Sheets read one at a time so iPhone 14 does not quit mid-file. Dashboard callouts stay collapsed by filter: company shows regions and markets, division shows districts and stores, OM shows stores. Who’s looking sits left of Filters. Assist is the blue button. Share email uses Apple Mail with stacked store cards so columns are not cut off.",
+        "Labor in the master file is now the small store workbook: one row per store, STORE_ID first, plus a Total row. Do not put the 150,000-row day export on the Labor tab. The app opens Upload in a couple of seconds. Sales, Loss Revenue, 5 Star, and Labor land first so you can use the dashboard while Picker finishes. Dashboard cards are white with one health badge. Healthy / Watch / At Risk chips sit behind Metrics tap to expand. Region rows are unchanged.",
         MARGIN, y, CONTENT_W, size=9.5, leading=13,
     )
     y -= 10
     y = section(c, "Update on iPad or iPhone", y)
     y = step_block(
         c, 1, "Open TestFlight from the Home Screen",
-        "Tap TestFlight first. Do not open the old Heartbeat icon until Update finishes.",
+        "Tap TestFlight first. Do not open the old Heartbeat icon until Update finishes. Testers still on an older 1.0 build must update before loading a master file.",
         y,
     )
     y -= 8
@@ -244,7 +247,7 @@ def main():
     y -= pair_h + 12
     step_block(
         c, 2, "Tap Update on Fulfillment Heartbeat",
-        "Confirm Version 1.0 Build 374. Tap Update. Open Heartbeat and check the sidebar stamp HB-0828.03  1.0 (374).",
+        "Confirm Version 1.0 Build 434. Tap Update. Open Heartbeat and check the sidebar stamp HB-0828.63  1.0 (434).",
         y,
     )
     c.showPage()
@@ -255,7 +258,7 @@ def main():
     y = section(c, "Reload the master file", y)
     y = draw_wrapped(
         c,
-        "New code does not change numbers until you load the workbook again. Use the current week master Excel. Prefer iCloud Files if OneDrive fails on a work iPad.",
+        "New code does not change numbers until you load the workbook again. Labor tab in the master must be STORE_ID, Sch Effi%, Empower Hrs, Sch_Hrs, ActHrs, CostTrgt%, ActCost%, Target vs Actual%, Charged Hrs, and a Total row. Prefer iCloud Files if OneDrive fails on a work iPad.",
         MARGIN, y, CONTENT_W, size=9.5, leading=13,
     )
     y -= 10
@@ -289,7 +292,7 @@ def main():
     y -= 224
     y = step_block(
         c, 6, "Watch X of 15 scorecards",
-        "The popup counts loaded tabs. Picker ScoreCard is the large sheet and takes the longest. If a tab is missing it is listed in red. Stay in the app until Who’s looking appears.",
+        "The popup counts loaded tabs. Light scorecards finish first and the dashboard opens. Picker may still merge after that. If a tab is missing it is listed in red. Stay in the app until Who’s looking appears on a first load.",
         y,
     )
     y -= 8
@@ -299,10 +302,10 @@ def main():
     header(c, 4, pages, cropped)
     footer(c)
     y = H - 112
-    y = section(c, "Dashboard and header", y)
+    y = section(c, "Dashboard and Labor", y)
     y = draw_wrapped(
         c,
-        "Callouts stay Sales then Loss Revenue first. Under each card, tap the collapsed row to open regions, markets, districts, or stores for the current filter. Menu is on the left. Assist is the blue button on the right.",
+        "Callouts stay Sales then Loss Revenue first. Cards are white with one badge. Tap Metrics to see Healthy / Watch / At Risk. Tap Regions under a card for the grain table. Labor tiles use Target vs Actual, CostTrgt%, ActCost%, and Sch Effi% from the store file. If Labor is blank, the master still has the old day-level Labor tab. Replace that tab and Reload.",
         MARGIN, y, CONTENT_W, size=9.5, leading=13,
     )
     y -= 8
@@ -333,7 +336,7 @@ def main():
         y -= 180
     y = step_block(
         c, 7, "Install TestFlight on the Mac, then Heartbeat",
-        "Mac App Store → search TestFlight → Get. Open TestFlight → accept Heartbeat → Install. Confirm Version 1.0 Build 374. The window opens at iPad size. Load the master file from iCloud Drive the same way as the iPad.",
+        "Mac App Store → search TestFlight → Get. Open TestFlight → accept Heartbeat → Install. Confirm Version 1.0 Build 434. The window opens at iPad size. Load the master file from iCloud Drive the same way as the iPad.",
         y,
     )
     y -= 8
@@ -354,7 +357,7 @@ def main():
     y = section(c, "Confirm the build", y)
     y = draw_wrapped(
         c,
-        "Sidebar stamp must read HB-0828.03  1.0 (374) on iPhone, iPad, and Mac. If it does not, open TestFlight and tap Update, then reload the master file.",
+        "Sidebar stamp must read HB-0828.63  1.0 (434) on iPhone, iPad, and Mac. If it does not, open TestFlight and tap Update, then reload the master file.",
         MARGIN, y, CONTENT_W, size=9.5, leading=13,
     )
     y -= 16
