@@ -1425,7 +1425,7 @@ final class HeartbeatStore: ObservableObject {
                     self?.importLabel = name
                 }
             }
-            DispatchQueue.global(qos: .userInitiated).async {
+            DispatchQueue.global(qos: .utility).async {
                 do {
                     let sheets = try WorkbookParser.parseMaster(
                         data: data,

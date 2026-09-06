@@ -143,13 +143,11 @@ enum WorkbookParser {
                         : parsePickerStreaming(data: sheet, strings: strings) { count in
                             onProgress?(found.count, expected, "\(entry.name)  \(count) shoppers")
                         }
-                    if parsed.isEmpty {
-                        parsed = hinted == .pickPathPicker
-                            ? parsePickerStreaming(data: sheet, strings: strings)
-                            : parseEmployeeStreaming(data: sheet, strings: strings)
+                    if !parsed.isEmpty {
+                        parsed = compactShoppers(parsed)
                     }
                 }
-                if parsed.isEmpty, sheet.count < 8_000_000 {
+                if parsed.isEmpty, sheet.count < 3_000_000 {
                     let matrix = SheetXML.parse(data: sheet, strings: strings)
                     parsed = rows(from: matrix, prefer: hinted)
                     if parsed.isEmpty, hinted == .pickerScorecard {
@@ -158,6 +156,9 @@ enum WorkbookParser {
                     if parsed.isEmpty, hinted == .labor || hinted == nil {
                         parsed = parseLaborSheet(data: sheet, strings: strings)
                     }
+                }
+                if parsed.isEmpty, hinted == .labor {
+                    parsed = parseLaborSheet(data: sheet, strings: strings)
                 }
                 zip.release(entry.path)
                 guard !parsed.isEmpty else { return }
@@ -2122,7 +2123,16 @@ enum WorkbookParser {
         return out.isEmpty ? nil : out
     }
 
-    private static func parsePickerStreaming(data: Data, strings: [String], onTick: ((Int) -> Void)? = nil) -> [ParsedWorkbookRow] {
+    private static func compactShoppers(_ rows: [ParsedWorkbookRow]) -> [ParsedWorkbookRow] {
+        var last: [String: ParsedWorkbookRow] = [:]
+        last.reserveCapacity(min(rows.count, 12_000))
+        for row in rows {
+            let shopper = row.textPayload["shopper_id"] ?? row.textPayload["shopper_name"] ?? ""
+            let key = row.storeNumber + "|" + shopper
+            last[key] = row
+        }
+        return Array(last.values)
+    }
         var storeIdx: Int?
         var empIdx: Int?
         var metricColumns: [String: [Int]] = [:]
@@ -3543,7 +3553,9 @@ final class ZipArchive {
         if let cached = cache[name] { return cached }
         guard let meta = index[name] else { return nil }
         guard let payload = extract(meta: meta) else { return nil }
-        cache[name] = payload
+        if payload.count < 1_500_000 {
+            cache[name] = payload
+        }
         return payload
     }
 
