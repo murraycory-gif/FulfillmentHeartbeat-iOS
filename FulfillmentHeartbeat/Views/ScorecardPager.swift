@@ -2,10 +2,14 @@ import SwiftUI
 import UIKit
 
 /// Native paging between Dashboard and scorecards. Sidebar taps jump; swipes page.
-struct ScorecardPager: UIViewControllerRepresentable {
+struct ScorecardPager: UIViewControllerRepresentable, Equatable {
     @ObservedObject var router: HubRouter
     var filterStamp: Int
     var page: (HubDestination) -> AnyView
+
+    static func == (lhs: ScorecardPager, rhs: ScorecardPager) -> Bool {
+        lhs.filterStamp == rhs.filterStamp && lhs.router.destination == rhs.router.destination
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(page: page, router: router, filterStamp: filterStamp)
@@ -65,6 +69,11 @@ struct ScorecardPager: UIViewControllerRepresentable {
             view.backgroundColor = AppTheme.uiBg
             view.clipsToBounds = true
             view.layer.masksToBounds = true
+        }
+
+        func freezeForSwipe(_ on: Bool) {
+            view.layer.shouldRasterize = on
+            view.layer.rasterizationScale = UIScreen.main.scale
         }
 
         @available(*, unavailable)
@@ -191,9 +200,11 @@ struct ScorecardPager: UIViewControllerRepresentable {
         ) {
             if let host = pendingViewControllers.first as? PageHost {
                 isSwiping = true
+                cache[displayed]?.freezeForSwipe(true)
                 if !host.hydrated {
                     hydrate(host.dest)
                 }
+                host.freezeForSwipe(true)
             }
         }
 
@@ -207,6 +218,7 @@ struct ScorecardPager: UIViewControllerRepresentable {
             guard let host = current ?? pageViewController.viewControllers?.first as? PageHost else { return }
             displayed = host.dest
             isSwiping = false
+            for item in cache.values { item.freezeForSwipe(false) }
             resetScroll(pageViewController)
             if HubLayout.hydrateNeighbors {
                 for neighbor in neighbors(of: host.dest) where cache[neighbor]?.hydrated != true {

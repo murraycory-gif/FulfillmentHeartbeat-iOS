@@ -219,7 +219,7 @@ struct SectionDetailView: View {
         if isActivePage {
             laborHeaderPin.openOnPageEnter()
         } else {
-            laborHeaderPin.rollupExpanded = true
+            laborHeaderPin.rollupExpanded = false
             laborHeaderPin.tableOpen = false
             laborHeaderPin.storesExpanded = false
             laborHeaderPin.pinned = false
