@@ -1376,18 +1376,21 @@ final class HeartbeatStore: ObservableObject {
             }
         }
         let knownXlsx = UserDefaults.standard.integer(forKey: "hb.cloudXlsxBytes")
-        let missingHeavy = !rows.contains(where: { $0.section == .labor })
-            || !rows.contains(where: { $0.section == .pickerScorecard })
+        let missingHeavy = !Self.hasUsableLabor(rows) || !Self.hasUsablePicker(rows)
         if remoteXlsx > 1_000, remoteXlsx != knownXlsx || missingHeavy {
             if let book = try? await PulseCloud.downloadNamed(remoteName) {
-                UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
                 _ = await runMasterImport(
                     data: book,
                     filename: remoteName,
                     fallbackToPicker: false,
-                    alreadyOpen: true,
+                    alreadyOpen: false,
                     presentRoleGate: false
                 )
+                if Self.hasUsableLabor(rows), Self.hasUsablePicker(rows) {
+                    UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
+                } else {
+                    UserDefaults.standard.removeObject(forKey: "hb.cloudXlsxBytes")
+                }
                 return
             }
         }
@@ -2212,22 +2215,34 @@ final class HeartbeatStore: ObservableObject {
         rows.filter { Self.deferredSections.contains($0.section) }
     }
 
+    private static func hasUsableLabor(_ rows: [MetricRow]) -> Bool {
+        rows.contains {
+            $0.section == .labor
+                && !$0.storeNumber.isEmpty
+                && $0.storeNumber.uppercased() != "TOTAL"
+                && $0.textPayload["labor_grain"] != "market"
+        }
+    }
+
+    private static func hasUsablePicker(_ rows: [MetricRow]) -> Bool {
+        rows.contains {
+            $0.section == .pickerScorecard
+                && !($0.textPayload["shopper_id"] ?? $0.textPayload["shopper_name"] ?? "").isEmpty
+        }
+    }
+
     private func load() {
-        let skip: Set<MetricSection> = [.labor, .pickerScorecard, .pickPathPicker, .preSubOOSItem]
         if PulseSQLite.exists(at: sqliteURL),
            let pack = try? PulseSQLite.read(from: sqliteURL),
            !pack.rows.isEmpty {
-            let first = pack.rows.filter { !skip.contains($0.section) }
-            let extra = pack.rows.filter { skip.contains($0.section) }
-            let seedRows = first.isEmpty ? pack.rows : first
             let caches = PulseCaches.build(
-                rows: seedRows,
+                rows: pack.rows,
                 filters: DashboardFilters(),
                 uploads: pack.uploads,
                 heavy: false,
                 grain: .region
             )
-            rows = seedRows
+            rows = pack.rows
             uploads = pack.uploads.sorted { $0.uploadedAt > $1.uploadedAt }
             seeded = true
             usingDatabasePack = true
@@ -2238,21 +2253,10 @@ final class HeartbeatStore: ObservableObject {
             install(caches)
             hydrating = false
             isReady = true
+            rebuildLaborWeekIndex()
             scheduleHeavyExtras(latest: caches.filteredLatest, roster: caches.roster)
-            if extra.isEmpty {
+            if !Self.hasUsableLabor(pack.rows) || !Self.hasUsablePicker(pack.rows) {
                 UserDefaults.standard.removeObject(forKey: "hb.cloudXlsxBytes")
-            } else {
-                rows = pack.rows
-                let full = PulseCaches.build(
-                    rows: pack.rows,
-                    filters: DashboardFilters(),
-                    uploads: pack.uploads,
-                    heavy: false,
-                    grain: .region
-                )
-                install(full)
-                rebuildLaborWeekIndex()
-                scheduleHeavyExtras(latest: full.filteredLatest, roster: full.roster)
             }
             pullLatestWorkbookIfNeeded()
             pullCloudPackIfNeeded()
