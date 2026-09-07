@@ -789,7 +789,7 @@ struct PickerHighlightsPanel: View {
                             .font(.subheadline)
                             .foregroundStyle(AppTheme.textSecondary)
                     } else {
-                        HStack(alignment: .top, spacing: 16) {
+                        VStack(alignment: .leading, spacing: 16) {
                             shopperColumn(
                                 title: "Top opportunity",
                                 subtitle: "Underperforming vs the metric mix",
