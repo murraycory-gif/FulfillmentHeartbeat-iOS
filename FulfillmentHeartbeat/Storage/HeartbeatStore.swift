@@ -190,52 +190,22 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func displayRows(for section: MetricSection) -> [MetricRow] {
-        scopedRows(filteredLatest[section] ?? latestBySection[section] ?? [])
-    }
-
-    func scopedRows(_ rows: [MetricRow]) -> [MetricRow] {
-        guard let allowed = PulseCaches.allowedStores(roster: roster, filters: filters) else { return rows }
-        return rows.filter { row in
-            let store = HeartbeatMath.canonicalStore(row.storeNumber)
-            if store.isEmpty { return false }
-            return allowed.contains(store)
-        }
+        filteredLatest[section] ?? []
     }
 
     func summary(for section: MetricSection) -> SectionSummary {
-        if filters.isActive {
-            return HeartbeatMath.summarize(
-                section,
-                rows: displayRows(for: section),
-                upload: upload(for: section)
-            )
-        }
-        return cachedSummaries.first { $0.section == section }
-            ?? HeartbeatMath.summarize(section, rows: [], upload: upload(for: section))
+        cachedSummaries.first { $0.section == section }
+            ?? HeartbeatMath.summarize(section, rows: displayRows(for: section), upload: upload(for: section))
     }
 
     func upload(for section: MetricSection) -> UploadRecord? {
         uploads.first { $0.section == section }
     }
 
-    var summaries: [SectionSummary] {
-        if filters.isActive {
-            return MetricSection.dashboardCards.map { summary(for: $0) }
-        }
-        return cachedSummaries
-    }
+    var summaries: [SectionSummary] { cachedSummaries }
 
     func dashboardFlags(for section: MetricSection) -> [HeartbeatMath.FiveStarFlag] {
-        if filters.isActive {
-            return HeartbeatMath.dashboardActionFlags(
-                section: section,
-                rows: displayRows(for: section),
-                pickers: displayRows(for: .pickerScorecard),
-                pathPickers: displayRows(for: .pickPathPicker),
-                includeAll: false
-            )
-        }
-        return cachedCardFlags[section] ?? []
+        cachedCardFlags[section] ?? []
     }
 
     func dashboardGrains(for section: MetricSection) -> [DashScopePack] {
@@ -1706,21 +1676,11 @@ final class HeartbeatStore: ObservableObject {
 
     private func applyVisibleFilter() {
         refreshFilterOptions()
-        let allowed = PulseCaches.allowedStores(roster: roster, filters: filters)
-        if let allowed {
+        if let allowed = PulseCaches.allowedStores(roster: roster, filters: filters) {
             var next: [MetricSection: [MetricRow]] = [:]
             next.reserveCapacity(latestBySection.count)
             for (section, rows) in latestBySection {
-                next[section] = rows.filter { row in
-                    let store = HeartbeatMath.canonicalStore(row.storeNumber)
-                    if !store.isEmpty {
-                        return allowed.contains(store)
-                    }
-                    if !filters.includesDivision(row.division) { return false }
-                    if !filters.includesDistrict(row.district) { return false }
-                    if !filters.includesOM(row.operationsOM) { return false }
-                    return true
-                }
+                next[section] = rows.filter { allowed.contains(HeartbeatMath.canonicalStore($0.storeNumber)) }
             }
             filteredLatest = next
         } else {
@@ -1749,60 +1709,7 @@ final class HeartbeatStore: ObservableObject {
         refilterTask?.cancel()
         applyVisibleFilter()
         if !filters.isActive {
-            installCompanyWideFast()
-            Task { @MainActor [weak self] in
-                try? await Task.sleep(nanoseconds: 80_000_000)
-                guard let self, !self.filters.isActive else { return }
-                self.filterStamp += 1
-                self.warmUnfilteredPulse()
-            }
-            return
-        }
-
-        let latest = latestBySection
-        let rosterCopy = roster
-        let uploadsCopy = uploads
-        let current = filters
-        let laborMarket = laborMarketRow()
-        let lostMarket = lostRevenueMarketRow()
-        let grain = effectiveDashboardGrain
-        let hidePicker = sessionRole == .evp
-        refilterTask = Task.detached(priority: .userInitiated) {
-            let light = PulseCaches.refilter(
-                latest: latest,
-                roster: rosterCopy,
-                filters: current,
-                uploads: uploadsCopy,
-                laborMarket: laborMarket,
-                lostRevenueMarket: lostMarket,
-                heavy: false,
-                grain: grain,
-                hidePicker: hidePicker
-            )
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                guard !Task.isCancelled, self.filters == current else { return }
-                self.install(self.pulse(from: light))
-                self.filterStamp += 1
-            }
-            let heavy = PulseCaches.heavyExtras(
-                latest: {
-                    var merged = light.filteredLatest
-                    merged[.pickPathPicker] = latest[.pickPathPicker]
-                    return merged
-                }(),
-                roster: rosterCopy
-            )
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                guard !Task.isCancelled, self.filters == current else { return }
-                self.mergeHeavy(heavy)
-                if !current.isActive, self.isCompanyWide(self.snapshotPulse()) {
-                    self.unfilteredPulse = self.snapshotPulse()
-                } else if current.isActive {
-                    self.warmUnfilteredPulse()
-                }
-            }
+            warmUnfilteredPulse()
         }
     }
 
@@ -2000,7 +1907,7 @@ final class HeartbeatStore: ObservableObject {
             if !filters.includesDistrict(identity.district) { continue }
             if !filters.includesOM(identity.om) { continue }
             if !filters.includesStore(number) { continue }
-            allowed.insert(number)
+            allowed.insert(HeartbeatMath.canonicalStore(number))
         }
         return allowed
     }
@@ -2728,7 +2635,7 @@ private struct PulseCaches {
             if !filters.includesDistrict(identity.district) { continue }
             if !filters.includesOM(identity.om) { continue }
             if !filters.includesStore(number) { continue }
-            allowed.insert(number)
+            allowed.insert(HeartbeatMath.canonicalStore(number))
         }
         return allowed
     }
