@@ -2167,6 +2167,7 @@ final class HeartbeatStore: ObservableObject {
             )
         }
         cachedCardFlags = PulseCaches.cardFlags(latest: latestBySection)
+        refreshSalesExpandCache()
         if cachedGrainPacks.isEmpty {
             cachedGrainPacks = PulseCaches.placeholderGrainPacks(grain: effectiveDashboardGrain)
         }
@@ -2340,26 +2341,26 @@ final class HeartbeatStore: ObservableObject {
                 hydrating = true
                 rebuildIndex()
                 installCompanyWideFast()
-                hydrating = false
-                importProgress.loaded = MetricSection.uploadOrder.count
-                scheduleHeavyExtras(latest: latestBySection, roster: roster)
+                importProgress.label = "Laying out the regions"
                 let latest = latestBySection
                 let rosterCopy = roster
                 let stores = cachedStores
-                Task.detached(priority: .utility) {
-                    let packs = PulseCaches.grainPacks(
+                let grain = effectiveDashboardGrain
+                let hidePicker = false
+                let packs = await Task.detached(priority: .userInitiated) {
+                    PulseCaches.grainPacks(
                         latest: latest,
-                        grain: .region,
-                        hidePicker: false,
+                        grain: grain,
+                        hidePicker: hidePicker,
                         stores: stores,
                         roster: rosterCopy
                     )
-                    await MainActor.run {
-                        if self.cachedGrainPacks.isEmpty || self.filters.isActive == false {
-                            self.cachedGrainPacks = packs
-                        }
-                    }
-                }
+                }.value
+                cachedGrainPacks = packs
+                refreshSalesExpandCache()
+                hydrating = false
+                importProgress.loaded = MetricSection.uploadOrder.count
+                scheduleHeavyExtras(latest: latestBySection, roster: roster)
                 return
             }
         }

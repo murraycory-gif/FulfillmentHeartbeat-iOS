@@ -329,23 +329,23 @@ struct DashScopeStrip: View {
                     if section == .sales {
                         if HubLayout.isPhone(sizeClass) {
                             VStack(spacing: 8) {
-                                ForEach(salesRows.prefix(20)) { row in
+                                ForEach(visibleSalesRows.prefix(20)) { row in
                                     OverviewSalesPhoneCard(label: row.label, count: row.storeCount, pack: row.pack)
                                 }
                             }
-                            if !dayRows.isEmpty {
+                            if !visibleDayRows.isEmpty {
                                 Text("By Day")
                                     .font(AppTheme.rounded(.subheadline, weight: .bold))
                                     .foregroundStyle(AppTheme.text)
                                     .padding(.top, 8)
-                                ForEach(dayRows) { row in
+                                ForEach(visibleDayRows) { row in
                                     OverviewSalesPhoneCard(label: row.label, count: nil, pack: row.pack)
                                 }
                             }
                         } else {
-                            OverviewSalesAlignedTable(title: grain.title, rows: Array(salesRows.prefix(20)), showCount: grain != .store)
-                            if !dayRows.isEmpty {
-                                OverviewSalesAlignedTable(title: "By Day", rows: dayRows, showCount: false)
+                            OverviewSalesAlignedTable(title: grain.title, rows: Array(visibleSalesRows.prefix(20)), showCount: grain != .store)
+                            if !visibleDayRows.isEmpty {
+                                OverviewSalesAlignedTable(title: "By Day", rows: visibleDayRows, showCount: false)
                                     .padding(.top, 8)
                             }
                         }
@@ -365,16 +365,25 @@ struct DashScopeStrip: View {
                 }
             }
         }
-        .onChange(of: packs.map(\.id).joined(separator: "|")) { _, _ in
-            expanded = false
-            salesRows = []
-            dayRows = []
+        .onAppear {
+            if section == .sales {
+                salesRows = store.cachedSalesScopeRows
+                dayRows = store.cachedSalesDayRows
+            }
         }
         .onChange(of: store.filterStamp) { _, _ in
             guard section == .sales else { return }
             salesRows = store.cachedSalesScopeRows
             dayRows = store.cachedSalesDayRows
         }
+    }
+
+    private var visibleSalesRows: [SalesRollupRow] {
+        salesRows.isEmpty ? store.cachedSalesScopeRows : salesRows
+    }
+
+    private var visibleDayRows: [SalesRollupRow] {
+        dayRows.isEmpty ? store.cachedSalesDayRows : dayRows
     }
 }
 
