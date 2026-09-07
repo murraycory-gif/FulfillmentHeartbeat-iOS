@@ -745,6 +745,7 @@ enum HeartbeatMath {
         if section == .lostRevenue { return lostRevenueMetricFlags(rows, includeAll: true) }
         if section == .labor { return laborActionFlags(rows) }
         if section == .scheduleQuality { return scheduleActionFlags(rows, includeAll: true) }
+        if section == .pickPath { return pickPathMetricFlags(rows) }
         if section == .pickerScorecard {
             let shoppers = rows.filter { !$0.shopperName.isEmpty || !$0.shopperKey.isEmpty }
             let healthy = shoppers.filter { health(for: .pickerScorecard, row: $0) == .good }.count
@@ -2007,29 +2008,29 @@ enum HeartbeatMath {
         ]
     }
 
-    static func pickPathActionFlags(stores: [MetricRow], shoppers: [MetricRow]) -> [FiveStarFlag] {
-        let pickerRows = shoppers.filter { $0.number("compliance_pct") != nil }
-        let usingShoppers = !pickerRows.isEmpty
-        let rows = usingShoppers ? pickerRows : stores.filter { !isIgnoredStore($0.storeNumber) && $0.number("compliance_pct") != nil }
-        let atGoal = rows.filter { ($0.number("compliance_pct") ?? 0) >= pickPathGoal }.count
-        let below80 = rows.filter { ($0.number("compliance_pct") ?? .greatestFiniteMagnitude) < pickPathRisk }.count
-        let unit = usingShoppers ? "shoppers" : "stores"
+    static func pickPathMetricFlags(_ rows: [MetricRow]) -> [FiveStarFlag] {
+        let stores = rows.filter { !isIgnoredStore($0.storeNumber) && !$0.storeNumber.isEmpty }
+        let scoped = stores.isEmpty ? rows : stores
+        let path = average(scoped.compactMap { $0.number("compliance_pct") })
+        let pph = average(scoped.compactMap { $0.number("pph") })
         return [
             FiveStarFlag(
-                name: "At Goal",
-                value: "",
-                health: .good,
-                stores: atGoal,
-                unit: unit
+                name: "Pick Path",
+                value: HeartbeatFormat.pct(path),
+                health: band(path, good: pickPathGoal, watch: pickPathRisk),
+                stores: scoped.filter { band($0.number("compliance_pct"), good: pickPathGoal, watch: pickPathRisk) == .risk }.count
             ),
             FiveStarFlag(
-                name: "Below 80%",
-                value: "",
-                health: below80 == 0 ? .good : .risk,
-                stores: below80,
-                unit: unit
+                name: "AVG PPH",
+                value: HeartbeatFormat.num(pph),
+                health: band(pph, good: pphGoal, watch: pphRisk),
+                stores: scoped.filter { band($0.number("pph"), good: pphGoal, watch: pphRisk) == .risk }.count
             ),
         ]
+    }
+
+    static func pickPathActionFlags(stores: [MetricRow], shoppers: [MetricRow]) -> [FiveStarFlag] {
+        pickPathMetricFlags(stores.isEmpty ? shoppers : stores)
     }
 
     static func pickerActionFlags(_ rows: [MetricRow]) -> [FiveStarFlag] {
