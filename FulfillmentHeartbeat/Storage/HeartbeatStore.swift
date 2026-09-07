@@ -257,11 +257,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func displayRows(for section: MetricSection) -> [MetricRow] {
-        let rows = filteredLatest[section] ?? []
-        if section == .pickerScorecard || section == .pickPathPicker || section == .preSubOOSItem {
-            return rows
-        }
-        return HeartbeatMath.rowsFillingRoster(rows, roster: roster)
+        filteredLatest[section] ?? []
     }
 
     func summary(for section: MetricSection) -> SectionSummary {
@@ -2088,50 +2084,55 @@ final class HeartbeatStore: ObservableObject {
         applyVisibleFilter()
     }
 
+    private func restoreCompanyWide() {
+        if let pulse = unfilteredPulse {
+            filteredLatest = pulse.filteredLatest.isEmpty ? latestBySection : pulse.filteredLatest
+            cachedSummaries = pulse.summaries
+            cachedCardFlags = pulse.cardFlags
+            if !pulse.grainPacks.isEmpty {
+                cachedGrainPacks = pulse.grainPacks
+            }
+            cachedPickerBoard = pulse.pickerBoard
+            pickerIndex = pulse.pickerIndex
+            pickerFocusHealth = pulse.pickerFocusHealth
+            pickPathPickersByStore = pulse.pickPathPickersByStore
+            pickPathByShopper = pulse.pickPathByShopper
+            pphPickersByStore = pulse.pphPickersByStore
+            refreshSalesExpandCache()
+            filterStamp += 1
+            return
+        }
+        installCompanyWideFast()
+        refreshSalesExpandCache()
+        filterStamp += 1
+        warmUnfilteredPulse()
+        let grain = effectiveDashboardGrain
+        let latest = latestBySection
+        let hidePicker = sessionRole == .evp
+        let stores = cachedStores
+        let rosterCopy = roster
+        Task.detached(priority: .utility) {
+            let packs = PulseCaches.grainPacks(
+                latest: latest,
+                grain: grain,
+                hidePicker: hidePicker,
+                stores: stores,
+                roster: rosterCopy
+            )
+            await MainActor.run {
+                guard !self.filters.isActive else { return }
+                self.cachedGrainPacks = packs
+                var snap = self.snapshotPulse()
+                snap.grainPacks = packs
+                self.unfilteredPulse = snap
+            }
+        }
+    }
+
     private func applyVisibleFilter() {
         refreshFilterOptions()
-        refreshSalesExpandCache()
         if !filters.isActive {
-            filteredLatest = latestBySection
-            var inputBySection = latestBySection
-            if let market = laborMarketRow() {
-                inputBySection[.labor, default: []].append(market)
-            }
-            cachedSummaries = MetricSection.dashboardCards.map { section in
-                HeartbeatMath.summarize(
-                    section,
-                    rows: inputBySection[section] ?? [],
-                    upload: uploads.first { $0.section == section }
-                )
-            }
-            cachedCardFlags = PulseCaches.cardFlags(latest: latestBySection)
-            let pickers = latestBySection[.pickerScorecard] ?? []
-            if (pickerIndex[.all] ?? []).isEmpty, !pickers.isEmpty {
-                let bits = pickerIndexValues(pickers)
-                pickerIndex = bits.index
-                pickerFocusHealth = bits.health
-                cachedPickerBoard = HeartbeatMath.pickerBoard(pickers)
-            }
-            filterStamp += 1
-            refreshSalesExpandCache()
-            let grain = effectiveDashboardGrain
-            let latest = latestBySection
-            let hidePicker = sessionRole == .evp
-            let stores = cachedStores
-            let rosterCopy = roster
-            Task.detached(priority: .utility) {
-                let packs = PulseCaches.grainPacks(
-                    latest: latest,
-                    grain: grain,
-                    hidePicker: hidePicker,
-                    stores: stores,
-                    roster: rosterCopy
-                )
-                await MainActor.run {
-                    guard !self.filters.isActive else { return }
-                    self.cachedGrainPacks = packs
-                }
-            }
+            restoreCompanyWide()
             return
         }
         let allowed = PulseCaches.allowedStores(roster: roster, filters: filters)
@@ -2279,6 +2280,9 @@ final class HeartbeatStore: ObservableObject {
         }
         if cachedGrainPacks.isEmpty {
             cachedGrainPacks = PulseCaches.placeholderGrainPacks(grain: effectiveDashboardGrain)
+        }
+        if unfilteredPulse == nil {
+            unfilteredPulse = snapshotPulse()
         }
     }
 
@@ -3010,7 +3014,7 @@ private struct PulseCaches {
             } else {
                 packs = shown.map { DashScopePack(line: $0, flags: [], children: []) }
             }
-            if section != .sales {
+            if section != .sales, section != .pickerScorecard {
                 let map = grainFlags(section: section, grain: grain, packs: packs, latest: latest)
                 packs = packs.map { pack in
                     var next = pack
