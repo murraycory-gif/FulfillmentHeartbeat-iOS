@@ -126,19 +126,32 @@ final class HeartbeatStore: ObservableObject {
             rebuildIndex()
             installCompanyWideFast()
         }
-        if Self.hasUsableLabor(rows), Self.hasUsablePicker(rows) {
+        var remoteXlsx = 0
+        for name in PulseCloud.workbookNames {
+            let size = await PulseCloud.objectSize(name)
+            if size > 1_000 {
+                remoteXlsx = size
+                break
+            }
+        }
+        let knownXlsx = UserDefaults.standard.integer(forKey: "hb.cloudXlsxBytes")
+        let packReady = Self.hasUsableLabor(rows) && Self.hasUsablePicker(rows)
+        if remoteXlsx > 1_000, remoteXlsx != knownXlsx {
+            await importCloudWorkbook(blocking: true)
+        } else if packReady {
             isImporting = false
             importLabel = nil
             isReady = true
             needsRolePick = true
             return
+        } else {
+            isImporting = true
+            importProgress.label = "Downloading workbook"
+            importProgress.loaded = 0
+            importProgress.expected = MetricSection.uploadOrder.count
+            importLabel = "Downloading workbook"
+            await pullWorkbookFromServer()
         }
-        isImporting = true
-        importProgress.label = "Downloading workbook"
-        importProgress.loaded = 0
-        importProgress.expected = MetricSection.uploadOrder.count
-        importLabel = "Downloading workbook"
-        await pullWorkbookFromServer()
         if cachedSummaries.isEmpty, !rows.isEmpty {
             rebuildIndex()
             installCompanyWideFast()
