@@ -1420,7 +1420,7 @@ final class HeartbeatStore: ObservableObject {
             filters: DashboardFilters(),
             uploads: pack.uploads,
             heavy: false,
-            grain: nil
+            grain: .region
         )
         rows = first.isEmpty ? pack.rows : first
         if !pack.uploads.isEmpty {
@@ -1437,7 +1437,7 @@ final class HeartbeatStore: ObservableObject {
                 filters: DashboardFilters(),
                 uploads: pack.uploads,
                 heavy: false,
-                grain: nil
+                grain: .region
             )
             install(full)
             rebuildLaborWeekIndex()
@@ -2214,7 +2214,7 @@ final class HeartbeatStore: ObservableObject {
                 filters: DashboardFilters(),
                 uploads: pack.uploads,
                 heavy: false,
-                grain: nil
+                grain: .region
             )
             rows = seedRows
             uploads = pack.uploads.sorted { $0.uploadedAt > $1.uploadedAt }
@@ -2237,7 +2237,7 @@ final class HeartbeatStore: ObservableObject {
                     filters: DashboardFilters(),
                     uploads: pack.uploads,
                     heavy: false,
-                    grain: nil
+                    grain: .region
                 )
                 install(full)
                 rebuildLaborWeekIndex()
@@ -2283,7 +2283,7 @@ final class HeartbeatStore: ObservableObject {
                     filters: DashboardFilters(),
                     uploads: loadedUploads,
                     heavy: false,
-                    grain: nil
+                    grain: .region
                 )
                 await MainActor.run {
                     self.hydrating = true
@@ -2315,7 +2315,7 @@ final class HeartbeatStore: ObservableObject {
                         filters: DashboardFilters(),
                         uploads: loadedUploads,
                         heavy: false,
-                        grain: nil
+                        grain: .region
                     )
                     await MainActor.run {
                         self.rows = merged
