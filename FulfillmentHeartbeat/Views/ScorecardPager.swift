@@ -21,6 +21,7 @@ struct ScorecardPager: UIViewControllerRepresentable {
         pager.dataSource = context.coordinator
         pager.view.backgroundColor = AppTheme.uiBg
         pager.view.clipsToBounds = true
+        pager.view.layer.masksToBounds = true
         context.coordinator.attach(pager)
         let dest = router.current == .upload ? .dashboard : router.current
         context.coordinator.snap(to: dest, animated: false)
@@ -33,17 +34,20 @@ struct ScorecardPager: UIViewControllerRepresentable {
         coordinator.router = router
         coordinator.attach(pager)
 
+        if coordinator.isSwiping { return }
+
+        let dest = router.current
         if coordinator.filterStamp != filterStamp {
             coordinator.filterStamp = filterStamp
             coordinator.reloadHydrated()
         }
 
-        let dest = router.current
         guard dest != .upload else { return }
-        if dest != coordinator.displayed, !coordinator.isSwiping {
+        if dest != coordinator.displayed {
             coordinator.snap(to: dest, animated: false)
         }
     }
+
 
     final class PageHost: UIHostingController<AnyView> {
         let dest: HubDestination
@@ -54,6 +58,13 @@ struct ScorecardPager: UIViewControllerRepresentable {
             super.init(rootView: rootView)
             view.backgroundColor = AppTheme.uiBg
             view.clipsToBounds = true
+        }
+
+        override func viewDidLoad() {
+            super.viewDidLoad()
+            view.backgroundColor = AppTheme.uiBg
+            view.clipsToBounds = true
+            view.layer.masksToBounds = true
         }
 
         @available(*, unavailable)
@@ -77,7 +88,6 @@ struct ScorecardPager: UIViewControllerRepresentable {
 
         func attach(_ pager: UIPageViewController) {
             self.pager = pager
-            tuneScroll(pager)
         }
 
         func host(for dest: HubDestination) -> PageHost {
@@ -89,20 +99,20 @@ struct ScorecardPager: UIViewControllerRepresentable {
 
         func hydrate(_ dest: HubDestination) {
             let host = host(for: dest)
-            host.rootView = AnyView(
-                page(dest)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(AppTheme.bg.ignoresSafeArea())
-            )
+            let root = page(dest)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(AppTheme.bg.ignoresSafeArea())
+            host.rootView = AnyView(root)
             host.hydrated = true
-            host.view.setNeedsLayout()
-            host.view.layoutIfNeeded()
         }
 
         func reloadHydrated() {
-            hydrate(displayed)
-            for dest in neighbors(of: displayed) {
-                hydrate(dest)
+            let dest = displayed
+            hydrate(dest)
+            if HubLayout.hydrateNeighbors {
+                for neighbor in neighbors(of: dest) {
+                    hydrate(neighbor)
+                }
             }
         }
 
@@ -116,7 +126,12 @@ struct ScorecardPager: UIViewControllerRepresentable {
         }
 
         func dehydrate(keeping dest: HubDestination) {
-            let keep = Set(neighbors(of: dest) + [dest])
+            let keep: Set<HubDestination>
+            if HubLayout.hydrateNeighbors {
+                keep = Set(neighbors(of: dest) + [dest])
+            } else {
+                keep = [dest]
+            }
             for (key, host) in cache where host.hydrated && !keep.contains(key) {
                 host.rootView = Self.blank
                 host.hydrated = false
@@ -126,30 +141,21 @@ struct ScorecardPager: UIViewControllerRepresentable {
         func snap(to dest: HubDestination, animated: Bool) {
             guard let pager else { return }
             hydrate(dest)
+            if HubLayout.hydrateNeighbors {
+                for neighbor in neighbors(of: dest) {
+                    hydrate(neighbor)
+                }
+            }
             displayed = dest
             pager.dataSource = nil
             pager.setViewControllers([host(for: dest)], direction: .forward, animated: false)
             pager.dataSource = self
             resetScroll(pager)
-            for neighbor in neighbors(of: dest) where cache[neighbor]?.hydrated != true {
-                hydrate(neighbor)
-            }
         }
 
         private static let blank = AnyView(Color(AppTheme.uiBg).ignoresSafeArea())
 
-        private func tuneScroll(_ pager: UIPageViewController) {
-            for sub in pager.view.subviews {
-                guard let scroll = sub as? UIScrollView else { continue }
-                scroll.delaysContentTouches = false
-                scroll.canCancelContentTouches = true
-                scroll.decelerationRate = .fast
-                scroll.isPagingEnabled = true
-            }
-        }
-
         private func resetScroll(_ pager: UIPageViewController) {
-            tuneScroll(pager)
             for sub in pager.view.subviews {
                 guard let scroll = sub as? UIScrollView else { continue }
                 let width = scroll.bounds.width
@@ -183,7 +189,12 @@ struct ScorecardPager: UIViewControllerRepresentable {
             _ pageViewController: UIPageViewController,
             willTransitionTo pendingViewControllers: [UIViewController]
         ) {
-            isSwiping = true
+            if let host = pendingViewControllers.first as? PageHost {
+                isSwiping = true
+                if !host.hydrated {
+                    hydrate(host.dest)
+                }
+            }
         }
 
         func pageViewController(
@@ -197,12 +208,10 @@ struct ScorecardPager: UIViewControllerRepresentable {
             displayed = host.dest
             isSwiping = false
             resetScroll(pageViewController)
-            if !host.hydrated {
-                hydrate(host.dest)
-            }
-            dehydrate(keeping: host.dest)
-            for neighbor in neighbors(of: host.dest) where cache[neighbor]?.hydrated != true {
-                hydrate(neighbor)
+            if HubLayout.hydrateNeighbors {
+                for neighbor in neighbors(of: host.dest) where cache[neighbor]?.hydrated != true {
+                    hydrate(neighbor)
+                }
             }
             if router.destination != host.dest {
                 router.open(host.dest)
