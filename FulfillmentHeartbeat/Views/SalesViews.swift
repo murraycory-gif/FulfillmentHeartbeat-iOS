@@ -347,7 +347,7 @@ enum SalesRollupBuilder {
         RollupMarketFill.grain(for: filters)
     }
 
-    static func source(from rows: [MetricRow], filters: DashboardFilters, roster: [String: StoreIdentity] = [:]) -> [MetricRow] {
+    static func source(from rows: [MetricRow], filters: DashboardFilters, roster: [String: HeartbeatMath.StoreIdentity] = [:]) -> [MetricRow] {
         let stores = rows.filter {
             $0.textPayload["sales_grain"] != "day"
                 && $0.textPayload["sales_grain"] != "company"
