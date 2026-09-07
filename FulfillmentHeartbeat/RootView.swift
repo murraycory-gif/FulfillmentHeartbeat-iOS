@@ -83,9 +83,6 @@ struct LaunchSplashView: View {
             let expected = max(store.importProgress.expected, 1)
             return "Loading the data · \(loaded) of \(expected)"
         }
-        if store.hydrating {
-            return "Loading the data"
-        }
         return "Loading the data"
     }
 }
