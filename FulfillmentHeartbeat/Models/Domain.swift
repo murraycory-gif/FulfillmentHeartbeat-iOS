@@ -742,6 +742,7 @@ enum HeartbeatMath {
     ) -> [FiveStarFlag] {
         if section == .sales { return salesActionFlags(rows) }
         if section == .fiveStar { return fiveStarActionFlags(rows, includeAll: true) }
+        if section == .lostRevenue { return lostRevenueMetricFlags(rows, includeAll: true) }
         if section == .pickerScorecard {
             let shoppers = rows.filter { !$0.shopperName.isEmpty || !$0.shopperKey.isEmpty }
             let healthy = shoppers.filter { health(for: .pickerScorecard, row: $0) == .good }.count
@@ -1768,20 +1769,60 @@ enum HeartbeatMath {
         return flags
     }
 
-    static func lostRevenueActionFlags(_ rows: [MetricRow]) -> [FiveStarFlag] {
+    static func lostRevenueMetricFlags(_ rows: [MetricRow], includeAll: Bool = true) -> [FiveStarFlag] {
         let stores = rows.filter {
             $0.textPayload["lost_grain"] != "market"
                 && !isIgnoredStore($0.storeNumber)
                 && !$0.storeNumber.isEmpty
         }
-        let healthy = stores.filter { lostRevenueHealth($0) == .good }.count
-        let watch = stores.filter { lostRevenueHealth($0) == .watch }.count
-        let risk = stores.filter { lostRevenueHealth($0) == .risk }.count
-        return [
-            FiveStarFlag(name: "Healthy", value: "", health: .good, stores: healthy),
-            FiveStarFlag(name: "Watch", value: "", health: watch == 0 ? .good : .watch, stores: watch),
-            FiveStarFlag(name: "At Risk", value: "", health: risk == 0 ? .good : .risk, stores: risk),
+        let specs: [(name: String, dollar: String, pct: String)] = [
+            ("Total Lost Revenue", "lost_revenue", "lost_revenue_pct"),
+            ("Post Sub OOS Foregone", "post_sub_oos_foregone", "post_sub_oos_foregone_pct"),
+            ("Refund $ Fulfillment", "refund_lost", "refund_lost_pct"),
+            ("Reduced Capacity Missed Sales", "missed_sales", "missed_sales_pct"),
+            ("Cancelled Orders LDAP", "cancelled_lost", "cancelled_lost_pct"),
+            ("Kill Switch Lost Sales", "kill_switch_lost", "kill_switch_pct"),
         ]
+        var flags: [FiveStarFlag] = []
+        flags.reserveCapacity(specs.count)
+        for spec in specs {
+            var dollars = 0.0
+            var sales = 0.0
+            var risk = 0
+            var seen = false
+            for row in stores {
+                if let value = row.number(spec.dollar) {
+                    dollars += value
+                    seen = true
+                } else if spec.dollar == "missed_sales", let cap = row.number("reduced_capacity") {
+                    dollars += cap
+                    seen = true
+                }
+                sales += row.number("ecomm_sales") ?? 0
+                let pct = row.number(spec.pct)
+                if lostRevenueHealth(pct: pct) == .risk || ((row.number(spec.dollar) ?? 0) > 0 && pct == nil && lostRevenueHealth(row) == .risk) {
+                    risk += 1
+                }
+            }
+            guard seen || includeAll else { continue }
+            if !seen, !includeAll { continue }
+            let pct = sales > 0 ? dollars / sales * 100 : stores.compactMap { $0.number(spec.pct) }.first
+            let health = lostRevenueHealth(pct: pct)
+            if !includeAll, dollars == 0, health == .good { continue }
+            flags.append(
+                FiveStarFlag(
+                    name: spec.name,
+                    value: HeartbeatFormat.money(dollars),
+                    health: health == .none ? .watch : health,
+                    stores: risk
+                )
+            )
+        }
+        return flags
+    }
+
+    static func lostRevenueActionFlags(_ rows: [MetricRow]) -> [FiveStarFlag] {
+        lostRevenueMetricFlags(rows, includeAll: true)
     }
 
     static func salesActionFlags(_ rows: [MetricRow]) -> [FiveStarFlag] {

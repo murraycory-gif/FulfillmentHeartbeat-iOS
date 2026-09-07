@@ -157,10 +157,10 @@ struct DashLostBanner: View {
             .buttonStyle(DashLiftStyle())
             if compact {
                 if !flags.isEmpty {
-                    DashFlagGrid(flags: statusFlags(flags), columns: 3)
+                    DashFlagGrid(flags: statusFlags(flags), columns: max(statusFlags(flags).count, 1))
                 }
             } else {
-                DashFlagGrid(flags: statusFlags(flags), columns: 3)
+                DashFlagGrid(flags: statusFlags(flags), columns: max(statusFlags(flags).count, 1))
             }
             if let grain {
                 DashScopeStrip(section: summary.section, grain: grain, packs: grains, width: width)
@@ -544,9 +544,9 @@ private struct DashFlagChip: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(flag.name)
-                .font(.subheadline.weight(.bold))
+                .font(.caption.weight(.bold))
                 .foregroundStyle(dashInk(flag.health == .none ? .good : flag.health))
-                .lineLimit(1)
+                .lineLimit(2)
                 .minimumScaleFactor(0.7)
             if !flag.value.isEmpty {
                 Text(flag.value)
