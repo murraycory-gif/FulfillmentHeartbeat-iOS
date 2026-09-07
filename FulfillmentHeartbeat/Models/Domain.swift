@@ -1518,31 +1518,33 @@ enum HeartbeatMath {
                 lostRevenuePct: pct
             )
         case .sales:
-            let company = rows.first { $0.textPayload["sales_grain"] == "company" }
-            let dollars = company?.number("sales_dollars")
-                ?? latest.compactMap { $0.number("sales_dollars") }.reduce(0, +)
-            let plan = latest.compactMap { $0.number("sales_plan") }.reduce(0, +)
+            let stores = latest.filter { $0.textPayload["sales_grain"] != "company" && !$0.storeNumber.isEmpty }
+            let companyRows = rows.filter { $0.textPayload["sales_grain"] == "company" }
+            let storeSum = stores.reduce(0) { $0 + salesHeadlineDollars($1) }
+            let companyVal = companyRows.map { salesHeadlineDollars($0) }.max() ?? 0
+            let dollars = max(companyVal, storeSum)
+            let plan = stores.compactMap { $0.number("sales_plan") }.reduce(0, +)
             let planPct: Double? = {
-                if let direct = average(latest.compactMap { $0.number("sales_plan_pct") }) { return direct }
+                if let direct = average(stores.compactMap { $0.number("sales_plan_pct") }) { return direct }
                 return plan > 0 ? dollars / plan * 100 : nil
             }()
-            let yoy = average(latest.compactMap { $0.number("sales_yoy_pct") })
-            let orders = latest.compactMap { $0.number("sales_orders") }.reduce(0, +)
-            let up = latest.filter { salesHealth($0) == .good }.count
-            let flat = latest.filter { salesHealth($0) == .watch }.count
-            let down = latest.filter { salesHealth($0) == .risk }.count
+            let yoy = average(stores.compactMap { $0.number("sales_yoy_pct") })
+            let orders = stores.reduce(0) { $0 + max($1.number("sales_orders") ?? 0, (0..<7).compactMap { $1.number("sales_d\($0)_orders") }.reduce(0, +)) }
+            let up = stores.filter { salesHealth($0) == .good }.count
+            let flat = stores.filter { salesHealth($0) == .watch }.count
+            let down = stores.filter { salesHealth($0) == .risk }.count
             let healthValue = salesHealth(planPct: planPct, yoy: yoy)
             return SectionSummary(
                 section: section,
-                storeCount: latest.count,
-                headline: latest.isEmpty ? nil : dollars,
+                storeCount: stores.count,
+                headline: stores.isEmpty && companyVal == 0 ? nil : dollars,
                 headlineLabel: "eComm sales",
-                secondary: latest.isEmpty
+                secondary: stores.isEmpty
                     ? "No Sales rows in this filter"
                     : "\(up) up · \(flat) flat · \(down) down",
-                health: latest.isEmpty ? .none : (healthValue == .none ? .good : healthValue),
-                watchCount: latest.filter { salesHealth($0) == .watch }.count,
-                riskCount: latest.filter { salesHealth($0) == .risk }.count,
+                health: stores.isEmpty ? .none : (healthValue == .none ? .good : healthValue),
+                watchCount: flat,
+                riskCount: down,
                 lastFilename: upload?.filename,
                 lastUploadedAt: upload?.uploadedAt
             )
@@ -2154,6 +2156,12 @@ enum HeartbeatMath {
 
     static func lostRevenueHealth(pct: Double?) -> Health {
         band(pct, good: lostRevenueGood, watch: lostRevenueWatch, invert: true)
+    }
+
+    static func salesHeadlineDollars(_ row: MetricRow) -> Double {
+        let week = row.number("sales_dollars") ?? 0
+        let days = (0..<7).compactMap { row.number("sales_d\($0)_dollars") }.reduce(0, +)
+        return max(week, days)
     }
 
     static func salesHealth(_ row: MetricRow) -> Health {

@@ -220,7 +220,13 @@ struct SalesPack {
     let health: Health
 
     init(_ row: MetricRow, prefix: String = "sales_") {
-        sales = row.number(prefix + "dollars")
+        if prefix == "sales_" {
+            let week = row.number("sales_dollars")
+            let days = HeartbeatMath.salesHeadlineDollars(row)
+            sales = max(week ?? 0, days) == 0 ? week : max(week ?? 0, days)
+        } else {
+            sales = row.number(prefix + "dollars")
+        }
         yoy = row.number(prefix + "yoy_pct")
         orders = row.number(prefix + "orders")
         ordersYoy = row.number(prefix + "orders_yoy_pct")
@@ -234,7 +240,7 @@ struct SalesPack {
     }
 
     init(rows: [MetricRow]) {
-        let sales = rows.compactMap { $0.number("sales_dollars") }.reduce(0, +)
+        let sales = rows.reduce(0) { $0 + HeartbeatMath.salesHeadlineDollars($1) }
         let orders = rows.compactMap { $0.number("sales_orders") }.reduce(0, +)
         let items = rows.compactMap { $0.number("sales_items") }.reduce(0, +)
         let hd = rows.compactMap { $0.number("sales_hd_orders") }.reduce(0, +)
