@@ -1996,7 +1996,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private static let deferredSections: Set<MetricSection> = [
-        .labor, .pickerScorecard, .pickPathPicker, .preSubOOSItem
+        .labor, .pickerScorecard, .pickPathPicker
     ]
 
     private func lightRows(_ rows: [MetricRow]) -> [MetricRow] {

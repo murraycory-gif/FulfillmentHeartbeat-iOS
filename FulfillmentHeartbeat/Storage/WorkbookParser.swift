@@ -155,6 +155,13 @@ enum WorkbookParser {
                     ) { count in
                         onProgress?(found.count, expected, "\(entry.name)  \(count) shoppers")
                     }
+                } else if hinted == .preSubOOSItem {
+                    onProgress?(found.count, expected, "Reading Pre-Sub items…")
+                    guard let sheet = zip.file(named: entry.path) ?? zip.file(named: entry.path.replacingOccurrences(of: "xl/", with: "")),
+                          !sheet.isEmpty else { return }
+                    let matrix = SheetXML.parse(data: sheet, strings: strings)
+                    parsed = parsePreSubOOSItem(matrix) ?? rows(from: matrix, prefer: .preSubOOSItem) ?? []
+                    zip.release(entry.path)
                 } else if hinted == .sales {
                     onProgress?(found.count, expected, "Reading Sales…")
                     parsed = parseSalesFromZip(zip: zip, path: entry.path, strings: strings)
@@ -174,11 +181,14 @@ enum WorkbookParser {
                             parsed = compactShoppers(parsed)
                         }
                     }
-                    if parsed.isEmpty, sheet.count < 3_000_000 {
+                    if parsed.isEmpty, sheet.count < 12_000_000 || hinted == .preSubOOS || hinted == .preSubOOSItem {
                         let matrix = SheetXML.parse(data: sheet, strings: strings)
                         parsed = rows(from: matrix, prefer: hinted)
                         if parsed.isEmpty, hinted == .pickerScorecard {
                             parsed = parsePickerWide(matrix) ?? parseEmployeeWeek(matrix) ?? []
+                        }
+                        if hinted == .preSubOOS, let items = parsePreSubOOSItem(matrix), !items.isEmpty {
+                            found[.preSubOOSItem] = ParsedSheet(section: .preSubOOSItem, sheetName: entry.name, rows: items)
                         }
                         if parsed.isEmpty, hinted == nil {
                             parsed = parseLaborSheet(data: sheet, strings: strings)
@@ -1268,12 +1278,17 @@ enum WorkbookParser {
 
     private static func isPreSubItemHeader(_ row: [String]) -> Bool {
         let names = row.map(normHeader)
-        let hasBPN = names.contains { $0.contains("bpn") || $0 == "item" || $0.contains("itemdesc") || $0.contains("bpndesc") }
+        let hasStore = names.contains { storeKeys.contains($0) || $0 == "store" || $0.hasPrefix("store") }
+        let hasBPN = names.contains {
+            $0.contains("bpn") || $0.contains("itemdesc") || $0 == "item" || $0.contains("upc") || $0.contains("item")
+        }
         let hasPreSub = row.contains { cell in
             let lower = cell.lowercased()
             return lower.contains("pre-sub") || lower.contains("presub") || lower.contains("pre sub")
+                || (lower.contains("pre") && lower.contains("substitution"))
         }
-        return hasBPN && hasPreSub
+        let hasQty = names.contains { $0.contains("ordqty") || $0.contains("orderqty") || $0.contains("oos") }
+        return hasStore && hasBPN && (hasPreSub || hasQty)
     }
 
     private static func parsePreSubOOSItem(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {
