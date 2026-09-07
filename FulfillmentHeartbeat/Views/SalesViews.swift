@@ -408,47 +408,52 @@ enum SalesRollupBuilder {
 
     static func dayRows(from stores: [MetricRow]) -> [SalesRollupRow] {
         let week = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-        return week.enumerated().map { index, name in
-            var sales = 0.0
-            var orders = 0.0
-            var items = 0.0
-            var yoyWeight = 0.0
-            var ordersYoy: [Double] = []
-            var aiv: [Double] = []
-            var ipt: [Double] = []
-            var hd = 0.0
-            var dug = 0.0
-            for store in stores {
-                let names = (store.textPayload["sales_days"] ?? "")
-                    .split(separator: ",")
-                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-                let sourceIndex = names.firstIndex(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) ?? index
-                let pack = SalesPack(store, prefix: "sales_d\(sourceIndex)_")
-                let daySales = pack.sales ?? 0
-                sales += daySales
-                orders += pack.orders ?? 0
-                items += pack.items ?? 0
-                yoyWeight += (pack.yoy ?? 0) * daySales
-                if let value = pack.ordersYoy { ordersYoy.append(value) }
-                if let value = pack.aiv { aiv.append(value) }
-                if let value = pack.ipt { ipt.append(value) }
-                hd += pack.hd ?? 0
-                dug += pack.dug ?? 0
+        var sales = Array(repeating: 0.0, count: 7)
+        var orders = Array(repeating: 0.0, count: 7)
+        var items = Array(repeating: 0.0, count: 7)
+        var yoyWeight = Array(repeating: 0.0, count: 7)
+        var ordersYoy = Array(repeating: [Double](), count: 7)
+        var aiv = Array(repeating: [Double](), count: 7)
+        var ipt = Array(repeating: [Double](), count: 7)
+        let storeCount = Set(stores.map(\.storeNumber)).count
+        for store in stores {
+            let names = (store.textPayload["sales_days"] ?? "")
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            for index in 0..<7 {
+                let sourceIndex = names.firstIndex(where: { $0.caseInsensitiveCompare(week[index]) == .orderedSame }) ?? index
+                let prefix = "sales_d\(sourceIndex)_"
+                let daySales = store.number(prefix + "dollars") ?? 0
+                sales[index] += daySales
+                orders[index] += store.number(prefix + "orders") ?? 0
+                items[index] += store.number(prefix + "items") ?? 0
+                yoyWeight[index] += (store.number(prefix + "yoy_pct") ?? 0) * daySales
+                if let value = store.number(prefix + "orders_yoy_pct") { ordersYoy[index].append(value) }
+                if let value = store.number(prefix + "aiv") { aiv[index].append(value) }
+                if let value = store.number(prefix + "ipt") { ipt[index].append(value) }
             }
-            let pack = SalesPack(
-                sales: sales,
-                yoy: sales > 0 ? yoyWeight / sales : nil,
-                orders: orders,
-                ordersYoy: HeartbeatMath.average(ordersYoy),
-                aos: orders > 0 ? sales / orders : nil,
-                aiv: HeartbeatMath.average(aiv),
-                items: items,
-                ipt: HeartbeatMath.average(ipt),
-                hd: hd,
-                dug: dug,
-                health: HeartbeatMath.salesHealth(planPct: nil, yoy: sales > 0 ? yoyWeight / sales : nil)
+        }
+        return week.enumerated().map { index, name in
+            let daySales = sales[index]
+            let dayOrders = orders[index]
+            let yoy = daySales > 0 ? yoyWeight[index] / daySales : nil
+            return SalesRollupRow(
+                label: name,
+                storeCount: storeCount,
+                pack: SalesPack(
+                    sales: daySales,
+                    yoy: yoy,
+                    orders: dayOrders,
+                    ordersYoy: HeartbeatMath.average(ordersYoy[index]),
+                    aos: dayOrders > 0 ? daySales / dayOrders : nil,
+                    aiv: HeartbeatMath.average(aiv[index]),
+                    items: items[index],
+                    ipt: HeartbeatMath.average(ipt[index]),
+                    hd: nil,
+                    dug: nil,
+                    health: HeartbeatMath.salesHealth(planPct: nil, yoy: yoy)
+                )
             )
-            return SalesRollupRow(label: name, storeCount: Set(stores.map(\.storeNumber)).count, pack: pack)
         }
     }
 
@@ -466,8 +471,13 @@ enum SalesRollupBuilder {
     static func dashboardRows(from stores: [MetricRow], grain: DashScopeGrain) -> [SalesRollupRow] {
         switch grain {
         case .region:
+            var buckets: [String: [MetricRow]] = [:]
+            for store in stores {
+                guard let region = MarketRegion.containing(store.division) else { continue }
+                buckets[region.rawValue, default: []].append(store)
+            }
             return MarketRegion.allCases.compactMap { region in
-                let slice = stores.filter { region.contains($0.division) }
+                let slice = buckets[region.rawValue] ?? []
                 guard !slice.isEmpty else { return nil }
                 let pack = SalesPack(rows: slice)
                 guard pack.sales != nil || pack.orders != nil else { return nil }

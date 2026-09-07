@@ -75,6 +75,8 @@ final class HeartbeatStore: ObservableObject {
     private var pphPickersByStore: [String: [MetricRow]] = [:]
     private var cachedCardFlags: [MetricSection: [HeartbeatMath.FiveStarFlag]] = [:]
     private var cachedGrainPacks: [MetricSection: [DashScopePack]] = [:]
+    private(set) var cachedSalesScopeRows: [SalesRollupRow] = []
+    private(set) var cachedSalesDayRows: [SalesRollupRow] = []
     private var laborWeeksByStore: [String: [MetricRow]] = [:]
     private var unfilteredPulse: FilterPulse?
     private var refilterTask: Task<Void, Never>?
@@ -164,6 +166,13 @@ final class HeartbeatStore: ObservableObject {
 
     func salesStores() -> [MetricRow] {
         SalesRollupBuilder.source(from: allLatest(for: .sales), filters: filters, roster: roster)
+    }
+
+    func refreshSalesExpandCache() {
+        let source = salesStores()
+        let grain = effectiveDashboardGrain ?? .region
+        cachedSalesScopeRows = SalesRollupBuilder.dashboardRows(from: source, grain: grain)
+        cachedSalesDayRows = SalesRollupBuilder.dayRows(from: source)
     }
 
     func rollupStores(for section: MetricSection) -> [MetricRow] {
@@ -1706,6 +1715,7 @@ final class HeartbeatStore: ObservableObject {
                 cachedPickerBoard = HeartbeatMath.pickerBoard(pickers)
             }
             filterStamp += 1
+            refreshSalesExpandCache()
             let grain = effectiveDashboardGrain
             let latest = latestBySection
             let hidePicker = sessionRole == .evp
@@ -1769,6 +1779,7 @@ final class HeartbeatStore: ObservableObject {
                 self.pickerIndex = pickerBits.index
                 self.pickerFocusHealth = pickerBits.health
                 self.filterStamp += 1
+                self.refreshSalesExpandCache()
             }
             let packs = PulseCaches.grainPacks(
                 latest: next,
@@ -2117,6 +2128,7 @@ final class HeartbeatStore: ObservableObject {
         cachedGrainPacks = caches.cachedGrainPacks
         rebuildLaborWeekIndex()
         refreshChecklistOpenCount()
+        refreshSalesExpandCache()
         objectWillChange.send()
     }
 

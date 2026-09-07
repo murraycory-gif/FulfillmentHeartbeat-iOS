@@ -270,9 +270,13 @@ struct DashScopeStrip: View {
                 let next = !expanded
                 expanded = next
                 if next, section == .sales {
-                    let source = store.salesStores()
-                    salesRows = SalesRollupBuilder.dashboardRows(from: source, grain: grain)
-                    dayRows = SalesRollupBuilder.dayRows(from: source)
+                    if !store.cachedSalesScopeRows.isEmpty {
+                        salesRows = store.cachedSalesScopeRows
+                        dayRows = store.cachedSalesDayRows
+                    } else {
+                        salesRows = []
+                        dayRows = []
+                    }
                 }
             } label: {
                 HStack(spacing: 10) {
@@ -346,10 +350,9 @@ struct DashScopeStrip: View {
             dayRows = []
         }
         .onChange(of: store.filterStamp) { _, _ in
-            guard expanded, section == .sales else { return }
-            let source = store.salesStores()
-            salesRows = SalesRollupBuilder.dashboardRows(from: source, grain: grain)
-            dayRows = SalesRollupBuilder.dayRows(from: source)
+            guard section == .sales else { return }
+            salesRows = store.cachedSalesScopeRows
+            dayRows = store.cachedSalesDayRows
         }
     }
 }
