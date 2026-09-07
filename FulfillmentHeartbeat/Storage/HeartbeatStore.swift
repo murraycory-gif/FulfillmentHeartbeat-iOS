@@ -1243,8 +1243,6 @@ final class HeartbeatStore: ObservableObject {
         if filters != next {
             filters = next
             persistFilters()
-        } else {
-            filterStamp += 1
         }
     }
 

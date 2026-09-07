@@ -108,11 +108,7 @@ struct ScorecardPager: UIViewControllerRepresentable {
         func reloadHydrated() {
             let dest = displayed
             hydrate(dest)
-            if HubLayout.hydrateNeighbors {
-                for neighbor in neighbors(of: dest) {
-                    hydrate(neighbor)
-                }
-            }
+            warmNeighbors(of: dest)
         }
 
         func neighbors(of dest: HubDestination) -> [HubDestination] {
@@ -140,16 +136,22 @@ struct ScorecardPager: UIViewControllerRepresentable {
         func snap(to dest: HubDestination, animated: Bool) {
             guard let pager else { return }
             hydrate(dest)
-            if HubLayout.hydrateNeighbors {
-                for neighbor in neighbors(of: dest) {
-                    hydrate(neighbor)
-                }
-            }
             displayed = dest
             pager.dataSource = nil
             pager.setViewControllers([host(for: dest)], direction: .forward, animated: false)
             pager.dataSource = self
             resetScroll(pager)
+            warmNeighbors(of: dest)
+        }
+
+        private func warmNeighbors(of dest: HubDestination) {
+            guard HubLayout.hydrateNeighbors else { return }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.displayed == dest else { return }
+                for neighbor in self.neighbors(of: dest) where self.cache[neighbor]?.hydrated != true {
+                    self.hydrate(neighbor)
+                }
+            }
         }
 
         private static let blank = AnyView(Color(AppTheme.uiBg).ignoresSafeArea())
@@ -207,11 +209,7 @@ struct ScorecardPager: UIViewControllerRepresentable {
             displayed = host.dest
             isSwiping = false
             resetScroll(pageViewController)
-            if HubLayout.hydrateNeighbors {
-                for neighbor in neighbors(of: host.dest) where cache[neighbor]?.hydrated != true {
-                    hydrate(neighbor)
-                }
-            }
+            warmNeighbors(of: host.dest)
             if router.destination != host.dest {
                 router.open(host.dest)
             }

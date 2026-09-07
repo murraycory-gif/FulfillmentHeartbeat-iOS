@@ -215,8 +215,14 @@ struct SectionDetailView: View {
     }
 
     private func armPage() {
-        laborHeaderPin.openOnPageEnter()
         showTables = true
+        if isActivePage {
+            laborHeaderPin.openOnPageEnter()
+        } else {
+            laborHeaderPin.rollupExpanded = true
+            laborHeaderPin.tableOpen = true
+            laborHeaderPin.storesExpanded = false
+        }
     }
 
     @ViewBuilder

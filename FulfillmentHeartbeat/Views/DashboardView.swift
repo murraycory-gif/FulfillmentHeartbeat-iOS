@@ -26,6 +26,22 @@ struct DashboardView: View {
                 )
             }
             List {
+                if briefingCards.isEmpty, store.seeded {
+                    HStack {
+                        Spacer()
+                        VStack(spacing: 10) {
+                            ProgressView()
+                                .tint(AppTheme.blue)
+                            Text("Setting the aisle…")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(AppTheme.textSecondary)
+                        }
+                        .padding(.top, 40)
+                        Spacer()
+                    }
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(AppTheme.bg)
+                }
                 ForEach(briefingCards) { card in
                     DashCallout(
                         card: card,
