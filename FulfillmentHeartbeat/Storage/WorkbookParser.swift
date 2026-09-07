@@ -2869,14 +2869,14 @@ enum WorkbookParser {
                 }
                 days.append([
                     "date": label,
-                    "pph": block["pph"].map(String.init) ?? "",
-                    "presub": block["presub_pct"].map(String.init) ?? "",
-                    "oos": block["oos_pct"].map(String.init) ?? "",
-                    "ott": block["ott_pct"].map(String.init) ?? "",
-                    "oth5": block["oth5_pct"].map(String.init) ?? "",
-                    "hours": block["pick_hours"].map(String.init) ?? "",
-                    "orders": block["orders"].map(String.init) ?? "",
-                    "refund": block["refund_amt"].map(String.init) ?? "",
+                    "pph": block["pph"].map(String.init) ?? "0",
+                    "presub": block["presub_pct"].map(String.init) ?? "0",
+                    "oos": block["oos_pct"].map(String.init) ?? "0",
+                    "ott": block["ott_pct"].map(String.init) ?? "0",
+                    "oth5": block["oth5_pct"].map(String.init) ?? "0",
+                    "hours": block["pick_hours"].map(String.init) ?? "0",
+                    "orders": block["orders"].map(String.init) ?? "0",
+                    "refund": block["refund_amt"].map(String.init) ?? "0",
                 ])
             }
             if total.isEmpty, let last = blockStarts.last {
