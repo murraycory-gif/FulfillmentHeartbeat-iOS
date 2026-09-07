@@ -10,7 +10,7 @@ struct OverviewSalesBlock: View {
         let stores = store.salesStores()
         let total = SalesPack(rows: stores)
         let mid = midRows(from: stores)
-        let days = dayRows(from: stores)
+        let days = SalesRollupBuilder.dayRows(from: stores)
         VStack(alignment: .leading, spacing: 16) {
             overviewTable(title: scopeTitle, rows: [
                 SalesRollupRow(label: scopeTitle, storeCount: Set(stores.map(\.storeNumber)).count, pack: total)
@@ -64,39 +64,6 @@ struct OverviewSalesBlock: View {
             let pack = SalesPack(rows: slice)
             guard pack.sales != nil || pack.orders != nil else { return nil }
             return SalesRollupRow(label: region.rawValue, storeCount: Set(slice.map(\.storeNumber)).count, pack: pack)
-        }
-    }
-
-    private func dayRows(from stores: [MetricRow]) -> [SalesRollupRow] {
-        let names = stores
-            .compactMap { $0.textPayload["sales_days"] }
-            .first { !$0.isEmpty }?
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty && $0 != "Week" } ?? []
-        guard !names.isEmpty else { return [] }
-        let ordered = SalesRollupBuilder.paddedWeekdays(names)
-        return ordered.enumerated().map { index, name in
-            let sourceIndex = names.firstIndex(of: name) ?? index
-            let packs = stores.map { SalesPack($0, prefix: "sales_d\(sourceIndex)_") }
-            let sales = packs.compactMap(\.sales).reduce(0, +)
-            let orders = packs.compactMap(\.orders).reduce(0, +)
-            let items = packs.compactMap(\.items).reduce(0, +)
-            let yoyWeight = zip(packs, stores).reduce(0.0) { $0 + (($1.0.yoy ?? 0) * ($1.0.sales ?? 0)) }
-            let pack = SalesPack(
-                sales: sales,
-                yoy: sales > 0 ? yoyWeight / sales : nil,
-                orders: orders,
-                ordersYoy: HeartbeatMath.average(packs.compactMap(\.ordersYoy)),
-                aos: orders > 0 ? sales / orders : nil,
-                aiv: HeartbeatMath.average(packs.compactMap(\.aiv)),
-                items: items,
-                ipt: HeartbeatMath.average(packs.compactMap(\.ipt)),
-                hd: packs.compactMap(\.hd).reduce(0, +),
-                dug: packs.compactMap(\.dug).reduce(0, +),
-                health: HeartbeatMath.salesHealth(planPct: nil, yoy: sales > 0 ? yoyWeight / sales : nil)
-            )
-            return SalesRollupRow(label: name, storeCount: stores.count, pack: pack)
         }
     }
 
@@ -387,6 +354,10 @@ enum SalesRollupBuilder {
                 && !$0.storeNumber.isEmpty
         }
         if !filters.isActive { return stores }
+        if !filters.store.isEmpty {
+            let matched = stores.filter { filters.includesStore($0.storeNumber) }
+            if !matched.isEmpty { return matched }
+        }
         if !roster.isEmpty {
             let allowed = Set(roster.compactMap { number, identity -> String? in
                 if !filters.includesDivision(identity.division) { return nil }
@@ -472,7 +443,16 @@ enum SalesRollupBuilder {
         }
     }
 
-    static func paddedWeekdays(_ names: [String]) -> [String] {
+    static func dayPacks(from row: MetricRow) -> [(name: String, pack: SalesPack)] {
+        let week = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+        let names = (row.textPayload["sales_days"] ?? "")
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        return week.enumerated().map { index, name in
+            let sourceIndex = names.firstIndex(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) ?? index
+            return (name, SalesPack(row, prefix: "sales_d\(sourceIndex)_"))
+        }
+    }
         let week = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
         var out = names
         for day in week where !out.contains(where: { $0.caseInsensitiveCompare(day) == .orderedSame }) {
@@ -760,15 +740,7 @@ private struct SalesLineSnap: Identifiable {
         }
         label = parts.joined(separator: " | ")
         pack = SalesPack(row)
-        let names = (row.textPayload["sales_days"] ?? "")
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty && $0 != "Week" }
-        days = names.enumerated().compactMap { index, name in
-            let day = SalesPack(row, prefix: "sales_d\(index)_")
-            guard day.sales != nil || day.orders != nil else { return nil }
-            return (name, day)
-        }
+        days = SalesRollupBuilder.dayPacks(from: row)
     }
 }
 
