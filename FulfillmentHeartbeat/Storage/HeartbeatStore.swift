@@ -1426,13 +1426,11 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func importCloudSQLiteIfPresent() async {
-        let known = UserDefaults.standard.integer(forKey: "hb.cloudPackBytes")
         let remote = await PulseCloud.objectSize(PulseCloud.object)
         guard remote > 50_000 else { return }
-        if known == remote, PulseSQLite.exists(at: sqliteURL) { return }
-        isImporting = true
-        importLabel = "Loading the data"
-        importProgress.label = "Loading the data"
+        let known = UserDefaults.standard.integer(forKey: "hb.cloudPackBytes")
+        let localComplete = Self.hasUsableLabor(rows) && Self.hasUsablePicker(rows)
+        if known == remote, localComplete { return }
         do {
             let data = try await PulseCloud.downloadPack()
             guard data.count > 50_000 else { return }
@@ -1531,6 +1529,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func publishCloudPack() {
+        guard Self.hasUsableLabor(rows), Self.hasUsablePicker(rows) else { return }
         let url = sqliteURL
         Task.detached(priority: .utility) {
             var data = try? Data(contentsOf: url)

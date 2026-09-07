@@ -1,10 +1,12 @@
-# How Heartbeat loads data
+# How Heartbeat loads data (Amazon-style)
 
-Source of truth: `Heartbeat Daily Report.xlsx` in the Supabase bucket `heartbeat-packs`.
+Amazon does not parse catalogs on the phone. It opens a local cache, then refreshes from a ready server file.
 
-You put that file on the server. Testers do not pick a file on the iPad.
+Heartbeat now:
 
-On open:
-1. If the on-device cache already has Labor and Picker, the app opens immediately.
-2. If the cache is empty or incomplete, the app downloads the server workbook and builds the cache.
-3. If the server workbook size changed, the app refreshes the cache in the background.
+1. Opens `heartbeat.sqlite` on the device if Labor and Picker are in it.
+2. If that cache is incomplete, downloads `current.sqlite` from Supabase.
+3. If that pack is also missing Labor or Picker, downloads `Heartbeat Daily Report.xlsx` once, builds the cache, and publishes a **complete** `current.sqlite`.
+4. Later opens are cache-only until the server workbook size changes.
+
+Incomplete packs are never published. That was why Labor and Picker vanished after a fast launch.
