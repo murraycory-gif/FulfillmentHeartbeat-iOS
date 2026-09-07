@@ -246,8 +246,8 @@ enum HubLayout {
         sizeClass != .regular
     }
 
-    static func phoneBannerTitleFont() -> Font { AppTheme.rounded(.subheadline, weight: .bold) }
-    static func phoneBannerIconFont() -> Font { AppTheme.rounded(.callout, weight: .semibold) }
+    static func phoneBannerTitleFont() -> Font { AppTheme.rounded(.footnote, weight: .bold) }
+    static func phoneBannerIconFont() -> Font { AppTheme.rounded(.footnote, weight: .semibold) }
     static var phoneControlHeight: CGFloat { 30 }
     static var phoneInset: CGFloat { 12 }
 

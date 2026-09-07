@@ -81,15 +81,15 @@ struct HubBanner: View {
         let compact = HubLayout.isPhone(sizeClass)
         let bar = HStack(spacing: compact ? 8 : 10) {
             Image(systemName: icon)
-                .font(compact ? HubLayout.phoneBannerIconFont() : .title2.weight(.semibold))
-            VStack(alignment: .leading, spacing: compact ? 1 : 2) {
+                .font(compact ? HubLayout.phoneBannerIconFont() : .title3.weight(.semibold))
+            VStack(alignment: .leading, spacing: compact ? 1 : 1) {
                 Text(title)
-                    .font(compact ? HubLayout.phoneBannerTitleFont() : AppTheme.rounded(.title2, weight: .bold))
+                    .font(compact ? HubLayout.phoneBannerTitleFont() : AppTheme.rounded(.title3, weight: .bold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
                 if let accessory, !accessory.isEmpty {
                     Text(accessory)
-                        .font(compact ? .caption2.weight(.semibold) : .subheadline.weight(.semibold))
+                        .font(compact ? .caption2.weight(.semibold) : .footnote.weight(.semibold))
                         .opacity(0.9)
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
@@ -98,7 +98,7 @@ struct HubBanner: View {
             Spacer(minLength: 6)
             if let trailing, !trailing.isEmpty {
                 Text(trailing)
-                    .font(compact ? .caption2.weight(.bold) : .caption.weight(.bold))
+                    .font(compact ? .caption2.weight(.bold) : .caption2.weight(.bold))
                     .lineLimit(2)
                     .minimumScaleFactor(0.65)
                     .multilineTextAlignment(.trailing)
@@ -106,8 +106,8 @@ struct HubBanner: View {
             }
         }
         .foregroundStyle(Color.white)
-        .padding(.horizontal, compact ? 10 : 16)
-        .padding(.vertical, compact ? 7 : 13)
+        .padding(.horizontal, compact ? 10 : 14)
+        .padding(.vertical, compact ? 6 : 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(AppTheme.blue)
 
@@ -170,26 +170,26 @@ struct HubTableHeader: View {
         let phone = HubLayout.isPhone(sizeClass)
         HStack(spacing: phone ? 8 : 10) {
             Image(systemName: icon)
-                .font((phone ? Font.callout : Font.title3).weight(.semibold))
+                .font((phone ? Font.footnote : Font.headline).weight(.semibold))
             VStack(alignment: .leading, spacing: 1) {
                 Text(title)
-                    .font((phone ? Font.subheadline : Font.title3).weight(.bold))
+                    .font((phone ? Font.footnote : Font.headline).weight(.bold))
                     .fontDesign(.rounded)
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
                 Text(accessory)
-                    .font((phone ? Font.caption2 : Font.subheadline).weight(.semibold))
+                    .font((phone ? Font.caption2 : Font.footnote).weight(.semibold))
                     .opacity(0.9)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
             }
             Spacer(minLength: 6)
             Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                .font((phone ? Font.caption : Font.headline).weight(.semibold))
+                .font((phone ? Font.caption2 : Font.subheadline).weight(.semibold))
         }
         .foregroundStyle(Color.white)
-        .padding(.horizontal, phone ? 10 : 16)
-        .padding(.vertical, phone ? 8 : 12)
+        .padding(.horizontal, phone ? 10 : 14)
+        .padding(.vertical, phone ? 7 : 9)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(AppTheme.blue)
         .clipShape(

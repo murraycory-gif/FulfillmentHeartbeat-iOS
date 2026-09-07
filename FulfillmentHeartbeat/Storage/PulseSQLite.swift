@@ -93,6 +93,9 @@ enum PulseSQLite {
         }
         defer { sqlite3_close(db) }
 
+        sqlite3_exec(db, "PRAGMA mmap_size=268435456;", nil, nil, nil)
+        sqlite3_exec(db, "PRAGMA cache_size=-8000;", nil, nil, nil)
+
         var metaStmt: OpaquePointer?
         defer { sqlite3_finalize(metaStmt) }
         var seeded = true

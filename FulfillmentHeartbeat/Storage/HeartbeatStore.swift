@@ -2481,7 +2481,6 @@ final class HeartbeatStore: ObservableObject {
         rebuildLaborWeekIndex()
         refreshChecklistOpenCount()
         refreshSalesExpandCache()
-        objectWillChange.send()
     }
 
     private func scheduleHeavyExtras(
