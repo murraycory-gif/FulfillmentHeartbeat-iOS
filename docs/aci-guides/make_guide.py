@@ -159,6 +159,37 @@ def step_block(c, n, title, body, y, width=CONTENT_W):
     return draw_wrapped(c, body, MARGIN + 22, y - 14, width - 22, size=9.5, leading=12.5)
 
 
+def make_mac_panel() -> Path:
+    dest = ROOT / "mac-install-panel.png"
+    font_b = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28)
+    font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 22)
+    panel = Image.new("RGB", (1400, 520), (245, 247, 252))
+    draw = ImageDraw.Draw(panel)
+    steps = [
+        ("1", "Open the Mac App Store", "Search TestFlight and click Get / Install."),
+        ("2", "Open TestFlight on the Mac", "Sign in with the same Apple ID used on the iPad invite."),
+        ("3", "Open the Heartbeat invite", "Use the email invite or Heartbeat already listed under Apps."),
+        ("4", "Install Fulfillment Heartbeat", "Confirm Version 1.0 Build 533, then click Install / Update."),
+    ]
+    icon_path = ROOT / "mac-store.jpg"
+    icon = None
+    if icon_path.exists():
+        icon = Image.open(icon_path).convert("RGBA").resize((88, 88), Image.Resampling.LANCZOS)
+    y = 28
+    for num, title, body in steps:
+        draw.rounded_rectangle((24, y, 1376, y + 108), 16, fill=(255, 255, 255), outline=(201, 212, 232), width=2)
+        draw.ellipse((48, y + 28, 96, y + 76), fill=(0, 61, 165))
+        bbox = draw.textbbox((0, 0), num, font=font_b)
+        draw.text((72 - (bbox[2] - bbox[0]) / 2, y + 36), num, font=font_b, fill=(255, 255, 255))
+        draw.text((120, y + 22), title, font=font_b, fill=(0, 61, 165))
+        draw.text((120, y + 60), body, font=font, fill=(20, 26, 41))
+        if icon and num == "1":
+            panel.paste(icon, (1280, y + 10), icon)
+        y += 120
+    panel.save(dest)
+    return dest
+
+
 def main():
     mark = wordmark_path()
     crop = Image.open(mark).crop((20, 20, 1180, Image.open(mark).height - 16))
@@ -173,9 +204,12 @@ def main():
     lost = local("dash-lost.png")
     sales = local("sales-page.png")
     overview = local("dash-overview.png")
+    iphone = local("iphone-dash.png")
+    iphone_open = local("iphone-open.png")
+    mac_panel = make_mac_panel()
 
     c = canvas.Canvas(str(OUT), pagesize=letter)
-    pages = 5
+    pages = 6
 
     header(c, 1, pages, cropped)
     footer(c)
@@ -183,7 +217,7 @@ def main():
     y = section(c, "Version for this drop", y)
     y = draw_wrapped(
         c,
-        "Version 1.0  ·  Build 533  ·  HB-0828.202. After Update, the sidebar stamp must read HB-0828.202  1.0 (533). This build is for iPhone, iPad, and Apple silicon Mac.",
+        "Version 1.0  ·  Build 533  ·  HB-0828.202. After Update, the sidebar stamp must read HB-0828.202  1.0 (533). This one TestFlight build is for iPhone, iPad, and Apple silicon Mac. Update on every device you use.",
         MARGIN, y, CONTENT_W, size=10, leading=13,
     )
     y -= 10
@@ -310,19 +344,36 @@ def main():
         y,
     )
     y -= 14
-    y = section(c, "Mac testers", y)
-    y = draw_wrapped(
-        c,
-        "Install TestFlight from the Mac App Store. Open the same Heartbeat invite. Install or Update to 1.0 (533). The window uses the iPad layout. No Excel picker. Who's Looking still runs on first open after a force-quit.",
-        MARGIN, y, CONTENT_W, size=9.5, leading=13,
-    )
-    y -= 14
     y = section(c, "Support check", y)
     y = draw_wrapped(
         c,
         "Stamp HB-0828.202  1.0 (533). Load screen then Who's Looking. Dashboard Sales first, Loss Revenue second. No Choose file for testers. Store rows show number, district, and market. Filters change every page. New week appears after Ops replaces Heartbeat Daily Report.xlsx and you force-close once.",
         MARGIN, y, CONTENT_W, size=9.5, leading=13,
     )
+    c.showPage()
+
+    header(c, 6, pages, cropped)
+    footer(c)
+    y = H - 112
+    y = section(c, "Update on iPhone", y)
+    y = step_block(
+        c, 8, "Same TestFlight app, phone layout",
+        "Install TestFlight from the App Store on the iPhone. Open the same Heartbeat invite. Tap Update to 1.0 (533). Force-close, open Heartbeat, stay on the load screen, then Who's Looking. Do not pick an Excel file. Use Pages in the header to move between scorecards. Tables scroll left and right.",
+        y,
+    )
+    y -= 8
+    phone_w = CONTENT_W * 0.32
+    draw_img(c, iphone_open, MARGIN, y, phone_w, 220)
+    draw_img(c, iphone, MARGIN + phone_w + 10, y, phone_w, 220)
+    y -= 232
+    y = section(c, "Update on Mac", y)
+    y = step_block(
+        c, 9, "TestFlight from the Mac App Store",
+        "Apple silicon Mac only. Install TestFlight from the Mac App Store. Sign in with the same Apple ID as the invite. Install or Update Fulfillment Heartbeat to 1.0 (533). The window uses the iPad layout. No Excel picker. Force-quit and reopen once after Update so the server week loads.",
+        y,
+    )
+    y -= 8
+    draw_img(c, mac_panel, MARGIN, y, CONTENT_W, 200)
     c.save()
     print(OUT)
 
