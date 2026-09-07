@@ -42,10 +42,6 @@
                                             <constraint firstAttribute="width" constant="96" id="mw"/>
                                         </constraints>
                                     </imageView>
-                                    <label opaque="NO" userInteractionEnabled="NO" contentMode="left" text="Heartbeat" textAlignment="center" lineBreakMode="tailTruncation" translatesAutoresizingMaskIntoConstraints="NO" id="t3">
-                                        <fontDescription key="fontDescription" type="system" weight="semibold" pointSize="18"/>
-                                        <color key="textColor" red="0.0" green="0.66274509803921566" blue="0.8784313725490196" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
-                                    </label>
                                 </subviews>
                             </stackView>
                         </subviews>
