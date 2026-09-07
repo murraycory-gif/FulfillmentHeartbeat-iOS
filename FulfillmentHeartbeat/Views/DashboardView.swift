@@ -294,9 +294,6 @@ struct DashScopeStrip: View {
                     salesRows = store.cachedSalesScopeRows
                     dayRows = store.cachedSalesDayRows
                 }
-                if expanded, canLoadGrainFlags, flagMap.isEmpty {
-                    flagMap = store.dashboardGrainFlags(section: section, grain: grain, packs: packs)
-                }
             } label: {
                 HStack(spacing: 10) {
                     Image(systemName: grain.symbol)
@@ -353,7 +350,7 @@ struct DashScopeStrip: View {
                                 DashScopeGrainCard(
                                     pack: pack,
                                     grain: grain,
-                                    flags: section == .sales ? [] : (flagMap[pack.id] ?? flagMap[pack.line.label] ?? []),
+                                    flags: section == .sales ? [] : (pack.flags.isEmpty ? (flagMap[pack.id] ?? flagMap[pack.line.label] ?? []) : pack.flags),
                                     width: width,
                                     section: section
                                 )
@@ -384,14 +381,7 @@ struct DashScopeStrip: View {
         dayRows.isEmpty ? store.cachedSalesDayRows : dayRows
     }
 
-    private var canLoadGrainFlags: Bool {
-        switch section {
-        case .sales, .pickerScorecard, .pph, .preSubOOS, .missingItems:
-            return false
-        default:
-            return true
-        }
-    }
+    private var canLoadGrainFlags: Bool { section != .sales }
 
     private var bannerCount: Int {
         let scoped = store.dashboardScopeCount(grain)
