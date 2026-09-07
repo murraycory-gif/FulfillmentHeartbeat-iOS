@@ -2202,16 +2202,19 @@ final class HeartbeatStore: ObservableObject {
     private func load() {
         let skip: Set<MetricSection> = [.labor, .pickerScorecard, .pickPathPicker, .preSubOOSItem]
         if PulseSQLite.exists(at: sqliteURL),
-           let pack = try? PulseSQLite.read(from: sqliteURL, skipping: skip),
+           let pack = try? PulseSQLite.read(from: sqliteURL),
            !pack.rows.isEmpty {
+            let first = pack.rows.filter { !skip.contains($0.section) }
+            let extra = pack.rows.filter { skip.contains($0.section) }
+            let seedRows = first.isEmpty ? pack.rows : first
             let caches = PulseCaches.build(
-                rows: pack.rows,
+                rows: seedRows,
                 filters: DashboardFilters(),
                 uploads: pack.uploads,
                 heavy: false,
                 grain: nil
             )
-            rows = pack.rows
+            rows = seedRows
             uploads = pack.uploads.sorted { $0.uploadedAt > $1.uploadedAt }
             seeded = true
             usingDatabasePack = true
@@ -2223,36 +2226,23 @@ final class HeartbeatStore: ObservableObject {
             hydrating = false
             isReady = true
             scheduleHeavyExtras(latest: caches.filteredLatest, roster: caches.roster)
-            pullLatestWorkbookIfNeeded()
-            pullCloudPackIfNeeded()
-            let sqliteFile = sqliteURL
-            let heavyFile = heavyURL
-            let first = pack.rows
-            let loadedUploads = pack.uploads
-            Task.detached(priority: .utility) {
-                let rest = try? PulseSQLite.read(from: sqliteFile)
-                var extra = rest?.rows.filter { skip.contains($0.section) } ?? []
-                if extra.isEmpty, FileManager.default.fileExists(atPath: heavyFile.path) {
-                    extra = (try? PulseDisk.read(from: heavyFile))?.rows ?? []
-                }
-                guard !extra.isEmpty else { return }
-                let merged = first + extra
+            if extra.isEmpty {
+                UserDefaults.standard.removeObject(forKey: "hb.cloudXlsxBytes")
+            } else {
+                rows = pack.rows
                 let full = PulseCaches.build(
-                    rows: merged,
+                    rows: pack.rows,
                     filters: DashboardFilters(),
-                    uploads: loadedUploads,
+                    uploads: pack.uploads,
                     heavy: false,
                     grain: nil
                 )
-                await MainActor.run {
-                    self.rows = merged
-                    self.install(full)
-                    self.rebuildLaborWeekIndex()
-                    if self.filters.isActive {
-                        self.applyFilters()
-                    }
-                }
+                install(full)
+                rebuildLaborWeekIndex()
+                scheduleHeavyExtras(latest: full.filteredLatest, roster: full.roster)
             }
+            pullLatestWorkbookIfNeeded()
+            pullCloudPackIfNeeded()
             return
         }
         isReady = true
@@ -2271,7 +2261,7 @@ final class HeartbeatStore: ObservableObject {
         Task.detached(priority: .userInitiated) {
             do {
                 let hasPack = PulseSQLite.exists(at: sqliteFile)
-                let pack: PulseSQLite.Pack? = hasPack ? try? PulseSQLite.read(from: sqliteFile, skipping: skip) : nil
+                let pack: PulseSQLite.Pack? = hasPack ? try? PulseSQLite.read(from: sqliteFile) : nil
                 let decoded: HeartbeatSnapshot? = {
                     if pack?.rows.isEmpty == false { return nil }
                     return existing.flatMap { try? PulseDisk.read(from: $0) }
