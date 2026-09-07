@@ -38,7 +38,6 @@ struct RootView: View {
 }
 
 struct LaunchSplashView: View {
-    @EnvironmentObject private var store: HeartbeatStore
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var quipIndex = 0
 
@@ -82,10 +81,6 @@ struct LaunchSplashView: View {
                         .multilineTextAlignment(.center)
                         .lineLimit(2)
                         .minimumScaleFactor(0.8)
-                    Text(statusLine)
-                        .font(.system(size: phone ? 13 : 14, weight: .medium))
-                        .foregroundStyle(AppTheme.textSecondary)
-                        .multilineTextAlignment(.center)
                 }
                 .padding(.top, 4)
             }
@@ -93,25 +88,12 @@ struct LaunchSplashView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityLabel("Fulfillment")
-        .accessibilityValue(statusLine)
         .onAppear {
             quipIndex = Int.random(in: 0..<Self.quips.count)
         }
         .onReceive(Timer.publish(every: 2.2, on: .main, in: .common).autoconnect()) { _ in
             quipIndex += 1
         }
-    }
-
-    private var statusLine: String {
-        if store.isImporting {
-            let loaded = store.importProgress.loaded
-            let expected = max(store.importProgress.expected, 1)
-            if let label = store.importLabel, !label.isEmpty, label != "Loading the data" {
-                return "\(label) · \(loaded) of \(expected)"
-            }
-            return "\(loaded) of \(expected) scorecards"
-        }
-        return "Opening the cooler…"
     }
 }
 
