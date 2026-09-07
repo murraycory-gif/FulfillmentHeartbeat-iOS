@@ -2836,7 +2836,7 @@ enum WorkbookParser {
                 textPayload: ["shopper_id": shopper, "shopper_name": shopper]
             )
             if seen % 2500 == 0 { onTick?(out.count) }
-        })
+        }, stop: { out.count >= 8_000 })
         onTick?(out.count)
         return Array(out.values)
     }
@@ -3840,6 +3840,7 @@ enum SheetXML {
         keep: (() -> Set<Int>?)? = nil,
         include: ((Data) -> Bool)? = nil,
         handleRaw: ((Data) -> Void)? = nil,
+        stop: (() -> Bool)? = nil,
         handle: ([String]) -> Void = { _ in }
     ) {
         var stream = z_stream()
@@ -3903,6 +3904,7 @@ enum SheetXML {
             if status == Z_STREAM_END { break }
             if status != Z_OK && status != Z_BUF_ERROR { break }
             if produced == 0, stream.avail_in == 0 { break }
+            if stop?() == true { break }
         }
     }
     static func forEachRowBytes(data: Data, strings: [String], keep: (() -> Set<Int>?)? = nil, handle: ([String]) -> Void) {

@@ -52,9 +52,14 @@ enum PulseCloud {
             request.timeoutInterval = 180
             applyAuth(&request)
             do {
-                let (data, response) = try await URLSession.shared.data(for: request)
-                guard let http = response as? HTTPURLResponse, http.statusCode == 200, data.count > 1_000 else {
+                let (temp, response) = try await URLSession.shared.download(for: request)
+                guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
                     last = PulseCloudError.http((response as? HTTPURLResponse)?.statusCode ?? 0)
+                    continue
+                }
+                let data = try Data(contentsOf: temp, options: [.mappedIfSafe])
+                guard data.count > 1_000 else {
+                    last = PulseCloudError.missing
                     continue
                 }
                 return data
