@@ -80,8 +80,6 @@ enum PulseSQLite {
             throw PulseSQLError.insert
         }
         sqlite3_exec(db, "COMMIT;", nil, nil, nil)
-        sqlite3_close(db)
-        db = nil
         if FileManager.default.fileExists(atPath: url.path) {
             try FileManager.default.removeItem(at: url)
         }
