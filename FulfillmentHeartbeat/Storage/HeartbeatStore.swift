@@ -2416,9 +2416,7 @@ private struct PulseCaches {
             pickPathByShopper: path.byShopper,
             pphPickersByStore: pph,
             cachedCardFlags: cardFlags(latest: nextLatest),
-            cachedGrainPacks: DashboardFilters.parts(filters.store).count == 1
-                ? [:]
-                : grainPacks(
+            cachedGrainPacks: grainPacks(
                     latest: nextLatest,
                     grain: grain,
                     hidePicker: hidePicker,
