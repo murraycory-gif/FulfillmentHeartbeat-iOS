@@ -1342,8 +1342,21 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func clearFilters() {
+        refilterTask?.cancel()
+        unfilteredWarmTask?.cancel()
         sessionRole = .backstage
-        commitFilters(DashboardFilters())
+        hydrating = true
+        filters = DashboardFilters()
+        hydrating = false
+        persistFilters()
+        unfilteredPulse = nil
+        if latestBySection.isEmpty, !rows.isEmpty {
+            rebuildIndex()
+        }
+        installCompanyWideFast()
+        refreshSalesExpandCache()
+        filterStamp += 1
+        warmUnfilteredPulse()
     }
 
     func loadSampleMarket() {
@@ -2098,7 +2111,10 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func restoreCompanyWide() {
-        if let pulse = unfilteredPulse {
+        let pulseOK = unfilteredPulse.map { snap in
+            snap.summaries.contains { $0.storeCount > 0 || $0.headline != nil || $0.lastUploadedAt != nil }
+        } ?? false
+        if pulseOK, let pulse = unfilteredPulse {
             filteredLatest = pulse.filteredLatest.isEmpty ? latestBySection : pulse.filteredLatest
             cachedSummaries = pulse.summaries
             cachedCardFlags = pulse.cardFlags
@@ -2114,6 +2130,9 @@ final class HeartbeatStore: ObservableObject {
             refreshSalesExpandCache()
             filterStamp += 1
             return
+        }
+        if latestBySection.isEmpty, !rows.isEmpty {
+            rebuildIndex()
         }
         installCompanyWideFast()
         refreshSalesExpandCache()
@@ -2551,6 +2570,9 @@ final class HeartbeatStore: ObservableObject {
         rebuildLaborWeekIndex()
         refreshChecklistOpenCount()
         refreshSalesExpandCache()
+        if !filters.isActive {
+            unfilteredPulse = snapshotPulse()
+        }
     }
 
     private func scheduleHeavyExtras(
