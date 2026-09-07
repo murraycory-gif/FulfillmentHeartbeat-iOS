@@ -120,24 +120,24 @@ final class HeartbeatStore: ObservableObject {
         isImporting = true
         isReady = false
         importProgress.label = "Opening the floor"
-        applyLocalCards()
         await loadPack()
         if cachedSummaries.isEmpty, !rows.isEmpty {
             rebuildIndex()
             installCompanyWideFast()
         }
-        applyLocalCards()
-        if packIsReady {
+        if Self.hasUsableLabor(rows), Self.hasUsablePicker(rows) {
             isImporting = false
             importLabel = nil
             isReady = true
             needsRolePick = true
-            Task { await self.syncCloudPackIfChanged() }
             return
         }
-        importProgress.label = "Getting the pack"
-        await importCloudSQLiteIfPresent()
-        applyLocalCards()
+        isImporting = true
+        importProgress.label = "Downloading workbook"
+        importProgress.loaded = 0
+        importProgress.expected = MetricSection.uploadOrder.count
+        importLabel = "Downloading workbook"
+        await pullWorkbookFromServer()
         if cachedSummaries.isEmpty, !rows.isEmpty {
             rebuildIndex()
             installCompanyWideFast()
@@ -148,11 +148,6 @@ final class HeartbeatStore: ObservableObject {
             isReady = true
             needsRolePick = true
         }
-        Task { await self.syncCloudPackIfChanged() }
-    }
-
-    private var packIsReady: Bool {
-        Self.hasUsableLabor(rows) && Self.hasUsablePicker(rows) && !cachedSummaries.isEmpty
     }
 
     private func applyLocalCards() {
@@ -2374,7 +2369,7 @@ final class HeartbeatStore: ObservableObject {
             $0.section == .pickerScorecard
                 && !($0.textPayload["shopper_id"] ?? $0.textPayload["shopper_name"] ?? "").isEmpty
         }
-        return pickers.count >= 80
+        return pickers.count >= 2_000
     }
 
     private func loadPack() async {
