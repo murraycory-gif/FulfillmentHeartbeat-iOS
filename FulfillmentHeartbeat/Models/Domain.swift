@@ -738,6 +738,7 @@ enum HeartbeatMath {
         rows: [MetricRow],
         pickers: [MetricRow] = [],
         pathPickers: [MetricRow] = [],
+        items: [MetricRow] = [],
         includeAll: Bool = false
     ) -> [FiveStarFlag] {
         if section == .sales { return salesActionFlags(rows) }
@@ -746,6 +747,7 @@ enum HeartbeatMath {
         if section == .labor { return laborActionFlags(rows) }
         if section == .scheduleQuality { return scheduleActionFlags(rows, includeAll: true) }
         if section == .pickPath { return pickPathMetricFlags(rows) }
+        if section == .preSubOOS { return preSubActionFlags(rows, items: items) }
         if section == .pickerScorecard {
             let shoppers = rows.filter { !$0.shopperName.isEmpty || !$0.shopperKey.isEmpty }
             let healthy = shoppers.filter { health(for: .pickerScorecard, row: $0) == .good }.count
@@ -2006,6 +2008,36 @@ enum HeartbeatMath {
                 stores: below60
             ),
         ]
+    }
+
+    static func preSubActionFlags(_ rows: [MetricRow], items: [MetricRow] = []) -> [FiveStarFlag] {
+        let stores = rows.filter { !isIgnoredStore($0.storeNumber) && !$0.storeNumber.isEmpty }
+        let scoped = stores.isEmpty ? rows : stores
+        let above = scoped.filter { missingItemsHealth($0) == .risk }.count
+        let goal = scoped.filter { missingItemsHealth($0) == .good }.count
+        let close = scoped.filter { missingItemsHealth($0) == .watch }.count
+        var flags: [FiveStarFlag] = [
+            FiveStarFlag(name: "Above 5%", value: "", health: above == 0 ? .good : .risk, stores: above),
+            FiveStarFlag(name: "At Goal", value: "≤ 5%", health: .good, stores: goal),
+            FiveStarFlag(name: "Close to Goal", value: "5–6.5%", health: close == 0 ? .good : .watch, stores: close),
+        ]
+        let ranked = items.max { lhs, rhs in
+            (lhs.number("presub_pct") ?? 0) < (rhs.number("presub_pct") ?? 0)
+        }
+        if let ranked {
+            let name = ranked.textPayload["bpn"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let label = (name?.isEmpty == false ? name! : "Top item")
+            flags.append(
+                FiveStarFlag(
+                    name: "#1 Pre-Sub Item",
+                    value: "\(label) · \(HeartbeatFormat.pct(ranked.number("presub_pct")))",
+                    health: missingItemsHealth(pct: ranked.number("presub_pct")),
+                    stores: 1,
+                    unit: "item"
+                )
+            )
+        }
+        return flags
     }
 
     static func pickPathMetricFlags(_ rows: [MetricRow]) -> [FiveStarFlag] {

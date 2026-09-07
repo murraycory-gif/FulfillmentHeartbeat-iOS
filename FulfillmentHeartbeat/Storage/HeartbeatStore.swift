@@ -2928,6 +2928,7 @@ private struct PulseCaches {
     static func cardFlags(latest: [MetricSection: [MetricRow]]) -> [MetricSection: [HeartbeatMath.FiveStarFlag]] {
         let pickers = latest[.pickerScorecard] ?? []
         let pathPickers = latest[.pickPathPicker] ?? []
+        let items = latest[.preSubOOSItem] ?? []
         var out: [MetricSection: [HeartbeatMath.FiveStarFlag]] = [:]
         out.reserveCapacity(MetricSection.dashboardCards.count)
         for section in MetricSection.dashboardCards {
@@ -2936,6 +2937,7 @@ private struct PulseCaches {
                 rows: latest[section] ?? [],
                 pickers: pickers,
                 pathPickers: pathPickers,
+                items: items,
                 includeAll: false
             )
         }
@@ -3015,9 +3017,11 @@ private struct PulseCaches {
         let rows = latest[section] ?? []
         let pickers = latest[.pickerScorecard] ?? []
         let pathPickers = latest[.pickPathPicker] ?? []
+        let items = latest[.preSubOOSItem] ?? []
         var buckets: [String: [MetricRow]] = [:]
         var pickerBuckets: [String: [MetricRow]] = [:]
         var pathBuckets: [String: [MetricRow]] = [:]
+        var itemBuckets: [String: [MetricRow]] = [:]
         func key(for row: MetricRow) -> String? {
             if grain == .store {
                 let number = HeartbeatMath.canonicalStore(row.storeNumber)
@@ -3045,6 +3049,11 @@ private struct PulseCaches {
                 if let key = key(for: row) { pathBuckets[key, default: []].append(row) }
             }
         }
+        if section == .preSubOOS {
+            for row in items {
+                if let key = key(for: row) { itemBuckets[key, default: []].append(row) }
+            }
+        }
         var out: [String: [HeartbeatMath.FiveStarFlag]] = [:]
         out.reserveCapacity(packs.count)
         for pack in packs {
@@ -3054,6 +3063,7 @@ private struct PulseCaches {
                 rows: buckets[match] ?? [],
                 pickers: pickerBuckets[match] ?? [],
                 pathPickers: pathBuckets[match] ?? [],
+                items: itemBuckets[match] ?? [],
                 includeAll: true
             )
         }
