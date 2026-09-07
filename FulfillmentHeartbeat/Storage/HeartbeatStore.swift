@@ -162,6 +162,10 @@ final class HeartbeatStore: ObservableObject {
         latestBySection[section] ?? []
     }
 
+    func salesStores() -> [MetricRow] {
+        SalesRollupBuilder.source(from: allLatest(for: .sales), filters: filters, roster: roster)
+    }
+
     func displayRows(for section: MetricSection) -> [MetricRow] {
         filteredLatest[section] ?? []
     }

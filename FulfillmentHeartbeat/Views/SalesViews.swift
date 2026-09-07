@@ -7,7 +7,7 @@ struct OverviewSalesBlock: View {
     private var phone: Bool { HubLayout.isPhone(sizeClass) }
 
     var body: some View {
-        let stores = SalesRollupBuilder.source(from: store.allLatest(for: .sales), filters: store.filters)
+        let stores = store.salesStores()
         let total = SalesPack(rows: stores)
         let mid = midRows(from: stores)
         let days = dayRows(from: stores)
@@ -380,11 +380,22 @@ enum SalesRollupBuilder {
         RollupMarketFill.grain(for: filters)
     }
 
-    static func source(from rows: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
+    static func source(from rows: [MetricRow], filters: DashboardFilters, roster: [String: StoreIdentity] = [:]) -> [MetricRow] {
         let stores = rows.filter {
             $0.textPayload["sales_grain"] != "day"
                 && $0.textPayload["sales_grain"] != "company"
                 && !$0.storeNumber.isEmpty
+        }
+        if !filters.isActive { return stores }
+        if !roster.isEmpty {
+            let allowed = Set(roster.compactMap { number, identity -> String? in
+                if !filters.includesDivision(identity.division) { return nil }
+                if !filters.includesDistrict(identity.district) { return nil }
+                if !filters.includesOM(identity.om) { return nil }
+                if !filters.includesStore(number) { return nil }
+                return HeartbeatMath.canonicalStore(number)
+            })
+            return stores.filter { allowed.contains(HeartbeatMath.canonicalStore($0.storeNumber)) }
         }
         return RollupMarketFill.scoped(stores, filters: filters)
     }
@@ -416,32 +427,45 @@ enum SalesRollupBuilder {
     }
 
     static func dayRows(from stores: [MetricRow]) -> [SalesRollupRow] {
-        let names = stores
-            .compactMap { $0.textPayload["sales_days"] }
-            .first { !$0.isEmpty }?
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty && $0 != "Week" } ?? []
-        guard !names.isEmpty else { return [] }
-        let ordered = paddedWeekdays(names)
-        return ordered.enumerated().map { index, name in
-            let sourceIndex = names.firstIndex(of: name) ?? index
-            let packs = stores.map { SalesPack($0, prefix: "sales_d\(sourceIndex)_") }
-            let sales = packs.compactMap(\.sales).reduce(0, +)
-            let orders = packs.compactMap(\.orders).reduce(0, +)
-            let items = packs.compactMap(\.items).reduce(0, +)
-            let yoyWeight = zip(packs, stores).reduce(0.0) { $0 + (($1.0.yoy ?? 0) * ($1.0.sales ?? 0)) }
+        let week = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+        return week.enumerated().map { index, name in
+            var sales = 0.0
+            var orders = 0.0
+            var items = 0.0
+            var yoyWeight = 0.0
+            var ordersYoy: [Double] = []
+            var aiv: [Double] = []
+            var ipt: [Double] = []
+            var hd = 0.0
+            var dug = 0.0
+            for store in stores {
+                let names = (store.textPayload["sales_days"] ?? "")
+                    .split(separator: ",")
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                let sourceIndex = names.firstIndex(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) ?? index
+                let pack = SalesPack(store, prefix: "sales_d\(sourceIndex)_")
+                let daySales = pack.sales ?? 0
+                sales += daySales
+                orders += pack.orders ?? 0
+                items += pack.items ?? 0
+                yoyWeight += (pack.yoy ?? 0) * daySales
+                if let value = pack.ordersYoy { ordersYoy.append(value) }
+                if let value = pack.aiv { aiv.append(value) }
+                if let value = pack.ipt { ipt.append(value) }
+                hd += pack.hd ?? 0
+                dug += pack.dug ?? 0
+            }
             let pack = SalesPack(
                 sales: sales,
                 yoy: sales > 0 ? yoyWeight / sales : nil,
                 orders: orders,
-                ordersYoy: HeartbeatMath.average(packs.compactMap(\.ordersYoy)),
+                ordersYoy: HeartbeatMath.average(ordersYoy),
                 aos: orders > 0 ? sales / orders : nil,
-                aiv: HeartbeatMath.average(packs.compactMap(\.aiv)),
+                aiv: HeartbeatMath.average(aiv),
                 items: items,
-                ipt: HeartbeatMath.average(packs.compactMap(\.ipt)),
-                hd: packs.compactMap(\.hd).reduce(0, +),
-                dug: packs.compactMap(\.dug).reduce(0, +),
+                ipt: HeartbeatMath.average(ipt),
+                hd: hd,
+                dug: dug,
                 health: HeartbeatMath.salesHealth(planPct: nil, yoy: sales > 0 ? yoyWeight / sales : nil)
             )
             return SalesRollupRow(label: name, storeCount: Set(stores.map(\.storeNumber)).count, pack: pack)
@@ -695,7 +719,7 @@ struct SalesRollupTable: View {
         let next = SalesRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
-        var rows = SalesRollupBuilder.rows(from: SalesRollupBuilder.source(from: store.allLatest(for: .sales), filters: store.filters), grain: next)
+        var rows = SalesRollupBuilder.rows(from: store.salesStores(), grain: next)
         rows.sort { lhs, rhs in
             let result: ComparisonResult
             switch sortKey {

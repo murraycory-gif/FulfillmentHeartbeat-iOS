@@ -270,7 +270,7 @@ struct DashScopeStrip: View {
                 let next = !expanded
                 expanded = next
                 if next, section == .sales, salesRows.isEmpty {
-                    let source = SalesRollupBuilder.source(from: store.allLatest(for: .sales), filters: store.filters)
+                    let source = store.salesStores()
                     salesRows = SalesRollupBuilder.dashboardRows(from: source, grain: grain)
                     dayRows = SalesRollupBuilder.dayRows(from: source)
                 }
