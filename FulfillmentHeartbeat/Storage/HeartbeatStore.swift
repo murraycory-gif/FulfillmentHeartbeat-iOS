@@ -1468,7 +1468,8 @@ final class HeartbeatStore: ObservableObject {
         _ sheets: [WorkbookParser.ParsedSheet],
         filename: String,
         dismissOverlay: Bool,
-        note: String?
+        note: String?,
+        presentRoleGate: Bool = false
     ) async {
         guard !sheets.isEmpty else { return }
         var nextRows = rows
@@ -1496,9 +1497,11 @@ final class HeartbeatStore: ObservableObject {
         hydrating = true
         rows = nextRows
         uploads = nextUploads
-        filters = DashboardFilters()
-        sessionRole = nil
-        needsRolePick = true
+        if presentRoleGate {
+            filters = DashboardFilters()
+            sessionRole = nil
+            needsRolePick = true
+        }
         rebuildLaborWeekIndex()
         install(caches)
         hydrating = false
@@ -1547,7 +1550,7 @@ final class HeartbeatStore: ObservableObject {
             let lightReady: @Sendable ([WorkbookParser.ParsedSheet]) -> Void = { sheets in
                 Task { @MainActor [weak self] in
                     guard let self, !sheets.isEmpty else { return }
-                    await self.applyMasterSheets(sheets, filename: filename, dismissOverlay: true, note: nil)
+                    await self.applyMasterSheets(sheets, filename: filename, dismissOverlay: false, note: nil, presentRoleGate: false)
                 }
             }
             DispatchQueue.global(qos: .userInitiated).async {
@@ -1586,9 +1589,9 @@ final class HeartbeatStore: ObservableObject {
             let sheets = try await parseMasterOffMain(data: data, filename: filename)
             let heavy = sheets.filter { Self.deferredSections.contains($0.section) }
             if !heavy.isEmpty {
-                await applyMasterSheets(heavy, filename: filename, dismissOverlay: true, note: nil)
-            } else if sheets.contains(where: { !Self.deferredSections.contains($0.section) }) == false {
-                await applyMasterSheets(sheets, filename: filename, dismissOverlay: true, note: nil)
+                await applyMasterSheets(heavy, filename: filename, dismissOverlay: true, note: nil, presentRoleGate: true)
+            } else {
+                await applyMasterSheets(sheets, filename: filename, dismissOverlay: true, note: nil, presentRoleGate: true)
             }
             Task { await persistNow() }
             return true
