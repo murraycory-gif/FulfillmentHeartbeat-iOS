@@ -115,24 +115,26 @@ final class HeartbeatStore: ObservableObject {
         loadChecklist()
         loadMasterLink()
         await loadPack()
-        let pickerFacts = PulseSQLite.exists(at: sqliteURL)
-            ? PulseSQLite.sectionCount(from: sqliteURL, section: .pickerScorecard)
-            : 0
-        let laborFacts = PulseSQLite.exists(at: sqliteURL)
-            ? PulseSQLite.sectionCount(from: sqliteURL, section: .labor)
-            : 0
-        if seeded, !rows.isEmpty, pickerFacts >= 10_000, laborFacts >= 100 {
+        if seeded, !rows.isEmpty {
+            isReady = true
+            isImporting = false
+            importLabel = nil
+            needsRolePick = true
+            Task { await self.importCloudWorkbook(blocking: false) }
+            return
+        }
+        importProgress.label = "Loading the data"
+        importProgress.loaded = 0
+        importProgress.expected = MetricSection.uploadOrder.count
+        importLabel = "Loading the data"
+        await importCloudSQLiteIfPresent()
+        if seeded, !rows.isEmpty {
             isReady = true
             isImporting = false
             importLabel = nil
             needsRolePick = true
             return
         }
-        importProgress.label = "Downloading workbook"
-        importProgress.loaded = 0
-        importProgress.expected = MetricSection.uploadOrder.count
-        importLabel = "Downloading workbook"
-        UserDefaults.standard.removeObject(forKey: "hb.cloudXlsxBytes")
         await importCloudWorkbook(blocking: true)
     }
 
@@ -1395,7 +1397,29 @@ final class HeartbeatStore: ObservableObject {
 
     private func refreshFromCloud() async {
         guard !isImporting else { return }
-        await importCloudWorkbook(blocking: true)
+        await importCloudWorkbook(blocking: false)
+    }
+
+    private func importCloudSQLiteIfPresent() async {
+        let known = UserDefaults.standard.integer(forKey: "hb.cloudPackBytes")
+        let remote = await PulseCloud.objectSize(PulseCloud.object)
+        guard remote > 50_000 else { return }
+        if known == remote, PulseSQLite.exists(at: sqliteURL) { return }
+        isImporting = true
+        importLabel = "Loading the data"
+        importProgress.label = "Loading the data"
+        do {
+            let data = try await PulseCloud.downloadPack()
+            guard data.count > 50_000 else { return }
+            let dest = sqliteURL
+            try await Task.detached(priority: .userInitiated) {
+                try data.write(to: dest, options: .atomic)
+            }.value
+            UserDefaults.standard.set(data.count, forKey: "hb.cloudPackBytes")
+            await loadPack()
+        } catch {
+            return
+        }
     }
 
     private func importCloudWorkbook() async {
@@ -1423,11 +1447,11 @@ final class HeartbeatStore: ObservableObject {
             }
             return
         }
-        if blocking || !hasPack {
+        if !hasPack {
             isImporting = true
             isReady = false
-            importLabel = "Downloading workbook"
-            importProgress.label = "Downloading workbook"
+            importLabel = "Loading the data"
+            importProgress.label = "Loading the data"
             importProgress.loaded = 0
             importProgress.expected = MetricSection.uploadOrder.count
         }
@@ -1445,6 +1469,7 @@ final class HeartbeatStore: ObservableObject {
             )
             if ok {
                 UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
+                publishCloudPack()
             } else if !hasPack {
                 UserDefaults.standard.removeObject(forKey: "hb.cloudXlsxBytes")
                 isImporting = false
@@ -2242,13 +2267,7 @@ final class HeartbeatStore: ObservableObject {
             $0.section == .pickerScorecard
                 && !($0.textPayload["shopper_id"] ?? $0.textPayload["shopper_name"] ?? "").isEmpty
         }
-        guard pickers.count >= 10_000 else { return false }
-        let withPPH = pickers.contains { $0.number("pph") != nil }
-        let withOOS = pickers.contains { $0.number("oos_pct") != nil }
-        let withOTT = pickers.contains { $0.number("ott_pct") != nil }
-        let saneOTT = !pickers.contains { ($0.number("ott_pct") ?? 0) > 110 }
-        let saneHours = !pickers.contains { ($0.number("pick_hours") ?? 0) > 200 }
-        return withPPH && withOOS && withOTT && saneOTT && saneHours
+        return pickers.count >= 2_000
     }
 
     private func loadPack() async {
@@ -2429,6 +2448,7 @@ final class HeartbeatStore: ObservableObject {
             try await Task.detached(priority: .utility) {
                 try PulseSQLite.write(rows: packRows, uploads: packUploads, seeded: packSeeded, to: packURL)
             }.value
+            publishCloudPack()
         } catch {
             errorMessage = "Pulse did not save: \(error.localizedDescription). Keep Heartbeat open until the import finishes."
         }
