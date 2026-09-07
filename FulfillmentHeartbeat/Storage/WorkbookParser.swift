@@ -2867,17 +2867,21 @@ enum WorkbookParser {
                     total = block
                     continue
                 }
-                days.append([
-                    "date": label,
-                    "pph": block["pph"].map(String.init) ?? "0",
-                    "presub": block["presub_pct"].map(String.init) ?? "0",
-                    "oos": block["oos_pct"].map(String.init) ?? "0",
-                    "ott": block["ott_pct"].map(String.init) ?? "0",
-                    "oth5": block["oth5_pct"].map(String.init) ?? "0",
-                    "hours": block["pick_hours"].map(String.init) ?? "0",
-                    "orders": block["orders"].map(String.init) ?? "0",
-                    "refund": block["refund_amt"].map(String.init) ?? "0",
-                ])
+                func cell(_ key: String) -> String {
+                    if let value = block[key] { return String(value) }
+                    return "0"
+                }
+                var day: [String: String] = [:]
+                day["date"] = label
+                day["pph"] = cell("pph")
+                day["presub"] = cell("presub_pct")
+                day["oos"] = cell("oos_pct")
+                day["ott"] = cell("ott_pct")
+                day["oth5"] = cell("oth5_pct")
+                day["hours"] = cell("pick_hours")
+                day["orders"] = cell("orders")
+                day["refund"] = cell("refund_amt")
+                days.append(day)
             }
             if total.isEmpty, let last = blockStarts.last {
                 total = readBlock(map, start: last)
