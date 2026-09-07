@@ -298,7 +298,15 @@ final class HeartbeatStore: ObservableObject {
         }
     }
 
-    func dashboardGrainFlags(
+    func fiveStarFlags(label: String, grain: DashScopeGrain) -> [HeartbeatMath.FiveStarFlag] {
+        let rows = filteredLatest[.fiveStar] ?? []
+        let matched = rows.filter { HeartbeatMath.dashboardScopeKey($0, grain: grain) == label }
+        return HeartbeatMath.fiveStarActionFlags(matched, includeAll: true)
+    }
+
+    func fiveStarFlagsForDivision(_ name: String) -> [HeartbeatMath.FiveStarFlag] {
+        fiveStarFlags(label: name, grain: .division)
+    }
         section: MetricSection,
         grain: DashScopeGrain,
         packs: [DashScopePack]

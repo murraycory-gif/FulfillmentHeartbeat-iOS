@@ -278,6 +278,7 @@ struct DashScopeStrip: View {
     @State private var expanded = false
     @State private var salesRows: [SalesRollupRow] = []
     @State private var dayRows: [SalesRollupRow] = []
+    @State private var flagMap: [String: [HeartbeatMath.FiveStarFlag]] = [:]
 
     var body: some View {
         VStack(alignment: .leading, spacing: expanded ? 10 : 8) {
@@ -286,6 +287,9 @@ struct DashScopeStrip: View {
                 if expanded, section == .sales {
                     salesRows = store.cachedSalesScopeRows
                     dayRows = store.cachedSalesDayRows
+                }
+                if expanded, section == .fiveStar, flagMap.isEmpty {
+                    flagMap = store.dashboardGrainFlags(section: section, grain: grain, packs: packs)
                 }
             } label: {
                 HStack(spacing: 10) {
@@ -343,7 +347,7 @@ struct DashScopeStrip: View {
                                 DashScopeGrainCard(
                                     pack: pack,
                                     grain: grain,
-                                    flags: [],
+                                    flags: section == .fiveStar ? (flagMap[pack.id] ?? flagMap[pack.line.label] ?? []) : [],
                                     width: width,
                                     section: section
                                 )
@@ -385,6 +389,7 @@ struct DashScopeGrainCard: View {
     let section: MetricSection
     @State private var open = false
     @State private var children: [DashScopeLine] = []
+    @State private var childFlags: [String: [HeartbeatMath.FiveStarFlag]] = [:]
 
     private var line: DashScopeLine { pack.line }
 
@@ -398,6 +403,13 @@ struct DashScopeGrainCard: View {
                         children = Array(pack.children.prefix(40))
                     } else {
                         children = Array(store.dashboardGrainChildren(section: section, label: pack.line.label).prefix(40))
+                    }
+                    if section == .fiveStar {
+                        var nextFlags: [String: [HeartbeatMath.FiveStarFlag]] = [:]
+                        for child in children {
+                            nextFlags[child.label] = store.fiveStarFlagsForDivision(child.label)
+                        }
+                        childFlags = nextFlags
                     }
                 }
             } label: {
@@ -462,21 +474,26 @@ struct DashScopeGrainCard: View {
             }
             if open {
                 ForEach(children) { child in
-                    HStack(spacing: 8) {
-                        Text(child.label)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(AppTheme.text)
-                            .lineLimit(1)
-                        Spacer(minLength: 4)
-                        Text(child.value)
-                            .font(.subheadline.weight(.bold).monospacedDigit())
-                            .foregroundStyle(dashInk(child.health == .none ? .good : child.health))
-                        if grain != .store {
-                            Text(child.count == 1 ? "1 store" : "\(child.count) stores")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(AppTheme.textSecondary)
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 8) {
+                            Text(child.label)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(AppTheme.text)
+                                .lineLimit(1)
+                            Spacer(minLength: 4)
+                            Text(child.value)
+                                .font(.subheadline.weight(.bold).monospacedDigit())
+                                .foregroundStyle(dashInk(child.health == .none ? .good : child.health))
+                            if grain != .store {
+                                Text(child.count == 1 ? "1 store" : "\(child.count) stores")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(AppTheme.textSecondary)
+                            }
+                            HealthBadge(health: child.health, prominent: true, compact: true)
                         }
-                        HealthBadge(health: child.health, prominent: true, compact: true)
+                        if section == .fiveStar, let metrics = childFlags[child.label], !metrics.isEmpty {
+                            DashFlagGrid(flags: metrics, columns: max(metrics.count, 1))
+                        }
                     }
                     .padding(.leading, 12)
                 }
