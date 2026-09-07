@@ -103,10 +103,20 @@ final class HeartbeatStore: ObservableObject {
         uploads = []
         seeded = false
         filters = DashboardFilters()
+        isReady = false
+        isImporting = true
+        importProgress.label = "Loading the data"
+        importProgress.expected = MetricSection.uploadOrder.count
+        Task { await self.boot() }
+        watchAppLifecycle()
+    }
+
+    private func boot() async {
         loadChecklist()
         loadMasterLink()
-        load()
-        watchAppLifecycle()
+        await loadPack()
+        pullLatestWorkbookIfNeeded()
+        pullCloudPackIfNeeded()
     }
 
     private func watchAppLifecycle() {
@@ -1730,8 +1740,9 @@ final class HeartbeatStore: ObservableObject {
         if dismissOverlay {
             isImporting = false
             importLabel = nil
+            isReady = true
         }
-        await persistNow()
+        Task { await persistNow() }
     }
 
     private func parseMasterOffMain(data: Data, filename: String) async throws -> [WorkbookParser.ParsedSheet] {
@@ -1786,8 +1797,6 @@ final class HeartbeatStore: ObservableObject {
             let sheets = try await parseMasterOffMain(data: data, filename: filename)
             masterApplyToken += 1
             await applyMasterSheets(sheets, filename: filename, dismissOverlay: true, note: nil, presentRoleGate: presentRoleGate)
-            await persistNow()
-            publishCloudPack()
             return true
         } catch {
             if fallbackToPicker {
@@ -2212,117 +2221,52 @@ final class HeartbeatStore: ObservableObject {
         }
     }
 
-    private func load() {
-        if PulseSQLite.exists(at: sqliteURL),
-           let pack = try? PulseSQLite.read(from: sqliteURL),
-           !pack.rows.isEmpty {
-            let caches = PulseCaches.build(
-                rows: pack.rows,
-                filters: DashboardFilters(),
-                uploads: pack.uploads,
-                heavy: false,
-                grain: .region
-            )
-            rows = pack.rows
-            uploads = pack.uploads.sorted { $0.uploadedAt > $1.uploadedAt }
-            seeded = true
-            usingDatabasePack = true
-            hydrating = true
-            filters = DashboardFilters()
-            sessionRole = nil
-            needsRolePick = true
-            install(caches)
-            hydrating = false
-            rebuildLaborWeekIndex()
-            scheduleHeavyExtras(latest: caches.filteredLatest, roster: caches.roster)
-            if !Self.hasUsableLabor(pack.rows) || !Self.hasUsablePicker(pack.rows) {
-                UserDefaults.standard.removeObject(forKey: "hb.cloudXlsxBytes")
-                isReady = false
-            } else {
-                isReady = true
-            }
-            pullLatestWorkbookIfNeeded()
-            pullCloudPackIfNeeded()
-            return
-        }
-        isReady = true
-        let lightFile = snapshotURL
-        let heavyFile = heavyURL
-        let candidates = [snapshotURL] + Self.legacySnapshotURLs()
-        let existing = candidates.first(where: { fileManager.fileExists(atPath: $0.path) })
-        guard existing != nil || fileManager.fileExists(atPath: heavyFile.path) || PulseSQLite.exists(at: sqliteURL) else {
-            rebuildIndex()
-            applyFilters()
-            isReady = true
-            return
-        }
-        let filterFile = filtersURL
-        let sqliteFile = sqliteURL
-        Task.detached(priority: .userInitiated) {
-            do {
-                let hasPack = PulseSQLite.exists(at: sqliteFile)
-                let pack: PulseSQLite.Pack? = hasPack ? try? PulseSQLite.read(from: sqliteFile) : nil
-                let decoded: HeartbeatSnapshot? = {
-                    if pack?.rows.isEmpty == false { return nil }
-                    return existing.flatMap { try? PulseDisk.read(from: $0) }
-                }()
-                let overlayFilters: DashboardFilters? = {
-                    guard let overlay = try? Data(contentsOf: filterFile),
-                          let saved = try? JSONDecoder().decode(DashboardFilters.self, from: overlay)
-                    else { return nil }
-                    return saved
-                }()
-                let loadedFilters = overlayFilters ?? decoded?.filters ?? DashboardFilters()
-                let firstRows = pack?.rows ?? decoded?.rows ?? []
-                let loadedUploads = (pack?.uploads.isEmpty == false ? pack?.uploads : nil) ?? decoded?.uploads ?? []
-                let loadedSeeded = pack?.seeded ?? decoded?.seeded ?? false
-                let caches = PulseCaches.build(
-                    rows: firstRows,
-                    filters: DashboardFilters(),
-                    uploads: loadedUploads,
-                    heavy: false,
-                    grain: .region
-                )
-                await MainActor.run {
-                    self.hydrating = true
-                    self.rows = firstRows
-                    self.uploads = loadedUploads.sorted { $0.uploadedAt > $1.uploadedAt }
-                    self.seeded = loadedSeeded || !firstRows.isEmpty
-                    self.filters = DashboardFilters()
-                    self.sessionRole = nil
-                    self.needsRolePick = true
-                    self.install(caches)
-                    self.hydrating = false
-                    self.isReady = true
-                }
-                var extra: [MetricRow] = []
-                if extra.isEmpty, FileManager.default.fileExists(atPath: heavyFile.path) {
-                    extra = (try? PulseDisk.read(from: heavyFile))?.rows ?? []
-                }
-                if !extra.isEmpty {
-                    let merged = firstRows + extra
-                    let full = PulseCaches.build(
-                        rows: merged,
+    private func loadPack() async {
+        if PulseSQLite.exists(at: sqliteURL) {
+            let url = sqliteURL
+            let pack = await Task.detached(priority: .userInitiated) {
+                try? PulseSQLite.read(from: url)
+            }.value
+            if let pack, !pack.rows.isEmpty {
+                let caches = await Task.detached(priority: .userInitiated) {
+                    PulseCaches.build(
+                        rows: pack.rows,
                         filters: DashboardFilters(),
-                        uploads: loadedUploads,
+                        uploads: pack.uploads,
                         heavy: false,
                         grain: .region
                     )
-                    await MainActor.run {
-                        self.rows = merged
-                        self.install(full)
-                        self.rebuildLaborWeekIndex()
-                    }
+                }.value
+                rows = pack.rows
+                uploads = pack.uploads.sorted { $0.uploadedAt > $1.uploadedAt }
+                seeded = true
+                usingDatabasePack = true
+                hydrating = true
+                filters = DashboardFilters()
+                sessionRole = nil
+                needsRolePick = true
+                install(caches)
+                hydrating = false
+                rebuildLaborWeekIndex()
+                scheduleHeavyExtras(latest: caches.filteredLatest, roster: caches.roster)
+                if !Self.hasUsableLabor(pack.rows) || !Self.hasUsablePicker(pack.rows) {
+                    UserDefaults.standard.removeObject(forKey: "hb.cloudXlsxBytes")
+                    isReady = false
+                } else {
+                    isReady = true
+                    isImporting = false
+                    importLabel = nil
                 }
-            } catch {
-                await MainActor.run {
-                    self.errorMessage = "Could not load saved pulse: \(error.localizedDescription)"
-                    self.rebuildIndex()
-                    self.applyFilters()
-                    self.isReady = true
-                }
+                return
             }
         }
+        isReady = false
+        rebuildIndex()
+        applyFilters()
+    }
+
+    private func load() {
+        Task { await loadPack() }
     }
 
     private func hydrate(_ decoded: HeartbeatSnapshot) {
@@ -2436,8 +2380,6 @@ final class HeartbeatStore: ObservableObject {
         let packSeeded = seeded
         do {
             try await Task.detached(priority: .utility) {
-                try PulseDisk.write(snapshot, to: lightURL)
-                try PulseDisk.write(snapshot, to: packedURL)
                 try PulseSQLite.write(rows: packRows, uploads: packUploads, seeded: packSeeded, to: packURL)
             }.value
         } catch {

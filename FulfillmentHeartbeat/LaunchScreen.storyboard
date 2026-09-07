@@ -17,12 +17,6 @@
                         <subviews>
                             <stackView opaque="NO" contentMode="scaleToFill" axis="vertical" alignment="center" spacing="16" translatesAutoresizingMaskIntoConstraints="NO" id="stack">
                                 <subviews>
-                                    <imageView clipsSubviews="YES" userInteractionEnabled="NO" contentMode="scaleAspectFit" image="HeartbeatMark" translatesAutoresizingMaskIntoConstraints="NO" id="mark">
-                                        <constraints>
-                                            <constraint firstAttribute="height" constant="72" id="mh"/>
-                                            <constraint firstAttribute="width" constant="96" id="mw"/>
-                                        </constraints>
-                                    </imageView>
                                     <stackView opaque="NO" contentMode="scaleToFill" axis="horizontal" alignment="firstBaseline" spacing="0.0" translatesAutoresizingMaskIntoConstraints="NO" id="word">
                                         <subviews>
                                             <label opaque="NO" userInteractionEnabled="NO" contentMode="left" text="Fulfill" textAlignment="center" lineBreakMode="tailTruncation" translatesAutoresizingMaskIntoConstraints="NO" id="t1">
@@ -58,7 +52,4 @@
             <point key="canvasLocation" x="0.0" y="0.0"/>
         </scene>
     </scenes>
-    <resources>
-        <image name="HeartbeatMark" width="120" height="120"/>
-    </resources>
 </document>
