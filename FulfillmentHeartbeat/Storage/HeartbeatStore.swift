@@ -190,11 +190,27 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func displayRows(for section: MetricSection) -> [MetricRow] {
-        filteredLatest[section] ?? []
+        scopedRows(filteredLatest[section] ?? latestBySection[section] ?? [])
+    }
+
+    func scopedRows(_ rows: [MetricRow]) -> [MetricRow] {
+        guard let allowed = PulseCaches.allowedStores(roster: roster, filters: filters) else { return rows }
+        return rows.filter { row in
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            if store.isEmpty { return false }
+            return allowed.contains(store)
+        }
     }
 
     func summary(for section: MetricSection) -> SectionSummary {
-        cachedSummaries.first { $0.section == section }
+        if filters.isActive {
+            return HeartbeatMath.summarize(
+                section,
+                rows: displayRows(for: section),
+                upload: upload(for: section)
+            )
+        }
+        return cachedSummaries.first { $0.section == section }
             ?? HeartbeatMath.summarize(section, rows: [], upload: upload(for: section))
     }
 
@@ -202,10 +218,24 @@ final class HeartbeatStore: ObservableObject {
         uploads.first { $0.section == section }
     }
 
-    var summaries: [SectionSummary] { cachedSummaries }
+    var summaries: [SectionSummary] {
+        if filters.isActive {
+            return MetricSection.dashboardCards.map { summary(for: $0) }
+        }
+        return cachedSummaries
+    }
 
     func dashboardFlags(for section: MetricSection) -> [HeartbeatMath.FiveStarFlag] {
-        cachedCardFlags[section] ?? []
+        if filters.isActive {
+            return HeartbeatMath.dashboardActionFlags(
+                section: section,
+                rows: displayRows(for: section),
+                pickers: displayRows(for: .pickerScorecard),
+                pathPickers: displayRows(for: .pickPathPicker),
+                includeAll: false
+            )
+        }
+        return cachedCardFlags[section] ?? []
     }
 
     func dashboardGrains(for section: MetricSection) -> [DashScopePack] {
@@ -1899,6 +1929,20 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func install(_ pulse: FilterPulse) {
+        if filters.isActive {
+            cachedPickerBoard = pulse.pickerBoard
+            pickerIndex = pulse.pickerIndex
+            pickerFocusHealth = pulse.pickerFocusHealth
+            pickPathPickersByStore = pulse.pickPathPickersByStore
+            pickPathByShopper = pulse.pickPathByShopper
+            pphPickersByStore = pulse.pphPickersByStore
+            if !pulse.checklistGroups.isEmpty {
+                cachedChecklistGroups = pulse.checklistGroups
+            }
+            refreshChecklistOpenCount()
+            objectWillChange.send()
+            return
+        }
         filteredLatest = pulse.filteredLatest
         cachedPickerBoard = pulse.pickerBoard
         pickerIndex = pulse.pickerIndex
