@@ -1177,6 +1177,7 @@ final class HeartbeatStore: ObservableObject {
 
     func applyLaunchRole(_ role: HeartbeatRole, region: String = "", division: String = "", district: String = "", om: String = "") {
         sessionRole = role
+        UserDefaults.standard.set(role.rawValue, forKey: "hb.sessionRole")
         var next = DashboardFilters()
         switch role {
         case .backstage:
@@ -1203,6 +1204,16 @@ final class HeartbeatStore: ObservableObject {
 
     func reopenRoleGate() {
         needsRolePick = true
+    }
+
+    private func restoreSessionRole() {
+        if let raw = UserDefaults.standard.string(forKey: "hb.sessionRole"),
+           let role = HeartbeatRole(rawValue: raw) {
+            sessionRole = role
+            needsRolePick = false
+        } else {
+            needsRolePick = true
+        }
     }
 
     func clearFilters() {
@@ -2011,6 +2022,59 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func load() {
+        let skip: Set<MetricSection> = [.labor, .pickerScorecard, .pickPathPicker, .preSubOOSItem]
+        if PulseSQLite.exists(at: sqliteURL),
+           let pack = try? PulseSQLite.read(from: sqliteURL, skipping: skip),
+           !pack.rows.isEmpty {
+            let caches = PulseCaches.build(
+                rows: pack.rows,
+                filters: DashboardFilters(),
+                uploads: pack.uploads,
+                heavy: false,
+                grain: nil
+            )
+            rows = pack.rows
+            uploads = pack.uploads.sorted { $0.uploadedAt > $1.uploadedAt }
+            seeded = true
+            usingDatabasePack = true
+            if let overlay = try? Data(contentsOf: filtersURL),
+               let saved = try? JSONDecoder().decode(DashboardFilters.self, from: overlay) {
+                filters = saved
+                filters.sanitize()
+            }
+            restoreSessionRole()
+            install(caches)
+            isReady = true
+            let sqliteFile = sqliteURL
+            let heavyFile = heavyURL
+            let first = pack.rows
+            let loadedUploads = pack.uploads
+            Task.detached(priority: .utility) {
+                let rest = try? PulseSQLite.read(from: sqliteFile)
+                var extra = rest?.rows.filter { skip.contains($0.section) } ?? []
+                if extra.isEmpty, FileManager.default.fileExists(atPath: heavyFile.path) {
+                    extra = (try? PulseDisk.read(from: heavyFile))?.rows ?? []
+                }
+                guard !extra.isEmpty else { return }
+                let merged = first + extra
+                let full = PulseCaches.build(
+                    rows: merged,
+                    filters: DashboardFilters(),
+                    uploads: loadedUploads,
+                    heavy: false,
+                    grain: nil
+                )
+                await MainActor.run {
+                    self.rows = merged
+                    self.install(full)
+                    self.rebuildLaborWeekIndex()
+                    if self.filters.isActive {
+                        self.applyFilters()
+                    }
+                }
+            }
+            return
+        }
         isReady = true
         let lightFile = snapshotURL
         let heavyFile = heavyURL

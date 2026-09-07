@@ -156,6 +156,9 @@ struct MainHubView: View {
                 .environmentObject(router)
         }
         .onAppear {
+            if store.seeded, router.destination == .upload {
+                router.open(.dashboard)
+            }
             guard !store.needsRolePick else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                 coach.presentIfNeeded(for: router.current)
