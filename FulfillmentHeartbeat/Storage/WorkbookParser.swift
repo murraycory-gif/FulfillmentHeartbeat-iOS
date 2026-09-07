@@ -2799,75 +2799,107 @@ enum WorkbookParser {
         onTick: ((Int) -> Void)?
     ) -> [ParsedWorkbookRow] {
         var layout = 0
-        var carryStore = ""
+        var blockStarts: [Int] = []
+        var blockLabels: [String] = []
         var out: [String: ParsedWorkbookRow] = [:]
+        let fields: [(Int, String)] = [
+            (0, "pph"), (1, "presub"), (2, "oos"), (3, "pickhours"),
+            (4, "picks"), (5, "subs"), (6, "orders"), (7, "dug"),
+            (10, "oth5"), (11, "ott"), (12, "refund"),
+        ]
+        func readBlock(_ data: Data, start: Int) -> [String: Double] {
+            var block: [String: Double] = [:]
+            for (offset, header) in fields {
+                let raw = SheetXML.rawCell(data, letter: SheetXML.colLetter(start + offset), strings: strings)
+                if let value = cellNumber(raw) {
+                    applyPickerMetric(&block, header: header, value: value)
+                }
+            }
+            return block
+        }
         SheetXML.forEachRowInflating(compressed: compressed, strings: strings, handleRaw: { data in
             let a = SheetXML.rawCell(data, letter: "A", strings: strings)
             let b = SheetXML.rawCell(data, letter: "B", strings: strings)
             let c = SheetXML.rawCell(data, letter: "C", strings: strings)
-            let d = SheetXML.rawCell(data, letter: "D", strings: strings)
-            let e = SheetXML.rawCell(data, letter: "E", strings: strings)
             if layout == 0 {
                 let na = normHeader(a)
+                if na == "date" || na.contains("date") {
+                    blockStarts = []
+                    blockLabels = []
+                    var col = 2
+                    while col < 110 {
+                        let raw = SheetXML.rawCell(data, letter: SheetXML.colLetter(col), strings: strings)
+                        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if trimmed.isEmpty {
+                            col += 13
+                            continue
+                        }
+                        blockStarts.append(col)
+                        if trimmed.lowercased() == "total" {
+                            blockLabels.append("Total")
+                        } else if let iso = excelSerialDate(trimmed) {
+                            blockLabels.append(iso)
+                        } else {
+                            blockLabels.append(trimmed)
+                        }
+                        col += 13
+                    }
+                    return
+                }
                 let nb = normHeader(b)
-                let nc = normHeader(c)
-                if nb.contains("store") && (nc.contains("picker") || nc.contains("shopper")) {
-                    layout = 2
-                } else if na.contains("store") && (nb.contains("picker") || nb.contains("shopper")) {
+                if na.contains("store") && (nb.contains("picker") || nb.contains("shopper")) {
                     layout = 1
+                    if blockStarts.isEmpty { blockStarts = [2] }
                 }
                 return
             }
-            var store = a
-            var picker = b
-            var pphRaw = c
-            var presubRaw = d
-            if layout == 2 {
-                if looksLikeStoreNumber(a) {
-                    store = a
-                    picker = b
-                    pphRaw = c
-                    presubRaw = d
-                } else if looksLikeStoreNumber(b) {
-                    store = b
-                    picker = c
-                    pphRaw = d
-                    presubRaw = e
-                } else {
-                    return
-                }
-            }
-            picker = picker.trimmingCharacters(in: .whitespacesAndNewlines)
+            let store = a
+            let picker = b.trimmingCharacters(in: .whitespacesAndNewlines)
             if picker.isEmpty || isTotalCell(picker) { return }
             guard picker.rangeOfCharacter(from: .letters) != nil else { return }
             guard looksLikeStoreNumber(store) else { return }
             let storeNumber = HeartbeatMath.canonicalStore(store)
-            var payload: [String: Double] = [:]
-            let fields: [(String, String)] = [
-                ("C", "pph"), ("D", "presub"), ("E", "oos"), ("F", "pickhours"),
-                ("G", "picks"), ("H", "subs"), ("I", "orders"), ("J", "dug"),
-                ("M", "oth5"), ("N", "ott"), ("O", "refund"),
-            ]
-            for (letter, header) in fields {
-                if let value = cellNumber(SheetXML.rawCell(data, letter: letter, strings: strings)) {
-                    applyPickerMetric(&payload, header: header, value: value)
+            var total: [String: Double] = [:]
+            var days: [[String: String]] = []
+            for (index, start) in blockStarts.enumerated() {
+                let block = readBlock(data, start: start)
+                let label = index < blockLabels.count ? blockLabels[index] : ""
+                if label.lowercased() == "total" {
+                    total = block
+                    continue
                 }
+                guard let pph = block["pph"], pph > 0, pph < 200 else { continue }
+                days.append([
+                    "date": label,
+                    "pph": String(pph),
+                    "presub": String(block["presub_pct"] ?? 0),
+                    "oos": String(block["oos_pct"] ?? 0),
+                    "ott": String(block["ott_pct"] ?? 0),
+                    "oth5": String(block["oth5_pct"] ?? 0),
+                    "hours": String(block["pick_hours"] ?? 0),
+                    "orders": String(block["orders"] ?? 0),
+                    "refund": String(block["refund_amt"] ?? 0),
+                ])
             }
-            guard let pph = payload["pph"], pph > 0, pph < 200 else { return }
-            if let hours = payload["pick_hours"], hours > 80 { return }
-            if let orders = payload["orders"], orders > 400 { return }
-            if let refund = payload["refund_amt"], refund > 2_000 { return }
-            if let ott = payload["ott_pct"], ott > 110 { return }
-            if let oth = payload["oth5_pct"], oth > 110 { return }
-            let shopper = picker
-            out[storeNumber + "|" + shopper] = ParsedWorkbookRow(
+            if total.isEmpty, let last = blockStarts.last {
+                total = readBlock(data, start: last)
+            }
+            guard let pph = total["pph"], pph > 0, pph < 200 else { return }
+            if let hours = total["pick_hours"], hours > 200 { return }
+            if let orders = total["orders"], orders > 2_000 { return }
+            let daysJSON = (try? JSONSerialization.data(withJSONObject: days)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
+            out[storeNumber + "|" + picker] = ParsedWorkbookRow(
                 division: "",
                 operationsOM: "",
                 storeNumber: storeNumber,
                 storeName: nil,
-                recordedOn: nil,
-                payload: payload,
-                textPayload: ["shopper_id": shopper, "shopper_name": shopper]
+                recordedOn: "Total",
+                payload: total,
+                textPayload: [
+                    "shopper_id": picker,
+                    "shopper_name": picker,
+                    "days_json": daysJSON,
+                ]
             )
             if out.count % 2500 == 0 { onTick?(out.count) }
         }, stop: { false })

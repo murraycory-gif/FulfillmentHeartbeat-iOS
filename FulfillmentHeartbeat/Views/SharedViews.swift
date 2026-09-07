@@ -9114,6 +9114,7 @@ struct PickerLineSnap: Identifiable, Equatable {
     let refundHealth: Health
     let othEligHealth: Health
     let coeHealth: Health
+    let days: [PickerDaySnap]
 
     init(_ row: MetricRow, division: String) {
         id = row.id
@@ -9143,6 +9144,59 @@ struct PickerLineSnap: Identifiable, Equatable {
         refundHealth = HeartbeatMath.refundHealth(row)
         othEligHealth = row.number("oth_elig_pct") == nil ? .none : HeartbeatMath.othEligStar(row).health
         coeHealth = row.number("coe_pct") == nil ? .none : HeartbeatMath.coeStar(row).health
+        days = PickerDaySnap.list(from: row)
+    }
+}
+
+struct PickerDaySnap: Identifiable, Equatable {
+    let id: String
+    let title: String
+    let pph: String
+    let presub: String
+    let oos: String
+    let ott: String
+    let oth5: String
+    let hours: String
+    let orders: String
+    let refund: String
+
+    static func list(from row: MetricRow) -> [PickerDaySnap] {
+        guard let raw = row.textPayload["days_json"],
+              let data = raw.data(using: .utf8),
+              let blob = try? JSONSerialization.jsonObject(with: data) as? [[String: String]]
+        else { return [] }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyy-MM-dd"
+        let outFmt = DateFormatter()
+        outFmt.locale = Locale(identifier: "en_US")
+        outFmt.dateFormat = "EEE MMM d"
+        return blob.compactMap { item in
+            let date = item["date"] ?? ""
+            guard !date.isEmpty else { return nil }
+            let title: String = {
+                if let parsed = formatter.date(from: date) { return outFmt.string(from: parsed) }
+                return date
+            }()
+            func num(_ key: String, digits: Int) -> String {
+                HeartbeatFormat.num(Double(item[key] ?? ""), digits: digits)
+            }
+            func pct(_ key: String) -> String {
+                HeartbeatFormat.pct(Double(item[key] ?? ""))
+            }
+            return PickerDaySnap(
+                id: date,
+                title: title,
+                pph: num("pph", digits: 1),
+                presub: pct("presub"),
+                oos: pct("oos"),
+                ott: pct("ott"),
+                oth5: pct("oth5"),
+                hours: num("hours", digits: 1),
+                orders: num("orders", digits: 0),
+                refund: HeartbeatFormat.money(Double(item["refund"] ?? ""))
+            )
+        }
     }
 }
 
@@ -9424,29 +9478,38 @@ struct PickerStoreRow: View {
 struct PickerStoreExpand: View {
     let snap: PickerLineSnap
 
-    private var chips: [(String, String, Health, Bool)] {
-        [
-            ("PPH", snap.pph, snap.pphHealth, false),
-            ("Presub", snap.presub, snap.presubHealth, false),
-            ("OOS", snap.oos, snap.oosHealth, false),
-            ("OTT", snap.ott, snap.ottHealth, false),
-            ("OTH5", snap.oth5, snap.oth5Health, false),
-            ("OTH Elig", snap.othElig, snap.othEligHealth, false),
-            ("Hours", snap.hours, .none, false),
-            ("Subs", snap.subs, .none, false),
-            ("Orders", snap.orders, .none, false),
-            ("DUG", snap.dug, .none, false),
-            ("COE", snap.coe, snap.coeHealth, false),
-            ("Refund", snap.refund, snap.refundHealth, false),
-        ]
-    }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             Text(metaLine)
-                .font(.subheadline)
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle(AppTheme.textSecondary)
-            chipGrid
+            totalStrip
+            if snap.days.isEmpty {
+                Text("No daily breakout for this shopper.")
+                    .font(.subheadline)
+                    .foregroundStyle(AppTheme.textTertiary)
+            } else {
+                Text("By Day")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(AppTheme.text)
+                dayHeader
+                ForEach(snap.days) { day in
+                    HStack(spacing: 8) {
+                        Text(day.title)
+                            .font(.subheadline.weight(.semibold))
+                            .frame(width: 92, alignment: .leading)
+                            .lineLimit(1)
+                        dayCell(day.pph)
+                        dayCell(day.presub)
+                        dayCell(day.oos)
+                        dayCell(day.ott)
+                        dayCell(day.oth5)
+                        dayCell(day.hours)
+                        dayCell(day.orders)
+                    }
+                    .padding(.vertical, 6)
+                }
+            }
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -9459,61 +9522,63 @@ struct PickerStoreExpand: View {
     private var metaLine: String {
         let store = snap.storeNumber.isEmpty ? "—" : snap.storeNumber
         let division = snap.division.isEmpty ? "—" : snap.division
-        return "Store \(store)  ·  \(division)"
+        return "Store \(store)  ·  \(division)  ·  Week total"
     }
 
-    private var chipGrid: some View {
-        let rows = stride(from: 0, to: chips.count, by: 6).map { Array(chips[$0..<min($0 + 6, chips.count)]) }
-        return VStack(spacing: 8) {
-            ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
-                HStack(spacing: 8) {
-                    ForEach(Array(row.enumerated()), id: \.offset) { _, item in
-                        metric(item.0, item.1, item.2, brand: item.3)
-                    }
-                }
-            }
+    private var totalStrip: some View {
+        HStack(spacing: 8) {
+            mini("PPH", snap.pph)
+            mini("Presub", snap.presub)
+            mini("OOS", snap.oos)
+            mini("OTT", snap.ott)
+            mini("OTH5", snap.oth5)
+            mini("Hours", snap.hours)
+            mini("Orders", snap.orders)
+            mini("Refund", snap.refund)
         }
     }
 
-    private func metric(_ name: String, _ value: String, _ health: Health, brand: Bool) -> some View {
-        VStack(spacing: 4) {
+    private var dayHeader: some View {
+        HStack(spacing: 8) {
+            Text("Day")
+                .frame(width: 92, alignment: .leading)
+            headerCell("PPH")
+            headerCell("Presub")
+            headerCell("OOS")
+            headerCell("OTT")
+            headerCell("OTH5")
+            headerCell("Hours")
+            headerCell("Orders")
+        }
+        .font(.caption2.weight(.semibold))
+        .foregroundStyle(AppTheme.textTertiary)
+    }
+
+    private func mini(_ name: String, _ value: String) -> some View {
+        VStack(spacing: 2) {
             Text(name)
-                .font(.caption.weight(.semibold))
+                .font(.caption2.weight(.semibold))
                 .foregroundStyle(AppTheme.textTertiary)
-                .lineLimit(1)
             Text(value)
-                .font(.title3.weight(.bold).monospacedDigit())
-                .foregroundStyle(brand ? AppTheme.blue : ink(health))
+                .font(.subheadline.weight(.bold).monospacedDigit())
+                .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-            if !brand, health != .none {
-                HealthBadge(health: health)
-            }
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 10)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(brand ? AppTheme.blueSoft : wash(health))
-        )
     }
 
-    private func ink(_ health: Health) -> Color {
-        switch health {
-        case .good: return AppTheme.ok
-        case .watch: return AppTheme.warn
-        case .risk: return AppTheme.bad
-        case .none: return AppTheme.text
-        }
+    private func headerCell(_ name: String) -> some View {
+        Text(name).frame(maxWidth: .infinity, alignment: .trailing)
     }
 
-    private func wash(_ health: Health) -> Color {
-        switch health {
-        case .good: return AppTheme.okSoft
-        case .watch: return AppTheme.warnSoft
-        case .risk: return AppTheme.badSoft
-        case .none: return AppTheme.card
-        }
+    private func dayCell(_ value: String) -> some View {
+        Text(value)
+            .font(.subheadline.weight(.semibold).monospacedDigit())
+            .foregroundStyle(AppTheme.text)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .frame(maxWidth: .infinity, alignment: .trailing)
     }
 }
 
