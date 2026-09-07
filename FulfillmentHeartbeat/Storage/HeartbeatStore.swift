@@ -1464,6 +1464,8 @@ final class HeartbeatStore: ObservableObject {
         await persistNow()
     }
 
+    private var masterApplyToken = 0
+
     private func applyMasterSheets(
         _ sheets: [WorkbookParser.ParsedSheet],
         filename: String,
@@ -1472,6 +1474,8 @@ final class HeartbeatStore: ObservableObject {
         presentRoleGate: Bool = false
     ) async {
         guard !sheets.isEmpty else { return }
+        masterApplyToken += 1
+        let token = masterApplyToken
         var nextRows = rows
         var nextUploads = uploads
         for sheet in sheets {
@@ -1587,12 +1591,8 @@ final class HeartbeatStore: ObservableObject {
         errorMessage = nil
         do {
             let sheets = try await parseMasterOffMain(data: data, filename: filename)
-            let heavy = sheets.filter { Self.deferredSections.contains($0.section) }
-            if !heavy.isEmpty {
-                await applyMasterSheets(heavy, filename: filename, dismissOverlay: true, note: nil, presentRoleGate: true)
-            } else {
-                await applyMasterSheets(sheets, filename: filename, dismissOverlay: true, note: nil, presentRoleGate: true)
-            }
+            masterApplyToken += 1
+            await applyMasterSheets(sheets, filename: filename, dismissOverlay: true, note: nil, presentRoleGate: true)
             Task { await persistNow() }
             return true
         } catch {
@@ -1989,7 +1989,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private static let deferredSections: Set<MetricSection> = [
-        .pickerScorecard, .pickPathPicker
+        .labor, .pickerScorecard, .pickPathPicker, .preSubOOSItem
     ]
 
     private func lightRows(_ rows: [MetricRow]) -> [MetricRow] {
