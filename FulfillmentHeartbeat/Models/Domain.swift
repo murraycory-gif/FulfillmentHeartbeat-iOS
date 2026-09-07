@@ -741,6 +741,7 @@ enum HeartbeatMath {
         includeAll: Bool = false
     ) -> [FiveStarFlag] {
         if section == .sales { return salesActionFlags(rows) }
+        if section == .fiveStar { return fiveStarActionFlags(rows, includeAll: true) }
         if section == .pickerScorecard {
             let shoppers = rows.filter { !$0.shopperName.isEmpty || !$0.shopperKey.isEmpty }
             let healthy = shoppers.filter { health(for: .pickerScorecard, row: $0) == .good }.count
@@ -1728,39 +1729,40 @@ enum HeartbeatMath {
 
     static func fiveStarActionFlags(_ rows: [MetricRow], includeAll: Bool = false) -> [FiveStarFlag] {
         let specs: [(name: String, key: String, mark: (MetricRow) -> StarMark)] = [
-            ("OTT", "ott_pct", ottStar),
             ("Flash", "flash_pct", flashStar),
-            ("Presubs", "presub_pct", presubStar),
             ("COE", "coe_pct", coeStar),
+            ("OTT", "ott_pct", ottStar),
+            ("Pre Sub OOS%", "presub_pct", presubStar),
             ("OTH 5%", "oth5_pct", othStar),
         ]
         var flags: [FiveStarFlag] = []
         flags.reserveCapacity(specs.count)
         for spec in specs {
-            var worst = Health.none
-            var action = 0
             var values: [Double] = []
+            var risk = 0
             values.reserveCapacity(rows.count)
             for row in rows {
                 guard let value = row.number(spec.key) else { continue }
                 values.append(value)
-                let health = spec.mark(row).health
-                if health.needsAction {
-                    action += 1
-                    if health == .risk { worst = .risk }
-                    else if worst != .risk { worst = .watch }
-                }
+                if spec.mark(row).health == .risk { risk += 1 }
             }
             guard !values.isEmpty else { continue }
-            if !includeAll {
-                guard action > 0, worst.needsAction else { continue }
-            }
+            let avg = average(values)
+            let probe = MetricRow(
+                section: .fiveStar,
+                division: "",
+                operationsOM: "",
+                storeNumber: "AVG",
+                payload: [spec.key: avg]
+            )
+            let health = spec.mark(probe).health
+            if !includeAll, health == .good, risk == 0 { continue }
             flags.append(
                 FiveStarFlag(
                     name: spec.name,
-                    value: HeartbeatFormat.pct(average(values)),
-                    health: worst == .none ? .good : worst,
-                    stores: action
+                    value: HeartbeatFormat.pct(avg),
+                    health: health,
+                    stores: risk
                 )
             )
         }

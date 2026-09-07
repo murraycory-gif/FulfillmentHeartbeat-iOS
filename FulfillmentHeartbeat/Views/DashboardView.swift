@@ -130,7 +130,7 @@ private func statusFlags(_ flags: [HeartbeatMath.FiveStarFlag]) -> [HeartbeatMat
     if named["healthy"] != nil || named["watch"] != nil || named["at risk"] != nil {
         return [pick("Healthy", health: .good), pick("Watch", health: .watch), pick("At Risk", health: .risk)]
     }
-    return Array(flags.prefix(3))
+    return flags
 }
 
 struct DashLostBanner: View {
@@ -516,35 +516,35 @@ private struct DashFlagChip: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(flag.name)
                 .font(.subheadline.weight(.bold))
-                .foregroundStyle(AppTheme.text)
+                .foregroundStyle(dashInk(flag.health == .none ? .good : flag.health))
                 .lineLimit(1)
-                .minimumScaleFactor(0.8)
+                .minimumScaleFactor(0.7)
             if !flag.value.isEmpty {
                 Text(flag.value)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(AppTheme.textSecondary)
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(dashInk(flag.health == .none ? .good : flag.health))
                     .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+                    .minimumScaleFactor(0.75)
             }
             HStack(spacing: 6) {
-                Text(flag.stores == 1 ? "1 \(String(flag.unit.dropLast()))" : "\(HeartbeatFormat.num(Double(flag.stores))) \(flag.unit)")
-                    .font(.subheadline.weight(.semibold))
+                Text(flag.stores == 0 ? "On plan" : "\(HeartbeatFormat.num(Double(flag.stores))) stores")
+                    .font(.caption.weight(.semibold))
                     .foregroundStyle(dashInk(flag.health == .none ? .good : flag.health))
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
                 HealthBadge(health: flag.health == .none ? .good : flag.health, prominent: true, compact: true)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(Color.white)
+                .fill(AppTheme.healthWash(flag.health == .none ? .good : flag.health))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(Color.black.opacity(0.08), lineWidth: 1)
+                .stroke(AppTheme.healthInk(flag.health == .none ? .good : flag.health).opacity(0.28), lineWidth: 1)
         )
     }
 }
@@ -579,7 +579,10 @@ struct DashCallout: View, Equatable {
                         }
                     }
                     .buttonStyle(DashLiftStyle())
-                    DashFlagGrid(flags: statusFlags(flags), columns: 3)
+                    DashFlagGrid(
+                        flags: statusFlags(flags),
+                        columns: card.section == .fiveStar ? max(statusFlags(flags).count, 1) : 3
+                    )
                     if let grain {
                         DashScopeStrip(section: card.section, grain: grain, packs: grains, width: width)
                     }
