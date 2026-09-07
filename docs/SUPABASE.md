@@ -28,7 +28,13 @@ Add a second policy:
 
 If the UI has a template **Allow all access to everyone**, use that once instead.
 
-## What the iPad does after this
+## What testers download
 
-- After you load a master workbook, the app uploads `current.sqlite`.
-- On open, testers download that file. They do not pick Excel.
+Testers download `current.sqlite` only. They never download or parse Excel.
+
+Publish that file after a full Upload on your device:
+
+```bash
+DEVICE_UDID=676FA816-88AE-59D9-A89D-5C17BFC2DA96 ./publish-pack.sh
+```
+

@@ -1,18 +1,28 @@
-# Auto-pull (no Upload tap)
+# How Heartbeat loads data
 
-Users should not pick Excel inside the app after the pack exists.
+Power BI Mobile, Amazon, and every serious ops app do the same thing:
 
-## How data gets in
+1. Heavy files are ingested **off the phone**.
+2. The phone stores a local SQLite cache.
+3. Open reads that cache. No Excel parse on launch.
 
-1. You export `Heartbeat Daily Report.xlsx` from Power BI.
-2. Put that file in one of these places:
-   - The linked iCloud file already chosen once on this iPad, **or**
-   - Files → On My iPad → Heartbeat (app Documents). Name must include `Heartbeat`, `Daily Report`, or `Master`.
-3. Open Heartbeat. If that file is newer than the last load, the app imports it and rewrites `heartbeat.sqlite`. Who’s looking is not asked again.
-4. If the file did not change, the app only opens the database.
+Heartbeat now follows that.
 
-## What testers do
+## Daily publish (you, once)
 
-Open the app. Data is there. No Choose file.
+1. Export `Heartbeat Daily Report.xlsx` from Power BI.
+2. On **your** iPad or Mac Heartbeat, Upload that file **once**.
+3. The app writes `heartbeat.sqlite` and uploads `current.sqlite` to the `heartbeat-packs` bucket.
 
-Someone still has to drop the new xlsx into that folder or iCloud link when the day changes. That is outside the app.
+Or from the Mac after a good load:
+
+```bash
+cd ~/Developer/FulfillmentHeartbeat-iOS
+DEVICE_UDID=676FA816-88AE-59D9-A89D-5C17BFC2DA96 ./publish-pack.sh
+```
+
+## Testers
+
+Open the app. Data comes from `current.sqlite`. They never pick Excel.
+
+If Labor or Picker are empty, the published pack is stale. Publish again after a full Upload on your device.

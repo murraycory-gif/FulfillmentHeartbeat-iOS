@@ -115,35 +115,26 @@ final class HeartbeatStore: ObservableObject {
         loadChecklist()
         loadMasterLink()
         await loadPack()
-        let packReady = seeded && !rows.isEmpty
-        let laborReady = Self.hasUsableLabor(rows)
-        let pickerReady = Self.hasUsablePicker(rows)
-        if packReady, laborReady, pickerReady {
+        if seeded, !rows.isEmpty {
             isReady = true
             isImporting = false
             importLabel = nil
             needsRolePick = true
-            Task { await self.importCloudWorkbook(blocking: false) }
+            Task { await self.importCloudSQLiteIfPresent() }
             return
-        }
-        if packReady {
-            isReady = true
-            needsRolePick = true
         }
         isImporting = true
         importProgress.label = "Loading the data"
         importProgress.loaded = 0
-        importProgress.expected = MetricSection.uploadOrder.count
+        importProgress.expected = 1
         importLabel = "Loading the data"
         await importCloudSQLiteIfPresent()
-        if Self.hasUsableLabor(rows), Self.hasUsablePicker(rows) {
+        isImporting = false
+        importLabel = nil
+        if seeded, !rows.isEmpty {
             isReady = true
-            isImporting = false
-            importLabel = nil
             needsRolePick = true
-            return
         }
-        await importCloudWorkbook(blocking: true)
     }
 
     private func watchAppLifecycle() {
@@ -1405,7 +1396,7 @@ final class HeartbeatStore: ObservableObject {
 
     private func refreshFromCloud() async {
         guard !isImporting else { return }
-        await importCloudWorkbook(blocking: false)
+        await importCloudSQLiteIfPresent()
     }
 
     private func importCloudSQLiteIfPresent() async {
