@@ -2206,7 +2206,10 @@ enum HeartbeatMath {
     }
 
     static func pickerHasVolume(_ row: MetricRow) -> Bool {
-        (row.number("orders") ?? 0) > 15
+        if (row.number("orders") ?? 0) > 0 { return true }
+        if (row.number("picks") ?? 0) > 0 { return true }
+        if (row.number("pick_hours") ?? 0) > 0 { return true }
+        return row.number("pph") != nil
     }
 
     static func refundHealth(_ row: MetricRow) -> Health {

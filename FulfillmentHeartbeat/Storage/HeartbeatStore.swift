@@ -2616,9 +2616,7 @@ private struct PulseCaches {
             nextLatest = latest
         }
         let pickers = nextLatest[.pickerScorecard] ?? []
-        let pickerBoard = heavy
-            ? HeartbeatMath.pickerBoard(pickers)
-            : HeartbeatMath.PickerBoard(shopperCount: pickers.count, opportunityCount: 0, strongCount: 0, opportunity: [], strong: [])
+        let pickerBoard = HeartbeatMath.pickerBoard(pickers)
         let picker = heavy
             ? pickerIndexValues(pickers)
             : (index: [PickerFocus: [Int]](), health: [PickerFocus: Health]())

@@ -2831,11 +2831,26 @@ enum WorkbookParser {
             if !looksLikeStoreNumber(store) { return }
             if picker == store { return }
             var payload: [String: Double] = [:]
-            if let pph = cellNumber(pphRaw) {
-                applyPickerMetric(&payload, header: "pph", value: pph)
+            let metrics: [(String, String)] = [
+                (pphRaw, "pph"),
+                (presubRaw, "presub"),
+                (SheetXML.rawCell(data, letter: "E", strings: strings), "oos"),
+                (SheetXML.rawCell(data, letter: "F", strings: strings), "pickhours"),
+                (SheetXML.rawCell(data, letter: "G", strings: strings), "orders"),
+                (SheetXML.rawCell(data, letter: "H", strings: strings), "subs"),
+                (SheetXML.rawCell(data, letter: "I", strings: strings), "orders"),
+                (SheetXML.rawCell(data, letter: "J", strings: strings), "dug"),
+                (SheetXML.rawCell(data, letter: "M", strings: strings), "oth5"),
+                (SheetXML.rawCell(data, letter: "N", strings: strings), "ott"),
+                (SheetXML.rawCell(data, letter: "O", strings: strings), "refund"),
+            ]
+            for (raw, header) in metrics {
+                if let value = cellNumber(raw) {
+                    applyPickerMetric(&payload, header: header, value: value)
+                }
             }
-            if let presub = cellNumber(presubRaw) {
-                applyPickerMetric(&payload, header: "presub", value: presub)
+            if payload["picks"] == nil, let picks = cellNumber(SheetXML.rawCell(data, letter: "G", strings: strings)) {
+                payload["picks"] = picks
             }
             guard !payload.isEmpty else { return }
             let shopper = picker
@@ -2850,7 +2865,7 @@ enum WorkbookParser {
                 textPayload: ["shopper_id": shopper, "shopper_name": shopper]
             )
             if out.count % 2500 == 0 { onTick?(out.count) }
-        }, stop: { out.count >= 8_000 })
+        }, stop: { out.count >= 30_000 })
         onTick?(out.count)
         return Array(out.values)
     }
