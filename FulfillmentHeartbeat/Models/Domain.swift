@@ -2397,8 +2397,8 @@ enum HeartbeatMath {
         var strongCount = 0
         for row in rows {
             guard pickerHasVolume(row), let pph = row.number("pph"), pph > 0, pph < 200 else { continue }
-            let health = pickerHealth(row)
-            guard health != .none else { continue }
+            var health = pickerHealth(row)
+            if health == .none { health = .watch }
             if health == .good {
                 let score = (row.number("orders") ?? 0) * pickerComposite(row)
                 strongCount += 1

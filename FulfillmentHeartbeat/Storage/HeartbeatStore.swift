@@ -2171,6 +2171,13 @@ final class HeartbeatStore: ObservableObject {
         }
         cachedCardFlags = PulseCaches.cardFlags(latest: latestBySection)
         refreshSalesExpandCache()
+        let pickers = latestBySection[.pickerScorecard] ?? []
+        if !pickers.isEmpty {
+            cachedPickerBoard = HeartbeatMath.pickerBoard(pickers)
+            if (pickerIndex[.all] ?? []).isEmpty {
+                pickerIndex[.all] = Array(pickers.indices)
+            }
+        }
         if cachedGrainPacks.isEmpty {
             cachedGrainPacks = PulseCaches.placeholderGrainPacks(grain: effectiveDashboardGrain)
         }
@@ -2452,7 +2459,9 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func mergeHeavy(_ bits: PulseCaches.HeavyBits) {
-        cachedPickerBoard = bits.pickerBoard
+        if bits.pickerBoard.shopperCount > 0 {
+            cachedPickerBoard = bits.pickerBoard
+        }
         cachedChecklistGroups = bits.checklistGroups
         pickPathPickersByStore = bits.pickPathPickersByStore
         pickPathByShopper = bits.pickPathByShopper
