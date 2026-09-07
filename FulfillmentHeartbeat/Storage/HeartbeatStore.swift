@@ -1416,38 +1416,22 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func installCloudPack(_ pack: PulseSQLite.Pack) {
-        let skip: Set<MetricSection> = [.labor, .pickerScorecard, .pickPathPicker, .preSubOOSItem]
-        let first = pack.rows.filter { !skip.contains($0.section) }
         let caches = PulseCaches.build(
-            rows: first.isEmpty ? pack.rows : first,
+            rows: pack.rows,
             filters: DashboardFilters(),
             uploads: pack.uploads,
             heavy: false,
             grain: .region
         )
-        rows = first.isEmpty ? pack.rows : first
+        rows = pack.rows
         if !pack.uploads.isEmpty {
             uploads = pack.uploads.sorted { $0.uploadedAt > $1.uploadedAt }
         }
         seeded = true
         usingDatabasePack = true
         install(caches)
-        let rest = pack.rows.filter { skip.contains($0.section) }
-        if !rest.isEmpty {
-            rows = (first.isEmpty ? pack.rows : first) + rest
-            let full = PulseCaches.build(
-                rows: rows,
-                filters: DashboardFilters(),
-                uploads: pack.uploads,
-                heavy: false,
-                grain: .region
-            )
-            install(full)
-            rebuildLaborWeekIndex()
-            scheduleHeavyExtras(latest: full.filteredLatest, roster: full.roster)
-        } else {
-            scheduleHeavyExtras(latest: caches.filteredLatest, roster: caches.roster)
-        }
+        rebuildLaborWeekIndex()
+        scheduleHeavyExtras(latest: caches.filteredLatest, roster: caches.roster)
     }
 
     private func publishCloudPack() {
@@ -1761,11 +1745,13 @@ final class HeartbeatStore: ObservableObject {
                 guard !sheets.isEmpty else { return }
                 Task { @MainActor [weak self] in
                     await self?.applyMasterSheets(sheets, filename: filename, dismissOverlay: false, note: nil, presentRoleGate: false)
+                    await self?.persistNow()
                 }
             }
             let sheetReady: @Sendable (WorkbookParser.ParsedSheet) -> Void = { sheet in
                 Task { @MainActor [weak self] in
                     await self?.applyMasterSheets([sheet], filename: filename, dismissOverlay: false, note: nil, presentRoleGate: false)
+                    await self?.persistNow()
                 }
             }
             DispatchQueue.global(qos: .userInitiated).async {
