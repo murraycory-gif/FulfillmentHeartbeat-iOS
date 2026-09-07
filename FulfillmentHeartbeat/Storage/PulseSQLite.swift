@@ -15,16 +15,17 @@ enum PulseSQLite {
     }
 
     static func write(rows: [MetricRow], uploads: [UploadRecord], seeded: Bool, to url: URL) throws {
-        if FileManager.default.fileExists(atPath: url.path) {
-            try FileManager.default.removeItem(at: url)
-        }
+        let folder = url.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let temp = folder.appendingPathComponent("heartbeat-write-\(UUID().uuidString).sqlite")
+        defer { try? FileManager.default.removeItem(at: temp) }
         var db: OpaquePointer?
         let flags = SQLITE_OPEN_CREATE | SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX
-        guard sqlite3_open_v2(url.path, &db, flags, nil) == SQLITE_OK, let db else {
+        guard sqlite3_open_v2(temp.path, &db, flags, nil) == SQLITE_OK, let db else {
             throw PulseSQLError.open
         }
         defer { sqlite3_close(db) }
-        sqlite3_exec(db, "PRAGMA journal_mode=WAL;", nil, nil, nil)
+        sqlite3_exec(db, "PRAGMA journal_mode=OFF;", nil, nil, nil)
         sqlite3_exec(db, "PRAGMA synchronous=NORMAL;", nil, nil, nil)
         sqlite3_exec(db, "BEGIN IMMEDIATE;", nil, nil, nil)
         guard sqlite3_exec(db, Self.ddl, nil, nil, nil) == SQLITE_OK else {
@@ -79,6 +80,12 @@ enum PulseSQLite {
             throw PulseSQLError.insert
         }
         sqlite3_exec(db, "COMMIT;", nil, nil, nil)
+        sqlite3_close(db)
+        db = nil
+        if FileManager.default.fileExists(atPath: url.path) {
+            try FileManager.default.removeItem(at: url)
+        }
+        try FileManager.default.moveItem(at: temp, to: url)
     }
 
     static func read(from url: URL, skipping skip: Set<MetricSection> = []) throws -> Pack {
@@ -254,7 +261,7 @@ enum PulseSQLError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .open: return "Could not open the Heartbeat database pack."
-        case .schema: return "Heartbeat database pack is a different version. Reload the master workbook."
+        case .schema: return "Could not write a new Heartbeat database pack."
         case .prepare: return "Could not write the Heartbeat database pack."
         case .insert: return "Could not save scorecard rows into the database pack."
         }

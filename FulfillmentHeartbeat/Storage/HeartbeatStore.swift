@@ -2358,7 +2358,7 @@ final class HeartbeatStore: ObservableObject {
             try await Task.detached(priority: .utility) {
                 try PulseDisk.write(light, to: lightURL)
                 try PulseDisk.write(heavy, to: packedURL)
-                try PulseSQLite.write(rows: packRows, uploads: packUploads, seeded: packSeeded, to: packURL)
+                try? PulseSQLite.write(rows: packRows, uploads: packUploads, seeded: packSeeded, to: packURL)
             }.value
         } catch {
             errorMessage = "Pulse did not save: \(error.localizedDescription). Keep Heartbeat open until the import finishes."
