@@ -123,6 +123,7 @@ final class HeartbeatStore: ObservableObject {
         importProgress.label = "Downloading workbook"
         importProgress.loaded = 0
         importProgress.expected = MetricSection.uploadOrder.count
+        importLabel = "Downloading workbook"
         await importCloudWorkbook()
     }
 
@@ -1405,7 +1406,7 @@ final class HeartbeatStore: ObservableObject {
         }
         isImporting = true
         isReady = false
-        importLabel = nil
+        importLabel = "Downloading workbook"
         importProgress.label = "Downloading workbook"
         importProgress.loaded = 0
         importProgress.expected = MetricSection.uploadOrder.count

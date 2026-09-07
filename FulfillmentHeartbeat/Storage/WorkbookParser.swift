@@ -1762,13 +1762,12 @@ enum WorkbookParser {
         if !pathPicker, let packed = zip.compressedPayload(named: path) ?? zip.compressedPayload(named: path.replacingOccurrences(of: "xl/", with: "")),
            packed.method == 8 {
             parsed = parsePickerCompactRaw(compressed: packed.bytes, strings: strings, onTick: onTick)
-        }
-        if parsed.isEmpty,
-           let packed = zip.compressedPayload(named: path) ?? zip.compressedPayload(named: path.replacingOccurrences(of: "xl/", with: "")),
-           packed.method == 8 {
-            parsed = pathPicker
-                ? parseEmployeeStreaming(compressed: packed.bytes, strings: strings)
-                : parsePickerStreaming(compressed: packed.bytes, strings: strings, onTick: onTick)
+            if parsed.isEmpty {
+                parsed = parsePickerFast(compressed: packed.bytes, strings: strings, onTick: onTick)
+            }
+        } else if pathPicker, let packed = zip.compressedPayload(named: path) ?? zip.compressedPayload(named: path.replacingOccurrences(of: "xl/", with: "")),
+                  packed.method == 8 {
+            parsed = parseEmployeeStreaming(compressed: packed.bytes, strings: strings)
         } else if parsed.isEmpty, let sheet = zip.file(named: path) ?? zip.file(named: path.replacingOccurrences(of: "xl/", with: "")), !sheet.isEmpty {
             parsed = pathPicker
                 ? parseEmployeeStreaming(data: sheet, strings: strings)
@@ -1918,11 +1917,11 @@ enum WorkbookParser {
                 guard let number = cellNumber(raw) else { return }
                 laborMetric(&payload, header: header, key: name, value: number)
             }
-            metric("C", "Sch Effi%", "scheffi")
-            metric("D", "Empower Hrs", "empowerhrs")
-            metric("E", "Sch_Hrs", "schhrs")
-            metric("F", "ActHrs", "acthrs")
-            metric("G", "Earned Hrs", "earnedhrs")
+            metric("B", "Sch Effi%", "scheffi")
+            metric("C", "Empower Hrs", "empowerhrs")
+            metric("D", "Sch_Hrs", "schhrs")
+            metric("E", "ActHrs", "acthrs")
+            metric("F", "Earned Hrs", "earnedhrs")
             metric("K", "CostTrgt%", "costtrgt")
             metric("O", "ActCost%", "actcost")
             metric("P", "Target vs Actual%", "targetvsactual")
@@ -2743,7 +2742,7 @@ enum WorkbookParser {
                 let pickerRaw = SheetXML.rawCell(data, letter: "B", strings: strings)
                 guard looksLikeStoreNumber(storeRaw), Double(storeRaw) ?? 0 < 200_000 else { return }
                 let picker = pickerRaw.trimmingCharacters(in: .whitespacesAndNewlines)
-                guard !picker.isEmpty, picker.rangeOfCharacter(from: .letters) != nil, !isTotalCell(picker) else { return }
+                guard !picker.isEmpty, !isTotalCell(picker), picker != storeRaw else { return }
                 var payload: [String: Double] = [:]
                 if let pph = cellNumber(SheetXML.rawCell(data, letter: "C", strings: strings)) { payload["pph"] = pph }
                 if let presub = cellNumber(SheetXML.rawCell(data, letter: "D", strings: strings)) {
@@ -2789,34 +2788,48 @@ enum WorkbookParser {
         strings: [String],
         onTick: ((Int) -> Void)?
     ) -> [ParsedWorkbookRow] {
-        var ready = false
+        var layout = 0
         var out: [String: ParsedWorkbookRow] = [:]
-        var seen = 0
         SheetXML.forEachRowInflating(compressed: compressed, strings: strings, handleRaw: { data in
             let a = SheetXML.rawCell(data, letter: "A", strings: strings)
             let b = SheetXML.rawCell(data, letter: "B", strings: strings)
             let c = SheetXML.rawCell(data, letter: "C", strings: strings)
             let d = SheetXML.rawCell(data, letter: "D", strings: strings)
             let e = SheetXML.rawCell(data, letter: "E", strings: strings)
-            if !ready {
-                let names = [a, b, c].map(normHeader)
-                if names.contains("store"), names.contains(where: { $0.contains("picker") || $0.contains("shopper") }) {
-                    ready = true
+            if layout == 0 {
+                let na = normHeader(a)
+                let nb = normHeader(b)
+                let nc = normHeader(c)
+                if nb.contains("store") && (nc.contains("picker") || nc.contains("shopper")) {
+                    layout = 2
+                } else if na.contains("store") && (nb.contains("picker") || nb.contains("shopper")) {
+                    layout = 1
                 }
                 return
             }
-            seen += 1
-            var store = b
-            var picker = c
-            var pphRaw = d
-            var presubRaw = e
-            if !looksLikeStoreNumber(b), b.rangeOfCharacter(from: .letters) != nil {
-                picker = b
-                store = ""
-                pphRaw = c
-                presubRaw = d
+            var store = a
+            var picker = b
+            var pphRaw = c
+            var presubRaw = d
+            if layout == 2 {
+                if looksLikeStoreNumber(a) {
+                    store = a
+                    picker = b
+                    pphRaw = c
+                    presubRaw = d
+                } else if looksLikeStoreNumber(b) {
+                    store = b
+                    picker = c
+                    pphRaw = d
+                    presubRaw = e
+                } else {
+                    return
+                }
             }
-            if picker.isEmpty || isTotalCell(picker) || looksLikeStoreNumber(picker) { return }
+            picker = picker.trimmingCharacters(in: .whitespacesAndNewlines)
+            if picker.isEmpty || isTotalCell(picker) { return }
+            if !looksLikeStoreNumber(store) { return }
+            if picker == store { return }
             var payload: [String: Double] = [:]
             if let pph = cellNumber(pphRaw) {
                 applyPickerMetric(&payload, header: "pph", value: pph)
@@ -2825,17 +2838,18 @@ enum WorkbookParser {
                 applyPickerMetric(&payload, header: "presub", value: presub)
             }
             guard !payload.isEmpty else { return }
-            let shopper = picker.trimmingCharacters(in: .whitespacesAndNewlines)
-            out[shopper] = ParsedWorkbookRow(
+            let shopper = picker
+            let storeNumber = HeartbeatMath.canonicalStore(store)
+            out[storeNumber + "|" + shopper] = ParsedWorkbookRow(
                 division: "",
                 operationsOM: "",
-                storeNumber: looksLikeStoreNumber(store) ? HeartbeatMath.canonicalStore(store) : "",
+                storeNumber: storeNumber,
                 storeName: nil,
                 recordedOn: nil,
                 payload: payload,
                 textPayload: ["shopper_id": shopper, "shopper_name": shopper]
             )
-            if seen % 2500 == 0 { onTick?(out.count) }
+            if out.count % 2500 == 0 { onTick?(out.count) }
         }, stop: { out.count >= 8_000 })
         onTick?(out.count)
         return Array(out.values)
