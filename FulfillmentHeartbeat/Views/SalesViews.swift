@@ -733,18 +733,10 @@ private struct SalesLineSnap: Identifiable {
     let pack: SalesPack
     let days: [(name: String, pack: SalesPack)]
 
-    init(_ row: MetricRow) {
+    init(_ row: MetricRow, identity: HeartbeatMath.StoreIdentity? = nil) {
         storeNumber = row.storeNumber
         id = row.storeNumber
-        var parts = [row.storeNumber]
-        let district = HeartbeatMath.canonicalDistrict(row.district)
-        if !district.isEmpty { parts.append(district) }
-        var market = MarketRegion.canonicalName(row.division)
-        if market.isEmpty { market = row.division.trimmingCharacters(in: .whitespacesAndNewlines) }
-        if !market.isEmpty, market.caseInsensitiveCompare(district) != .orderedSame {
-            parts.append(market)
-        }
-        label = parts.joined(separator: " | ")
+        label = HeartbeatMath.storeDisplayLabel(row, identity: identity)
         pack = SalesPack(row)
         days = SalesRollupBuilder.dayPacks(from: row)
     }
@@ -859,7 +851,7 @@ struct SalesTable: View {
 
     private func rebuild() {
         var next = rows.compactMap { row -> SalesLineSnap? in
-            let snap = SalesLineSnap(row)
+            let snap = SalesLineSnap(row, identity: store.identity(forStore: row.storeNumber))
             guard snap.pack.sales != nil || snap.pack.orders != nil else { return nil }
             return snap
         }

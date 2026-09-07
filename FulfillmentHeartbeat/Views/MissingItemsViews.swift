@@ -534,9 +534,7 @@ private struct MissingItemsLineSnap: Identifiable, Equatable {
     init(_ row: MetricRow, depts: [MissingItemDept]) {
         id = row.id
         storeNumber = row.storeNumber
-        label = row.division.isEmpty
-            ? (row.storeNumber.isEmpty ? "—" : row.storeNumber)
-            : "\(row.storeNumber)  |  \(row.division)"
+        label = HeartbeatMath.storeDisplayLabel(row)
         district = row.district
         om = row.operationsOM
         let rate = HeartbeatMath.missingItemsRate(row, depts: depts)

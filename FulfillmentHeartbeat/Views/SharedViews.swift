@@ -1647,17 +1647,10 @@ struct StoreTable: View {
                         .font(.caption)
                         .foregroundStyle(AppTheme.textSecondary)
                 } else {
-                    Text(row.storeNumber.isEmpty ? "—" : row.storeNumber)
+                    Text(HeartbeatMath.storeDisplayLabel(row))
                         .font(.subheadline.weight(.semibold).monospacedDigit())
-                    if section == .dynacap || section == .scheduleQuality || section == .fiveStar || section == .prepNotReady || section == .lostRevenue {
-                        Text(row.division.isEmpty ? "—" : row.division)
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.textSecondary)
-                    } else if let name = row.storeName, !name.isEmpty {
-                        Text(name)
-                            .font(.caption)
-                            .foregroundStyle(AppTheme.textSecondary)
-                    }
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1977,9 +1970,7 @@ private struct PickPathLineSnap: Identifiable, Equatable {
     init(_ row: MetricRow) {
         id = row.id
         storeNumber = row.storeNumber
-        label = row.division.isEmpty
-            ? (row.storeNumber.isEmpty ? "—" : row.storeNumber)
-            : "\(row.storeNumber)  |  \(row.division)"
+        label = HeartbeatMath.storeDisplayLabel(row)
         district = row.district
         om = row.operationsOM
         let pathNum = row.number("compliance_pct")
@@ -3050,9 +3041,7 @@ private struct DynacapLineSnap: Identifiable, Equatable {
     init(_ row: MetricRow, storePPH: Double?) {
         id = row.id
         storeNumber = row.storeNumber
-        label = row.division.isEmpty
-            ? (row.storeNumber.isEmpty ? "—" : row.storeNumber)
-            : "\(row.storeNumber)  |  \(row.division)"
+        label = HeartbeatMath.storeDisplayLabel(row)
         district = row.district
         om = row.operationsOM
         let rateNum = DynacapMath.rate(row)
@@ -3875,9 +3864,7 @@ private struct PrepLineSnap: Identifiable, Equatable {
     init(_ row: MetricRow) {
         id = row.id
         storeNumber = row.storeNumber
-        label = row.division.isEmpty
-            ? (row.storeNumber.isEmpty ? "—" : row.storeNumber)
-            : "\(row.storeNumber)  |  \(row.division)"
+        label = HeartbeatMath.storeDisplayLabel(row)
         district = row.district
         om = row.operationsOM
         let pnrNum = row.number("pnr_rate_pct", "pnr_hours", "prep_not_ready_pct")
@@ -4582,9 +4569,7 @@ private struct FiveStarLineSnap: Identifiable, Equatable {
     init(_ row: MetricRow) {
         id = row.id
         storeNumber = row.storeNumber
-        label = row.division.isEmpty
-            ? (row.storeNumber.isEmpty ? "—" : row.storeNumber)
-            : "\(row.storeNumber)  |  \(row.division)"
+        label = HeartbeatMath.storeDisplayLabel(row)
         district = row.district
         om = row.operationsOM
         let ratingNum = row.number("star_rating")
@@ -5435,9 +5420,7 @@ private struct LaborLineSnap: Identifiable, Equatable {
     init(_ row: MetricRow) {
         id = row.id
         storeNumber = row.storeNumber
-        label = row.division.isEmpty
-            ? (row.storeNumber.isEmpty ? "—" : row.storeNumber)
-            : "\(row.storeNumber)  |  \(row.division)"
+        label = HeartbeatMath.storeDisplayLabel(row)
         district = row.district
         om = row.operationsOM
         week = row.textPayload["week"].flatMap { $0.isEmpty ? nil : $0 } ?? "store totals"
@@ -6604,9 +6587,7 @@ private struct LostRevenueLineSnap: Identifiable, Equatable {
     init(_ row: MetricRow) {
         id = row.id
         storeNumber = row.storeNumber
-        label = row.division.isEmpty
-            ? (row.storeNumber.isEmpty ? "—" : row.storeNumber)
-            : "\(row.storeNumber)  |  \(row.division)"
+        label = HeartbeatMath.storeDisplayLabel(row)
         district = row.district
         om = row.operationsOM
         let lostNum = row.number("lost_revenue")
@@ -7618,9 +7599,7 @@ private struct ScheduleLineSnap: Identifiable, Equatable {
     init(_ row: MetricRow) {
         id = row.id
         storeNumber = row.storeNumber
-        label = row.division.isEmpty
-            ? (row.storeNumber.isEmpty ? "—" : row.storeNumber)
-            : "\(row.storeNumber)  |  \(row.division)"
+        label = HeartbeatMath.storeDisplayLabel(row)
         district = row.district
         om = row.operationsOM
         let efficiencyNum = ScheduleMath.efficiency(row)
@@ -8366,9 +8345,7 @@ private struct PPHLineSnap: Identifiable, Equatable {
     init(_ row: MetricRow, pickerCount: Int) {
         id = row.id
         storeNumber = row.storeNumber
-        label = row.division.isEmpty
-            ? (row.storeNumber.isEmpty ? "—" : row.storeNumber)
-            : "\(row.storeNumber)  |  \(row.division)"
+        label = HeartbeatMath.storeDisplayLabel(row)
         district = row.district
         om = row.operationsOM
         let pphNum = row.number("pph")

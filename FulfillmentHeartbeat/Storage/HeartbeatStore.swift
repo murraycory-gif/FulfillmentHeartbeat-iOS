@@ -257,7 +257,11 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func displayRows(for section: MetricSection) -> [MetricRow] {
-        filteredLatest[section] ?? []
+        let rows = filteredLatest[section] ?? []
+        if section == .pickerScorecard || section == .pickPathPicker || section == .preSubOOSItem {
+            return rows
+        }
+        return HeartbeatMath.rowsFillingRoster(rows, roster: roster)
     }
 
     func summary(for section: MetricSection) -> SectionSummary {

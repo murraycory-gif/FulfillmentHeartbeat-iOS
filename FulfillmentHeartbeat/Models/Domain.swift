@@ -961,6 +961,45 @@ enum HeartbeatMath {
         return value
     }
 
+    static func storeDisplayLabel(
+        _ row: MetricRow,
+        identity: StoreIdentity? = nil
+    ) -> String {
+        storeDisplayLabel(
+            storeNumber: row.storeNumber,
+            district: row.district,
+            division: row.division,
+            identity: identity
+        )
+    }
+
+    static func storeDisplayLabel(
+        storeNumber: String,
+        district: String,
+        division: String,
+        identity: StoreIdentity? = nil
+    ) -> String {
+        let number = canonicalStore(storeNumber)
+        var dist = canonicalDistrict(district)
+        if dist.isEmpty { dist = canonicalDistrict(identity?.district ?? "") }
+        var market = MarketRegion.canonicalName(division)
+        if market.isEmpty {
+            market = division.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if market.isEmpty {
+            let raw = identity?.division ?? ""
+            market = MarketRegion.canonicalName(raw)
+            if market.isEmpty { market = raw.trimmingCharacters(in: .whitespacesAndNewlines) }
+        }
+        var parts: [String] = []
+        if !number.isEmpty { parts.append(number) }
+        if !dist.isEmpty { parts.append(dist) }
+        if !market.isEmpty, market.caseInsensitiveCompare(dist) != .orderedSame {
+            parts.append(market)
+        }
+        return parts.isEmpty ? "—" : parts.joined(separator: " | ")
+    }
+
     static func canonicalOM(_ raw: String) -> String {
         var value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         value = value.replacingOccurrences(of: "(?i)^(om|operations manager)\\s*[:\\-–]\\s*", with: "", options: .regularExpression)
