@@ -120,29 +120,20 @@ final class HeartbeatStore: ObservableObject {
             isImporting = false
             importLabel = nil
             needsRolePick = true
-            Task { await self.syncServerWorkbookIfChanged() }
             return
         }
         isImporting = true
-        importProgress.label = "Loading the data"
+        importProgress.label = "Downloading workbook"
         importProgress.loaded = 0
         importProgress.expected = MetricSection.uploadOrder.count
-        importLabel = "Loading the data"
-        await importCloudSQLiteIfPresent()
-        if Self.hasUsableLabor(rows), Self.hasUsablePicker(rows) {
-            isReady = true
-            isImporting = false
-            importLabel = nil
-            needsRolePick = true
-            return
-        }
-        await importCloudWorkbook(blocking: true)
+        importLabel = "Downloading workbook"
+        await pullWorkbookFromServer()
+        isImporting = false
+        importLabel = nil
         if seeded, !rows.isEmpty {
             isReady = true
             needsRolePick = true
         }
-        isImporting = false
-        importLabel = nil
     }
 
     private func watchAppLifecycle() {
@@ -1404,11 +1395,40 @@ final class HeartbeatStore: ObservableObject {
 
     private func refreshFromCloud() async {
         guard !isImporting else { return }
-        if Self.hasUsableLabor(rows), Self.hasUsablePicker(rows) {
-            await syncServerWorkbookIfChanged()
-            return
+        if Self.hasUsableLabor(rows), Self.hasUsablePicker(rows) { return }
+        await pullWorkbookFromServer()
+    }
+
+    private func pullWorkbookFromServer() async {
+        isImporting = true
+        importProgress.label = "Downloading workbook"
+        importLabel = "Downloading workbook"
+        var lastError: String?
+        for name in PulseCloud.workbookNames {
+            do {
+                importProgress.label = "Downloading \(name)"
+                let book = try await PulseCloud.downloadNamed(name)
+                guard book.count > 1_000 else { continue }
+                importProgress.label = "Reading workbook"
+                let ok = await runMasterImport(
+                    data: book,
+                    filename: name,
+                    fallbackToPicker: false,
+                    alreadyOpen: true,
+                    presentRoleGate: true
+                )
+                if ok {
+                    UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
+                    return
+                }
+                lastError = "Workbook did not parse."
+            } catch {
+                lastError = error.localizedDescription
+            }
         }
-        await importCloudWorkbook(blocking: false)
+        if !Self.hasUsableLabor(rows) || !Self.hasUsablePicker(rows) {
+            errorMessage = lastError ?? "Could not load Heartbeat Daily Report from the cloud."
+        }
     }
 
     private func syncServerWorkbookIfChanged() async {
@@ -1850,21 +1870,6 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func runMasterImport(data: Data, filename: String, fallbackToPicker: Bool, alreadyOpen: Bool = false, presentRoleGate: Bool = true) async -> Bool {
-        if !alreadyOpen {
-            guard !isImporting else { return false }
-            isImporting = true
-            importLabel = "Reading master workbook…"
-            importLoaded = 0
-            importExpected = MetricSection.uploadOrder.count
-            importMissing = []
-            importReady = []
-            importProgress.label = "Reading master workbook…"
-            importProgress.loaded = 0
-            importProgress.expected = MetricSection.uploadOrder.count
-            importProgress.ready = []
-            importProgress.missing = []
-        }
-        errorMessage = nil
         do {
             let sheets = try await parseMasterOffMain(data: data, filename: filename)
             masterApplyToken += 1
