@@ -2867,17 +2867,16 @@ enum WorkbookParser {
                     total = block
                     continue
                 }
-                guard let pph = block["pph"], pph > 0, pph < 200 else { continue }
                 days.append([
                     "date": label,
-                    "pph": String(pph),
-                    "presub": String(block["presub_pct"] ?? 0),
-                    "oos": String(block["oos_pct"] ?? 0),
-                    "ott": String(block["ott_pct"] ?? 0),
-                    "oth5": String(block["oth5_pct"] ?? 0),
-                    "hours": String(block["pick_hours"] ?? 0),
-                    "orders": String(block["orders"] ?? 0),
-                    "refund": String(block["refund_amt"] ?? 0),
+                    "pph": block["pph"].map(String.init) ?? "",
+                    "presub": block["presub_pct"].map(String.init) ?? "",
+                    "oos": block["oos_pct"].map(String.init) ?? "",
+                    "ott": block["ott_pct"].map(String.init) ?? "",
+                    "oth5": block["oth5_pct"].map(String.init) ?? "",
+                    "hours": block["pick_hours"].map(String.init) ?? "",
+                    "orders": block["orders"].map(String.init) ?? "",
+                    "refund": block["refund_amt"].map(String.init) ?? "",
                 ])
             }
             if total.isEmpty, let last = blockStarts.last {

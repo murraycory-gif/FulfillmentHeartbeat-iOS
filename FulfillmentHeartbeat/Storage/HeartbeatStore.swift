@@ -1407,7 +1407,8 @@ final class HeartbeatStore: ObservableObject {
         }
         let knownXlsx = UserDefaults.standard.integer(forKey: "hb.cloudXlsxBytes")
         let hasPack = seeded && !rows.isEmpty
-        guard remoteXlsx > 1_000, remoteXlsx != knownXlsx || !hasPack else {
+        let packComplete = hasPack && Self.hasUsableLabor(rows) && Self.hasUsablePicker(rows)
+        guard remoteXlsx > 1_000, remoteXlsx != knownXlsx || !packComplete else {
             if hasPack {
                 isImporting = false
                 isReady = true
@@ -2233,7 +2234,7 @@ final class HeartbeatStore: ObservableObject {
             $0.section == .pickerScorecard
                 && !($0.textPayload["shopper_id"] ?? $0.textPayload["shopper_name"] ?? "").isEmpty
         }
-        guard pickers.count >= 2_000 else { return false }
+        guard pickers.count >= 10_000 else { return false }
         let withPPH = pickers.contains { $0.number("pph") != nil }
         let withOOS = pickers.contains { $0.number("oos_pct") != nil }
         let withOTT = pickers.contains { $0.number("ott_pct") != nil }

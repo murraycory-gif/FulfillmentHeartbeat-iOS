@@ -9179,10 +9179,19 @@ struct PickerDaySnap: Identifiable, Equatable {
                 return date
             }()
             func num(_ key: String, digits: Int) -> String {
-                HeartbeatFormat.num(Double(item[key] ?? ""), digits: digits)
+                let raw = item[key] ?? ""
+                guard let value = Double(raw) else { return "—" }
+                return HeartbeatFormat.num(value, digits: digits)
             }
             func pct(_ key: String) -> String {
-                HeartbeatFormat.pct(Double(item[key] ?? ""))
+                let raw = item[key] ?? ""
+                guard let value = Double(raw) else { return "—" }
+                return HeartbeatFormat.pct(value)
+            }
+            func money(_ key: String) -> String {
+                let raw = item[key] ?? ""
+                guard let value = Double(raw) else { return "—" }
+                return HeartbeatFormat.money(value)
             }
             return PickerDaySnap(
                 id: date,
@@ -9194,7 +9203,7 @@ struct PickerDaySnap: Identifiable, Equatable {
                 oth5: pct("oth5"),
                 hours: num("hours", digits: 1),
                 orders: num("orders", digits: 0),
-                refund: HeartbeatFormat.money(Double(item["refund"] ?? ""))
+                refund: money("refund")
             )
         }
     }
@@ -9479,21 +9488,47 @@ struct PickerStoreExpand: View {
     let snap: PickerLineSnap
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(metaLine)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(AppTheme.textSecondary)
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text(metaLine)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                Spacer()
+                Text("Week total")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.8))
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(AppTheme.blue)
             totalStrip
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .background(Color.white)
+            HStack(spacing: 8) {
+                Text("Day")
+                    .frame(width: 92, alignment: .leading)
+                headerCell("PPH")
+                headerCell("Presub")
+                headerCell("OOS")
+                headerCell("OTT")
+                headerCell("OTH5")
+                headerCell("Hours")
+                headerCell("Orders")
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.white.opacity(0.9))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .background(AppTheme.blue.opacity(0.85))
             if snap.days.isEmpty {
                 Text("No daily breakout for this shopper.")
                     .font(.subheadline)
                     .foregroundStyle(AppTheme.textTertiary)
+                    .padding(12)
             } else {
-                Text("By Day")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(AppTheme.text)
-                dayHeader
-                ForEach(snap.days) { day in
+                ForEach(Array(snap.days.enumerated()), id: \.element.id) { index, day in
                     HStack(spacing: 8) {
                         Text(day.title)
                             .font(.subheadline.weight(.semibold))
@@ -9507,15 +9542,16 @@ struct PickerStoreExpand: View {
                         dayCell(day.hours)
                         dayCell(day.orders)
                     }
-                    .padding(.vertical, 6)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(index.isMultiple(of: 2) ? Color.white : AppTheme.bg)
                 }
             }
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(AppTheme.card.opacity(0.9))
+                .stroke(AppTheme.blue, lineWidth: 2)
         )
     }
 
