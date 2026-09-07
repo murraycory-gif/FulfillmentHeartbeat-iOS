@@ -3037,13 +3037,7 @@ private struct PulseCaches {
         latest: [MetricSection: [MetricRow]]
     ) -> [String: [HeartbeatMath.FiveStarFlag]] {
         let rows = latest[section] ?? []
-        let pickers = latest[.pickerScorecard] ?? []
-        let pathPickers = latest[.pickPathPicker] ?? []
-        let items = latest[.preSubOOSItem] ?? []
         var buckets: [String: [MetricRow]] = [:]
-        var pickerBuckets: [String: [MetricRow]] = [:]
-        var pathBuckets: [String: [MetricRow]] = [:]
-        var itemBuckets: [String: [MetricRow]] = [:]
         func key(for row: MetricRow) -> String? {
             if grain == .store {
                 let number = HeartbeatMath.canonicalStore(row.storeNumber)
@@ -3061,21 +3055,6 @@ private struct PulseCaches {
         for row in rows {
             if let key = key(for: row) { buckets[key, default: []].append(row) }
         }
-        if section == .pph || section == .pickerScorecard {
-            for row in pickers {
-                if let key = key(for: row) { pickerBuckets[key, default: []].append(row) }
-            }
-        }
-        if section == .pickPath {
-            for row in pathPickers {
-                if let key = key(for: row) { pathBuckets[key, default: []].append(row) }
-            }
-        }
-        if section == .preSubOOS {
-            for row in items {
-                if let key = key(for: row) { itemBuckets[key, default: []].append(row) }
-            }
-        }
         var out: [String: [HeartbeatMath.FiveStarFlag]] = [:]
         out.reserveCapacity(packs.count)
         for pack in packs {
@@ -3083,9 +3062,6 @@ private struct PulseCaches {
             out[pack.id] = HeartbeatMath.dashboardActionFlags(
                 section: section,
                 rows: buckets[match] ?? [],
-                pickers: pickerBuckets[match] ?? [],
-                pathPickers: pathBuckets[match] ?? [],
-                items: itemBuckets[match] ?? [],
                 includeAll: true
             )
         }

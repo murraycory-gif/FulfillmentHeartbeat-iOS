@@ -294,7 +294,7 @@ struct DashScopeStrip: View {
                     salesRows = store.cachedSalesScopeRows
                     dayRows = store.cachedSalesDayRows
                 }
-                if expanded, section != .sales, section != .pickerScorecard, flagMap.isEmpty {
+                if expanded, canLoadGrainFlags, flagMap.isEmpty {
                     flagMap = store.dashboardGrainFlags(section: section, grain: grain, packs: packs)
                 }
             } label: {
@@ -372,9 +372,7 @@ struct DashScopeStrip: View {
         .onChange(of: store.filterStamp) { _, _ in
             salesRows = store.cachedSalesScopeRows
             dayRows = store.cachedSalesDayRows
-            if section != .sales {
-                flagMap = section == .pickerScorecard ? [:] : store.dashboardGrainFlags(section: section, grain: grain, packs: packs)
-            }
+            flagMap = [:]
         }
     }
 
@@ -384,6 +382,15 @@ struct DashScopeStrip: View {
 
     private var visibleDayRows: [SalesRollupRow] {
         dayRows.isEmpty ? store.cachedSalesDayRows : dayRows
+    }
+
+    private var canLoadGrainFlags: Bool {
+        switch section {
+        case .sales, .pickerScorecard, .pph, .preSubOOS, .missingItems:
+            return false
+        default:
+            return true
+        }
     }
 
     private var bannerCount: Int {
@@ -571,6 +578,7 @@ struct DashFlagGrid: View {
             let row = HStack(alignment: .top, spacing: 6) {
                 ForEach(flags) { flag in
                     DashFlagChip(flag: flag)
+                        .frame(maxWidth: .infinity, minHeight: 92, maxHeight: 92, alignment: .top)
                 }
             }
             if HubLayout.isPhone(sizeClass), flags.count > 4 {
@@ -603,13 +611,11 @@ private struct DashFlagChip: View {
                 .padding(.vertical, compact ? 4 : 5)
                 .background(AppTheme.blue)
             VStack(alignment: .leading, spacing: 3) {
-                if !flag.value.isEmpty {
-                    Text(flag.value)
-                        .font(AppTheme.rounded(compact ? .caption : .subheadline, weight: .bold))
-                        .foregroundStyle(dashInk(tone))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                }
+                Text(flag.value.isEmpty ? " " : flag.value)
+                    .font(AppTheme.rounded(compact ? .caption : .subheadline, weight: .bold))
+                    .foregroundStyle(dashInk(tone))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.65)
                 HStack(spacing: 4) {
                     Text(countLine)
                         .font(AppTheme.rounded(.caption2, weight: .semibold))
@@ -619,6 +625,7 @@ private struct DashFlagChip: View {
                     HealthBadge(health: tone, prominent: true, compact: true)
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .padding(.horizontal, compact ? 6 : 8)
             .padding(.bottom, compact ? 6 : 8)
         }
