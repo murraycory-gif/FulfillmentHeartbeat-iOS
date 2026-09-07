@@ -1498,6 +1498,7 @@ final class HeartbeatStore: ObservableObject {
         let caches = await Task.detached(priority: .userInitiated) {
             PulseCaches.build(rows: nextRows, filters: DashboardFilters(), uploads: nextUploads, heavy: false, grain: .region)
         }.value
+        guard token == masterApplyToken else { return }
         hydrating = true
         rows = nextRows
         uploads = nextUploads
