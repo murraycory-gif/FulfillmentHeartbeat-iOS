@@ -1048,7 +1048,7 @@ struct PreSubItemTable: View {
         }
     }
 
-    @State private var expanded = false
+    @State private var expanded = true
     @State private var sort = Column.units
     @State private var ascending = false
     @State private var limit = 80

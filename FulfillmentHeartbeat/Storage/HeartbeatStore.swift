@@ -1681,7 +1681,16 @@ final class HeartbeatStore: ObservableObject {
             var next: [MetricSection: [MetricRow]] = [:]
             next.reserveCapacity(latestBySection.count)
             for (section, rows) in latestBySection {
-                next[section] = rows.filter { allowed.contains(HeartbeatMath.canonicalStore($0.storeNumber)) }
+                next[section] = rows.filter { row in
+                    let store = HeartbeatMath.canonicalStore(row.storeNumber)
+                    if !store.isEmpty, allowed.contains(store) { return true }
+                    if !store.isEmpty, roster[store] != nil { return false }
+                    if !filters.includesDivision(row.division) { return false }
+                    if !filters.includesDistrict(row.district) { return false }
+                    if !filters.includesOM(row.operationsOM) { return false }
+                    if !filters.includesStore(store) { return false }
+                    return true
+                }
             }
             filteredLatest = next
         } else {
@@ -1914,7 +1923,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private static let deferredSections: Set<MetricSection> = [
-        .pickerScorecard, .pickPathPicker, .preSubOOSItem
+        .pickerScorecard, .pickPathPicker
     ]
 
     private func lightRows(_ rows: [MetricRow]) -> [MetricRow] {
@@ -1987,6 +1996,7 @@ final class HeartbeatStore: ObservableObject {
                         self.install(full)
                         self.hydrating = false
                         self.rebuildLaborWeekIndex()
+                        self.applyFilters()
                     }
                 }
                 if let decoded, existing != lightFile {
