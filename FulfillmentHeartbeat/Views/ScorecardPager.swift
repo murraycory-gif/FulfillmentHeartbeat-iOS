@@ -106,9 +106,7 @@ struct ScorecardPager: UIViewControllerRepresentable {
         }
 
         func reloadHydrated() {
-            let dest = displayed
-            hydrate(dest)
-            warmNeighbors(of: dest)
+            hydrate(displayed)
         }
 
         func neighbors(of dest: HubDestination) -> [HubDestination] {
@@ -192,9 +190,6 @@ struct ScorecardPager: UIViewControllerRepresentable {
         ) {
             if let host = pendingViewControllers.first as? PageHost {
                 isSwiping = true
-                if !host.hydrated {
-                    hydrate(host.dest)
-                }
             }
         }
 
@@ -209,6 +204,10 @@ struct ScorecardPager: UIViewControllerRepresentable {
             displayed = host.dest
             isSwiping = false
             resetScroll(pageViewController)
+            if !host.hydrated {
+                hydrate(host.dest)
+            }
+            dehydrate(keeping: host.dest)
             warmNeighbors(of: host.dest)
             if router.destination != host.dest {
                 router.open(host.dest)
