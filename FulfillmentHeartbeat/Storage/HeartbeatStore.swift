@@ -1378,6 +1378,10 @@ final class HeartbeatStore: ObservableObject {
         let knownXlsx = UserDefaults.standard.integer(forKey: "hb.cloudXlsxBytes")
         let missingHeavy = !Self.hasUsableLabor(rows) || !Self.hasUsablePicker(rows)
         if remoteXlsx > 1_000, remoteXlsx != knownXlsx || missingHeavy {
+            isImporting = true
+            importLabel = "Loading the data"
+            importProgress.label = "Loading the data"
+            importProgress.expected = MetricSection.uploadOrder.count
             if let book = try? await PulseCloud.downloadNamed(remoteName) {
                 _ = await runMasterImport(
                     data: book,
@@ -1393,6 +1397,8 @@ final class HeartbeatStore: ObservableObject {
                 }
                 return
             }
+            isImporting = false
+            importLabel = nil
         }
         if seeded { return }
         do {

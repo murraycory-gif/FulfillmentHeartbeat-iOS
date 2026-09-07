@@ -1759,12 +1759,17 @@ enum WorkbookParser {
         onTick: ((Int) -> Void)?
     ) -> [ParsedWorkbookRow] {
         var parsed: [ParsedWorkbookRow] = []
-        if let packed = zip.compressedPayload(named: path) ?? zip.compressedPayload(named: path.replacingOccurrences(of: "xl/", with: "")),
+        if !pathPicker, let packed = zip.compressedPayload(named: path) ?? zip.compressedPayload(named: path.replacingOccurrences(of: "xl/", with: "")),
+           packed.method == 8 {
+            parsed = parsePickerCompactRaw(compressed: packed.bytes, strings: strings, onTick: onTick)
+        }
+        if parsed.isEmpty,
+           let packed = zip.compressedPayload(named: path) ?? zip.compressedPayload(named: path.replacingOccurrences(of: "xl/", with: "")),
            packed.method == 8 {
             parsed = pathPicker
                 ? parseEmployeeStreaming(compressed: packed.bytes, strings: strings)
                 : parsePickerStreaming(compressed: packed.bytes, strings: strings, onTick: onTick)
-        } else if let sheet = zip.file(named: path) ?? zip.file(named: path.replacingOccurrences(of: "xl/", with: "")), !sheet.isEmpty {
+        } else if parsed.isEmpty, let sheet = zip.file(named: path) ?? zip.file(named: path.replacingOccurrences(of: "xl/", with: "")), !sheet.isEmpty {
             parsed = pathPicker
                 ? parseEmployeeStreaming(data: sheet, strings: strings)
                 : parsePickerStreaming(data: sheet, strings: strings, onTick: onTick)
@@ -2777,6 +2782,63 @@ enum WorkbookParser {
             last[key] = row
         }
         return Array(last.values)
+    }
+
+    private static func parsePickerCompactRaw(
+        compressed: Data,
+        strings: [String],
+        onTick: ((Int) -> Void)?
+    ) -> [ParsedWorkbookRow] {
+        var ready = false
+        var out: [String: ParsedWorkbookRow] = [:]
+        var seen = 0
+        SheetXML.forEachRowInflating(compressed: compressed, strings: strings, handleRaw: { data in
+            let a = SheetXML.rawCell(data, letter: "A", strings: strings)
+            let b = SheetXML.rawCell(data, letter: "B", strings: strings)
+            let c = SheetXML.rawCell(data, letter: "C", strings: strings)
+            let d = SheetXML.rawCell(data, letter: "D", strings: strings)
+            let e = SheetXML.rawCell(data, letter: "E", strings: strings)
+            if !ready {
+                let names = [a, b, c].map(normHeader)
+                if names.contains("store"), names.contains(where: { $0.contains("picker") || $0.contains("shopper") }) {
+                    ready = true
+                }
+                return
+            }
+            seen += 1
+            var store = b
+            var picker = c
+            var pphRaw = d
+            var presubRaw = e
+            if !looksLikeStoreNumber(b), b.rangeOfCharacter(from: .letters) != nil {
+                picker = b
+                store = ""
+                pphRaw = c
+                presubRaw = d
+            }
+            if picker.isEmpty || isTotalCell(picker) || looksLikeStoreNumber(picker) { return }
+            var payload: [String: Double] = [:]
+            if let pph = cellNumber(pphRaw) {
+                applyPickerMetric(&payload, header: "pph", value: pph)
+            }
+            if let presub = cellNumber(presubRaw) {
+                applyPickerMetric(&payload, header: "presub", value: presub)
+            }
+            guard !payload.isEmpty else { return }
+            let shopper = picker.trimmingCharacters(in: .whitespacesAndNewlines)
+            out[shopper] = ParsedWorkbookRow(
+                division: "",
+                operationsOM: "",
+                storeNumber: looksLikeStoreNumber(store) ? HeartbeatMath.canonicalStore(store) : "",
+                storeName: nil,
+                recordedOn: nil,
+                payload: payload,
+                textPayload: ["shopper_id": shopper, "shopper_name": shopper]
+            )
+            if seen % 2500 == 0 { onTick?(out.count) }
+        })
+        onTick?(out.count)
+        return Array(out.values)
     }
 
     private static func parsePickerStreaming(

@@ -606,6 +606,7 @@ struct BeatingHeartbeatMark: View {
     var height: CGFloat = 52
     var showsTrace: Bool = true
     var showsWordmark: Bool = true
+    var forceTrace: Bool = false
 
     var body: some View {
         ViewThatFits(in: .horizontal) {
@@ -633,7 +634,7 @@ struct BeatingHeartbeatMark: View {
 
     private var heartBlock: some View {
         ZStack(alignment: .leading) {
-            if showsTrace, !HubLayout.constrained {
+            if showsTrace, forceTrace || !HubLayout.constrained {
                 LogoECGUI(lineWidth: height * 0.11)
                     .frame(width: height * 1.42, height: height * 0.70)
                     .offset(x: height * 0.88, y: height * 0.04)

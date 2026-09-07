@@ -45,25 +45,29 @@ struct LaunchSplashView: View {
         let phone = HubLayout.isPhone(sizeClass)
         ZStack {
             AppTheme.bg.ignoresSafeArea()
-            VStack(spacing: phone ? 18 : 24) {
+            VStack(spacing: phone ? 16 : 22) {
                 BeatingHeartbeatMark(
-                    height: phone ? 78 : 96,
+                    height: phone ? 86 : 108,
                     showsTrace: true,
-                    showsWordmark: false
+                    showsWordmark: false,
+                    forceTrace: true
                 )
-                FulfillmentWordmark(height: phone ? 46 : 58)
+                FulfillmentWordmark(height: phone ? 50 : 64)
+                HeartbeatTrace()
+                    .frame(height: phone ? 28 : 36)
+                    .padding(.horizontal, phone ? 24 : 80)
                 VStack(spacing: 10) {
                     ProgressView()
                         .controlSize(.regular)
                         .tint(AppTheme.blue)
                     Text(statusLine)
-                        .font(.system(size: phone ? 14 : 16, weight: .semibold))
+                        .font(.system(size: phone ? 15 : 17, weight: .semibold))
                         .foregroundStyle(AppTheme.textSecondary)
                         .multilineTextAlignment(.center)
                         .lineLimit(2)
                         .minimumScaleFactor(0.8)
                 }
-                .padding(.top, 8)
+                .padding(.top, 6)
             }
             .padding(.horizontal, 28)
         }
