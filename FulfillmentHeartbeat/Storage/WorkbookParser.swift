@@ -1620,9 +1620,7 @@ enum WorkbookParser {
            packed.method == 8 {
             parsed = pathPicker
                 ? parseEmployeeStreaming(compressed: packed.bytes, strings: strings)
-                : (packed.uncomp > 8_000_000
-                    ? parsePickerFast(compressed: packed.bytes, strings: strings, onTick: onTick)
-                    : parsePickerStreaming(compressed: packed.bytes, strings: strings, onTick: onTick))
+                : parsePickerStreaming(compressed: packed.bytes, strings: strings, onTick: onTick)
         } else if let sheet = zip.file(named: path) ?? zip.file(named: path.replacingOccurrences(of: "xl/", with: "")), !sheet.isEmpty {
             parsed = pathPicker
                 ? parseEmployeeStreaming(data: sheet, strings: strings)
@@ -2471,7 +2469,7 @@ enum WorkbookParser {
         }
 
         var lastMetricColumn: [String: Int] = [:]
-        for (index, name) in header.enumerated() where pickerMetricKeys[name] != nil {
+        for (index, name) in header.enumerated() where pickerMetricKey(name) != nil {
             lastMetricColumn[name] = index
         }
         let metricColumns = lastMetricColumn.values.sorted()
@@ -2599,7 +2597,7 @@ enum WorkbookParser {
                     storeIdx = store
                     empIdx = picker
                     for (index, name) in names.enumerated() {
-                        guard pickerMetricKeys[name] != nil else { continue }
+                        guard pickerMetricKey(name) != nil else { continue }
                         metricColumns[name, default: []].append(index)
                     }
                     if names.first == "date" || names.first == "weekid" || (names.first ?? "").contains("date") {
@@ -3137,13 +3135,18 @@ enum WorkbookParser {
 
     private static let pickerMetricKeys: [String: String] = [
         "purepph": "pph",
+        "totalpurepph": "pph",
+        "totalpph": "pph",
         "pph": "pph",
         "presuboos": "presub_pct",
         "presuboospct": "presub_pct",
+        "presubstitutionoos": "presub_pct",
+        "presubstitutionoospct": "presub_pct",
         "presub": "presub_pct",
         "oos": "oos_pct",
         "oospct": "oos_pct",
         "pickhours": "pick_hours",
+        "hours": "pick_hours",
         "pphpicks": "pph_picks",
         "subs": "subs",
         "substitutes": "subs",
@@ -3156,14 +3159,35 @@ enum WorkbookParser {
         "othelig": "oth_elig_pct",
         "otheligibility": "oth_elig_pct",
         "oth5": "oth5_pct",
+        "oth5pct": "oth5_pct",
         "ott": "ott_pct",
+        "ottpct": "ott_pct",
         "refundamt": "refund_amt",
         "refund": "refund_amt",
         "coe": "coe_pct",
+        "coepct": "coe_pct",
     ]
 
+    private static func pickerMetricKey(_ header: String) -> String? {
+        let name = normHeader(header)
+        if let mapped = pickerMetricKeys[name] { return mapped }
+        if name.contains("purepph") || name.hasSuffix("pph") { return "pph" }
+        if name.contains("presub") { return "presub_pct" }
+        if name.contains("oos") { return "oos_pct" }
+        if name.contains("pickhour") || name == "hours" { return "pick_hours" }
+        if name.contains("othelig") { return "oth_elig_pct" }
+        if name.contains("oth5") { return "oth5_pct" }
+        if name.contains("ott") { return "ott_pct" }
+        if name.contains("refund") { return "refund_amt" }
+        if name.contains("dug") { return "dug_orders" }
+        if name.contains("coe") { return "coe_pct" }
+        if name.contains("sub") && !name.contains("presub") { return "subs" }
+        if name.contains("order") { return "orders" }
+        return nil
+    }
+
     private static func applyPickerMetric(_ payload: inout [String: Double], header: String, value: Double) {
-        guard let key = pickerMetricKeys[header] else { return }
+        guard let key = pickerMetricKey(header) else { return }
         var number = value
         if key.hasSuffix("_pct"), number <= 1.0 {
             number *= 100

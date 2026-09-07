@@ -9121,8 +9121,8 @@ struct PickerLineSnap: Identifiable, Equatable {
         let store = row.storeNumber.isEmpty ? "" : "Store \(row.storeNumber)"
         label = store.isEmpty ? row.shopperName : "\(row.shopperName)  |  \(store)"
         self.division = division
-        pph = HeartbeatFormat.num(row.number("pph"), digits: 1)
-        presub = HeartbeatFormat.pct(row.number("presub_pct"))
+        pph = HeartbeatFormat.num(row.number("pph", "pure_pph"), digits: 1)
+        presub = HeartbeatFormat.pct(row.number("presub_pct", "presub_oos_pct"))
         oos = HeartbeatFormat.pct(row.number("oos_pct"))
         ott = HeartbeatFormat.pct(row.number("ott_pct"))
         oth5 = HeartbeatFormat.pct(row.number("oth5_pct"))
@@ -9134,8 +9134,8 @@ struct PickerLineSnap: Identifiable, Equatable {
         othElig = HeartbeatFormat.pct(row.number("oth_elig_pct"))
         coe = HeartbeatFormat.pct(row.number("coe_pct"))
         health = HeartbeatMath.pickerHealth(row)
-        pphHealth = row.number("pph") == nil ? .none : HeartbeatMath.pphHealth(row)
-        presubHealth = row.number("presub_pct") == nil ? .none : HeartbeatMath.presubStar(row).health
+        pphHealth = row.number("pph", "pure_pph") == nil ? .none : HeartbeatMath.pphHealth(row)
+        presubHealth = row.number("presub_pct", "presub_oos_pct") == nil ? .none : HeartbeatMath.presubStar(row).health
         oosHealth = row.number("oos_pct") == nil ? .none : HeartbeatMath.oosStar(row).health
         ottHealth = row.number("ott_pct") == nil ? .none : HeartbeatMath.ottStar(row).health
         oth5Health = row.number("oth5_pct") == nil ? .none : HeartbeatMath.othStar(row).health
