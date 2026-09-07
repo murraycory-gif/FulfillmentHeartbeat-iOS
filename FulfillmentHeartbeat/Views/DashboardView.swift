@@ -157,10 +157,16 @@ struct DashLostBanner: View {
             .buttonStyle(DashLiftStyle())
             if compact {
                 if !flags.isEmpty {
-                    DashFlagGrid(flags: statusFlags(flags), columns: max(statusFlags(flags).count, 1))
+                    DashFlagGrid(
+                        flags: statusFlags(flags),
+                        columns: HubLayout.flagColumns(count: statusFlags(flags).count, width: max(width, 320))
+                    )
                 }
             } else {
-                DashFlagGrid(flags: statusFlags(flags), columns: max(statusFlags(flags).count, 1))
+                DashFlagGrid(
+                    flags: statusFlags(flags),
+                    columns: HubLayout.flagColumns(count: statusFlags(flags).count, width: width)
+                )
             }
             if let grain {
                 DashScopeStrip(section: summary.section, grain: grain, packs: grains, width: width)
@@ -288,7 +294,7 @@ struct DashScopeStrip: View {
                     salesRows = store.cachedSalesScopeRows
                     dayRows = store.cachedSalesDayRows
                 }
-                if expanded, section == .fiveStar, flagMap.isEmpty {
+                if expanded, section != .sales, flagMap.isEmpty {
                     flagMap = store.dashboardGrainFlags(section: section, grain: grain, packs: packs)
                 }
             } label: {
@@ -347,7 +353,7 @@ struct DashScopeStrip: View {
                                 DashScopeGrainCard(
                                     pack: pack,
                                     grain: grain,
-                                    flags: section == .fiveStar ? (flagMap[pack.id] ?? flagMap[pack.line.label] ?? []) : [],
+                                    flags: section == .sales ? [] : (flagMap[pack.id] ?? flagMap[pack.line.label] ?? []),
                                     width: width,
                                     section: section
                                 )
@@ -366,7 +372,7 @@ struct DashScopeStrip: View {
         .onChange(of: store.filterStamp) { _, _ in
             salesRows = store.cachedSalesScopeRows
             dayRows = store.cachedSalesDayRows
-            if section == .fiveStar {
+            if section != .sales {
                 flagMap = store.dashboardGrainFlags(section: section, grain: grain, packs: packs)
             }
         }
@@ -416,10 +422,17 @@ struct DashScopeGrainCard: View {
                     } else {
                         children = Array(store.dashboardGrainChildren(section: section, label: pack.line.label).prefix(40))
                     }
-                    if section == .fiveStar {
+                    if section != .sales {
                         var nextFlags: [String: [HeartbeatMath.FiveStarFlag]] = [:]
+                        let childGrain: DashScopeGrain = {
+                            switch grain {
+                            case .region: return .division
+                            case .division: return .district
+                            default: return .store
+                            }
+                        }()
                         for child in children {
-                            nextFlags[child.label] = store.fiveStarFlagsForDivision(child.label)
+                            nextFlags[child.label] = store.sectionFlags(section: section, label: child.label, grain: childGrain)
                         }
                         childFlags = nextFlags
                     }
@@ -503,8 +516,11 @@ struct DashScopeGrainCard: View {
                             }
                             HealthBadge(health: child.health, prominent: true, compact: true)
                         }
-                        if section == .fiveStar, let metrics = childFlags[child.label], !metrics.isEmpty {
-                            DashFlagGrid(flags: metrics, columns: max(metrics.count, 1))
+                        if section != .sales, let metrics = childFlags[child.label], !metrics.isEmpty {
+                            DashFlagGrid(
+                                flags: metrics,
+                                columns: HubLayout.flagColumns(count: metrics.count, width: max(width - 36, 200))
+                            )
                         }
                     }
                     .padding(.leading, 12)
@@ -529,7 +545,12 @@ struct DashFlagGrid: View {
 
     var body: some View {
         if !flags.isEmpty {
-            HStack(alignment: .top, spacing: 8) {
+            let cols = max(columns, 1)
+            LazyVGrid(
+                columns: Array(repeating: GridItem(.flexible(minimum: 96), spacing: 8), count: cols),
+                alignment: .leading,
+                spacing: 8
+            ) {
                 ForEach(flags) { flag in
                     DashFlagChip(flag: flag)
                 }
@@ -540,32 +561,35 @@ struct DashFlagGrid: View {
 
 private struct DashFlagChip: View {
     let flag: HeartbeatMath.FiveStarFlag
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
+    private var compact: Bool { HubLayout.isPhone(sizeClass) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: compact ? 5 : 7) {
             Text(flag.name)
-                .font(.caption.weight(.bold))
+                .font(AppTheme.rounded(compact ? .footnote : .callout, weight: .bold))
                 .foregroundStyle(dashInk(flag.health == .none ? .good : flag.health))
                 .lineLimit(2)
-                .minimumScaleFactor(0.7)
+                .minimumScaleFactor(0.78)
             if !flag.value.isEmpty {
                 Text(flag.value)
-                    .font(.caption.weight(.bold))
+                    .font(AppTheme.rounded(compact ? .footnote : .body, weight: .bold))
                     .foregroundStyle(dashInk(flag.health == .none ? .good : flag.health))
-                    .lineLimit(1)
+                    .lineLimit(2)
                     .minimumScaleFactor(0.75)
             }
             HStack(spacing: 6) {
                 Text(countLine)
-                    .font(.caption.weight(.semibold))
+                    .font(AppTheme.rounded(compact ? .caption : .footnote, weight: .semibold))
                     .foregroundStyle(dashInk(flag.health == .none ? .good : flag.health))
                     .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                HealthBadge(health: flag.health == .none ? .good : flag.health, prominent: true, compact: true)
+                    .minimumScaleFactor(0.75)
+                HealthBadge(health: flag.health == .none ? .good : flag.health, prominent: true, compact: compact)
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.horizontal, compact ? 8 : 12)
+        .padding(.vertical, compact ? 8 : 11)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -616,7 +640,7 @@ struct DashCallout: View, Equatable {
                     .buttonStyle(DashLiftStyle())
                     DashFlagGrid(
                         flags: statusFlags(flags),
-                        columns: card.section == .fiveStar ? max(statusFlags(flags).count, 1) : 3
+                        columns: HubLayout.flagColumns(count: statusFlags(flags).count, width: width)
                     )
                     if let grain {
                         DashScopeStrip(section: card.section, grain: grain, packs: grains, width: width)
