@@ -2216,6 +2216,7 @@ final class HeartbeatStore: ObservableObject {
             uploads = pack.uploads.sorted { $0.uploadedAt > $1.uploadedAt }
             seeded = true
             usingDatabasePack = true
+            hydrating = true
             if let overlay = try? Data(contentsOf: filtersURL),
                let saved = try? JSONDecoder().decode(DashboardFilters.self, from: overlay) {
                 filters = saved
@@ -2223,7 +2224,11 @@ final class HeartbeatStore: ObservableObject {
             }
             restoreSessionRole()
             install(caches)
+            hydrating = false
             isReady = true
+            if filters.isActive {
+                applyFilters()
+            }
             scheduleHeavyExtras(latest: caches.filteredLatest, roster: caches.roster)
             pullLatestWorkbookIfNeeded()
             pullCloudPackIfNeeded()

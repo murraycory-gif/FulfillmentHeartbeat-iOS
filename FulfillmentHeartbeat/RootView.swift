@@ -43,15 +43,11 @@ struct LaunchSplashView: View {
     var body: some View {
         ZStack {
             AppTheme.bg.ignoresSafeArea()
-            if HubLayout.isPhone(sizeClass) {
-                VStack(spacing: 18) {
-                    FulfillmentWordmark(height: 52)
-                    BeatingHeartbeatMark(height: 72, showsTrace: true, showsWordmark: false)
-                }
-                .padding(.horizontal, 28)
-            } else {
-                BeatingHeartbeatMark(height: 92, showsTrace: true)
+            VStack(spacing: 22) {
+                FulfillmentWordmark(height: HubLayout.isPhone(sizeClass) ? 48 : 56)
+                BeatingHeartbeatMark(height: HubLayout.isPhone(sizeClass) ? 72 : 92, showsTrace: true, showsWordmark: false)
             }
+            .padding(.horizontal, 28)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityLabel("Fulfillment Heartbeat")
