@@ -747,6 +747,7 @@ enum HeartbeatMath {
         if section == .labor { return laborActionFlags(rows) }
         if section == .scheduleQuality { return scheduleActionFlags(rows, includeAll: true) }
         if section == .pickPath { return pickPathMetricFlags(rows) }
+        if section == .dynacap { return dynacapActionFlags(rows) }
         if section == .preSubOOS { return preSubActionFlags(rows, items: items) }
         if section == .pickerScorecard {
             let shoppers = rows.filter { !$0.shopperName.isEmpty || !$0.shopperKey.isEmpty }
@@ -1989,23 +1990,29 @@ enum HeartbeatMath {
     }
 
     static func dynacapActionFlags(_ rows: [MetricRow]) -> [FiveStarFlag] {
-        let stores = rows.filter {
-            !isIgnoredStore($0.storeNumber) && $0.number("dynacap_rate", "pieces_per_hour") != nil
-        }
-        let atGoal = stores.filter { ($0.number("dynacap_rate", "pieces_per_hour") ?? 0) >= dynacapGoal }.count
-        let below60 = stores.filter { ($0.number("dynacap_rate", "pieces_per_hour") ?? .greatestFiniteMagnitude) < dynacapRisk }.count
+        let stores = rows.filter { !isIgnoredStore($0.storeNumber) && !$0.storeNumber.isEmpty }
+        let scoped = stores.isEmpty ? rows : stores
+        let pieces = average(scoped.compactMap { $0.number("dynacap_rate", "pieces_per_hour") })
+        let pph = average(scoped.compactMap { $0.number("pph") })
+        let util = average(scoped.compactMap { $0.number("utilization_pct", "pickup_util_pct") })
         return [
             FiveStarFlag(
-                name: "At Goal",
-                value: "",
-                health: .good,
-                stores: atGoal
+                name: "Pieces / Hr",
+                value: HeartbeatFormat.num(pieces, digits: 1),
+                health: band(pieces, good: dynacapGoal, watch: dynacapRisk),
+                stores: scoped.filter { band($0.number("dynacap_rate", "pieces_per_hour"), good: dynacapGoal, watch: dynacapRisk) == .risk }.count
             ),
             FiveStarFlag(
-                name: "Below 60",
-                value: "",
-                health: below60 == 0 ? .good : .risk,
-                stores: below60
+                name: "Store PPH",
+                value: HeartbeatFormat.num(pph),
+                health: band(pph, good: pphGoal, watch: pphRisk),
+                stores: scoped.filter { band($0.number("pph"), good: pphGoal, watch: pphRisk) == .risk }.count
+            ),
+            FiveStarFlag(
+                name: "Utilization",
+                value: HeartbeatFormat.pct(util),
+                health: band(util, good: dynacapGoal, watch: dynacapRisk),
+                stores: scoped.filter { band($0.number("utilization_pct", "pickup_util_pct"), good: dynacapGoal, watch: dynacapRisk) == .risk }.count
             ),
         ]
     }
