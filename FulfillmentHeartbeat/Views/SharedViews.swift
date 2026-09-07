@@ -1912,6 +1912,9 @@ private enum PickPathRollupBuilder {
         for row in stores {
             let key: String
             switch grain {
+            case .region:
+                key = RollupMarketFill.bucketKey(row, grain: .region)
+                if key == "Unassigned" { continue }
             case .division:
                 key = RollupMarketFill.divisionKey(row.division)
             case .district:
@@ -1927,7 +1930,7 @@ private enum PickPathRollupBuilder {
         for (key, group) in buckets {
             let label: String
             switch grain {
-            case .division, .district:
+            case .region, .division, .district:
                 label = key
             case .store:
                 let division = group.first?.division ?? ""
@@ -2306,7 +2309,7 @@ struct PickPathRollupTable: View {
         let next = PickPathRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
-        let source = PickPathRollupBuilder.source(from: store.allLatest(for: .pickPath), filters: store.filters)
+        let source = PickPathRollupBuilder.source(from: store.rollupStores(for: .pickPath), filters: store.filters)
         var rows = PickPathRollupBuilder.rows(from: source, grain: next)
         if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
@@ -2988,6 +2991,9 @@ private enum DynacapRollupBuilder {
         for row in stores {
             let key: String
             switch grain {
+            case .region:
+                key = RollupMarketFill.bucketKey(row, grain: .region)
+                if key == "Unassigned" { continue }
             case .division:
                 key = RollupMarketFill.divisionKey(row.division)
             case .district:
@@ -3003,7 +3009,7 @@ private enum DynacapRollupBuilder {
         for (key, group) in buckets {
             let label: String
             switch grain {
-            case .division, .district:
+            case .region, .division, .district:
                 label = key
             case .store:
                 let division = group.first?.division ?? ""
@@ -3367,7 +3373,7 @@ struct DynacapRollupTable: View {
         let next = DynacapRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
-        let source = DynacapRollupBuilder.source(from: store.allLatest(for: .dynacap), filters: store.filters)
+        let source = DynacapRollupBuilder.source(from: store.rollupStores(for: .dynacap), filters: store.filters)
         var pphByStore: [String: Double] = [:]
         for row in store.latest(for: .pph) {
             if let pph = row.number("pph") {
@@ -3817,6 +3823,9 @@ private enum PrepRollupBuilder {
         for row in stores {
             let key: String
             switch grain {
+            case .region:
+                key = RollupMarketFill.bucketKey(row, grain: .region)
+                if key == "Unassigned" { continue }
             case .division:
                 key = RollupMarketFill.divisionKey(row.division)
             case .district:
@@ -3832,7 +3841,7 @@ private enum PrepRollupBuilder {
         for (key, group) in buckets {
             let label: String
             switch grain {
-            case .division, .district:
+            case .region, .division, .district:
                 label = key
             case .store:
                 let division = group.first?.division ?? ""
@@ -4164,7 +4173,7 @@ struct PrepRollupTable: View {
         let next = PrepRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
-        let source = PrepRollupBuilder.source(from: store.allLatest(for: .prepNotReady), filters: store.filters)
+        let source = PrepRollupBuilder.source(from: store.rollupStores(for: .prepNotReady), filters: store.filters)
         var rows = PrepRollupBuilder.rows(from: source, grain: next)
         if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
@@ -4500,6 +4509,9 @@ private enum FiveStarRollupBuilder {
         for row in stores {
             let key: String
             switch grain {
+            case .region:
+                key = RollupMarketFill.bucketKey(row, grain: .region)
+                if key == "Unassigned" { continue }
             case .division:
                 key = RollupMarketFill.divisionKey(row.division)
             case .district:
@@ -4515,7 +4527,7 @@ private enum FiveStarRollupBuilder {
         for (key, group) in buckets {
             let label: String
             switch grain {
-            case .division, .district:
+            case .region, .division, .district:
                 label = key
             case .store:
                 let division = group.first?.division ?? ""
@@ -4908,7 +4920,7 @@ struct FiveStarRollupTable: View {
         let next = FiveStarRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
-        let source = FiveStarRollupBuilder.source(from: store.allLatest(for: .fiveStar), filters: store.filters)
+        let source = FiveStarRollupBuilder.source(from: store.rollupStores(for: .fiveStar), filters: store.filters)
         var rows = FiveStarRollupBuilder.rows(from: source, grain: next)
         if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
@@ -5158,18 +5170,20 @@ struct FiveStarStoreCard: View {
 }
 
 enum LaborRollupGrain {
-    case division, district, store
+    case region, division, district, store
 
     var title: String {
         switch self {
+        case .region: return "Regions"
         case .division: return "Markets"
-        case .district: return "By District"
+        case .district: return "Districts"
         case .store: return "Store"
         }
     }
 
     var symbol: String {
         switch self {
+        case .region: return "globe.americas.fill"
         case .division: return "map.fill"
         case .district: return "square.grid.2x2.fill"
         case .store: return "storefront.fill"
@@ -5178,6 +5192,7 @@ enum LaborRollupGrain {
 
     var columnTitle: String {
         switch self {
+        case .region: return "Region"
         case .division: return "Division"
         case .district: return "District"
         case .store: return "Store"
@@ -5204,7 +5219,70 @@ enum RollupMarketFill {
         if !filters.division.isEmpty || !filters.district.isEmpty || !filters.om.isEmpty || !filters.store.isEmpty {
             return .district
         }
-        return .division
+        if !filters.region.isEmpty {
+            return .division
+        }
+        return .region
+    }
+
+    static func bucketKey(_ row: MetricRow, grain: LaborRollupGrain) -> String {
+        switch grain {
+        case .region:
+            return MarketRegion.containing(row.division)?.rawValue ?? "Unassigned"
+        case .division:
+            return divisionKey(row.division)
+        case .district:
+            return districtKey(row.district)
+        case .store:
+            return HeartbeatMath.canonicalStore(row.storeNumber)
+        }
+    }
+
+    static func parentDivisions(
+        filters: DashboardFilters,
+        roster: [String: HeartbeatMath.StoreIdentity]
+    ) -> Set<String> {
+        if !filters.division.isEmpty {
+            return Set(DashboardFilters.parts(filters.division).map { MarketRegion.canonicalName($0) }.filter { !$0.isEmpty })
+        }
+        guard !filters.district.isEmpty || !filters.om.isEmpty || !filters.store.isEmpty else { return [] }
+        var out: Set<String> = []
+        for (number, identity) in roster {
+            if !filters.includesStore(number) { continue }
+            if !filters.includesOM(identity.om) { continue }
+            if !filters.includesDistrict(identity.district) { continue }
+            let name = MarketRegion.canonicalName(identity.division)
+            if !name.isEmpty { out.insert(name) }
+        }
+        return out
+    }
+
+    static func scopedRollup(
+        _ stores: [MetricRow],
+        filters: DashboardFilters,
+        roster: [String: HeartbeatMath.StoreIdentity]
+    ) -> [MetricRow] {
+        if !filters.isActive { return stores }
+        let parents = parentDivisions(filters: filters, roster: roster)
+        if !parents.isEmpty {
+            return stores.filter { row in
+                let store = HeartbeatMath.canonicalStore(row.storeNumber)
+                if let identity = roster[store] {
+                    return parents.contains(MarketRegion.canonicalName(identity.division))
+                }
+                return parents.contains(MarketRegion.canonicalName(row.division))
+            }
+        }
+        if !filters.region.isEmpty || !filters.division.isEmpty {
+            return stores.filter { row in
+                let store = HeartbeatMath.canonicalStore(row.storeNumber)
+                if let identity = roster[store] {
+                    return filters.includesDivision(identity.division)
+                }
+                return filters.includesDivision(row.division)
+            }
+        }
+        return stores
     }
 
     static func scoped(_ stores: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
@@ -5288,6 +5366,9 @@ private enum LaborRollupBuilder {
             if row.textPayload["labor_grain"] == "market" { continue }
             let key: String
             switch grain {
+            case .region:
+                key = RollupMarketFill.bucketKey(row, grain: .region)
+                if key == "Unassigned" { continue }
             case .division:
                 key = RollupMarketFill.divisionKey(row.division)
             case .district:
@@ -5303,7 +5384,7 @@ private enum LaborRollupBuilder {
         for (key, group) in buckets {
             let label: String
             switch grain {
-            case .division, .district:
+            case .region, .division, .district:
                 label = key
             case .store:
                 let division = group.first?.division ?? ""
@@ -5772,7 +5853,7 @@ struct LaborRollupTable: View {
         let next = LaborRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
-        let source = LaborRollupBuilder.source(from: store.laborTableRows(), filters: store.filters)
+        let source = LaborRollupBuilder.source(from: store.rollupStores(for: .labor), filters: store.filters)
         var rows = LaborRollupBuilder.rows(from: source, grain: next)
         if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
@@ -6452,6 +6533,9 @@ private enum LostRevenueRollupBuilder {
         for row in stores {
             let key: String
             switch grain {
+            case .region:
+                key = RollupMarketFill.bucketKey(row, grain: .region)
+                if key == "Unassigned" { continue }
             case .division:
                 key = RollupMarketFill.divisionKey(row.division)
             case .district:
@@ -6468,7 +6552,7 @@ private enum LostRevenueRollupBuilder {
             let packed = LostRevenueMath.pack(group)
             let label: String
             switch grain {
-            case .division, .district:
+            case .region, .division, .district:
                 label = key
             case .store:
                 let division = group.first?.division ?? ""
@@ -6860,7 +6944,7 @@ struct LostRevenueRollupTable: View {
         let next = LostRevenueRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
-        let source = LostRevenueRollupBuilder.source(from: store.allLatest(for: .lostRevenue), filters: store.filters)
+        let source = LostRevenueRollupBuilder.source(from: store.rollupStores(for: .lostRevenue), filters: store.filters)
         var rows = LostRevenueRollupBuilder.rows(from: source, grain: next)
         if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
@@ -7469,6 +7553,9 @@ private enum ScheduleRollupBuilder {
         for row in stores {
             let key: String
             switch grain {
+            case .region:
+                key = RollupMarketFill.bucketKey(row, grain: .region)
+                if key == "Unassigned" { continue }
             case .division:
                 key = RollupMarketFill.divisionKey(row.division)
             case .district:
@@ -7484,7 +7571,7 @@ private enum ScheduleRollupBuilder {
         for (key, group) in buckets {
             let label: String
             switch grain {
-            case .division, .district:
+            case .region, .division, .district:
                 label = key
             case .store:
                 let division = group.first?.division ?? ""
@@ -7850,7 +7937,7 @@ struct ScheduleRollupTable: View {
         let next = ScheduleRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
-        let source = ScheduleRollupBuilder.source(from: store.allLatest(for: .scheduleQuality), filters: store.filters)
+        let source = ScheduleRollupBuilder.source(from: store.rollupStores(for: .scheduleQuality), filters: store.filters)
         var rows = ScheduleRollupBuilder.rows(from: source, grain: next)
         if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
@@ -8224,6 +8311,9 @@ private enum PPHRollupBuilder {
         for row in stores {
             let key: String
             switch grain {
+            case .region:
+                key = RollupMarketFill.bucketKey(row, grain: .region)
+                if key == "Unassigned" { continue }
             case .division:
                 key = RollupMarketFill.divisionKey(row.division)
             case .district:
@@ -8239,7 +8329,7 @@ private enum PPHRollupBuilder {
         for (key, group) in buckets {
             let label: String
             switch grain {
-            case .division, .district:
+            case .region, .division, .district:
                 label = key
             case .store:
                 let division = group.first?.division ?? ""
@@ -8578,7 +8668,7 @@ struct PPHRollupTable: View {
         let next = PPHRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
-        let source = PPHRollupBuilder.source(from: store.allLatest(for: .pph), filters: store.filters)
+        let source = PPHRollupBuilder.source(from: store.rollupStores(for: .pph), filters: store.filters)
         var rows = PPHRollupBuilder.rows(from: source, grain: next, pickerCount: { store.pphPickerCount(forStore: $0) })
         if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {

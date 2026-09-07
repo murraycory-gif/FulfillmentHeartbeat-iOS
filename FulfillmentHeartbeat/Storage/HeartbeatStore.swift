@@ -166,6 +166,29 @@ final class HeartbeatStore: ObservableObject {
         SalesRollupBuilder.source(from: allLatest(for: .sales), filters: filters, roster: roster)
     }
 
+    func rollupStores(for section: MetricSection) -> [MetricRow] {
+        let raw: [MetricRow]
+        switch section {
+        case .sales:
+            raw = allLatest(for: .sales).filter {
+                $0.textPayload["sales_grain"] != "day"
+                    && $0.textPayload["sales_grain"] != "company"
+                    && !$0.storeNumber.isEmpty
+            }
+        case .labor:
+            raw = laborTableRows().filter {
+                $0.textPayload["labor_grain"] != "market" && !$0.storeNumber.isEmpty
+            }
+        case .lostRevenue:
+            raw = allLatest(for: .lostRevenue).filter {
+                $0.textPayload["lost_grain"] != "market" && !$0.storeNumber.isEmpty
+            }
+        default:
+            raw = allLatest(for: section).filter { !$0.storeNumber.isEmpty }
+        }
+        return RollupMarketFill.scopedRollup(raw, filters: filters, roster: roster)
+    }
+
     func displayRows(for section: MetricSection) -> [MetricRow] {
         filteredLatest[section] ?? []
     }

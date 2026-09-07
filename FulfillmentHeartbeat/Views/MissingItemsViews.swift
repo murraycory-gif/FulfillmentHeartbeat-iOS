@@ -469,6 +469,9 @@ private enum MissingItemsRollupBuilder {
         for row in stores {
             let key: String
             switch grain {
+            case .region:
+                key = RollupMarketFill.bucketKey(row, grain: .region)
+                if key == "Unassigned" { continue }
             case .division:
                 key = RollupMarketFill.divisionKey(row.division)
             case .district:
@@ -484,7 +487,7 @@ private enum MissingItemsRollupBuilder {
         for (key, group) in buckets {
             let label: String
             switch grain {
-            case .division, .district:
+            case .region, .division, .district:
                 label = key
             case .store:
                 let division = group.first?.division ?? ""
@@ -973,7 +976,7 @@ struct MissingItemsRollupTable: View {
         let next = MissingItemsGrain.current(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
-        let source = MissingItemsRollupBuilder.source(from: store.allLatest(for: section), filters: store.filters)
+        let source = MissingItemsRollupBuilder.source(from: store.rollupStores(for: section), filters: store.filters)
         var rows = MissingItemsRollupBuilder.rows(from: source, grain: next, depts: depts)
         if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {

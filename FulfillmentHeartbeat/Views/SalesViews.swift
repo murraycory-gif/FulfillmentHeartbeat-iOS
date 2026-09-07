@@ -376,6 +376,9 @@ enum SalesRollupBuilder {
         for row in stores {
             let key: String
             switch grain {
+            case .region:
+                key = RollupMarketFill.bucketKey(row, grain: .region)
+                if key == "Unassigned" { continue }
             case .division:
                 key = RollupMarketFill.divisionKey(row.division)
                 if key == "Unassigned" { continue }
@@ -692,7 +695,7 @@ struct SalesRollupTable: View {
         let next = SalesRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
-        var rows = SalesRollupBuilder.rows(from: store.salesStores(), grain: next)
+        var rows = SalesRollupBuilder.rows(from: store.rollupStores(for: .sales), grain: next)
         rows.sort { lhs, rhs in
             let result: ComparisonResult
             switch sortKey {
