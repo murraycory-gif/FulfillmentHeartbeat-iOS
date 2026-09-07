@@ -104,7 +104,7 @@ final class HeartbeatStore: ObservableObject {
         seeded = false
         filters = DashboardFilters()
         isReady = false
-        isImporting = true
+        isImporting = !PulseSQLite.exists(at: sqliteURL)
         importProgress.label = "Loading the data"
         importProgress.expected = MetricSection.uploadOrder.count
         Task { await self.boot() }
@@ -120,9 +120,7 @@ final class HeartbeatStore: ObservableObject {
             isImporting = false
             importLabel = nil
             needsRolePick = true
-            if !Self.hasUsableLabor(rows) || !Self.hasUsablePicker(rows) {
-                Task { await importCloudWorkbook(blocking: false) }
-            }
+            Task { await importCloudWorkbook(blocking: false) }
             return
         }
         importProgress.label = "Downloading workbook"
@@ -2247,21 +2245,22 @@ final class HeartbeatStore: ObservableObject {
     private func loadPack() async {
         if PulseSQLite.exists(at: sqliteURL) {
             let url = sqliteURL
-            let pack = await Task.detached(priority: .userInitiated) {
-                try? PulseSQLite.read(from: url)
+            let skip = Self.deferredSections
+            let light = await Task.detached(priority: .userInitiated) {
+                try? PulseSQLite.read(from: url, skipping: skip)
             }.value
-            if let pack, !pack.rows.isEmpty {
+            if let light, !light.rows.isEmpty {
                 let caches = await Task.detached(priority: .userInitiated) {
                     PulseCaches.build(
-                        rows: pack.rows,
+                        rows: light.rows,
                         filters: DashboardFilters(),
-                        uploads: pack.uploads,
+                        uploads: light.uploads,
                         heavy: false,
                         grain: .region
                     )
                 }.value
-                rows = pack.rows
-                uploads = pack.uploads.sorted { $0.uploadedAt > $1.uploadedAt }
+                rows = light.rows
+                uploads = light.uploads.sorted { $0.uploadedAt > $1.uploadedAt }
                 seeded = true
                 usingDatabasePack = true
                 hydrating = true
@@ -2270,23 +2269,38 @@ final class HeartbeatStore: ObservableObject {
                 needsRolePick = true
                 install(caches)
                 hydrating = false
-                rebuildLaborWeekIndex()
-                scheduleHeavyExtras(latest: caches.filteredLatest, roster: caches.roster)
-                if Self.hasUsableLabor(pack.rows), Self.hasUsablePicker(pack.rows) {
-                    isReady = true
-                    isImporting = false
-                    importLabel = nil
-                } else {
-                    isReady = true
-                    isImporting = false
-                    importLabel = nil
-                }
+                isReady = true
+                isImporting = false
+                importLabel = nil
+                Task { await self.hydrateDeferredPack(from: url, uploads: light.uploads) }
                 return
             }
         }
         isReady = false
         rebuildIndex()
         applyFilters()
+    }
+
+    private func hydrateDeferredPack(from url: URL, uploads: [UploadRecord]) async {
+        let pack = await Task.detached(priority: .utility) {
+            try? PulseSQLite.read(from: url)
+        }.value
+        guard let pack, !pack.rows.isEmpty else { return }
+        let caches = await Task.detached(priority: .utility) {
+            PulseCaches.build(
+                rows: pack.rows,
+                filters: DashboardFilters(),
+                uploads: pack.uploads,
+                heavy: false,
+                grain: .region
+            )
+        }.value
+        rows = pack.rows
+        self.uploads = pack.uploads.sorted { $0.uploadedAt > $1.uploadedAt }
+        hydrating = true
+        install(caches)
+        hydrating = false
+        scheduleHeavyExtras(latest: caches.filteredLatest, roster: caches.roster)
     }
 
     private func load() {
