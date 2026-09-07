@@ -1440,6 +1440,7 @@ final class HeartbeatStore: ObservableObject {
                 )
                 if ok {
                     UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
+                    UserDefaults.standard.set(169, forKey: "hb.parserStamp")
                     return
                 }
                 lastError = "Workbook did not parse."
@@ -1462,7 +1463,8 @@ final class HeartbeatStore: ObservableObject {
             }
         }
         let knownXlsx = UserDefaults.standard.integer(forKey: "hb.cloudXlsxBytes")
-        guard remoteXlsx > 1_000, remoteXlsx != knownXlsx else { return }
+        let parserStamp = UserDefaults.standard.integer(forKey: "hb.parserStamp")
+        guard remoteXlsx > 1_000, remoteXlsx != knownXlsx || parserStamp < 169 else { return }
         await importCloudWorkbook(blocking: false)
     }
 
@@ -1504,7 +1506,7 @@ final class HeartbeatStore: ObservableObject {
         let knownXlsx = UserDefaults.standard.integer(forKey: "hb.cloudXlsxBytes")
         let hasPack = seeded && !rows.isEmpty
         let packComplete = hasPack && Self.hasUsableLabor(rows) && Self.hasUsablePicker(rows)
-        guard remoteXlsx > 1_000, remoteXlsx != knownXlsx || !packComplete else {
+        guard remoteXlsx > 1_000, remoteXlsx != knownXlsx || !packComplete || UserDefaults.standard.integer(forKey: "hb.parserStamp") < 169 else {
             if hasPack {
                 isImporting = false
                 isReady = true
@@ -1533,6 +1535,7 @@ final class HeartbeatStore: ObservableObject {
             )
             if ok {
                 UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
+                UserDefaults.standard.set(169, forKey: "hb.parserStamp")
                 publishCloudPack()
             } else if !hasPack {
                 UserDefaults.standard.removeObject(forKey: "hb.cloudXlsxBytes")

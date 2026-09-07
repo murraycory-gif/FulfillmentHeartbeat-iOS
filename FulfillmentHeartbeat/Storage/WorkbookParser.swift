@@ -1760,7 +1760,7 @@ enum WorkbookParser {
     ) -> [ParsedWorkbookRow] {
         var parsed: [ParsedWorkbookRow] = []
         if !pathPicker, let sheet = zip.file(named: path) ?? zip.file(named: path.replacingOccurrences(of: "xl/", with: "")),
-           !sheet.isEmpty, sheet.count < 8_000_000 {
+           !sheet.isEmpty, sheet.count < 24_000_000 {
             let matrix = SheetXML.parse(data: sheet, strings: strings)
             if let simple = parsePickerWeeklyFlat(matrix), simple.count >= 20 {
                 zip.release(path)
@@ -2748,8 +2748,8 @@ enum WorkbookParser {
         let hoursIdx = idx { $0 == "pickhours" || $0 == "hours" }
         let pphIdx = idx { $0 == "pph" || $0.hasSuffix("pph") }
         let ottIdx = idx { $0.contains("ott") }
-        let ordersIdx = idx { $0 == "totalorders" || $0 == "orders" }
-        let qtyIdx = idx { $0.contains("qty") || $0.contains("ordered") }
+        let ordersIdx = idx { $0 == "totalorders" || $0 == "orders" || $0 == "ordercount" }
+        let qtyIdx = idx { ($0.contains("qty") && $0.contains("order")) || $0 == "qtyordered" }
         let presubIdx = idx { $0.contains("presub") && ($0.contains("pct") || $0.hasSuffix("oos") || $0 == "presuboos") }
         let presubCtIdx = idx { $0.contains("presuboosct") || ($0.contains("substitutes") && $0.contains("oos")) }
         let oosCtIdx = idx { $0 == "oosct" || $0 == "ooscount" }
@@ -3596,6 +3596,11 @@ enum WorkbookParser {
         "subs": "subs",
         "substitutes": "subs",
         "orders": "orders",
+        "totalorders": "orders",
+        "ordercount": "orders",
+        "qtyordered": "qty_ordered",
+        "qtyorder": "qty_ordered",
+        "quantityordered": "qty_ordered",
         "ttldugorders": "dug_orders",
         "ttldugord": "dug_orders",
         "dugorders": "dug_orders",
@@ -3627,7 +3632,11 @@ enum WorkbookParser {
         if name.contains("dug") { return "dug_orders" }
         if name.contains("coe") { return "coe_pct" }
         if name.contains("sub") && !name.contains("presub") { return "subs" }
-        if name.contains("order") { return "orders" }
+        if name.contains("qty") && name.contains("order") { return "qty_ordered" }
+        if name == "totalorders" || name == "orders" || name == "ordercount" { return "orders" }
+        if name.contains("order") && !name.contains("qty") && !name.contains("perfect") && !name.contains("poor") && !name.contains("great") {
+            return "orders"
+        }
         return nil
     }
 
