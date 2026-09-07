@@ -2222,7 +2222,8 @@ final class HeartbeatStore: ObservableObject {
         let withOOS = pickers.contains { $0.number("oos_pct") != nil }
         let withOTT = pickers.contains { $0.number("ott_pct") != nil }
         let saneOTT = !pickers.contains { ($0.number("ott_pct") ?? 0) > 110 }
-        return withPPH && withOOS && withOTT && saneOTT
+        let saneHours = !pickers.contains { ($0.number("pick_hours") ?? 0) > 80 }
+        return withPPH && withOOS && withOTT && saneOTT && saneHours
     }
 
     private func loadPack() async {

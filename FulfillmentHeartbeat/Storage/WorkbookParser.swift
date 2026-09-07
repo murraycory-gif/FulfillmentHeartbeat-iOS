@@ -2839,50 +2839,27 @@ enum WorkbookParser {
             }
             picker = picker.trimmingCharacters(in: .whitespacesAndNewlines)
             if picker.isEmpty || isTotalCell(picker) { return }
-            if looksLikeStoreNumber(store) { carryStore = store }
-            if carryStore.isEmpty { return }
-            if picker == carryStore { return }
+            guard picker.rangeOfCharacter(from: .letters) != nil else { return }
+            guard looksLikeStoreNumber(store) else { return }
+            let storeNumber = HeartbeatMath.canonicalStore(store)
             var payload: [String: Double] = [:]
-            var bestScore = -1.0
-            var col = 2
-            var emptyBlocks = 0
-            while col < 120, emptyBlocks < 3 {
-                var block: [String: Double] = [:]
-                let fields: [(Int, String)] = [
-                    (0, "pph"), (1, "presub"), (2, "oos"), (3, "pickhours"),
-                    (4, "picks"), (5, "subs"), (6, "orders"), (7, "dug"),
-                    (10, "oth5"), (11, "ott"), (12, "refund"),
-                ]
-                for (offset, header) in fields {
-                    let raw = SheetXML.rawCell(data, letter: SheetXML.colLetter(col + offset), strings: strings)
-                    if let value = cellNumber(raw) {
-                        applyPickerMetric(&block, header: header, value: value)
-                    }
-                }
-                col += 13
-                let pph = block["pph"] ?? -1
-                guard pph >= 1, pph <= 200 else {
-                    if block.isEmpty { emptyBlocks += 1 } else { emptyBlocks = 0 }
-                    continue
-                }
-                emptyBlocks = 0
-                let ott = block["ott_pct"] ?? 0
-                let oth = block["oth5_pct"] ?? 0
-                if ott > 110 || oth > 110 { continue }
-                let score = (block["orders"] ?? 0) + (block["pick_hours"] ?? 0) + pph
-                if score >= bestScore {
-                    bestScore = score
-                    payload = block
+            let fields: [(String, String)] = [
+                ("C", "pph"), ("D", "presub"), ("E", "oos"), ("F", "pickhours"),
+                ("G", "picks"), ("H", "subs"), ("I", "orders"), ("J", "dug"),
+                ("M", "oth5"), ("N", "ott"), ("O", "refund"),
+            ]
+            for (letter, header) in fields {
+                if let value = cellNumber(SheetXML.rawCell(data, letter: letter, strings: strings)) {
+                    applyPickerMetric(&payload, header: header, value: value)
                 }
             }
-            if payload.isEmpty, let pph = cellNumber(c), pph >= 1, pph <= 200 {
-                applyPickerMetric(&payload, header: "pph", value: pph)
-                if let presub = cellNumber(d) { applyPickerMetric(&payload, header: "presub", value: presub) }
-                if let oos = cellNumber(e) { applyPickerMetric(&payload, header: "oos", value: oos) }
-            }
-            guard payload["pph"] != nil else { return }
+            guard let pph = payload["pph"], pph > 0, pph < 200 else { return }
+            if let hours = payload["pick_hours"], hours > 80 { return }
+            if let orders = payload["orders"], orders > 400 { return }
+            if let refund = payload["refund_amt"], refund > 2_000 { return }
+            if let ott = payload["ott_pct"], ott > 110 { return }
+            if let oth = payload["oth5_pct"], oth > 110 { return }
             let shopper = picker
-            let storeNumber = HeartbeatMath.canonicalStore(carryStore)
             out[storeNumber + "|" + shopper] = ParsedWorkbookRow(
                 division: "",
                 operationsOM: "",
