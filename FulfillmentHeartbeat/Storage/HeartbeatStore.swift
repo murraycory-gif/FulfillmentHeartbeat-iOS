@@ -104,11 +104,10 @@ final class HeartbeatStore: ObservableObject {
         seeded = false
         filters = DashboardFilters()
         isReady = false
-        let laborN = PulseSQLite.sectionCount(from: sqliteURL, section: .labor)
-        let pickerN = PulseSQLite.sectionCount(from: sqliteURL, section: .pickerScorecard)
-        isImporting = laborN < 100 || pickerN < 2_000
+        isImporting = true
         importProgress.label = "Loading the data"
         importProgress.expected = MetricSection.uploadOrder.count
+        importProgress.loaded = 0
         Task { await self.boot() }
         watchAppLifecycle()
     }
@@ -116,11 +115,18 @@ final class HeartbeatStore: ObservableObject {
     private func boot() async {
         loadChecklist()
         loadMasterLink()
+        isImporting = true
+        isReady = false
+        importProgress.label = "Opening the floor"
         await loadPack()
-        if Self.hasUsableLabor(rows), Self.hasUsablePicker(rows) {
-            isReady = true
+        if cachedSummaries.isEmpty, !rows.isEmpty {
+            rebuildIndex()
+            installCompanyWideFast()
+        }
+        if Self.hasUsableLabor(rows), Self.hasUsablePicker(rows), !cachedSummaries.isEmpty {
             isImporting = false
             importLabel = nil
+            isReady = true
             needsRolePick = true
             Task { await self.syncServerWorkbookIfChanged() }
             return
@@ -131,9 +137,13 @@ final class HeartbeatStore: ObservableObject {
         importProgress.expected = MetricSection.uploadOrder.count
         importLabel = "Downloading workbook"
         await pullWorkbookFromServer()
+        if cachedSummaries.isEmpty, !rows.isEmpty {
+            rebuildIndex()
+            installCompanyWideFast()
+        }
         isImporting = false
         importLabel = nil
-        if seeded, !rows.isEmpty {
+        if seeded, !rows.isEmpty, !cachedSummaries.isEmpty {
             isReady = true
             needsRolePick = true
         }
@@ -2324,23 +2334,32 @@ final class HeartbeatStore: ObservableObject {
                 filters = DashboardFilters()
                 sessionRole = nil
                 needsRolePick = true
-                isReady = true
-                isImporting = false
-                importLabel = nil
-                let snapshot = pack
-                let caches = await Task.detached(priority: .userInitiated) {
-                    PulseCaches.build(
-                        rows: snapshot.rows,
-                        filters: DashboardFilters(),
-                        uploads: snapshot.uploads,
-                        heavy: false,
-                        grain: .region
-                    )
-                }.value
+                importProgress.label = "Setting the aisle"
+                importProgress.loaded = min(14, MetricSection.uploadOrder.count)
+                importProgress.expected = MetricSection.uploadOrder.count
                 hydrating = true
-                install(caches)
+                rebuildIndex()
+                installCompanyWideFast()
                 hydrating = false
-                scheduleHeavyExtras(latest: caches.filteredLatest, roster: caches.roster)
+                importProgress.loaded = MetricSection.uploadOrder.count
+                scheduleHeavyExtras(latest: latestBySection, roster: roster)
+                let latest = latestBySection
+                let rosterCopy = roster
+                let stores = cachedStores
+                Task.detached(priority: .utility) {
+                    let packs = PulseCaches.grainPacks(
+                        latest: latest,
+                        grain: .region,
+                        hidePicker: false,
+                        stores: stores,
+                        roster: rosterCopy
+                    )
+                    await MainActor.run {
+                        if self.cachedGrainPacks.isEmpty || self.filters.isActive == false {
+                            self.cachedGrainPacks = packs
+                        }
+                    }
+                }
                 return
             }
         }
