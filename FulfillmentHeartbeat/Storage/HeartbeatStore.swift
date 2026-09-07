@@ -115,16 +115,21 @@ final class HeartbeatStore: ObservableObject {
         loadChecklist()
         loadMasterLink()
         await loadPack()
-        if isReady, Self.hasUsableLabor(rows), Self.hasUsablePicker(rows) {
+        if seeded, !rows.isEmpty {
+            isReady = true
             isImporting = false
             importLabel = nil
+            needsRolePick = true
+            if !Self.hasUsableLabor(rows) || !Self.hasUsablePicker(rows) {
+                Task { await importCloudWorkbook(blocking: false) }
+            }
             return
         }
         importProgress.label = "Downloading workbook"
         importProgress.loaded = 0
         importProgress.expected = MetricSection.uploadOrder.count
         importLabel = "Downloading workbook"
-        await importCloudWorkbook()
+        await importCloudWorkbook(blocking: true)
     }
 
     private func watchAppLifecycle() {
@@ -1384,10 +1389,14 @@ final class HeartbeatStore: ObservableObject {
 
     private func refreshFromCloud() async {
         guard !isImporting else { return }
-        await importCloudWorkbook()
+        await importCloudWorkbook(blocking: true)
     }
 
     private func importCloudWorkbook() async {
+        await importCloudWorkbook(blocking: true)
+    }
+
+    private func importCloudWorkbook(blocking: Bool) async {
         var remoteXlsx = 0
         var remoteName = "Heartbeat Daily Report.xlsx"
         for name in PulseCloud.workbookNames {
@@ -1399,40 +1408,49 @@ final class HeartbeatStore: ObservableObject {
             }
         }
         let knownXlsx = UserDefaults.standard.integer(forKey: "hb.cloudXlsxBytes")
-        let missingHeavy = !Self.hasUsableLabor(rows) || !Self.hasUsablePicker(rows)
-        guard remoteXlsx > 1_000, remoteXlsx != knownXlsx || missingHeavy || !isReady else {
-            if seeded { isImporting = false; isReady = true }
+        let hasPack = seeded && !rows.isEmpty
+        guard remoteXlsx > 1_000, remoteXlsx != knownXlsx || !hasPack else {
+            if hasPack {
+                isImporting = false
+                isReady = true
+            }
             return
         }
-        isImporting = true
-        isReady = false
-        importLabel = "Downloading workbook"
-        importProgress.label = "Downloading workbook"
-        importProgress.loaded = 0
-        importProgress.expected = MetricSection.uploadOrder.count
+        if blocking || !hasPack {
+            isImporting = true
+            isReady = false
+            importLabel = "Downloading workbook"
+            importProgress.label = "Downloading workbook"
+            importProgress.loaded = 0
+            importProgress.expected = MetricSection.uploadOrder.count
+        }
         do {
             let book = try await PulseCloud.downloadNamed(remoteName)
-            importProgress.label = "Reading workbook"
+            if blocking || !hasPack {
+                importProgress.label = "Reading workbook"
+            }
             let ok = await runMasterImport(
                 data: book,
                 filename: remoteName,
                 fallbackToPicker: false,
-                alreadyOpen: true,
-                presentRoleGate: true
+                alreadyOpen: hasPack,
+                presentRoleGate: !hasPack
             )
-            if ok, Self.hasUsableLabor(rows), Self.hasUsablePicker(rows) {
+            if ok {
                 UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
-            } else if !ok {
+            } else if !hasPack {
                 UserDefaults.standard.removeObject(forKey: "hb.cloudXlsxBytes")
                 isImporting = false
                 importLabel = nil
-                errorMessage = "Cloud workbook did not load Labor and Picker."
+                errorMessage = "Cloud workbook did not load."
             }
             return
         } catch {
-            isImporting = false
-            importLabel = nil
-            errorMessage = "Could not load Heartbeat Daily Report from the cloud."
+            if !hasPack {
+                isImporting = false
+                importLabel = nil
+                errorMessage = "Could not load Heartbeat Daily Report from the cloud."
+            }
         }
     }
 
@@ -2254,9 +2272,10 @@ final class HeartbeatStore: ObservableObject {
                 hydrating = false
                 rebuildLaborWeekIndex()
                 scheduleHeavyExtras(latest: caches.filteredLatest, roster: caches.roster)
-                if !Self.hasUsableLabor(pack.rows) || !Self.hasUsablePicker(pack.rows) {
-                    UserDefaults.standard.removeObject(forKey: "hb.cloudXlsxBytes")
-                    isReady = false
+                if Self.hasUsableLabor(pack.rows), Self.hasUsablePicker(pack.rows) {
+                    isReady = true
+                    isImporting = false
+                    importLabel = nil
                 } else {
                     isReady = true
                     isImporting = false
