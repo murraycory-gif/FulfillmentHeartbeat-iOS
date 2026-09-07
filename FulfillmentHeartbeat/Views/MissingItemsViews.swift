@@ -423,18 +423,20 @@ private struct MissingItemsRollupRow: Identifiable {
 }
 
 private enum MissingItemsGrain {
-    case division, district, store
+    case region, division, district, store
 
     var title: String {
         switch self {
+        case .region: return "Regions"
         case .division: return "Markets"
-        case .district: return "By District"
+        case .district: return "Districts"
         case .store: return "Store"
         }
     }
 
     var symbol: String {
         switch self {
+        case .region: return "globe.americas.fill"
         case .division: return "map.fill"
         case .district: return "square.grid.2x2.fill"
         case .store: return "storefront.fill"
@@ -443,6 +445,7 @@ private enum MissingItemsGrain {
 
     var columnTitle: String {
         switch self {
+        case .region: return "Region"
         case .division: return "Division"
         case .district: return "District"
         case .store: return "Store"
@@ -451,6 +454,7 @@ private enum MissingItemsGrain {
 
     static func current(for filters: DashboardFilters) -> MissingItemsGrain? {
         switch RollupMarketFill.grain(for: filters) {
+        case .region: return .region
         case .division: return .division
         case .district: return .district
         case .store: return .store
