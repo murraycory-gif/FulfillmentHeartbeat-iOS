@@ -925,13 +925,21 @@ enum WorkbookParser {
             if !row.contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) { return }
             matrix.append(row)
         }
-        if let packed = zip.compressedPayload(named: path) ?? zip.compressedPayload(named: path.replacingOccurrences(of: "xl/", with: "")),
-           packed.bytes.count > 80 {
+        let packed = zip.compressedPayload(named: path) ?? zip.compressedPayload(named: path.replacingOccurrences(of: "xl/", with: ""))
+        if let packed, packed.method == 8, packed.bytes.count > 80 {
             SheetXML.forEachRowInflating(compressed: packed.bytes, strings: strings, keep: nil, handle: handle)
-        } else if let data = zip.file(named: path) ?? zip.file(named: path.replacingOccurrences(of: "xl/", with: "")), !data.isEmpty {
+        }
+        if matrix.count < 8, let data = zip.file(named: path) ?? zip.file(named: path.replacingOccurrences(of: "xl/", with: "")), !data.isEmpty {
+            matrix.removeAll(keepingCapacity: true)
             SheetXML.forEachRowBytes(data: data, strings: strings, keep: nil, handle: handle)
         }
-        return parseSales(matrix) ?? []
+        if let rows = parseSales(matrix), !rows.isEmpty { return rows }
+        if let data = zip.file(named: path) ?? zip.file(named: path.replacingOccurrences(of: "xl/", with: "")), !data.isEmpty {
+            let parsed = parseSales(SheetXML.parse(data: data, strings: strings)) ?? []
+            zip.release(path)
+            return parsed
+        }
+        return []
     }
 
     private static func isSalesHeader(_ row: [String]) -> Bool {
