@@ -1112,6 +1112,7 @@ final class HeartbeatStore: ObservableObject {
         if filters != cleaned {
             filters = cleaned
             persistFilters()
+            return
         }
         applyFilters()
     }
@@ -1632,10 +1633,11 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func replaceFilters(_ next: DashboardFilters) {
-        if filters != next {
-            filters = next
+        if filters == next {
+            applyFilters()
+            return
         }
-        applyFilters()
+        filters = next
     }
 
     private func rebuildIndex() {
@@ -1677,20 +1679,15 @@ final class HeartbeatStore: ObservableObject {
 
     private func applyVisibleFilter() {
         refreshFilterOptions()
-        if let allowed = PulseCaches.allowedStores(roster: roster, filters: filters) {
+        let allowed = PulseCaches.allowedStores(roster: roster, filters: filters)
+        if let allowed {
             var next: [MetricSection: [MetricRow]] = [:]
             next.reserveCapacity(latestBySection.count)
             for (section, rows) in latestBySection {
-                next[section] = rows.filter { row in
-                    let store = HeartbeatMath.canonicalStore(row.storeNumber)
-                    if !store.isEmpty, allowed.contains(store) { return true }
-                    if !store.isEmpty, roster[store] != nil { return false }
-                    if !filters.includesDivision(row.division) { return false }
-                    if !filters.includesDistrict(row.district) { return false }
-                    if !filters.includesOM(row.operationsOM) { return false }
-                    if !filters.includesStore(store) { return false }
-                    return true
+                if section == .pickerScorecard || section == .pickPathPicker || section == .preSubOOSItem {
+                    continue
                 }
+                next[section] = rows.filter { Self.rowMatchesFilter($0, allowed: allowed, roster: roster, filters: filters) }
             }
             filteredLatest = next
         } else {
@@ -1703,16 +1700,53 @@ final class HeartbeatStore: ObservableObject {
                 upload: uploads.first { $0.section == section }
             )
         }
-        cachedCardFlags = PulseCaches.cardFlags(latest: filteredLatest)
-        cachedGrainPacks = PulseCaches.grainPacks(
-            latest: filteredLatest,
-            grain: effectiveDashboardGrain,
-            hidePicker: sessionRole == .evp,
-            stores: cachedStores,
-            roster: roster
-        )
         filterStamp += 1
-        objectWillChange.send()
+        let snapshotAllowed = allowed
+        let snapshotFilters = filters
+        let snapshotRoster = roster
+        let snapshotLatest = latestBySection
+        let grain = effectiveDashboardGrain
+        let hidePicker = sessionRole == .evp
+        let stores = cachedStores
+        Task { @MainActor [weak self] in
+            guard let self, self.filters == snapshotFilters else { return }
+            if let allowed = snapshotAllowed {
+                self.filteredLatest[.pickerScorecard] = (snapshotLatest[.pickerScorecard] ?? []).filter {
+                    Self.rowMatchesFilter($0, allowed: allowed, roster: snapshotRoster, filters: snapshotFilters)
+                }
+                self.filteredLatest[.pickPathPicker] = (snapshotLatest[.pickPathPicker] ?? []).filter {
+                    Self.rowMatchesFilter($0, allowed: allowed, roster: snapshotRoster, filters: snapshotFilters)
+                }
+                self.filteredLatest[.preSubOOSItem] = (snapshotLatest[.preSubOOSItem] ?? []).filter {
+                    Self.rowMatchesFilter($0, allowed: allowed, roster: snapshotRoster, filters: snapshotFilters)
+                }
+            }
+            self.cachedCardFlags = PulseCaches.cardFlags(latest: self.filteredLatest)
+            self.cachedGrainPacks = PulseCaches.grainPacks(
+                latest: self.filteredLatest,
+                grain: grain,
+                hidePicker: hidePicker,
+                stores: stores,
+                roster: snapshotRoster
+            )
+            self.filterStamp += 1
+        }
+    }
+
+    private static func rowMatchesFilter(
+        _ row: MetricRow,
+        allowed: Set<String>,
+        roster: [String: HeartbeatMath.StoreIdentity],
+        filters: DashboardFilters
+    ) -> Bool {
+        let store = HeartbeatMath.canonicalStore(row.storeNumber)
+        if !store.isEmpty, allowed.contains(store) { return true }
+        if !store.isEmpty, roster[store] != nil { return false }
+        if !filters.includesDivision(row.division) { return false }
+        if !filters.includesDistrict(row.district) { return false }
+        if !filters.includesOM(row.operationsOM) { return false }
+        if !filters.includesStore(store) { return false }
+        return true
     }
 
     private func applyFilters() {
