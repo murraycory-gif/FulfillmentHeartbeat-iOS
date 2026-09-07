@@ -1754,14 +1754,25 @@ final class HeartbeatStore: ObservableObject {
                     }
                 }
             }
-            let lightReady: @Sendable ([WorkbookParser.ParsedSheet]) -> Void = { _ in }
+            let lightReady: @Sendable ([WorkbookParser.ParsedSheet]) -> Void = { sheets in
+                guard !sheets.isEmpty else { return }
+                Task { @MainActor [weak self] in
+                    await self?.applyMasterSheets(sheets, filename: filename, dismissOverlay: false, note: nil, presentRoleGate: false)
+                }
+            }
+            let sheetReady: @Sendable (WorkbookParser.ParsedSheet) -> Void = { sheet in
+                Task { @MainActor [weak self] in
+                    await self?.applyMasterSheets([sheet], filename: filename, dismissOverlay: false, note: nil, presentRoleGate: false)
+                }
+            }
             DispatchQueue.global(qos: .userInitiated).async {
                 do {
                     let sheets = try WorkbookParser.parseMaster(
                         data: data,
                         filename: filename,
                         onProgress: tick,
-                        onLightReady: lightReady
+                        onLightReady: lightReady,
+                        onSheetReady: sheetReady
                     )
                     continuation.resume(returning: sheets)
                 } catch {

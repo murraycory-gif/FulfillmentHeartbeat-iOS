@@ -97,7 +97,8 @@ enum WorkbookParser {
         data: Data,
         filename: String,
         onProgress: ((Int, Int, String) -> Void)? = nil,
-        onLightReady: (([ParsedSheet]) -> Void)? = nil
+        onLightReady: (([ParsedSheet]) -> Void)? = nil,
+        onSheetReady: ((ParsedSheet) -> Void)? = nil
     ) throws -> [ParsedSheet] {
         let ext = (filename as NSString).pathExtension.lowercased()
         if ext == "csv" || ext == "txt" || looksLikeCSV(data) {
@@ -200,6 +201,9 @@ enum WorkbookParser {
                 }
                 found[section] = ParsedSheet(section: section, sheetName: entry.name, rows: parsed)
                 onProgress?(found.count, expected, section.title)
+                if section == .labor || section == .pickerScorecard || section == .pickPathPicker {
+                    onSheetReady?(found[section]!)
+                }
             }
         }
         let sheets = MetricSection.uploadOrder.compactMap { found[$0] }
@@ -1727,8 +1731,7 @@ enum WorkbookParser {
         if let packed = zip.compressedPayload(named: path) ?? zip.compressedPayload(named: path.replacingOccurrences(of: "xl/", with: "")),
            packed.method == 8 {
             if packed.uncomp > 8_000_000, let range = zip.compressedRange(named: path) ?? zip.compressedRange(named: path.replacingOccurrences(of: "xl/", with: "")) {
-                let fast = parseLaborLatestWeek(zipData: zip.rawBytes, offset: range.offset, size: range.size, strings: strings, onTick: onTick)
-                if !fast.isEmpty { return fast }
+                return parseLaborLatestWeek(zipData: zip.rawBytes, offset: range.offset, size: range.size, strings: strings, onTick: onTick)
             }
             return parseLaborSheet(compressed: packed.bytes, strings: strings, onTick: onTick)
         }
@@ -2747,9 +2750,7 @@ enum WorkbookParser {
                         metricColumns[name, default: []].append(index)
                     }
                     if names.first == "date" || names.first == "weekid" || (names.first ?? "").contains("date") {
-                        storeIdx = 0
-                        empIdx = 1
-                        metricColumns = metricColumns.mapValues { $0.map { max(0, $0 - 1) } }
+                        // Date | Store | Picker — keep the detected STORE / PICKER columns.
                     }
                     if !metricColumns.isEmpty {
                         for name in metricColumns.keys {
