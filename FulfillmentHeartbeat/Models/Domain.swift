@@ -1472,11 +1472,11 @@ enum HeartbeatMath {
             return SectionSummary(
                 section: section,
                 storeCount: Set(latest.map(\.storeNumber)).count,
-                headline: Double(board.opportunityCount),
-                headlineLabel: "Opportunity pickers",
+                headline: Double(board.shopperCount),
+                headlineLabel: "Shoppers",
                 secondary: latest.isEmpty
                     ? "No shoppers in view"
-                    : "\(board.strongCount) doing well · \(board.shopperCount) shoppers",
+                    : "\(board.opportunityCount) opportunity · \(board.strongCount) doing well",
                 health: band(
                     latest.isEmpty ? nil : (1 - Double(board.opportunityCount) / Double(max(board.shopperCount, 1))) * 100,
                     good: 80,

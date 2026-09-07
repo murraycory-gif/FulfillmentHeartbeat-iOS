@@ -1762,8 +1762,9 @@ enum WorkbookParser {
         if !pathPicker, let packed = zip.compressedPayload(named: path) ?? zip.compressedPayload(named: path.replacingOccurrences(of: "xl/", with: "")),
            packed.method == 8 {
             parsed = parsePickerCompactRaw(compressed: packed.bytes, strings: strings, onTick: onTick)
-            if parsed.isEmpty {
-                parsed = parsePickerFast(compressed: packed.bytes, strings: strings, onTick: onTick)
+            if parsed.count < 10_000 {
+                let streamed = parsePickerStreaming(compressed: packed.bytes, strings: strings, onTick: onTick)
+                if streamed.count > parsed.count { parsed = streamed }
             }
         } else if pathPicker, let packed = zip.compressedPayload(named: path) ?? zip.compressedPayload(named: path.replacingOccurrences(of: "xl/", with: "")),
                   packed.method == 8 {
@@ -2799,9 +2800,10 @@ enum WorkbookParser {
         onTick: ((Int) -> Void)?
     ) -> [ParsedWorkbookRow] {
         var layout = 0
-        var blockStarts: [Int] = []
-        var blockLabels: [String] = []
+        var blockStarts: [Int] = [2, 15, 28, 41, 54, 67, 80, 93]
+        var blockLabels: [String] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Total"]
         var out: [String: ParsedWorkbookRow] = [:]
+        out.reserveCapacity(32_000)
         let fields: [(Int, String)] = [
             (0, "pph"), (1, "presub"), (2, "oos"), (3, "pickhours"),
             (4, "picks"), (5, "subs"), (6, "orders"), (7, "dug"),
@@ -2817,6 +2819,10 @@ enum WorkbookParser {
             }
             return block
         }
+        func dayValue(_ block: [String: Double], _ key: String, worked: Bool) -> String {
+            guard worked, let value = block[key] else { return "N/A" }
+            return String(value)
+        }
         SheetXML.forEachRowInflating(compressed: compressed, strings: strings, handleRaw: { data in
             let map = SheetXML.rawMap(data, strings: strings)
             let a = map["A"] ?? ""
@@ -2824,71 +2830,64 @@ enum WorkbookParser {
             if layout == 0 {
                 let na = normHeader(a)
                 if na == "date" || na.contains("date") {
-                    blockStarts = []
-                    blockLabels = []
-                    var col = 2
-                    while col < 110 {
-                        let raw = (map[SheetXML.colLetter(col)] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                        if raw.isEmpty {
-                            col += 13
-                            continue
-                        }
-                        blockStarts.append(col)
+                    var labels: [String] = []
+                    for start in blockStarts {
+                        let raw = (map[SheetXML.colLetter(start)] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                         if raw.lowercased() == "total" {
-                            blockLabels.append("Total")
+                            labels.append("Total")
                         } else if let iso = excelSerialDate(raw) {
-                            blockLabels.append(iso)
+                            labels.append(iso)
+                        } else if !raw.isEmpty {
+                            labels.append(raw)
                         } else {
-                            blockLabels.append(raw)
+                            labels.append("")
                         }
-                        col += 13
+                    }
+                    if labels.contains(where: { !$0.isEmpty }) {
+                        blockLabels = labels
                     }
                     return
                 }
                 let nb = normHeader(b)
                 if na.contains("store") && (nb.contains("picker") || nb.contains("shopper")) {
                     layout = 1
-                    if blockStarts.isEmpty { blockStarts = [2] }
                 }
                 return
             }
-            let store = a
             let picker = b.trimmingCharacters(in: .whitespacesAndNewlines)
             if picker.isEmpty || isTotalCell(picker) { return }
             guard picker.rangeOfCharacter(from: .letters) != nil else { return }
-            guard looksLikeStoreNumber(store) else { return }
-            let storeNumber = HeartbeatMath.canonicalStore(store)
+            guard looksLikeStoreNumber(a) else { return }
+            let storeNumber = HeartbeatMath.canonicalStore(a)
             var total: [String: Double] = [:]
             var days: [[String: String]] = []
+            days.reserveCapacity(7)
             for (index, start) in blockStarts.enumerated() {
-                let block = readBlock(map, start: start)
                 let label = index < blockLabels.count ? blockLabels[index] : ""
-                if label.lowercased() == "total" {
-                    total = block
-                    continue
+                let block = readBlock(map, start: start)
+                if label.lowercased() == "total" || index == blockStarts.count - 1 {
+                    if label.lowercased() == "total" || total.isEmpty {
+                        total = block
+                    }
+                    if label.lowercased() == "total" { continue }
+                    if index == blockStarts.count - 1 { continue }
                 }
-                func cell(_ key: String) -> String {
-                    if let value = block[key] { return String(value) }
-                    return "0"
-                }
+                let worked = (block["pph"] ?? 0) > 0
+                    || (block["pick_hours"] ?? 0) > 0
+                    || (block["orders"] ?? 0) > 0
                 var day: [String: String] = [:]
                 day["date"] = label
-                day["pph"] = cell("pph")
-                day["presub"] = cell("presub_pct")
-                day["oos"] = cell("oos_pct")
-                day["ott"] = cell("ott_pct")
-                day["oth5"] = cell("oth5_pct")
-                day["hours"] = cell("pick_hours")
-                day["orders"] = cell("orders")
-                day["refund"] = cell("refund_amt")
+                day["pph"] = dayValue(block, "pph", worked: worked)
+                day["presub"] = dayValue(block, "presub_pct", worked: worked)
+                day["oos"] = dayValue(block, "oos_pct", worked: worked)
+                day["ott"] = dayValue(block, "ott_pct", worked: worked)
+                day["oth5"] = dayValue(block, "oth5_pct", worked: worked)
+                day["hours"] = dayValue(block, "pick_hours", worked: worked)
+                day["orders"] = dayValue(block, "orders", worked: worked)
+                day["refund"] = dayValue(block, "refund_amt", worked: worked)
                 days.append(day)
             }
-            if total.isEmpty, let last = blockStarts.last {
-                total = readBlock(map, start: last)
-            }
             guard let pph = total["pph"], pph > 0, pph < 200 else { return }
-            if let hours = total["pick_hours"], hours > 200 { return }
-            if let orders = total["orders"], orders > 2_000 { return }
             let daysJSON = (try? JSONSerialization.data(withJSONObject: days)).flatMap { String(data: $0, encoding: .utf8) } ?? "[]"
             out[storeNumber + "|" + picker] = ParsedWorkbookRow(
                 division: "",
@@ -3899,7 +3898,7 @@ enum SheetXML {
                 continue
             }
             let letter = String(data: inner[found.upperBound..<letterEnd], encoding: .ascii) ?? ""
-            let windowEnd = inner.index(found.lowerBound, offsetBy: 220, limitedBy: inner.endIndex) ?? inner.endIndex
+            let windowEnd = inner.index(found.lowerBound, offsetBy: 400, limitedBy: inner.endIndex) ?? inner.endIndex
             let window = inner[found.lowerBound..<windowEnd]
             guard let open = window.range(of: vToken) else {
                 cursor = letterEnd

@@ -9180,17 +9180,20 @@ struct PickerDaySnap: Identifiable, Equatable {
             }()
             func num(_ key: String, digits: Int) -> String {
                 let raw = item[key] ?? ""
-                guard let value = Double(raw) else { return "—" }
+                if raw.isEmpty || raw == "N/A" { return "N/A" }
+                guard let value = Double(raw) else { return "N/A" }
                 return HeartbeatFormat.num(value, digits: digits)
             }
             func pct(_ key: String) -> String {
                 let raw = item[key] ?? ""
-                guard let value = Double(raw) else { return "—" }
+                if raw.isEmpty || raw == "N/A" { return "N/A" }
+                guard let value = Double(raw) else { return "N/A" }
                 return HeartbeatFormat.pct(value)
             }
             func money(_ key: String) -> String {
                 let raw = item[key] ?? ""
-                guard let value = Double(raw) else { return "—" }
+                if raw.isEmpty || raw == "N/A" { return "N/A" }
+                guard let value = Double(raw) else { return "N/A" }
                 return HeartbeatFormat.money(value)
             }
             return PickerDaySnap(
