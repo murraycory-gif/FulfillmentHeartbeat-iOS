@@ -104,7 +104,9 @@ final class HeartbeatStore: ObservableObject {
         seeded = false
         filters = DashboardFilters()
         isReady = false
-        isImporting = !PulseSQLite.exists(at: sqliteURL)
+        let laborN = PulseSQLite.sectionCount(from: sqliteURL, section: .labor)
+        let pickerN = PulseSQLite.sectionCount(from: sqliteURL, section: .pickerScorecard)
+        isImporting = laborN < 100 || pickerN < 2_000
         importProgress.label = "Loading the data"
         importProgress.expected = MetricSection.uploadOrder.count
         Task { await self.boot() }
@@ -2306,28 +2308,29 @@ final class HeartbeatStore: ObservableObject {
                 try? PulseSQLite.read(from: url)
             }.value
             if let pack, !pack.rows.isEmpty {
-                let caches = await Task.detached(priority: .userInitiated) {
-                    PulseCaches.build(
-                        rows: pack.rows,
-                        filters: DashboardFilters(),
-                        uploads: pack.uploads,
-                        heavy: false,
-                        grain: .region
-                    )
-                }.value
                 rows = pack.rows
                 uploads = pack.uploads.sorted { $0.uploadedAt > $1.uploadedAt }
                 seeded = true
                 usingDatabasePack = true
-                hydrating = true
                 filters = DashboardFilters()
                 sessionRole = nil
                 needsRolePick = true
-                install(caches)
-                hydrating = false
                 isReady = true
                 isImporting = false
                 importLabel = nil
+                let snapshot = pack
+                let caches = await Task.detached(priority: .userInitiated) {
+                    PulseCaches.build(
+                        rows: snapshot.rows,
+                        filters: DashboardFilters(),
+                        uploads: snapshot.uploads,
+                        heavy: false,
+                        grain: .region
+                    )
+                }.value
+                hydrating = true
+                install(caches)
+                hydrating = false
                 scheduleHeavyExtras(latest: caches.filteredLatest, roster: caches.roster)
                 return
             }

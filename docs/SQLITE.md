@@ -1,12 +1,12 @@
-# How Heartbeat loads data (Amazon-style)
+# Known-good load
 
-Amazon does not parse catalogs on the phone. It opens a local cache, then refreshes from a ready server file.
+**HB-0828.159 / 1.0 (530)** is the build that loaded every scorecard correctly
+from `Heartbeat Daily Report.xlsx` (Labor + Picker included).
 
-Heartbeat now:
+Do not change the parse path for those sheets.
 
-1. Opens `heartbeat.sqlite` on the device if Labor and Picker are in it.
-2. If that cache is incomplete, downloads `current.sqlite` from Supabase.
-3. If that pack is also missing Labor or Picker, downloads `Heartbeat Daily Report.xlsx` once, builds the cache, and publishes a **complete** `current.sqlite`.
-4. Later opens are cache-only until the server workbook size changes.
-
-Incomplete packs are never published. That was why Labor and Picker vanished after a fast launch.
+Speed after that build:
+- If the on-device pack already has Labor and Picker, skip the splash and
+  skip the workbook download.
+- Show Who's looking as soon as rows are in memory. Dashboard caches fill
+  right after.
