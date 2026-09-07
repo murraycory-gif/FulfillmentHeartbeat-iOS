@@ -744,6 +744,7 @@ enum HeartbeatMath {
         if section == .fiveStar { return fiveStarActionFlags(rows, includeAll: true) }
         if section == .lostRevenue { return lostRevenueMetricFlags(rows, includeAll: true) }
         if section == .labor { return laborActionFlags(rows) }
+        if section == .scheduleQuality { return scheduleActionFlags(rows, includeAll: true) }
         if section == .pickerScorecard {
             let shoppers = rows.filter { !$0.shopperName.isEmpty || !$0.shopperKey.isEmpty }
             let healthy = shoppers.filter { health(for: .pickerScorecard, row: $0) == .good }.count
@@ -1851,47 +1852,48 @@ enum HeartbeatMath {
     }
 
     static func scheduleActionFlags(_ rows: [MetricRow], includeAll: Bool = false) -> [FiveStarFlag] {
-        let specs: [(name: String, keys: [String])] = [
-            ("Under Scheduled", ["under_schedule_pct", "under_scheduled"]),
-            ("Over Scheduled", ["over_schedule_pct", "over_scheduled"]),
-        ]
-        var flags: [FiveStarFlag] = []
-        flags.reserveCapacity(specs.count)
-        for spec in specs {
-            var worst = Health.none
-            var action = 0
-            var values: [Double] = []
-            values.reserveCapacity(rows.count)
-            for row in rows {
-                let value: Double?
-                if spec.keys.count == 2 {
-                    value = row.number(spec.keys[0], spec.keys[1])
-                } else {
-                    value = row.number(spec.keys[0])
-                }
-                guard let value else { continue }
-                values.append(value)
-                let health = varianceHealth(value)
-                if health.needsAction {
-                    action += 1
-                    if health == .risk { worst = .risk }
-                    else if worst != .risk { worst = .watch }
-                }
-            }
-            guard !values.isEmpty else { continue }
-            if !includeAll {
-                guard action > 0, worst.needsAction else { continue }
-            }
-            flags.append(
-                FiveStarFlag(
-                    name: spec.name,
-                    value: HeartbeatFormat.pct(average(values)),
-                    health: worst == .none ? .good : worst,
-                    stores: action
-                )
-            )
+        let stores = rows.filter { !isIgnoredStore($0.storeNumber) && !$0.storeNumber.isEmpty }
+        let scoped = stores.isEmpty ? rows : stores
+        func avg(_ keys: String...) -> Double? {
+            average(scoped.compactMap { row in
+                keys.lazy.compactMap { row.number($0) }.first
+            })
         }
-        return flags
+        func risk(_ health: (MetricRow) -> Health) -> Int {
+            scoped.filter { health($0) == .risk }.count
+        }
+        let efficiency = avg("schedule_efficiency_pct")
+        let staffing = avg("staffing_efficiency_pct")
+        let under = avg("under_schedule_pct", "under_scheduled", "under_staffing_pct")
+        let over = avg("over_schedule_pct", "over_scheduled", "over_staffing_pct")
+        let flags = [
+            FiveStarFlag(
+                name: "Sch Effi %",
+                value: HeartbeatFormat.pct(efficiency),
+                health: band(efficiency, good: scheduleGoal, watch: scheduleWatch),
+                stores: risk { band($0.number("schedule_efficiency_pct"), good: scheduleGoal, watch: scheduleWatch) }
+            ),
+            FiveStarFlag(
+                name: "Staffing % Pch VS TGT",
+                value: HeartbeatFormat.pct(staffing),
+                health: band(staffing, good: scheduleGoal, watch: scheduleWatch),
+                stores: risk { band($0.number("staffing_efficiency_pct"), good: scheduleGoal, watch: scheduleWatch) }
+            ),
+            FiveStarFlag(
+                name: "Under",
+                value: HeartbeatFormat.pct(under),
+                health: varianceHealth(under),
+                stores: risk { varianceHealth($0.number("under_schedule_pct", "under_scheduled", "under_staffing_pct")) }
+            ),
+            FiveStarFlag(
+                name: "Over",
+                value: HeartbeatFormat.pct(over),
+                health: varianceHealth(over),
+                stores: risk { varianceHealth($0.number("over_schedule_pct", "over_scheduled", "over_staffing_pct")) }
+            ),
+        ]
+        if includeAll { return flags }
+        return flags.filter { $0.health.needsAction || $0.stores > 0 }
     }
 
     static func laborActionFlags(_ rows: [MetricRow]) -> [FiveStarFlag] {
