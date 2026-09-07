@@ -151,6 +151,22 @@ enum PulseSQLite {
         FileManager.default.fileExists(atPath: url.path)
     }
 
+    static func sectionCount(from url: URL, section: MetricSection) -> Int {
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK, let db else {
+            return 0
+        }
+        defer { sqlite3_close(db) }
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM facts WHERE section = ?;", -1, &stmt, nil) == SQLITE_OK else {
+            return 0
+        }
+        bind(stmt, 1, section.rawValue)
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
+        return Int(sqlite3_column_int(stmt, 0))
+    }
+
     private static let ddl = """
     CREATE TABLE pack_meta (
         id INTEGER PRIMARY KEY,

@@ -115,18 +115,24 @@ final class HeartbeatStore: ObservableObject {
         loadChecklist()
         loadMasterLink()
         await loadPack()
-        if seeded, !rows.isEmpty {
+        let pickerFacts = PulseSQLite.exists(at: sqliteURL)
+            ? PulseSQLite.sectionCount(from: sqliteURL, section: .pickerScorecard)
+            : 0
+        let laborFacts = PulseSQLite.exists(at: sqliteURL)
+            ? PulseSQLite.sectionCount(from: sqliteURL, section: .labor)
+            : 0
+        if seeded, !rows.isEmpty, pickerFacts >= 10_000, laborFacts >= 100 {
             isReady = true
             isImporting = false
             importLabel = nil
             needsRolePick = true
-            Task { await importCloudWorkbook(blocking: false) }
             return
         }
         importProgress.label = "Downloading workbook"
         importProgress.loaded = 0
         importProgress.expected = MetricSection.uploadOrder.count
         importLabel = "Downloading workbook"
+        UserDefaults.standard.removeObject(forKey: "hb.cloudXlsxBytes")
         await importCloudWorkbook(blocking: true)
     }
 
@@ -325,12 +331,14 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func pickerCount(for focus: PickerFocus) -> Int {
+        let pickers = filters.isActive
+            ? (filteredLatest[.pickerScorecard] ?? [])
+            : (latestBySection[.pickerScorecard] ?? [])
+        if focus == .all { return pickers.count }
         if let indexed = pickerIndex[focus]?.count, indexed > 0 {
             return indexed
         }
-        let pickers = filteredLatest[.pickerScorecard] ?? []
-        if focus == .all { return pickers.count }
-        return pickerIndex[focus]?.count ?? 0
+        return 0
     }
 
     func pickerFocusHealth(for focus: PickerFocus) -> Health {
