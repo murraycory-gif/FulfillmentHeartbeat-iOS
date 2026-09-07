@@ -1741,17 +1741,10 @@ final class HeartbeatStore: ObservableObject {
                     }
                 }
             }
-            let lightReady: @Sendable ([WorkbookParser.ParsedSheet]) -> Void = { sheets in
-                guard !sheets.isEmpty else { return }
-                Task { @MainActor [weak self] in
-                    await self?.applyMasterSheets(sheets, filename: filename, dismissOverlay: false, note: nil, presentRoleGate: false)
-                    await self?.persistNow()
-                }
-            }
+            let lightReady: @Sendable ([WorkbookParser.ParsedSheet]) -> Void = { _ in }
             let sheetReady: @Sendable (WorkbookParser.ParsedSheet) -> Void = { sheet in
                 Task { @MainActor [weak self] in
                     await self?.applyMasterSheets([sheet], filename: filename, dismissOverlay: false, note: nil, presentRoleGate: false)
-                    await self?.persistNow()
                 }
             }
             DispatchQueue.global(qos: .userInitiated).async {
@@ -2425,14 +2418,8 @@ final class HeartbeatStore: ObservableObject {
 
     private func persistNow() async {
         persistFilters()
-        let light = HeartbeatSnapshot(
-            rows: lightRows(rows),
-            uploads: uploads,
-            seeded: seeded,
-            filters: filters
-        )
-        let heavy = HeartbeatSnapshot(
-            rows: heavyRows(rows),
+        let snapshot = HeartbeatSnapshot(
+            rows: rows,
             uploads: uploads,
             seeded: seeded,
             filters: filters
@@ -2445,8 +2432,8 @@ final class HeartbeatStore: ObservableObject {
         let packSeeded = seeded
         do {
             try await Task.detached(priority: .utility) {
-                try PulseDisk.write(light, to: lightURL)
-                try PulseDisk.write(heavy, to: packedURL)
+                try PulseDisk.write(snapshot, to: lightURL)
+                try PulseDisk.write(snapshot, to: packedURL)
                 try PulseSQLite.write(rows: packRows, uploads: packUploads, seeded: packSeeded, to: packURL)
             }.value
         } catch {
