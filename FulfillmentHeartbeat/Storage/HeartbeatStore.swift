@@ -37,6 +37,7 @@ final class HeartbeatStore: ObservableObject {
     @Published private(set) var linkedMasterName: String?
     @Published private(set) var linkedMasterLoadedAt: Date?
     @Published var needsRolePick = false
+    @Published private(set) var usingDatabasePack = false
     @Published private(set) var sessionRole: HeartbeatRole?
     @Published var laborWeekFilter = ""
 
@@ -2057,6 +2058,12 @@ final class HeartbeatStore: ObservableObject {
                     self.filters = loadedFilters
                     self.filters.sanitize()
                     self.install(caches)
+                    if !firstRows.isEmpty {
+                        self.usingDatabasePack = hasPack
+                        if self.sessionRole == nil {
+                            self.needsRolePick = true
+                        }
+                    }
                     if self.filters.isActive {
                         self.applyFilters()
                     }

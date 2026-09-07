@@ -25,6 +25,9 @@ struct UploadView: View {
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
+                    if store.usingDatabasePack || store.seeded {
+                        databasePackBanner
+                    }
                     MasterLoadPanel(
                         enabled: !store.isImporting,
                         importing: store.isImporting && importTarget == nil,
@@ -122,6 +125,23 @@ struct UploadView: View {
         .onChange(of: showError) { _, presented in
             if !presented { store.errorMessage = nil }
         }
+    }
+
+    private var databasePackBanner: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Database pack is live")
+                .font(.headline.weight(.bold))
+            Text("Heartbeat is reading the on-device database, not Excel. Open the app and pick Who’s looking — do not upload the master workbook again unless the day or file changed.")
+                .font(.subheadline)
+                .foregroundStyle(AppTheme.textSecondary)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppTheme.blueSoft, in: RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                .stroke(AppTheme.blue.opacity(0.35), lineWidth: 1)
+        )
     }
 
     private var uploadColumns: [GridItem] {
