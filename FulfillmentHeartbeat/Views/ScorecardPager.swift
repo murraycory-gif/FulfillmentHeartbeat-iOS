@@ -131,35 +131,40 @@ struct ScorecardPager: UIViewControllerRepresentable, Equatable {
             var out: [HubDestination] = []
             if index > 0 { out.append(items[index - 1]) }
             if index + 1 < items.count { out.append(items[index + 1]) }
+            if index > 1 { out.append(items[index - 2]) }
+            if index + 2 < items.count { out.append(items[index + 2]) }
             return out
         }
 
         func dehydrate(keeping dest: HubDestination) {
-            let keep: Set<HubDestination>
-            if HubLayout.hydrateNeighbors {
-                keep = Set(neighbors(of: dest) + [dest])
-            } else {
-                keep = [dest]
-            }
+            let keep = Set(neighbors(of: dest) + [dest])
             for (key, host) in cache where host.hydrated && !keep.contains(key) {
                 host.rootView = Self.blank
                 host.hydrated = false
+                host.freezeForSwipe(false)
             }
         }
 
         func snap(to dest: HubDestination, animated: Bool) {
             guard let pager else { return }
             hydrate(dest)
-            if HubLayout.hydrateNeighbors {
-                for neighbor in neighbors(of: dest) {
-                    hydrate(neighbor)
-                }
-            }
             displayed = dest
             pager.dataSource = nil
             pager.setViewControllers([host(for: dest)], direction: .forward, animated: false)
             pager.dataSource = self
             resetScroll(pager)
+            warmSides(of: dest)
+        }
+
+        private func warmSides(of dest: HubDestination) {
+            guard HubLayout.hydrateNeighbors else { return }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.displayed == dest, !self.isSwiping else { return }
+                for neighbor in self.neighbors(of: dest) where self.cache[neighbor]?.hydrated != true {
+                    self.hydrate(neighbor)
+                    self.cache[neighbor]?.freezeForSwipe(true)
+                }
+            }
         }
 
         private static let blank = AnyView(Color(AppTheme.uiBg).ignoresSafeArea())
@@ -201,9 +206,6 @@ struct ScorecardPager: UIViewControllerRepresentable, Equatable {
             if let host = pendingViewControllers.first as? PageHost {
                 isSwiping = true
                 cache[displayed]?.freezeForSwipe(true)
-                if !host.hydrated {
-                    hydrate(host.dest)
-                }
                 host.freezeForSwipe(true)
             }
         }
@@ -218,15 +220,15 @@ struct ScorecardPager: UIViewControllerRepresentable, Equatable {
             guard let host = current ?? pageViewController.viewControllers?.first as? PageHost else { return }
             displayed = host.dest
             isSwiping = false
-            for item in cache.values { item.freezeForSwipe(false) }
+            host.freezeForSwipe(false)
             resetScroll(pageViewController)
-            if HubLayout.hydrateNeighbors {
-                for neighbor in neighbors(of: host.dest) where cache[neighbor]?.hydrated != true {
-                    hydrate(neighbor)
-                }
-            }
             if router.destination != host.dest {
                 router.open(host.dest)
+            }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.displayed == host.dest else { return }
+                self.dehydrate(keeping: host.dest)
+                self.warmSides(of: host.dest)
             }
         }
     }
