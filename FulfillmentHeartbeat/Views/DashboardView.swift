@@ -556,7 +556,7 @@ private struct DashFlagChip: View {
                     .minimumScaleFactor(0.75)
             }
             HStack(spacing: 6) {
-                Text(flag.stores == 0 ? "On plan" : "\(HeartbeatFormat.num(Double(flag.stores))) stores")
+                Text(countLine)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(dashInk(flag.health == .none ? .good : flag.health))
                     .lineLimit(1)
@@ -575,6 +575,12 @@ private struct DashFlagChip: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .stroke(AppTheme.healthInk(flag.health == .none ? .good : flag.health).opacity(0.28), lineWidth: 1)
         )
+    }
+
+    private var countLine: String {
+        let unit = flag.unit.isEmpty ? "stores" : flag.unit
+        let label = flag.stores == 1 && unit.hasSuffix("s") ? String(unit.dropLast()) : unit
+        return "\(HeartbeatFormat.num(Double(flag.stores))) \(label)"
     }
 }
 
