@@ -776,7 +776,7 @@ struct PickerHighlightsPanel: View {
                 HubTableHeader(
                     icon: "person.2.fill",
                     title: "Top Opportunity Pickers",
-                    accessory: "Pickers Doing Well  ·  15+ orders  ·  tap to \(expanded ? "collapse" : "expand")",
+                    accessory: "Pickers Doing Well  ·  tap to \(expanded ? "collapse" : "expand")",
                     expanded: expanded
                 )
             }
@@ -792,7 +792,7 @@ struct PickerHighlightsPanel: View {
                         HStack(alignment: .top, spacing: 16) {
                             shopperColumn(
                                 title: "Top opportunity",
-                                subtitle: "15+ orders · underperforming vs the metric mix",
+                                subtitle: "Underperforming vs the metric mix",
                                 rows: board.opportunity,
                                 empty: "No opportunity shoppers in this filter.",
                                 tone: .risk,
@@ -800,7 +800,7 @@ struct PickerHighlightsPanel: View {
                             )
                             shopperColumn(
                                 title: "Doing well",
-                                subtitle: "15+ orders · hitting the metric mix",
+                                subtitle: "Hitting the metric mix",
                                 rows: board.strong,
                                 empty: "No strong shoppers in this filter.",
                                 tone: .good,

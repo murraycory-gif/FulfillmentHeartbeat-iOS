@@ -973,8 +973,8 @@ struct SectionDetailView: View {
     private func pickerTileDetail(_ focus: PickerFocus) -> String {
         switch focus {
         case .all: return "Every shopper in this filter"
-        case .opportunity: return "15+ orders · underperforming"
-        case .strong: return "15+ orders · hitting the mix"
+        case .opportunity: return "Underperforming vs the metric mix"
+        case .strong: return "Hitting the metric mix"
         case .refund: return "$0 healthy · $1–20 watch · $20+ risk"
         default: return "Below goal in this metric"
         }

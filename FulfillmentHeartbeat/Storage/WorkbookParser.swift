@@ -3827,17 +3827,28 @@ enum SheetXML {
     }
 
     static func rawCell(_ inner: Data, letter: String, strings: [String]) -> String {
-        let needle = Data("r=\"\(letter)".utf8)
-        guard let start = inner.range(of: needle) else { return "" }
-        let limit = inner.index(start.lowerBound, offsetBy: 180, limitedBy: inner.endIndex) ?? inner.endIndex
-        let window = inner[start.lowerBound..<limit]
-        let shared = window.range(of: Data("t=\"s\"".utf8)) != nil
-        guard let open = window.range(of: Data("<v>".utf8)) else { return "" }
-        var cursor = open.upperBound
-        while cursor < window.endIndex, window[cursor] != 0x3C { cursor = window.index(after: cursor) }
-        let raw = String(data: window[open.upperBound..<cursor], encoding: .ascii) ?? ""
-        if shared, let index = Int(raw), strings.indices.contains(index) { return strings[index] }
-        return raw
+        let needle = Array("r=\"\(letter)".utf8)
+        var searchFrom = inner.startIndex
+        while searchFrom < inner.endIndex {
+            guard let start = inner.range(of: Data(needle), options: [], in: searchFrom..<inner.endIndex) else {
+                return ""
+            }
+            let after = start.upperBound
+            guard after < inner.endIndex else { return "" }
+            let next = inner[after]
+            searchFrom = after
+            guard next >= 0x30, next <= 0x39 else { continue }
+            let limit = inner.index(start.lowerBound, offsetBy: 200, limitedBy: inner.endIndex) ?? inner.endIndex
+            let window = inner[start.lowerBound..<limit]
+            let shared = window.range(of: Data("t=\"s\"".utf8)) != nil
+            guard let open = window.range(of: Data("<v>".utf8)) else { return "" }
+            var cursor = open.upperBound
+            while cursor < window.endIndex, window[cursor] != 0x3C { cursor = window.index(after: cursor) }
+            let raw = String(data: window[open.upperBound..<cursor], encoding: .ascii) ?? ""
+            if shared, let index = Int(raw), strings.indices.contains(index) { return strings[index] }
+            return raw
+        }
+        return ""
     }
 
     static func colLetter(_ index: Int) -> String {

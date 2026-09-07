@@ -2213,11 +2213,15 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private static func hasUsablePicker(_ rows: [MetricRow]) -> Bool {
-        rows.contains {
+        let pickers = rows.filter {
             $0.section == .pickerScorecard
                 && !($0.textPayload["shopper_id"] ?? $0.textPayload["shopper_name"] ?? "").isEmpty
-                && ($0.number("pph") != nil || $0.number("orders") != nil || $0.number("presub_pct") != nil)
         }
+        guard pickers.count >= 20 else { return false }
+        let withPPH = pickers.contains { $0.number("pph") != nil }
+        let withOOS = pickers.contains { $0.number("oos_pct") != nil }
+        let withOTT = pickers.contains { $0.number("ott_pct") != nil }
+        return withPPH && withOOS && withOTT
     }
 
     private func loadPack() async {
@@ -2618,9 +2622,7 @@ private struct PulseCaches {
         }
         let pickers = nextLatest[.pickerScorecard] ?? []
         let pickerBoard = HeartbeatMath.pickerBoard(pickers)
-        let picker = heavy
-            ? pickerIndexValues(pickers)
-            : (index: [PickerFocus: [Int]](), health: [PickerFocus: Health]())
+        let picker = pickerIndexValues(pickers)
         let path = pickPathIndexValues(scorecard: pickers, pathRows: latest[.pickPathPicker] ?? nextLatest[.pickPathPicker] ?? [])
         let pph = heavy ? pphIndexValues(pickers) : [:]
         let districts = roster.values
