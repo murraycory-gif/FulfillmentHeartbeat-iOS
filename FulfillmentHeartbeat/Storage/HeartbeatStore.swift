@@ -1357,6 +1357,76 @@ final class HeartbeatStore: ObservableObject {
 
     func pullLatestWorkbookIfNeeded() {
         Task { await pullWatchedWorkbook() }
+        pullCloudPackIfNeeded()
+    }
+
+    func pullCloudPackIfNeeded() {
+        Task { await refreshFromCloud() }
+    }
+
+    private func refreshFromCloud() async {
+        guard !isImporting else { return }
+        do {
+            let data = try await PulseCloud.downloadPack()
+            guard data.count > 1_000 else { return }
+            let stamp = UserDefaults.standard.integer(forKey: "hb.cloudPackBytes")
+            guard data.count != stamp else { return }
+            let temp = sqliteURL.deletingLastPathComponent().appendingPathComponent("cloud-pack.sqlite")
+            try data.write(to: temp, options: .atomic)
+            let pack = try PulseSQLite.read(from: temp)
+            guard !pack.rows.isEmpty else { return }
+            try? FileManager.default.removeItem(at: sqliteURL)
+            try FileManager.default.moveItem(at: temp, to: sqliteURL)
+            UserDefaults.standard.set(data.count, forKey: "hb.cloudPackBytes")
+            await MainActor.run {
+                self.installCloudPack(pack)
+            }
+        } catch {
+            return
+        }
+    }
+
+    private func installCloudPack(_ pack: PulseSQLite.Pack) {
+        let skip: Set<MetricSection> = [.labor, .pickerScorecard, .pickPathPicker, .preSubOOSItem]
+        let first = pack.rows.filter { !skip.contains($0.section) }
+        let caches = PulseCaches.build(
+            rows: first.isEmpty ? pack.rows : first,
+            filters: DashboardFilters(),
+            uploads: pack.uploads,
+            heavy: false,
+            grain: nil
+        )
+        rows = first.isEmpty ? pack.rows : first
+        if !pack.uploads.isEmpty {
+            uploads = pack.uploads.sorted { $0.uploadedAt > $1.uploadedAt }
+        }
+        seeded = true
+        usingDatabasePack = true
+        install(caches)
+        let rest = pack.rows.filter { skip.contains($0.section) }
+        if !rest.isEmpty {
+            rows = (first.isEmpty ? pack.rows : first) + rest
+            let full = PulseCaches.build(
+                rows: rows,
+                filters: DashboardFilters(),
+                uploads: pack.uploads,
+                heavy: false,
+                grain: nil
+            )
+            install(full)
+            rebuildLaborWeekIndex()
+        }
+    }
+
+    private func publishCloudPack() {
+        let url = sqliteURL
+        Task.detached(priority: .utility) {
+            guard let data = try? Data(contentsOf: url), data.count > 1_000 else { return }
+            try? await PulseCloud.uploadPack(data)
+            await MainActor.run {
+                UserDefaults.standard.set(data.count, forKey: "hb.cloudPackBytes")
+            }
+        }
     }
 
     private func pullWatchedWorkbook() async {
@@ -1688,6 +1758,7 @@ final class HeartbeatStore: ObservableObject {
             masterApplyToken += 1
             await applyMasterSheets(sheets, filename: filename, dismissOverlay: true, note: nil, presentRoleGate: presentRoleGate)
             Task { await persistNow() }
+            publishCloudPack()
             return true
         } catch {
             if fallbackToPicker {
@@ -2121,6 +2192,7 @@ final class HeartbeatStore: ObservableObject {
             install(caches)
             isReady = true
             pullLatestWorkbookIfNeeded()
+            pullCloudPackIfNeeded()
             let sqliteFile = sqliteURL
             let heavyFile = heavyURL
             let first = pack.rows
