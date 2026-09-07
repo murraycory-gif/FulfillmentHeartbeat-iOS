@@ -381,9 +381,9 @@ struct DashScopeStrip: View {
     }
 
     private var bannerCount: Int {
-        if section == .sales {
-            return visibleSalesRows.count
-        }
+        let scoped = store.dashboardScopeCount(grain)
+        if scoped > 0 { return scoped }
+        if section == .sales { return visibleSalesRows.count }
         let live = packs.filter {
             $0.line.count > 0 || (!$0.line.value.isEmpty && $0.line.value != "—")
         }

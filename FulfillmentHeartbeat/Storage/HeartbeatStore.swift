@@ -316,6 +316,22 @@ final class HeartbeatStore: ObservableObject {
         PulseCaches.grainFlags(section: section, grain: grain, packs: packs, latest: filteredLatest)
     }
 
+    func dashboardScopeCount(_ grain: DashScopeGrain) -> Int {
+        if !cachedSalesScopeRows.isEmpty {
+            return cachedSalesScopeRows.count
+        }
+        switch grain {
+        case .region:
+            return Set(roster.values.compactMap { MarketRegion.containing($0.division)?.rawValue }).count
+        case .division:
+            return cachedDivisions.filter { filters.includesDivision($0) }.count
+        case .district:
+            return cachedDistricts.count
+        case .store:
+            return cachedStores.count
+        }
+    }
+
     var effectiveDashboardGrain: DashScopeGrain {
         if !filters.store.isEmpty || !filters.om.isEmpty || !filters.district.isEmpty {
             return .store
@@ -2048,6 +2064,7 @@ final class HeartbeatStore: ObservableObject {
 
     private func applyVisibleFilter() {
         refreshFilterOptions()
+        refreshSalesExpandCache()
         if !filters.isActive {
             filteredLatest = latestBySection
             var inputBySection = latestBySection
