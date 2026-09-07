@@ -2843,26 +2843,44 @@ enum WorkbookParser {
             if carryStore.isEmpty { return }
             if picker == carryStore { return }
             var payload: [String: Double] = [:]
+            var bestScore = -1.0
             var col = 2
             var emptyBlocks = 0
-            while col < 120, emptyBlocks < 2 {
-                var hit = false
-                let block: [(Int, String)] = [
+            while col < 120, emptyBlocks < 3 {
+                var block: [String: Double] = [:]
+                let fields: [(Int, String)] = [
                     (0, "pph"), (1, "presub"), (2, "oos"), (3, "pickhours"),
                     (4, "picks"), (5, "subs"), (6, "orders"), (7, "dug"),
                     (10, "oth5"), (11, "ott"), (12, "refund"),
                 ]
-                for (offset, header) in block {
+                for (offset, header) in fields {
                     let raw = SheetXML.rawCell(data, letter: SheetXML.colLetter(col + offset), strings: strings)
                     if let value = cellNumber(raw) {
-                        applyPickerMetric(&payload, header: header, value: value)
-                        hit = true
+                        applyPickerMetric(&block, header: header, value: value)
                     }
                 }
-                if hit { emptyBlocks = 0 } else { emptyBlocks += 1 }
                 col += 13
+                let pph = block["pph"] ?? -1
+                guard pph >= 1, pph <= 200 else {
+                    if block.isEmpty { emptyBlocks += 1 } else { emptyBlocks = 0 }
+                    continue
+                }
+                emptyBlocks = 0
+                let ott = block["ott_pct"] ?? 0
+                let oth = block["oth5_pct"] ?? 0
+                if ott > 110 || oth > 110 { continue }
+                let score = (block["orders"] ?? 0) + (block["pick_hours"] ?? 0) + pph
+                if score >= bestScore {
+                    bestScore = score
+                    payload = block
+                }
             }
-            guard !payload.isEmpty else { return }
+            if payload.isEmpty, let pph = cellNumber(c), pph >= 1, pph <= 200 {
+                applyPickerMetric(&payload, header: "pph", value: pph)
+                if let presub = cellNumber(d) { applyPickerMetric(&payload, header: "presub", value: presub) }
+                if let oos = cellNumber(e) { applyPickerMetric(&payload, header: "oos", value: oos) }
+            }
+            guard payload["pph"] != nil else { return }
             let shopper = picker
             let storeNumber = HeartbeatMath.canonicalStore(carryStore)
             out[storeNumber + "|" + shopper] = ParsedWorkbookRow(
