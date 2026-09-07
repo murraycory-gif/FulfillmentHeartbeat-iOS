@@ -1109,9 +1109,11 @@ final class HeartbeatStore: ObservableObject {
     func commitFilters(_ next: DashboardFilters) {
         var cleaned = next
         cleaned.sanitize()
-        if filters == cleaned { return }
-        filters = cleaned
-        persistFilters()
+        if filters != cleaned {
+            filters = cleaned
+            persistFilters()
+        }
+        applyFilters()
     }
 
     func filterChoices(focus: FilterFocus, draft: DashboardFilters) -> [(id: String, label: String)] {
@@ -1630,11 +1632,10 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func replaceFilters(_ next: DashboardFilters) {
-        if filters == next {
-            applyFilters()
-            return
+        if filters != next {
+            filters = next
         }
-        filters = next
+        applyFilters()
     }
 
     private func rebuildIndex() {
