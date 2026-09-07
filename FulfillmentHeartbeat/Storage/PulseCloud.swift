@@ -5,6 +5,7 @@ enum PulseCloud {
     static let publishableKey = "sb_publishable_T3Pzm01sMXCv2rQaCeP_Kg_4ao2M5zd"
     static let bucket = "heartbeat-packs"
     static let object = "current.sqlite"
+    static let cardsObject = "pulse-cards.json"
     static let workbookNames = [
         "Heartbeat Daily Report.xlsx",
         "current.xlsx",
@@ -91,17 +92,31 @@ enum PulseCloud {
     }
 
     static func uploadPack(_ data: Data) async throws {
-        var request = URLRequest(url: packURL)
+        try await uploadObject(object, data: data, contentType: "application/octet-stream")
+    }
+
+    static func uploadCards(_ data: Data) async throws {
+        try await uploadObject(cardsObject, data: data, contentType: "application/json")
+    }
+
+    static func downloadCards() async throws -> Data {
+        try await downloadNamed(cardsObject)
+    }
+
+    private static func uploadObject(_ name: String, data: Data, contentType: String) async throws {
+        let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
+        let url = projectURL.appendingPathComponent("storage/v1/object/\(bucket)/\(encoded)")
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        request.setValue(contentType, forHTTPHeaderField: "Content-Type")
         request.setValue("true", forHTTPHeaderField: "x-upsert")
         applyAuth(&request)
         request.httpBody = data
         let (_, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
-            var retry = URLRequest(url: packURL)
+            var retry = URLRequest(url: url)
             retry.httpMethod = "PUT"
-            retry.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+            retry.setValue(contentType, forHTTPHeaderField: "Content-Type")
             retry.setValue("true", forHTTPHeaderField: "x-upsert")
             applyAuth(&retry)
             retry.httpBody = data

@@ -45,6 +45,7 @@ final class HeartbeatStore: ObservableObject {
     private let snapshotURL: URL
     private let heavyURL: URL
     private let sqliteURL: URL
+    private let cardsURL: URL
     private let checklistURL: URL
     private let masterLinkURL: URL
     private let filtersURL: URL
@@ -96,6 +97,7 @@ final class HeartbeatStore: ObservableObject {
         snapshotURL = root.appendingPathComponent("heartbeat.json")
         heavyURL = root.appendingPathComponent("heartbeat-heavy.json")
         sqliteURL = root.appendingPathComponent(PulseSQLite.fileName)
+        cardsURL = root.appendingPathComponent(PulseCards.fileName)
         checklistURL = root.appendingPathComponent("checklist.json")
         masterLinkURL = root.appendingPathComponent("master-link.json")
         filtersURL = root.appendingPathComponent("filters.json")
@@ -118,34 +120,46 @@ final class HeartbeatStore: ObservableObject {
         isImporting = true
         isReady = false
         importProgress.label = "Opening the floor"
+        applyLocalCards()
         await loadPack()
         if cachedSummaries.isEmpty, !rows.isEmpty {
             rebuildIndex()
             installCompanyWideFast()
         }
-        if Self.hasUsableLabor(rows), Self.hasUsablePicker(rows), !cachedSummaries.isEmpty {
+        applyLocalCards()
+        if packIsReady {
             isImporting = false
             importLabel = nil
             isReady = true
             needsRolePick = true
-            Task { await self.syncServerWorkbookIfChanged() }
+            Task { await self.syncCloudPackIfChanged() }
             return
         }
-        isImporting = true
-        importProgress.label = "Downloading workbook"
-        importProgress.loaded = 0
-        importProgress.expected = MetricSection.uploadOrder.count
-        importLabel = "Downloading workbook"
-        await pullWorkbookFromServer()
+        importProgress.label = "Getting the pack"
+        await importCloudSQLiteIfPresent()
+        applyLocalCards()
         if cachedSummaries.isEmpty, !rows.isEmpty {
             rebuildIndex()
             installCompanyWideFast()
         }
         isImporting = false
         importLabel = nil
-        if seeded, !rows.isEmpty, !cachedSummaries.isEmpty {
+        if seeded, !rows.isEmpty {
             isReady = true
             needsRolePick = true
+        }
+        Task { await self.syncCloudPackIfChanged() }
+    }
+
+    private var packIsReady: Bool {
+        Self.hasUsableLabor(rows) && Self.hasUsablePicker(rows) && !cachedSummaries.isEmpty
+    }
+
+    private func applyLocalCards() {
+        guard let cards = PulseCards.read(from: cardsURL) else { return }
+        if cards.opportunity.isEmpty && cards.strong.isEmpty { return }
+        if cachedPickerBoard.opportunity.isEmpty && cachedPickerBoard.strong.isEmpty {
+            cachedPickerBoard = cards.board()
         }
     }
 
@@ -1416,8 +1430,31 @@ final class HeartbeatStore: ObservableObject {
 
     private func refreshFromCloud() async {
         guard !isImporting else { return }
-        if Self.hasUsableLabor(rows), Self.hasUsablePicker(rows) { return }
-        await pullWorkbookFromServer()
+        await syncCloudPackIfChanged()
+    }
+
+    private func syncCloudPackIfChanged() async {
+        let remote = await PulseCloud.objectSize(PulseCloud.object)
+        let known = UserDefaults.standard.integer(forKey: "hb.cloudPackBytes")
+        if remote > 50_000, remote != known {
+            await importCloudSQLiteIfPresent()
+        }
+        await importCloudCardsIfPresent()
+    }
+
+    private func importCloudCardsIfPresent() async {
+        let remote = await PulseCloud.objectSize(PulseCloud.cardsObject)
+        guard remote > 50 else { return }
+        let known = UserDefaults.standard.integer(forKey: "hb.cloudCardBytes")
+        if known == remote, cachedPickerBoard.shopperCount > 0 { return }
+        do {
+            let data = try await PulseCloud.downloadCards()
+            try data.write(to: cardsURL, options: .atomic)
+            UserDefaults.standard.set(data.count, forKey: "hb.cloudCardBytes")
+            applyLocalCards()
+        } catch {
+            return
+        }
     }
 
     private func pullWorkbookFromServer() async {
@@ -1575,6 +1612,8 @@ final class HeartbeatStore: ObservableObject {
     private func publishCloudPack() {
         guard Self.hasUsableLabor(rows), Self.hasUsablePicker(rows) else { return }
         let url = sqliteURL
+        let cardsPath = cardsURL
+        let cards = PulseCards.from(board: cachedPickerBoard)
         Task.detached(priority: .utility) {
             var data = try? Data(contentsOf: url)
             if data == nil || (data?.count ?? 0) < 1_000 {
@@ -1582,7 +1621,14 @@ final class HeartbeatStore: ObservableObject {
                 data = try? Data(contentsOf: url)
             }
             guard let data, data.count > 1_000 else { return }
+            try? PulseCards.write(cards, to: cardsPath)
             try await PulseCloud.uploadPack(data)
+            if let cardData = try? Data(contentsOf: cardsPath) {
+                try? await PulseCloud.uploadCards(cardData)
+                await MainActor.run {
+                    UserDefaults.standard.set(cardData.count, forKey: "hb.cloudCardBytes")
+                }
+            }
             await MainActor.run {
                 UserDefaults.standard.set(data.count, forKey: "hb.cloudPackBytes")
             }
@@ -2328,7 +2374,7 @@ final class HeartbeatStore: ObservableObject {
             $0.section == .pickerScorecard
                 && !($0.textPayload["shopper_id"] ?? $0.textPayload["shopper_name"] ?? "").isEmpty
         }
-        return pickers.count >= 2_000
+        return pickers.count >= 80
     }
 
     private func loadPack() async {
@@ -2351,26 +2397,28 @@ final class HeartbeatStore: ObservableObject {
                 hydrating = true
                 rebuildIndex()
                 installCompanyWideFast()
-                importProgress.label = "Laying out the regions"
+                applyLocalCards()
+                hydrating = false
+                importProgress.loaded = MetricSection.uploadOrder.count
+                scheduleHeavyExtras(latest: latestBySection, roster: roster)
                 let latest = latestBySection
                 let rosterCopy = roster
                 let stores = cachedStores
                 let grain = effectiveDashboardGrain
-                let hidePicker = false
-                let packs = await Task.detached(priority: .userInitiated) {
-                    PulseCaches.grainPacks(
+                Task.detached(priority: .utility) {
+                    let packs = PulseCaches.grainPacks(
                         latest: latest,
                         grain: grain,
-                        hidePicker: hidePicker,
+                        hidePicker: false,
                         stores: stores,
                         roster: rosterCopy
                     )
-                }.value
-                cachedGrainPacks = packs
-                refreshSalesExpandCache()
-                hydrating = false
-                importProgress.loaded = MetricSection.uploadOrder.count
-                scheduleHeavyExtras(latest: latestBySection, roster: roster)
+                    await MainActor.run {
+                        if self.filters.isActive == false {
+                            self.cachedGrainPacks = packs
+                        }
+                    }
+                }
                 return
             }
         }
@@ -2527,6 +2575,7 @@ final class HeartbeatStore: ObservableObject {
             try await Task.detached(priority: .utility) {
                 try PulseSQLite.write(rows: packRows, uploads: packUploads, seeded: packSeeded, to: packURL)
             }.value
+            try? PulseCards.write(PulseCards.from(board: cachedPickerBoard), to: cardsURL)
             publishCloudPack()
         } catch {
             errorMessage = "Pulse did not save: \(error.localizedDescription). Keep Heartbeat open until the import finishes."
