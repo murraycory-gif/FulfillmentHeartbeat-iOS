@@ -157,11 +157,9 @@ enum WorkbookParser {
                     }
                 } else if hinted == .preSubOOSItem {
                     onProgress?(found.count, expected, "Reading Pre-Sub items…")
-                    guard let sheet = zip.file(named: entry.path) ?? zip.file(named: entry.path.replacingOccurrences(of: "xl/", with: "")),
-                          !sheet.isEmpty else { return }
-                    let matrix = SheetXML.parse(data: sheet, strings: strings)
-                    parsed = parsePreSubOOSItem(matrix) ?? rows(from: matrix, prefer: .preSubOOSItem) ?? []
-                    zip.release(entry.path)
+                    parsed = parsePreSubItemsFromZip(zip: zip, path: entry.path, strings: strings) { count in
+                        onProgress?(found.count, expected, "Pre-Sub items  \(count)")
+                    }
                 } else if hinted == .sales {
                     onProgress?(found.count, expected, "Reading Sales…")
                     parsed = parseSalesFromZip(zip: zip, path: entry.path, strings: strings)
@@ -181,14 +179,11 @@ enum WorkbookParser {
                             parsed = compactShoppers(parsed)
                         }
                     }
-                    if parsed.isEmpty, sheet.count < 12_000_000 || hinted == .preSubOOS || hinted == .preSubOOSItem {
+                    if parsed.isEmpty, sheet.count < 3_000_000 {
                         let matrix = SheetXML.parse(data: sheet, strings: strings)
                         parsed = rows(from: matrix, prefer: hinted)
                         if parsed.isEmpty, hinted == .pickerScorecard {
                             parsed = parsePickerWide(matrix) ?? parseEmployeeWeek(matrix) ?? []
-                        }
-                        if hinted == .preSubOOS, let items = parsePreSubOOSItem(matrix), !items.isEmpty {
-                            found[.preSubOOSItem] = ParsedSheet(section: .preSubOOSItem, sheetName: entry.name, rows: items)
                         }
                         if parsed.isEmpty, hinted == nil {
                             parsed = parseLaborSheet(data: sheet, strings: strings)
@@ -1398,6 +1393,128 @@ enum WorkbookParser {
             )
         }
         return out.isEmpty ? nil : out
+    }
+
+    private static func parsePreSubItemsFromZip(
+        zip: ZipArchive,
+        path: String,
+        strings: [String],
+        onTick: ((Int) -> Void)?
+    ) -> [ParsedWorkbookRow] {
+        if let packed = zip.compressedPayload(named: path) ?? zip.compressedPayload(named: path.replacingOccurrences(of: "xl/", with: "")),
+           packed.method == 8 {
+            let rows = parsePreSubItemStreaming(compressed: packed.bytes, strings: strings, onTick: onTick)
+            if !rows.isEmpty { return rows }
+        }
+        if let sheet = zip.file(named: path) ?? zip.file(named: path.replacingOccurrences(of: "xl/", with: "")), !sheet.isEmpty {
+            if sheet.count < 3_000_000 {
+                let matrix = SheetXML.parse(data: sheet, strings: strings)
+                let parsed = parsePreSubOOSItem(matrix) ?? []
+                zip.release(path)
+                return parsed
+            }
+            let rows = parsePreSubItemStreaming(data: sheet, strings: strings, onTick: onTick)
+            zip.release(path)
+            return rows
+        }
+        return []
+    }
+
+    private static func parsePreSubItemStreaming(
+        data: Data? = nil,
+        compressed: Data? = nil,
+        strings: [String],
+        onTick: ((Int) -> Void)? = nil
+    ) -> [ParsedWorkbookRow] {
+        var storeIdx: Int?
+        var divIdx: Int?
+        var distIdx: Int?
+        var bpnIdx: Int?
+        var pctIdx: Int?
+        var unitsIdx: Int?
+        var dollarsIdx: Int?
+        var oosPctIdx: Int?
+        var oosDollarsIdx: Int?
+        var ready = false
+        var out: [ParsedWorkbookRow] = []
+        var seen = 0
+        out.reserveCapacity(8_192)
+        let handle: ([String]) -> Void = { line in
+            if !ready {
+                guard isPreSubItemHeader(line) else { return }
+                let names = line.map(normHeader)
+                storeIdx = names.firstIndex { storeKeys.contains($0) || $0 == "store" || $0.hasPrefix("store") }
+                divIdx = names.firstIndex { $0 == "division" }
+                distIdx = names.firstIndex { $0 == "district" }
+                bpnIdx = names.firstIndex { $0.contains("bpn") || $0.contains("item") || $0.contains("upc") }
+                pctIdx = line.indices.first { idx in
+                    let lower = line[idx].lowercased()
+                    return (lower.contains("pre-sub") || lower.contains("presub") || lower.contains("pre sub")
+                        || (lower.contains("pre") && lower.contains("substitution")))
+                        && (lower.contains("%") || names[idx].hasSuffix("pct"))
+                }
+                unitsIdx = line.indices.first { idx in
+                    let lower = line[idx].lowercased()
+                    let n = names[idx]
+                    return (lower.contains("pre-sub oos") || lower.contains("presub oos") || n == "presuboos")
+                        && !lower.contains("%") && !lower.contains("$")
+                }
+                dollarsIdx = line.indices.first { idx in
+                    let lower = line[idx].lowercased()
+                    return lower.contains("$") && (lower.contains("pre-sub") || lower.contains("presub") || lower.contains("substitution"))
+                }
+                oosPctIdx = names.firstIndex { $0 == "oospct" || $0 == "oospercent" }
+                oosDollarsIdx = line.indices.first { idx in
+                    let lower = line[idx].lowercased()
+                    return lower.contains("$") && lower.contains("oos") && !lower.contains("pre")
+                }
+                ready = storeIdx != nil && bpnIdx != nil
+                return
+            }
+            seen += 1
+            if seen % 2_000 == 0 { onTick?(out.count) }
+            func cell(_ index: Int?) -> String {
+                guard let index, index < line.count else { return "" }
+                return line[index].trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            let storeRaw = cell(storeIdx)
+            guard looksLikeStoreNumber(storeRaw), !isTotalCell(storeRaw) else { return }
+            let item = cell(bpnIdx)
+            guard !item.isEmpty else { return }
+            var payload: [String: Double] = [:]
+            func put(_ index: Int?, _ key: String, percent: Bool = false) {
+                guard let raw = index.map(cell), let number = cellNumber(raw) else { return }
+                payload[key] = percent && abs(number) <= 1.5 ? number * 100 : number
+            }
+            put(pctIdx, "presub_pct", percent: true)
+            put(unitsIdx, "presub_count")
+            put(dollarsIdx, "presub_dollars")
+            put(oosPctIdx, "oos_pct", percent: true)
+            put(oosDollarsIdx, "oos_dollars")
+            var text: [String: String] = ["presub_item": "1", "bpn": item]
+            let district = cell(distIdx)
+            if !district.isEmpty { text["district"] = HeartbeatMath.canonicalDistrict(district) }
+            let divRaw = cell(divIdx)
+            let divName = MarketRegion.canonicalName(divRaw)
+            out.append(
+                ParsedWorkbookRow(
+                    division: divName.isEmpty ? divRaw : divName,
+                    operationsOM: "",
+                    storeNumber: HeartbeatMath.canonicalStore(storeRaw),
+                    storeName: nil,
+                    recordedOn: nil,
+                    payload: payload,
+                    textPayload: text
+                )
+            )
+        }
+        if let compressed {
+            SheetXML.forEachRowInflating(compressed: compressed, strings: strings, handle: handle)
+        } else if let data {
+            SheetXML.forEachRowBytes(data: data, strings: strings, handle: handle)
+        }
+        onTick?(out.count)
+        return out
     }
 
     private static func isMissingItemsDeptRow(_ row: [String]) -> Bool {
