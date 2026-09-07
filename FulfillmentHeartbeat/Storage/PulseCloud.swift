@@ -29,7 +29,25 @@ enum PulseCloud {
         return data
     }
 
-    static func downloadLatestWorkbook() async throws -> (name: String, data: Data) {
+    static func objectSize(_ name: String) async -> Int {
+        var request = URLRequest(url: projectURL.appendingPathComponent("storage/v1/object/list/\(bucket)"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        applyAuth(&request)
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["prefix": "", "limit": 50])
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              let http = response as? HTTPURLResponse, http.statusCode == 200,
+              let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+        else { return 0 }
+        for row in rows {
+            guard let fileName = row["name"] as? String, fileName == name else { continue }
+            if let meta = row["metadata"] as? [String: Any] {
+                if let size = meta["size"] as? Int { return size }
+                if let size = meta["contentLength"] as? Int { return size }
+            }
+        }
+        return 0
+    }
         for name in workbookNames {
             if let data = try? await downloadNamed(name), data.count > 1_000 {
                 return (name, data)

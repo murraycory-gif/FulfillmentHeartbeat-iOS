@@ -1366,13 +1366,23 @@ final class HeartbeatStore: ObservableObject {
 
     private func refreshFromCloud() async {
         guard !isImporting else { return }
-        if let book = try? await PulseCloud.downloadLatestWorkbook() {
-            let stamp = UserDefaults.standard.integer(forKey: "hb.cloudXlsxBytes")
-            if book.data.count != stamp {
-                UserDefaults.standard.set(book.data.count, forKey: "hb.cloudXlsxBytes")
+        var remoteXlsx = 0
+        var remoteName = "Heartbeat Daily Report.xlsx"
+        for name in PulseCloud.workbookNames {
+            let size = await PulseCloud.objectSize(name)
+            if size > 1_000 {
+                remoteXlsx = size
+                remoteName = name
+                break
+            }
+        }
+        let knownXlsx = UserDefaults.standard.integer(forKey: "hb.cloudXlsxBytes")
+        if remoteXlsx > 1_000, remoteXlsx != knownXlsx {
+            if let book = try? await PulseCloud.downloadNamed(remoteName) {
+                UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
                 _ = await runMasterImport(
-                    data: book.data,
-                    filename: book.name,
+                    data: book,
+                    filename: remoteName,
                     fallbackToPicker: false,
                     alreadyOpen: true,
                     presentRoleGate: false
@@ -1380,6 +1390,7 @@ final class HeartbeatStore: ObservableObject {
                 return
             }
         }
+        if seeded { return }
         do {
             let data = try await PulseCloud.downloadPack()
             guard data.count > 1_000 else { return }
