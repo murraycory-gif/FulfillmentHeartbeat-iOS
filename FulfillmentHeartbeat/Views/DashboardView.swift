@@ -299,7 +299,7 @@ struct DashScopeStrip: View {
                     Text(grain.title)
                         .font(AppTheme.rounded(.subheadline, weight: .bold))
                         .foregroundStyle(Color.white)
-                    Text("\(packs.count) \(packs.count == 1 ? String(grain.unit.dropLast()) : grain.unit)")
+                    Text("\(bannerCount) \(bannerCount == 1 ? String(grain.unit.dropLast()) : grain.unit)")
                         .font(AppTheme.rounded(.caption, weight: .semibold))
                         .foregroundStyle(Color.white.opacity(0.85))
                     Spacer(minLength: 8)
@@ -364,9 +364,11 @@ struct DashScopeStrip: View {
             }
         }
         .onChange(of: store.filterStamp) { _, _ in
-            guard section == .sales else { return }
             salesRows = store.cachedSalesScopeRows
             dayRows = store.cachedSalesDayRows
+            if section == .fiveStar {
+                flagMap = store.dashboardGrainFlags(section: section, grain: grain, packs: packs)
+            }
         }
     }
 
@@ -376,6 +378,16 @@ struct DashScopeStrip: View {
 
     private var visibleDayRows: [SalesRollupRow] {
         dayRows.isEmpty ? store.cachedSalesDayRows : dayRows
+    }
+
+    private var bannerCount: Int {
+        if section == .sales {
+            return visibleSalesRows.count
+        }
+        let live = packs.filter {
+            $0.line.count > 0 || (!$0.line.value.isEmpty && $0.line.value != "—")
+        }
+        return live.isEmpty ? packs.count : live.count
     }
 }
 

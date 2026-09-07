@@ -307,6 +307,8 @@ final class HeartbeatStore: ObservableObject {
     func fiveStarFlagsForDivision(_ name: String) -> [HeartbeatMath.FiveStarFlag] {
         fiveStarFlags(label: name, grain: .division)
     }
+
+    func dashboardGrainFlags(
         section: MetricSection,
         grain: DashScopeGrain,
         packs: [DashScopePack]
