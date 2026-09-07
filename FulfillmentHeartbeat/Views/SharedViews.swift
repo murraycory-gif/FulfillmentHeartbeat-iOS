@@ -1776,7 +1776,7 @@ struct PickPathTable: View {
                     headerPin.active = sort.key
                     headerPin.ascending = ascending
                     headerPin.onSelect = applyHeaderSort
-                    if expanded { rebuildOrder(sort: sort, ascending: ascending) }
+                    rebuildOrder(sort: sort, ascending: ascending)
                 }
                 .onChange(of: store.filterStamp) { _, _ in
                     limit = 50
@@ -4395,7 +4395,7 @@ struct FiveStarTable: View {
                     headerPin.active = sort.key
                     headerPin.ascending = ascending
                     headerPin.onSelect = applyHeaderSort
-                    if expanded { rebuildOrder(sort: sort, ascending: ascending) }
+                    rebuildOrder(sort: sort, ascending: ascending)
                 }
                 .onChange(of: store.filterStamp) { _, _ in
                     limit = 50
@@ -7093,7 +7093,7 @@ struct LostRevenueTable: View {
                     headerPin.active = sort.key
                     headerPin.ascending = ascending
                     headerPin.onSelect = applyHeaderSort
-                    if expanded { rebuildOrder(sort: sort, ascending: ascending) }
+                    rebuildOrder(sort: sort, ascending: ascending)
                 }
                 .onChange(of: store.filterStamp) { _, _ in
                     limit = 50
@@ -8964,7 +8964,7 @@ struct PickerScoreTable: View {
                     headerPin.active = sort.key
                     headerPin.ascending = ascending
                     headerPin.onSelect = applyHeaderSort
-                    if expanded { rebuildPage() }
+                    rebuildPage()
                 }
                 .onChange(of: focus) { _, _ in
                     limit = 50

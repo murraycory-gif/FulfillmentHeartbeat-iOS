@@ -255,7 +255,7 @@ struct MissingItemsTable: View {
                     headerPin.active = sort.key
                     headerPin.ascending = ascending
                     headerPin.onSelect = applyHeaderSort
-                    if expanded { rebuildOrder(sort: sort, ascending: ascending) }
+                    rebuildOrder(sort: sort, ascending: ascending)
                 }
                 .onChange(of: store.filterStamp) { _, _ in
                     limit = 80
@@ -1059,7 +1059,7 @@ struct PreSubItemTable: View {
         Section {
             Button {
                 expanded.toggle()
-                if expanded { rebuild() }
+                rebuild()
             } label: {
                 HubTableHeader(
                     icon: "barcode",

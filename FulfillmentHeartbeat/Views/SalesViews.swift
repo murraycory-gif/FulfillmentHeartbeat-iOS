@@ -616,12 +616,6 @@ private struct SalesMetricLine: View {
             .lineLimit(1)
             .minimumScaleFactor(0.8)
             .frame(width: width, alignment: .trailing)
-            .padding(.vertical, 6)
-            .padding(.horizontal, 4)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(brand ? AppTheme.blueSoft : wash(health))
-            )
     }
 
     private func ink(_ health: Health) -> Color {
@@ -847,7 +841,7 @@ struct SalesTable: View {
                     headerPin.active = sortKey
                     headerPin.ascending = sortAscending
                     headerPin.onSelect = applySort
-                    if expanded { rebuild() }
+                    rebuild()
                 }
                 .onChange(of: store.filterStamp) { _, _ in rebuild() }
                 .onChange(of: rows.count) { _, _ in rebuild() }

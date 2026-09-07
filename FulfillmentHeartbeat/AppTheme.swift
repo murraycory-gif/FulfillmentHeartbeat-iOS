@@ -130,28 +130,20 @@ struct TableRowChrome: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 9)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(Color.white)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 14, style: .continuous)
-                            .fill(AppTheme.healthWash(health).opacity(0.42))
-                    }
+                Rectangle()
+                    .fill(health == .risk ? AppTheme.badSoft.opacity(0.45)
+                          : health == .watch ? AppTheme.warnSoft.opacity(0.28)
+                          : Color.clear)
             }
             .overlay(alignment: .leading) {
-                Capsule()
-                    .fill(health == .none ? AppTheme.blue.opacity(0.35) : AppTheme.healthInk(health))
-                    .frame(width: 4)
-                    .padding(.vertical, 10)
+                Rectangle()
+                    .fill(health == .none ? Color.clear : AppTheme.healthInk(health))
+                    .frame(width: 3)
             }
-            .overlay {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(health == .risk ? AppTheme.bad.opacity(0.7) : Color.black.opacity(0.05), lineWidth: health == .risk ? 1.5 : 1)
-            }
-            .shadow(color: Color.black.opacity(0.05), radius: 3, y: 2)
     }
 }
 
