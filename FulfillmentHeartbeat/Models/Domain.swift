@@ -2847,11 +2847,9 @@ struct DashboardFilters: Equatable, Codable {
     }
 
     func includesStore(_ value: String) -> Bool {
-        let selected = Self.parts(store)
+        let selected = Self.parts(store).map { HeartbeatMath.canonicalStore($0) }.filter { !$0.isEmpty }
         if selected.isEmpty { return true }
-        return selected.contains {
-            HeartbeatMath.matches(value, $0) || HeartbeatMath.matches(HeartbeatMath.canonicalStore(value), HeartbeatMath.canonicalStore($0))
-        }
+        return selected.contains(HeartbeatMath.canonicalStore(value))
     }
 
     var regionDivisions: [String] {

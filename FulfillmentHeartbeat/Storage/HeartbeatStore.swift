@@ -1651,8 +1651,50 @@ final class HeartbeatStore: ObservableObject {
         rebuildLaborWeekIndex()
     }
 
+    private func applyVisibleFilter() {
+        refreshFilterOptions()
+        let allowed = PulseCaches.allowedStores(roster: roster, filters: filters)
+        if let allowed {
+            var next: [MetricSection: [MetricRow]] = [:]
+            next.reserveCapacity(latestBySection.count)
+            for (section, rows) in latestBySection {
+                next[section] = rows.filter { row in
+                    let store = HeartbeatMath.canonicalStore(row.storeNumber)
+                    if !store.isEmpty {
+                        return allowed.contains(store)
+                    }
+                    if !filters.includesDivision(row.division) { return false }
+                    if !filters.includesDistrict(row.district) { return false }
+                    if !filters.includesOM(row.operationsOM) { return false }
+                    return true
+                }
+            }
+            filteredLatest = next
+        } else {
+            filteredLatest = latestBySection
+        }
+        cachedSummaries = MetricSection.dashboardCards.map { section in
+            HeartbeatMath.summarize(
+                section,
+                rows: filteredLatest[section] ?? [],
+                upload: uploads.first { $0.section == section }
+            )
+        }
+        cachedCardFlags = PulseCaches.cardFlags(latest: filteredLatest)
+        cachedGrainPacks = PulseCaches.grainPacks(
+            latest: filteredLatest,
+            grain: effectiveDashboardGrain,
+            hidePicker: sessionRole == .evp,
+            stores: cachedStores,
+            roster: roster
+        )
+        filterStamp += 1
+        objectWillChange.send()
+    }
+
     private func applyFilters() {
         refilterTask?.cancel()
+        applyVisibleFilter()
         if !filters.isActive {
             installCompanyWideFast()
             Task { @MainActor [weak self] in
@@ -2599,7 +2641,12 @@ private struct PulseCaches {
         return roster
     }
 
-    private static func pickerStoreSet(
+    static func allowedStores(
+        roster: [String: HeartbeatMath.StoreIdentity],
+        filters: DashboardFilters
+    ) -> Set<String>? {
+        pickerStoreSet(roster: roster, filters: filters)
+    }
         roster: [String: HeartbeatMath.StoreIdentity],
         filters: DashboardFilters
     ) -> Set<String>? {
