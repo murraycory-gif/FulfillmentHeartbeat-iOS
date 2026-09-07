@@ -2390,7 +2390,7 @@ enum HeartbeatMath {
         var opportunityCount = 0
         var strongCount = 0
         for row in rows {
-            guard pickerHasVolume(row) else { continue }
+            guard pickerHasVolume(row), let pph = row.number("pph"), pph > 0, pph < 200 else { continue }
             let health = pickerHealth(row)
             guard health != .none else { continue }
             if health == .good {
