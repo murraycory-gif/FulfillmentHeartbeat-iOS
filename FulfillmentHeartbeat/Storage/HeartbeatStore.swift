@@ -308,6 +308,28 @@ final class HeartbeatStore: ObservableObject {
         fiveStarFlags(label: name, grain: .division)
     }
 
+    func metricFlags(for metric: MetricSection, label: String, grain: DashScopeGrain) -> [HeartbeatMath.FiveStarFlag] {
+        let rows = (filteredLatest[metric] ?? []).filter { HeartbeatMath.dashboardScopeKey($0, grain: grain) == label }
+        let items = (filteredLatest[.preSubOOSItem] ?? []).filter { HeartbeatMath.dashboardScopeKey($0, grain: grain) == label }
+        let pickers = (filteredLatest[.pickerScorecard] ?? []).filter { HeartbeatMath.dashboardScopeKey($0, grain: grain) == label }
+        return HeartbeatMath.dashboardActionFlags(
+            section: metric,
+            rows: rows,
+            pickers: pickers,
+            items: items,
+            includeAll: true
+        )
+    }
+
+    func metricFlags(for metric: MetricSection, grain: DashScopeGrain, labels: [String]) -> [String: [HeartbeatMath.FiveStarFlag]] {
+        var out: [String: [HeartbeatMath.FiveStarFlag]] = [:]
+        out.reserveCapacity(labels.count)
+        for label in labels {
+            out[label] = metricFlags(for: metric, label: label, grain: grain)
+        }
+        return out
+    }
+
     func dashboardGrainFlags(
         section: MetricSection,
         grain: DashScopeGrain,

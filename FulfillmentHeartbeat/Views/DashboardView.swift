@@ -557,11 +557,7 @@ struct DashScopeGrainCard: View {
         case .division: childGrain = .district
         default: childGrain = .store
         }
-        var nextFlags: [String: [HeartbeatMath.FiveStarFlag]] = [:]
-        for child in children {
-            nextFlags[child.label] = store.sectionFlags(section: section, label: child.label, grain: childGrain)
-        }
-        childFlags = nextFlags
+        childFlags = store.metricFlags(for: section, grain: childGrain, labels: children.map(\.label))
     }
 }
 
