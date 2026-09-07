@@ -2290,7 +2290,7 @@ final class HeartbeatStore: ObservableObject {
                     return saved
                 }()
                 let loadedFilters = overlayFilters ?? decoded?.filters ?? DashboardFilters()
-                let firstRows = pack?.rows ?? (decoded?.rows.filter { !skip.contains($0.section) } ?? [])
+                let firstRows = pack?.rows ?? decoded?.rows ?? []
                 let loadedUploads = (pack?.uploads.isEmpty == false ? pack?.uploads : nil) ?? decoded?.uploads ?? []
                 let loadedSeeded = pack?.seeded ?? decoded?.seeded ?? false
                 let caches = PulseCaches.build(
@@ -2313,13 +2313,6 @@ final class HeartbeatStore: ObservableObject {
                     self.isReady = true
                 }
                 var extra: [MetricRow] = []
-                if hasPack {
-                    let rest = try? PulseSQLite.read(from: sqliteFile)
-                    extra = rest?.rows.filter { skip.contains($0.section) } ?? []
-                }
-                if extra.isEmpty {
-                    extra = decoded?.rows.filter { skip.contains($0.section) } ?? []
-                }
                 if extra.isEmpty, FileManager.default.fileExists(atPath: heavyFile.path) {
                     extra = (try? PulseDisk.read(from: heavyFile))?.rows ?? []
                 }
