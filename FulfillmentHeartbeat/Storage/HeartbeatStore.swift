@@ -1366,6 +1366,20 @@ final class HeartbeatStore: ObservableObject {
 
     private func refreshFromCloud() async {
         guard !isImporting else { return }
+        if let book = try? await PulseCloud.downloadLatestWorkbook() {
+            let stamp = UserDefaults.standard.integer(forKey: "hb.cloudXlsxBytes")
+            if book.data.count != stamp {
+                UserDefaults.standard.set(book.data.count, forKey: "hb.cloudXlsxBytes")
+                _ = await runMasterImport(
+                    data: book.data,
+                    filename: book.name,
+                    fallbackToPicker: false,
+                    alreadyOpen: true,
+                    presentRoleGate: false
+                )
+                return
+            }
+        }
         do {
             let data = try await PulseCloud.downloadPack()
             guard data.count > 1_000 else { return }

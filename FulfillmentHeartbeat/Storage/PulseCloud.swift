@@ -10,6 +10,34 @@ enum PulseCloud {
         projectURL.appendingPathComponent("storage/v1/object/\(bucket)/\(object)")
     }
 
+    static let workbookNames = [
+        "Heartbeat Daily Report.xlsx",
+        "current.xlsx",
+        "master.xlsx",
+    ]
+
+    static func downloadNamed(_ name: String) async throws -> Data {
+        let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
+        let url = projectURL.appendingPathComponent("storage/v1/object/\(bucket)/\(encoded)")
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        applyAuth(&request)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200, data.count > 1_000 else {
+            throw PulseCloudError.missing
+        }
+        return data
+    }
+
+    static func downloadLatestWorkbook() async throws -> (name: String, data: Data) {
+        for name in workbookNames {
+            if let data = try? await downloadNamed(name), data.count > 1_000 {
+                return (name, data)
+            }
+        }
+        throw PulseCloudError.missing
+    }
+
     static var publicPackURL: URL {
         projectURL.appendingPathComponent("storage/v1/object/public/\(bucket)/\(object)")
     }
