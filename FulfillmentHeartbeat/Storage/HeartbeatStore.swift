@@ -1660,7 +1660,9 @@ final class HeartbeatStore: ObservableObject {
                     : sectionRows
                 latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(source), roster: roster)
             } else if section == .labor {
-                let stores = sectionRows.filter { $0.textPayload["labor_grain"] == "store" }
+                let stores = sectionRows.filter {
+                    $0.textPayload["labor_grain"] != "market" && !$0.storeNumber.isEmpty
+                }
                 latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(stores), roster: roster)
             } else if section == .pickerScorecard || section == .pickPathPicker {
                 latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerShopper(sectionRows), roster: roster)
@@ -1731,12 +1733,18 @@ final class HeartbeatStore: ObservableObject {
                 )
             }
             let flags = PulseCaches.cardFlags(latest: next)
+            let pickers = next[.pickerScorecard] ?? []
+            let pickerBits = PulseCaches.pickerIndexValues(pickers)
+            let board = HeartbeatMath.pickerBoard(pickers)
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 guard !Task.isCancelled, self.filters == current else { return }
                 self.filteredLatest = next
                 self.cachedSummaries = summaries
                 self.cachedCardFlags = flags
+                self.cachedPickerBoard = board
+                self.pickerIndex = pickerBits.index
+                self.pickerFocusHealth = pickerBits.health
                 self.filterStamp += 1
             }
             let packs = PulseCaches.grainPacks(
@@ -2327,7 +2335,9 @@ private struct PulseCaches {
                     : sectionRows
                 latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(source), roster: roster)
             } else if section == .labor {
-                let stores = sectionRows.filter { $0.textPayload["labor_grain"] == "store" }
+                let stores = sectionRows.filter {
+                    $0.textPayload["labor_grain"] != "market" && !$0.storeNumber.isEmpty
+                }
                 latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(stores), roster: roster)
             } else if section == .pickerScorecard || section == .pickPathPicker {
                 latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerShopper(sectionRows), roster: roster)
@@ -2687,7 +2697,7 @@ private struct PulseCaches {
         pickerIndexValues(pickers)
     }
 
-    private static func pickerIndexValues(_ pickers: [MetricRow]) -> (index: [PickerFocus: [Int]], health: [PickerFocus: Health]) {
+    static func pickerIndexValues(_ pickers: [MetricRow]) -> (index: [PickerFocus: [Int]], health: [PickerFocus: Health]) {
         var buckets: [PickerFocus: [Int]] = [:]
         var worst: [PickerFocus: Health] = [:]
         for focus in PickerFocus.allCases {
