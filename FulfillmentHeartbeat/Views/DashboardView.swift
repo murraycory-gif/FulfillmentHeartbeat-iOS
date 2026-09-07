@@ -269,7 +269,7 @@ struct DashScopeStrip: View {
             Button {
                 let next = !expanded
                 expanded = next
-                if next, section == .sales, salesRows.isEmpty {
+                if next, section == .sales {
                     let source = store.salesStores()
                     salesRows = SalesRollupBuilder.dashboardRows(from: source, grain: grain)
                     dayRows = SalesRollupBuilder.dayRows(from: source)
@@ -299,7 +299,8 @@ struct DashScopeStrip: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-                if expanded {
+            if expanded {
+                VStack(alignment: .leading, spacing: 10) {
                     if section == .sales {
                         if HubLayout.isPhone(sizeClass) {
                             VStack(spacing: 8) {
@@ -338,11 +339,18 @@ struct DashScopeStrip: View {
                     }
                 }
             }
-            .onChange(of: packs.map(\.id).joined(separator: "|")) { _, _ in
-                expanded = false
-                salesRows = []
-                dayRows = []
-            }
+        }
+        .onChange(of: packs.map(\.id).joined(separator: "|")) { _, _ in
+            expanded = false
+            salesRows = []
+            dayRows = []
+        }
+        .onChange(of: store.filterStamp) { _, _ in
+            guard expanded, section == .sales else { return }
+            let source = store.salesStores()
+            salesRows = SalesRollupBuilder.dashboardRows(from: source, grain: grain)
+            dayRows = SalesRollupBuilder.dayRows(from: source)
+        }
     }
 }
 

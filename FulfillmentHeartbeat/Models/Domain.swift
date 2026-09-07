@@ -528,7 +528,7 @@ enum HeartbeatMath {
         if role == .evp {
             cards.removeAll { $0.section == .pickerScorecard }
         }
-        var pin: [MetricSection] = [.sales, .lostRevenue]
+        var pin: [MetricSection] = [.sales, .lostRevenue, .fiveStar, .labor, .pickerScorecard]
         if role == .evp {
             pin.append(contentsOf: [.fiveStar, .dynacap])
         } else if role == .director {
