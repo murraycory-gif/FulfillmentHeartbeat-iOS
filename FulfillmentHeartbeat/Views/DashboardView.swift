@@ -25,39 +25,36 @@ struct DashboardView: View {
                     trailing: store.sharedDataWindow()
                 )
             }
-            List {
-                if briefingCards.isEmpty, store.seeded {
-                    HStack {
-                        Spacer()
-                        VStack(spacing: 10) {
-                            ProgressView()
-                                .tint(AppTheme.blue)
-                            Text("Setting the aisle…")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(AppTheme.textSecondary)
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    if briefingCards.isEmpty, store.seeded {
+                        HStack {
+                            Spacer()
+                            VStack(spacing: 10) {
+                                ProgressView()
+                                    .tint(AppTheme.blue)
+                                Text("Setting the aisle…")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(AppTheme.textSecondary)
+                            }
+                            .padding(.top, 40)
+                            Spacer()
                         }
-                        .padding(.top, 40)
-                        Spacer()
                     }
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(AppTheme.bg)
-                }
-                ForEach(briefingCards) { card in
-                    DashCallout(
-                        card: card,
-                        flags: store.dashboardFlags(for: card.section),
-                        grains: store.dashboardGrains(for: card.section),
-                        grain: store.effectiveDashboardGrain
-                    ) {
-                        open(card.section)
+                    ForEach(briefingCards) { card in
+                        DashCallout(
+                            card: card,
+                            flags: store.dashboardFlags(for: card.section),
+                            grains: store.dashboardGrains(for: card.section),
+                            grain: store.effectiveDashboardGrain
+                        ) {
+                            open(card.section)
+                        }
+                        .equatable()
+                        .padding(.horizontal, sizeClass == .regular ? 20 : 12)
+                        .padding(.vertical, 6)
                     }
-                    .equatable()
-                    .listRowInsets(EdgeInsets(top: 6, leading: sizeClass == .regular ? 20 : 12, bottom: 6, trailing: sizeClass == .regular ? 20 : 12))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(AppTheme.bg)
-                }
-                if !store.seeded {
-                    Section {
+                    if !store.seeded {
                         HubCard {
                             VStack(alignment: .leading, spacing: 8) {
                                 Text("No files yet")
@@ -72,15 +69,12 @@ struct DashboardView: View {
                                 .padding(.top, 4)
                             }
                         }
-                        .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 20, trailing: 20))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.bg)
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 20)
                     }
                 }
             }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .environment(\.defaultMinListRowHeight, 1)
+            .scrollIndicators(.hidden)
             .transaction { $0.animation = nil }
             .navigationDestination(item: $pushedSection) { section in
                 SectionDetailView(section: section)
@@ -288,16 +282,10 @@ struct DashScopeStrip: View {
     var body: some View {
         VStack(alignment: .leading, spacing: expanded ? 10 : 8) {
             Button {
-                let next = !expanded
-                expanded = next
-                if next, section == .sales {
-                    if !store.cachedSalesScopeRows.isEmpty {
-                        salesRows = store.cachedSalesScopeRows
-                        dayRows = store.cachedSalesDayRows
-                    } else {
-                        salesRows = []
-                        dayRows = []
-                    }
+                expanded.toggle()
+                if expanded, section == .sales {
+                    salesRows = store.cachedSalesScopeRows
+                    dayRows = store.cachedSalesDayRows
                 }
             } label: {
                 HStack(spacing: 10) {
@@ -406,7 +394,11 @@ struct DashScopeGrainCard: View {
                 let next = !open
                 open = next
                 if next, children.isEmpty, grain != .store {
-                    children = Array(store.dashboardGrainChildren(section: section, label: pack.line.label).prefix(40))
+                    if !pack.children.isEmpty {
+                        children = Array(pack.children.prefix(40))
+                    } else {
+                        children = Array(store.dashboardGrainChildren(section: section, label: pack.line.label).prefix(40))
+                    }
                 }
             } label: {
                 if HubLayout.isPhone(sizeClass) {

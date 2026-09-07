@@ -2911,7 +2911,15 @@ private struct PulseCaches {
                 lines = Array(HeartbeatMath.dashboardScopeLines(section: section, rows: rows, grain: grain).prefix(cap))
             }
             let shown = lines.isEmpty ? placeholderLines(grain) : lines
-            out[section] = shown.map { DashScopePack(line: $0, flags: [], children: []) }
+            if grain == .region {
+                let markets = HeartbeatMath.dashboardScopeLines(section: section, rows: rows, grain: .division)
+                out[section] = shown.map { line in
+                    let kids = markets.filter { MarketRegion.containing($0.label)?.rawValue == line.label }
+                    return DashScopePack(line: line, flags: [], children: kids)
+                }
+            } else {
+                out[section] = shown.map { DashScopePack(line: $0, flags: [], children: []) }
+            }
         }
         return out
     }
