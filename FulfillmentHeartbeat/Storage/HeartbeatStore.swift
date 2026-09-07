@@ -1376,7 +1376,9 @@ final class HeartbeatStore: ObservableObject {
             }
         }
         let knownXlsx = UserDefaults.standard.integer(forKey: "hb.cloudXlsxBytes")
-        if remoteXlsx > 1_000, remoteXlsx != knownXlsx {
+        let missingHeavy = !rows.contains(where: { $0.section == .labor })
+            || !rows.contains(where: { $0.section == .pickerScorecard })
+        if remoteXlsx > 1_000, remoteXlsx != knownXlsx || missingHeavy {
             if let book = try? await PulseCloud.downloadNamed(remoteName) {
                 UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
                 _ = await runMasterImport(
