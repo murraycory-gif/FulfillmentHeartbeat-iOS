@@ -107,10 +107,6 @@ struct ScorecardPager: UIViewControllerRepresentable {
 
         func reloadHydrated() {
             let dest = displayed
-            for (key, host) in cache where host.hydrated {
-                host.hydrated = false
-                host.rootView = Self.blank
-            }
             hydrate(dest)
             if HubLayout.hydrateNeighbors {
                 for neighbor in neighbors(of: dest) {
@@ -154,7 +150,6 @@ struct ScorecardPager: UIViewControllerRepresentable {
             pager.setViewControllers([host(for: dest)], direction: .forward, animated: false)
             pager.dataSource = self
             resetScroll(pager)
-            dehydrate(keeping: dest)
         }
 
         private static let blank = AnyView(Color(AppTheme.uiBg).ignoresSafeArea())
@@ -212,10 +207,14 @@ struct ScorecardPager: UIViewControllerRepresentable {
             displayed = host.dest
             isSwiping = false
             resetScroll(pageViewController)
+            if HubLayout.hydrateNeighbors {
+                for neighbor in neighbors(of: host.dest) where cache[neighbor]?.hydrated != true {
+                    hydrate(neighbor)
+                }
+            }
             if router.destination != host.dest {
                 router.open(host.dest)
             }
-            dehydrate(keeping: host.dest)
         }
     }
 }
