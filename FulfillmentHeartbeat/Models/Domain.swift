@@ -743,6 +743,7 @@ enum HeartbeatMath {
         if section == .sales { return salesActionFlags(rows) }
         if section == .fiveStar { return fiveStarActionFlags(rows, includeAll: true) }
         if section == .lostRevenue { return lostRevenueMetricFlags(rows, includeAll: true) }
+        if section == .labor { return laborActionFlags(rows) }
         if section == .pickerScorecard {
             let shoppers = rows.filter { !$0.shopperName.isEmpty || !$0.shopperKey.isEmpty }
             let healthy = shoppers.filter { health(for: .pickerScorecard, row: $0) == .good }.count
@@ -1895,64 +1896,66 @@ enum HeartbeatMath {
 
     static func laborActionFlags(_ rows: [MetricRow]) -> [FiveStarFlag] {
         let stores = rows.filter { $0.textPayload["labor_grain"] != "market" && !isIgnoredStore($0.storeNumber) }
-        let cost = laborRollup(rows, key: "cost_trgt_pct")
+        let tva = laborRollup(rows, key: "target_vs_actual_pct")
         let act = laborRollup(rows, key: "act_cost_pct")
+        let cost = laborRollup(rows, key: "cost_trgt_pct")
+        let efficiency = laborRollup(rows, key: "schedule_efficiency_pct")
         let uplh = laborRollup(rows, key: "uplh_impact_pct")
         let wage = laborRollup(rows, key: "wage_impact_pct")
         let aiv = laborRollup(rows, key: "aiv_impact_pct")
-        var flags: [FiveStarFlag] = []
-        flags.append(
-            FiveStarFlag(
-                name: "Cost Trgt%",
-                value: HeartbeatFormat.pct(cost),
-                health: .none,
-                stores: 0
-            )
-        )
         let actHealth: Health = {
-            guard let act, let cost else { return .none }
+            guard let act, let cost else { return laborHealth(act) }
             return act <= cost ? .good : .risk
         }()
-        flags.append(
+        return [
             FiveStarFlag(
-                name: "Act Cost%",
+                name: "Target Vs Actual",
+                value: HeartbeatFormat.pct(tva),
+                health: laborHealth(tva),
+                stores: stores.filter { laborHealth($0.number("target_vs_actual_pct")) == .risk }.count
+            ),
+            FiveStarFlag(
+                name: "Act Cost %",
                 value: HeartbeatFormat.pct(act),
-                health: actHealth,
+                health: actHealth == .none ? .watch : actHealth,
+                stores: stores.filter {
+                    guard let rowAct = $0.number("act_cost_pct"), let rowCost = $0.number("cost_trgt_pct") else { return false }
+                    return rowAct > rowCost
+                }.count
+            ),
+            FiveStarFlag(
+                name: "Cost Target %",
+                value: HeartbeatFormat.pct(cost),
+                health: cost == nil ? .none : .good,
                 stores: 0
-            )
-        )
-        let over3 = stores.filter { ($0.number("target_vs_actual_pct") ?? 0) > laborWatch }.count
-        let band = stores.filter {
-            let value = $0.number("target_vs_actual_pct") ?? 0
-            return value > 0 && value <= laborWatch
-        }.count
-        flags.append(
+            ),
             FiveStarFlag(
-                name: "Over 3%",
-                value: "",
-                health: over3 == 0 ? .good : .risk,
-                stores: over3
-            )
-        )
-        flags.append(
+                name: "Schedule Efficiency %",
+                value: HeartbeatFormat.pct(efficiency),
+                health: band(efficiency, good: scheduleGoal, watch: scheduleWatch),
+                stores: stores.filter {
+                    band($0.number("schedule_efficiency_pct"), good: scheduleGoal, watch: scheduleWatch) == .risk
+                }.count
+            ),
             FiveStarFlag(
-                name: "0.01%–3%",
-                value: "",
-                health: band == 0 ? .good : .watch,
-                stores: band
-            )
-        )
-        for spec in [("UPLH", uplh), ("Wage", wage), ("AIV", aiv)] {
-            flags.append(
-                FiveStarFlag(
-                    name: spec.0,
-                    value: HeartbeatFormat.pct(spec.1),
-                    health: laborHealth(spec.1),
-                    stores: 0
-                )
-            )
-        }
-        return flags
+                name: "UPLH",
+                value: HeartbeatFormat.pct(uplh),
+                health: laborHealth(uplh),
+                stores: stores.filter { laborHealth($0.number("uplh_impact_pct")) == .risk }.count
+            ),
+            FiveStarFlag(
+                name: "WAGE",
+                value: HeartbeatFormat.pct(wage),
+                health: laborHealth(wage),
+                stores: stores.filter { laborHealth($0.number("wage_impact_pct")) == .risk }.count
+            ),
+            FiveStarFlag(
+                name: "AIV",
+                value: HeartbeatFormat.pct(aiv),
+                health: laborHealth(aiv),
+                stores: stores.filter { laborHealth($0.number("aiv_impact_pct")) == .risk }.count
+            ),
+        ]
     }
 
     static func pphActionFlags(stores: [MetricRow], shoppers: [MetricRow]) -> [FiveStarFlag] {
