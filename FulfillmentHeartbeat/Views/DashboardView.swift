@@ -413,82 +413,8 @@ struct DashScopeGrainCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Button {
-                let next = !open
-                open = next
-                if next, children.isEmpty, grain != .store {
-                    if !pack.children.isEmpty {
-                        children = Array(pack.children.prefix(40))
-                    } else {
-                        children = Array(store.dashboardGrainChildren(section: section, label: pack.line.label).prefix(40))
-                    }
-                    if section != .sales {
-                        var nextFlags: [String: [HeartbeatMath.FiveStarFlag]] = [:]
-                        let childGrain: DashScopeGrain = {
-                            switch grain {
-                            case .region: return .division
-                            case .division: return .district
-                            default: return .store
-                            }
-                        }()
-                        for child in children {
-                            nextFlags[child.label] = store.sectionFlags(section: section, label: child.label, grain: childGrain)
-                        }
-                        childFlags = nextFlags
-                    }
-                }
-            } label: {
-                if HubLayout.isPhone(sizeClass) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            Text(line.label)
-                                .font(AppTheme.rounded(.subheadline, weight: .bold))
-                                .foregroundStyle(AppTheme.text)
-                                .lineLimit(2)
-                                .minimumScaleFactor(0.8)
-                            Spacer()
-                            HealthBadge(health: line.health == .none ? .good : line.health, prominent: true, compact: true)
-                        }
-                        Text(line.value)
-                            .font(AppTheme.rounded(.title3, weight: .bold).monospacedDigit())
-                            .foregroundStyle(dashInk(line.health == .none ? .good : line.health))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                        if grain != .store {
-                            Text(line.count == 1 ? "1 Store" : "\(line.count) Stores")
-                                .font(AppTheme.rounded(.caption, weight: .semibold))
-                                .foregroundStyle(AppTheme.textSecondary)
-                        }
-                    }
-                } else {
-                    HStack(spacing: 10) {
-                        Text(line.label)
-                            .font(AppTheme.rounded(.subheadline, weight: .bold))
-                            .foregroundStyle(AppTheme.text)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.75)
-                            .frame(width: 168, alignment: .leading)
-                        if grain != .store {
-                            Text(line.count == 1 ? "1 Store" : "\(line.count) Stores")
-                                .font(AppTheme.rounded(.subheadline, weight: .semibold))
-                                .foregroundStyle(AppTheme.textSecondary)
-                                .frame(width: 88, alignment: .trailing)
-                        }
-                        Text(line.value)
-                            .font(AppTheme.rounded(.subheadline, weight: .bold).monospacedDigit())
-                            .foregroundStyle(dashInk(line.health == .none ? .good : line.health))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                        HealthBadge(health: line.health == .none ? .good : line.health, prominent: true, compact: true)
-                            .frame(width: 84, alignment: .trailing)
-                        if grain != .store {
-                            Image(systemName: open ? "chevron.up" : "chevron.down")
-                                .font(.caption.weight(.bold))
-                                .foregroundStyle(AppTheme.blue)
-                        }
-                    }
-                }
+            Button(action: toggleOpen) {
+                header
             }
             .buttonStyle(.plain)
             if !flags.isEmpty {
@@ -499,31 +425,7 @@ struct DashScopeGrainCard: View {
             }
             if open {
                 ForEach(children) { child in
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack(spacing: 8) {
-                            Text(child.label)
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(AppTheme.text)
-                                .lineLimit(1)
-                            Spacer(minLength: 4)
-                            Text(child.value)
-                                .font(.subheadline.weight(.bold).monospacedDigit())
-                                .foregroundStyle(dashInk(child.health == .none ? .good : child.health))
-                            if grain != .store {
-                                Text(child.count == 1 ? "1 store" : "\(child.count) stores")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(AppTheme.textSecondary)
-                            }
-                            HealthBadge(health: child.health, prominent: true, compact: true)
-                        }
-                        if section != .sales, let metrics = childFlags[child.label], !metrics.isEmpty {
-                            DashFlagGrid(
-                                flags: metrics,
-                                columns: HubLayout.flagColumns(count: metrics.count, width: max(width - 36, 200))
-                            )
-                        }
-                    }
-                    .padding(.leading, 12)
+                    childBlock(child)
                 }
             }
         }
@@ -536,6 +438,130 @@ struct DashScopeGrainCard: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .stroke(Color.black.opacity(0.08), lineWidth: 1)
         }
+    }
+
+    private var header: some View {
+        Group {
+            if HubLayout.isPhone(sizeClass) {
+                phoneHeader
+            } else {
+                wideHeader
+            }
+        }
+    }
+
+    private var phoneHeader: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(line.label)
+                    .font(AppTheme.rounded(.subheadline, weight: .bold))
+                    .foregroundStyle(AppTheme.text)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
+                Spacer()
+                HealthBadge(health: displayHealth, prominent: true, compact: true)
+            }
+            Text(line.value)
+                .font(AppTheme.rounded(.title3, weight: .bold).monospacedDigit())
+                .foregroundStyle(dashInk(displayHealth))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            if grain != .store {
+                Text(storeCountLine(line.count, title: true))
+                    .font(AppTheme.rounded(.caption, weight: .semibold))
+                    .foregroundStyle(AppTheme.textSecondary)
+            }
+        }
+    }
+
+    private var wideHeader: some View {
+        HStack(spacing: 10) {
+            Text(line.label)
+                .font(AppTheme.rounded(.subheadline, weight: .bold))
+                .foregroundStyle(AppTheme.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .frame(width: 168, alignment: .leading)
+            if grain != .store {
+                Text(storeCountLine(line.count, title: true))
+                    .font(AppTheme.rounded(.subheadline, weight: .semibold))
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .frame(width: 88, alignment: .trailing)
+            }
+            Text(line.value)
+                .font(AppTheme.rounded(.subheadline, weight: .bold).monospacedDigit())
+                .foregroundStyle(dashInk(displayHealth))
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+            HealthBadge(health: displayHealth, prominent: true, compact: true)
+                .frame(width: 84, alignment: .trailing)
+            if grain != .store {
+                Image(systemName: open ? "chevron.up" : "chevron.down")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(AppTheme.blue)
+            }
+        }
+    }
+
+    private func childBlock(_ child: DashScopeLine) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text(child.label)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(AppTheme.text)
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                Text(child.value)
+                    .font(.subheadline.weight(.bold).monospacedDigit())
+                    .foregroundStyle(dashInk(child.health == .none ? .good : child.health))
+                if grain != .store {
+                    Text(storeCountLine(child.count, title: false))
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppTheme.textSecondary)
+                }
+                HealthBadge(health: child.health, prominent: true, compact: true)
+            }
+            if section != .sales, let metrics = childFlags[child.label], !metrics.isEmpty {
+                DashFlagGrid(
+                    flags: metrics,
+                    columns: HubLayout.flagColumns(count: metrics.count, width: max(width - 36, 200))
+                )
+            }
+        }
+        .padding(.leading, 12)
+    }
+
+    private var displayHealth: Health {
+        line.health == .none ? .good : line.health
+    }
+
+    private func storeCountLine(_ count: Int, title: Bool) -> String {
+        if count == 1 { return title ? "1 Store" : "1 store" }
+        return title ? "\(count) Stores" : "\(count) stores"
+    }
+
+    private func toggleOpen() {
+        let next = !open
+        open = next
+        guard next, children.isEmpty, grain != .store else { return }
+        if !pack.children.isEmpty {
+            children = Array(pack.children.prefix(40))
+        } else {
+            children = Array(store.dashboardGrainChildren(section: section, label: pack.line.label).prefix(40))
+        }
+        guard section != .sales else { return }
+        let childGrain: DashScopeGrain
+        switch grain {
+        case .region: childGrain = .division
+        case .division: childGrain = .district
+        default: childGrain = .store
+        }
+        var nextFlags: [String: [HeartbeatMath.FiveStarFlag]] = [:]
+        for child in children {
+            nextFlags[child.label] = store.sectionFlags(section: section, label: child.label, grain: childGrain)
+        }
+        childFlags = nextFlags
     }
 }
 
