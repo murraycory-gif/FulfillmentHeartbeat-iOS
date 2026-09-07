@@ -1746,8 +1746,7 @@ enum HeartbeatMath {
                 values.append(value)
                 if spec.mark(row).health == .risk { risk += 1 }
             }
-            guard !values.isEmpty else { continue }
-            let avg = average(values)
+            guard !values.isEmpty, let avg = average(values) else { continue }
             let probe = MetricRow(
                 section: .fiveStar,
                 division: "",
