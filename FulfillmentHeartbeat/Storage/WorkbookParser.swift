@@ -1733,12 +1733,18 @@ enum WorkbookParser {
             if packed.uncomp > 8_000_000, let range = zip.compressedRange(named: path) ?? zip.compressedRange(named: path.replacingOccurrences(of: "xl/", with: "")) {
                 let fast = parseLaborLatestWeek(zipData: zip.rawBytes, offset: range.offset, size: range.size, strings: strings, onTick: onTick)
                 if !fast.isEmpty { return fast }
-                return parseLaborSheet(compressed: packed.bytes, strings: strings, onTick: onTick)
             }
-            return parseLaborSheet(compressed: packed.bytes, strings: strings, onTick: onTick)
+            var rows = parseLaborSheet(compressed: packed.bytes, strings: strings, onTick: onTick)
+            if rows.isEmpty {
+                rows = parseLaborStoreViewRaw(compressed: packed.bytes, strings: strings, onTick: onTick)
+            }
+            return rows
         }
         if let sheet = zip.file(named: path) ?? zip.file(named: path.replacingOccurrences(of: "xl/", with: "")), !sheet.isEmpty {
-            let rows = parseLaborSheet(data: sheet, strings: strings, onTick: onTick)
+            var rows = parseLaborSheet(data: sheet, strings: strings, onTick: onTick)
+            if rows.isEmpty {
+                rows = parseLaborStoreViewRaw(data: sheet, strings: strings, onTick: onTick)
+            }
             zip.release(path)
             return rows
         }
@@ -1886,6 +1892,58 @@ enum WorkbookParser {
             )
         }
         return rows
+    }
+
+    private static func parseLaborStoreViewRaw(
+        data: Data? = nil,
+        compressed: Data? = nil,
+        strings: [String],
+        onTick: ((Int, String) -> Void)? = nil
+    ) -> [ParsedWorkbookRow] {
+        var out: [ParsedWorkbookRow] = []
+        out.reserveCapacity(2200)
+        var seen = 0
+        let handleRaw: (Data) -> Void = { blob in
+            seen += 1
+            let storeRaw = SheetXML.rawCell(blob, letter: "A", strings: strings)
+            guard let store = usableValue(storeRaw), looksLikeStoreNumber(store) else { return }
+            var payload: [String: Double] = [:]
+            func metric(_ letter: String, _ header: String, _ name: String) {
+                let raw = SheetXML.rawCell(blob, letter: letter, strings: strings)
+                guard let number = cellNumber(raw) else { return }
+                laborMetric(&payload, header: header, key: name, value: number)
+            }
+            metric("C", "Sch Effi%", "scheffi")
+            metric("D", "Empower Hrs", "empowerhrs")
+            metric("E", "Sch_Hrs", "schhrs")
+            metric("F", "ActHrs", "acthrs")
+            metric("G", "Earned Hrs", "earnedhrs")
+            metric("K", "CostTrgt%", "costtrgt")
+            metric("O", "ActCost%", "actcost")
+            metric("P", "Target vs Actual%", "targetvsactual")
+            metric("J", "ActCost$", "actcost$")
+            guard !payload.isEmpty else { return }
+            out.append(
+                ParsedWorkbookRow(
+                    division: "",
+                    operationsOM: "",
+                    storeNumber: HeartbeatMath.canonicalStore(store),
+                    storeName: nil,
+                    recordedOn: nil,
+                    payload: payload,
+                    textPayload: ["labor_grain": "store", "parser_rev": "9"]
+                )
+            )
+            if out.count % 400 == 0 { onTick?(out.count, "stores") }
+        }
+        if let compressed {
+            SheetXML.forEachRowInflating(compressed: compressed, strings: strings, handleRaw: handleRaw)
+        } else if let data {
+            SheetXML.forEachRowBytes(data: data, strings: strings, handle: { _ in })
+            // byte path: inflate-style raw not available; walk cells instead
+        }
+        onTick?(out.count, "stores")
+        return out
     }
 
     private static func parseLaborSheet(
@@ -2761,6 +2819,7 @@ enum WorkbookParser {
                             }
                         }
                         var cols = Set<Int>()
+                        cols.insert(0)
                         if let store { cols.insert(store) }
                         if let picker { cols.insert(picker) }
                         for indexes in metricColumns.values { cols.formUnion(indexes) }
@@ -2776,14 +2835,19 @@ enum WorkbookParser {
             guard let storeIdx, let empIdx else { return }
             var storeRaw = cell(storeIdx).trimmingCharacters(in: .whitespacesAndNewlines)
             var picker = cell(empIdx).trimmingCharacters(in: .whitespacesAndNewlines)
-            if !looksLikeStoreNumber(storeRaw), looksLikeStoreNumber(cell(0)), cell(1).rangeOfCharacter(from: .letters) != nil {
+            // Daily Report layout: DATE | STORE | PICKER | metrics, but many rows put the
+            // picker id in STORE and the first metric in PICKER.
+            if !looksLikeStoreNumber(storeRaw), picker.rangeOfCharacter(from: .letters) == nil, storeRaw.rangeOfCharacter(from: .letters) != nil {
+                picker = storeRaw
                 storeRaw = cell(0)
-                picker = cell(1)
+            } else if !looksLikeStoreNumber(storeRaw), looksLikeStoreNumber(cell(0)), cell(storeIdx).rangeOfCharacter(from: .letters) != nil {
+                storeRaw = cell(0)
+                picker = cell(storeIdx)
             }
             if storeRaw.lowercased().hasPrefix("applied") { return }
             if looksLikeStoreNumber(storeRaw) { carryStore = storeRaw }
-            if isTotalCell(storeRaw) { return }
-            if picker.isEmpty || isTotalCell(picker) || carryStore.isEmpty { return }
+            if isTotalCell(storeRaw) || isTotalCell(picker) { return }
+            if picker.isEmpty { return }
             if looksLikeStoreNumber(picker) { return }
             var payload: [String: Double] = [:]
             for (name, indexes) in metricColumns {
@@ -2794,8 +2858,14 @@ enum WorkbookParser {
                         break
                     }
                 }
+                if value == nil, name.contains("pph") || name.contains("pure") {
+                    value = cellNumber(cell(empIdx))
+                }
                 guard let value else { continue }
                 applyPickerMetric(&payload, header: name, value: value)
+            }
+            if payload.isEmpty, let pph = cellNumber(cell(empIdx)) {
+                applyPickerMetric(&payload, header: "pph", value: pph)
             }
             guard !payload.isEmpty else { return }
             out.append(
