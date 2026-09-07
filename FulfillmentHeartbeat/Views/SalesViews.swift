@@ -453,13 +453,6 @@ enum SalesRollupBuilder {
             return (name, SalesPack(row, prefix: "sales_d\(sourceIndex)_"))
         }
     }
-        let week = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-        var out = names
-        for day in week where !out.contains(where: { $0.caseInsensitiveCompare(day) == .orderedSame }) {
-            out.append(day)
-        }
-        return week.filter { day in out.contains(where: { $0.caseInsensitiveCompare(day) == .orderedSame }) }
-    }
 
     static func dashboardRows(from stores: [MetricRow], grain: DashScopeGrain) -> [SalesRollupRow] {
         switch grain {
