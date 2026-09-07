@@ -41,8 +41,7 @@ struct ScorecardPager: UIViewControllerRepresentable {
         }
 
         guard dest != .upload else { return }
-        if dest != coordinator.displayed {
-            coordinator.isSwiping = false
+        if dest != coordinator.displayed, !coordinator.isSwiping {
             coordinator.snap(to: dest, animated: false)
         }
     }
@@ -107,6 +106,7 @@ struct ScorecardPager: UIViewControllerRepresentable {
 
         func reloadHydrated() {
             hydrate(displayed)
+            warmNeighbors(of: displayed)
         }
 
         func neighbors(of dest: HubDestination) -> [HubDestination] {
@@ -139,17 +139,32 @@ struct ScorecardPager: UIViewControllerRepresentable {
             pager.setViewControllers([host(for: dest)], direction: .forward, animated: false)
             pager.dataSource = self
             resetScroll(pager)
-            warmNeighbors(of: dest)
+            hydrateNeighborsNow(of: dest)
+        }
+
+        private func hydrateNeighborsNow(of dest: HubDestination) {
+            guard HubLayout.hydrateNeighbors else { return }
+            let sides = neighbors(of: dest)
+            guard let first = sides.first else { return }
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.displayed == dest else { return }
+                if self.cache[first]?.hydrated != true {
+                    self.hydrate(first)
+                }
+                if sides.count > 1 {
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self, self.displayed == dest else { return }
+                        let other = sides[1]
+                        if self.cache[other]?.hydrated != true {
+                            self.hydrate(other)
+                        }
+                    }
+                }
+            }
         }
 
         private func warmNeighbors(of dest: HubDestination) {
-            guard HubLayout.hydrateNeighbors else { return }
-            DispatchQueue.main.async { [weak self] in
-                guard let self, self.displayed == dest else { return }
-                for neighbor in self.neighbors(of: dest) where self.cache[neighbor]?.hydrated != true {
-                    self.hydrate(neighbor)
-                }
-            }
+            hydrateNeighborsNow(of: dest)
         }
 
         private static let blank = AnyView(Color(AppTheme.uiBg).ignoresSafeArea())
@@ -171,7 +186,10 @@ struct ScorecardPager: UIViewControllerRepresentable {
             guard let host = viewController as? PageHost else { return nil }
             let items = HubDestination.sectionItems
             guard let index = items.firstIndex(of: host.dest), index > 0 else { return nil }
-            return self.host(for: items[index - 1])
+            let dest = items[index - 1]
+            let next = self.host(for: dest)
+            if !next.hydrated { hydrate(dest) }
+            return next
         }
 
         func pageViewController(
@@ -181,7 +199,10 @@ struct ScorecardPager: UIViewControllerRepresentable {
             guard let host = viewController as? PageHost else { return nil }
             let items = HubDestination.sectionItems
             guard let index = items.firstIndex(of: host.dest), index + 1 < items.count else { return nil }
-            return self.host(for: items[index + 1])
+            let dest = items[index + 1]
+            let next = self.host(for: dest)
+            if !next.hydrated { hydrate(dest) }
+            return next
         }
 
         func pageViewController(

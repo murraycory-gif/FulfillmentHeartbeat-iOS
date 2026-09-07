@@ -5645,7 +5645,7 @@ struct LaborListTopKey: PreferenceKey {
 
 final class LaborHeaderPin: ObservableObject {
     @Published var tableOpen = true
-    @Published var storesExpanded = true
+    @Published var storesExpanded = false
     @Published var rollupExpanded = true
     @Published var pinned = false
     @Published var active = "tva"
@@ -5655,7 +5655,7 @@ final class LaborHeaderPin: ObservableObject {
     var onSelect: ((String) -> Void)?
 
     func openOnPageEnter() {
-        storesExpanded = true
+        storesExpanded = false
         rollupExpanded = true
         tableOpen = true
         pinned = false
