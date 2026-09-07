@@ -124,6 +124,11 @@ final class HeartbeatStore: ObservableObject {
             NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main, using: flush),
             NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main, using: flush),
             NotificationCenter.default.addObserver(forName: UIApplication.willTerminateNotification, object: nil, queue: .main, using: blocking),
+            NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.pullLatestWorkbookIfNeeded()
+                }
+            },
         ]
     }
 
@@ -1350,6 +1355,70 @@ final class HeartbeatStore: ObservableObject {
         Task { await runLinkedMasterReload() }
     }
 
+    func pullLatestWorkbookIfNeeded() {
+        Task { await pullWatchedWorkbook() }
+    }
+
+    private func pullWatchedWorkbook() async {
+        guard !isImporting else { return }
+        if let bookmark = masterBookmark {
+            if await fileLooksNewer(bookmark: bookmark) {
+                await runLinkedMasterReload(silent: true)
+                return
+            }
+        }
+        guard let dropped = newestDroppedWorkbook() else { return }
+        let stamp = UserDefaults.standard.double(forKey: "hb.autoImportModified")
+        let modified = (try? dropped.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate?.timeIntervalSince1970) ?? 0
+        guard modified > stamp + 1 else { return }
+        isImporting = true
+        importLabel = "Updating from \(dropped.lastPathComponent)…"
+        do {
+            let file = try HeartbeatFilePicker.readPickedFile(dropped)
+            UserDefaults.standard.set(modified, forKey: "hb.autoImportModified")
+            _ = await runMasterImport(data: file.data, filename: file.name, fallbackToPicker: false, alreadyOpen: true, presentRoleGate: false)
+        } catch {
+            isImporting = false
+            importLabel = nil
+        }
+    }
+
+    private func fileLooksNewer(bookmark: Data) async -> Bool {
+        var stale = false
+        guard let url = try? URL(resolvingBookmarkData: bookmark, options: [], relativeTo: nil, bookmarkDataIsStale: &stale) else {
+            return false
+        }
+        let accessed = url.startAccessingSecurityScopedResource()
+        defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+        let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+        let last = linkedMasterLoadedAt ?? .distantPast
+        return modified > last.addingTimeInterval(2)
+    }
+
+    private func newestDroppedWorkbook() -> URL? {
+        let docs = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let folders = [
+            docs,
+            docs.appendingPathComponent("Inbox", isDirectory: true),
+            docs.appendingPathComponent("Heartbeat", isDirectory: true),
+        ]
+        var found: [(URL, Date)] = []
+        for folder in folders {
+            guard let items = try? fileManager.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.contentModificationDateKey], options: [.skipsHiddenFiles]) else { continue }
+            for url in items where isHeartbeatWorkbook(url) {
+                let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
+                found.append((url, date))
+            }
+        }
+        return found.max(by: { $0.1 < $1.1 })?.0
+    }
+
+    private func isHeartbeatWorkbook(_ url: URL) -> Bool {
+        let name = url.lastPathComponent.lowercased()
+        guard name.hasSuffix(".xlsx") || name.hasSuffix(".xlsm") else { return false }
+        return name.contains("heartbeat") || name.contains("daily report") || name.contains("master")
+    }
+
     func unlinkMasterFile() {
         masterBookmark = nil
         linkedMasterName = nil
@@ -1357,7 +1426,7 @@ final class HeartbeatStore: ObservableObject {
         try? fileManager.removeItem(at: masterLinkURL)
     }
 
-    private func runLinkedMasterReload() async {
+    private func runLinkedMasterReload(silent: Bool = false) async {
         guard let bookmark = masterBookmark else {
             errorMessage = "Link a shared master file first with Choose file."
             return
@@ -1374,7 +1443,13 @@ final class HeartbeatStore: ObservableObject {
             importLabel = "Downloading \(linkedMasterName ?? url.lastPathComponent)…"
             let file = try HeartbeatFilePicker.readPickedFile(url)
             _ = saveToDocuments(file.data, filename: file.name)
-            let ok = await runMasterImport(data: file.data, filename: file.name, fallbackToPicker: false, alreadyOpen: true)
+            let ok = await runMasterImport(
+                data: file.data,
+                filename: file.name,
+                fallbackToPicker: false,
+                alreadyOpen: true,
+                presentRoleGate: !silent
+            )
             if ok {
                 rememberMasterFile(url: url, filename: file.name)
             }
@@ -1592,7 +1667,7 @@ final class HeartbeatStore: ObservableObject {
         }
     }
 
-    private func runMasterImport(data: Data, filename: String, fallbackToPicker: Bool, alreadyOpen: Bool = false) async -> Bool {
+    private func runMasterImport(data: Data, filename: String, fallbackToPicker: Bool, alreadyOpen: Bool = false, presentRoleGate: Bool = true) async -> Bool {
         if !alreadyOpen {
             guard !isImporting else { return false }
             isImporting = true
@@ -1611,7 +1686,7 @@ final class HeartbeatStore: ObservableObject {
         do {
             let sheets = try await parseMasterOffMain(data: data, filename: filename)
             masterApplyToken += 1
-            await applyMasterSheets(sheets, filename: filename, dismissOverlay: true, note: nil, presentRoleGate: true)
+            await applyMasterSheets(sheets, filename: filename, dismissOverlay: true, note: nil, presentRoleGate: presentRoleGate)
             Task { await persistNow() }
             return true
         } catch {
@@ -2045,6 +2120,7 @@ final class HeartbeatStore: ObservableObject {
             restoreSessionRole()
             install(caches)
             isReady = true
+            pullLatestWorkbookIfNeeded()
             let sqliteFile = sqliteURL
             let heavyFile = heavyURL
             let first = pack.rows

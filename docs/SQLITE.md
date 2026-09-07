@@ -1,40 +1,18 @@
-# Heartbeat on-device database
+# Auto-pull (no Upload tap)
 
-TestFlight freeze: **1.0 (473) / HB-0828.102** tagged `tf-1.0.473`.
-Database work starts at **1.0 (474) / HB-0828.103**.
+Users should not pick Excel inside the app after the pack exists.
 
-## What this build does
+## How data gets in
 
-After a successful master Excel load, the app writes `heartbeat.sqlite` next to the old JSON snapshot.
+1. You export `Heartbeat Daily Report.xlsx` from Power BI.
+2. Put that file in one of these places:
+   - The linked iCloud file already chosen once on this iPad, **or**
+   - Files → On My iPad → Heartbeat (app Documents). Name must include `Heartbeat`, `Daily Report`, or `Master`.
+3. Open Heartbeat. If that file is newer than the last load, the app imports it and rewrites `heartbeat.sqlite`. Who’s looking is not asked again.
+4. If the file did not change, the app only opens the database.
 
-On the next launch it prefers that SQLite pack if it has rows.
+## What testers do
 
-Excel is still how a new day enters the app. SQLite is the working copy.
+Open the app. Data is there. No Choose file.
 
-## What Cory does next
-
-1. Pull and install on the 12-inch iPad (not TestFlight testers yet):
-
-```bash
-cd ~/Developer/FulfillmentHeartbeat-iOS
-git pull origin main
-DEVICE_UDID=676FA816-88AE-59D9-A89D-5C17BFC2DA96 ./install-ipad.sh
-```
-
-2. Confirm sidebar stamp **HB-0828.103  1.0 (474)**.
-3. Upload the same master workbook once.
-4. Wait for 15 of 15, pick Who's looking, confirm dashboard numbers match 473.
-5. Force-quit Heartbeat and open it again. Data should return without choosing Excel.
-
-Do **not** push 474 to TestFlight until that loop is clean.
-
-## Still to build
-
-- Split `facts` into per-scorecard tables (`sales`, `labor`, `pickers`, `presub_items`).
-- Pages query SQLite instead of holding every row in RAM.
-- A “Load database pack” button so testers skip OneDrive xlsx.
-- Optional iCloud folder for the `.sqlite` pack.
-
-## Do not change for testers
-
-Keep TestFlight on **473** until the iPad loop above is signed off.
+Someone still has to drop the new xlsx into that folder or iCloud link when the day changes. That is outside the app.
