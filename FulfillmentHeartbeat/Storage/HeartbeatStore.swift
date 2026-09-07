@@ -115,7 +115,10 @@ final class HeartbeatStore: ObservableObject {
         loadChecklist()
         loadMasterLink()
         await loadPack()
-        if seeded, !rows.isEmpty {
+        let packReady = seeded && !rows.isEmpty
+        let laborReady = Self.hasUsableLabor(rows)
+        let pickerReady = Self.hasUsablePicker(rows)
+        if packReady, laborReady, pickerReady {
             isReady = true
             isImporting = false
             importLabel = nil
@@ -123,12 +126,17 @@ final class HeartbeatStore: ObservableObject {
             Task { await self.importCloudWorkbook(blocking: false) }
             return
         }
+        if packReady {
+            isReady = true
+            needsRolePick = true
+        }
+        isImporting = true
         importProgress.label = "Loading the data"
         importProgress.loaded = 0
         importProgress.expected = MetricSection.uploadOrder.count
         importLabel = "Loading the data"
         await importCloudSQLiteIfPresent()
-        if seeded, !rows.isEmpty {
+        if Self.hasUsableLabor(rows), Self.hasUsablePicker(rows) {
             isReady = true
             isImporting = false
             importLabel = nil
@@ -2273,22 +2281,21 @@ final class HeartbeatStore: ObservableObject {
     private func loadPack() async {
         if PulseSQLite.exists(at: sqliteURL) {
             let url = sqliteURL
-            let skip = Self.deferredSections
-            let light = await Task.detached(priority: .userInitiated) {
-                try? PulseSQLite.read(from: url, skipping: skip)
+            let pack = await Task.detached(priority: .userInitiated) {
+                try? PulseSQLite.read(from: url)
             }.value
-            if let light, !light.rows.isEmpty {
+            if let pack, !pack.rows.isEmpty {
                 let caches = await Task.detached(priority: .userInitiated) {
                     PulseCaches.build(
-                        rows: light.rows,
+                        rows: pack.rows,
                         filters: DashboardFilters(),
-                        uploads: light.uploads,
+                        uploads: pack.uploads,
                         heavy: false,
                         grain: .region
                     )
                 }.value
-                rows = light.rows
-                uploads = light.uploads.sorted { $0.uploadedAt > $1.uploadedAt }
+                rows = pack.rows
+                uploads = pack.uploads.sorted { $0.uploadedAt > $1.uploadedAt }
                 seeded = true
                 usingDatabasePack = true
                 hydrating = true
@@ -2300,7 +2307,7 @@ final class HeartbeatStore: ObservableObject {
                 isReady = true
                 isImporting = false
                 importLabel = nil
-                Task { await self.hydrateDeferredPack(from: url, uploads: light.uploads) }
+                scheduleHeavyExtras(latest: caches.filteredLatest, roster: caches.roster)
                 return
             }
         }
@@ -2444,6 +2451,13 @@ final class HeartbeatStore: ObservableObject {
         let packRows = rows
         let packUploads = uploads
         let packSeeded = seeded
+        let incomingPicker = packRows.filter { $0.section == .pickerScorecard }.count
+        let incomingLabor = packRows.filter { $0.section == .labor }.count
+        let diskPicker = PulseSQLite.sectionCount(from: packURL, section: .pickerScorecard)
+        let diskLabor = PulseSQLite.sectionCount(from: packURL, section: .labor)
+        if incomingPicker + incomingLabor < diskPicker + diskLabor {
+            return
+        }
         do {
             try await Task.detached(priority: .utility) {
                 try PulseSQLite.write(rows: packRows, uploads: packUploads, seeded: packSeeded, to: packURL)
