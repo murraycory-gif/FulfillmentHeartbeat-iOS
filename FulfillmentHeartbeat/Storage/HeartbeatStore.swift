@@ -1663,16 +1663,12 @@ final class HeartbeatStore: ObservableObject {
         presentRoleGate: Bool = false
     ) async {
         guard !sheets.isEmpty else { return }
-        masterApplyToken += 1
-        let token = masterApplyToken
-        var nextRows = rows
-        var nextUploads = uploads
         for sheet in sheets {
             let incoming = sheet.rows.map { $0.asRow(section: sheet.section) }
-            nextRows.removeAll { $0.section == sheet.section }
-            nextRows.append(contentsOf: incoming)
-            nextUploads.removeAll { $0.section == sheet.section }
-            nextUploads.insert(
+            rows.removeAll { $0.section == sheet.section }
+            rows.append(contentsOf: incoming)
+            uploads.removeAll { $0.section == sheet.section }
+            uploads.insert(
                 UploadRecord(
                     section: sheet.section,
                     filename: "\(filename) · \(sheet.sheetName)",
@@ -1684,13 +1680,15 @@ final class HeartbeatStore: ObservableObject {
                 at: 0
             )
         }
+        masterApplyToken += 1
+        let token = masterApplyToken
+        let nextRows = rows
+        let nextUploads = uploads
         let caches = await Task.detached(priority: .userInitiated) {
             PulseCaches.build(rows: nextRows, filters: DashboardFilters(), uploads: nextUploads, heavy: false, grain: .region)
         }.value
         guard token == masterApplyToken else { return }
         hydrating = true
-        rows = nextRows
-        uploads = nextUploads
         if presentRoleGate {
             filters = DashboardFilters()
             sessionRole = nil
@@ -1699,12 +1697,6 @@ final class HeartbeatStore: ObservableObject {
         rebuildLaborWeekIndex()
         install(caches)
         hydrating = false
-        if note == nil {
-            Task.detached(priority: .utility) {
-                let heavy = PulseCaches.heavyExtras(latest: caches.filteredLatest, roster: caches.roster)
-                await MainActor.run { self.mergeHeavy(heavy) }
-            }
-        }
         seeded = true
         lastImportedSection = sheets.first { $0.section == .pickerScorecard }?.section ?? sheets.first?.section
         let loadedSections = Set(uploads.map(\.section))
@@ -1726,6 +1718,7 @@ final class HeartbeatStore: ObservableObject {
             isImporting = false
             importLabel = nil
         }
+        await persistNow()
     }
 
     private func parseMasterOffMain(data: Data, filename: String) async throws -> [WorkbookParser.ParsedSheet] {
