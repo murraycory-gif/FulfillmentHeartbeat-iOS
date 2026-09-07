@@ -115,8 +115,15 @@ final class HeartbeatStore: ObservableObject {
         loadChecklist()
         loadMasterLink()
         await loadPack()
-        pullLatestWorkbookIfNeeded()
-        pullCloudPackIfNeeded()
+        if isReady, Self.hasUsableLabor(rows), Self.hasUsablePicker(rows) {
+            isImporting = false
+            importLabel = nil
+            return
+        }
+        importProgress.label = "Downloading workbook"
+        importProgress.loaded = 0
+        importProgress.expected = MetricSection.uploadOrder.count
+        await importCloudWorkbook()
     }
 
     private func watchAppLifecycle() {
@@ -1376,6 +1383,10 @@ final class HeartbeatStore: ObservableObject {
 
     private func refreshFromCloud() async {
         guard !isImporting else { return }
+        await importCloudWorkbook()
+    }
+
+    private func importCloudWorkbook() async {
         var remoteXlsx = 0
         var remoteName = "Heartbeat Daily Report.xlsx"
         for name in PulseCloud.workbookNames {
@@ -1388,53 +1399,39 @@ final class HeartbeatStore: ObservableObject {
         }
         let knownXlsx = UserDefaults.standard.integer(forKey: "hb.cloudXlsxBytes")
         let missingHeavy = !Self.hasUsableLabor(rows) || !Self.hasUsablePicker(rows)
-        if remoteXlsx > 1_000, remoteXlsx != knownXlsx || missingHeavy {
-            isImporting = true
-            importLabel = nil
-            importProgress.label = "Loading the data"
-            importProgress.loaded = 0
-            importProgress.expected = MetricSection.uploadOrder.count
-            do {
-                let book = try await PulseCloud.downloadNamed(remoteName)
-                let ok = await runMasterImport(
-                    data: book,
-                    filename: remoteName,
-                    fallbackToPicker: false,
-                    alreadyOpen: true,
-                    presentRoleGate: true
-                )
-                if ok, Self.hasUsableLabor(rows), Self.hasUsablePicker(rows) {
-                    UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
-                } else {
-                    UserDefaults.standard.removeObject(forKey: "hb.cloudXlsxBytes")
-                    isImporting = false
-                    importLabel = nil
-                }
-                return
-            } catch {
+        guard remoteXlsx > 1_000, remoteXlsx != knownXlsx || missingHeavy || !isReady else {
+            if seeded { isImporting = false; isReady = true }
+            return
+        }
+        isImporting = true
+        isReady = false
+        importLabel = nil
+        importProgress.label = "Downloading workbook"
+        importProgress.loaded = 0
+        importProgress.expected = MetricSection.uploadOrder.count
+        do {
+            let book = try await PulseCloud.downloadNamed(remoteName)
+            importProgress.label = "Reading workbook"
+            let ok = await runMasterImport(
+                data: book,
+                filename: remoteName,
+                fallbackToPicker: false,
+                alreadyOpen: true,
+                presentRoleGate: true
+            )
+            if ok, Self.hasUsableLabor(rows), Self.hasUsablePicker(rows) {
+                UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
+            } else if !ok {
+                UserDefaults.standard.removeObject(forKey: "hb.cloudXlsxBytes")
                 isImporting = false
                 importLabel = nil
-                errorMessage = "Could not load Heartbeat Daily Report from the cloud."
+                errorMessage = "Cloud workbook did not load Labor and Picker."
             }
-        }
-        if seeded { return }
-        do {
-            let data = try await PulseCloud.downloadPack()
-            guard data.count > 1_000 else { return }
-            let stamp = UserDefaults.standard.integer(forKey: "hb.cloudPackBytes")
-            guard data.count != stamp else { return }
-            let temp = sqliteURL.deletingLastPathComponent().appendingPathComponent("cloud-pack.sqlite")
-            try data.write(to: temp, options: .atomic)
-            let pack = try PulseSQLite.read(from: temp)
-            guard !pack.rows.isEmpty else { return }
-            try? FileManager.default.removeItem(at: sqliteURL)
-            try FileManager.default.moveItem(at: temp, to: sqliteURL)
-            UserDefaults.standard.set(data.count, forKey: "hb.cloudPackBytes")
-            await MainActor.run {
-                self.installCloudPack(pack)
-            }
-        } catch {
             return
+        } catch {
+            isImporting = false
+            importLabel = nil
+            errorMessage = "Could not load Heartbeat Daily Report from the cloud."
         }
     }
 
