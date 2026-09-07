@@ -1180,12 +1180,13 @@ final class HeartbeatStore: ObservableObject {
             next.om = om
         }
         next.sanitize()
-        if filters == next {
-            applyFilters()
-        } else {
-            commitFilters(next)
-        }
         needsRolePick = false
+        if filters != next {
+            filters = next
+            persistFilters()
+        } else {
+            applyFilters()
+        }
     }
 
     func reopenRoleGate() {
@@ -1675,62 +1676,6 @@ final class HeartbeatStore: ObservableObject {
         rebuildLaborWeekIndex()
     }
 
-    private func applyVisibleFilter() {
-        refreshFilterOptions()
-        let allowed = PulseCaches.allowedStores(roster: roster, filters: filters)
-        if let allowed {
-            var next: [MetricSection: [MetricRow]] = [:]
-            next.reserveCapacity(latestBySection.count)
-            for (section, rows) in latestBySection {
-                if section == .pickerScorecard || section == .pickPathPicker || section == .preSubOOSItem {
-                    continue
-                }
-                next[section] = rows.filter { Self.rowMatchesFilter($0, allowed: allowed, roster: roster, filters: filters) }
-            }
-            filteredLatest = next
-        } else {
-            filteredLatest = latestBySection
-        }
-        cachedSummaries = MetricSection.dashboardCards.map { section in
-            HeartbeatMath.summarize(
-                section,
-                rows: filteredLatest[section] ?? [],
-                upload: uploads.first { $0.section == section }
-            )
-        }
-        filterStamp += 1
-        let snapshotAllowed = allowed
-        let snapshotFilters = filters
-        let snapshotRoster = roster
-        let snapshotLatest = latestBySection
-        let grain = effectiveDashboardGrain
-        let hidePicker = sessionRole == .evp
-        let stores = cachedStores
-        Task { @MainActor [weak self] in
-            guard let self, self.filters == snapshotFilters else { return }
-            if let allowed = snapshotAllowed {
-                self.filteredLatest[.pickerScorecard] = (snapshotLatest[.pickerScorecard] ?? []).filter {
-                    Self.rowMatchesFilter($0, allowed: allowed, roster: snapshotRoster, filters: snapshotFilters)
-                }
-                self.filteredLatest[.pickPathPicker] = (snapshotLatest[.pickPathPicker] ?? []).filter {
-                    Self.rowMatchesFilter($0, allowed: allowed, roster: snapshotRoster, filters: snapshotFilters)
-                }
-                self.filteredLatest[.preSubOOSItem] = (snapshotLatest[.preSubOOSItem] ?? []).filter {
-                    Self.rowMatchesFilter($0, allowed: allowed, roster: snapshotRoster, filters: snapshotFilters)
-                }
-            }
-            self.cachedCardFlags = PulseCaches.cardFlags(latest: self.filteredLatest)
-            self.cachedGrainPacks = PulseCaches.grainPacks(
-                latest: self.filteredLatest,
-                grain: grain,
-                hidePicker: hidePicker,
-                stores: stores,
-                roster: snapshotRoster
-            )
-            self.filterStamp += 1
-        }
-    }
-
     private static func rowMatchesFilter(
         _ row: MetricRow,
         allowed: Set<String>,
@@ -1750,8 +1695,63 @@ final class HeartbeatStore: ObservableObject {
     private func applyFilters() {
         refilterTask?.cancel()
         applyVisibleFilter()
-        if !filters.isActive {
-            warmUnfilteredPulse()
+    }
+
+    private func applyVisibleFilter() {
+        refreshFilterOptions()
+        let allowed = PulseCaches.allowedStores(roster: roster, filters: filters)
+        let latest = latestBySection
+        let current = filters
+        let rosterCopy = roster
+        let uploadsCopy = uploads
+        let grain = effectiveDashboardGrain
+        let hidePicker = sessionRole == .evp
+        let stores = cachedStores
+        if let grain {
+            cachedGrainPacks = PulseCaches.placeholderGrainPacks(grain: grain)
+        }
+        filterStamp += 1
+        refilterTask = Task.detached(priority: .userInitiated) {
+            var next: [MetricSection: [MetricRow]] = [:]
+            next.reserveCapacity(latest.count)
+            if let allowed {
+                for (section, rows) in latest {
+                    next[section] = rows.filter {
+                        Self.rowMatchesFilter($0, allowed: allowed, roster: rosterCopy, filters: current)
+                    }
+                }
+            } else {
+                next = latest
+            }
+            let summaries = MetricSection.dashboardCards.map { section in
+                HeartbeatMath.summarize(
+                    section,
+                    rows: next[section] ?? [],
+                    upload: uploadsCopy.first { $0.section == section }
+                )
+            }
+            let flags = PulseCaches.cardFlags(latest: next)
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard !Task.isCancelled, self.filters == current else { return }
+                self.filteredLatest = next
+                self.cachedSummaries = summaries
+                self.cachedCardFlags = flags
+                self.filterStamp += 1
+            }
+            let packs = PulseCaches.grainPacks(
+                latest: next,
+                grain: grain,
+                hidePicker: hidePicker,
+                stores: stores,
+                roster: rosterCopy
+            )
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard !Task.isCancelled, self.filters == current else { return }
+                self.cachedGrainPacks = packs
+                self.filterStamp += 1
+            }
         }
     }
 
