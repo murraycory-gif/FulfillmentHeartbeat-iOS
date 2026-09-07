@@ -1421,8 +1421,13 @@ final class HeartbeatStore: ObservableObject {
     private func publishCloudPack() {
         let url = sqliteURL
         Task.detached(priority: .utility) {
-            guard let data = try? Data(contentsOf: url), data.count > 1_000 else { return }
-            try? await PulseCloud.uploadPack(data)
+            var data = try? Data(contentsOf: url)
+            if data == nil || (data?.count ?? 0) < 1_000 {
+                try? await Task.sleep(nanoseconds: 800_000_000)
+                data = try? Data(contentsOf: url)
+            }
+            guard let data, data.count > 1_000 else { return }
+            try await PulseCloud.uploadPack(data)
             await MainActor.run {
                 UserDefaults.standard.set(data.count, forKey: "hb.cloudPackBytes")
             }
@@ -1757,7 +1762,7 @@ final class HeartbeatStore: ObservableObject {
             let sheets = try await parseMasterOffMain(data: data, filename: filename)
             masterApplyToken += 1
             await applyMasterSheets(sheets, filename: filename, dismissOverlay: true, note: nil, presentRoleGate: presentRoleGate)
-            Task { await persistNow() }
+            await persistNow()
             publishCloudPack()
             return true
         } catch {
@@ -2430,7 +2435,7 @@ final class HeartbeatStore: ObservableObject {
             try await Task.detached(priority: .utility) {
                 try PulseDisk.write(light, to: lightURL)
                 try PulseDisk.write(heavy, to: packedURL)
-                try? PulseSQLite.write(rows: packRows, uploads: packUploads, seeded: packSeeded, to: packURL)
+                try PulseSQLite.write(rows: packRows, uploads: packUploads, seeded: packSeeded, to: packURL)
             }.value
         } catch {
             errorMessage = "Pulse did not save: \(error.localizedDescription). Keep Heartbeat open until the import finishes."
