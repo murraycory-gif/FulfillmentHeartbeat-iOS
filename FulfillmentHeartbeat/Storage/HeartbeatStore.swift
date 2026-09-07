@@ -1185,7 +1185,7 @@ final class HeartbeatStore: ObservableObject {
             filters = next
             persistFilters()
         } else {
-            applyFilters()
+            filterStamp += 1
         }
     }
 
@@ -1688,6 +1688,48 @@ final class HeartbeatStore: ObservableObject {
 
     private func applyVisibleFilter() {
         refreshFilterOptions()
+        if !filters.isActive {
+            filteredLatest = latestBySection
+            var inputBySection = latestBySection
+            if let market = laborMarketRow() {
+                inputBySection[.labor, default: []].append(market)
+            }
+            cachedSummaries = MetricSection.dashboardCards.map { section in
+                HeartbeatMath.summarize(
+                    section,
+                    rows: inputBySection[section] ?? [],
+                    upload: uploads.first { $0.section == section }
+                )
+            }
+            cachedCardFlags = PulseCaches.cardFlags(latest: latestBySection)
+            let pickers = latestBySection[.pickerScorecard] ?? []
+            if (pickerIndex[.all] ?? []).isEmpty, !pickers.isEmpty {
+                let bits = pickerIndexValues(pickers)
+                pickerIndex = bits.index
+                pickerFocusHealth = bits.health
+                cachedPickerBoard = HeartbeatMath.pickerBoard(pickers)
+            }
+            filterStamp += 1
+            let grain = effectiveDashboardGrain
+            let latest = latestBySection
+            let hidePicker = sessionRole == .evp
+            let stores = cachedStores
+            let rosterCopy = roster
+            Task.detached(priority: .utility) {
+                let packs = PulseCaches.grainPacks(
+                    latest: latest,
+                    grain: grain,
+                    hidePicker: hidePicker,
+                    stores: stores,
+                    roster: rosterCopy
+                )
+                await MainActor.run {
+                    guard !self.filters.isActive else { return }
+                    self.cachedGrainPacks = packs
+                }
+            }
+            return
+        }
         let allowed = PulseCaches.allowedStores(roster: roster, filters: filters)
         let latest = latestBySection
         let current = filters
@@ -1743,7 +1785,6 @@ final class HeartbeatStore: ObservableObject {
             await MainActor.run {
                 guard !Task.isCancelled, self.filters == current else { return }
                 self.cachedGrainPacks = packs
-                self.filterStamp += 1
             }
         }
     }
