@@ -2164,7 +2164,6 @@ final class HeartbeatStore: ObservableObject {
         }
         let filterFile = filtersURL
         let sqliteFile = sqliteURL
-        let skip: Set<MetricSection> = [.labor, .pickerScorecard, .pickPathPicker, .preSubOOSItem]
         Task.detached(priority: .userInitiated) {
             do {
                 let hasPack = PulseSQLite.exists(at: sqliteFile)
