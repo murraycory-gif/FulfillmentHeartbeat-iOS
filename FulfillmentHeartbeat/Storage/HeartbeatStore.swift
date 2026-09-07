@@ -2647,6 +2647,8 @@ private struct PulseCaches {
     ) -> Set<String>? {
         pickerStoreSet(roster: roster, filters: filters)
     }
+
+    private static func pickerStoreSet(
         roster: [String: HeartbeatMath.StoreIdentity],
         filters: DashboardFilters
     ) -> Set<String>? {
