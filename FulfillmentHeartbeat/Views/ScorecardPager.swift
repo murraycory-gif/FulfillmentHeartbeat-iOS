@@ -34,16 +34,19 @@ struct ScorecardPager: UIViewControllerRepresentable {
         coordinator.router = router
         coordinator.attach(pager)
 
+        let dest = router.current
         if coordinator.filterStamp != filterStamp {
             coordinator.filterStamp = filterStamp
-            return
+            coordinator.reloadHydrated()
         }
 
-        let dest = router.current
-        guard dest != .upload, dest != coordinator.displayed else { return }
-        if coordinator.isSwiping { return }
-        coordinator.snap(to: dest, animated: false)
+        guard dest != .upload else { return }
+        if dest != coordinator.displayed {
+            coordinator.isSwiping = false
+            coordinator.snap(to: dest, animated: false)
+        }
     }
+
 
     final class PageHost: UIHostingController<AnyView> {
         let dest: HubDestination

@@ -482,10 +482,11 @@ struct HubNavControl: View {
             .foregroundStyle(AppTheme.blue)
             .padding(.horizontal, phone ? 8 : 10)
             .padding(.vertical, phone ? 6 : 8)
-            .frame(minHeight: phone ? HubLayout.phoneControlHeight : 44)
+            .frame(minHeight: phone ? max(HubLayout.phoneControlHeight, 44) : 48)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .zIndex(3)
         .accessibilityLabel(title)
     }
 }
@@ -9663,6 +9664,7 @@ struct HubBrandBar: View {
                 Spacer(minLength: 8)
                 assistButton
             }
+            .zIndex(2)
             BeatingHeartbeatMark(height: markHeight, showsTrace: true)
                 .allowsHitTesting(false)
         }

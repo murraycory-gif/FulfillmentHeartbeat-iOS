@@ -2234,6 +2234,12 @@ enum HeartbeatMath {
         switch focus {
         case .all:
             return true
+        case .healthy:
+            return pickerHasVolume(row) && pickerHealth(row) == .good
+        case .watchList:
+            return pickerHasVolume(row) && pickerHealth(row) == .watch
+        case .riskList:
+            return pickerHasVolume(row) && pickerHealth(row) == .risk
         case .opportunity:
             return pickerHasVolume(row) && pickerHealth(row) != .good
         case .strong:
@@ -3568,6 +3574,9 @@ enum PickPathFocus: String, CaseIterable, Identifiable {
 
 enum PickerFocus: String, CaseIterable, Identifiable {
     case all
+    case healthy
+    case watchList
+    case riskList
     case opportunity
     case strong
     case ott
@@ -3583,6 +3592,9 @@ enum PickerFocus: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .all: return "All Shoppers"
+        case .healthy: return "Healthy"
+        case .watchList: return "Watch"
+        case .riskList: return "At Risk"
         case .opportunity: return "Opportunity"
         case .strong: return "Doing Well"
         case .ott: return "OTT"

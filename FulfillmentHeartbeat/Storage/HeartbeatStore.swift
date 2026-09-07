@@ -450,7 +450,17 @@ final class HeartbeatStore: ObservableObject {
             }
             if volume && overall == .good {
                 buckets[.strong]?.append(index)
+                buckets[.healthy]?.append(index)
                 note(.strong, .good)
+                note(.healthy, .good)
+            }
+            if volume && overall == .watch {
+                buckets[.watchList]?.append(index)
+                note(.watchList, .watch)
+            }
+            if volume && overall == .risk {
+                buckets[.riskList]?.append(index)
+                note(.riskList, .risk)
             }
 
             let pph = HeartbeatMath.pphHealth(row)
@@ -3060,7 +3070,17 @@ private struct PulseCaches {
             }
             if volume && overall == .good {
                 buckets[.strong]?.append(index)
+                buckets[.healthy]?.append(index)
                 note(.strong, .good)
+                note(.healthy, .good)
+            }
+            if volume && overall == .watch {
+                buckets[.watchList]?.append(index)
+                note(.watchList, .watch)
+            }
+            if volume && overall == .risk {
+                buckets[.riskList]?.append(index)
+                note(.riskList, .risk)
             }
             let pph = HeartbeatMath.pphHealth(row)
             if row.number("pph") != nil, pph != .good {

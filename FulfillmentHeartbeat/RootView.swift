@@ -40,40 +40,66 @@ struct RootView: View {
 struct LaunchSplashView: View {
     @EnvironmentObject private var store: HeartbeatStore
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @State private var quipIndex = 0
+
+    private static let quips = [
+        "Counting the bananas…",
+        "Herding the avocados…",
+        "Checking the ice cream aisle…",
+        "Weighing the grapes…",
+        "Finding the last rotisserie chicken…",
+        "Scanning the frozen pizza…",
+        "Bagging the kale — carefully…",
+        "Chasing a runaway lime…",
+        "Restocking the oat milk…",
+        "Asking produce for a second opinion…",
+        "Warming up the baguettes…",
+        "Corralling the rotisserie tickets…",
+        "Putting the pickles back in the jar…",
+        "Slicing the deli line a little thinner…",
+        "Making sure the blueberries stay in the box…"
+    ]
 
     var body: some View {
         let phone = HubLayout.isPhone(sizeClass)
         ZStack {
             AppTheme.bg.ignoresSafeArea()
-            VStack(spacing: phone ? 16 : 22) {
+            VStack(spacing: phone ? 18 : 24) {
+                FulfillmentWordmark(height: phone ? 52 : 68)
                 BeatingHeartbeatMark(
-                    height: phone ? 86 : 108,
+                    height: phone ? 92 : 118,
                     showsTrace: true,
                     showsWordmark: false,
                     forceTrace: true
                 )
-                FulfillmentWordmark(height: phone ? 50 : 64)
-                HeartbeatTrace()
-                    .frame(height: phone ? 28 : 36)
-                    .padding(.horizontal, phone ? 24 : 80)
                 VStack(spacing: 10) {
                     ProgressView()
                         .controlSize(.regular)
                         .tint(AppTheme.blue)
-                    Text(statusLine)
-                        .font(.system(size: phone ? 15 : 17, weight: .semibold))
-                        .foregroundStyle(AppTheme.textSecondary)
+                    Text(Self.quips[quipIndex % Self.quips.count])
+                        .font(.system(size: phone ? 16 : 18, weight: .semibold))
+                        .foregroundStyle(AppTheme.text)
                         .multilineTextAlignment(.center)
                         .lineLimit(2)
                         .minimumScaleFactor(0.8)
+                    Text(statusLine)
+                        .font(.system(size: phone ? 13 : 14, weight: .medium))
+                        .foregroundStyle(AppTheme.textSecondary)
+                        .multilineTextAlignment(.center)
                 }
-                .padding(.top, 6)
+                .padding(.top, 4)
             }
             .padding(.horizontal, 28)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityLabel("Fulfillment")
         .accessibilityValue(statusLine)
+        .onAppear {
+            quipIndex = Int.random(in: 0..<Self.quips.count)
+        }
+        .onReceive(Timer.publish(every: 2.2, on: .main, in: .common).autoconnect()) { _ in
+            quipIndex += 1
+        }
     }
 
     private var statusLine: String {
@@ -81,11 +107,11 @@ struct LaunchSplashView: View {
             let loaded = store.importProgress.loaded
             let expected = max(store.importProgress.expected, 1)
             if let label = store.importLabel, !label.isEmpty, label != "Loading the data" {
-                return "Loading the data · \(label) · \(loaded) of \(expected)"
+                return "\(label) · \(loaded) of \(expected)"
             }
-            return "Loading the data · \(loaded) of \(expected)"
+            return "\(loaded) of \(expected) scorecards"
         }
-        return "Loading the data"
+        return "Opening the cooler…"
     }
 }
 

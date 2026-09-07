@@ -81,6 +81,11 @@ struct DashboardView: View {
         .onChange(of: store.errorMessage) { _, message in
             showError = message != nil
         }
+        .onChange(of: router.destination) { _, dest in
+            if dest == .dashboard {
+                pushedSection = nil
+            }
+        }
         .onChange(of: showError) { _, presented in
             if !presented { store.errorMessage = nil }
         }

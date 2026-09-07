@@ -297,8 +297,8 @@ struct SectionDetailView: View {
                 MissingItemsCategoryFilter(selected: $miCategories, width: pageWidth)
             } else if section == .pickerScorecard {
                 LazyVGrid(
-                    columns: HubLayout.grid(HubLayout.isPhone(sizeClass) ? 2 : HubLayout.kpiColumns(width: pageWidth, sizeClass: sizeClass), spacing: HubLayout.isPhone(sizeClass) ? 8 : 14, minWidth: HubLayout.isPhone(sizeClass) ? 140 : 150),
-                    spacing: HubLayout.isPhone(sizeClass) ? 8 : 14
+                    columns: HubLayout.grid(4, spacing: HubLayout.isPhone(sizeClass) ? 8 : 10, minWidth: HubLayout.isPhone(sizeClass) ? 140 : 160),
+                    spacing: HubLayout.isPhone(sizeClass) ? 8 : 10
                 ) {
                     pickerStatusTiles
                 }
@@ -934,14 +934,9 @@ struct SectionDetailView: View {
     @ViewBuilder
     private var pickerStatusTiles: some View {
         pickerTile(.all, health: .none)
-        pickerTile(.opportunity, health: store.pickerCount(for: .opportunity) == 0 ? .good : .risk)
-        pickerTile(.strong, health: .good)
-        pickerTile(.pph, health: falloutHealth(.pph))
-        pickerTile(.presub, health: falloutHealth(.presub))
-        pickerTile(.oos, health: falloutHealth(.oos))
-        pickerTile(.ott, health: falloutHealth(.ott))
-        pickerTile(.oth, health: falloutHealth(.oth))
-        pickerTile(.refund, health: falloutHealth(.refund))
+        pickerTile(.healthy, health: .good)
+        pickerTile(.watchList, health: store.pickerCount(for: .watchList) == 0 ? .good : .watch)
+        pickerTile(.riskList, health: store.pickerCount(for: .riskList) == 0 ? .good : .risk)
     }
 
     private func pickerTile(_ focus: PickerFocus, health: Health) -> some View {
@@ -973,6 +968,9 @@ struct SectionDetailView: View {
     private func pickerTileDetail(_ focus: PickerFocus) -> String {
         switch focus {
         case .all: return "Every shopper in this filter"
+        case .healthy: return "Hitting the metric mix"
+        case .watchList: return "Close to goal"
+        case .riskList: return "Below goal"
         case .opportunity: return "Underperforming vs the metric mix"
         case .strong: return "Hitting the metric mix"
         case .refund: return "$0 healthy · $1–20 watch · $20+ risk"
