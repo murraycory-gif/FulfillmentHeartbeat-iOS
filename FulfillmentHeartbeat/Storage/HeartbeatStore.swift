@@ -1678,22 +1678,6 @@ final class HeartbeatStore: ObservableObject {
         rebuildLaborWeekIndex()
     }
 
-    private static func rowMatchesFilter(
-        _ row: MetricRow,
-        allowed: Set<String>,
-        roster: [String: HeartbeatMath.StoreIdentity],
-        filters: DashboardFilters
-    ) -> Bool {
-        let store = HeartbeatMath.canonicalStore(row.storeNumber)
-        if !store.isEmpty, allowed.contains(store) { return true }
-        if !store.isEmpty, roster[store] != nil { return false }
-        if !filters.includesDivision(row.division) { return false }
-        if !filters.includesDistrict(row.district) { return false }
-        if !filters.includesOM(row.operationsOM) { return false }
-        if !filters.includesStore(store) { return false }
-        return true
-    }
-
     private func applyFilters() {
         refilterTask?.cancel()
         applyVisibleFilter()
@@ -1709,9 +1693,7 @@ final class HeartbeatStore: ObservableObject {
         let grain = effectiveDashboardGrain
         let hidePicker = sessionRole == .evp
         let stores = cachedStores
-        if let grain {
-            cachedGrainPacks = PulseCaches.placeholderGrainPacks(grain: grain)
-        }
+        cachedGrainPacks = PulseCaches.placeholderGrainPacks(grain: grain)
         filterStamp += 1
         refilterTask = Task.detached(priority: .userInitiated) {
             var next: [MetricSection: [MetricRow]] = [:]
@@ -1719,7 +1701,7 @@ final class HeartbeatStore: ObservableObject {
             if let allowed {
                 for (section, rows) in latest {
                     next[section] = rows.filter {
-                        Self.rowMatchesFilter($0, allowed: allowed, roster: rosterCopy, filters: current)
+                        PulseCaches.rowMatchesFilter($0, allowed: allowed, roster: rosterCopy, filters: current)
                     }
                 }
             } else {
@@ -2666,6 +2648,22 @@ private struct PulseCaches {
         }
         HeartbeatMath.fillDivisionsFromDistrict(in: &roster)
         return roster
+    }
+
+    static func rowMatchesFilter(
+        _ row: MetricRow,
+        allowed: Set<String>,
+        roster: [String: HeartbeatMath.StoreIdentity],
+        filters: DashboardFilters
+    ) -> Bool {
+        let store = HeartbeatMath.canonicalStore(row.storeNumber)
+        if !store.isEmpty, allowed.contains(store) { return true }
+        if !store.isEmpty, roster[store] != nil { return false }
+        if !filters.includesDivision(row.division) { return false }
+        if !filters.includesDistrict(row.district) { return false }
+        if !filters.includesOM(row.operationsOM) { return false }
+        if !filters.includesStore(store) { return false }
+        return true
     }
 
     static func allowedStores(
