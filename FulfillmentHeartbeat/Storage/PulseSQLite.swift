@@ -81,7 +81,7 @@ enum PulseSQLite {
         sqlite3_exec(db, "COMMIT;", nil, nil, nil)
     }
 
-    static func read(from url: URL) throws -> Pack {
+    static func read(from url: URL, skipping skip: Set<MetricSection> = []) throws -> Pack {
         var db: OpaquePointer?
         guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK, let db else {
             throw PulseSQLError.open
@@ -106,15 +106,17 @@ enum PulseSQLite {
             }
         }
 
+        let sql: String
+        if skip.isEmpty {
+            sql = "SELECT id, section, store_number, division, operations_om, store_name, recorded_on, payload_json, text_json FROM facts;"
+        } else {
+            let list = skip.map { "'\($0.rawValue)'" }.joined(separator: ",")
+            sql = "SELECT id, section, store_number, division, operations_om, store_name, recorded_on, payload_json, text_json FROM facts WHERE section NOT IN (\(list));"
+        }
+
         var stmt: OpaquePointer?
         defer { sqlite3_finalize(stmt) }
-        guard sqlite3_prepare_v2(
-            db,
-            "SELECT id, section, store_number, division, operations_om, store_name, recorded_on, payload_json, text_json FROM facts;",
-            -1,
-            &stmt,
-            nil
-        ) == SQLITE_OK else { throw PulseSQLError.prepare }
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { throw PulseSQLError.prepare }
 
         var rows: [MetricRow] = []
         rows.reserveCapacity(8_192)

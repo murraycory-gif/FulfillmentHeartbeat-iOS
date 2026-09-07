@@ -2023,10 +2023,15 @@ final class HeartbeatStore: ObservableObject {
         }
         let filterFile = filtersURL
         let sqliteFile = sqliteURL
+        let skip: Set<MetricSection> = [.labor, .pickerScorecard, .pickPathPicker, .preSubOOSItem]
         Task.detached(priority: .userInitiated) {
             do {
-                let pack: PulseSQLite.Pack? = PulseSQLite.exists(at: sqliteFile) ? try? PulseSQLite.read(from: sqliteFile) : nil
-                let decoded = existing.flatMap { try? PulseDisk.read(from: $0) }
+                let hasPack = PulseSQLite.exists(at: sqliteFile)
+                let pack: PulseSQLite.Pack? = hasPack ? try? PulseSQLite.read(from: sqliteFile, skipping: skip) : nil
+                let decoded: HeartbeatSnapshot? = {
+                    if pack?.rows.isEmpty == false { return nil }
+                    return existing.flatMap { try? PulseDisk.read(from: $0) }
+                }()
                 let overlayFilters: DashboardFilters? = {
                     guard let overlay = try? Data(contentsOf: filterFile),
                           let saved = try? JSONDecoder().decode(DashboardFilters.self, from: overlay)
@@ -2034,55 +2039,58 @@ final class HeartbeatStore: ObservableObject {
                     return saved
                 }()
                 let loadedFilters = overlayFilters ?? decoded?.filters ?? DashboardFilters()
-                let allRows = (pack?.rows.isEmpty == false ? pack?.rows : nil) ?? decoded?.rows ?? []
+                let firstRows = pack?.rows ?? (decoded?.rows.filter { !skip.contains($0.section) } ?? [])
                 let loadedUploads = (pack?.uploads.isEmpty == false ? pack?.uploads : nil) ?? decoded?.uploads ?? []
                 let loadedSeeded = pack?.seeded ?? decoded?.seeded ?? false
-                let light = allRows.filter { !Self.deferredSections.contains($0.section) }
                 let caches = PulseCaches.build(
-                    rows: light,
-                    filters: loadedFilters,
+                    rows: firstRows,
+                    filters: DashboardFilters(),
                     uploads: loadedUploads,
                     heavy: false,
-                    grain: .region
+                    grain: nil
                 )
                 await MainActor.run {
                     self.hydrating = true
-                    self.rows = light
+                    self.rows = firstRows
                     self.uploads = loadedUploads.sorted { $0.uploadedAt > $1.uploadedAt }
-                    self.seeded = loadedSeeded || !light.isEmpty
+                    self.seeded = loadedSeeded || !firstRows.isEmpty
                     self.filters = loadedFilters
                     self.filters.sanitize()
                     self.install(caches)
+                    if self.filters.isActive {
+                        self.applyFilters()
+                    }
                     self.hydrating = false
                     self.isReady = true
                 }
-                var extra = allRows.filter { Self.deferredSections.contains($0.section) }
+                var extra: [MetricRow] = []
+                if hasPack {
+                    let rest = try? PulseSQLite.read(from: sqliteFile)
+                    extra = rest?.rows.filter { skip.contains($0.section) } ?? []
+                }
+                if extra.isEmpty {
+                    extra = decoded?.rows.filter { skip.contains($0.section) } ?? []
+                }
                 if extra.isEmpty, FileManager.default.fileExists(atPath: heavyFile.path) {
                     extra = (try? PulseDisk.read(from: heavyFile))?.rows ?? []
                 }
                 if !extra.isEmpty {
-                    let merged = light + extra
+                    let merged = firstRows + extra
                     let full = PulseCaches.build(
                         rows: merged,
-                        filters: loadedFilters,
+                        filters: DashboardFilters(),
                         uploads: loadedUploads,
                         heavy: false,
-                        grain: .region
+                        grain: nil
                     )
                     await MainActor.run {
-                        self.hydrating = true
                         self.rows = merged
                         self.install(full)
-                        self.hydrating = false
                         self.rebuildLaborWeekIndex()
-                        self.applyFilters()
+                        if self.filters.isActive {
+                            self.applyFilters()
+                        }
                     }
-                }
-                if let decoded, existing != lightFile {
-                    try? PulseDisk.write(
-                        HeartbeatSnapshot(rows: light, uploads: decoded.uploads, seeded: decoded.seeded, filters: loadedFilters),
-                        to: lightFile
-                    )
                 }
             } catch {
                 await MainActor.run {
