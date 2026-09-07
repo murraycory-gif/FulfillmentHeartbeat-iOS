@@ -2807,10 +2807,10 @@ enum WorkbookParser {
             (4, "picks"), (5, "subs"), (6, "orders"), (7, "dug"),
             (10, "oth5"), (11, "ott"), (12, "refund"),
         ]
-        func readBlock(_ data: Data, start: Int) -> [String: Double] {
+        func readBlock(_ map: [String: String], start: Int) -> [String: Double] {
             var block: [String: Double] = [:]
             for (offset, header) in fields {
-                let raw = SheetXML.rawCell(data, letter: SheetXML.colLetter(start + offset), strings: strings)
+                let raw = map[SheetXML.colLetter(start + offset)] ?? ""
                 if let value = cellNumber(raw) {
                     applyPickerMetric(&block, header: header, value: value)
                 }
@@ -2818,9 +2818,9 @@ enum WorkbookParser {
             return block
         }
         SheetXML.forEachRowInflating(compressed: compressed, strings: strings, handleRaw: { data in
-            let a = SheetXML.rawCell(data, letter: "A", strings: strings)
-            let b = SheetXML.rawCell(data, letter: "B", strings: strings)
-            let c = SheetXML.rawCell(data, letter: "C", strings: strings)
+            let map = SheetXML.rawMap(data, strings: strings)
+            let a = map["A"] ?? ""
+            let b = map["B"] ?? ""
             if layout == 0 {
                 let na = normHeader(a)
                 if na == "date" || na.contains("date") {
@@ -2828,19 +2828,18 @@ enum WorkbookParser {
                     blockLabels = []
                     var col = 2
                     while col < 110 {
-                        let raw = SheetXML.rawCell(data, letter: SheetXML.colLetter(col), strings: strings)
-                        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if trimmed.isEmpty {
+                        let raw = (map[SheetXML.colLetter(col)] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                        if raw.isEmpty {
                             col += 13
                             continue
                         }
                         blockStarts.append(col)
-                        if trimmed.lowercased() == "total" {
+                        if raw.lowercased() == "total" {
                             blockLabels.append("Total")
-                        } else if let iso = excelSerialDate(trimmed) {
+                        } else if let iso = excelSerialDate(raw) {
                             blockLabels.append(iso)
                         } else {
-                            blockLabels.append(trimmed)
+                            blockLabels.append(raw)
                         }
                         col += 13
                     }
@@ -2862,7 +2861,7 @@ enum WorkbookParser {
             var total: [String: Double] = [:]
             var days: [[String: String]] = []
             for (index, start) in blockStarts.enumerated() {
-                let block = readBlock(data, start: start)
+                let block = readBlock(map, start: start)
                 let label = index < blockLabels.count ? blockLabels[index] : ""
                 if label.lowercased() == "total" {
                     total = block
@@ -2882,7 +2881,7 @@ enum WorkbookParser {
                 ])
             }
             if total.isEmpty, let last = blockStarts.last {
-                total = readBlock(data, start: last)
+                total = readBlock(map, start: last)
             }
             guard let pph = total["pph"], pph > 0, pph < 200 else { return }
             if let hours = total["pick_hours"], hours > 200 { return }
@@ -3876,6 +3875,46 @@ enum SheetXML {
             return raw
         }
         return ""
+    }
+
+    static func rawMap(_ inner: Data, strings: [String]) -> [String: String] {
+        var out: [String: String] = [:]
+        out.reserveCapacity(120)
+        let rToken = Data("r=\"".utf8)
+        let vToken = Data("<v>".utf8)
+        let sToken = Data("t=\"s\"".utf8)
+        var cursor = inner.startIndex
+        while cursor < inner.endIndex, let found = inner.range(of: rToken, options: [], in: cursor..<inner.endIndex) {
+            var letterEnd = found.upperBound
+            while letterEnd < inner.endIndex {
+                let byte = inner[letterEnd]
+                if byte >= 65 && byte <= 90 { letterEnd = inner.index(after: letterEnd); continue }
+                break
+            }
+            guard letterEnd < inner.endIndex, inner[letterEnd] >= 0x30, inner[letterEnd] <= 0x39 else {
+                cursor = found.upperBound
+                continue
+            }
+            let letter = String(data: inner[found.upperBound..<letterEnd], encoding: .ascii) ?? ""
+            let windowEnd = inner.index(found.lowerBound, offsetBy: 220, limitedBy: inner.endIndex) ?? inner.endIndex
+            let window = inner[found.lowerBound..<windowEnd]
+            guard let open = window.range(of: vToken) else {
+                cursor = letterEnd
+                continue
+            }
+            var valueEnd = open.upperBound
+            while valueEnd < window.endIndex, window[valueEnd] != 0x3C {
+                valueEnd = window.index(after: valueEnd)
+            }
+            let raw = String(data: window[open.upperBound..<valueEnd], encoding: .ascii) ?? ""
+            if window.range(of: sToken) != nil, let index = Int(raw), strings.indices.contains(index) {
+                out[letter] = strings[index]
+            } else {
+                out[letter] = raw
+            }
+            cursor = letterEnd
+        }
+        return out
     }
 
     static func colLetter(_ index: Int) -> String {
