@@ -122,6 +122,7 @@ final class HeartbeatStore: ObservableObject {
             isImporting = false
             importLabel = nil
             needsRolePick = true
+            Task { await self.syncServerWorkbookIfChanged() }
             return
         }
         isImporting = true

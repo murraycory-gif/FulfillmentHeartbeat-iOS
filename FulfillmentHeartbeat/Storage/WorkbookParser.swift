@@ -1759,6 +1759,14 @@ enum WorkbookParser {
         onTick: ((Int) -> Void)?
     ) -> [ParsedWorkbookRow] {
         var parsed: [ParsedWorkbookRow] = []
+        if !pathPicker, let sheet = zip.file(named: path) ?? zip.file(named: path.replacingOccurrences(of: "xl/", with: "")),
+           !sheet.isEmpty, sheet.count < 8_000_000 {
+            let matrix = SheetXML.parse(data: sheet, strings: strings)
+            if let simple = parsePickerWeeklyFlat(matrix), simple.count >= 20 {
+                zip.release(path)
+                return compactShoppers(simple)
+            }
+        }
         if !pathPicker, let packed = zip.compressedPayload(named: path) ?? zip.compressedPayload(named: path.replacingOccurrences(of: "xl/", with: "")),
            packed.method == 8 {
             parsed = parsePickerCompactRaw(compressed: packed.bytes, strings: strings, onTick: onTick)
@@ -2720,6 +2728,95 @@ enum WorkbookParser {
                     recordedOn: filled[metricColumns.first ?? 0] == "total" ? nil : filled[metricColumns.first ?? 0],
                     payload: payload,
                     textPayload: ["shopper_id": picker, "shopper_name": picker]
+                )
+            )
+        }
+        return out.isEmpty ? nil : out
+    }
+
+    /// One row per shopper. STORE · PICKER · Hours · PPH · OTT · Orders · Presub · OOS · COE · Handoffs.
+    private static func parsePickerWeeklyFlat(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {
+        guard let headerIndex = pickerHeaderIndex(matrix) else { return nil }
+        let header = matrix[headerIndex].map(normHeader)
+        func idx(_ match: (String) -> Bool) -> Int? {
+            header.firstIndex(where: match)
+        }
+        guard let storeIdx = idx({ storeKeys.contains($0) || $0 == "store" }) else { return nil }
+        guard let pickerIdx = idx({
+            shopperNameKeys.contains($0) || shopperIdKeys.contains($0) || $0 == "picker" || $0 == "shopper"
+        }) else { return nil }
+        let hoursIdx = idx { $0 == "pickhours" || $0 == "hours" }
+        let pphIdx = idx { $0 == "pph" || $0.hasSuffix("pph") }
+        let ottIdx = idx { $0.contains("ott") }
+        let ordersIdx = idx { $0 == "totalorders" || $0 == "orders" }
+        let qtyIdx = idx { $0.contains("qty") || $0.contains("ordered") }
+        let presubIdx = idx { $0.contains("presub") && ($0.contains("pct") || $0.hasSuffix("oos") || $0 == "presuboos") }
+        let presubCtIdx = idx { $0.contains("presuboosct") || ($0.contains("substitutes") && $0.contains("oos")) }
+        let oosCtIdx = idx { $0 == "oosct" || $0 == "ooscount" }
+        let subIdx = idx { $0 == "subct" || $0 == "subs" || $0 == "subcount" }
+        let itemsIdx = idx { $0.contains("itemspicked") || $0.contains("totalitems") }
+        let oth5Idx = idx { $0.contains("oth5") || $0 == "oth" }
+        let handoffsIdx = idx { $0 == "totalhandoffs" || $0 == "handoffs" }
+        let over5Idx = idx { $0.contains("over5") || $0.contains("handoffsover") }
+        let complyIdx = idx { $0.contains("handoffcompliance") || $0.contains("compliance") && $0.contains("handoff") }
+        let defectIdx = idx { $0.contains("defect") }
+        let coeIdx = idx { $0.contains("coe") }
+        let perfectIdx = idx { $0.contains("perfect") || $0.contains("great") }
+        let poorIdx = idx { $0.contains("poor") || $0.contains("ni") && $0.contains("order") }
+        guard pphIdx != nil || hoursIdx != nil || ordersIdx != nil else { return nil }
+
+        var out: [ParsedWorkbookRow] = []
+        out.reserveCapacity(max(64, matrix.count - headerIndex))
+        for line in matrix.dropFirst(headerIndex + 1) {
+            func cell(_ index: Int?) -> String {
+                guard let index, index < line.count else { return "" }
+                return line[index]
+            }
+            let storeRaw = cell(storeIdx).trimmingCharacters(in: .whitespacesAndNewlines)
+            if storeRaw.isEmpty || isTotalCell(storeRaw) { continue }
+            if storeRaw.lowercased().hasPrefix("applied") { continue }
+            guard looksLikeStoreNumber(storeRaw) else { continue }
+            let picker = cell(pickerIdx).trimmingCharacters(in: .whitespacesAndNewlines)
+            if picker.isEmpty || isTotalCell(picker) { continue }
+
+            var payload: [String: Double] = [:]
+            func put(_ index: Int?, _ key: String, percent: Bool = false) {
+                guard let raw = Optional(cell(index)), let value = cellNumber(raw) else { return }
+                var number = value
+                if percent, number <= 1.0, number >= -1.0 { number *= 100 }
+                payload[key] = number
+            }
+            put(hoursIdx, "pick_hours")
+            put(pphIdx, "pph")
+            put(ottIdx, "ott_pct", percent: true)
+            put(ordersIdx, "orders")
+            put(qtyIdx, "qty_ordered")
+            put(presubIdx, "presub_pct", percent: true)
+            put(presubCtIdx, "presub_count")
+            put(oosCtIdx, "oos_count")
+            put(subIdx, "subs")
+            put(itemsIdx, "items_picked")
+            put(oth5Idx, "oth5_pct", percent: true)
+            put(handoffsIdx, "handoffs")
+            put(over5Idx, "handoffs_over5")
+            put(complyIdx, "handoff_compliance_pct", percent: true)
+            put(defectIdx, "handoff_defects")
+            put(coeIdx, "coe_pct", percent: true)
+            put(perfectIdx, "perfect_orders")
+            put(poorIdx, "poor_orders")
+            if payload["oos_pct"] == nil, let oos = payload["oos_count"], let qty = payload["qty_ordered"], qty > 0 {
+                payload["oos_pct"] = oos / qty * 100
+            }
+            guard payload["pph"] != nil || payload["orders"] != nil || payload["pick_hours"] != nil else { continue }
+            out.append(
+                ParsedWorkbookRow(
+                    division: "",
+                    operationsOM: "",
+                    storeNumber: HeartbeatMath.canonicalStore(storeRaw),
+                    storeName: nil,
+                    recordedOn: nil,
+                    payload: payload,
+                    textPayload: ["shopper_id": picker, "shopper_name": picker, "picker_layout": "weekly"]
                 )
             )
         }

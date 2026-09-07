@@ -8892,29 +8892,19 @@ struct PickerScoreTable: View {
     var focus: PickerFocus = .all
 
     private enum Column: String, CaseIterable, Identifiable {
-        case shopper, pph, presub, oos, ott, oth5, refund, status
+        case shopper, hours, pph, orders, presub, ott, oth5, coe, status
         var id: String { rawValue }
-        var key: String {
-            switch self {
-            case .shopper: return "label"
-            case .pph: return "pph"
-            case .presub: return "presub"
-            case .oos: return "oos"
-            case .ott: return "ott"
-            case .oth5: return "oth5"
-            case .refund: return "refund"
-            case .status: return "status"
-            }
-        }
+        var key: String { rawValue == "shopper" ? "label" : rawValue }
         var sort: PickerSort {
             switch self {
             case .shopper: return .name
+            case .hours: return .name
             case .pph: return .pph
+            case .orders: return .name
             case .presub: return .presub
-            case .oos: return .oos
             case .ott: return .ott
             case .oth5: return .oth5
-            case .refund: return .refund
+            case .coe: return .status
             case .status: return .status
             }
         }
@@ -8995,7 +8985,6 @@ struct PickerScoreTable: View {
                             label: "Shopper",
                             active: sort.key,
                             ascending: ascending,
-                            showRefund: true,
                             onSelect: applyHeaderSort
                         )
                         .background(
@@ -9026,8 +9015,7 @@ struct PickerScoreTable: View {
                                     expanded: openShopper == snap.id.uuidString,
                                     onToggle: {
                                         openShopper = openShopper == snap.id.uuidString ? nil : snap.id.uuidString
-                                    },
-                                    showRefund: true
+                                    }
                                 )
                             }
                         }
@@ -9125,26 +9113,26 @@ struct PickerLineSnap: Identifiable, Equatable {
         self.division = division
         pph = HeartbeatFormat.num(row.number("pph", "pure_pph"), digits: 1)
         presub = HeartbeatFormat.pct(row.number("presub_pct", "presub_oos_pct"))
-        oos = HeartbeatFormat.pct(row.number("oos_pct"))
+        oos = HeartbeatFormat.num(row.number("oos_count") ?? row.number("oos_pct"), digits: 0)
         ott = HeartbeatFormat.pct(row.number("ott_pct"))
         oth5 = HeartbeatFormat.pct(row.number("oth5_pct"))
         hours = HeartbeatFormat.num(row.number("pick_hours"), digits: 1)
         subs = HeartbeatFormat.num(row.number("subs"))
         orders = HeartbeatFormat.num(row.number("orders"))
-        dug = HeartbeatFormat.num(row.number("dug_orders"))
-        refund = HeartbeatFormat.money(row.number("refund_amt"))
-        othElig = HeartbeatFormat.pct(row.number("oth_elig_pct"))
+        dug = HeartbeatFormat.num(row.number("qty_ordered"))
+        refund = HeartbeatFormat.num(row.number("items_picked"), digits: 0)
+        othElig = HeartbeatFormat.pct(row.number("handoff_compliance_pct"))
         coe = HeartbeatFormat.pct(row.number("coe_pct"))
         health = HeartbeatMath.pickerHealth(row)
         pphHealth = row.number("pph", "pure_pph") == nil ? .none : HeartbeatMath.pphHealth(row)
         presubHealth = row.number("presub_pct", "presub_oos_pct") == nil ? .none : HeartbeatMath.presubStar(row).health
-        oosHealth = row.number("oos_pct") == nil ? .none : HeartbeatMath.oosStar(row).health
+        oosHealth = .none
         ottHealth = row.number("ott_pct") == nil ? .none : HeartbeatMath.ottStar(row).health
         oth5Health = row.number("oth5_pct") == nil ? .none : HeartbeatMath.othStar(row).health
-        refundHealth = HeartbeatMath.refundHealth(row)
-        othEligHealth = row.number("oth_elig_pct") == nil ? .none : HeartbeatMath.othEligStar(row).health
+        refundHealth = .none
+        othEligHealth = row.number("handoff_compliance_pct") == nil ? .none : HeartbeatMath.band(row.number("handoff_compliance_pct"), good: 95, watch: 90)
         coeHealth = row.number("coe_pct") == nil ? .none : HeartbeatMath.coeStar(row).health
-        days = PickerDaySnap.list(from: row)
+        days = []
     }
 }
 
@@ -9230,14 +9218,13 @@ private struct PickerCheapLine: View, Equatable {
                     .foregroundStyle(AppTheme.blue)
             }
             .frame(minWidth: 148, maxWidth: 220, alignment: .leading)
+            cell(snap.hours, .none)
             cell(snap.pph, snap.pphHealth)
+            cell(snap.orders, .none)
             cell(snap.presub, snap.presubHealth)
-            cell(snap.oos, snap.oosHealth)
             cell(snap.ott, snap.ottHealth)
             cell(snap.oth5, snap.oth5Health)
-            if showRefund {
-                cell(snap.refund, snap.refundHealth)
-            }
+            cell(snap.coe, snap.coeHealth)
             Text(snap.health.label.uppercased())
                 .font(.caption.weight(.heavy))
                 .lineLimit(1)
@@ -9319,12 +9306,12 @@ struct PickerPhoneCard: View {
             }
             .buttonStyle(.plain)
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
+                metric("Hours", snap.hours, .none)
                 metric("PPH", snap.pph, snap.pphHealth)
+                metric("Orders", snap.orders, .none)
                 metric("Presub", snap.presub, snap.presubHealth)
-                metric("OOS", snap.oos, snap.oosHealth)
                 metric("OTT", snap.ott, snap.ottHealth)
-                metric("OTH5", snap.oth5, snap.oth5Health)
-                metric("Refund", snap.refund, snap.refundHealth)
+                metric("COE", snap.coe, snap.coeHealth)
             }
             if expanded {
                 PickerStoreExpand(snap: snap)
@@ -9387,14 +9374,13 @@ struct PickerMetricHeader: View {
         HStack(spacing: 6) {
             head(label, key: "label", alignment: .leading)
                 .frame(minWidth: 148, maxWidth: 220, alignment: .leading)
+            head("Hours", key: "hours")
             head("PPH", key: "pph")
+            head("Orders", key: "orders")
             head("Presub", key: "presub")
-            head("OOS", key: "oos")
             head("OTT", key: "ott")
             head("OTH5", key: "oth5")
-            if showRefund {
-                head("Refund", key: "refund")
-            }
+            head("COE", key: "coe")
             head("Status", key: "status", alignment: .trailing)
                 .frame(width: 88, alignment: .trailing)
         }
@@ -9491,133 +9477,54 @@ struct PickerStoreExpand: View {
     let snap: PickerLineSnap
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text(metaLine)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
-                Spacer()
-                Text("Week total")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.8))
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(AppTheme.blue)
-            totalStrip
-                .padding(.horizontal, 12)
-                .padding(.vertical, 10)
-                .background(Color.white)
-            HStack(spacing: 8) {
-                Text("Day")
-                    .frame(width: 92, alignment: .leading)
-                headerCell("PPH")
-                headerCell("Presub")
-                headerCell("OOS")
-                headerCell("OTT")
-                headerCell("OTH5")
-                headerCell("Hours")
-                headerCell("Orders")
-            }
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(.white.opacity(0.9))
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
-            .background(AppTheme.blue.opacity(0.85))
-            if snap.days.isEmpty {
-                Text("No daily breakout for this shopper.")
-                    .font(.subheadline)
-                    .foregroundStyle(AppTheme.textTertiary)
-                    .padding(12)
-            } else {
-                ForEach(Array(snap.days.enumerated()), id: \.element.id) { index, day in
-                    HStack(spacing: 8) {
-                        Text(day.title)
-                            .font(.subheadline.weight(.semibold))
-                            .frame(width: 92, alignment: .leading)
-                            .lineLimit(1)
-                        dayCell(day.pph)
-                        dayCell(day.presub)
-                        dayCell(day.oos)
-                        dayCell(day.ott)
-                        dayCell(day.oth5)
-                        dayCell(day.hours)
-                        dayCell(day.orders)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(index.isMultiple(of: 2) ? Color.white : AppTheme.bg)
-                }
+        VStack(alignment: .leading, spacing: 10) {
+            Text(metaLine)
+                .font(AppTheme.rounded(.subheadline, weight: .bold))
+                .foregroundStyle(AppTheme.text)
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                mini("Hours", snap.hours)
+                mini("PPH", snap.pph)
+                mini("Orders", snap.orders)
+                mini("Qty Ordered", snap.dug)
+                mini("Items Picked", snap.refund)
+                mini("Presub", snap.presub)
+                mini("OOS Ct", snap.oos)
+                mini("Subs", snap.subs)
+                mini("OTT", snap.ott)
+                mini("OTH5", snap.oth5)
+                mini("Handoff Comp", snap.othElig)
+                mini("COE", snap.coe)
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(AppTheme.blue, lineWidth: 2)
+                .stroke(Color.black.opacity(0.08), lineWidth: 1)
         )
     }
 
     private var metaLine: String {
         let store = snap.storeNumber.isEmpty ? "—" : snap.storeNumber
         let division = snap.division.isEmpty ? "—" : snap.division
-        return "Store \(store)  ·  \(division)  ·  Week total"
-    }
-
-    private var totalStrip: some View {
-        HStack(spacing: 8) {
-            mini("PPH", snap.pph)
-            mini("Presub", snap.presub)
-            mini("OOS", snap.oos)
-            mini("OTT", snap.ott)
-            mini("OTH5", snap.oth5)
-            mini("Hours", snap.hours)
-            mini("Orders", snap.orders)
-            mini("Refund", snap.refund)
-        }
-    }
-
-    private var dayHeader: some View {
-        HStack(spacing: 8) {
-            Text("Day")
-                .frame(width: 92, alignment: .leading)
-            headerCell("PPH")
-            headerCell("Presub")
-            headerCell("OOS")
-            headerCell("OTT")
-            headerCell("OTH5")
-            headerCell("Hours")
-            headerCell("Orders")
-        }
-        .font(.caption2.weight(.semibold))
-        .foregroundStyle(AppTheme.textTertiary)
+        return "\(snap.label)  ·  Store \(store)  ·  \(division)"
     }
 
     private func mini(_ name: String, _ value: String) -> some View {
-        VStack(spacing: 2) {
+        VStack(alignment: .leading, spacing: 2) {
             Text(name)
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(AppTheme.textTertiary)
+                .font(AppTheme.rounded(.caption2, weight: .semibold))
+                .foregroundStyle(AppTheme.textSecondary)
             Text(value)
-                .font(.subheadline.weight(.bold).monospacedDigit())
+                .font(AppTheme.rounded(.subheadline, weight: .bold).monospacedDigit())
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
         }
-        .frame(maxWidth: .infinity)
-    }
-
-    private func headerCell(_ name: String) -> some View {
-        Text(name).frame(maxWidth: .infinity, alignment: .trailing)
-    }
-
-    private func dayCell(_ value: String) -> some View {
-        Text(value)
-            .font(.subheadline.weight(.semibold).monospacedDigit())
-            .foregroundStyle(AppTheme.text)
-            .lineLimit(1)
-            .minimumScaleFactor(0.7)
-            .frame(maxWidth: .infinity, alignment: .trailing)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(8)
+        .background(AppTheme.bg, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 
