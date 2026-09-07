@@ -1529,7 +1529,15 @@ enum HeartbeatMath {
                 return plan > 0 ? dollars / plan * 100 : nil
             }()
             let yoy = average(stores.compactMap { $0.number("sales_yoy_pct") })
-            let orders = stores.reduce(0) { $0 + max($1.number("sales_orders") ?? 0, (0..<7).compactMap { $1.number("sales_d\($0)_orders") }.reduce(0, +)) }
+            var orders = 0.0
+            for store in stores {
+                let week = store.number("sales_orders") ?? 0
+                var days = 0.0
+                for index in 0..<7 {
+                    days += store.number("sales_d\(index)_orders") ?? 0
+                }
+                orders += max(week, days)
+            }
             let up = stores.filter { salesHealth($0) == .good }.count
             let flat = stores.filter { salesHealth($0) == .watch }.count
             let down = stores.filter { salesHealth($0) == .risk }.count
