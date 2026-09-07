@@ -36,7 +36,7 @@ final class HeartbeatStore: ObservableObject {
     @Published private(set) var filterStamp = 0
     @Published private(set) var linkedMasterName: String?
     @Published private(set) var linkedMasterLoadedAt: Date?
-    @Published var needsRolePick = false
+    @Published var needsRolePick = true
     @Published private(set) var usingDatabasePack = false
     @Published private(set) var sessionRole: HeartbeatRole?
     @Published var laborWeekFilter = ""
@@ -1182,7 +1182,6 @@ final class HeartbeatStore: ObservableObject {
 
     func applyLaunchRole(_ role: HeartbeatRole, region: String = "", division: String = "", district: String = "", om: String = "") {
         sessionRole = role
-        UserDefaults.standard.set(role.rawValue, forKey: "hb.sessionRole")
         var next = DashboardFilters()
         switch role {
         case .backstage:
@@ -2217,18 +2216,12 @@ final class HeartbeatStore: ObservableObject {
             seeded = true
             usingDatabasePack = true
             hydrating = true
-            if let overlay = try? Data(contentsOf: filtersURL),
-               let saved = try? JSONDecoder().decode(DashboardFilters.self, from: overlay) {
-                filters = saved
-                filters.sanitize()
-            }
-            restoreSessionRole()
+            filters = DashboardFilters()
+            sessionRole = nil
+            needsRolePick = true
             install(caches)
             hydrating = false
             isReady = true
-            if filters.isActive {
-                applyFilters()
-            }
             scheduleHeavyExtras(latest: caches.filteredLatest, roster: caches.roster)
             pullLatestWorkbookIfNeeded()
             pullCloudPackIfNeeded()
@@ -2305,18 +2298,10 @@ final class HeartbeatStore: ObservableObject {
                     self.rows = firstRows
                     self.uploads = loadedUploads.sorted { $0.uploadedAt > $1.uploadedAt }
                     self.seeded = loadedSeeded || !firstRows.isEmpty
-                    self.filters = loadedFilters
-                    self.filters.sanitize()
+                    self.filters = DashboardFilters()
+                    self.sessionRole = nil
+                    self.needsRolePick = true
                     self.install(caches)
-                    if !firstRows.isEmpty {
-                        self.usingDatabasePack = hasPack
-                        if self.sessionRole == nil {
-                            self.needsRolePick = true
-                        }
-                    }
-                    if self.filters.isActive {
-                        self.applyFilters()
-                    }
                     self.hydrating = false
                     self.isReady = true
                 }
@@ -2344,9 +2329,6 @@ final class HeartbeatStore: ObservableObject {
                         self.rows = merged
                         self.install(full)
                         self.rebuildLaborWeekIndex()
-                        if self.filters.isActive {
-                            self.applyFilters()
-                        }
                     }
                 }
             } catch {
