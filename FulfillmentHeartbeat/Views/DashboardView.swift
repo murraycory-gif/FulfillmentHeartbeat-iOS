@@ -294,7 +294,7 @@ struct DashScopeStrip: View {
                     salesRows = store.cachedSalesScopeRows
                     dayRows = store.cachedSalesDayRows
                 }
-                if expanded, section != .sales, flagMap.isEmpty {
+                if expanded, section != .sales, section != .pickerScorecard, flagMap.isEmpty {
                     flagMap = store.dashboardGrainFlags(section: section, grain: grain, packs: packs)
                 }
             } label: {
@@ -373,7 +373,7 @@ struct DashScopeStrip: View {
             salesRows = store.cachedSalesScopeRows
             dayRows = store.cachedSalesDayRows
             if section != .sales {
-                flagMap = store.dashboardGrainFlags(section: section, grain: grain, packs: packs)
+                flagMap = section == .pickerScorecard ? [:] : store.dashboardGrainFlags(section: section, grain: grain, packs: packs)
             }
         }
     }
@@ -550,7 +550,7 @@ struct DashScopeGrainCard: View {
         } else {
             children = Array(store.dashboardGrainChildren(section: section, label: pack.line.label).prefix(40))
         }
-        guard section != .sales else { return }
+        guard section != .sales, section != .pickerScorecard else { return }
         let childGrain: DashScopeGrain
         switch grain {
         case .region: childGrain = .division
@@ -564,18 +564,21 @@ struct DashScopeGrainCard: View {
 struct DashFlagGrid: View {
     let flags: [HeartbeatMath.FiveStarFlag]
     var columns: Int
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
         if !flags.isEmpty {
-            let cols = max(columns, 1)
-            LazyVGrid(
-                columns: Array(repeating: GridItem(.flexible(minimum: 96), spacing: 8), count: cols),
-                alignment: .leading,
-                spacing: 8
-            ) {
+            let row = HStack(alignment: .top, spacing: 6) {
                 ForEach(flags) { flag in
                     DashFlagChip(flag: flag)
                 }
+            }
+            if HubLayout.isPhone(sizeClass), flags.count > 4 {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    row
+                }
+            } else {
+                row
             }
         }
     }
@@ -586,40 +589,45 @@ private struct DashFlagChip: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
 
     private var compact: Bool { HubLayout.isPhone(sizeClass) }
+    private var tone: Health { flag.health == .none ? .good : flag.health }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: compact ? 5 : 7) {
+        VStack(alignment: .leading, spacing: 5) {
             Text(flag.name)
-                .font(AppTheme.rounded(compact ? .footnote : .callout, weight: .bold))
-                .foregroundStyle(dashInk(flag.health == .none ? .good : flag.health))
-                .lineLimit(2)
-                .minimumScaleFactor(0.78)
-            if !flag.value.isEmpty {
-                Text(flag.value)
-                    .font(AppTheme.rounded(compact ? .footnote : .body, weight: .bold))
-                    .foregroundStyle(dashInk(flag.health == .none ? .good : flag.health))
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.75)
+                .font(AppTheme.rounded(compact ? .caption2 : .caption, weight: .bold))
+                .foregroundStyle(Color.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, compact ? 6 : 8)
+                .padding(.vertical, compact ? 4 : 5)
+                .background(AppTheme.blue)
+            VStack(alignment: .leading, spacing: 3) {
+                if !flag.value.isEmpty {
+                    Text(flag.value)
+                        .font(AppTheme.rounded(compact ? .caption : .subheadline, weight: .bold))
+                        .foregroundStyle(dashInk(tone))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                }
+                HStack(spacing: 4) {
+                    Text(countLine)
+                        .font(AppTheme.rounded(.caption2, weight: .semibold))
+                        .foregroundStyle(dashInk(tone))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                    HealthBadge(health: tone, prominent: true, compact: true)
+                }
             }
-            HStack(spacing: 6) {
-                Text(countLine)
-                    .font(AppTheme.rounded(compact ? .caption : .footnote, weight: .semibold))
-                    .foregroundStyle(dashInk(flag.health == .none ? .good : flag.health))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
-                HealthBadge(health: flag.health == .none ? .good : flag.health, prominent: true, compact: compact)
-            }
+            .padding(.horizontal, compact ? 6 : 8)
+            .padding(.bottom, compact ? 6 : 8)
         }
-        .padding(.horizontal, compact ? 8 : 12)
-        .padding(.vertical, compact ? 8 : 11)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(AppTheme.healthWash(flag.health == .none ? .good : flag.health))
-        )
+        .background(AppTheme.healthWash(tone))
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(AppTheme.healthInk(flag.health == .none ? .good : flag.health).opacity(0.28), lineWidth: 1)
+                .stroke(AppTheme.healthInk(tone).opacity(0.28), lineWidth: 1)
         )
     }
 
@@ -773,27 +781,9 @@ struct DashCallout: View, Equatable {
     private func flagBlock(_ flags: [HeartbeatMath.FiveStarFlag]) -> some View {
         if flags.isEmpty {
             EmptyView()
-        } else if card.section == .pickerScorecard {
-            VStack(alignment: .leading, spacing: 8) {
-                metricFlags(Array(flags.prefix(2)), columns: 2)
-                metricFlags(Array(flags.suffix(from: min(2, flags.count))), columns: min(6, max(2, HubLayout.flagColumns(count: 6, width: width))))
-            }
-        } else if card.section == .labor {
-            VStack(alignment: .leading, spacing: 8) {
-                metricFlags(Array(flags.prefix(4)), columns: min(4, max(2, HubLayout.flagColumns(count: 4, width: width))))
-                metricFlags(Array(flags.suffix(from: min(4, flags.count))), columns: min(3, max(2, HubLayout.flagColumns(count: 3, width: width))))
-            }
         } else {
-            metricFlags(flags, columns: card.section == .missingItems ? 3 : nil)
+            DashFlagGrid(flags: flags, columns: flags.count)
         }
-    }
-
-    @ViewBuilder
-    private func metricFlags(_ flags: [HeartbeatMath.FiveStarFlag], columns: Int? = nil) -> some View {
-        DashFlagGrid(
-            flags: flags,
-            columns: columns ?? HubLayout.flagColumns(count: flags.count, width: width)
-        )
     }
 
     private func riskLine(for card: SectionSummary) -> String {
