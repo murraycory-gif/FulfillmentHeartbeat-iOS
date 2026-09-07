@@ -50,6 +50,7 @@ final class HeartbeatStore: ObservableObject {
     private let masterLinkURL: URL
     private let filtersURL: URL
     private var hydrating = false
+    private var packDirty = false
     private var pendingExternalData: Data?
     @Published private(set) var checklistRecipients: [String] = []
     private var checklistByKey: [String: ChecklistItem] = [:]
@@ -1296,6 +1297,7 @@ final class HeartbeatStore: ObservableObject {
         }
         seeded = true
         lastImportedSection = nil
+        packDirty = true
         rebuildIndex()
         replaceFilters(DashboardFilters())
         statusMessage = "Sample market loaded — 16 Chicago-area stores."
@@ -1599,6 +1601,7 @@ final class HeartbeatStore: ObservableObject {
         }
         seeded = true
         usingDatabasePack = true
+        packDirty = false
         install(caches)
         rebuildLaborWeekIndex()
         scheduleHeavyExtras(latest: caches.filteredLatest, roster: caches.roster)
@@ -1793,6 +1796,7 @@ final class HeartbeatStore: ObservableObject {
     private func applyImport(_ incoming: [MetricRow], filename: String, section: MetricSection) async {
         lastImportedSection = section
         seeded = true
+        packDirty = true
         importLabel = "Updating dashboard…"
         let currentRows = rows
         let currentUploads = uploads
@@ -1878,6 +1882,7 @@ final class HeartbeatStore: ObservableObject {
         install(caches)
         hydrating = false
         seeded = true
+        packDirty = true
         lastImportedSection = sheets.first { $0.section == .pickerScorecard }?.section ?? sheets.first?.section
         let loadedSections = Set(uploads.map(\.section))
         let missing = MetricSection.uploadOrder.filter { !loadedSections.contains($0) }
@@ -2379,6 +2384,18 @@ final class HeartbeatStore: ObservableObject {
                 try? PulseSQLite.read(from: url)
             }.value
             if let pack, !pack.rows.isEmpty {
+                importProgress.label = "Setting the aisle"
+                let packRows = pack.rows
+                let packUploads = pack.uploads
+                let caches = await Task.detached(priority: .userInitiated) {
+                    PulseCaches.build(
+                        rows: packRows,
+                        filters: DashboardFilters(),
+                        uploads: packUploads,
+                        heavy: false,
+                        grain: .region
+                    )
+                }.value
                 rows = pack.rows
                 uploads = pack.uploads.sorted { $0.uploadedAt > $1.uploadedAt }
                 seeded = true
@@ -2386,34 +2403,10 @@ final class HeartbeatStore: ObservableObject {
                 filters = DashboardFilters()
                 sessionRole = nil
                 needsRolePick = true
-                importProgress.label = "Setting the aisle"
-                importProgress.loaded = min(14, MetricSection.uploadOrder.count)
-                importProgress.expected = MetricSection.uploadOrder.count
-                hydrating = true
-                rebuildIndex()
-                installCompanyWideFast()
+                install(caches)
                 applyLocalCards()
-                hydrating = false
                 importProgress.loaded = MetricSection.uploadOrder.count
-                scheduleHeavyExtras(latest: latestBySection, roster: roster)
-                let latest = latestBySection
-                let rosterCopy = roster
-                let stores = cachedStores
-                let grain = effectiveDashboardGrain
-                Task.detached(priority: .utility) {
-                    let packs = PulseCaches.grainPacks(
-                        latest: latest,
-                        grain: grain,
-                        hidePicker: false,
-                        stores: stores,
-                        roster: rosterCopy
-                    )
-                    await MainActor.run {
-                        if self.filters.isActive == false {
-                            self.cachedGrainPacks = packs
-                        }
-                    }
-                }
+                scheduleHeavyExtras(latest: caches.filteredLatest, roster: caches.roster)
                 return
             }
         }
@@ -2542,19 +2535,14 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func persist() {
+        persistFilters()
+        guard packDirty else { return }
         Task { await persistNow() }
     }
 
     private func persistNow() async {
         persistFilters()
-        let snapshot = HeartbeatSnapshot(
-            rows: rows,
-            uploads: uploads,
-            seeded: seeded,
-            filters: filters
-        )
-        let lightURL = snapshotURL
-        let packedURL = heavyURL
+        guard packDirty else { return }
         let packURL = sqliteURL
         let packRows = rows
         let packUploads = uploads
@@ -2564,6 +2552,7 @@ final class HeartbeatStore: ObservableObject {
         let diskPicker = PulseSQLite.sectionCount(from: packURL, section: .pickerScorecard)
         let diskLabor = PulseSQLite.sectionCount(from: packURL, section: .labor)
         if incomingPicker + incomingLabor < diskPicker + diskLabor {
+            packDirty = false
             return
         }
         do {
@@ -2571,6 +2560,7 @@ final class HeartbeatStore: ObservableObject {
                 try PulseSQLite.write(rows: packRows, uploads: packUploads, seeded: packSeeded, to: packURL)
             }.value
             try? PulseCards.write(PulseCards.from(board: cachedPickerBoard), to: cardsURL)
+            packDirty = false
             publishCloudPack()
         } catch {
             errorMessage = "Pulse did not save: \(error.localizedDescription). Keep Heartbeat open until the import finishes."
@@ -2579,17 +2569,6 @@ final class HeartbeatStore: ObservableObject {
 
     private func persistBlocking() {
         persistFilters()
-        let snapshot = HeartbeatSnapshot(
-            rows: rows,
-            uploads: uploads,
-            seeded: seeded,
-            filters: filters
-        )
-        do {
-            try PulseDisk.write(snapshot, to: snapshotURL)
-        } catch {
-            errorMessage = "Pulse did not save: \(error.localizedDescription)"
-        }
     }
 
     private func persistFilters() {
