@@ -22,7 +22,7 @@ Use this layout for every new feature or TestFlight drop. Do not invent a new st
 - Tight spacing; screenshots sit under the step they explain
 - Always print the current `BuildStamp` so testers can match the sidebar
 
-This drop: Version 1.0 · Build 434 · HB-0828.63 — Labor store file, faster first paint, calmer dashboard.
+This drop: Version 1.0 · Build 533 · HB-0828.202 — Server data, no tester upload, metric callouts.
 
 ## Generate
 ```bash

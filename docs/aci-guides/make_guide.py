@@ -12,8 +12,8 @@ ATT = Path("/workspace/attachments")
 OUT = ROOT / "Fulfillment-Heartbeat-ACI-Test-Users-Update-Guide.pdf"
 
 VERSION_NAME = "1.0"
-BUILD = "434"
-STAMP = "HB-0828.63"
+BUILD = "533"
+STAMP = "HB-0828.202"
 AUDIENCE = "ACI Test Users"
 VERSION = f"Version {VERSION_NAME}  ·  Build {BUILD}  ·  {STAMP}"
 
@@ -144,16 +144,10 @@ def draw_img(c, path, x, y_top, max_w, max_h):
     return y
 
 
-def img(name):
-    p = ATT / name
+def local(name):
+    p = ROOT / name
     if p.exists():
         return p
-    alt = Path("/workspace/artifacts/searched_images") / name
-    if alt.exists():
-        return alt
-    for fallback in ATT.iterdir():
-        if fallback.suffix.lower() in {".png", ".jpg", ".jpeg"} and "018" in fallback.name:
-            return fallback
     raise FileNotFoundError(name)
 
 
@@ -165,57 +159,23 @@ def step_block(c, n, title, body, y, width=CONTENT_W):
     return draw_wrapped(c, body, MARGIN + 22, y - 14, width - 22, size=9.5, leading=12.5)
 
 
-def make_mac_panel() -> Path:
-    dest = ROOT / "mac-install-panel.png"
-    font_b = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 28)
-    font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 22)
-    panel = Image.new("RGB", (1400, 520), (245, 247, 252))
-    draw = ImageDraw.Draw(panel)
-    steps = [
-        ("1", "Open the Mac App Store", "Search TestFlight and click Get / Install."),
-        ("2", "Open TestFlight on the Mac", "Sign in with the same Apple ID used on your iPad invite."),
-        ("3", "Open the Heartbeat invite", "Use the email invite or the app already listed under Apps."),
-        ("4", "Install Fulfillment Heartbeat", "Confirm Version 1.0 Build 434, then click Install / Update."),
-    ]
-    icon_path = Path("/workspace/artifacts/searched_images/DcH3m.jpg")
-    icon = None
-    if icon_path.exists():
-        icon = Image.open(icon_path).convert("RGBA").resize((88, 88), Image.Resampling.LANCZOS)
-    y = 28
-    for num, title, body in steps:
-        draw.rounded_rectangle((24, y, 1376, y + 108), 16, fill=(255, 255, 255), outline=(201, 212, 232), width=2)
-        draw.ellipse((48, y + 28, 96, y + 76), fill=(0, 61, 165))
-        bbox = draw.textbbox((0, 0), num, font=font_b)
-        draw.text((72 - (bbox[2] - bbox[0]) / 2, y + 36), num, font=font_b, fill=(255, 255, 255))
-        draw.text((120, y + 22), title, font=font_b, fill=(0, 61, 165))
-        draw.text((120, y + 60), body, font=font, fill=(20, 26, 41))
-        if icon and num == "1":
-            panel.paste(icon, (1280, y + 10), icon)
-        y += 120
-    panel.save(dest)
-    return dest
-
-
 def main():
     mark = wordmark_path()
     crop = Image.open(mark).crop((20, 20, 1180, Image.open(mark).height - 16))
     cropped = ROOT / "wordmark-crop.png"
     crop.save(cropped)
 
-    home = img("IMG_0181.jpg")
-    tf = img("IMG_0179.PNG")
-    upload = ROOT / "upload-current.png"
-    files = img("IMG_0183.jpeg")
-    pick = img("IMG_0184.jpeg")
-    reading = img("IMG_0185.jpeg")
-    dash = ROOT / "dash-current.jpg"
-    labor = ROOT / "labor-current.png"
-    header_shot = img("Open Items Heartbeat 14.png")
-    tf_devices = Path("/workspace/artifacts/searched_images/shSow.jpg")
-    mac_panel = make_mac_panel()
+    home = local("tf-home.jpg")
+    tf = local("tf-update.png")
+    load = local("load-screen.png")
+    splash = local("splash-mark.png")
+    dash = local("dash-metrics.png")
+    lost = local("dash-lost.png")
+    sales = local("sales-page.png")
+    overview = local("dash-overview.png")
 
     c = canvas.Canvas(str(OUT), pagesize=letter)
-    pages = 6
+    pages = 5
 
     header(c, 1, pages, cropped)
     footer(c)
@@ -223,32 +183,39 @@ def main():
     y = section(c, "Version for this drop", y)
     y = draw_wrapped(
         c,
-        "Version 1.0  ·  Build 434  ·  HB-0828.63. Sidebar stamp after update must read HB-0828.63  1.0 (434). This build is for iPhone, iPad, and Apple silicon Mac.",
+        "Version 1.0  ·  Build 533  ·  HB-0828.202. After Update, the sidebar stamp must read HB-0828.202  1.0 (533). This build is for iPhone, iPad, and Apple silicon Mac.",
         MARGIN, y, CONTENT_W, size=10, leading=13,
     )
     y -= 10
-    y = section(c, "What changed", y)
+    y = section(c, "Biggest change — no file upload", y)
     y = draw_wrapped(
         c,
-        "Labor in the master file is now the small store workbook: one row per store, STORE_ID first, plus a Total row. Do not put the 150,000-row day export on the Labor tab. The app opens Upload in a couple of seconds. Sales, Loss Revenue, 5 Star, and Labor land first so you can use the dashboard while Picker finishes. Dashboard cards are white with one health badge. Healthy / Watch / At Risk chips sit behind Metrics tap to expand. Region rows are unchanged.",
+        "Testers do not load an Excel file. Ops publishes Heartbeat Daily Report.xlsx to the Heartbeat server. You open the app. The load screen pulls that file. Then Who's Looking appears. Then the dashboard. If the app was already installed, force-close it once after Update so it picks up the new week.",
         MARGIN, y, CONTENT_W, size=9.5, leading=13,
     )
     y -= 10
+    y = section(c, "What else landed", y)
+    y = draw_wrapped(
+        c,
+        "Dashboard callouts now show the metric itself, not only Healthy / Watch / At Risk. Sales and Loss Revenue stay first. 5 Star shows Flash, COE, OTT, Pre-Sub OOS%, OTH 5%. Labor, Schedule, Pick Path, Pre-Sub, and Dynacap follow the same one-row boxes. Filters refresh the page you are on. Store rows read Store | District | Market. Who's Looking still scopes the company, region, market, district, or OM view.",
+        MARGIN, y, CONTENT_W, size=9.5, leading=13,
+    )
+    y -= 12
     y = section(c, "Update on iPad or iPhone", y)
     y = step_block(
         c, 1, "Open TestFlight from the Home Screen",
-        "Tap TestFlight first. Do not open the old Heartbeat icon until Update finishes. Testers still on an older 1.0 build must update before loading a master file.",
+        "Tap TestFlight first. Do not open the old Heartbeat icon until Update finishes.",
         y,
     )
     y -= 8
-    pair_h = 188
+    pair_h = 176
     left_w = (CONTENT_W - 12) / 2
     draw_img(c, home, MARGIN, y, left_w, pair_h)
     draw_img(c, tf, MARGIN + left_w + 12, y, left_w, pair_h)
     y -= pair_h + 12
     step_block(
         c, 2, "Tap Update on Fulfillment Heartbeat",
-        "Confirm Version 1.0 Build 434. Tap Update. Open Heartbeat and check the sidebar stamp HB-0828.63  1.0 (434).",
+        "Confirm Version 1.0 Build 533. Tap Update. Force-close Heartbeat, open it, and check the sidebar stamp HB-0828.202  1.0 (533).",
         y,
     )
     c.showPage()
@@ -256,119 +223,106 @@ def main():
     header(c, 2, pages, cropped)
     footer(c)
     y = H - 112
-    y = section(c, "Reload the master file", y)
-    y = draw_wrapped(
-        c,
-        "New code does not change numbers until you load the workbook again. Labor tab in the master must be STORE_ID, Sch Effi%, Empower Hrs, Sch_Hrs, ActHrs, CostTrgt%, ActCost%, Target vs Actual%, Charged Hrs, and a Total row. Prefer iCloud Files if OneDrive fails on a work iPad.",
-        MARGIN, y, CONTENT_W, size=9.5, leading=13,
-    )
-    y -= 10
+    y = section(c, "Open the app — data is already there", y)
     y = step_block(
-        c, 3, "Go to Upload and tap Choose file or Reload",
-        "Heartbeat opens on Upload when no file is loaded. If data is already in the app, open Upload from the menu, then tap Choose file or Reload on Master workbook.",
+        c, 3, "Stay on the load screen",
+        "Fulfillment wordmark, heart and pulse, then a short grocery line. Do not leave the app. When the new week is on the server the file downloads here. You will not use Choose file.",
         y,
     )
     y -= 8
-    draw_img(c, upload, MARGIN, y, CONTENT_W, 248)
-    y -= 260
-    step_block(
-        c, 4, "Open Files and pick the shared folder",
-        "In the file picker, choose iCloud Drive or the folder that was shared with you. Open the Heartbeat folder that holds the master workbook.",
+    draw_img(c, splash, MARGIN, y, CONTENT_W * 0.32, 168)
+    draw_img(c, load, MARGIN + CONTENT_W * 0.34, y, CONTENT_W * 0.66, 168)
+    y -= 180
+    y = step_block(
+        c, 4, "Pick Who's Looking",
+        "Backstage Support is total company. EVP Region is that region only. Director / Market VP / Sr Director Sales is the market and districts. Operations Manager is assigned stores. After you tap a role, the dashboard opens for that scope.",
         y,
+    )
+    y -= 8
+    y = section(c, "Do not upload", y)
+    y = draw_wrapped(
+        c,
+        "Upload stays in the app for Ops only if a tab must be patched. Testers should not pick a local Excel. If you still see Choose file on every launch, you are not on Build 533. Update again from TestFlight and force-close.",
+        MARGIN, y, CONTENT_W, size=9.5, leading=13,
     )
     c.showPage()
 
     header(c, 3, pages, cropped)
     footer(c)
     y = H - 112
-    y = section(c, "Select the workbook", y)
-    y = step_block(
-        c, 5, "Tap the master Excel file",
-        "Select Heartbeat Master Week 27.xlsx or the current week file. Individual cards still replace one KPI if you are patching one tab.",
-        y,
+    y = section(c, "Dashboard callouts", y)
+    y = draw_wrapped(
+        c,
+        "Sales is first. Loss Revenue is second. Each card has one row of metric boxes. The box color is the health of that metric. Tap the card chevron for the scorecard page. Tap Regions to expand the grain under that metric. Sales expand stays the region / day table. Other sections show that section's metrics in the expand.",
+        MARGIN, y, CONTENT_W, size=9.5, leading=13,
     )
     y -= 8
-    draw_img(c, files, MARGIN, y, CONTENT_W * 0.48, 210)
-    draw_img(c, pick, MARGIN + CONTENT_W * 0.52, y, CONTENT_W * 0.48, 210)
-    y -= 224
-    y = step_block(
-        c, 6, "Watch X of 15 scorecards",
-        "The popup counts loaded tabs. Light scorecards finish first and the dashboard opens. Picker may still merge after that. If a tab is missing it is listed in red. Stay in the app until Who’s looking appears on a first load.",
-        y,
+    draw_img(c, overview, MARGIN, y, CONTENT_W, 168)
+    y -= 180
+    draw_img(c, dash, MARGIN, y, CONTENT_W, 210)
+    y -= 222
+    y = draw_wrapped(
+        c,
+        "5 Star: Flash, COE, OTT, Pre-Sub OOS%, OTH 5%. Loss Revenue: Total Lost Revenue, Post Sub OOS Foregone, Refund $, Reduced Capacity Missed Sales, Cancelled Orders LDAP, Kill Switch. Labor: Target vs Actual, Act Cost %, Cost Target %, Schedule Efficiency %, UPLH, WAGE, AIV. Picker boxes count shoppers. Schedule: Sch Effi %, Staffing % Pch vs TGT, Under, Over. Pick Path: Pick Path, AVG PPH. Pre-Sub: stores above 5%, at goal, close to goal, and the number 1 item. Dynacap: Pieces / hr, Store PPH, Utilization.",
+        MARGIN, y, CONTENT_W, size=9, leading=12,
     )
-    y -= 8
-    draw_img(c, reading, MARGIN, y, CONTENT_W, 200)
     c.showPage()
 
     header(c, 4, pages, cropped)
     footer(c)
     y = H - 112
-    y = section(c, "Dashboard and Labor", y)
+    y = section(c, "Scorecard pages and store rows", y)
     y = draw_wrapped(
         c,
-        "Callouts stay Sales then Loss Revenue first. Cards are white with one badge. Tap Metrics to see Healthy / Watch / At Risk. Tap Regions under a card for the grain table. Labor tiles use Target vs Actual, CostTrgt%, ActCost%, and Sch Effi% from the store file. If Labor is blank, the master still has the old day-level Labor tab. Replace that tab and Reload.",
+        "Every page except the dashboard uses the same table chrome. Region / market / district is the top table. Store rows read Store | District | Market, for example 1674 | 44 | SoCal. Store tables start collapsed. Tap the Store banner to expand. Filters at the top apply to every page. Clear Filters returns to total company without a long rebuild.",
         MARGIN, y, CONTENT_W, size=9.5, leading=13,
     )
     y -= 8
-    draw_img(c, dash, MARGIN, y, CONTENT_W, 200)
-    y -= 212
-    draw_img(c, labor, MARGIN, y, CONTENT_W, 188)
-    y -= 200
-    y = section(c, "Share email", y)
-    draw_wrapped(
-        c,
-        "Share uses Apple Mail only. Pick Dashboard, all pages except Checklist, or individual pages. Every store in the filter is a stacked card so numbers stay on the page.",
-        MARGIN, y, CONTENT_W, size=9.5, leading=13,
+    draw_img(c, sales, MARGIN, y, CONTENT_W, 250)
+    y -= 262
+    y = step_block(
+        c, 5, "Swipe between pages",
+        "Swipe left or right from Dashboard to Sales, Loss Revenue, and the rest. The next page is warmed after you land. If a swipe feels heavy, pause one second on the page, then swipe again.",
+        y,
     )
     c.showPage()
 
     header(c, 5, pages, cropped)
     footer(c)
     y = H - 112
-    y = section(c, "Now available on Mac computers", y)
+    y = section(c, "How data gets into the app", y)
     y = draw_wrapped(
         c,
-        "Apple silicon MacBook (M1, M2, M3, M4) installs the same TestFlight build. Layout matches the iPad. Intel Macs need the Mac Catalyst archive when that build is posted. Use the same Apple ID that received the tester invite.",
+        "Ops exports Heartbeat Daily Report.xlsx from Power BI and replaces that file in the Heartbeat server bucket. Testers never touch that file. On open, Heartbeat compares the server file size to the last load. If it changed, the load screen downloads and Who's Looking appears. If it did not change, the last week is already on the device and the dashboard opens from cache.",
         MARGIN, y, CONTENT_W, size=9.5, leading=13,
     )
-    y -= 8
-    if tf_devices.exists():
-        draw_img(c, tf_devices, MARGIN, y, CONTENT_W, 168)
-        y -= 180
+    y -= 12
+    y = section(c, "If something looks old", y)
     y = step_block(
-        c, 7, "Install TestFlight on the Mac, then Heartbeat",
-        "Mac App Store → search TestFlight → Get. Open TestFlight → accept Heartbeat → Install. Confirm Version 1.0 Build 434. The window opens at iPad size. Load the master file from iCloud Drive the same way as the iPad.",
+        c, 6, "Force-close and open once",
+        "Swipe Heartbeat out of the app switcher, then open it. Stay on the load screen. Sidebar stamp must be HB-0828.202  1.0 (533). If the stamp is older, TestFlight did not finish Update.",
         y,
     )
-    y -= 8
-    draw_img(c, mac_panel, MARGIN, y, CONTENT_W, 210)
-    c.showPage()
-
-    header(c, 6, pages, cropped)
-    footer(c)
-    y = H - 112
-    y = section(c, "Master file tab names (15)", y)
-    tabs = (
-        "Sales  ·  Lost Revenue  ·  Missing Items  ·  5 Star  ·  Pre-Sub OOS  ·  "
-        "Pre-Sub OOS Item  ·  Pick Path  ·  Path Picker  ·  Aisle Mapper  ·  "
-        "Prep Not Ready  ·  Dynacap  ·  Schedule Quality  ·  Picker ScoreCard  ·  PPH  ·  Labor"
+    y -= 10
+    y = step_block(
+        c, 7, "Check the week on the blue banner",
+        "Each page banner shows the data window for that scorecard, for example Aug 30 – Sep 5, 2026. If the dates are last week, the new file is not on the server yet or the app has not pulled it.",
+        y,
     )
-    y = draw_wrapped(c, tabs, MARGIN, y, CONTENT_W, size=8.5, leading=12, color=TEXT)
-    y -= 16
-    y = section(c, "Confirm the build", y)
+    y -= 14
+    y = section(c, "Mac testers", y)
     y = draw_wrapped(
         c,
-        "Sidebar stamp must read HB-0828.63  1.0 (434) on iPhone, iPad, and Mac. If it does not, open TestFlight and tap Update, then reload the master file.",
+        "Install TestFlight from the Mac App Store. Open the same Heartbeat invite. Install or Update to 1.0 (533). The window uses the iPad layout. No Excel picker. Who's Looking still runs on first open after a force-quit.",
         MARGIN, y, CONTENT_W, size=9.5, leading=13,
     )
-    y -= 16
-    y = section(c, "If a scorecard is missing after load", y)
-    draw_wrapped(
+    y -= 14
+    y = section(c, "Support check", y)
+    y = draw_wrapped(
         c,
-        "The popup lists the missing tab names. Add that exact tab to the master workbook or use the individual upload card. Picker ScoreCard must be named Picker ScoreCard or Picker ScorCard.",
+        "Stamp HB-0828.202  1.0 (533). Load screen then Who's Looking. Dashboard Sales first, Loss Revenue second. No Choose file for testers. Store rows show number, district, and market. Filters change every page. New week appears after Ops replaces Heartbeat Daily Report.xlsx and you force-close once.",
         MARGIN, y, CONTENT_W, size=9.5, leading=13,
     )
-
     c.save()
     print(OUT)
 
