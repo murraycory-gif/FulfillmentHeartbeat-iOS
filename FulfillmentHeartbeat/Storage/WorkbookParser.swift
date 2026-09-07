@@ -2746,14 +2746,24 @@ enum WorkbookParser {
                 var payload: [String: Double] = [:]
                 if let pph = cellNumber(SheetXML.rawCell(data, letter: "C", strings: strings)) { payload["pph"] = pph }
                 if let presub = cellNumber(SheetXML.rawCell(data, letter: "D", strings: strings)) {
-                    payload["presub_oos_pct"] = presub <= 1.5 ? presub : presub / 100
+                    applyPickerMetric(&payload, header: "presub", value: presub)
                 }
                 if let oos = cellNumber(SheetXML.rawCell(data, letter: "E", strings: strings)) {
-                    payload["oos_pct"] = oos <= 1.5 ? oos : oos / 100
+                    applyPickerMetric(&payload, header: "oos", value: oos)
                 }
                 if let hours = cellNumber(SheetXML.rawCell(data, letter: "F", strings: strings)) { payload["pick_hours"] = hours }
                 if let picks = cellNumber(SheetXML.rawCell(data, letter: "G", strings: strings)) { payload["picks"] = picks }
                 if let orders = cellNumber(SheetXML.rawCell(data, letter: "I", strings: strings)) { payload["orders"] = orders }
+                if let dug = cellNumber(SheetXML.rawCell(data, letter: "J", strings: strings)) { payload["dug_orders"] = dug }
+                if let oth5 = cellNumber(SheetXML.rawCell(data, letter: "M", strings: strings)) {
+                    applyPickerMetric(&payload, header: "oth5", value: oth5)
+                }
+                if let ott = cellNumber(SheetXML.rawCell(data, letter: "N", strings: strings)) {
+                    applyPickerMetric(&payload, header: "ott", value: ott)
+                }
+                if let refund = cellNumber(SheetXML.rawCell(data, letter: "O", strings: strings)) {
+                    applyPickerMetric(&payload, header: "refund", value: refund)
+                }
                 guard !payload.isEmpty else { return }
                 let store = HeartbeatMath.canonicalStore(storeRaw)
                 last[store + "|" + picker] = ParsedWorkbookRow(

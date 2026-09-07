@@ -2216,6 +2216,7 @@ final class HeartbeatStore: ObservableObject {
         rows.contains {
             $0.section == .pickerScorecard
                 && !($0.textPayload["shopper_id"] ?? $0.textPayload["shopper_name"] ?? "").isEmpty
+                && ($0.number("pph") != nil || $0.number("orders") != nil || $0.number("presub_pct") != nil)
         }
     }
 
