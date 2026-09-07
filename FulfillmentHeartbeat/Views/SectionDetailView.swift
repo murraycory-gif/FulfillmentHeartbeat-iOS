@@ -226,11 +226,12 @@ struct SectionDetailView: View {
 
     @ViewBuilder
     private var pageIntro: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 8) {
             Text(section.blurb)
-                .font(.subheadline)
-                .foregroundStyle(AppTheme.textSecondary)
-                .padding(.horizontal, 4)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(AppTheme.textTertiary)
+                .lineLimit(1)
+                .padding(.horizontal, 2)
 
             if section == .labor, store.laborNeedsReload() {
                 HStack(alignment: .top, spacing: 10) {
@@ -303,8 +304,8 @@ struct SectionDetailView: View {
                 }
             } else {
                 LazyVGrid(
-                    columns: HubLayout.grid(HubLayout.kpiColumns(width: pageWidth, sizeClass: sizeClass), spacing: 14, minWidth: 150),
-                    spacing: 14
+                    columns: HubLayout.grid(HubLayout.kpiColumns(width: pageWidth, sizeClass: sizeClass), spacing: 8, minWidth: 140),
+                    spacing: 8
                 ) {
                     if section == .pph {
                         pphStatusTiles
@@ -622,10 +623,10 @@ struct SectionDetailView: View {
         let up = rows.filter { HeartbeatMath.salesHealth($0) == .good }.count
         let flat = rows.filter { HeartbeatMath.salesHealth($0) == .watch }.count
         let down = rows.filter { HeartbeatMath.salesHealth($0) == .risk }.count
-        VStack(spacing: 14) {
+        VStack(spacing: 8) {
             LazyVGrid(
-                columns: HubLayout.grid(HubLayout.kpiColumns(width: pageWidth, sizeClass: sizeClass), spacing: 14, minWidth: 150),
-                spacing: 14
+                columns: HubLayout.grid(HubLayout.kpiColumns(width: pageWidth, sizeClass: sizeClass), spacing: 8, minWidth: 140),
+                spacing: 8
             ) {
                 callout("eComm sales", HeartbeatFormat.money(rows.isEmpty ? nil : sales), "In this filter", summary.health)
                 callout("Healthy", HeartbeatFormat.num(Double(up)), "Sales YoY over 0%", .good, unit: "stores")
@@ -633,8 +634,8 @@ struct SectionDetailView: View {
                 callout("At Risk", HeartbeatFormat.num(Double(down)), "Sales YoY below 0%", down == 0 ? .good : .risk, unit: "stores")
             }
             LazyVGrid(
-                columns: HubLayout.grid(min(3, HubLayout.kpiColumns(width: pageWidth, sizeClass: sizeClass)), spacing: 12, minWidth: 150),
-                spacing: 12
+                columns: HubLayout.grid(min(3, HubLayout.kpiColumns(width: pageWidth, sizeClass: sizeClass)), spacing: 8, minWidth: 140),
+                spacing: 8
             ) {
                 callout("Orders", HeartbeatFormat.num(orders, digits: 0), "DUG + Home Delivery", .none, brand: true)
                 callout("AOS", HeartbeatFormat.money(orders > 0 ? sales / orders : nil), "Average order size", .none, brand: true)
@@ -667,10 +668,10 @@ struct SectionDetailView: View {
             return sumSales > 0 ? goal / sumSales * 100 : nil
         }()
         let post = rows.compactMap { $0.number("post_sub_oos_foregone") }.reduce(0, +)
-        VStack(spacing: 14) {
+        VStack(spacing: 8) {
             LazyVGrid(
-                columns: HubLayout.grid(HubLayout.kpiColumns(width: pageWidth, sizeClass: sizeClass), spacing: 14, minWidth: 150),
-                spacing: 14
+                columns: HubLayout.grid(HubLayout.kpiColumns(width: pageWidth, sizeClass: sizeClass), spacing: 8, minWidth: 140),
+                spacing: 8
             ) {
                 callout("Total lost revenue", HeartbeatFormat.money(dollars), "Total Opportunity", summary.health, selected: lostRevenueFocus == .all) {
                     lostRevenueFocus = .all
@@ -686,8 +687,8 @@ struct SectionDetailView: View {
                 }
             }
             LazyVGrid(
-                columns: HubLayout.grid(min(4, HubLayout.kpiColumns(width: pageWidth, sizeClass: sizeClass)), spacing: 12, minWidth: 150),
-                spacing: 12
+                columns: HubLayout.grid(min(4, HubLayout.kpiColumns(width: pageWidth, sizeClass: sizeClass)), spacing: 8, minWidth: 140),
+                spacing: 8
             ) {
                 callout("Lost revenue %", HeartbeatFormat.pct(pct), "Total Opportunity", summary.health)
                 callout("eComm sales", HeartbeatFormat.money(sales), "In this filter", .none, brand: true)
@@ -703,10 +704,10 @@ struct SectionDetailView: View {
         let healthy = rows.filter { HeartbeatMath.missingItemsHealth($0) == .good }.count
         let watch = rows.filter { HeartbeatMath.missingItemsHealth($0) == .watch }.count
         let risk = rows.filter { HeartbeatMath.missingItemsHealth($0) == .risk }.count
-        VStack(spacing: 14) {
+        VStack(spacing: 8) {
             LazyVGrid(
-                columns: HubLayout.grid(HubLayout.kpiColumns(width: pageWidth, sizeClass: sizeClass), spacing: 14, minWidth: 150),
-                spacing: 14
+                columns: HubLayout.grid(HubLayout.kpiColumns(width: pageWidth, sizeClass: sizeClass), spacing: 8, minWidth: 140),
+                spacing: 8
             ) {
                 callout(section == .preSubOOS ? "Avg Pre-Sub OOS" : "Avg missing items", summary.headlineText, "5% healthy · 5.01–6.50% watch · over 6.50% at risk", summary.health, selected: missingItemsFocus == .all) {
                     missingItemsFocus = .all
@@ -722,8 +723,8 @@ struct SectionDetailView: View {
                 }
             }
             LazyVGrid(
-                columns: HubLayout.grid(min(3, HubLayout.kpiColumns(width: pageWidth, sizeClass: sizeClass)), spacing: 12, minWidth: 150),
-                spacing: 12
+                columns: HubLayout.grid(min(3, HubLayout.kpiColumns(width: pageWidth, sizeClass: sizeClass)), spacing: 8, minWidth: 140),
+                spacing: 8
             ) {
                 callout("Goal", "5%", "Or less is healthy", .none, brand: true)
                 callout("Watch band", "5.01–6.50%", "Needs a look", .watch)
@@ -853,10 +854,10 @@ struct SectionDetailView: View {
         let uplh = laborRollup("uplh_impact_pct")
         let wage = laborRollup("wage_impact_pct")
         let aiv = laborRollup("aiv_impact_pct")
-        VStack(spacing: 14) {
+        VStack(spacing: 8) {
             LazyVGrid(
-                columns: HubLayout.grid(HubLayout.kpiColumns(width: pageWidth, sizeClass: sizeClass), spacing: 14, minWidth: 150),
-                spacing: 14
+                columns: HubLayout.grid(HubLayout.kpiColumns(width: pageWidth, sizeClass: sizeClass), spacing: 8, minWidth: 140),
+                spacing: 8
             ) {
                 callout("Target vs Actual", HeartbeatFormat.pct(tva), "0% healthy · 0.01–3% watch · over 3% risk", HeartbeatMath.laborHealth(tva), selected: laborFocus == .all) {
                     laborFocus = .all
@@ -966,7 +967,7 @@ struct SectionDetailView: View {
         compact: Bool = false,
         action: (() -> Void)? = nil
     ) -> some View {
-        PickerFocusTile(title: title, value: value, detail: detail, health: health, selected: selected, brand: brand, unit: unit, compact: compact || sizeClass != .regular, action: action)
+        PickerFocusTile(title: title, value: value, detail: detail, health: health, selected: selected, brand: brand, unit: unit, compact: true, action: action)
     }
 
     private func pickerTileDetail(_ focus: PickerFocus) -> String {
@@ -1014,7 +1015,7 @@ struct PickerFocusTile: View {
                 tile
             }
         }
-        .frame(maxWidth: .infinity, minHeight: compact ? 96 : 176)
+        .frame(maxWidth: .infinity, minHeight: compact ? 92 : 112)
     }
 
     private var tile: some View {
@@ -1044,9 +1045,9 @@ struct PickerFocusTile: View {
                     }
                 }
             }
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(value)
-                    .font(.system(size: compact ? 22 : 34, weight: .semibold, design: .rounded).monospacedDigit())
+                    .font(.system(size: compact ? 20 : 24, weight: .semibold, design: .rounded).monospacedDigit())
                     .foregroundStyle(ink)
                     .lineLimit(1)
                     .minimumScaleFactor(0.55)
@@ -1058,15 +1059,15 @@ struct PickerFocusTile: View {
                 }
                 Spacer(minLength: 0)
             }
-            .frame(minHeight: compact ? 28 : 40, alignment: .bottomLeading)
+            .frame(minHeight: compact ? 22 : 28, alignment: .bottomLeading)
             Text(detail)
-                .font(compact ? .caption.weight(.medium) : .subheadline)
+                .font(.caption.weight(.medium))
                 .foregroundStyle(AppTheme.textSecondary)
-                .lineLimit(2)
-                .minimumScaleFactor(0.8)
-                .frame(maxWidth: .infinity, minHeight: compact ? 24 : 36, alignment: .topLeading)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .padding(compact ? 12 : 16)
+        .padding(compact ? 10 : 12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -1091,8 +1092,7 @@ struct PickerFocusTile: View {
                     .stroke(stroke, lineWidth: selected ? 2.5 : 1)
             }
         }
-        .shadow(color: Color.black.opacity(0.10), radius: 8, y: 4)
-        .shadow(color: Color.black.opacity(0.04), radius: 2, y: 1)
+        .shadow(color: Color.black.opacity(0.06), radius: 3, y: 1)
     }
 
     private var shouldPulse: Bool { health == .risk }
