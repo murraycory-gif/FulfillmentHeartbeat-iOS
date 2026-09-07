@@ -1496,10 +1496,9 @@ final class HeartbeatStore: ObservableObject {
         hydrating = true
         rows = nextRows
         uploads = nextUploads
-        if firstOpen {
-            filters = DashboardFilters()
-            needsRolePick = true
-        }
+        filters = DashboardFilters()
+        sessionRole = nil
+        needsRolePick = true
         rebuildLaborWeekIndex()
         install(caches)
         hydrating = false
