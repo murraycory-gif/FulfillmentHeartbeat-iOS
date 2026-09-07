@@ -6,7 +6,7 @@ struct RootView: View {
     var body: some View {
         ZStack {
             AppTheme.bg.ignoresSafeArea()
-            if store.isReady {
+            if store.isReady && !store.isImporting {
                 MainHubView()
                     .transition(.opacity)
                     .overlay {
@@ -38,19 +38,55 @@ struct RootView: View {
 }
 
 struct LaunchSplashView: View {
+    @EnvironmentObject private var store: HeartbeatStore
     @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
+        let phone = HubLayout.isPhone(sizeClass)
         ZStack {
             AppTheme.bg.ignoresSafeArea()
-            VStack(spacing: 22) {
-                FulfillmentWordmark(height: HubLayout.isPhone(sizeClass) ? 48 : 56)
-                BeatingHeartbeatMark(height: HubLayout.isPhone(sizeClass) ? 72 : 92, showsTrace: true, showsWordmark: false)
+            VStack(spacing: phone ? 18 : 24) {
+                BeatingHeartbeatMark(
+                    height: phone ? 78 : 96,
+                    showsTrace: true,
+                    showsWordmark: false
+                )
+                FulfillmentWordmark(height: phone ? 46 : 58)
+                VStack(spacing: 10) {
+                    ProgressView()
+                        .controlSize(.regular)
+                        .tint(AppTheme.blue)
+                    Text(statusLine)
+                        .font(.system(size: phone ? 14 : 16, weight: .semibold))
+                        .foregroundStyle(AppTheme.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.8)
+                }
+                .padding(.top, 8)
             }
             .padding(.horizontal, 28)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .accessibilityLabel("Fulfillment Heartbeat")
+        .accessibilityLabel("Fulfillment")
+        .accessibilityValue(statusLine)
+    }
+
+    private var statusLine: String {
+        if let label = store.importLabel, store.isImporting {
+            let loaded = store.importProgress.loaded
+            let expected = max(store.importProgress.expected, 1)
+            return "Loading the data · \(label) · \(loaded) of \(expected)"
+        }
+        if store.isImporting {
+            let loaded = store.importProgress.loaded
+            let expected = max(store.importProgress.expected, 1)
+            return "Loading the data · \(loaded) of \(expected)"
+        }
+        if store.hydrating {
+            return "Loading the data"
+        }
+        return "Loading the data"
     }
 }
 
