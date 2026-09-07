@@ -1440,6 +1440,9 @@ final class HeartbeatStore: ObservableObject {
             )
             install(full)
             rebuildLaborWeekIndex()
+            scheduleHeavyExtras(latest: full.filteredLatest, roster: full.roster)
+        } else {
+            scheduleHeavyExtras(latest: caches.filteredLatest, roster: caches.roster)
         }
     }
 
@@ -2221,6 +2224,7 @@ final class HeartbeatStore: ObservableObject {
             restoreSessionRole()
             install(caches)
             isReady = true
+            scheduleHeavyExtras(latest: caches.filteredLatest, roster: caches.roster)
             pullLatestWorkbookIfNeeded()
             pullCloudPackIfNeeded()
             let sqliteFile = sqliteURL
@@ -2392,6 +2396,16 @@ final class HeartbeatStore: ObservableObject {
         refreshChecklistOpenCount()
         refreshSalesExpandCache()
         objectWillChange.send()
+    }
+
+    private func scheduleHeavyExtras(
+        latest: [MetricSection: [MetricRow]],
+        roster: [String: HeartbeatMath.StoreIdentity]
+    ) {
+        Task.detached(priority: .utility) {
+            let heavy = PulseCaches.heavyExtras(latest: latest, roster: roster)
+            await MainActor.run { self.mergeHeavy(heavy) }
+        }
     }
 
     private func mergeHeavy(_ bits: PulseCaches.HeavyBits) {
