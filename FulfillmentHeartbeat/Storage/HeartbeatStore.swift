@@ -115,26 +115,34 @@ final class HeartbeatStore: ObservableObject {
         loadChecklist()
         loadMasterLink()
         await loadPack()
-        if seeded, !rows.isEmpty {
+        if Self.hasUsableLabor(rows), Self.hasUsablePicker(rows) {
             isReady = true
             isImporting = false
             importLabel = nil
             needsRolePick = true
-            Task { await self.importCloudSQLiteIfPresent() }
+            Task { await self.syncServerWorkbookIfChanged() }
             return
         }
         isImporting = true
         importProgress.label = "Loading the data"
         importProgress.loaded = 0
-        importProgress.expected = 1
+        importProgress.expected = MetricSection.uploadOrder.count
         importLabel = "Loading the data"
         await importCloudSQLiteIfPresent()
-        isImporting = false
-        importLabel = nil
+        if Self.hasUsableLabor(rows), Self.hasUsablePicker(rows) {
+            isReady = true
+            isImporting = false
+            importLabel = nil
+            needsRolePick = true
+            return
+        }
+        await importCloudWorkbook(blocking: true)
         if seeded, !rows.isEmpty {
             isReady = true
             needsRolePick = true
         }
+        isImporting = false
+        importLabel = nil
     }
 
     private func watchAppLifecycle() {
@@ -1396,7 +1404,25 @@ final class HeartbeatStore: ObservableObject {
 
     private func refreshFromCloud() async {
         guard !isImporting else { return }
-        await importCloudSQLiteIfPresent()
+        if Self.hasUsableLabor(rows), Self.hasUsablePicker(rows) {
+            await syncServerWorkbookIfChanged()
+            return
+        }
+        await importCloudWorkbook(blocking: false)
+    }
+
+    private func syncServerWorkbookIfChanged() async {
+        var remoteXlsx = 0
+        for name in PulseCloud.workbookNames {
+            let size = await PulseCloud.objectSize(name)
+            if size > 1_000 {
+                remoteXlsx = size
+                break
+            }
+        }
+        let knownXlsx = UserDefaults.standard.integer(forKey: "hb.cloudXlsxBytes")
+        guard remoteXlsx > 1_000, remoteXlsx != knownXlsx else { return }
+        await importCloudWorkbook(blocking: false)
     }
 
     private func importCloudSQLiteIfPresent() async {
