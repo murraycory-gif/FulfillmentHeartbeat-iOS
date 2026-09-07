@@ -3878,7 +3878,7 @@ private struct PrepLineSnap: Identifiable, Equatable {
             : "\(row.storeNumber)  |  \(row.division)"
         district = row.district
         om = row.operationsOM
-        let pnrNum = row.number("pnr_rate_pct")
+        let pnrNum = row.number("pnr_rate_pct", "pnr_hours", "prep_not_ready_pct")
         pnr = HeartbeatFormat.pct(pnrNum)
         health = HeartbeatMath.health(for: .prepNotReady, row: row)
         pnrValue = pnrNum ?? -1

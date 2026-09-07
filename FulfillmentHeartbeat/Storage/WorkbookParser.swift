@@ -642,7 +642,7 @@ enum WorkbookParser {
         case .preSubOOS: return parsePreSubOOS(matrix)
         case .missingItems: return parseMissingItems(matrix)
         case .aisleMapper: return parseAisleMapper(matrix)
-        case .prepNotReady: return parsePrepHours(matrix)
+        case .prepNotReady: return parsePrepHours(matrix) ?? parseFlat(matrix)
         case .pickerScorecard: return parsePickerWide(matrix) ?? parseEmployeeWeek(matrix)
         case .pickPathPicker: return parseEmployeeWeek(matrix) ?? parsePickerWide(matrix)
         case .pickPath: return parseStoreWeek(matrix) ?? parseOutline(matrix)
@@ -2336,7 +2336,10 @@ enum WorkbookParser {
         guard let headerIndex = matrix.firstIndex(where: { row in
             let names = row.map(normHeader)
             let hasStore = names.contains(where: { storeKeys.contains($0) || $0 == "store" })
-            let hasPNR = names.contains(where: { $0.contains("prepnotready") || $0.contains("pnrhour") || $0.contains("pnrrate") })
+            let hasPNR = names.contains(where: {
+                $0.contains("prepnotready") || $0.contains("notready") || $0.contains("pnrhour")
+                    || $0.contains("pnrrate") || $0 == "pnr" || $0.contains("pnr")
+            })
             return hasStore && hasPNR
         }) else { return nil }
 
@@ -2354,7 +2357,8 @@ enum WorkbookParser {
         }
         if totalIdx == nil {
             totalIdx = header.indices.last { index in
-                header[index].contains("prepnotready") || header[index].contains("pnr")
+                header[index].contains("prepnotready") || header[index].contains("notready")
+                    || header[index].contains("pnr")
             }
         }
         guard let totalIdx else { return nil }
@@ -2384,7 +2388,17 @@ enum WorkbookParser {
             if isTotalCell(storeRaw) { continue }
             if storeRaw.lowercased().hasPrefix("applied") { continue }
             guard looksLikeStoreNumber(storeRaw) else { continue }
-            let raw = totalIdx < line.count ? line[totalIdx] : ""
+            var raw = totalIdx < line.count ? line[totalIdx] : ""
+            if cellNumber(raw) == nil {
+                for index in stride(from: line.count - 1, through: 0, by: -1) {
+                    if index == storeIdx || index == divIdx || index == distIdx || index == omIdx { continue }
+                    let candidate = index < line.count ? line[index] : ""
+                    if cellNumber(candidate) != nil {
+                        raw = candidate
+                        break
+                    }
+                }
+            }
             guard let value = cellNumber(raw) else { continue }
 
             var payload: [String: Double] = [:]

@@ -191,10 +191,9 @@ struct ScorecardPager: UIViewControllerRepresentable {
             willTransitionTo pendingViewControllers: [UIViewController]
         ) {
             if let host = pendingViewControllers.first as? PageHost {
-                hydrate(host.dest)
-                if router.destination != host.dest {
-                    isSwiping = true
-                    router.open(host.dest)
+                isSwiping = true
+                if !host.hydrated {
+                    hydrate(host.dest)
                 }
             }
         }
