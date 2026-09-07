@@ -2799,6 +2799,7 @@ enum WorkbookParser {
         onTick: ((Int) -> Void)?
     ) -> [ParsedWorkbookRow] {
         var layout = 0
+        var carryStore = ""
         var out: [String: ParsedWorkbookRow] = [:]
         SheetXML.forEachRowInflating(compressed: compressed, strings: strings, handleRaw: { data in
             let a = SheetXML.rawCell(data, letter: "A", strings: strings)
@@ -2838,33 +2839,32 @@ enum WorkbookParser {
             }
             picker = picker.trimmingCharacters(in: .whitespacesAndNewlines)
             if picker.isEmpty || isTotalCell(picker) { return }
-            if !looksLikeStoreNumber(store) { return }
-            if picker == store { return }
+            if looksLikeStoreNumber(store) { carryStore = store }
+            if carryStore.isEmpty { return }
+            if picker == carryStore { return }
             var payload: [String: Double] = [:]
-            let metrics: [(String, String)] = [
-                (pphRaw, "pph"),
-                (presubRaw, "presub"),
-                (SheetXML.rawCell(data, letter: "E", strings: strings), "oos"),
-                (SheetXML.rawCell(data, letter: "F", strings: strings), "pickhours"),
-                (SheetXML.rawCell(data, letter: "G", strings: strings), "orders"),
-                (SheetXML.rawCell(data, letter: "H", strings: strings), "subs"),
-                (SheetXML.rawCell(data, letter: "I", strings: strings), "orders"),
-                (SheetXML.rawCell(data, letter: "J", strings: strings), "dug"),
-                (SheetXML.rawCell(data, letter: "M", strings: strings), "oth5"),
-                (SheetXML.rawCell(data, letter: "N", strings: strings), "ott"),
-                (SheetXML.rawCell(data, letter: "O", strings: strings), "refund"),
-            ]
-            for (raw, header) in metrics {
-                if let value = cellNumber(raw) {
-                    applyPickerMetric(&payload, header: header, value: value)
+            var col = 2
+            var emptyBlocks = 0
+            while col < 120, emptyBlocks < 2 {
+                var hit = false
+                let block: [(Int, String)] = [
+                    (0, "pph"), (1, "presub"), (2, "oos"), (3, "pickhours"),
+                    (4, "picks"), (5, "subs"), (6, "orders"), (7, "dug"),
+                    (10, "oth5"), (11, "ott"), (12, "refund"),
+                ]
+                for (offset, header) in block {
+                    let raw = SheetXML.rawCell(data, letter: SheetXML.colLetter(col + offset), strings: strings)
+                    if let value = cellNumber(raw) {
+                        applyPickerMetric(&payload, header: header, value: value)
+                        hit = true
+                    }
                 }
-            }
-            if payload["picks"] == nil, let picks = cellNumber(SheetXML.rawCell(data, letter: "G", strings: strings)) {
-                payload["picks"] = picks
+                if hit { emptyBlocks = 0 } else { emptyBlocks += 1 }
+                col += 13
             }
             guard !payload.isEmpty else { return }
             let shopper = picker
-            let storeNumber = HeartbeatMath.canonicalStore(store)
+            let storeNumber = HeartbeatMath.canonicalStore(carryStore)
             out[storeNumber + "|" + shopper] = ParsedWorkbookRow(
                 division: "",
                 operationsOM: "",
@@ -2875,7 +2875,7 @@ enum WorkbookParser {
                 textPayload: ["shopper_id": shopper, "shopper_name": shopper]
             )
             if out.count % 2500 == 0 { onTick?(out.count) }
-        }, stop: { out.count >= 30_000 })
+        }, stop: { false })
         onTick?(out.count)
         return Array(out.values)
     }
