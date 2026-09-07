@@ -77,14 +77,12 @@ struct LaunchSplashView: View {
     }
 
     private var statusLine: String {
-        if let label = store.importLabel, store.isImporting {
-            let loaded = store.importProgress.loaded
-            let expected = max(store.importProgress.expected, 1)
-            return "Loading the data · \(label) · \(loaded) of \(expected)"
-        }
         if store.isImporting {
             let loaded = store.importProgress.loaded
             let expected = max(store.importProgress.expected, 1)
+            if let label = store.importLabel, !label.isEmpty, label != "Loading the data" {
+                return "Loading the data · \(label) · \(loaded) of \(expected)"
+            }
             return "Loading the data · \(loaded) of \(expected)"
         }
         return "Loading the data"

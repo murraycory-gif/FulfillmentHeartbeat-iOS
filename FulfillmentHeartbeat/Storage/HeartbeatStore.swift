@@ -1379,26 +1379,32 @@ final class HeartbeatStore: ObservableObject {
         let missingHeavy = !Self.hasUsableLabor(rows) || !Self.hasUsablePicker(rows)
         if remoteXlsx > 1_000, remoteXlsx != knownXlsx || missingHeavy {
             isImporting = true
-            importLabel = "Loading the data"
+            importLabel = nil
             importProgress.label = "Loading the data"
+            importProgress.loaded = 0
             importProgress.expected = MetricSection.uploadOrder.count
-            if let book = try? await PulseCloud.downloadNamed(remoteName) {
-                _ = await runMasterImport(
+            do {
+                let book = try await PulseCloud.downloadNamed(remoteName)
+                let ok = await runMasterImport(
                     data: book,
                     filename: remoteName,
                     fallbackToPicker: false,
-                    alreadyOpen: false,
-                    presentRoleGate: false
+                    alreadyOpen: true,
+                    presentRoleGate: true
                 )
-                if Self.hasUsableLabor(rows), Self.hasUsablePicker(rows) {
+                if ok, Self.hasUsableLabor(rows), Self.hasUsablePicker(rows) {
                     UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
                 } else {
                     UserDefaults.standard.removeObject(forKey: "hb.cloudXlsxBytes")
+                    isImporting = false
+                    importLabel = nil
                 }
                 return
+            } catch {
+                isImporting = false
+                importLabel = nil
+                errorMessage = "Could not load Heartbeat Daily Report from the cloud."
             }
-            isImporting = false
-            importLabel = nil
         }
         if seeded { return }
         do {
@@ -2230,11 +2236,13 @@ final class HeartbeatStore: ObservableObject {
             needsRolePick = true
             install(caches)
             hydrating = false
-            isReady = true
             rebuildLaborWeekIndex()
             scheduleHeavyExtras(latest: caches.filteredLatest, roster: caches.roster)
             if !Self.hasUsableLabor(pack.rows) || !Self.hasUsablePicker(pack.rows) {
                 UserDefaults.standard.removeObject(forKey: "hb.cloudXlsxBytes")
+                isReady = false
+            } else {
+                isReady = true
             }
             pullLatestWorkbookIfNeeded()
             pullCloudPackIfNeeded()
