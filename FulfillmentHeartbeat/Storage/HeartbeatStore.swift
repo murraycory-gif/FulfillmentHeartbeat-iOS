@@ -2118,15 +2118,13 @@ final class HeartbeatStore: ObservableObject {
             filteredLatest = pulse.filteredLatest.isEmpty ? latestBySection : pulse.filteredLatest
             cachedSummaries = pulse.summaries
             cachedCardFlags = pulse.cardFlags
-            if !pulse.grainPacks.isEmpty {
-                cachedGrainPacks = pulse.grainPacks
-            }
             cachedPickerBoard = pulse.pickerBoard
             pickerIndex = pulse.pickerIndex
             pickerFocusHealth = pulse.pickerFocusHealth
             pickPathPickersByStore = pulse.pickPathPickersByStore
             pickPathByShopper = pulse.pickPathByShopper
             pphPickersByStore = pulse.pphPickersByStore
+            rebuildCompanyGrainPacks()
             refreshSalesExpandCache()
             filterStamp += 1
             return
@@ -2310,11 +2308,38 @@ final class HeartbeatStore: ObservableObject {
                 pickerIndex[.all] = Array(pickers.indices)
             }
         }
-        if cachedGrainPacks.isEmpty {
-            cachedGrainPacks = PulseCaches.placeholderGrainPacks(grain: effectiveDashboardGrain)
-        }
+        rebuildCompanyGrainPacks()
         if unfilteredPulse == nil {
             unfilteredPulse = snapshotPulse()
+        }
+    }
+
+    private func rebuildCompanyGrainPacks() {
+        let grain = effectiveDashboardGrain
+        cachedGrainPacks = PulseCaches.placeholderGrainPacks(grain: grain)
+        let latest = latestBySection
+        let hidePicker = sessionRole == .evp
+        let stores = cachedStores
+        let rosterCopy = roster
+        let token = filterStamp
+        Task.detached(priority: .userInitiated) {
+            let packs = PulseCaches.grainPacks(
+                latest: latest,
+                grain: grain,
+                hidePicker: hidePicker,
+                stores: stores,
+                roster: rosterCopy
+            )
+            await MainActor.run {
+                guard !self.filters.isActive else { return }
+                guard self.effectiveDashboardGrain == grain else { return }
+                guard self.filterStamp >= token else { return }
+                self.cachedGrainPacks = packs
+                var snap = self.snapshotPulse()
+                snap.grainPacks = packs
+                self.unfilteredPulse = snap
+                self.filterStamp += 1
+            }
         }
     }
 
