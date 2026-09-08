@@ -123,6 +123,7 @@ final class HeartbeatStore: ObservableObject {
         isReady = false
         importProgress.label = "Opening the floor"
         await loadPack()
+        await loadPublishedFacts()
         if cachedSummaries.isEmpty, !rows.isEmpty {
             rebuildIndex()
             installCompanyWideFast()
@@ -1593,6 +1594,7 @@ final class HeartbeatStore: ObservableObject {
             }.value
             UserDefaults.standard.set(data.count, forKey: "hb.cloudPackBytes")
             await loadPack()
+            await loadPublishedFacts()
         } catch {
             return
         }
@@ -1648,6 +1650,7 @@ final class HeartbeatStore: ObservableObject {
                 if Self.hasFullScorecards(rows) {
                     UserDefaults.standard.set(173, forKey: "hb.parserStamp")
                 }
+                publishFacts()
                 publishCloudPack()
             } else if !hasPack {
                 UserDefaults.standard.removeObject(forKey: "hb.cloudXlsxBytes")
@@ -1686,6 +1689,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func publishCloudPack() {
+        publishFacts()
         guard Self.hasFullScorecards(rows) else { return }
         let url = sqliteURL
         let cardsPath = cardsURL
@@ -2022,6 +2026,7 @@ final class HeartbeatStore: ObservableObject {
             let sheets = try await parseMasterOffMain(data: data, filename: filename)
             masterApplyToken += 1
             await applyMasterSheets(sheets, filename: filename, dismissOverlay: true, note: nil, presentRoleGate: presentRoleGate)
+            publishFacts()
             return true
         } catch {
             if fallbackToPicker {
@@ -2604,6 +2609,33 @@ final class HeartbeatStore: ObservableObject {
             && hasUsableLostRevenue(rows)
             && hasUsableSales(rows)
             && hasUsableFiveStar(rows)
+    }
+
+    private func loadPublishedFacts() async {
+        guard let data = try? await PulseCloud.downloadFacts(), data.count > 1_000 else { return }
+        guard let file = try? JSONDecoder().decode(PulseFactsFile.self, from: data),
+              PulseFacts.isUsable(file) else { return }
+        importProgress.label = "Loading store facts"
+        let incoming = PulseFacts.metricRows(from: file)
+        let replace: Set<MetricSection> = [.storeRoster, .lostRevenue, .sales, .fiveStar]
+        rows.removeAll { replace.contains($0.section) }
+        rows.append(contentsOf: incoming)
+        seeded = true
+        rebuildIndex()
+        if filters.isActive {
+            applyVisibleFilter()
+        } else {
+            installCompanyWideFast()
+        }
+    }
+
+    private func publishFacts() {
+        let file = PulseFacts.build(rows: rows, roster: roster)
+        guard PulseFacts.isUsable(file) else { return }
+        Task.detached(priority: .utility) {
+            guard let data = try? JSONEncoder().encode(file), data.count > 1_000 else { return }
+            try? await PulseCloud.uploadFacts(data)
+        }
     }
 
     private func loadPack() async {

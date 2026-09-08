@@ -18,6 +18,7 @@
 		AA0100000000000000000A24 /* PulseSQLite.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B24 /* PulseSQLite.swift */; };
 		AA0100000000000000000A25 /* PulseCloud.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B25 /* PulseCloud.swift */; };
 		AA0100000000000000000A26 /* PulseCards.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B26 /* PulseCards.swift */; };
+		AA0100000000000000000A27 /* PulseFacts.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B27 /* PulseFacts.swift */; };
 		AA0100000000000000000A09 /* SampleMarket.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B09 /* SampleMarket.swift */; };
 		AA0100000000000000000A10 /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B10 /* DashboardView.swift */; };
 		AA0100000000000000000A11 /* UploadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B11 /* UploadView.swift */; };
@@ -64,6 +65,7 @@
 		AA0100000000000000000B24 /* PulseSQLite.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseSQLite.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B25 /* PulseCloud.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseCloud.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B26 /* PulseCards.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseCards.swift; sourceTree = "<group>"; };
+		AA0100000000000000000B27 /* PulseFacts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseFacts.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B09 /* SampleMarket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleMarket.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B10 /* DashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardView.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B11 /* UploadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UploadView.swift; sourceTree = "<group>"; };
@@ -187,6 +189,7 @@
 				AA0100000000000000000B24 /* PulseSQLite.swift */,
 				AA0100000000000000000B25 /* PulseCloud.swift */,
 				AA0100000000000000000B26 /* PulseCards.swift */,
+				AA0100000000000000000B27 /* PulseFacts.swift */,
 				AA0100000000000000000B09 /* SampleMarket.swift */,
 			);
 			path = Storage;
@@ -308,6 +311,7 @@
 				AA0100000000000000000A24 /* PulseSQLite.swift in Sources */,
 				AA0100000000000000000A25 /* PulseCloud.swift in Sources */,
 				AA0100000000000000000A26 /* PulseCards.swift in Sources */,
+				AA0100000000000000000A27 /* PulseFacts.swift in Sources */,
 				AA0100000000000000000A09 /* SampleMarket.swift in Sources */,
 				AA0100000000000000000A10 /* DashboardView.swift in Sources */,
 				AA0100000000000000000A11 /* UploadView.swift in Sources */,
@@ -467,7 +471,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = M7FL68Q43A;
-				CURRENT_PROJECT_VERSION = 544;
+				CURRENT_PROJECT_VERSION = 545;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = FulfillmentHeartbeat/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -501,7 +505,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = M7FL68Q43A;
-				CURRENT_PROJECT_VERSION = 544;
+				CURRENT_PROJECT_VERSION = 545;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = FulfillmentHeartbeat/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -532,7 +536,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = M7FL68Q43A;
-				CURRENT_PROJECT_VERSION = 544;
+				CURRENT_PROJECT_VERSION = 545;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MARKETING_VERSION = 1.0;
@@ -550,7 +554,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = M7FL68Q43A;
-				CURRENT_PROJECT_VERSION = 544;
+				CURRENT_PROJECT_VERSION = 545;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MARKETING_VERSION = 1.0;

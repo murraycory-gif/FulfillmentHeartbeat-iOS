@@ -6,6 +6,7 @@ enum PulseCloud {
     static let bucket = "heartbeat-packs"
     static let object = "current.sqlite"
     static let cardsObject = "pulse-cards.json"
+    static let factsObject = PulseFacts.object
     static let workbookNames = [
         "Heartbeat Daily Report.xlsx",
         "current.xlsx",
@@ -97,6 +98,14 @@ enum PulseCloud {
 
     static func uploadCards(_ data: Data) async throws {
         try await uploadObject(cardsObject, data: data, contentType: "application/json")
+    }
+
+    static func uploadFacts(_ data: Data) async throws {
+        try await uploadObject(factsObject, data: data, contentType: "application/json")
+    }
+
+    static func downloadFacts() async throws -> Data {
+        try await downloadNamed(factsObject)
     }
 
     static func downloadCards() async throws -> Data {
