@@ -180,7 +180,7 @@ enum WorkbookParser {
                             parsed = compactShoppers(parsed)
                         }
                     }
-                    if parsed.isEmpty, sheet.count < 3_000_000 {
+                    if parsed.isEmpty {
                         let matrix = SheetXML.parse(data: sheet, strings: strings)
                         parsed = rows(from: matrix, prefer: hinted)
                         if parsed.isEmpty, hinted == .pickerScorecard {

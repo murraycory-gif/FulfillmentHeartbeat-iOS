@@ -57,6 +57,7 @@ final class HeartbeatStore: ObservableObject {
     private var commentSaveTask: Task<Void, Never>?
     private var latestBySection: [MetricSection: [MetricRow]] = [:]
     private var roster: [String: HeartbeatMath.StoreIdentity] = [:]
+    private var lostByStore: [String: MetricRow] = [:]
     private var filteredLatest: [MetricSection: [MetricRow]] = [:]
     private var filteredMarket: [HeartbeatMath.MarketStore] = []
     private var cachedDivisions: [String] = []
@@ -1548,7 +1549,7 @@ final class HeartbeatStore: ObservableObject {
                 )
                 if ok {
                     UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
-                    UserDefaults.standard.set(169, forKey: "hb.parserStamp")
+                    UserDefaults.standard.set(170, forKey: "hb.parserStamp")
                     return
                 }
                 lastError = "Workbook did not parse."
@@ -1572,7 +1573,7 @@ final class HeartbeatStore: ObservableObject {
         }
         let knownXlsx = UserDefaults.standard.integer(forKey: "hb.cloudXlsxBytes")
         let parserStamp = UserDefaults.standard.integer(forKey: "hb.parserStamp")
-        guard remoteXlsx > 1_000, remoteXlsx != knownXlsx || parserStamp < 169 else { return }
+        guard remoteXlsx > 1_000, remoteXlsx != knownXlsx || parserStamp < 170 else { return }
         await importCloudWorkbook(blocking: false)
     }
 
@@ -1614,7 +1615,7 @@ final class HeartbeatStore: ObservableObject {
         let knownXlsx = UserDefaults.standard.integer(forKey: "hb.cloudXlsxBytes")
         let hasPack = seeded && !rows.isEmpty
         let packComplete = hasPack && Self.hasUsableLabor(rows) && Self.hasUsablePicker(rows)
-        guard remoteXlsx > 1_000, remoteXlsx != knownXlsx || !packComplete || UserDefaults.standard.integer(forKey: "hb.parserStamp") < 169 else {
+        guard remoteXlsx > 1_000, remoteXlsx != knownXlsx || !packComplete || UserDefaults.standard.integer(forKey: "hb.parserStamp") < 170 else {
             if hasPack {
                 isImporting = false
                 isReady = true
@@ -1643,7 +1644,7 @@ final class HeartbeatStore: ObservableObject {
             )
             if ok {
                 UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
-                UserDefaults.standard.set(169, forKey: "hb.parserStamp")
+                UserDefaults.standard.set(170, forKey: "hb.parserStamp")
                 publishCloudPack()
             } else if !hasPack {
                 UserDefaults.standard.removeObject(forKey: "hb.cloudXlsxBytes")
@@ -2103,6 +2104,7 @@ final class HeartbeatStore: ObservableObject {
             latest[.pickPath] = HeartbeatMath.applyAisleMapper(path, from: latest[.aisleMapper] ?? [])
         }
         latestBySection = latest
+        rebuildLostIndex()
         cachedDivisions = MarketRegion.uniqueNames(roster.values.map(\.division)).sorted()
         rebuildLaborWeekIndex()
     }
@@ -2123,6 +2125,44 @@ final class HeartbeatStore: ObservableObject {
             return HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(stores), roster: roster)
         }
         return HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(raw), roster: roster)
+    }
+
+    private func rebuildLostIndex() {
+        var map: [String: MetricRow] = [:]
+        map.reserveCapacity(2200)
+        for row in rows where row.section == .lostRevenue {
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            if store.isEmpty { continue }
+            if map[store] == nil { map[store] = row }
+            for alias in HeartbeatMath.storeAliases(store) where map[alias] == nil {
+                map[alias] = row
+            }
+        }
+        if map.isEmpty {
+            for row in (latestBySection[.lostRevenue] ?? []) {
+                let store = HeartbeatMath.canonicalStore(row.storeNumber)
+                if store.isEmpty { continue }
+                if map[store] == nil { map[store] = row }
+                for alias in HeartbeatMath.storeAliases(store) where map[alias] == nil {
+                    map[alias] = row
+                }
+            }
+        }
+        lostByStore = map
+    }
+
+    private func lostRevenueForStores(_ stores: Set<String>) -> [MetricRow] {
+        if lostByStore.isEmpty { rebuildLostIndex() }
+        var seen: Set<String> = []
+        var out: [MetricRow] = []
+        out.reserveCapacity(stores.count)
+        for raw in stores {
+            let store = HeartbeatMath.canonicalStore(raw)
+            guard let row = lostByStore[store] ?? lostByStore[raw] else { continue }
+            let key = HeartbeatMath.canonicalStore(row.storeNumber)
+            if seen.insert(key).inserted { out.append(row) }
+        }
+        return out
     }
 
     private func applyFilters() {
@@ -2186,7 +2226,6 @@ final class HeartbeatStore: ObservableObject {
             return
         }
         let allowed = PulseCaches.allowedStores(roster: roster, filters: filters) ?? []
-        let current = filters
         var next: [MetricSection: [MetricRow]] = [:]
         next.reserveCapacity(latestBySection.count)
         for (section, sectionRows) in latestBySection {
@@ -2194,12 +2233,7 @@ final class HeartbeatStore: ObservableObject {
             if section == .lostRevenue { continue }
             next[section] = PulseCaches.rowsMatchingStores(sectionRows, stores: allowed, skipMarket: false)
         }
-        next[.lostRevenue] = PulseCaches.lostRevenueRows(
-            pool: latestOrFacts(for: .lostRevenue) + rows.filter { $0.section == .lostRevenue },
-            scope: allowed,
-            roster: roster,
-            filters: current
-        )
+        next[.lostRevenue] = lostRevenueForStores(allowed)
         filteredLatest = latestBySection.merging(next) { _, new in new }
         cachedSummaries = MetricSection.dashboardCards.map { section in
             HeartbeatMath.summarize(
@@ -2626,6 +2660,7 @@ final class HeartbeatStore: ObservableObject {
         pphPickersByStore = caches.pphPickersByStore
         cachedCardFlags = caches.cachedCardFlags
         cachedGrainPacks = caches.cachedGrainPacks
+        rebuildLostIndex()
         rebuildLaborWeekIndex()
         refreshChecklistOpenCount()
         refreshSalesExpandCache()
