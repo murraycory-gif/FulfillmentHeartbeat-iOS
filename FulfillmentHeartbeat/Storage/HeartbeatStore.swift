@@ -129,38 +129,18 @@ final class HeartbeatStore: ObservableObject {
             installCompanyWideFast()
         }
         let factsReady = Self.hasUsableLostRevenue(rows) && Self.hasUsableSales(rows)
-        let packReady = Self.hasFullScorecards(rows) || (factsReady && Self.hasUsableLabor(rows) && Self.hasUsablePicker(rows))
-        let onPhone = UIDevice.current.userInterfaceIdiom == .phone
-        let lowMemory = ProcessInfo.processInfo.physicalMemory < 5_500_000_000
-        if !packReady {
+        if !Self.hasUsableLabor(rows) || !Self.hasUsablePicker(rows) {
             await importCloudSQLiteIfPresent()
         }
-        let readyNow = Self.hasFullScorecards(rows) || (factsReady && Self.hasUsableLabor(rows) && Self.hasUsablePicker(rows))
-        if readyNow, factsReady || onPhone || lowMemory {
+        if factsReady {
             isImporting = false
             importLabel = nil
             isReady = true
             needsRolePick = true
             return
         }
-        var remoteXlsx = 0
-        for name in PulseCloud.workbookNames {
-            let size = await PulseCloud.objectSize(name)
-            if size > 1_000 {
-                remoteXlsx = size
-                break
-            }
-        }
-        let knownXlsx = UserDefaults.standard.integer(forKey: "hb.cloudXlsxBytes")
-        let parserStamp = UserDefaults.standard.integer(forKey: "hb.parserStamp")
-        if !lowMemory, remoteXlsx > 1_000, remoteXlsx != knownXlsx || parserStamp < 173 || !packReady {
-            await importCloudWorkbook(blocking: true)
-            await loadPublishedFacts()
-        } else if !packReady {
-            importProgress.label = "Downloading workbook"
-            await pullWorkbookFromServer()
-            await loadPublishedFacts()
-        }
+        await importCloudSQLiteIfPresent()
+        await loadPublishedFacts()
         if cachedSummaries.isEmpty, !rows.isEmpty {
             rebuildIndex()
             installCompanyWideFast()
