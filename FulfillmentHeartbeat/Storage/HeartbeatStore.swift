@@ -2183,35 +2183,15 @@ final class HeartbeatStore: ObservableObject {
             let store = HeartbeatMath.canonicalStore(item.number)
             if !store.isEmpty { scope.insert(store) }
         }
+        let lostPool = (latestBySection[.lostRevenue] ?? []) + rows.filter { $0.section == .lostRevenue }
         next[.lostRevenue] = PulseCaches.lostRevenueRows(
-            pool: latestBySection[.lostRevenue] ?? [],
+            pool: lostPool,
             scope: scope,
             roster: roster,
             filters: current
         )
-        if (next[.lostRevenue] ?? []).isEmpty, !scope.isEmpty {
-            next[.lostRevenue] = scope.sorted(by: HeartbeatFormat.storeOrder).map { store in
-                let identity = roster[store]
-                return MetricRow(
-                    section: .lostRevenue,
-                    division: identity?.division ?? "",
-                    operationsOM: identity?.om ?? "",
-                    storeNumber: store,
-                    storeName: identity?.name,
-                    payload: [
-                        "lost_revenue": 0,
-                        "post_sub_oos_foregone": 0,
-                        "refund_lost": 0,
-                        "missed_sales": 0,
-                        "cancelled_lost": 0,
-                        "kill_switch_lost": 0
-                    ],
-                    textPayload: [
-                        "lost_grain": "store",
-                        "district": identity?.district ?? current.district
-                    ]
-                )
-            }
+        next[.pickerScorecard] = (latestBySection[.pickerScorecard] ?? []).filter { row in
+            PulseCaches.rowMatchesFilter(row, allowed: allowed, roster: roster, filters: current)
         }
         filteredLatest = latestBySection.merging(next) { _, new in new }
         cachedSummaries = MetricSection.dashboardCards.map { section in
