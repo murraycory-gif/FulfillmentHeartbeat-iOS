@@ -1087,11 +1087,20 @@ enum HeartbeatMath {
         return trimmed
     }
 
+    static func storeAliases(_ raw: String) -> Set<String> {
+        let number = canonicalStore(raw)
+        guard !number.isEmpty else { return [] }
+        var out: Set<String> = [number]
+        if let value = Int(number) {
+            out.insert(String(value))
+            out.insert(String(format: "%04d", value))
+            out.insert(String(format: "%05d", value))
+        }
+        return out
+    }
+
     static func sameStore(_ lhs: String, _ rhs: String) -> Bool {
-        let a = canonicalStore(lhs)
-        let b = canonicalStore(rhs)
-        if a.isEmpty || b.isEmpty { return false }
-        return a.caseInsensitiveCompare(b) == .orderedSame
+        !storeAliases(lhs).isDisjoint(with: storeAliases(rhs))
     }
 
     static let ignoredStores: Set<String> = ["210", "239"]
