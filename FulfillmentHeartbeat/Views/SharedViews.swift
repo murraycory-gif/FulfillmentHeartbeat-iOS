@@ -2399,7 +2399,7 @@ private enum ShopperMetric: String, CaseIterable, Hashable {
         case .pph, .dynacap: return [.pph, .orders, .hours]
         case .lostRevenue: return [.refund, .presub, .oos, .pph]
         case .labor: return [.pph, .hours, .orders]
-        case .prepNotReady, .scheduleQuality, .pickerScorecard, .missingItems, .preSubOOS, .aisleMapper, .preSubOOSItem, .sales: return nil
+        case .prepNotReady, .scheduleQuality, .pickerScorecard, .missingItems, .preSubOOS, .aisleMapper, .preSubOOSItem, .sales, .storeRoster: return nil
         }
     }
 }

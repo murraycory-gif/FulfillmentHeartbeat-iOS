@@ -90,7 +90,7 @@ extension HeartbeatMath {
             return diagnoseMissingItems(row)
         case .preSubOOS:
             return diagnosePreSubOOS(row)
-        case .pickerScorecard, .aisleMapper, .preSubOOSItem:
+        case .pickerScorecard, .aisleMapper, .preSubOOSItem, .storeRoster:
             return []
         }
     }
