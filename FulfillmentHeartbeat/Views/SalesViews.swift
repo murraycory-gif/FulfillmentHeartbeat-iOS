@@ -356,12 +356,17 @@ enum SalesRollupBuilder {
     }
 
     static func source(from rows: [MetricRow], filters: DashboardFilters, roster: [String: HeartbeatMath.StoreIdentity] = [:]) -> [MetricRow] {
-        let stores = rows.filter {
+        let raw = rows.filter {
             $0.textPayload["sales_grain"] != "day"
                 && $0.textPayload["sales_grain"] != "company"
                 && !$0.storeNumber.isEmpty
+                && $0.storeNumber.caseInsensitiveCompare("total") != .orderedSame
         }
-        if !filters.isActive { return stores }
+        let stores = roster.isEmpty ? raw : HeartbeatMath.applyRoster(raw, roster: roster)
+        if !filters.isActive {
+            var seen: Set<String> = []
+            return stores.filter { seen.insert(HeartbeatMath.canonicalStore($0.storeNumber)).inserted }
+        }
         if !filters.store.isEmpty {
             let matched = stores.filter { filters.includesStore($0.storeNumber) }
             if !matched.isEmpty { return matched }
@@ -380,19 +385,6 @@ enum SalesRollupBuilder {
                 let store = HeartbeatMath.canonicalStore(row.storeNumber)
                 guard allowed.contains(store), seen.insert(store).inserted else { continue }
                 out.append(row)
-            }
-            for store in allowed.sorted() where !seen.contains(store) {
-                guard let identity = roster[store] else { continue }
-                out.append(
-                    MetricRow(
-                        section: .sales,
-                        division: identity.division,
-                        operationsOM: identity.om,
-                        storeNumber: store,
-                        storeName: identity.name,
-                        textPayload: identity.district.isEmpty ? [:] : ["district": identity.district]
-                    )
-                )
             }
             return out
         }

@@ -1367,9 +1367,9 @@ enum WorkbookParser {
         if let aos = value(block.aos) { payload[prefix + "aos"] = aos }
         if let aosYoy = value(block.aosYoy, scalePct: true) { payload[prefix + "aos_yoy_pct"] = aosYoy }
         if let aiv = value(block.aiv) { payload[prefix + "aiv"] = aiv }
-        if let aivYoy = value(block.aivYoy, scalePct: true) { payload[prefix + "aiv_yoy_pct"] = aivYoy }
+        if let aivYoy = value(block.aivYoy) { payload[prefix + "aiv_yoy"] = aivYoy }
         if let ipt = value(block.ipt) { payload[prefix + "ipt"] = ipt }
-        if let iptYoy = value(block.iptYoy, scalePct: true) { payload[prefix + "ipt_yoy_pct"] = iptYoy }
+        if let iptYoy = value(block.iptYoy) { payload[prefix + "ipt_yoy"] = iptYoy }
         if let items = value(block.items) { payload[prefix + "items"] = items }
         if let itemsYoy = value(block.itemsYoy, scalePct: true) { payload[prefix + "items_yoy_pct"] = itemsYoy }
         if let hd = value(block.hd) { payload[prefix + "hd_orders"] = hd }

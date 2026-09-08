@@ -1572,7 +1572,7 @@ final class HeartbeatStore: ObservableObject {
                 )
                 if ok {
                     UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
-                    UserDefaults.standard.set(174, forKey: "hb.parserStamp")
+                    UserDefaults.standard.set(175, forKey: "hb.parserStamp")
                     return
                 }
                 lastError = "Workbook did not parse."
@@ -1596,7 +1596,7 @@ final class HeartbeatStore: ObservableObject {
         }
         let knownXlsx = UserDefaults.standard.integer(forKey: "hb.cloudXlsxBytes")
         let parserStamp = UserDefaults.standard.integer(forKey: "hb.parserStamp")
-        guard remoteXlsx > 1_000, remoteXlsx != knownXlsx || parserStamp < 174 else { return }
+        guard remoteXlsx > 1_000, remoteXlsx != knownXlsx || parserStamp < 175 else { return }
         await importCloudWorkbook(blocking: false)
     }
 
@@ -1639,7 +1639,7 @@ final class HeartbeatStore: ObservableObject {
         let knownXlsx = UserDefaults.standard.integer(forKey: "hb.cloudXlsxBytes")
         let hasPack = seeded && !rows.isEmpty
         let packComplete = hasPack && Self.hasFullScorecards(rows)
-        guard remoteXlsx > 1_000, remoteXlsx != knownXlsx || !packComplete || UserDefaults.standard.integer(forKey: "hb.parserStamp") < 174 else {
+        guard remoteXlsx > 1_000, remoteXlsx != knownXlsx || !packComplete || UserDefaults.standard.integer(forKey: "hb.parserStamp") < 175 else {
             if hasPack {
                 isImporting = false
                 isReady = true
@@ -1669,7 +1669,7 @@ final class HeartbeatStore: ObservableObject {
             if ok {
                 UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
                 if Self.hasFullScorecards(rows) {
-                    UserDefaults.standard.set(174, forKey: "hb.parserStamp")
+                    UserDefaults.standard.set(175, forKey: "hb.parserStamp")
                 }
                 publishFacts()
                 publishCloudPack()
