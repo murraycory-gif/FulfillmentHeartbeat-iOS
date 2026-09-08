@@ -58,15 +58,18 @@ for device in devices:
     pairing = str(conn.get("pairingState") or "").lower()
     is_pad = "iPad" in name or "iPad" in marketing or str(hardware.get("deviceType") or "").startswith("iPad")
     is_phone = "iPhone" in name or "iPhone" in marketing or str(hardware.get("deviceType") or "").startswith("iPhone")
-    phone_only = os.environ.get("ALLOW_PHONE", "").strip() == "1"
+    if want and ident.lower() != want:
+        continue
     if phone_only and not is_phone:
         continue
     if not phone_only and not want and not is_pad:
         continue
-    if want and ident.lower() != want:
-        continue
-    available = tunnel in ("connected", "ready") or transport in ("wired", "localnetwork", "wifi")
-    if available and pairing in ("paired", "pairable", ""):
+    available = (
+        tunnel in ("connected", "ready", "available")
+        or transport in ("wired", "localnetwork", "wifi")
+        or pairing in ("paired", "pairable")
+    )
+    if available or want:
         print(ident)
         print(f"Found {name} {ident}", file=sys.stderr)
         sys.exit(0)
@@ -83,8 +86,6 @@ PY
 
 UDID="${DEVICE_UDID:-}"
 if [ -n "$UDID" ]; then
-  ALLOW_PHONE="${ALLOW_PHONE:-1}"
-  export ALLOW_PHONE
   echo "Looking for device $UDID ..."
   READY=$(wait_for_ipad "$UDID" || true)
   if [ -z "${READY:-}" ]; then
