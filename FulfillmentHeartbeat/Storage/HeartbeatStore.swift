@@ -2617,12 +2617,9 @@ final class HeartbeatStore: ObservableObject {
               PulseFacts.isUsable(file) else { return }
         importProgress.label = "Loading store facts"
         let incoming = PulseFacts.metricRows(from: file)
-        var replace: Set<MetricSection> = [.lostRevenue]
-        if incoming.contains(where: { $0.section == .storeRoster }) { replace.insert(.storeRoster) }
-        if incoming.contains(where: { $0.section == .fiveStar }) { replace.insert(.fiveStar) }
-        if incoming.contains(where: { $0.section == .sales }) { replace.insert(.sales) }
+        let replace = Set(incoming.map(\.section))
         rows.removeAll { replace.contains($0.section) }
-        rows.append(contentsOf: incoming.filter { replace.contains($0.section) })
+        rows.append(contentsOf: incoming)
         seeded = true
         rebuildIndex()
         if filters.isActive {
