@@ -2105,6 +2105,24 @@ final class HeartbeatStore: ObservableObject {
         rebuildLaborWeekIndex()
     }
 
+    /// Prefer the collapsed snapshot. If it has no real store rows, rebuild from raw facts.
+    private func latestOrFacts(for section: MetricSection) -> [MetricRow] {
+        let snapshot = latestBySection[section] ?? []
+        let snapshotStores = snapshot.filter {
+            !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty
+                && $0.textPayload["lost_grain"] != "market"
+                && $0.textPayload["sales_grain"] != "company"
+        }
+        if snapshotStores.count >= 8 { return snapshot }
+        let raw = rows.filter { $0.section == section }
+        if raw.isEmpty { return snapshot }
+        if section == .lostRevenue {
+            let stores = raw.filter { $0.textPayload["lost_grain"] != "market" }
+            return HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(stores), roster: roster)
+        }
+        return HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(raw), roster: roster)
+    }
+
     private func applyFilters() {
         refilterTask?.cancel()
         applyVisibleFilter()
@@ -2169,24 +2187,26 @@ final class HeartbeatStore: ObservableObject {
         let current = filters
         var next: [MetricSection: [MetricRow]] = [:]
         next.reserveCapacity(latestBySection.count)
-        for (section, rows) in latestBySection {
+        for section in MetricSection.allCases {
             if section == .pickerScorecard || section == .pickPathPicker { continue }
-            if section == .lostRevenue { continue }
-            next[section] = PulseCaches.scopedRows(
-                rows,
-                allowed: allowed,
-                roster: roster,
-                filters: current
-            )
+            let pool = latestOrFacts(for: section)
+            if section == .lostRevenue {
+                next[section] = PulseCaches.lostRevenueRows(
+                    pool: pool,
+                    scope: allowed,
+                    roster: roster,
+                    filters: current
+                )
+            } else {
+                next[section] = PulseCaches.scopedRows(
+                    pool,
+                    allowed: allowed,
+                    roster: roster,
+                    filters: current
+                )
+            }
         }
-        let lostPool = (latestBySection[.lostRevenue] ?? []) + rows.filter { $0.section == .lostRevenue }
-        next[.lostRevenue] = PulseCaches.lostRevenueRows(
-            pool: lostPool,
-            scope: allowed,
-            roster: roster,
-            filters: current
-        )
-        next[.pickerScorecard] = (latestBySection[.pickerScorecard] ?? []).filter { row in
+        next[.pickerScorecard] = latestOrFacts(for: .pickerScorecard).filter { row in
             PulseCaches.rowMatchesFilter(row, allowed: allowed, roster: roster, filters: current)
         }
         filteredLatest = latestBySection.merging(next) { _, new in new }
@@ -3194,7 +3214,40 @@ private struct PulseCaches {
         roster: [String: HeartbeatMath.StoreIdentity],
         filters: DashboardFilters
     ) -> [MetricRow] {
-        scopedRows(
+        var aliases: Set<String> = []
+        for store in scope {
+            aliases.formUnion(HeartbeatMath.storeAliases(store))
+        }
+        var districtKeys: Set<String> = []
+        for part in filters.districts {
+            let key = HeartbeatMath.districtMatchKey(part)
+            if !key.isEmpty { districtKeys.insert(key) }
+        }
+        for store in scope {
+            if let district = roster[store]?.district {
+                let key = HeartbeatMath.districtMatchKey(district)
+                if !key.isEmpty { districtKeys.insert(key) }
+            }
+        }
+        var seen: Set<String> = []
+        var out: [MetricRow] = []
+        for row in pool {
+            if row.textPayload["lost_grain"] == "market" { continue }
+            if HeartbeatMath.isIgnoredStore(row.storeNumber) { continue }
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            let keepByStore = !store.isEmpty && !aliases.isEmpty
+                && !HeartbeatMath.storeAliases(store).isDisjoint(with: aliases)
+            let district = roster[store]?.district.isEmpty == false ? roster[store]!.district : row.district
+            let keepByDistrict = !districtKeys.isEmpty
+                && districtKeys.contains(HeartbeatMath.districtMatchKey(district))
+            guard keepByStore || keepByDistrict else { continue }
+            let key = store.isEmpty ? row.id.uuidString : store
+            if seen.insert(key).inserted {
+                out.append(row)
+            }
+        }
+        if !out.isEmpty { return out }
+        return scopedRows(
             HeartbeatMath.applyRoster(pool, roster: roster),
             allowed: scope,
             roster: roster,

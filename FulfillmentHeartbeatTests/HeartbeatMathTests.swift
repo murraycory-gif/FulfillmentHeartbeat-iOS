@@ -650,5 +650,54 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertNotEqual(summary.health, .none)
         XCTAssertEqual(summary.storeCount, 1)
     }
+
+    func testPulseCachesBuildJoinsLostRevenueWhenOnlyFiveStarHasDistrict() {
+        func five(_ store: String, district: String, division: String) -> MetricRow {
+            MetricRow(
+                section: .fiveStar,
+                division: division,
+                operationsOM: "Pat",
+                storeNumber: store,
+                payload: ["five_star": 4.6],
+                textPayload: ["district": district]
+            )
+        }
+        func lost(_ store: String, dollars: Double) -> MetricRow {
+            MetricRow(
+                section: .lostRevenue,
+                division: "",
+                operationsOM: "",
+                storeNumber: store,
+                payload: ["ecomm_sales": dollars * 20, "lost_revenue": dollars, "lost_revenue_pct": 5],
+                textPayload: ["lost_grain": "store"]
+            )
+        }
+        let rows = [
+            five("667", district: "03", division: "Jewel Osco"),
+            five("1507", district: "03", division: "Jewel Osco"),
+            five("2218", district: "A9", division: "Mid-Atlantic"),
+            lost("667", dollars: 1_832),
+            lost("1507", dollars: 7_777),
+            lost("2218", dollars: 900),
+            MetricRow(
+                section: .lostRevenue,
+                division: "",
+                operationsOM: "",
+                storeNumber: "",
+                storeName: "Total",
+                payload: ["ecomm_sales": 46_000_000, "lost_revenue": 96_564, "lost_revenue_pct": 2.81],
+                textPayload: ["lost_grain": "market"]
+            ),
+        ]
+        var filters = DashboardFilters()
+        filters.district = "03"
+        let caches = PulseCaches.build(rows: rows, filters: filters, uploads: [], heavy: false, grain: .store)
+        let summary = caches.cachedSummaries.first { $0.section == .lostRevenue }
+        XCTAssertEqual(summary?.storeCount, 2)
+        XCTAssertEqual(summary?.headline ?? 0, 9_609, accuracy: 0.01)
+        XCTAssertNotEqual(summary?.health, .none)
+        let scoped = Set((caches.filteredLatest[.lostRevenue] ?? []).map(\.storeNumber))
+        XCTAssertEqual(scoped, ["667", "1507"])
+    }
 }
 
