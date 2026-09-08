@@ -2273,6 +2273,9 @@ final class HeartbeatStore: ObservableObject {
             next[section] = PulseCaches.rowsMatchingStores(sectionRows, stores: allowed, skipMarket: false)
         }
         next[.lostRevenue] = lostRevenueForStores(allowed)
+        if next[.lostRevenue]?.count ?? 0 < max(8, allowed.count / 4) {
+            next[.lostRevenue] = rosterJoined(for: .lostRevenue).filter { $0.number("lost_revenue") != nil }
+        }
         filteredLatest = latestBySection.merging(next) { _, new in new }
         cachedSummaries = MetricSection.dashboardCards.map { section in
             HeartbeatMath.summarize(
@@ -2664,7 +2667,8 @@ final class HeartbeatStore: ObservableObject {
 
     private func publishFacts() {
         let file = PulseFacts.build(rows: rows, roster: roster)
-        guard PulseFacts.isUsable(file) else { return }
+        let scored = file.lostRevenue.filter { !$0.store.isEmpty && ($0.numbers["lost_revenue"] ?? 0) > 0 }.count
+        guard scored >= 1500, PulseFacts.isUsable(file) else { return }
         Task.detached(priority: .utility) {
             guard let data = try? JSONEncoder().encode(file), data.count > 1_000 else { return }
             try? await PulseCloud.uploadFacts(data)

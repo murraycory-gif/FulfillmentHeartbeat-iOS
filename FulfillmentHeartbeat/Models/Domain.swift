@@ -1425,21 +1425,22 @@ enum HeartbeatMath {
 
         switch section {
         case .fiveStar:
-            let headline = average(latest.compactMap { $0.number("star_rating") })
-            let five = latest.filter { ($0.number("star_rating") ?? 0) >= 4.95 }.count
-            let pass = latest.filter { ($0.number("star_rating") ?? 0) >= fiveStarPass }.count
-            let fail = latest.filter { ($0.number("star_rating") ?? .greatestFiniteMagnitude) < fiveStarPass }.count
+            let scored = latest.filter { $0.number("star_rating") != nil }
+            let headline = average(scored.compactMap { $0.number("star_rating") })
+            let five = scored.filter { ($0.number("star_rating") ?? 0) >= 4.95 }.count
+            let pass = scored.filter { ($0.number("star_rating") ?? 0) >= fiveStarPass }.count
+            let fail = scored.filter { ($0.number("star_rating") ?? .greatestFiniteMagnitude) < fiveStarPass }.count
             return SectionSummary(
                 section: section,
-                storeCount: latest.count,
+                storeCount: scored.count,
                 headline: headline,
                 headlineLabel: "Avg star rating",
-                secondary: latest.isEmpty
+                secondary: scored.isEmpty
                     ? "No 5 Star rows in this filter"
-                    : "\(five) of \(latest.count) at 5.00 · \(pass) pass · \(fail) fail",
-                health: latest.isEmpty ? .none : band(headline, good: 4.5, watch: fiveStarPass),
-                watchCount: watch,
-                riskCount: risk,
+                    : "\(five) of \(scored.count) at 5.00 · \(pass) pass · \(fail) fail",
+                health: scored.isEmpty ? .none : band(headline, good: 4.5, watch: fiveStarPass),
+                watchCount: scored.filter { fiveStarHealth($0) == .watch }.count,
+                riskCount: scored.filter { fiveStarHealth($0) == .risk }.count,
                 lastFilename: upload?.filename,
                 lastUploadedAt: upload?.uploadedAt
             )
@@ -1589,23 +1590,27 @@ enum HeartbeatMath {
                 $0.textPayload["lost_grain"] != "market"
                     && !isIgnoredStore($0.storeNumber)
                     && !$0.storeNumber.isEmpty
+                    && $0.number("lost_revenue") != nil
             }
             let market = latest.first { $0.textPayload["lost_grain"] == "market" && $0.storeNumber.isEmpty }
             let dollars: Double?
             let pct: Double?
-            if let market {
+            if !stores.isEmpty, stores.count < 800 {
+                let totals = lostRevenueTotals(stores)
+                dollars = totals.dollars
+                pct = totals.pct
+            } else if let market {
                 dollars = market.number("lost_revenue")
                 pct = market.number("lost_revenue_pct")
             } else if !stores.isEmpty {
-                let sumDollars = stores.compactMap { $0.number("lost_revenue") }.reduce(0, +)
-                let sumSales = stores.compactMap { $0.number("ecomm_sales") }.reduce(0, +)
-                dollars = sumDollars
-                pct = sumSales > 0 ? sumDollars / sumSales * 100 : average(stores.compactMap { $0.number("lost_revenue_pct") })
+                let totals = lostRevenueTotals(stores)
+                dollars = totals.dollars
+                pct = totals.pct
             } else {
                 dollars = nil
                 pct = nil
             }
-            let scored = stores.isEmpty ? (market.map { [$0] } ?? []) : stores
+            let scored = stores
             return SectionSummary(
                 section: section,
                 storeCount: stores.count,
@@ -1909,13 +1914,14 @@ enum HeartbeatMath {
                 if let value = row.number(spec.dollar) {
                     dollars += value
                     seen = true
+                    sales += row.number("ecomm_sales") ?? 0
                 } else if spec.dollar == "missed_sales", let cap = row.number("reduced_capacity") {
                     dollars += cap
                     seen = true
+                    sales += row.number("ecomm_sales") ?? 0
                 }
-                sales += row.number("ecomm_sales") ?? 0
                 let pct = row.number(spec.pct)
-                if lostRevenueHealth(pct: pct) == .risk || ((row.number(spec.dollar) ?? 0) > 0 && pct == nil && lostRevenueHealth(row) == .risk) {
+                if lostRevenueHealth(pct: pct) == .risk {
                     risk += 1
                 }
             }
@@ -2356,6 +2362,20 @@ enum HeartbeatMath {
 
     static func lostRevenueHealth(_ row: MetricRow) -> Health {
         lostRevenueHealth(pct: row.number("lost_revenue_pct"))
+    }
+
+    static func lostRevenueTotals(_ stores: [MetricRow]) -> (dollars: Double, sales: Double, pct: Double?) {
+        var dollars = 0.0
+        var sales = 0.0
+        for row in stores {
+            guard let lost = row.number("lost_revenue") else { continue }
+            dollars += lost
+            if let ecomm = row.number("ecomm_sales"), ecomm > 0 {
+                sales += ecomm
+            }
+        }
+        let pct = sales > 0 ? dollars / sales * 100 : nil
+        return (dollars, sales, pct)
     }
 
     static func lostRevenueHealth(pct: Double?) -> Health {

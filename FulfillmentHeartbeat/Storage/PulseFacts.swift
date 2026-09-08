@@ -54,19 +54,36 @@ enum PulseFacts {
     }
 
     static func isUsable(_ file: PulseFactsFile) -> Bool {
-        file.lostRevenue.filter { !$0.store.isEmpty }.count >= 200
+        file.lostRevenue.filter { !$0.store.isEmpty && ($0.numbers["lost_revenue"] ?? 0) > 0 }.count >= 200
     }
 
     static func loadRows() async -> [MetricRow] {
-        var data = try? await PulseCloud.downloadFacts()
-        if data == nil || (data?.count ?? 0) < 1_000 {
-            data = bundledData()
+        let cloud = try? await PulseCloud.downloadFacts()
+        let bundled = bundledData()
+        let cloudFile = decode(cloud)
+        let bundledFile = decode(bundled)
+        let file: PulseFactsFile?
+        switch (cloudFile, bundledFile) {
+        case let (cloud?, bundled?):
+            file = scoredStores(cloud) >= scoredStores(bundled) ? cloud : bundled
+        case let (cloud?, nil):
+            file = cloud
+        case let (nil, bundled?):
+            file = bundled
+        default:
+            file = nil
         }
-        guard let data, data.count > 1_000,
-              let file = try? JSONDecoder().decode(PulseFactsFile.self, from: data),
-              isUsable(file)
-        else { return [] }
+        guard let file, isUsable(file) else { return [] }
         return metricRows(from: file)
+    }
+
+    private static func decode(_ data: Data?) -> PulseFactsFile? {
+        guard let data, data.count > 1_000 else { return nil }
+        return try? JSONDecoder().decode(PulseFactsFile.self, from: data)
+    }
+
+    private static func scoredStores(_ file: PulseFactsFile) -> Int {
+        file.lostRevenue.filter { !$0.store.isEmpty && ($0.numbers["lost_revenue"] ?? 0) > 0 }.count
     }
 
     static func bundledData() -> Data? {
