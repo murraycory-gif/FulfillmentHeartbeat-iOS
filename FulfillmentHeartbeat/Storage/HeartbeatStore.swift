@@ -136,9 +136,9 @@ final class HeartbeatStore: ObservableObject {
             }
         }
         let knownXlsx = UserDefaults.standard.integer(forKey: "hb.cloudXlsxBytes")
-        let packReady = Self.hasUsableLabor(rows) && Self.hasUsablePicker(rows) && Self.hasUsableLostRevenue(rows)
+        let packReady = Self.hasFullScorecards(rows)
         let parserStamp = UserDefaults.standard.integer(forKey: "hb.parserStamp")
-        if remoteXlsx > 1_000, remoteXlsx != knownXlsx || parserStamp < 171 || !packReady {
+        if remoteXlsx > 1_000, remoteXlsx != knownXlsx || parserStamp < 172 || !packReady {
             await importCloudWorkbook(blocking: true)
         } else if packReady {
             isImporting = false
@@ -1550,7 +1550,7 @@ final class HeartbeatStore: ObservableObject {
                 )
                 if ok {
                     UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
-                    UserDefaults.standard.set(171, forKey: "hb.parserStamp")
+                    UserDefaults.standard.set(172, forKey: "hb.parserStamp")
                     return
                 }
                 lastError = "Workbook did not parse."
@@ -1558,7 +1558,7 @@ final class HeartbeatStore: ObservableObject {
                 lastError = error.localizedDescription
             }
         }
-        if !Self.hasUsableLabor(rows) || !Self.hasUsablePicker(rows) {
+        if !Self.hasFullScorecards(rows) {
             errorMessage = lastError ?? "Could not load Heartbeat Daily Report from the cloud."
         }
     }
@@ -1574,7 +1574,7 @@ final class HeartbeatStore: ObservableObject {
         }
         let knownXlsx = UserDefaults.standard.integer(forKey: "hb.cloudXlsxBytes")
         let parserStamp = UserDefaults.standard.integer(forKey: "hb.parserStamp")
-        guard remoteXlsx > 1_000, remoteXlsx != knownXlsx || parserStamp < 171 else { return }
+        guard remoteXlsx > 1_000, remoteXlsx != knownXlsx || parserStamp < 172 else { return }
         await importCloudWorkbook(blocking: false)
     }
 
@@ -1582,7 +1582,7 @@ final class HeartbeatStore: ObservableObject {
         let remote = await PulseCloud.objectSize(PulseCloud.object)
         guard remote > 50_000 else { return }
         let known = UserDefaults.standard.integer(forKey: "hb.cloudPackBytes")
-        let localComplete = Self.hasUsableLabor(rows) && Self.hasUsablePicker(rows)
+        let localComplete = Self.hasFullScorecards(rows)
         if known == remote, localComplete { return }
         do {
             let data = try await PulseCloud.downloadPack()
@@ -1615,8 +1615,8 @@ final class HeartbeatStore: ObservableObject {
         }
         let knownXlsx = UserDefaults.standard.integer(forKey: "hb.cloudXlsxBytes")
         let hasPack = seeded && !rows.isEmpty
-        let packComplete = hasPack && Self.hasUsableLabor(rows) && Self.hasUsablePicker(rows) && Self.hasUsableLostRevenue(rows)
-        guard remoteXlsx > 1_000, remoteXlsx != knownXlsx || !packComplete || UserDefaults.standard.integer(forKey: "hb.parserStamp") < 171 else {
+        let packComplete = hasPack && Self.hasFullScorecards(rows)
+        guard remoteXlsx > 1_000, remoteXlsx != knownXlsx || !packComplete || UserDefaults.standard.integer(forKey: "hb.parserStamp") < 172 else {
             if hasPack {
                 isImporting = false
                 isReady = true
@@ -1645,7 +1645,7 @@ final class HeartbeatStore: ObservableObject {
             )
             if ok {
                 UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
-                UserDefaults.standard.set(171, forKey: "hb.parserStamp")
+                UserDefaults.standard.set(172, forKey: "hb.parserStamp")
                 publishCloudPack()
             } else if !hasPack {
                 UserDefaults.standard.removeObject(forKey: "hb.cloudXlsxBytes")
@@ -1684,7 +1684,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func publishCloudPack() {
-        guard Self.hasUsableLabor(rows), Self.hasUsablePicker(rows) else { return }
+        guard Self.hasFullScorecards(rows) else { return }
         let url = sqliteURL
         let cardsPath = cardsURL
         let cards = PulseCards.from(board: cachedPickerBoard)
@@ -2571,6 +2571,37 @@ final class HeartbeatStore: ObservableObject {
             if stores.count >= 200 { return true }
         }
         return false
+    }
+
+    private static func hasUsableSales(_ rows: [MetricRow]) -> Bool {
+        var stores = Set<String>()
+        for row in rows where row.section == .sales {
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            if store.isEmpty { continue }
+            if row.textPayload["sales_grain"] == "company" || row.textPayload["sales_grain"] == "day" { continue }
+            stores.insert(store)
+            if stores.count >= 200 { return true }
+        }
+        return false
+    }
+
+    private static func hasUsableFiveStar(_ rows: [MetricRow]) -> Bool {
+        var stores = Set<String>()
+        for row in rows where row.section == .fiveStar {
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            if store.isEmpty { continue }
+            stores.insert(store)
+            if stores.count >= 200 { return true }
+        }
+        return false
+    }
+
+    private static func hasFullScorecards(_ rows: [MetricRow]) -> Bool {
+        hasUsableLabor(rows)
+            && hasUsablePicker(rows)
+            && hasUsableLostRevenue(rows)
+            && hasUsableSales(rows)
+            && hasUsableFiveStar(rows)
     }
 
     private func loadPack() async {
