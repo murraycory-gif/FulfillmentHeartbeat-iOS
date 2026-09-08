@@ -130,8 +130,13 @@ final class HeartbeatStore: ObservableObject {
         }
         let factsReady = Self.hasUsableLostRevenue(rows) && Self.hasUsableSales(rows)
         let packReady = Self.hasFullScorecards(rows) || (factsReady && Self.hasUsableLabor(rows) && Self.hasUsablePicker(rows))
-        let lowMemory = ProcessInfo.processInfo.physicalMemory < 3_800_000_000
-        if packReady, factsReady || lowMemory {
+        let onPhone = UIDevice.current.userInterfaceIdiom == .phone
+        let lowMemory = ProcessInfo.processInfo.physicalMemory < 5_500_000_000
+        if !packReady {
+            await importCloudSQLiteIfPresent()
+        }
+        let readyNow = Self.hasFullScorecards(rows) || (factsReady && Self.hasUsableLabor(rows) && Self.hasUsablePicker(rows))
+        if readyNow, factsReady || onPhone || lowMemory {
             isImporting = false
             importLabel = nil
             isReady = true
