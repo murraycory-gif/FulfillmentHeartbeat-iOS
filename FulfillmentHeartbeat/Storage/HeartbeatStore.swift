@@ -236,35 +236,33 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func rollupStores(for section: MetricSection) -> [MetricRow] {
-        let raw: [MetricRow]
         switch section {
-        case .sales:
-            raw = allLatest(for: .sales).filter {
-                $0.textPayload["sales_grain"] != "day"
-                    && $0.textPayload["sales_grain"] != "company"
-                    && !$0.storeNumber.isEmpty
-            }
-        case .labor:
-            raw = laborTableRows().filter {
-                $0.textPayload["labor_grain"] != "market" && !$0.storeNumber.isEmpty
-            }
-        case .lostRevenue:
-            raw = allLatest(for: .lostRevenue).filter {
-                $0.textPayload["lost_grain"] != "market" && !$0.storeNumber.isEmpty
-            }
-        case .prepNotReady:
-            return rosterJoined(for: .prepNotReady)
+        case .pickerScorecard, .pickPathPicker, .preSubOOSItem, .aisleMapper, .storeRoster:
+            let raw = allLatest(for: section).filter { !$0.storeNumber.isEmpty }
+            return RollupMarketFill.scopedRollup(raw, filters: filters, roster: roster)
         default:
-            raw = allLatest(for: section).filter { !$0.storeNumber.isEmpty }
+            return rosterJoined(for: section)
         }
-        return RollupMarketFill.scopedRollup(raw, filters: filters, roster: roster)
     }
 
     func rosterJoined(for section: MetricSection) -> [MetricRow] {
         let allowed = PulseCaches.allowedStores(roster: roster, filters: filters)
             ?? Set(roster.keys.map { HeartbeatMath.canonicalStore($0) })
         var byStore: [String: MetricRow] = [:]
-        for row in allLatest(for: section) {
+        let pool: [MetricRow]
+        switch section {
+        case .labor:
+            pool = laborTableRows()
+        default:
+            pool = allLatest(for: section)
+        }
+        for row in pool {
+            if section == .sales {
+                let grain = row.textPayload["sales_grain"]
+                if grain == "day" || grain == "company" { continue }
+            }
+            if section == .lostRevenue, row.textPayload["lost_grain"] == "market" { continue }
+            if section == .labor, row.textPayload["labor_grain"] == "market" { continue }
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
             guard !store.isEmpty else { continue }
             let keys = [store] + HeartbeatMath.storeAliases(store)
@@ -301,7 +299,12 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func displayRows(for section: MetricSection) -> [MetricRow] {
-        filteredLatest[section] ?? []
+        switch section {
+        case .pickerScorecard, .pickPathPicker, .preSubOOSItem, .aisleMapper, .storeRoster:
+            return filteredLatest[section] ?? []
+        default:
+            return rosterJoined(for: section)
+        }
     }
 
     func summary(for section: MetricSection) -> SectionSummary {

@@ -1899,8 +1899,7 @@ private enum PickPathRollupBuilder {
     }
 
     static func source(from all: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
-        let stores = all.filter { !$0.storeNumber.isEmpty }
-        return RollupMarketFill.scoped(stores, filters: filters)
+        all.filter { !$0.storeNumber.isEmpty }
     }
 
     static func rows(from stores: [MetricRow], grain: LaborRollupGrain) -> [PickPathRollupRow] {
@@ -2976,8 +2975,7 @@ private enum DynacapRollupBuilder {
     }
 
     static func source(from all: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
-        let stores = all.filter { !$0.storeNumber.isEmpty && DynacapMath.rate($0) != nil }
-        return RollupMarketFill.scoped(stores, filters: filters)
+        all.filter { !$0.storeNumber.isEmpty }
     }
 
     static func rows(from stores: [MetricRow], grain: LaborRollupGrain, pphByStore: [String: Double]) -> [DynacapRollupRow] {
@@ -4489,8 +4487,7 @@ private enum FiveStarRollupBuilder {
     }
 
     static func source(from all: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
-        let stores = all.filter { !$0.storeNumber.isEmpty }
-        return RollupMarketFill.scoped(stores, filters: filters)
+        all.filter { !$0.storeNumber.isEmpty }
     }
 
     static func rows(from stores: [MetricRow], grain: LaborRollupGrain) -> [FiveStarRollupRow] {
@@ -5341,10 +5338,9 @@ private enum LaborRollupBuilder {
     }
 
     static func source(from all: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
-        let stores = all.filter {
+        all.filter {
             $0.textPayload["labor_grain"] != "market" && !$0.storeNumber.isEmpty
         }
-        return RollupMarketFill.scoped(stores, filters: filters)
     }
 
     static func rows(from stores: [MetricRow], grain: LaborRollupGrain) -> [LaborRollupRow] {
@@ -6507,10 +6503,9 @@ private enum LostRevenueRollupBuilder {
     }
 
     static func source(from all: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
-        let stores = all.filter {
+        all.filter {
             $0.textPayload["lost_grain"] != "market" && !$0.storeNumber.isEmpty
         }
-        return RollupMarketFill.scoped(stores, filters: filters)
     }
 
     static func rows(from stores: [MetricRow], grain: LaborRollupGrain) -> [LostRevenueRollupRow] {
@@ -7527,8 +7522,7 @@ private enum ScheduleRollupBuilder {
     }
 
     static func source(from all: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
-        let stores = all.filter { !$0.storeNumber.isEmpty && (ScheduleMath.efficiency($0) != nil || ScheduleMath.staffing($0) != nil) }
-        return RollupMarketFill.scoped(stores, filters: filters)
+        all.filter { !$0.storeNumber.isEmpty }
     }
 
     static func rows(from stores: [MetricRow], grain: LaborRollupGrain) -> [ScheduleRollupRow] {
@@ -8283,8 +8277,7 @@ private enum PPHRollupBuilder {
     }
 
     static func source(from all: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
-        let stores = all.filter { !$0.storeNumber.isEmpty && $0.number("pph") != nil }
-        return RollupMarketFill.scoped(stores, filters: filters)
+        all.filter { !$0.storeNumber.isEmpty }
     }
 
     static func rows(from stores: [MetricRow], grain: LaborRollupGrain, pickerCount: (String) -> Int) -> [PPHRollupRow] {

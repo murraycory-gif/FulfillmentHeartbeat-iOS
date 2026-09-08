@@ -466,43 +466,43 @@ struct SectionDetailView: View {
     }
 
     private var fiveStarRows: [MetricRow] {
-        let scored = snapshots.filter { $0.number("star_rating") != nil }
+        let joined = snapshots
         switch fiveStarFocus {
         case .all:
-            return scored
+            return joined
         case .atFive:
-            return scored.filter { ($0.number("star_rating") ?? 0) >= 4.95 }
+            return joined.filter { ($0.number("star_rating") ?? 0) >= 4.95 }
         case .pass:
-            return scored.filter { ($0.number("star_rating") ?? 0) >= HeartbeatMath.fiveStarPass }
+            return joined.filter { ($0.number("star_rating") ?? 0) >= HeartbeatMath.fiveStarPass }
         case .fail:
-            return scored.filter { ($0.number("star_rating") ?? .greatestFiniteMagnitude) < HeartbeatMath.fiveStarPass }
+            return joined.filter { ($0.number("star_rating") ?? .greatestFiniteMagnitude) < HeartbeatMath.fiveStarPass }
         case .flash:
-            return scored.filter { HeartbeatMath.flashStar($0).health != .good }
+            return joined.filter { HeartbeatMath.flashStar($0).health != .good }
         case .presub:
-            return scored.filter { HeartbeatMath.presubStar($0).health != .good }
+            return joined.filter { HeartbeatMath.presubStar($0).health != .good }
         case .coe:
-            return scored.filter { HeartbeatMath.coeStar($0).health != .good }
+            return joined.filter { HeartbeatMath.coeStar($0).health != .good }
         case .ott:
-            return scored.filter { HeartbeatMath.ottStar($0).health != .good }
+            return joined.filter { HeartbeatMath.ottStar($0).health != .good }
         case .oth:
-            return scored.filter { HeartbeatMath.othStar($0).health != .good }
+            return joined.filter { HeartbeatMath.othStar($0).health != .good }
         }
     }
 
     private var laborRows: [MetricRow] {
-        let scored = store.laborTableRows().filter { $0.number("target_vs_actual_pct") != nil }
+        let joined = store.rosterJoined(for: .labor)
         switch laborFocus {
         case .all:
-            return scored
+            return joined
         case .healthy:
-            return scored.filter { ($0.number("target_vs_actual_pct") ?? 1) <= 0 }
+            return joined.filter { ($0.number("target_vs_actual_pct") ?? 1) <= 0 }
         case .watch:
-            return scored.filter {
+            return joined.filter {
                 let value = $0.number("target_vs_actual_pct") ?? 0
                 return value > 0 && value <= HeartbeatMath.laborWatch
             }
         case .risk:
-            return scored.filter { ($0.number("target_vs_actual_pct") ?? 0) > HeartbeatMath.laborWatch }
+            return joined.filter { ($0.number("target_vs_actual_pct") ?? 0) > HeartbeatMath.laborWatch }
         }
     }
 
@@ -551,40 +551,40 @@ struct SectionDetailView: View {
     }
 
     private var scheduleRows: [MetricRow] {
-        let scored = snapshots.filter { $0.number("schedule_efficiency_pct") != nil }
+        let joined = snapshots
         switch scheduleFocus {
         case .all:
-            return scored
+            return joined
         case .atGoal:
-            return scored.filter { ($0.number("schedule_efficiency_pct") ?? 0) >= HeartbeatMath.scheduleGoal }
+            return joined.filter { ($0.number("schedule_efficiency_pct") ?? 0) >= HeartbeatMath.scheduleGoal }
         case .underRisk:
-            return scored.filter { ($0.number("under_schedule_pct", "under_scheduled") ?? 0) > HeartbeatMath.scheduleVarianceWatch }
+            return joined.filter { ($0.number("under_schedule_pct", "under_scheduled") ?? 0) > HeartbeatMath.scheduleVarianceWatch }
         case .overRisk:
-            return scored.filter { ($0.number("over_schedule_pct", "over_scheduled") ?? 0) > HeartbeatMath.scheduleVarianceWatch }
+            return joined.filter { ($0.number("over_schedule_pct", "over_scheduled") ?? 0) > HeartbeatMath.scheduleVarianceWatch }
         }
     }
 
     private var pphRows: [MetricRow] {
-        let scored = snapshots.filter { $0.number("pph") != nil }
+        let joined = snapshots
         switch pphFocus {
         case .all:
-            return scored
+            return joined
         case .atGoal:
-            return scored.filter { ($0.number("pph") ?? 0) >= HeartbeatMath.pphGoal }
+            return joined.filter { ($0.number("pph") ?? 0) >= HeartbeatMath.pphGoal }
         case .below74:
-            return scored.filter { ($0.number("pph") ?? .greatestFiniteMagnitude) < HeartbeatMath.pphRisk }
+            return joined.filter { ($0.number("pph") ?? .greatestFiniteMagnitude) < HeartbeatMath.pphRisk }
         }
     }
 
     private var dynacapRows: [MetricRow] {
-        let scored = snapshots.filter { $0.number("dynacap_rate", "pieces_per_hour") != nil }
+        let joined = snapshots
         switch dynacapFocus {
         case .all:
-            return scored
+            return joined
         case .atGoal:
-            return scored.filter { ($0.number("dynacap_rate", "pieces_per_hour") ?? 0) >= HeartbeatMath.dynacapGoal }
+            return joined.filter { ($0.number("dynacap_rate", "pieces_per_hour") ?? 0) >= HeartbeatMath.dynacapGoal }
         case .below60:
-            return scored.filter { ($0.number("dynacap_rate", "pieces_per_hour") ?? .greatestFiniteMagnitude) < HeartbeatMath.dynacapRisk }
+            return joined.filter { ($0.number("dynacap_rate", "pieces_per_hour") ?? .greatestFiniteMagnitude) < HeartbeatMath.dynacapRisk }
         }
     }
 

@@ -464,8 +464,7 @@ private enum MissingItemsGrain {
 
 private enum MissingItemsRollupBuilder {
     static func source(from all: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
-        let stores = all.filter { !$0.storeNumber.isEmpty && $0.number(MissingItemDept.totalKey) != nil }
-        return RollupMarketFill.scoped(stores, filters: filters)
+        all.filter { !$0.storeNumber.isEmpty }
     }
 
     static func rows(from stores: [MetricRow], grain: MissingItemsGrain, depts: [MissingItemDept]) -> [MissingItemsRollupRow] {

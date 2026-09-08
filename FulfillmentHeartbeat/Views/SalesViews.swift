@@ -372,7 +372,27 @@ enum SalesRollupBuilder {
                 if !filters.includesStore(number) { return nil }
                 return HeartbeatMath.canonicalStore(number)
             })
-            return stores.filter { allowed.contains(HeartbeatMath.canonicalStore($0.storeNumber)) }
+            var seen: Set<String> = []
+            var out: [MetricRow] = []
+            for row in stores {
+                let store = HeartbeatMath.canonicalStore(row.storeNumber)
+                guard allowed.contains(store), seen.insert(store).inserted else { continue }
+                out.append(row)
+            }
+            for store in allowed.sorted() where !seen.contains(store) {
+                guard let identity = roster[store] else { continue }
+                out.append(
+                    MetricRow(
+                        section: .sales,
+                        division: identity.division,
+                        operationsOM: identity.om,
+                        storeNumber: store,
+                        storeName: identity.name,
+                        textPayload: identity.district.isEmpty ? [:] : ["district": identity.district]
+                    )
+                )
+            }
+            return out
         }
         return RollupMarketFill.scoped(stores, filters: filters)
     }
