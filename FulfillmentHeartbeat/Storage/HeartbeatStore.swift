@@ -2191,16 +2191,15 @@ final class HeartbeatStore: ObservableObject {
         next.reserveCapacity(latestBySection.count)
         for (section, sectionRows) in latestBySection {
             if section == .pickPathPicker { continue }
-            if section == .lostRevenue {
-                next[section] = PulseCaches.rowsMatchingStores(sectionRows, stores: allowed, skipMarket: true)
-                continue
-            }
+            if section == .lostRevenue { continue }
             next[section] = PulseCaches.rowsMatchingStores(sectionRows, stores: allowed, skipMarket: false)
         }
-        if (next[.lostRevenue] ?? []).isEmpty {
-            let raw = rows.filter { $0.section == .lostRevenue }
-            next[.lostRevenue] = PulseCaches.rowsMatchingStores(raw, stores: allowed, skipMarket: true)
-        }
+        next[.lostRevenue] = PulseCaches.lostRevenueRows(
+            pool: latestOrFacts(for: .lostRevenue) + rows.filter { $0.section == .lostRevenue },
+            scope: allowed,
+            roster: roster,
+            filters: current
+        )
         filteredLatest = latestBySection.merging(next) { _, new in new }
         cachedSummaries = MetricSection.dashboardCards.map { section in
             HeartbeatMath.summarize(
@@ -3226,7 +3225,7 @@ private struct PulseCaches {
         var index: [String: MetricRow] = [:]
         index.reserveCapacity(rows.count)
         for row in rows {
-            if skipMarket, row.textPayload["lost_grain"] == "market" { continue }
+            if skipMarket, row.textPayload["lost_grain"] == "market", HeartbeatMath.canonicalStore(row.storeNumber).isEmpty { continue }
             if row.textPayload["sales_grain"] == "company" { continue }
             if HeartbeatMath.isIgnoredStore(row.storeNumber), row.section != .sales { continue }
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
@@ -3258,6 +3257,10 @@ private struct PulseCaches {
     ) -> [MetricRow] {
         let matched = rowsMatchingStores(pool, stores: scope, skipMarket: true)
         if !matched.isEmpty { return matched }
+        let loose = rowsMatchingStores(pool, stores: scope, skipMarket: false).filter {
+            !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty
+        }
+        if !loose.isEmpty { return loose }
         return scopedRows(
             HeartbeatMath.applyRoster(pool, roster: roster),
             allowed: scope,
@@ -3294,7 +3297,7 @@ private struct PulseCaches {
         var out: [MetricRow] = []
         out.reserveCapacity(min(rows.count, max(allowed.count, 8)))
         for row in rows {
-            if skipMarket, row.textPayload["lost_grain"] == "market" { continue }
+            if skipMarket, row.textPayload["lost_grain"] == "market", HeartbeatMath.canonicalStore(row.storeNumber).isEmpty { continue }
             if HeartbeatMath.isIgnoredStore(row.storeNumber), row.section != .sales { continue }
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
             if !store.isEmpty, !aliases.isEmpty, !HeartbeatMath.storeAliases(store).isDisjoint(with: aliases) {

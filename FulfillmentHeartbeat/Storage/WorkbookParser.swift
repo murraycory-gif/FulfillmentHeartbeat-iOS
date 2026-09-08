@@ -973,6 +973,11 @@ enum WorkbookParser {
         let lower = raw.lowercased()
         let hasPct = raw.contains("%") || lower.contains("percent")
         if lower.trimmingCharacters(in: .whitespacesAndNewlines) == "store" { return "store" }
+        if lower == "store_id" || lower == "storeid" || lower == "store number" || lower == "store #"
+            || lower == "store no" || lower.contains("store id") || lower.contains("store number")
+            || lower.contains("store #") || (lower.contains("store") && !lower.contains("lost") && !lower.contains("sales")) {
+            return "store"
+        }
         if (lower.contains("ecomm") || lower.contains("e-comm") || lower.contains("ecommerce")) && lower.contains("sales") {
             return "ecomm_sales"
         }

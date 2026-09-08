@@ -1590,17 +1590,20 @@ enum HeartbeatMath {
                     && !isIgnoredStore($0.storeNumber)
                     && !$0.storeNumber.isEmpty
             }
-            let market = latest.first { $0.textPayload["lost_grain"] == "market" }
+            let market = latest.first { $0.textPayload["lost_grain"] == "market" && $0.storeNumber.isEmpty }
             let dollars: Double?
             let pct: Double?
-            if let market {
+            if !stores.isEmpty {
+                let sumDollars = stores.compactMap { $0.number("lost_revenue") }.reduce(0, +)
+                let sumSales = stores.compactMap { $0.number("ecomm_sales") }.reduce(0, +)
+                dollars = sumDollars
+                pct = sumSales > 0 ? sumDollars / sumSales * 100 : average(stores.compactMap { $0.number("lost_revenue_pct") })
+            } else if let market {
                 dollars = market.number("lost_revenue")
                 pct = market.number("lost_revenue_pct")
             } else {
-                let sumDollars = stores.compactMap { $0.number("lost_revenue") }.reduce(0, +)
-                let sumSales = stores.compactMap { $0.number("ecomm_sales") }.reduce(0, +)
-                dollars = stores.isEmpty ? nil : sumDollars
-                pct = sumSales > 0 ? sumDollars / sumSales * 100 : nil
+                dollars = nil
+                pct = nil
             }
             let scored = stores.isEmpty ? (market.map { [$0] } ?? []) : stores
             return SectionSummary(
