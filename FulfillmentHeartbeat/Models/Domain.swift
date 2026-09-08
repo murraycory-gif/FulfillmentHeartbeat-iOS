@@ -1593,19 +1593,25 @@ enum HeartbeatMath {
                     && $0.number("lost_revenue") != nil
             }
             let market = latest.first { $0.textPayload["lost_grain"] == "market" && $0.storeNumber.isEmpty }
+            let marketDollars = market?.number("lost_revenue") ?? 0
+            let storeTotals = lostRevenueTotals(stores)
             let dollars: Double?
             let pct: Double?
-            if !stores.isEmpty, stores.count < 800 {
-                let totals = lostRevenueTotals(stores)
-                dollars = totals.dollars
-                pct = totals.pct
-            } else if let market {
-                dollars = market.number("lost_revenue")
-                pct = market.number("lost_revenue_pct")
-            } else if !stores.isEmpty {
-                let totals = lostRevenueTotals(stores)
-                dollars = totals.dollars
-                pct = totals.pct
+            if marketDollars >= 1_000_000, stores.count >= 800 {
+                dollars = marketDollars
+                pct = market?.number("lost_revenue_pct")
+            } else if !stores.isEmpty, stores.count < 800 {
+                dollars = storeTotals.dollars
+                pct = storeTotals.pct
+            } else if marketDollars >= 1_000_000 {
+                dollars = marketDollars
+                pct = market?.number("lost_revenue_pct")
+            } else if storeTotals.dollars >= 1_000_000, (storeTotals.pct ?? 0) < 40 {
+                dollars = storeTotals.dollars
+                pct = storeTotals.pct
+            } else if marketDollars > 0 {
+                dollars = marketDollars
+                pct = market?.number("lost_revenue_pct")
             } else {
                 dollars = nil
                 pct = nil

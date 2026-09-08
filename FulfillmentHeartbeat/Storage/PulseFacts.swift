@@ -58,24 +58,26 @@ enum PulseFacts {
     }
 
     static func loadRows() async -> [MetricRow] {
-        let cloud = try? await PulseCloud.downloadFacts()
-        let bundled = bundledData()
-        let cloudFile = decode(cloud)
-        let bundledFile = decode(bundled)
+        let bundledFile = decode(bundledData())
+        let cloudFile = decode(try? await PulseCloud.downloadFacts())
         let file: PulseFactsFile?
-        switch (cloudFile, bundledFile) {
-        case let (cloud?, bundled?):
-            let cloudSales = salesWeek(cloud)
-            let bundledSales = salesWeek(bundled)
-            if bundledSales > cloudSales * 1.05, scoredStores(bundled) >= 200 {
+        switch (bundledFile, cloudFile) {
+        case let (bundled?, cloud?):
+            let bundledOK = isUsable(bundled) && salesWeek(bundled) >= 50_000_000
+            let cloudOK = isUsable(cloud) && salesWeek(cloud) >= 50_000_000
+            if cloudOK, salesWeek(cloud) >= salesWeek(bundled) * 0.95, scoredStores(cloud) >= scoredStores(bundled) {
+                file = cloud
+            } else if bundledOK {
                 file = bundled
+            } else if cloudOK {
+                file = cloud
             } else {
-                file = scoredStores(cloud) >= scoredStores(bundled) ? cloud : bundled
+                file = scoredStores(bundled) >= scoredStores(cloud) ? bundled : cloud
             }
-        case let (cloud?, nil):
-            file = cloud
-        case let (nil, bundled?):
+        case let (bundled?, nil):
             file = bundled
+        case let (nil, cloud?):
+            file = cloud
         default:
             file = nil
         }

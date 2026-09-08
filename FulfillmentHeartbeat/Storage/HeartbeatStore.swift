@@ -123,24 +123,13 @@ final class HeartbeatStore: ObservableObject {
         isReady = false
         importProgress.label = "Opening the floor"
         await loadPack()
-        await loadPublishedFacts()
-        if cachedSummaries.isEmpty, !rows.isEmpty {
-            rebuildIndex()
-            installCompanyWideFast()
-        }
-        let factsReady = Self.hasUsableLostRevenue(rows) && Self.hasUsableSales(rows)
         if !Self.hasUsableLabor(rows) || !Self.hasUsablePicker(rows) {
             await importCloudSQLiteIfPresent()
         }
-        if factsReady {
-            isImporting = false
-            importLabel = nil
-            isReady = true
-            needsRolePick = true
-            return
-        }
-        await importCloudSQLiteIfPresent()
         await loadPublishedFacts()
+        if !Self.hasUsableLostRevenue(rows) || !Self.hasUsableSales(rows) {
+            await loadPublishedFacts()
+        }
         if cachedSummaries.isEmpty, !rows.isEmpty {
             rebuildIndex()
             installCompanyWideFast()
@@ -2603,27 +2592,36 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private static func hasUsableLostRevenue(_ rows: [MetricRow]) -> Bool {
+        var dollars = 0.0
         var stores = Set<String>()
         for row in rows where row.section == .lostRevenue {
+            if row.textPayload["lost_grain"] == "market" {
+                dollars = max(dollars, row.number("lost_revenue") ?? 0)
+                continue
+            }
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
-            if store.isEmpty { continue }
-            if row.textPayload["lost_grain"] == "market" { continue }
+            guard !store.isEmpty else { continue }
             stores.insert(store)
-            if stores.count >= 200 { return true }
+            dollars += row.number("lost_revenue") ?? 0
         }
-        return false
+        return stores.count >= 200 && dollars >= 1_000_000
     }
 
     private static func hasUsableSales(_ rows: [MetricRow]) -> Bool {
+        var dollars = 0.0
         var stores = Set<String>()
         for row in rows where row.section == .sales {
+            if row.textPayload["sales_grain"] == "company" {
+                dollars = max(dollars, HeartbeatMath.salesHeadlineDollars(row))
+                continue
+            }
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
-            if store.isEmpty { continue }
-            if row.textPayload["sales_grain"] == "company" || row.textPayload["sales_grain"] == "day" { continue }
+            guard !store.isEmpty else { continue }
+            if row.textPayload["sales_grain"] == "day" { continue }
             stores.insert(store)
-            if stores.count >= 200 { return true }
+            dollars += HeartbeatMath.salesHeadlineDollars(row)
         }
-        return false
+        return stores.count >= 200 && dollars >= 50_000_000
     }
 
     private static func hasUsableFiveStar(_ rows: [MetricRow]) -> Bool {
