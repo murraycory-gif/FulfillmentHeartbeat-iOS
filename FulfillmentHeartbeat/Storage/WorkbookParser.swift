@@ -1238,23 +1238,28 @@ enum WorkbookParser {
         }
 
         let weekBlock: SalesBlock = {
-            if let named = blocks.last(where: { salesDayName($0.label) == "Week" }) { return named }
-            if let last = starts.last, last >= (starts.first ?? 0) + 7 * 12 {
+            if let named = blocks.first(where: { salesDayName($0.label) == "Week" }) { return named }
+            let weekStart = (starts.first ?? 0) + 7 * 12
+            if let named = starts.first(where: { $0 == weekStart }) {
                 var block = SalesBlock(label: "Week")
-                block.sales = last
-                block.yoy = last + 1
-                block.orders = last + 2
-                block.ordersYoy = last + 3
-                block.aos = last + 4
-                block.aosYoy = last + 5
-                block.aiv = last + 6
-                block.aivYoy = last + 7
-                block.ipt = last + 8
-                block.iptYoy = last + 9
-                block.items = last + 10
+                block.sales = named
+                block.yoy = named + 1
+                block.orders = named + 2
+                block.ordersYoy = named + 3
+                block.aos = named + 4
+                block.aosYoy = named + 5
+                block.aiv = named + 6
+                block.aivYoy = named + 7
+                block.ipt = named + 8
+                block.iptYoy = named + 9
+                block.items = named + 10
+                if named + 11 < matrixWidth { block.itemsYoy = named + 11 }
                 return block
             }
-            return blocks[blocks.count - 1]
+            return dayBlocks.isEmpty ? blocks[blocks.count - 1] : {
+                var summed = SalesBlock(label: "Week")
+                return summed
+            }()
         }()
 
         let week = salesWeek(from: Array(matrix.prefix(headerIdx)))
@@ -1279,6 +1284,13 @@ enum WorkbookParser {
                 if rawStore.isEmpty || isTotalCell(rawStore) {
                     var payload: [String: Double] = [:]
                     applySalesBlock(weekBlock, line: line, prefix: "sales_", payload: &payload)
+                    for (offset, block) in dayBlocks.enumerated() {
+                        applySalesBlock(block, line: line, prefix: "sales_d\(offset)_", payload: &payload)
+                    }
+                    let daySum = (0..<7).compactMap { payload["sales_d\($0)_dollars"] }.reduce(0, +)
+                    if daySum > (payload["sales_dollars"] ?? 0) + 0.5 {
+                        payload["sales_dollars"] = daySum
+                    }
                     if payload["sales_dollars"] != nil {
                         var text: [String: String] = ["sales_grain": "company"]
                         if !week.isEmpty { text["sales_week"] = week }
@@ -1309,6 +1321,14 @@ enum WorkbookParser {
             }
             for (offset, block) in dayBlocks.enumerated() {
                 applySalesBlock(block, line: line, prefix: "sales_d\(offset)_", payload: &payload)
+            }
+            let daySum = (0..<7).compactMap { payload["sales_d\($0)_dollars"] }.reduce(0, +)
+            if daySum > (payload["sales_dollars"] ?? 0) + 0.5 {
+                payload["sales_dollars"] = daySum
+            }
+            let dayOrders = (0..<7).compactMap { payload["sales_d\($0)_orders"] }.reduce(0, +)
+            if dayOrders > (payload["sales_orders"] ?? 0) + 0.5 {
+                payload["sales_orders"] = dayOrders
             }
             var text: [String: String] = ["sales_grain": "store"]
             if !lastDistrict.isEmpty { text["district"] = lastDistrict }

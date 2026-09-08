@@ -1627,7 +1627,14 @@ enum HeartbeatMath {
                 lostRevenuePct: pct
             )
         case .sales:
-            let stores = latest.filter { $0.textPayload["sales_grain"] != "company" && !$0.storeNumber.isEmpty }
+            let stores = Dictionary(
+                grouping: latest.filter {
+                    $0.textPayload["sales_grain"] != "company"
+                        && $0.textPayload["sales_grain"] != "day"
+                        && !$0.storeNumber.isEmpty
+                },
+                by: { canonicalStore($0.storeNumber) }
+            ).compactMap { $0.value.first }
             let companyRows = rows.filter { $0.textPayload["sales_grain"] == "company" }
             let storeSum = stores.reduce(0) { $0 + salesHeadlineDollars($1) }
             let companyVal = companyRows.map { salesHeadlineDollars($0) }.max() ?? 0
@@ -1638,15 +1645,7 @@ enum HeartbeatMath {
                 return plan > 0 ? dollars / plan * 100 : nil
             }()
             let yoy = average(stores.compactMap { $0.number("sales_yoy_pct") })
-            var orders = 0.0
-            for store in stores {
-                let week = store.number("sales_orders") ?? 0
-                var days = 0.0
-                for index in 0..<7 {
-                    days += store.number("sales_d\(index)_orders") ?? 0
-                }
-                orders += max(week, days)
-            }
+            let orders = stores.reduce(0) { $0 + salesOrders($1) }
             let up = stores.filter { salesHealth($0) == .good }.count
             let flat = stores.filter { salesHealth($0) == .watch }.count
             let down = stores.filter { salesHealth($0) == .risk }.count
@@ -1659,7 +1658,7 @@ enum HeartbeatMath {
                 secondary: stores.isEmpty
                     ? "No Sales rows in this filter"
                     : "\(up) up · \(flat) flat · \(down) down",
-                health: stores.isEmpty ? .none : (healthValue == .none ? .good : healthValue),
+                health: healthValue,
                 watchCount: flat,
                 riskCount: down,
                 lastFilename: upload?.filename,
@@ -2383,20 +2382,31 @@ enum HeartbeatMath {
     }
 
     static func salesHeadlineDollars(_ row: MetricRow) -> Double {
-        if let week = row.number("sales_dollars") { return week }
-        return (0..<7).compactMap { row.number("sales_d\($0)_dollars") }.reduce(0, +)
+        let week = row.number("sales_dollars") ?? 0
+        let days = (0..<7).compactMap { row.number("sales_d\($0)_dollars") }.reduce(0, +)
+        return max(week, days)
+    }
+
+    static func salesOrders(_ row: MetricRow) -> Double {
+        let week = row.number("sales_orders") ?? 0
+        let days = (0..<7).compactMap { row.number("sales_d\($0)_orders") }.reduce(0, +)
+        return max(week, days)
+    }
+
+    static func salesItems(_ row: MetricRow) -> Double {
+        let week = row.number("sales_items") ?? 0
+        let days = (0..<7).compactMap { row.number("sales_d\($0)_items") }.reduce(0, +)
+        return max(week, days)
     }
 
     static func salesHealth(_ row: MetricRow) -> Health {
-        let scored = salesHealth(planPct: row.number("sales_plan_pct"), yoy: row.number("sales_yoy_pct"))
-        if scored != .none { return scored }
-        return row.number("sales_dollars") == nil ? .none : .good
+        salesHealth(planPct: row.number("sales_plan_pct"), yoy: row.number("sales_yoy_pct"))
     }
 
     static func salesHealth(planPct: Double?, yoy: Double?) -> Health {
         if let yoy {
             if yoy > 0 { return .good }
-            if yoy >= -0.03 { return .watch }
+            if yoy >= -3 { return .watch }
             return .risk
         }
         if let planPct {

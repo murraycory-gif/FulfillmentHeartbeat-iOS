@@ -241,11 +241,13 @@ struct SalesPack {
 
     init(rows: [MetricRow]) {
         let sales = rows.reduce(0) { $0 + HeartbeatMath.salesHeadlineDollars($1) }
-        let orders = rows.compactMap { $0.number("sales_orders") }.reduce(0, +)
-        let items = rows.compactMap { $0.number("sales_items") }.reduce(0, +)
+        let orders = rows.reduce(0) { $0 + HeartbeatMath.salesOrders($1) }
+        let items = rows.reduce(0) { $0 + HeartbeatMath.salesItems($1) }
         let hd = rows.compactMap { $0.number("sales_hd_orders") }.reduce(0, +)
         let dug = rows.compactMap { $0.number("sales_dug_orders") }.reduce(0, +)
-        let yoyWeight = rows.reduce(0.0) { $0 + (($1.number("sales_yoy_pct") ?? 0) * ($1.number("sales_dollars") ?? 0)) }
+        let yoyWeight = rows.reduce(0.0) {
+            $0 + (($1.number("sales_yoy_pct") ?? 0) * HeartbeatMath.salesHeadlineDollars($1))
+        }
         self.sales = sales
         self.orders = orders
         self.items = items
@@ -414,7 +416,7 @@ enum SalesRollupBuilder {
             case .store:
                 key = HeartbeatMath.canonicalStore(row.storeNumber)
             }
-            guard !key.isEmpty, row.number("sales_dollars") != nil || row.number("sales_orders") != nil else { continue }
+            guard !key.isEmpty, HeartbeatMath.salesHeadlineDollars(row) > 0 || HeartbeatMath.salesOrders(row) > 0 else { continue }
             buckets[key, default: []].append(row)
         }
         return buckets.keys.sorted().compactMap { key in

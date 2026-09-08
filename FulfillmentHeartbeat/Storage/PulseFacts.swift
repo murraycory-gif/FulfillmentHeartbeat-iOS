@@ -65,7 +65,13 @@ enum PulseFacts {
         let file: PulseFactsFile?
         switch (cloudFile, bundledFile) {
         case let (cloud?, bundled?):
-            file = scoredStores(cloud) >= scoredStores(bundled) ? cloud : bundled
+            let cloudSales = salesWeek(cloud)
+            let bundledSales = salesWeek(bundled)
+            if bundledSales > cloudSales * 1.05, scoredStores(bundled) >= 200 {
+                file = bundled
+            } else {
+                file = scoredStores(cloud) >= scoredStores(bundled) ? cloud : bundled
+            }
         case let (cloud?, nil):
             file = cloud
         case let (nil, bundled?):
@@ -80,6 +86,16 @@ enum PulseFacts {
     private static func decode(_ data: Data?) -> PulseFactsFile? {
         guard let data, data.count > 1_000 else { return nil }
         return try? JSONDecoder().decode(PulseFactsFile.self, from: data)
+    }
+
+    private static func salesWeek(_ file: PulseFactsFile) -> Double {
+        var total = 0.0
+        for row in file.sales where !row.store.isEmpty {
+            let week = row.numbers["sales_dollars"] ?? 0
+            let days = (0..<7).reduce(0.0) { $0 + (row.numbers["sales_d\($1)_dollars"] ?? 0) }
+            total += max(week, days)
+        }
+        return total
     }
 
     private static func scoredStores(_ file: PulseFactsFile) -> Int {
