@@ -698,5 +698,39 @@ final class HeartbeatMathTests: XCTestCase {
         let scoped = Set((caches.filteredLatest[.lostRevenue] ?? []).map(\.storeNumber))
         XCTAssertEqual(scoped, ["667", "1507"])
     }
+
+    func testOfficialRosterDrivesDistrict03Filter() {
+        let rosterCSV = """
+        DIVISION,DISTRICT,OM_AREA,OM_ID,STORE
+        NorCal,03,NorCal 04,Jino Arvin,304
+        NorCal,03,NorCal 04,Jino Arvin,667
+        Jewel Osco,J1,Chicago 1,Shelly Selof,1
+        """
+        let parsed = WorkbookParser.parseCSV(rosterCSV)
+        XCTAssertEqual(parsed.count, 3)
+        let rosterRows = parsed.map { $0.asRow(section: .storeRoster) }
+        let lost = MetricRow(
+            section: .lostRevenue,
+            division: "",
+            operationsOM: "",
+            storeNumber: "304",
+            payload: ["ecomm_sales": 50_254, "lost_revenue": 2_510, "lost_revenue_pct": 4.99],
+            textPayload: ["lost_grain": "store"]
+        )
+        var filters = DashboardFilters()
+        filters.district = "03"
+        let caches = PulseCaches.build(
+            rows: rosterRows + [lost],
+            filters: filters,
+            uploads: [],
+            heavy: false,
+            grain: .store
+        )
+        let allowed = PulseCaches.allowedStores(roster: caches.roster, filters: filters) ?? []
+        XCTAssertEqual(allowed, ["304", "667"])
+        let summary = caches.cachedSummaries.first { $0.section == .lostRevenue }
+        XCTAssertEqual(summary?.headline ?? 0, 2_510, accuracy: 0.01)
+        XCTAssertEqual(summary?.storeCount, 1)
+    }
 }
 

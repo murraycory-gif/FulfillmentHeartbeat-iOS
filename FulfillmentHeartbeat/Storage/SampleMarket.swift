@@ -469,6 +469,15 @@ enum SampleMarket {
             Total,,, ,7536605,48582,0.017726681974178,133599,616674.06,0.00644613854646754,247768.28,85017,0.0112805434277105,368905.78
             Applied filters: BPN DESC top 20 by OOS
             """
+        case .storeRoster:
+            return """
+            DIVISION,DISTRICT,OM_AREA,OM_ID,STORE
+            Jewel Osco,J1,Chicago 1,Shelly Selof,1
+            Jewel Osco,J1,Chicago 1,Shelly Selof,606
+            NorCal,03,NorCal 04,Jino Arvin,304
+            NorCal,03,NorCal 04,Jino Arvin,667
+            Haggen,39,Haggen 1,Luke Lomas,3427
+            """
         case .sales:
             return """
             Week,,202627,,,,,,,,,,,

@@ -1026,6 +1026,8 @@ enum HeartbeatAssist {
                 return "\(rows.count) items"
             case .aisleMapper:
                 return "\(rows.count) stores"
+            case .storeRoster:
+                return "\(rows.count) stores"
             }
         }
 

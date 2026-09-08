@@ -447,6 +447,10 @@ struct SectionDetailView: View {
                 ("Items", HeartbeatFormat.num(Double(rows.count))),
                 ("Units", HeartbeatFormat.num(rows.compactMap { $0.number("presub_count") }.reduce(0, +), digits: 0)),
             ]
+        case .storeRoster:
+            return [
+                ("Stores", HeartbeatFormat.num(Double(rows.count))),
+            ]
         }
     }
 

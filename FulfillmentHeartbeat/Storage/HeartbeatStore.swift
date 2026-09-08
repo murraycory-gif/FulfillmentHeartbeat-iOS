@@ -2081,6 +2081,8 @@ final class HeartbeatStore: ObservableObject {
                 latest[section] = HeartbeatMath.materializePickPath(sectionRows, roster: roster)
             } else if section == .preSubOOSItem {
                 latest[section] = HeartbeatMath.applyRoster(sectionRows, roster: roster)
+            } else if section == .storeRoster {
+                latest[section] = HeartbeatMath.latestPerStore(sectionRows)
             } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady || section == .pph || section == .lostRevenue || section == .missingItems || section == .preSubOOS || section == .sales {
                 let source = section == .lostRevenue
                     ? sectionRows.filter { $0.textPayload["lost_grain"] != "market" }
@@ -2868,6 +2870,8 @@ private struct PulseCaches {
                 latest[section] = HeartbeatMath.materializePickPath(sectionRows, roster: roster)
             } else if section == .preSubOOSItem {
                 latest[section] = HeartbeatMath.applyRoster(sectionRows, roster: roster)
+            } else if section == .storeRoster {
+                latest[section] = HeartbeatMath.latestPerStore(sectionRows)
             } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady || section == .pph || section == .lostRevenue || section == .missingItems || section == .preSubOOS || section == .sales {
                 let source = section == .lostRevenue
                     ? sectionRows.filter { $0.textPayload["lost_grain"] != "market" }
@@ -3183,11 +3187,14 @@ private struct PulseCaches {
     }
 
     static func storeRoster(from rows: [MetricRow]) -> [String: HeartbeatMath.StoreIdentity] {
+        let official = rows.filter { $0.section == .storeRoster || $0.textPayload["roster"] == "1" }
         let messy: Set<MetricSection> = [
-            .scheduleQuality, .dynacap, .pickerScorecard, .pickPathPicker, .lostRevenue, .sales, .preSubOOS
+            .scheduleQuality, .dynacap, .pickerScorecard, .pickPathPicker, .lostRevenue, .sales, .preSubOOS, .storeRoster
         ]
-        let primary = rows.filter { !messy.contains($0.section) }
-        let fallback = rows.filter { messy.contains($0.section) }
+        let primary = official.isEmpty ? rows.filter { !messy.contains($0.section) } : official
+        let fallback = official.isEmpty
+            ? rows.filter { messy.contains($0.section) }
+            : rows.filter { $0.section != .storeRoster && $0.textPayload["roster"] != "1" }
         var roster = HeartbeatMath.storeRoster(
             primary.isEmpty
                 ? rows.filter { $0.section != .pickerScorecard && $0.section != .pickPathPicker }

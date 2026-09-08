@@ -313,6 +313,7 @@ enum WorkbookParser {
         if name.contains("pph") || name.contains("pure pick") { return .pph }
         if name.contains("labor") { return .labor }
         if name.contains("picker") || name.contains("shopper") { return .pickerScorecard }
+        if name.contains("roster") || name.contains("roaster") { return .storeRoster }
         return nil
     }
 
@@ -334,6 +335,7 @@ enum WorkbookParser {
             return .preSubOOSItem
         }
         if text.contains(AisleMapperMath.mapperKey) || text.contains(AisleMapperMath.sequenceKey) { return .aisleMapper }
+        if text.contains("roster") { return .storeRoster }
         if keys.contains("target_vs_actual_pct") || keys.contains("earned_hrs") { return .labor }
         if keys.contains("pnr_rate_pct") { return .prepNotReady }
         if keys.contains("star_rating") || keys.contains("flash_pct") { return .fiveStar }
@@ -651,6 +653,7 @@ enum WorkbookParser {
         case .preSubOOS: return parsePreSubOOS(matrix)
         case .missingItems: return parseMissingItems(matrix)
         case .aisleMapper: return parseAisleMapper(matrix)
+        case .storeRoster: return parseStoreRoster(matrix)
         case .prepNotReady: return parsePrepHours(matrix) ?? parseFlat(matrix)
         case .pickerScorecard: return parsePickerWide(matrix) ?? parseEmployeeWeek(matrix)
         case .pickPathPicker: return parseEmployeeWeek(matrix) ?? parsePickerWide(matrix)
@@ -670,6 +673,7 @@ enum WorkbookParser {
         if let presub = parsePreSubOOS(matrix), !presub.isEmpty { return presub }
         if let missing = parseMissingItems(matrix), !missing.isEmpty { return missing }
         if let aisle = parseAisleMapper(matrix), !aisle.isEmpty { return aisle }
+        if let roster = parseStoreRoster(matrix), !roster.isEmpty { return roster }
         if let prep = parsePrepHours(matrix), !prep.isEmpty { return prep }
         if let pickers = parsePickerWide(matrix), !pickers.isEmpty { return pickers }
         if let outline = parseOutline(matrix), !outline.isEmpty { return outline }
@@ -844,6 +848,73 @@ enum WorkbookParser {
         let names = row.map(normHeader)
         return names.contains(where: { $0.contains("aislemapper") })
             && names.contains(where: { $0.contains("aislesequence") || $0.contains("sequenceupdate") })
+    }
+
+    private static func parseStoreRoster(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {
+        guard let headerIndex = matrix.firstIndex(where: { row in
+            let names = row.map(normHeader)
+            return names.contains(where: { $0 == "division" || $0.contains("division") })
+                && names.contains(where: { $0 == "district" || $0.contains("district") })
+                && names.contains(where: { $0 == "store" || $0.contains("store") })
+        }) else { return nil }
+        let header = matrix[headerIndex].map(normHeader)
+        func idx(_ keys: [String]) -> Int? {
+            header.firstIndex { name in keys.contains(where: { name == $0 || name.contains($0) }) }
+        }
+        let divisionIdx = idx(["division"]) ?? 0
+        let districtIdx = idx(["district"]) ?? 1
+        let areaIdx = idx(["omarea", "om_area", "area"])
+        let omIdx = idx(["omid", "om_id", "om"]) ?? 3
+        let storeIdx = idx(["store", "storeid", "store_id"]) ?? 4
+        var division = ""
+        var district = ""
+        var area = ""
+        var om = ""
+        var out: [ParsedWorkbookRow] = []
+        out.reserveCapacity(max(matrix.count - headerIndex, 1))
+        for line in matrix.dropFirst(headerIndex + 1) {
+            func cell(_ index: Int?) -> String {
+                guard let index, index < line.count else { return "" }
+                return line[index].trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            let divRaw = cell(divisionIdx)
+            let distRaw = cell(districtIdx)
+            let areaRaw = cell(areaIdx)
+            let omRaw = cell(omIdx)
+            let storeRaw = cell(storeIdx)
+            if !divRaw.isEmpty, !isTotalCell(divRaw), divRaw.uppercased() != "WEEK_ID" {
+                division = divRaw
+            }
+            if !distRaw.isEmpty, !isTotalCell(distRaw) {
+                district = distRaw
+            }
+            if !areaRaw.isEmpty, !isTotalCell(areaRaw) {
+                area = areaRaw
+            }
+            if !omRaw.isEmpty, !isTotalCell(omRaw) {
+                om = omRaw
+            }
+            if storeRaw.isEmpty || isTotalCell(storeRaw) { continue }
+            let store = HeartbeatMath.canonicalStore(storeRaw)
+            if store.isEmpty || HeartbeatMath.isIgnoredStore(store) { continue }
+            var text: [String: String] = [
+                "roster": "1",
+                "district": HeartbeatMath.canonicalDistrict(district),
+            ]
+            if !area.isEmpty { text["om_area"] = area }
+            out.append(
+                ParsedWorkbookRow(
+                    division: division,
+                    operationsOM: om,
+                    storeNumber: store,
+                    storeName: nil,
+                    recordedOn: nil,
+                    payload: [:],
+                    textPayload: text
+                )
+            )
+        }
+        return out.isEmpty ? nil : out
     }
 
     private static func parseLostRevenue(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {

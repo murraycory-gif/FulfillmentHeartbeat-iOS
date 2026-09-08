@@ -760,6 +760,8 @@ enum PulseMail {
             ].filter { !$0.isEmpty }.joined(separator: " · ")
         case .aisleMapper:
             return "Mapper \(HeartbeatFormat.shortDate(AisleMapperMath.mapperISO(row))) · Sequence \(HeartbeatFormat.shortDate(AisleMapperMath.sequenceISO(row)))"
+        case .storeRoster:
+            return [row.division, row.district, row.operationsOM].filter { !$0.isEmpty }.joined(separator: " · ")
         }
     }
 
@@ -781,6 +783,7 @@ enum PulseMail {
         case .aisleMapper:
             return ["Store", "Mapper", "Sequence", "Status"]
         case .pickerScorecard: return ["Shopper", "PPH", "Presub", "OOS%", "OTT", "OTH5", "Refund", "Status"]
+        case .storeRoster: return ["Store", "Division", "District", "OM"]
         }
     }
 
@@ -855,6 +858,10 @@ enum PulseMail {
             html += cell(HeartbeatFormat.pct(row.number("ott_pct")))
             html += cell(HeartbeatFormat.pct(row.number("oth5_pct")))
             html += cell(HeartbeatFormat.money(row.number("refund_amt")))
+        case .storeRoster:
+            html += cell(row.division)
+            html += cell(row.district)
+            html += cell(row.operationsOM)
         }
         html += "<td>\(pill(health))</td>"
         return html

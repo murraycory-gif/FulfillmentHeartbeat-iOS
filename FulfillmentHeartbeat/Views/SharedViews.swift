@@ -1633,6 +1633,7 @@ struct StoreTable: View {
         case .missingItems, .preSubOOS: return row.number(MissingItemDept.totalKey) ?? -1
         case .aisleMapper: return AisleMapperMath.ageDays(AisleMapperMath.mapperISO(row)) ?? -1
         case .preSubOOSItem: return row.number("presub_count") ?? row.number("presub_pct") ?? -1
+        case .storeRoster: return 0
         }
     }
 

@@ -92,6 +92,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         case .missingItems: return .missingItems
         case .preSubOOS, .preSubOOSItem: return .preSubOOS
         case .aisleMapper: return .pickPath
+        case .storeRoster: return .dashboard
         }
     }
 
