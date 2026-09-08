@@ -638,11 +638,10 @@ final class HeartbeatMathTests: XCTestCase {
         filters.district = "03"
         let allowed = PulseCaches.allowedStores(roster: roster, filters: filters) ?? []
         XCTAssertEqual(allowed, ["667", "3031"])
-        let scoped = PulseCaches.lostRevenueRows(
-            pool: [district03, other, market],
-            scope: allowed,
-            roster: roster,
-            filters: filters
+        let scoped = PulseCaches.rowsMatchingStores(
+            [district03, other, market],
+            stores: allowed,
+            skipMarket: true
         )
         XCTAssertEqual(Set(scoped.map(\.storeNumber)), ["667"])
         let summary = HeartbeatMath.summarize(.lostRevenue, rows: scoped, upload: nil)
