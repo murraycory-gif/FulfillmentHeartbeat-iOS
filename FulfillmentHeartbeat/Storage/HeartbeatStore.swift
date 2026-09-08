@@ -136,8 +136,9 @@ final class HeartbeatStore: ObservableObject {
             }
         }
         let knownXlsx = UserDefaults.standard.integer(forKey: "hb.cloudXlsxBytes")
-        let packReady = Self.hasUsableLabor(rows) && Self.hasUsablePicker(rows)
-        if remoteXlsx > 1_000, remoteXlsx != knownXlsx {
+        let packReady = Self.hasUsableLabor(rows) && Self.hasUsablePicker(rows) && Self.hasUsableLostRevenue(rows)
+        let parserStamp = UserDefaults.standard.integer(forKey: "hb.parserStamp")
+        if remoteXlsx > 1_000, remoteXlsx != knownXlsx || parserStamp < 171 || !packReady {
             await importCloudWorkbook(blocking: true)
         } else if packReady {
             isImporting = false
@@ -1549,7 +1550,7 @@ final class HeartbeatStore: ObservableObject {
                 )
                 if ok {
                     UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
-                    UserDefaults.standard.set(170, forKey: "hb.parserStamp")
+                    UserDefaults.standard.set(171, forKey: "hb.parserStamp")
                     return
                 }
                 lastError = "Workbook did not parse."
@@ -1573,7 +1574,7 @@ final class HeartbeatStore: ObservableObject {
         }
         let knownXlsx = UserDefaults.standard.integer(forKey: "hb.cloudXlsxBytes")
         let parserStamp = UserDefaults.standard.integer(forKey: "hb.parserStamp")
-        guard remoteXlsx > 1_000, remoteXlsx != knownXlsx || parserStamp < 170 else { return }
+        guard remoteXlsx > 1_000, remoteXlsx != knownXlsx || parserStamp < 171 else { return }
         await importCloudWorkbook(blocking: false)
     }
 
@@ -1614,8 +1615,8 @@ final class HeartbeatStore: ObservableObject {
         }
         let knownXlsx = UserDefaults.standard.integer(forKey: "hb.cloudXlsxBytes")
         let hasPack = seeded && !rows.isEmpty
-        let packComplete = hasPack && Self.hasUsableLabor(rows) && Self.hasUsablePicker(rows)
-        guard remoteXlsx > 1_000, remoteXlsx != knownXlsx || !packComplete || UserDefaults.standard.integer(forKey: "hb.parserStamp") < 170 else {
+        let packComplete = hasPack && Self.hasUsableLabor(rows) && Self.hasUsablePicker(rows) && Self.hasUsableLostRevenue(rows)
+        guard remoteXlsx > 1_000, remoteXlsx != knownXlsx || !packComplete || UserDefaults.standard.integer(forKey: "hb.parserStamp") < 171 else {
             if hasPack {
                 isImporting = false
                 isReady = true
@@ -1644,7 +1645,7 @@ final class HeartbeatStore: ObservableObject {
             )
             if ok {
                 UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
-                UserDefaults.standard.set(170, forKey: "hb.parserStamp")
+                UserDefaults.standard.set(171, forKey: "hb.parserStamp")
                 publishCloudPack()
             } else if !hasPack {
                 UserDefaults.standard.removeObject(forKey: "hb.cloudXlsxBytes")
@@ -2558,6 +2559,18 @@ final class HeartbeatStore: ObservableObject {
                 && !($0.textPayload["shopper_id"] ?? $0.textPayload["shopper_name"] ?? "").isEmpty
         }
         return pickers.count >= 2_000
+    }
+
+    private static func hasUsableLostRevenue(_ rows: [MetricRow]) -> Bool {
+        var stores = Set<String>()
+        for row in rows where row.section == .lostRevenue {
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            if store.isEmpty { continue }
+            if row.textPayload["lost_grain"] == "market" { continue }
+            stores.insert(store)
+            if stores.count >= 200 { return true }
+        }
+        return false
     }
 
     private func loadPack() async {
