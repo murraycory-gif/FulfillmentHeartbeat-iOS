@@ -9,22 +9,7 @@ struct PulseFactsFile: Codable {
     var lostRevenue: [PulseFactRow]
     var sales: [PulseFactRow]
     var fiveStar: [PulseFactRow]
-    var sections: [String: [PulseFactRow]]?
-
-    var allSections: [MetricSection: [PulseFactRow]] {
-        var out: [MetricSection: [PulseFactRow]] = [:]
-        if !roster.isEmpty { out[.storeRoster] = roster }
-        if !lostRevenue.isEmpty { out[.lostRevenue] = lostRevenue }
-        if !sales.isEmpty { out[.sales] = sales }
-        if !fiveStar.isEmpty { out[.fiveStar] = fiveStar }
-        for (key, rows) in sections ?? [:] {
-            guard let section = MetricSection(rawValue: key), !rows.isEmpty else { continue }
-            out[section] = rows
-        }
-        return out
-    }
 }
-
 
 struct PulseFactRow: Codable {
     var store: String
@@ -49,36 +34,22 @@ enum PulseFacts {
             roster: pack(rows.filter { $0.section == .storeRoster || $0.textPayload["roster"] == "1" }, roster: roster, keepEmpty: true),
             lostRevenue: pack(rows.filter { $0.section == .lostRevenue }, roster: roster, keepEmpty: false),
             sales: pack(rows.filter { $0.section == .sales }, roster: roster, keepEmpty: false),
-            fiveStar: pack(rows.filter { $0.section == .fiveStar }, roster: roster, keepEmpty: false),
-            sections: {
-                var map: [String: [PulseFactRow]] = [:]
-                for section in MetricSection.allCases {
-                    if section == .storeRoster || section == .lostRevenue || section == .sales || section == .fiveStar { continue }
-                    let packed = pack(rows.filter { $0.section == section }, roster: roster, keepEmpty: section == .aisleMapper)
-                    if !packed.isEmpty { map[section.rawValue] = packed }
-                }
-                return map
-            }()
+            fiveStar: pack(rows.filter { $0.section == .fiveStar }, roster: roster, keepEmpty: false)
         )
     }
 
     static func metricRows(from file: PulseFactsFile) -> [MetricRow] {
         var out: [MetricRow] = []
-        for (section, facts) in file.allSections {
-            let extra: [String: String]
-            switch section {
-            case .storeRoster: extra = ["roster": "1"]
-            case .lostRevenue: extra = ["lost_grain": "store"]
-            case .labor: extra = ["labor_grain": "store"]
-            default: extra = [:]
-            }
-            out.append(contentsOf: facts.map { metricRow($0, section: section, extra: extra) })
-        }
+        out.reserveCapacity(file.roster.count + file.lostRevenue.count + file.sales.count + file.fiveStar.count)
+        out.append(contentsOf: file.roster.map { metricRow($0, section: .storeRoster, extra: ["roster": "1"]) })
+        out.append(contentsOf: file.lostRevenue.map { metricRow($0, section: .lostRevenue, extra: ["lost_grain": "store"]) })
+        out.append(contentsOf: file.sales.map { metricRow($0, section: .sales, extra: [:]) })
+        out.append(contentsOf: file.fiveStar.map { metricRow($0, section: .fiveStar, extra: [:]) })
         return out
     }
 
     static func isUsable(_ file: PulseFactsFile) -> Bool {
-        file.allSections[.lostRevenue]?.filter { !$0.store.isEmpty }.count ?? 0 >= 200
+        file.lostRevenue.filter { !$0.store.isEmpty }.count >= 200
     }
 
     private static func pack(
