@@ -40,7 +40,7 @@ enum PulseFacts {
 
     static func metricRows(from file: PulseFactsFile) -> [MetricRow] {
         var out: [MetricRow] = []
-        out.reserveCapacity(file.roster.count + file.lostRevenue.count + file.sales.count + file.fiveStar.count)
+        out.reserveCapacity(file.roster.count + file.lostRevenue.count + file.sales.count)
         out.append(contentsOf: file.roster.map { metricRow($0, section: .storeRoster, extra: ["roster": "1"]) })
         out.append(contentsOf: file.lostRevenue.map { fact in
             let grain = fact.store.isEmpty || fact.text["lost_grain"] == "market" ? "market" : "store"
@@ -50,12 +50,28 @@ enum PulseFacts {
             let grain = fact.store.isEmpty || fact.text["sales_grain"] == "company" ? "company" : "store"
             return metricRow(fact, section: .sales, extra: ["sales_grain": grain])
         })
-        out.append(contentsOf: file.fiveStar.map { metricRow($0, section: .fiveStar, extra: [:]) })
         return out
     }
 
     static func isUsable(_ file: PulseFactsFile) -> Bool {
         file.lostRevenue.filter { !$0.store.isEmpty }.count >= 200
+    }
+
+    static func loadRows() async -> [MetricRow] {
+        var data = try? await PulseCloud.downloadFacts()
+        if data == nil || (data?.count ?? 0) < 1_000 {
+            data = bundledData()
+        }
+        guard let data, data.count > 1_000,
+              let file = try? JSONDecoder().decode(PulseFactsFile.self, from: data),
+              isUsable(file)
+        else { return [] }
+        return metricRows(from: file)
+    }
+
+    static func bundledData() -> Data? {
+        guard let url = Bundle.main.url(forResource: "facts", withExtension: "json") else { return nil }
+        return try? Data(contentsOf: url)
     }
 
     private static func pack(

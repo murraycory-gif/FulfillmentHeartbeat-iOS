@@ -128,6 +128,16 @@ final class HeartbeatStore: ObservableObject {
             rebuildIndex()
             installCompanyWideFast()
         }
+        let factsReady = Self.hasUsableLostRevenue(rows) && Self.hasUsableSales(rows)
+        let packReady = Self.hasFullScorecards(rows) || (factsReady && Self.hasUsableLabor(rows) && Self.hasUsablePicker(rows))
+        let lowMemory = ProcessInfo.processInfo.physicalMemory < 3_800_000_000
+        if packReady, factsReady || lowMemory {
+            isImporting = false
+            importLabel = nil
+            isReady = true
+            needsRolePick = true
+            return
+        }
         var remoteXlsx = 0
         for name in PulseCloud.workbookNames {
             let size = await PulseCloud.objectSize(name)
@@ -137,26 +147,15 @@ final class HeartbeatStore: ObservableObject {
             }
         }
         let knownXlsx = UserDefaults.standard.integer(forKey: "hb.cloudXlsxBytes")
-        let packReady = Self.hasFullScorecards(rows)
         let parserStamp = UserDefaults.standard.integer(forKey: "hb.parserStamp")
-        if remoteXlsx > 1_000, remoteXlsx != knownXlsx || parserStamp < 173 || !packReady {
+        if !lowMemory, remoteXlsx > 1_000, remoteXlsx != knownXlsx || parserStamp < 173 || !packReady {
             await importCloudWorkbook(blocking: true)
-        } else if packReady {
             await loadPublishedFacts()
-            isImporting = false
-            importLabel = nil
-            isReady = true
-            needsRolePick = true
-            return
-        } else {
-            isImporting = true
+        } else if !packReady {
             importProgress.label = "Downloading workbook"
-            importProgress.loaded = 0
-            importProgress.expected = MetricSection.uploadOrder.count
-            importLabel = "Downloading workbook"
             await pullWorkbookFromServer()
+            await loadPublishedFacts()
         }
-        await loadPublishedFacts()
         if cachedSummaries.isEmpty, !rows.isEmpty {
             rebuildIndex()
             installCompanyWideFast()
@@ -2614,15 +2613,11 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func loadPublishedFacts() async {
-        var data = try? await PulseCloud.downloadFacts()
-        if data == nil || (data?.count ?? 0) < 1_000 {
-            data = Self.bundledFacts()
-        }
-        guard let data, data.count > 1_000 else { return }
-        guard let file = try? JSONDecoder().decode(PulseFactsFile.self, from: data),
-              PulseFacts.isUsable(file) else { return }
         importProgress.label = "Loading store facts"
-        let incoming = PulseFacts.metricRows(from: file)
+        let incoming: [MetricRow] = await Task.detached(priority: .userInitiated) {
+            await PulseFacts.loadRows()
+        }.value
+        guard !incoming.isEmpty else { return }
         var replace: Set<MetricSection> = [.lostRevenue]
         if incoming.contains(where: { $0.section == .storeRoster }) { replace.insert(.storeRoster) }
         if incoming.contains(where: { $0.section == .sales }) { replace.insert(.sales) }
@@ -2635,11 +2630,6 @@ final class HeartbeatStore: ObservableObject {
         } else {
             installCompanyWideFast()
         }
-    }
-
-    private static func bundledFacts() -> Data? {
-        guard let url = Bundle.main.url(forResource: "facts", withExtension: "json") else { return nil }
-        return try? Data(contentsOf: url)
     }
 
     private func publishFacts() {
