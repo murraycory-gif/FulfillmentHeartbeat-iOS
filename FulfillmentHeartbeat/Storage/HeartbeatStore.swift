@@ -3181,12 +3181,26 @@ private struct PulseCaches {
         filters: DashboardFilters
     ) -> Bool {
         let store = HeartbeatMath.canonicalStore(row.storeNumber)
+        let identity = store.isEmpty ? nil : roster[store]
         if !store.isEmpty, allowed.contains(store) { return true }
-        if !store.isEmpty, roster[store] != nil { return false }
-        if !filters.includesDivision(row.division) { return false }
-        if !filters.includesDistrict(row.district) { return false }
-        if !filters.includesOM(row.operationsOM) { return false }
+        if allowed.contains(where: { HeartbeatMath.sameStore($0, store) }) { return true }
+        let district = {
+            if let value = identity?.district, !value.isEmpty { return value }
+            return row.district
+        }()
+        let division = {
+            if let value = identity?.division, !value.isEmpty { return value }
+            return row.division
+        }()
+        let om = {
+            if let value = identity?.om, !value.isEmpty { return value }
+            return row.operationsOM
+        }()
+        if !filters.includesDivision(division) { return false }
+        if !filters.includesDistrict(district) { return false }
+        if !filters.includesOM(om) { return false }
         if !filters.includesStore(store) { return false }
+        if !store.isEmpty, identity != nil, !allowed.isEmpty { return false }
         return true
     }
 

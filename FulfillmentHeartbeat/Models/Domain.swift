@@ -937,7 +937,20 @@ enum HeartbeatMath {
     }
 
     static func matches(_ lhs: String, _ rhs: String) -> Bool {
-        normalize(lhs) == normalize(rhs)
+        if districtMatchKey(lhs) == districtMatchKey(rhs), !districtMatchKey(lhs).isEmpty {
+            return true
+        }
+        return normalize(lhs) == normalize(rhs)
+    }
+
+    static func districtMatchKey(_ raw: String) -> String {
+        let canon = canonicalDistrict(raw)
+        let compact = compactKey(canon)
+        guard !compact.isEmpty else { return "" }
+        if compact.allSatisfy(\.isNumber), let value = Int(compact) {
+            return String(value)
+        }
+        return compact
     }
 
     static func normalize(_ raw: String) -> String {
@@ -2988,7 +3001,9 @@ struct DashboardFilters: Equatable, Codable {
     func includesDistrict(_ value: String) -> Bool {
         let selected = Self.parts(district)
         if selected.isEmpty { return true }
-        return selected.contains { HeartbeatMath.matches(value, $0) }
+        let valueKey = HeartbeatMath.districtMatchKey(value)
+        if valueKey.isEmpty { return false }
+        return selected.contains { HeartbeatMath.districtMatchKey($0) == valueKey }
     }
 
     func includesOM(_ value: String) -> Bool {
