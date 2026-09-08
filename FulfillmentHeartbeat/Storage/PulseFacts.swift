@@ -46,7 +46,10 @@ enum PulseFacts {
             let grain = fact.store.isEmpty || fact.text["lost_grain"] == "market" ? "market" : "store"
             return metricRow(fact, section: .lostRevenue, extra: ["lost_grain": grain])
         })
-        out.append(contentsOf: file.sales.map { metricRow($0, section: .sales, extra: [:]) })
+        out.append(contentsOf: file.sales.map { fact in
+            let grain = fact.store.isEmpty || fact.text["sales_grain"] == "company" ? "company" : "store"
+            return metricRow(fact, section: .sales, extra: ["sales_grain": grain])
+        })
         out.append(contentsOf: file.fiveStar.map { metricRow($0, section: .fiveStar, extra: [:]) })
         return out
     }

@@ -2625,6 +2625,7 @@ final class HeartbeatStore: ObservableObject {
         let incoming = PulseFacts.metricRows(from: file)
         var replace: Set<MetricSection> = [.lostRevenue]
         if incoming.contains(where: { $0.section == .storeRoster }) { replace.insert(.storeRoster) }
+        if incoming.contains(where: { $0.section == .sales }) { replace.insert(.sales) }
         rows.removeAll { replace.contains($0.section) }
         rows.append(contentsOf: incoming.filter { replace.contains($0.section) })
         seeded = true
