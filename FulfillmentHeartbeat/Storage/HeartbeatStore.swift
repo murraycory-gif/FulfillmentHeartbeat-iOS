@@ -138,7 +138,7 @@ final class HeartbeatStore: ObservableObject {
         let knownXlsx = UserDefaults.standard.integer(forKey: "hb.cloudXlsxBytes")
         let packReady = Self.hasFullScorecards(rows)
         let parserStamp = UserDefaults.standard.integer(forKey: "hb.parserStamp")
-        if remoteXlsx > 1_000, remoteXlsx != knownXlsx || parserStamp < 172 || !packReady {
+        if remoteXlsx > 1_000, remoteXlsx != knownXlsx || parserStamp < 173 || !packReady {
             await importCloudWorkbook(blocking: true)
         } else if packReady {
             isImporting = false
@@ -1550,7 +1550,7 @@ final class HeartbeatStore: ObservableObject {
                 )
                 if ok {
                     UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
-                    UserDefaults.standard.set(172, forKey: "hb.parserStamp")
+                    UserDefaults.standard.set(173, forKey: "hb.parserStamp")
                     return
                 }
                 lastError = "Workbook did not parse."
@@ -1574,7 +1574,7 @@ final class HeartbeatStore: ObservableObject {
         }
         let knownXlsx = UserDefaults.standard.integer(forKey: "hb.cloudXlsxBytes")
         let parserStamp = UserDefaults.standard.integer(forKey: "hb.parserStamp")
-        guard remoteXlsx > 1_000, remoteXlsx != knownXlsx || parserStamp < 172 else { return }
+        guard remoteXlsx > 1_000, remoteXlsx != knownXlsx || parserStamp < 173 else { return }
         await importCloudWorkbook(blocking: false)
     }
 
@@ -1616,7 +1616,7 @@ final class HeartbeatStore: ObservableObject {
         let knownXlsx = UserDefaults.standard.integer(forKey: "hb.cloudXlsxBytes")
         let hasPack = seeded && !rows.isEmpty
         let packComplete = hasPack && Self.hasFullScorecards(rows)
-        guard remoteXlsx > 1_000, remoteXlsx != knownXlsx || !packComplete || UserDefaults.standard.integer(forKey: "hb.parserStamp") < 172 else {
+        guard remoteXlsx > 1_000, remoteXlsx != knownXlsx || !packComplete || UserDefaults.standard.integer(forKey: "hb.parserStamp") < 173 else {
             if hasPack {
                 isImporting = false
                 isReady = true
@@ -1645,7 +1645,9 @@ final class HeartbeatStore: ObservableObject {
             )
             if ok {
                 UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
-                UserDefaults.standard.set(172, forKey: "hb.parserStamp")
+                if Self.hasFullScorecards(rows) {
+                    UserDefaults.standard.set(173, forKey: "hb.parserStamp")
+                }
                 publishCloudPack()
             } else if !hasPack {
                 UserDefaults.standard.removeObject(forKey: "hb.cloudXlsxBytes")

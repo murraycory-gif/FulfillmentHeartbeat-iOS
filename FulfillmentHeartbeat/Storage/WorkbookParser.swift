@@ -165,6 +165,10 @@ enum WorkbookParser {
                     onProgress?(found.count, expected, "Reading Sales…")
                     parsed = parseSalesFromZip(zip: zip, path: entry.path, strings: strings)
                     zip.release(entry.path)
+                } else if hinted == .lostRevenue {
+                    onProgress?(found.count, expected, "Reading Loss Revenue…")
+                    parsed = parseLostRevenueFromZip(zip: zip, path: entry.path, strings: strings)
+                    zip.release(entry.path)
                 } else {
                     onProgress?(found.count, expected, "Unpacking \(entry.name)…")
                     guard let sheet = zip.file(named: entry.path) ?? zip.file(named: entry.path.replacingOccurrences(of: "xl/", with: "")),
@@ -1001,6 +1005,32 @@ enum WorkbookParser {
         if lower.contains("kill switch") { return "kill_switch_lost" }
         if lower.contains("reduced capacity") { return "reduced_capacity" }
         return ""
+    }
+
+    private static func parseLostRevenueFromZip(zip: ZipArchive, path: String, strings: [String]) -> [ParsedWorkbookRow] {
+        var matrix: [[String]] = []
+        matrix.reserveCapacity(2500)
+        let handle: ([String]) -> Void = { row in
+            if !row.contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) { return }
+            matrix.append(row)
+        }
+        let packed = zip.compressedPayload(named: path) ?? zip.compressedPayload(named: path.replacingOccurrences(of: "xl/", with: ""))
+        if let packed, packed.method == 8, packed.bytes.count > 80 {
+            SheetXML.forEachRowInflating(compressed: packed.bytes, strings: strings, keep: nil, handle: handle)
+        }
+        if matrix.count < 20, let data = zip.file(named: path) ?? zip.file(named: path.replacingOccurrences(of: "xl/", with: "")), !data.isEmpty {
+            matrix.removeAll(keepingCapacity: true)
+            SheetXML.forEachRowBytes(data: data, strings: strings, keep: nil, handle: handle)
+        }
+        if let rows = parseLostRevenue(matrix), rows.contains(where: { !$0.storeNumber.isEmpty }) {
+            return rows
+        }
+        if let data = zip.file(named: path) ?? zip.file(named: path.replacingOccurrences(of: "xl/", with: "")), !data.isEmpty {
+            let parsed = parseLostRevenue(SheetXML.parse(data: data, strings: strings)) ?? []
+            zip.release(path)
+            return parsed
+        }
+        return parseLostRevenue(matrix) ?? []
     }
 
     private static func parseSalesFromZip(zip: ZipArchive, path: String, strings: [String]) -> [ParsedWorkbookRow] {
