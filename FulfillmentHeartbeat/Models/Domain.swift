@@ -2363,9 +2363,8 @@ enum HeartbeatMath {
     }
 
     static func salesHeadlineDollars(_ row: MetricRow) -> Double {
-        let week = row.number("sales_dollars") ?? 0
-        let days = (0..<7).compactMap { row.number("sales_d\($0)_dollars") }.reduce(0, +)
-        return max(week, days)
+        if let week = row.number("sales_dollars") { return week }
+        return (0..<7).compactMap { row.number("sales_d\($0)_dollars") }.reduce(0, +)
     }
 
     static func salesHealth(_ row: MetricRow) -> Health {
