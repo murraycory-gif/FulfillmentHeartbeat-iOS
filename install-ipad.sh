@@ -58,12 +58,14 @@ for device in devices:
     pairing = str(conn.get("pairingState") or "").lower()
     is_pad = "iPad" in name or "iPad" in marketing or str(hardware.get("deviceType") or "").startswith("iPad")
     is_phone = "iPhone" in name or "iPhone" in marketing or str(hardware.get("deviceType") or "").startswith("iPhone")
+    phone_only = os.environ.get("ALLOW_PHONE", "").strip() == "1"
     if want and ident.lower() != want:
         continue
-    if phone_only and not is_phone:
-        continue
-    if not phone_only and not want and not is_pad:
-        continue
+    if not want:
+        if phone_only and not is_phone:
+            continue
+        if not phone_only and not is_pad:
+            continue
     available = (
         tunnel in ("connected", "ready", "available")
         or transport in ("wired", "localnetwork", "wifi")
