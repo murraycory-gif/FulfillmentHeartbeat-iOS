@@ -2262,6 +2262,7 @@ final class HeartbeatStore: ObservableObject {
         let latest = latestBySection
         let rosterCopy = roster
         let nextCopy = next
+        let current = filters
         refilterTask?.cancel()
         refilterTask = Task.detached(priority: .utility) {
             let pickers = PulseCaches.rowsMatchingStores(
