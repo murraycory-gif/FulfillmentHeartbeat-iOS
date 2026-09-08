@@ -913,8 +913,16 @@ enum HeartbeatMath {
         if trimmed.isEmpty { return nil }
         let hits = Set(rows.compactMap { row -> String? in
             let identity = resolvedIdentity(row, roster: roster)
-            guard trimmed.contains(where: { MarketRegion.matchesDivision(field(identity), $0) }), !row.storeNumber.isEmpty else { return nil }
-            return row.storeNumber
+            let value = field(identity)
+            let matched = trimmed.contains { want in
+                HeartbeatMath.districtMatchKey(value) == HeartbeatMath.districtMatchKey(want)
+                    && !HeartbeatMath.districtMatchKey(want).isEmpty
+                    || MarketRegion.matchesDivision(value, want)
+                    || HeartbeatMath.matches(value, want)
+            }
+            guard matched else { return nil }
+            let store = canonicalStore(row.storeNumber)
+            return store.isEmpty ? nil : store
         })
         if hits.isEmpty { return relax ? nil : [] }
         return hits
@@ -925,7 +933,11 @@ enum HeartbeatMath {
     }
 
     private static func belongs(_ storeNumber: String, to stores: Set<String>, identity: String, values: [String]) -> Bool {
-        if !storeNumber.isEmpty { return stores.contains(storeNumber) }
+        if !storeNumber.isEmpty {
+            let store = canonicalStore(storeNumber)
+            if stores.contains(store) { return true }
+            return stores.contains { sameStore($0, store) }
+        }
         return values.contains { MarketRegion.matchesDivision(identity, $0) }
     }
 

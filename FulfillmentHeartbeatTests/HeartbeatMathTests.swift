@@ -602,5 +602,53 @@ final class HeartbeatMathTests: XCTestCase {
         let south = MarketRegion.companyDivisions(for: DashboardFilters(region: "South Region", division: "", district: "", om: "", store: ""))
         XCTAssertEqual(south, ["Southern", "United", "Southwest"])
     }
+
+    func testLostRevenueDistrictFilterJoinsStoresWithoutDistrictColumn() {
+        let roster: [String: HeartbeatMath.StoreIdentity] = [
+            "667": .init(division: "Jewel Osco", district: "03", om: "Pat", name: nil),
+            "3031": .init(division: "Jewel Osco", district: "03", om: "Pat", name: nil),
+            "2218": .init(division: "Mid-Atlantic", district: "A9", om: "Aimee", name: nil),
+        ]
+        let district03 = MetricRow(
+            section: .lostRevenue,
+            division: "",
+            operationsOM: "",
+            storeNumber: "667",
+            payload: ["ecomm_sales": 10_000, "lost_revenue": 400, "lost_revenue_pct": 4],
+            textPayload: ["lost_grain": "store"]
+        )
+        let other = MetricRow(
+            section: .lostRevenue,
+            division: "",
+            operationsOM: "",
+            storeNumber: "2218",
+            payload: ["ecomm_sales": 8_000, "lost_revenue": 900, "lost_revenue_pct": 11],
+            textPayload: ["lost_grain": "store"]
+        )
+        let market = MetricRow(
+            section: .lostRevenue,
+            division: "",
+            operationsOM: "",
+            storeNumber: "",
+            storeName: "Total",
+            payload: ["ecomm_sales": 46_000_000, "lost_revenue": 96_564, "lost_revenue_pct": 2.81],
+            textPayload: ["lost_grain": "market"]
+        )
+        var filters = DashboardFilters()
+        filters.district = "03"
+        let allowed = PulseCaches.allowedStores(roster: roster, filters: filters) ?? []
+        XCTAssertEqual(allowed, ["667", "3031"])
+        let scoped = PulseCaches.lostRevenueRows(
+            pool: [district03, other, market],
+            scope: allowed,
+            roster: roster,
+            filters: filters
+        )
+        XCTAssertEqual(Set(scoped.map(\.storeNumber)), ["667"])
+        let summary = HeartbeatMath.summarize(.lostRevenue, rows: scoped, upload: nil)
+        XCTAssertEqual(summary.headline ?? 0, 400, accuracy: 0.01)
+        XCTAssertNotEqual(summary.health, .none)
+        XCTAssertEqual(summary.storeCount, 1)
+    }
 }
 
