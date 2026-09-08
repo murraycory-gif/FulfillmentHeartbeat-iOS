@@ -3806,8 +3806,7 @@ private enum PrepRollupBuilder {
     }
 
     static func source(from all: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
-        let stores = all.filter { !$0.storeNumber.isEmpty && $0.number("pnr_rate_pct") != nil }
-        return RollupMarketFill.scoped(stores, filters: filters)
+        all.filter { !$0.storeNumber.isEmpty }
     }
 
     static func rows(from stores: [MetricRow], grain: LaborRollupGrain) -> [PrepRollupRow] {

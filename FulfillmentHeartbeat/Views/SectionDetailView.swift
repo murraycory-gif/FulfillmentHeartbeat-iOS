@@ -539,16 +539,14 @@ struct SectionDetailView: View {
     }
 
     private var prepRows: [MetricRow] {
-        let scored = snapshots.filter {
-            $0.number("pnr_rate_pct", "pnr_hours", "prep_not_ready_pct") != nil
-        }
+        let joined = store.rosterJoined(for: .prepNotReady)
         switch prepFocus {
         case .all:
-            return scored
+            return joined
         case .atGoal:
-            return scored.filter { ($0.number("pnr_rate_pct") ?? .greatestFiniteMagnitude) <= HeartbeatMath.pnrGoal }
+            return joined.filter { ($0.number("pnr_rate_pct") ?? .greatestFiniteMagnitude) <= HeartbeatMath.pnrGoal }
         case .above25:
-            return scored.filter { ($0.number("pnr_rate_pct") ?? 0) > HeartbeatMath.pnrWatch }
+            return joined.filter { ($0.number("pnr_rate_pct") ?? 0) > HeartbeatMath.pnrWatch }
         }
     }
 

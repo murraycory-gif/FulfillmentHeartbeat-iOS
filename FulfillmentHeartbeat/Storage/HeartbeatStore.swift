@@ -252,10 +252,52 @@ final class HeartbeatStore: ObservableObject {
             raw = allLatest(for: .lostRevenue).filter {
                 $0.textPayload["lost_grain"] != "market" && !$0.storeNumber.isEmpty
             }
+        case .prepNotReady:
+            return rosterJoined(for: .prepNotReady)
         default:
             raw = allLatest(for: section).filter { !$0.storeNumber.isEmpty }
         }
         return RollupMarketFill.scopedRollup(raw, filters: filters, roster: roster)
+    }
+
+    func rosterJoined(for section: MetricSection) -> [MetricRow] {
+        let allowed = PulseCaches.allowedStores(roster: roster, filters: filters)
+            ?? Set(roster.keys.map { HeartbeatMath.canonicalStore($0) })
+        var byStore: [String: MetricRow] = [:]
+        for row in allLatest(for: section) {
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            guard !store.isEmpty else { continue }
+            let keys = [store] + HeartbeatMath.storeAliases(store)
+            guard keys.contains(where: { allowed.contains($0) }) else { continue }
+            let key = keys.first(where: { allowed.contains($0) }) ?? store
+            if byStore[key] == nil { byStore[key] = row }
+        }
+        var out: [MetricRow] = []
+        out.reserveCapacity(allowed.count)
+        for store in allowed.sorted(by: { ($0 as NSString).localizedStandardCompare($1) == .orderedAscending }) {
+            let identity = roster[store]
+            if var row = byStore[store] {
+                if row.division.isEmpty { row.division = identity?.division ?? row.division }
+                if row.operationsOM.isEmpty { row.operationsOM = identity?.om ?? row.operationsOM }
+                if row.district.isEmpty, let district = identity?.district, !district.isEmpty {
+                    row.textPayload["district"] = district
+                }
+                if row.storeName == nil { row.storeName = identity?.name }
+                out.append(row)
+            } else if let identity {
+                out.append(
+                    MetricRow(
+                        section: section,
+                        division: identity.division,
+                        operationsOM: identity.om,
+                        storeNumber: store,
+                        storeName: identity.name,
+                        textPayload: identity.district.isEmpty ? [:] : ["district": identity.district]
+                    )
+                )
+            }
+        }
+        return out
     }
 
     func displayRows(for section: MetricSection) -> [MetricRow] {
