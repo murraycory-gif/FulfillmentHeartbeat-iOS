@@ -81,13 +81,15 @@ PY
 
 UDID="${DEVICE_UDID:-}"
 if [ -n "$UDID" ]; then
-  echo "Looking for iPad $UDID ..."
+  ALLOW_PHONE="${ALLOW_PHONE:-1}"
+  export ALLOW_PHONE
+  echo "Looking for device $UDID ..."
   READY=$(wait_for_ipad "$UDID" || true)
   if [ -z "${READY:-}" ]; then
-    echo "iPad $UDID is still unavailable."
+    echo "Device $UDID is still unavailable."
     xcrun devicectl list devices || true
     echo ""
-    echo "Unlock the iPad, leave it on the Home Screen, unplug the cable, plug it back in, tap Trust, then rerun."
+    echo "Unlock the device, leave it on the Home Screen, unplug, plug back in, tap Trust, then rerun."
     exit 1
   fi
   UDID="$READY"
@@ -102,23 +104,35 @@ if [ -z "${UDID:-}" ]; then
 fi
 
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
-  echo "Building $STAMP for this iPad ($UDID)..."
+  echo "Building $STAMP for this device ($UDID)..."
   rm -rf "$DERIVED"
   LOG="${TMPDIR:-/tmp}/heartbeat-build.log"
-  if ! xcodebuild \
-    -workspace "$WORKSPACE" \
-    -scheme "$SCHEME" \
-    -configuration Debug \
-    -destination "id=$UDID" \
-    -derivedDataPath "$DERIVED" \
-    -allowProvisioningUpdates \
-    -allowProvisioningDeviceRegistration \
-    build > "$LOG" 2>&1; then
+  build_ok=0
+  for dest in "platform=iOS,id=$UDID" "id=$UDID" "generic/platform=iOS"; do
+    echo "xcodebuild destination: $dest"
+    if xcodebuild \
+      -workspace "$WORKSPACE" \
+      -scheme "$SCHEME" \
+      -configuration Debug \
+      -destination "$dest" \
+      -derivedDataPath "$DERIVED" \
+      -allowProvisioningUpdates \
+      -allowProvisioningDeviceRegistration \
+      build > "$LOG" 2>&1; then
+      build_ok=1
+      break
+    fi
+  done
+  if [ "$build_ok" != "1" ]; then
     echo ""
     echo "----- Swift errors -----"
-    grep -E "error:|fatal error:" "$LOG" | sed 's/^[[:space:]]*//' || tail -80 "$LOG"
+    grep -E "error:|fatal error:|Unable to find a destination" "$LOG" | sed 's/^[[:space:]]*//' || tail -80 "$LOG"
     echo "----- end errors -----"
     echo "Full log: $LOG"
+    echo ""
+    echo "List devices, then rerun with the Identifier from the connected iPhone:"
+    echo "  xcrun devicectl list devices"
+    echo "  ALLOW_PHONE=1 DEVICE_UDID=<Identifier> ./install-ipad.sh"
     exit 1
   fi
 fi
