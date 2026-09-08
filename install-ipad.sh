@@ -41,7 +41,7 @@ wait_for_ipad() {
   while [ "$tries" -lt 20 ]; do
     JSON="${TMPDIR:-/tmp}/heartbeat-devices.json"
     if xcrun devicectl list devices --json-output "$JSON" >/dev/null 2>&1; then
-      FOUND=$(WANT="$want" python3 - "$JSON" <<'PY'
+      FOUND=$(WANT="$want" ALLOW_PHONE="${ALLOW_PHONE:-}" python3 - "$JSON" <<'PY'
 import json, os, sys
 data = json.load(open(sys.argv[1]))
 devices = data.get("result", {}).get("devices", []) or data.get("devices", [])
@@ -58,8 +58,10 @@ for device in devices:
     pairing = str(conn.get("pairingState") or "").lower()
     is_pad = "iPad" in name or "iPad" in marketing or str(hardware.get("deviceType") or "").startswith("iPad")
     is_phone = "iPhone" in name or "iPhone" in marketing or str(hardware.get("deviceType") or "").startswith("iPhone")
-    allow_phone = os.environ.get("ALLOW_PHONE", "").strip() == "1" or bool(want)
-    if not is_pad and not (allow_phone and is_phone):
+    phone_only = os.environ.get("ALLOW_PHONE", "").strip() == "1"
+    if phone_only and not is_phone:
+        continue
+    if not phone_only and not want and not is_pad:
         continue
     if want and ident.lower() != want:
         continue
@@ -73,7 +75,7 @@ PY
 ) && { echo "$FOUND"; return 0; }
     fi
     tries=$((tries + 1))
-    echo "Waiting for the iPad… unlock it, unplug, plug back in, tap Trust ($tries/20)" >&2
+    echo "Waiting for the device… unlock it, plug the cable in, tap Trust ($tries/20)" >&2
     sleep 3
   done
   return 1
