@@ -109,32 +109,22 @@ if [ "${SKIP_BUILD:-0}" != "1" ]; then
   echo "Building $STAMP for this device ($UDID)..."
   rm -rf "$DERIVED"
   LOG="${TMPDIR:-/tmp}/heartbeat-build.log"
-  build_ok=0
-  for dest in "platform=iOS,id=$UDID" "id=$UDID" "generic/platform=iOS"; do
-    echo "xcodebuild destination: $dest"
-    if xcodebuild \
-      -workspace "$WORKSPACE" \
-      -scheme "$SCHEME" \
-      -configuration Debug \
-      -destination "$dest" \
-      -derivedDataPath "$DERIVED" \
-      -allowProvisioningUpdates \
-      -allowProvisioningDeviceRegistration \
-      build > "$LOG" 2>&1; then
-      build_ok=1
-      break
-    fi
-  done
-  if [ "$build_ok" != "1" ]; then
+  dest="${BUILD_DESTINATION:-generic/platform=iOS}"
+  echo "xcodebuild destination: $dest"
+  if ! xcodebuild \
+    -workspace "$WORKSPACE" \
+    -scheme "$SCHEME" \
+    -configuration Debug \
+    -destination "$dest" \
+    -derivedDataPath "$DERIVED" \
+    -allowProvisioningUpdates \
+    -allowProvisioningDeviceRegistration \
+    build > "$LOG" 2>&1; then
     echo ""
     echo "----- Swift errors -----"
     grep -E "error:|fatal error:|Unable to find a destination" "$LOG" | sed 's/^[[:space:]]*//' || tail -80 "$LOG"
     echo "----- end errors -----"
     echo "Full log: $LOG"
-    echo ""
-    echo "List devices, then rerun with the Identifier from the connected iPhone:"
-    echo "  xcrun devicectl list devices"
-    echo "  ALLOW_PHONE=1 DEVICE_UDID=<Identifier> ./install-ipad.sh"
     exit 1
   fi
 fi
