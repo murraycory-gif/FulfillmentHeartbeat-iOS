@@ -563,20 +563,23 @@ struct DashFlagGrid: View {
     var columns: Int
     @Environment(\.horizontalSizeClass) private var sizeClass
 
+    private var stacked: Bool { HubLayout.isPhone(sizeClass) }
+
     var body: some View {
-        if !flags.isEmpty {
-            let row = HStack(alignment: .top, spacing: 6) {
+        if flags.isEmpty {
+            EmptyView()
+        } else if stacked {
+            VStack(spacing: 8) {
+                ForEach(flags) { flag in
+                    DashFlagChip(flag: flag, stacked: true)
+                }
+            }
+        } else {
+            HStack(alignment: .top, spacing: 6) {
                 ForEach(flags) { flag in
                     DashFlagChip(flag: flag)
                         .frame(maxWidth: .infinity, minHeight: 92, maxHeight: 92, alignment: .top)
                 }
-            }
-            if HubLayout.isPhone(sizeClass), flags.count > 4 {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    row
-                }
-            } else {
-                row
             }
         }
     }
@@ -584,40 +587,61 @@ struct DashFlagGrid: View {
 
 private struct DashFlagChip: View {
     let flag: HeartbeatMath.FiveStarFlag
+    var stacked: Bool = false
     @Environment(\.horizontalSizeClass) private var sizeClass
 
     private var compact: Bool { HubLayout.isPhone(sizeClass) }
     private var tone: Health { flag.health == .none ? .good : flag.health }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: stacked ? 8 : 5) {
             Text(flag.name)
-                .font(AppTheme.rounded(compact ? .caption2 : .caption, weight: .bold))
+                .font(AppTheme.rounded(stacked ? .subheadline : (compact ? .caption2 : .caption), weight: .bold))
                 .foregroundStyle(Color.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
+                .lineLimit(stacked ? 2 : 1)
+                .minimumScaleFactor(stacked ? 0.85 : 0.7)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, compact ? 6 : 8)
-                .padding(.vertical, compact ? 4 : 5)
+                .padding(.horizontal, stacked ? 10 : (compact ? 6 : 8))
+                .padding(.vertical, stacked ? 7 : (compact ? 4 : 5))
                 .background(AppTheme.blue)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(flag.value.isEmpty ? " " : flag.value)
-                    .font(AppTheme.rounded(compact ? .caption : .subheadline, weight: .bold))
-                    .foregroundStyle(dashInk(tone))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.65)
-                HStack(spacing: 4) {
-                    Text(countLine)
-                        .font(AppTheme.rounded(.caption2, weight: .semibold))
+            if stacked {
+                HStack(alignment: .center, spacing: 10) {
+                    Text(flag.value.isEmpty ? "—" : flag.value)
+                        .font(AppTheme.rounded(.title3, weight: .bold))
                         .foregroundStyle(dashInk(tone))
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)
-                    HealthBadge(health: tone, prominent: true, compact: true)
+                    Spacer(minLength: 8)
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text(countLine)
+                            .font(AppTheme.rounded(.caption, weight: .semibold))
+                            .foregroundStyle(dashInk(tone))
+                            .lineLimit(1)
+                        HealthBadge(health: tone, prominent: true, compact: true)
+                    }
                 }
+                .padding(.horizontal, 10)
+                .padding(.bottom, 10)
+            } else {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(flag.value.isEmpty ? " " : flag.value)
+                        .font(AppTheme.rounded(compact ? .caption : .subheadline, weight: .bold))
+                        .foregroundStyle(dashInk(tone))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.65)
+                    HStack(spacing: 4) {
+                        Text(countLine)
+                            .font(AppTheme.rounded(.caption2, weight: .semibold))
+                            .foregroundStyle(dashInk(tone))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                        HealthBadge(health: tone, prominent: true, compact: true)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .padding(.horizontal, compact ? 6 : 8)
+                .padding(.bottom, compact ? 6 : 8)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .padding(.horizontal, compact ? 6 : 8)
-            .padding(.bottom, compact ? 6 : 8)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(AppTheme.healthWash(tone))

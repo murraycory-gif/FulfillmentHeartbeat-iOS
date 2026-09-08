@@ -253,9 +253,9 @@ enum HubLayout {
 
     static func flagColumns(count: Int, width: CGFloat) -> Int {
         guard count > 0 else { return 1 }
+        if width < 500 { return 1 }
         let chip: CGFloat
-        if width < 420 { chip = 148 }
-        else if width < 700 { chip = 164 }
+        if width < 700 { chip = 164 }
         else if width >= 1100 { chip = 196 }
         else { chip = 176 }
         return max(1, min(count, Int(max(width, chip) / chip)))
