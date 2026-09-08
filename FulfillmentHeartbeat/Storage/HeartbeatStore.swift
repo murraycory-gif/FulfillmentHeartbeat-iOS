@@ -2165,107 +2165,59 @@ final class HeartbeatStore: ObservableObject {
             restoreCompanyWide()
             return
         }
-        let allowed = PulseCaches.allowedStores(roster: roster, filters: filters)
-        let latest = latestBySection
+        let allowed = PulseCaches.allowedStores(roster: roster, filters: filters) ?? []
         let current = filters
-        let rosterCopy = roster
-        let uploadsCopy = uploads
-        let grain = effectiveDashboardGrain
-        let hidePicker = sessionRole == .evp
-        let stores = cachedStores
-        let allRows = rows
-        cachedGrainPacks = PulseCaches.placeholderGrainPacks(grain: grain)
-        filterStamp += 1
-        var scope: Set<String> = allowed ?? []
-        for item in stores {
+        var next: [MetricSection: [MetricRow]] = [:]
+        next.reserveCapacity(latestBySection.count)
+        for (section, rows) in latestBySection {
+            if section == .pickerScorecard || section == .pickPathPicker { continue }
+            next[section] = rows.filter { row in
+                let store = HeartbeatMath.canonicalStore(row.storeNumber)
+                if !store.isEmpty, allowed.contains(store) { return true }
+                if !store.isEmpty, allowed.contains(where: { HeartbeatMath.sameStore($0, store) }) { return true }
+                return PulseCaches.rowMatchesFilter(row, allowed: allowed, roster: roster, filters: current)
+            }
+        }
+        var scope = allowed
+        for item in cachedStores {
             let store = HeartbeatMath.canonicalStore(item.number)
             if !store.isEmpty { scope.insert(store) }
         }
-        let scopedLost = PulseCaches.lostRevenueRows(
-            pool: (latest[.lostRevenue] ?? []) + rows.filter { $0.section == .lostRevenue },
+        next[.lostRevenue] = PulseCaches.lostRevenueRows(
+            pool: latestBySection[.lostRevenue] ?? [],
             scope: scope,
-            roster: rosterCopy,
+            roster: roster,
             filters: current
         )
-        if !scopedLost.isEmpty || !(allowed ?? []).isEmpty {
-            filteredLatest[.lostRevenue] = scopedLost
-            if let index = cachedSummaries.firstIndex(where: { $0.section == .lostRevenue }) {
-                cachedSummaries[index] = HeartbeatMath.summarize(
-                    .lostRevenue,
-                    rows: scopedLost,
-                    upload: uploads.first { $0.section == .lostRevenue }
-                )
-            } else {
-                cachedSummaries.append(
-                    HeartbeatMath.summarize(
-                        .lostRevenue,
-                        rows: scopedLost,
-                        upload: uploads.first { $0.section == .lostRevenue }
-                    )
-                )
-            }
-            cachedCardFlags[.lostRevenue] = HeartbeatMath.lostRevenueMetricFlags(scopedLost, includeAll: true)
-            filterStamp += 1
+        filteredLatest = latestBySection.merging(next) { _, new in new }
+        cachedSummaries = MetricSection.dashboardCards.map { section in
+            HeartbeatMath.summarize(
+                section,
+                rows: next[section] ?? [],
+                upload: uploads.first { $0.section == section }
+            )
         }
-        refilterTask = Task.detached(priority: .userInitiated) {
-            var next: [MetricSection: [MetricRow]] = [:]
-            next.reserveCapacity(latest.count)
-            if let allowed {
-                for (section, rows) in latest {
-                    next[section] = HeartbeatMath.applyRoster(rows, roster: rosterCopy).filter { row in
-                        let store = HeartbeatMath.canonicalStore(row.storeNumber)
-                        if !store.isEmpty, allowed.contains(store) { return true }
-                        if !store.isEmpty, allowed.contains(where: { HeartbeatMath.sameStore($0, store) }) {
-                            return true
-                        }
-                        return PulseCaches.rowMatchesFilter(row, allowed: allowed, roster: rosterCopy, filters: current)
-                    }
-                }
-            } else {
-                next = latest
+        cachedCardFlags = PulseCaches.cardFlags(latest: next)
+        filterStamp += 1
+        refreshSalesExpandCache()
+        let latest = latestBySection
+        let rosterCopy = roster
+        let grain = effectiveDashboardGrain
+        let hidePicker = sessionRole == .evp
+        let stores = cachedStores
+        let nextCopy = next
+        cachedGrainPacks = PulseCaches.placeholderGrainPacks(grain: grain)
+        refilterTask?.cancel()
+        refilterTask = Task.detached(priority: .utility) {
+            let pickers = (latest[.pickerScorecard] ?? []).filter {
+                PulseCaches.rowMatchesFilter($0, allowed: allowed, roster: rosterCopy, filters: current)
             }
-            var scope: Set<String> = allowed ?? []
-            for row in (next[.sales] ?? []) + (next[.fiveStar] ?? []) {
-                let store = HeartbeatMath.canonicalStore(row.storeNumber)
-                if !store.isEmpty { scope.insert(store) }
-            }
-            for item in stores {
-                let store = HeartbeatMath.canonicalStore(item.number)
-                if !store.isEmpty { scope.insert(store) }
-            }
-            if !scope.isEmpty {
-                next[.lostRevenue] = PulseCaches.lostRevenueRows(
-                    pool: (latest[.lostRevenue] ?? []) + allRows.filter { $0.section == .lostRevenue },
-                    scope: scope,
-                    roster: rosterCopy,
-                    filters: current
-                )
-            }
-            let summaries = MetricSection.dashboardCards.map { section in
-                HeartbeatMath.summarize(
-                    section,
-                    rows: next[section] ?? [],
-                    upload: uploadsCopy.first { $0.section == section }
-                )
-            }
-            let flags = PulseCaches.cardFlags(latest: next)
-            let pickers = next[.pickerScorecard] ?? []
             let pickerBits = PulseCaches.pickerIndexValues(pickers)
             let board = HeartbeatMath.pickerBoard(pickers)
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                guard !Task.isCancelled, self.filters == current else { return }
-                self.filteredLatest = next
-                self.cachedSummaries = summaries
-                self.cachedCardFlags = flags
-                self.cachedPickerBoard = board
-                self.pickerIndex = pickerBits.index
-                self.pickerFocusHealth = pickerBits.health
-                self.filterStamp += 1
-                self.refreshSalesExpandCache()
-            }
+            var packed = nextCopy
+            packed[.pickerScorecard] = pickers
             let packs = PulseCaches.grainPacks(
-                latest: next,
+                latest: packed,
                 grain: grain,
                 hidePicker: hidePicker,
                 stores: stores,
@@ -2274,7 +2226,12 @@ final class HeartbeatStore: ObservableObject {
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 guard !Task.isCancelled, self.filters == current else { return }
+                self.filteredLatest[.pickerScorecard] = pickers
+                self.cachedPickerBoard = board
+                self.pickerIndex = pickerBits.index
+                self.pickerFocusHealth = pickerBits.health
                 self.cachedGrainPacks = packs
+                self.filterStamp += 1
             }
         }
     }
