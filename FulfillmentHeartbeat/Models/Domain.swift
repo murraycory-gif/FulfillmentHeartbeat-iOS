@@ -1553,7 +1553,11 @@ enum HeartbeatMath {
                 lastUploadedAt: upload?.uploadedAt
             )
         case .lostRevenue:
-            let stores = latest.filter { $0.textPayload["lost_grain"] != "market" && !isIgnoredStore($0.storeNumber) }
+            let stores = latest.filter {
+                $0.textPayload["lost_grain"] != "market"
+                    && !isIgnoredStore($0.storeNumber)
+                    && !$0.storeNumber.isEmpty
+            }
             let market = latest.first { $0.textPayload["lost_grain"] == "market" }
             let dollars: Double?
             let pct: Double?

@@ -2192,6 +2192,23 @@ final class HeartbeatStore: ObservableObject {
             } else {
                 next = latest
             }
+            var scope: Set<String> = allowed ?? []
+            for row in (next[.sales] ?? []) + (next[.fiveStar] ?? []) {
+                let store = HeartbeatMath.canonicalStore(row.storeNumber)
+                if !store.isEmpty { scope.insert(store) }
+            }
+            for item in stores {
+                let store = HeartbeatMath.canonicalStore(item.number)
+                if !store.isEmpty { scope.insert(store) }
+            }
+            if !scope.isEmpty {
+                let lost = HeartbeatMath.applyRoster(latest[.lostRevenue] ?? [], roster: rosterCopy)
+                next[.lostRevenue] = lost.filter { row in
+                    guard row.textPayload["lost_grain"] != "market" else { return false }
+                    let store = HeartbeatMath.canonicalStore(row.storeNumber)
+                    return !store.isEmpty && scope.contains(store)
+                }
+            }
             let summaries = MetricSection.dashboardCards.map { section in
                 HeartbeatMath.summarize(
                     section,
