@@ -142,6 +142,7 @@ final class HeartbeatStore: ObservableObject {
         if remoteXlsx > 1_000, remoteXlsx != knownXlsx || parserStamp < 173 || !packReady {
             await importCloudWorkbook(blocking: true)
         } else if packReady {
+            await loadPublishedFacts()
             isImporting = false
             importLabel = nil
             isReady = true
@@ -155,6 +156,7 @@ final class HeartbeatStore: ObservableObject {
             importLabel = "Downloading workbook"
             await pullWorkbookFromServer()
         }
+        await loadPublishedFacts()
         if cachedSummaries.isEmpty, !rows.isEmpty {
             rebuildIndex()
             installCompanyWideFast()
@@ -2612,7 +2614,11 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func loadPublishedFacts() async {
-        guard let data = try? await PulseCloud.downloadFacts(), data.count > 1_000 else { return }
+        var data = try? await PulseCloud.downloadFacts()
+        if data == nil || (data?.count ?? 0) < 1_000 {
+            data = Self.bundledFacts()
+        }
+        guard let data, data.count > 1_000 else { return }
         guard let file = try? JSONDecoder().decode(PulseFactsFile.self, from: data),
               PulseFacts.isUsable(file) else { return }
         importProgress.label = "Loading store facts"
@@ -2630,6 +2636,11 @@ final class HeartbeatStore: ObservableObject {
         } else {
             installCompanyWideFast()
         }
+    }
+
+    private static func bundledFacts() -> Data? {
+        guard let url = Bundle.main.url(forResource: "facts", withExtension: "json") else { return nil }
+        return try? Data(contentsOf: url)
     }
 
     private func publishFacts() {
