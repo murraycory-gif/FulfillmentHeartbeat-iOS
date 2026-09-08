@@ -1103,7 +1103,8 @@ enum WorkbookParser {
     }
 
     private static func salesDayName(_ raw: String) -> String {
-        let lower = raw.lowercased()
+        let lower = raw.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        if lower.contains("weekday") { return "" }
         if lower.contains("sun") { return "Sunday" }
         if lower.contains("mon") { return "Monday" }
         if lower.contains("tue") { return "Tuesday" }
@@ -1111,7 +1112,7 @@ enum WorkbookParser {
         if lower.contains("thu") { return "Thursday" }
         if lower.contains("fri") { return "Friday" }
         if lower.contains("sat") { return "Saturday" }
-        if lower.contains("total") || lower.contains("week") { return "Week" }
+        if lower.contains("total") { return "Week" }
         return raw.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
@@ -1238,28 +1239,29 @@ enum WorkbookParser {
         }
 
         let weekBlock: SalesBlock = {
-            if let named = blocks.first(where: { salesDayName($0.label) == "Week" }) { return named }
             let weekStart = (starts.first ?? 0) + 7 * 12
-            if let named = starts.first(where: { $0 == weekStart }) {
-                var block = SalesBlock(label: "Week")
-                block.sales = named
-                block.yoy = named + 1
-                block.orders = named + 2
-                block.ordersYoy = named + 3
-                block.aos = named + 4
-                block.aosYoy = named + 5
-                block.aiv = named + 6
-                block.aivYoy = named + 7
-                block.ipt = named + 8
-                block.iptYoy = named + 9
-                block.items = named + 10
-                if named + 11 < matrixWidth { block.itemsYoy = named + 11 }
-                return block
+            if let named = blocks.first(where: { $0.sales == weekStart }) {
+                return named
             }
-            return dayBlocks.isEmpty ? blocks[blocks.count - 1] : {
-                var summed = SalesBlock(label: "Week")
-                return summed
-            }()
+            if let named = blocks.first(where: { salesDayName($0.label) == "Week" }) {
+                return named
+            }
+            var block = SalesBlock(label: "Week")
+            if weekStart < matrixWidth {
+                block.sales = weekStart
+                block.yoy = weekStart + 1
+                block.orders = weekStart + 2
+                block.ordersYoy = weekStart + 3
+                block.aos = weekStart + 4
+                block.aosYoy = weekStart + 5
+                block.aiv = weekStart + 6
+                block.aivYoy = weekStart + 7
+                block.ipt = weekStart + 8
+                block.iptYoy = weekStart + 9
+                block.items = weekStart + 10
+                if weekStart + 11 < matrixWidth { block.itemsYoy = weekStart + 11 }
+            }
+            return block
         }()
 
         let week = salesWeek(from: Array(matrix.prefix(headerIdx)))

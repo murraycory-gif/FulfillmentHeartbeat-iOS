@@ -1645,12 +1645,13 @@ enum HeartbeatMath {
             let storeSum = stores.reduce(0) { $0 + salesHeadlineDollars($1) }
             let companyVal = companyRows.map { salesHeadlineDollars($0) }.max() ?? 0
             let dollars = max(companyVal, storeSum)
+            let yoy = companyRows.compactMap { $0.number("sales_yoy_pct") }.last
+                ?? average(stores.compactMap { $0.number("sales_yoy_pct") })
             let plan = stores.compactMap { $0.number("sales_plan") }.reduce(0, +)
             let planPct: Double? = {
                 if let direct = average(stores.compactMap { $0.number("sales_plan_pct") }) { return direct }
                 return plan > 0 ? dollars / plan * 100 : nil
             }()
-            let yoy = average(stores.compactMap { $0.number("sales_yoy_pct") })
             let orders = stores.reduce(0) { $0 + salesOrders($1) }
             let up = stores.filter { salesHealth($0) == .good }.count
             let flat = stores.filter { salesHealth($0) == .watch }.count

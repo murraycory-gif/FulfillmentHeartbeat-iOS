@@ -127,7 +127,8 @@ final class HeartbeatStore: ObservableObject {
             await importCloudSQLiteIfPresent()
         }
         await loadPublishedFacts()
-        if !Self.hasUsableLostRevenue(rows) || !Self.hasUsableSales(rows) {
+        await importCloudWorkbook(blocking: true)
+        if !Self.hasUsableLostRevenue(rows) {
             await loadPublishedFacts()
         }
         if cachedSummaries.isEmpty, !rows.isEmpty {
@@ -1571,7 +1572,7 @@ final class HeartbeatStore: ObservableObject {
                 )
                 if ok {
                     UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
-                    UserDefaults.standard.set(173, forKey: "hb.parserStamp")
+                    UserDefaults.standard.set(174, forKey: "hb.parserStamp")
                     return
                 }
                 lastError = "Workbook did not parse."
@@ -1595,7 +1596,7 @@ final class HeartbeatStore: ObservableObject {
         }
         let knownXlsx = UserDefaults.standard.integer(forKey: "hb.cloudXlsxBytes")
         let parserStamp = UserDefaults.standard.integer(forKey: "hb.parserStamp")
-        guard remoteXlsx > 1_000, remoteXlsx != knownXlsx || parserStamp < 173 else { return }
+        guard remoteXlsx > 1_000, remoteXlsx != knownXlsx || parserStamp < 174 else { return }
         await importCloudWorkbook(blocking: false)
     }
 
@@ -1638,7 +1639,7 @@ final class HeartbeatStore: ObservableObject {
         let knownXlsx = UserDefaults.standard.integer(forKey: "hb.cloudXlsxBytes")
         let hasPack = seeded && !rows.isEmpty
         let packComplete = hasPack && Self.hasFullScorecards(rows)
-        guard remoteXlsx > 1_000, remoteXlsx != knownXlsx || !packComplete || UserDefaults.standard.integer(forKey: "hb.parserStamp") < 173 else {
+        guard remoteXlsx > 1_000, remoteXlsx != knownXlsx || !packComplete || UserDefaults.standard.integer(forKey: "hb.parserStamp") < 174 else {
             if hasPack {
                 isImporting = false
                 isReady = true
@@ -1668,7 +1669,7 @@ final class HeartbeatStore: ObservableObject {
             if ok {
                 UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
                 if Self.hasFullScorecards(rows) {
-                    UserDefaults.standard.set(173, forKey: "hb.parserStamp")
+                    UserDefaults.standard.set(174, forKey: "hb.parserStamp")
                 }
                 publishFacts()
                 publishCloudPack()
@@ -2621,7 +2622,7 @@ final class HeartbeatStore: ObservableObject {
             stores.insert(store)
             dollars += HeartbeatMath.salesHeadlineDollars(row)
         }
-        return stores.count >= 200 && dollars >= 50_000_000
+        return stores.count >= 200 && dollars >= 5_000_000
     }
 
     private static func hasUsableFiveStar(_ rows: [MetricRow]) -> Bool {
@@ -2651,7 +2652,6 @@ final class HeartbeatStore: ObservableObject {
         guard !incoming.isEmpty else { return }
         var replace: Set<MetricSection> = [.lostRevenue]
         if incoming.contains(where: { $0.section == .storeRoster }) { replace.insert(.storeRoster) }
-        if incoming.contains(where: { $0.section == .sales }) { replace.insert(.sales) }
         rows.removeAll { replace.contains($0.section) }
         rows.append(contentsOf: incoming.filter { replace.contains($0.section) })
         seeded = true

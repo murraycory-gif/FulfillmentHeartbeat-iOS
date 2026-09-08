@@ -455,8 +455,9 @@ enum SalesRollupBuilder {
                 if let value = store.number(prefix + "ipt") { ipt[index].append(value) }
             }
         }
-        return week.enumerated().map { index, name in
+        return week.enumerated().compactMap { index, name in
             let daySales = sales[index]
+            if daySales <= 0, orders[index] <= 0 { return nil }
             let dayOrders = orders[index]
             let yoy = daySales > 0 ? yoyWeight[index] / daySales : nil
             return SalesRollupRow(
