@@ -29,3 +29,4 @@ vendor/bundle/
 # Swift PM
 .build/
 .swiftpm/
+docs/supabase/facts.json

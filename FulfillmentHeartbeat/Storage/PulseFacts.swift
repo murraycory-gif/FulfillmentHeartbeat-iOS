@@ -49,11 +49,7 @@ enum PulseFacts {
     }
 
     static func isUsable(_ file: PulseFactsFile) -> Bool {
-        let lost = Set(file.lostRevenue.map(\.store).filter { !$0.isEmpty })
-        let sales = Set(file.sales.map(\.store).filter { !$0.isEmpty })
-        let stars = Set(file.fiveStar.map(\.store).filter { !$0.isEmpty })
-        let roster = Set(file.roster.map(\.store).filter { !$0.isEmpty })
-        return lost.count >= 200 && sales.count >= 200 && stars.count >= 200 && roster.count >= 200
+        file.lostRevenue.filter { !$0.store.isEmpty }.count >= 200
     }
 
     private static func pack(
