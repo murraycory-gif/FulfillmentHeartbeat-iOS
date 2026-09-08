@@ -2180,8 +2180,13 @@ final class HeartbeatStore: ObservableObject {
             next.reserveCapacity(latest.count)
             if let allowed {
                 for (section, rows) in latest {
-                    next[section] = rows.filter {
-                        PulseCaches.rowMatchesFilter($0, allowed: allowed, roster: rosterCopy, filters: current)
+                    next[section] = HeartbeatMath.applyRoster(rows, roster: rosterCopy).filter { row in
+                        let store = HeartbeatMath.canonicalStore(row.storeNumber)
+                        if !store.isEmpty, allowed.contains(store) { return true }
+                        if !store.isEmpty, allowed.contains(where: { HeartbeatMath.sameStore($0, store) }) {
+                            return true
+                        }
+                        return PulseCaches.rowMatchesFilter(row, allowed: allowed, roster: rosterCopy, filters: current)
                     }
                 }
             } else {

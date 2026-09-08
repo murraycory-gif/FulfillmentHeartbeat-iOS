@@ -1069,13 +1069,18 @@ enum HeartbeatMath {
     }
 
     static func canonicalStore(_ raw: String) -> String {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        var trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.contains("|") {
+            trimmed = trimmed.split(separator: "|").first.map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) } ?? trimmed
+        }
+        trimmed = trimmed.replacingOccurrences(of: "(?i)^store\\s*#?\\s*", with: "", options: .regularExpression)
         if let number = Int(trimmed) { return String(number) }
         let cleaned = trimmed.replacingOccurrences(of: ",", with: "")
         if let value = Double(cleaned), value > 0, value < 1_000_000, value == value.rounded() {
             return String(Int(value))
         }
-        let digits = trimmed.filter(\.isNumber)
+        let leading = trimmed.prefix(while: { $0.isNumber || $0 == " " })
+        let digits = String(leading).filter(\.isNumber)
         if let number = Int(digits), number > 0, digits.count <= 6 {
             return String(number)
         }
