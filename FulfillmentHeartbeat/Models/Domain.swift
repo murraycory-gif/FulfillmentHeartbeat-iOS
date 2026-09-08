@@ -1593,14 +1593,14 @@ enum HeartbeatMath {
             let market = latest.first { $0.textPayload["lost_grain"] == "market" && $0.storeNumber.isEmpty }
             let dollars: Double?
             let pct: Double?
-            if !stores.isEmpty {
+            if let market {
+                dollars = market.number("lost_revenue")
+                pct = market.number("lost_revenue_pct")
+            } else if !stores.isEmpty {
                 let sumDollars = stores.compactMap { $0.number("lost_revenue") }.reduce(0, +)
                 let sumSales = stores.compactMap { $0.number("ecomm_sales") }.reduce(0, +)
                 dollars = sumDollars
                 pct = sumSales > 0 ? sumDollars / sumSales * 100 : average(stores.compactMap { $0.number("lost_revenue_pct") })
-            } else if let market {
-                dollars = market.number("lost_revenue")
-                pct = market.number("lost_revenue_pct")
             } else {
                 dollars = nil
                 pct = nil

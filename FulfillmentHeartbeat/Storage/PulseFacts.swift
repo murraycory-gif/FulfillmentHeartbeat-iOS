@@ -42,7 +42,10 @@ enum PulseFacts {
         var out: [MetricRow] = []
         out.reserveCapacity(file.roster.count + file.lostRevenue.count + file.sales.count + file.fiveStar.count)
         out.append(contentsOf: file.roster.map { metricRow($0, section: .storeRoster, extra: ["roster": "1"]) })
-        out.append(contentsOf: file.lostRevenue.map { metricRow($0, section: .lostRevenue, extra: ["lost_grain": "store"]) })
+        out.append(contentsOf: file.lostRevenue.map { fact in
+            let grain = fact.store.isEmpty || fact.text["lost_grain"] == "market" ? "market" : "store"
+            return metricRow(fact, section: .lostRevenue, extra: ["lost_grain": grain])
+        })
         out.append(contentsOf: file.sales.map { metricRow($0, section: .sales, extra: [:]) })
         out.append(contentsOf: file.fiveStar.map { metricRow($0, section: .fiveStar, extra: [:]) })
         return out
