@@ -1256,15 +1256,10 @@ enum WorkbookParser {
         }
 
         let weekBlock: SalesBlock = {
-            if let start = starts.last(where: { name(for: $0) == "Week" }),
+            if let start = starts.first(where: { name(for: $0) == "Week" }),
                var named = blocks.first(where: { $0.sales == start }) {
                 named.label = "Week"
                 return named
-            }
-            if let start = starts.last, name(for: start).isEmpty, dayBlocks.contains(where: { $0.sales != start }),
-               var last = blocks.first(where: { $0.sales == start }) {
-                last.label = "Week"
-                return last
             }
             return SalesBlock(label: "Week")
         }()
@@ -1363,6 +1358,7 @@ enum WorkbookParser {
         func value(_ index: Int?, scalePct: Bool = false) -> Double? {
             guard let index, index < line.count else { return nil }
             guard var number = cellNumber(line[index]) else { return nil }
+            if number == -1 { return nil }
             if scalePct, abs(number) <= 5 { number *= 100 }
             return number
         }

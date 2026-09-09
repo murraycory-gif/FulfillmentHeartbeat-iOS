@@ -1661,7 +1661,7 @@ final class HeartbeatStore: ObservableObject {
                 )
                 if ok {
                     UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
-                    UserDefaults.standard.set(179, forKey: "hb.parserStamp")
+                    UserDefaults.standard.set(180, forKey: "hb.parserStamp")
                     return
                 }
                 lastError = "Workbook did not parse."
@@ -1703,7 +1703,7 @@ final class HeartbeatStore: ObservableObject {
             && (pack?.updated ?? "") >= remoteUpdated
             && Self.hasUsableSales(rows)
             && Self.hasUsableLostRevenue(rows)
-        if packCoversWorkbook, parserStamp >= 179 {
+        if packCoversWorkbook, parserStamp >= 180 {
             UserDefaults.standard.set(remoteXlsx, forKey: "hb.cloudXlsxBytes")
             if !remoteUpdated.isEmpty {
                 UserDefaults.standard.set(remoteUpdated, forKey: "hb.cloudXlsxUpdated")
@@ -1711,7 +1711,7 @@ final class HeartbeatStore: ObservableObject {
             return
         }
         let sameFile = remoteXlsx == knownXlsx && (remoteUpdated.isEmpty || remoteUpdated == knownUpdated)
-        if sameFile, parserStamp >= 179, Self.hasUsableSales(rows), Self.hasUsableLostRevenue(rows) {
+        if sameFile, parserStamp >= 180, Self.hasUsableSales(rows), Self.hasUsableLostRevenue(rows) {
             return
         }
         _ = remoteName
@@ -1777,7 +1777,7 @@ final class HeartbeatStore: ObservableObject {
         }
         let fileChanged = remoteXlsx > 1_000 && (remoteXlsx != knownXlsx || (!remoteUpdated.isEmpty && remoteUpdated != knownUpdated))
         let firstLoad = !hasPack
-        let needsParserPass = stamp < 179
+        let needsParserPass = stamp < 180
         guard remoteXlsx > 1_000, firstLoad || fileChanged || needsParserPass else {
             if hasPack {
                 isImporting = false
@@ -1807,7 +1807,7 @@ final class HeartbeatStore: ObservableObject {
             )
             if ok {
                 UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
-                UserDefaults.standard.set(179, forKey: "hb.parserStamp")
+                UserDefaults.standard.set(180, forKey: "hb.parserStamp")
                 let info = await PulseCloud.objectInfo(remoteName)
                 if !info.updated.isEmpty {
                     UserDefaults.standard.set(info.updated, forKey: "hb.cloudXlsxUpdated")
