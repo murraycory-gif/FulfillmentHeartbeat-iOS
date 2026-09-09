@@ -441,12 +441,8 @@ enum SalesRollupBuilder {
         }
         let storeCount = unique.count
         if let company {
-            let names = (company.textPayload["sales_days"] ?? "")
-                .split(separator: ",")
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             let locked = week.enumerated().compactMap { index, name -> SalesRollupRow? in
-                let sourceIndex = names.firstIndex(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) ?? index
-                let pack = SalesPack(company, prefix: "sales_d\(sourceIndex)_")
+                let pack = SalesPack(company, prefix: "sales_d\(index)_")
                 guard (pack.sales ?? 0) > 0 || (pack.orders ?? 0) > 0 else { return nil }
                 return SalesRollupRow(label: name, storeCount: storeCount, pack: pack)
             }
@@ -458,19 +454,8 @@ enum SalesRollupBuilder {
         var lastSales = Array(repeating: 0.0, count: 7)
         var lastOrders = Array(repeating: 0.0, count: 7)
         for store in unique {
-            let names = (store.textPayload["sales_days"] ?? "")
-                .split(separator: ",")
-                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             for index in 0..<7 {
-                let sourceIndex: Int
-                if let match = names.firstIndex(where: { $0.caseInsensitiveCompare(week[index]) == .orderedSame }) {
-                    sourceIndex = match
-                } else if names.isEmpty {
-                    sourceIndex = index
-                } else {
-                    continue
-                }
-                let prefix = "sales_d\(sourceIndex)_"
+                let prefix = "sales_d\(index)_"
                 let daySales = store.number(prefix + "dollars") ?? 0
                 let dayOrders = store.number(prefix + "orders") ?? 0
                 sales[index] += daySales
@@ -513,12 +498,10 @@ enum SalesRollupBuilder {
 
     static func dayPacks(from row: MetricRow) -> [(name: String, pack: SalesPack)] {
         let week = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-        let names = (row.textPayload["sales_days"] ?? "")
-            .split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-        return week.enumerated().map { index, name in
-            let sourceIndex = names.firstIndex(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) ?? index
-            return (name, SalesPack(row, prefix: "sales_d\(sourceIndex)_"))
+        return week.enumerated().compactMap { index, name -> (name: String, pack: SalesPack)? in
+            let pack = SalesPack(row, prefix: "sales_d\(index)_")
+            guard (pack.sales ?? 0) > 0 || (pack.orders ?? 0) > 0 else { return nil }
+            return (name, pack)
         }
     }
 

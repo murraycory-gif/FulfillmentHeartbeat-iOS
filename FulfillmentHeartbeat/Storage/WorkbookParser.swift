@@ -1297,9 +1297,7 @@ enum WorkbookParser {
             if isTotalCell(rawStore) || isTotalCell(rawDivision) {
                 var payload: [String: Double] = [:]
                 applySalesBlock(weekBlock, line: line, prefix: "sales_", payload: &payload)
-                for (offset, block) in dayBlocks.enumerated() where block.sales != weekBlock.sales {
-                    applySalesBlock(block, line: line, prefix: "sales_d\(offset)_", payload: &payload)
-                }
+                applySalesDayBlocks(dayBlocks, weekBlock: weekBlock, line: line, payload: &payload)
                 if payload["sales_dollars"] == nil {
                     let daySum = (0..<7).compactMap { payload["sales_d\($0)_dollars"] }.reduce(0, +)
                     if daySum > 0 { payload["sales_dollars"] = daySum }
@@ -1329,9 +1327,7 @@ enum WorkbookParser {
             if store.isEmpty { continue }
             var payload: [String: Double] = [:]
             applySalesBlock(weekBlock, line: line, prefix: "sales_", payload: &payload)
-            for (offset, block) in dayBlocks.enumerated() where block.sales != weekBlock.sales {
-                applySalesBlock(block, line: line, prefix: "sales_d\(offset)_", payload: &payload)
-            }
+            applySalesDayBlocks(dayBlocks, weekBlock: weekBlock, line: line, payload: &payload)
             if payload["sales_dollars"] == nil {
                 let daySum = (0..<7).compactMap { payload["sales_d\($0)_dollars"] }.reduce(0, +)
                 if daySum > 0 { payload["sales_dollars"] = daySum }
@@ -1363,6 +1359,21 @@ enum WorkbookParser {
             )
         }
         return out.isEmpty ? nil : out
+    }
+
+    private static let salesWeekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+
+    private static func applySalesDayBlocks(
+        _ dayBlocks: [SalesBlock],
+        weekBlock: SalesBlock,
+        line: [String],
+        payload: inout [String: Double]
+    ) {
+        for block in dayBlocks {
+            guard let dayIndex = salesWeekdays.firstIndex(of: block.label) else { continue }
+            if block.sales != nil, block.sales == weekBlock.sales { continue }
+            applySalesBlock(block, line: line, prefix: "sales_d\(dayIndex)_", payload: &payload)
+        }
     }
 
     private static func applySalesBlock(_ block: SalesBlock, line: [String], prefix: String, payload: inout [String: Double]) {
