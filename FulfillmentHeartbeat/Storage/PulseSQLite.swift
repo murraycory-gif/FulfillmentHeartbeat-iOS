@@ -12,9 +12,16 @@ enum PulseSQLite {
         var seeded: Bool
         var counts: [String: Int]
         var writtenAt: Date?
+        var chrome: PulseDashChrome?
     }
 
-    static func write(rows: [MetricRow], uploads: [UploadRecord], seeded: Bool, to url: URL) throws {
+    static func write(
+        rows: [MetricRow],
+        uploads: [UploadRecord],
+        seeded: Bool,
+        chrome: PulseDashChrome? = nil,
+        to url: URL
+    ) throws {
         let folder = url.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let temp = folder.appendingPathComponent("heartbeat-write-\(UUID().uuidString).sqlite")
@@ -78,6 +85,9 @@ enum PulseSQLite {
         guard sqlite3_step(meta) == SQLITE_DONE else {
             sqlite3_exec(db, "ROLLBACK;", nil, nil, nil)
             throw PulseSQLError.insert
+        }
+        if let chrome {
+            writeChrome(chrome, db: db)
         }
         sqlite3_exec(db, "COMMIT;", nil, nil, nil)
         if FileManager.default.fileExists(atPath: url.path) {
@@ -155,7 +165,8 @@ enum PulseSQLite {
             rows.append(row)
             counts[section.rawValue, default: 0] += 1
         }
-        return Pack(rows: rows, uploads: uploads, seeded: seeded, counts: counts, writtenAt: writtenAt)
+        let chrome = readChrome(db: db)
+        return Pack(rows: rows, uploads: uploads, seeded: seeded, counts: counts, writtenAt: writtenAt, chrome: chrome)
     }
 
     static func exists(at url: URL) -> Bool {
@@ -200,12 +211,55 @@ enum PulseSQLite {
     );
     CREATE INDEX facts_section_store ON facts(section, store_number);
     CREATE INDEX facts_section_div ON facts(section, division);
+    CREATE TABLE dash_chrome (
+        id INTEGER PRIMARY KEY,
+        json TEXT NOT NULL
+    );
     """
 
     private static let insertSQL = """
     INSERT INTO facts(id, section, store_number, division, operations_om, store_name, recorded_on, payload_json, text_json)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
     """
+
+    private static func writeChrome(_ chrome: PulseDashChrome, db: OpaquePointer) {
+        sqlite3_exec(db, "CREATE TABLE IF NOT EXISTS dash_chrome (id INTEGER PRIMARY KEY, json TEXT NOT NULL);", nil, nil, nil)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        guard let data = try? encoder.encode(chrome),
+              let json = String(data: data, encoding: .utf8)
+        else { return }
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(db, "INSERT OR REPLACE INTO dash_chrome(id, json) VALUES (1, ?);", -1, &stmt, nil) == SQLITE_OK else {
+            return
+        }
+        bind(stmt, 1, json)
+        _ = sqlite3_step(stmt)
+    }
+
+    private static func readChrome(db: OpaquePointer) -> PulseDashChrome? {
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(db, "SELECT json FROM dash_chrome WHERE id = 1;", -1, &stmt, nil) == SQLITE_OK else {
+            return nil
+        }
+        guard sqlite3_step(stmt) == SQLITE_ROW, let raw = sqlite3_column_text(stmt, 0) else { return nil }
+        let json = String(cString: raw)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        guard let data = json.data(using: .utf8) else { return nil }
+        return try? decoder.decode(PulseDashChrome.self, from: data)
+    }
+
+    static func readChrome(from url: URL) -> PulseDashChrome? {
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK, let db else {
+            return nil
+        }
+        defer { sqlite3_close(db) }
+        return readChrome(db: db)
+    }
 
     private static func bind(_ stmt: OpaquePointer?, _ index: Int32, _ value: String?) {
         if let value {

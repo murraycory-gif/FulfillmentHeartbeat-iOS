@@ -34,9 +34,18 @@ enum HeartbeatIngest {
             )
             print("  \(sheet.section.title): \(incoming.count) rows")
         }
-        try PulseSQLite.write(rows: rows, uploads: uploads, seeded: true, to: sqlite)
+        print("Cooking dashboard tiles…")
+        let caches = PulseCaches.build(
+            rows: rows,
+            filters: DashboardFilters(),
+            uploads: uploads,
+            heavy: false,
+            grain: .region
+        )
+        let chrome = PulseDashChrome.from(caches)
+        try PulseSQLite.write(rows: rows, uploads: uploads, seeded: true, chrome: chrome, to: sqlite)
         let size = (try FileManager.default.attributesOfItem(atPath: sqlite.path)[.size] as? NSNumber)?.intValue ?? 0
-        print("Wrote \(rows.count) rows → \(sqlite.lastPathComponent) (\(size) bytes)")
+        print("Wrote \(rows.count) rows + \(chrome.summaries.count) dashboard cards → \(sqlite.lastPathComponent) (\(size) bytes)")
         let loaded = Set(uploads.map(\.section))
         let missing = MetricSection.uploadOrder.filter { !loaded.contains($0) }
         if !missing.isEmpty {

@@ -58,6 +58,7 @@ jobs:
           cp FulfillmentHeartbeat/Models/Domain.swift "$INGEST/Sources/"
           cp FulfillmentHeartbeat/Storage/WorkbookParser.swift "$INGEST/Sources/"
           cp FulfillmentHeartbeat/Storage/PulseSQLite.swift "$INGEST/Sources/"
+          cp FulfillmentHeartbeat/Storage/PulseCaches.swift "$INGEST/Sources/"
           cp FulfillmentHeartbeat/BuildStamp.swift "$INGEST/Sources/"
           cp Tools/HeartbeatIngest/Ingest.swift "$INGEST/Sources/"
           cp Tools/HeartbeatIngest/RollupMarketFill.swift "$INGEST/Sources/"
