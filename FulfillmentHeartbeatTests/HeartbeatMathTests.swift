@@ -990,9 +990,6 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testPowerBISalesTabSundayMondayTuesdayAndTotal() {
-        func block(_ dollars: String, _ yoy: String, _ orders: String) -> [String] {
-            [dollars, yoy, orders, "0", "90", "0", "4.5", "0", "20", "0", "100", "0"]
-        }
         let metric = ["Sales $", "Sales YoY %", "Orders", "Orders YoY %", "AOS", "AOS YoY %", "AIV", "AIV YoY", "Items P/TXN", "Item P/TXN YoY", "Total Items", "Total Items YoY"]
         let weekday = ["Weekday"]
             + Array(repeating: "1-SUNDAY", count: 12)
@@ -1003,19 +1000,19 @@ final class HeartbeatMathTests: XCTestCase {
             + Array(repeating: "Total", count: 12)
         let header = ["Store"] + metric + metric + metric + metric + metric + metric
         let store = ["1"]
-            + block("5448.03", "-0.24", "54")
-            + block("6257.51", "0.54", "60")
-            + block("5974.18", "0.69", "66")
-            + block("-1", "-1", "-1")
-            + block("17679.72", "0.20", "180")
-            + block("17679.72", "0.20", "180")
+            + ["5448.03", "-0.24104175", "54", "-0.16923077", "100.88944", "-0.08643914", "4.3376035", "0.05460828", "23.259259", "-2.5253561", "1256", "-0.25059666"]
+            + ["6257.51", "0.53707898", "60", "0.36363636", "104.29183", "0.12719125", "4.4191455", "-0.01071306", "23.6", "2.7136364", "1416", "0.54080522"]
+            + ["5974.18", "0.69159720", "66", "0.83333333", "90.517879", "-0.07731062", "4.3511872", "-0.20581927", "20.803030", "-0.72474747", "1373", "0.77161290"]
+            + ["-1", "-1", "-1", "-1", "-1", "-1", "-1", "-1", "-1", "-1", "-1", "-1"]
+            + ["17679.72", "0.19610961", "180", "0.24137931", "98.220667", "-0.03646726", "4.3707590", "-0.01530039", "22.472222", "-0.76915709", "4045", "0.20029674"]
+            + ["17679.72", "0.19610961", "180", "0.24137931", "98.220667", "-0.03646726", "4.3707590", "-0.01530039", "22.472222", "-0.76915709", "4045", "0.20029674"]
         let total = ["Total"]
-            + block("13375189", "-0.04", "100")
-            + block("15072088", "0.53", "100")
-            + block("11022667", "0.10", "100")
-            + block("-1", "-1", "-1")
-            + block("39469945", "0.20", "300")
-            + block("39469945", "0.20", "300")
+            + ["13375189.33", "-0.05902716", "139882", "-0.02728676", "95.617659", "-0.03263078", "4.3906372", "0.01539590", "21.777627", "-0.81380883", "3046298", "-0.06232670"]
+            + ["15072088.06", "0.55034734", "158968", "0.48245410", "94.812088", "0.04579788", "4.4044869", "-0.02245046", "21.526251", "1.0470697", "3421985", "0.55824974"]
+            + ["11022667.84", "0.39938636", "122951", "0.33574152", "89.650900", "0.04764757", "4.4439755", "-0.02395726", "20.173581", "1.0207572", "2480362", "0.40693039"]
+            + ["-1", "-1", "-1", "-1", "-1", "-1", "-1", "-1", "-1", "-1", "-1", "-1"]
+            + ["39469945.23", "0.24069580", "421801", "0.22943227", "93.574802", "0.00916157", "4.4107175", "-0.00294585", "21.215324", "0.20663259", "8948645", "0.24152445"]
+            + ["39469945.23", "0.24069580", "421801", "0.22943227", "93.574802", "0.00916157", "4.4107175", "-0.00294585", "21.215324", "0.20663259", "8948645", "0.24152445"]
         let parsed = WorkbookParser.parseSalesMatrix([
             ["Week", "202637"],
             weekday,
@@ -1026,15 +1023,50 @@ final class HeartbeatMathTests: XCTestCase {
         let row = parsed.first { $0.storeNumber == "1" }
         XCTAssertNotNil(row)
         XCTAssertEqual(row?.payload["sales_dollars"] ?? 0, 17679.72, accuracy: 0.02)
+        XCTAssertEqual(row?.payload["sales_orders"] ?? 0, 180, accuracy: 0.01)
+        XCTAssertEqual(row?.payload["sales_aos"] ?? 0, 98.2207, accuracy: 0.02)
+        XCTAssertEqual(row?.payload["sales_aiv"] ?? 0, 4.3708, accuracy: 0.02)
+        XCTAssertEqual(row?.payload["sales_ipt"] ?? 0, 22.4722, accuracy: 0.02)
+        XCTAssertEqual(row?.payload["sales_items"] ?? 0, 4045, accuracy: 0.5)
+        XCTAssertEqual(row?.payload["sales_yoy_pct"] ?? 0, 19.61096, accuracy: 0.05)
+
         XCTAssertEqual(row?.payload["sales_d0_dollars"] ?? 0, 5448.03, accuracy: 0.02)
+        XCTAssertEqual(row?.payload["sales_d0_yoy_pct"] ?? 0, -24.104, accuracy: 0.05)
+        XCTAssertEqual(row?.payload["sales_d0_orders"] ?? 0, 54, accuracy: 0.01)
+        XCTAssertEqual(row?.payload["sales_d0_orders_yoy_pct"] ?? 0, -16.923, accuracy: 0.05)
+        XCTAssertEqual(row?.payload["sales_d0_aos"] ?? 0, 100.889, accuracy: 0.02)
+        XCTAssertEqual(row?.payload["sales_d0_aiv"] ?? 0, 4.338, accuracy: 0.02)
+        XCTAssertEqual(row?.payload["sales_d0_ipt"] ?? 0, 23.259, accuracy: 0.02)
+        XCTAssertEqual(row?.payload["sales_d0_items"] ?? 0, 1256, accuracy: 0.5)
+
         XCTAssertEqual(row?.payload["sales_d1_dollars"] ?? 0, 6257.51, accuracy: 0.02)
+        XCTAssertEqual(row?.payload["sales_d1_orders"] ?? 0, 60, accuracy: 0.01)
+        XCTAssertEqual(row?.payload["sales_d1_items"] ?? 0, 1416, accuracy: 0.5)
+
         XCTAssertEqual(row?.payload["sales_d2_dollars"] ?? 0, 5974.18, accuracy: 0.02)
+        XCTAssertEqual(row?.payload["sales_d2_yoy_pct"] ?? 0, 69.16, accuracy: 0.05)
+        XCTAssertEqual(row?.payload["sales_d2_orders"] ?? 0, 66, accuracy: 0.01)
+        XCTAssertEqual(row?.payload["sales_d2_orders_yoy_pct"] ?? 0, 83.333, accuracy: 0.05)
+        XCTAssertEqual(row?.payload["sales_d2_aos"] ?? 0, 90.518, accuracy: 0.02)
+        XCTAssertEqual(row?.payload["sales_d2_aiv"] ?? 0, 4.351, accuracy: 0.02)
+        XCTAssertEqual(row?.payload["sales_d2_ipt"] ?? 0, 20.803, accuracy: 0.02)
+        XCTAssertEqual(row?.payload["sales_d2_items"] ?? 0, 1373, accuracy: 0.5)
         XCTAssertNil(row?.payload["sales_d3_dollars"])
         XCTAssertTrue((row?.textPayload["sales_days"] ?? "").contains("Tuesday"))
+
         let company = parsed.first { $0.textPayload["sales_grain"] == "company" }
         XCTAssertEqual(company?.payload["sales_dollars"] ?? 0, 39_469_945, accuracy: 1)
+        XCTAssertEqual(company?.payload["sales_orders"] ?? 0, 421_801, accuracy: 0.5)
+        XCTAssertEqual(company?.payload["sales_items"] ?? 0, 8_948_645, accuracy: 0.5)
+        XCTAssertEqual(company?.payload["sales_d2_dollars"] ?? 0, 11_022_667.84, accuracy: 1)
+
         let days = SalesRollupBuilder.dayRows(from: parsed.map { $0.asRow(section: .sales) }.filter { !$0.storeNumber.isEmpty })
         XCTAssertEqual(days.map(\.label), ["Sunday", "Monday", "Tuesday"])
+        XCTAssertEqual(days[2].pack.orders ?? 0, 66, accuracy: 0.01)
+        XCTAssertEqual(days[2].pack.items ?? 0, 1373, accuracy: 0.5)
+        XCTAssertEqual(days[2].pack.aos ?? 0, 90.518, accuracy: 0.05)
+        XCTAssertEqual(days[2].pack.aiv ?? 0, 4.351, accuracy: 0.05)
+        XCTAssertEqual(days[2].pack.ipt ?? 0, 20.803, accuracy: 0.05)
     }
 }
 

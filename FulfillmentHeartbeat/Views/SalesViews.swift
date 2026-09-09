@@ -465,6 +465,7 @@ enum SalesRollupBuilder {
             let daySales = sales[index]
             if daySales <= 0, orders[index] <= 0 { return nil }
             let dayOrders = orders[index]
+            let dayItems = items[index]
             let yoy = daySales > 0 ? yoyWeight[index] / daySales : nil
             return SalesRollupRow(
                 label: name,
@@ -475,9 +476,9 @@ enum SalesRollupBuilder {
                     orders: dayOrders,
                     ordersYoy: HeartbeatMath.average(ordersYoy[index]),
                     aos: dayOrders > 0 ? daySales / dayOrders : nil,
-                    aiv: HeartbeatMath.average(aiv[index]),
-                    items: items[index],
-                    ipt: HeartbeatMath.average(ipt[index]),
+                    aiv: dayItems > 0 ? daySales / dayItems : HeartbeatMath.average(aiv[index]),
+                    items: dayItems,
+                    ipt: dayOrders > 0 ? dayItems / dayOrders : HeartbeatMath.average(ipt[index]),
                     hd: nil,
                     dug: nil,
                     health: HeartbeatMath.salesHealth(planPct: nil, yoy: yoy)

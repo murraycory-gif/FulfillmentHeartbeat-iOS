@@ -1195,6 +1195,52 @@ enum WorkbookParser {
             return ""
         }
 
+        /// Power BI Sales tab, every day (and Total) is 12 columns in this order:
+        /// 0 Sales $ · 1 Sales YoY % · 2 Orders · 3 Orders YoY % ·
+        /// 4 AOS · 5 AOS YoY % · 6 AIV · 7 AIV YoY ·
+        /// 8 Items P/TXN · 9 Item P/TXN YoY · 10 Total Items · 11 Total Items YoY
+        func powerBIBlock(start: Int, label: String) -> SalesBlock {
+            var block = SalesBlock(label: label)
+            func col(_ offset: Int) -> Int? {
+                let index = start + offset
+                return index < headers.count ? index : nil
+            }
+            block.sales = col(0)
+            block.yoy = col(1)
+            block.orders = col(2)
+            block.ordersYoy = col(3)
+            block.aos = col(4)
+            block.aosYoy = col(5)
+            block.aiv = col(6)
+            block.aivYoy = col(7)
+            block.ipt = col(8)
+            block.iptYoy = col(9)
+            block.items = col(10)
+            block.itemsYoy = col(11)
+            let end = min(start + 12, headers.count)
+            for index in start..<end {
+                guard let field = salesField(headers[index]) else { continue }
+                switch field {
+                case "sales": block.sales = index
+                case "yoy": block.yoy = index
+                case "orders": block.orders = index
+                case "orders_yoy": block.ordersYoy = index
+                case "aos": block.aos = index
+                case "aos_yoy": block.aosYoy = index
+                case "aiv": block.aiv = index
+                case "aiv_yoy": block.aivYoy = index
+                case "ipt": block.ipt = index
+                case "ipt_yoy": block.iptYoy = index
+                case "items": block.items = index
+                case "items_yoy": block.itemsYoy = index
+                case "hd": block.hd = index
+                case "dug": block.dug = index
+                default: break
+                }
+            }
+            return block
+        }
+
         var dayBlocks: [SalesBlock] = []
         var weekBlock = SalesBlock(label: "Week")
         var cursor = storeIdx + 1
@@ -1205,56 +1251,24 @@ enum WorkbookParser {
             while cursor < headers.count, name(for: cursor) == label {
                 cursor += 1
             }
-            var block = SalesBlock(label: label)
-            for col in start..<cursor {
-                guard col < headers.count, let field = salesField(headers[col]) else { continue }
-                switch field {
-                case "sales": if block.sales == nil { block.sales = col }
-                case "yoy": if block.yoy == nil { block.yoy = col }
-                case "orders": if block.orders == nil { block.orders = col }
-                case "orders_yoy": if block.ordersYoy == nil { block.ordersYoy = col }
-                case "aos": if block.aos == nil { block.aos = col }
-                case "aos_yoy": if block.aosYoy == nil { block.aosYoy = col }
-                case "aiv": if block.aiv == nil { block.aiv = col }
-                case "aiv_yoy": if block.aivYoy == nil { block.aivYoy = col }
-                case "ipt": if block.ipt == nil { block.ipt = col }
-                case "ipt_yoy": if block.iptYoy == nil { block.iptYoy = col }
-                case "items": if block.items == nil { block.items = col }
-                case "items_yoy": if block.itemsYoy == nil { block.itemsYoy = col }
-                case "hd": if block.hd == nil { block.hd = col }
-                case "dug": if block.dug == nil { block.dug = col }
-                default: break
-                }
-            }
-            if weekdays.contains(label), block.sales != nil, !dayBlocks.contains(where: { $0.label == label }) {
-                block.label = label
+            let block = powerBIBlock(start: start, label: label)
+            if weekdays.contains(label), !dayBlocks.contains(where: { $0.label == label }) {
                 dayBlocks.append(block)
             } else if label == "Week", weekBlock.sales == nil {
-                block.label = "Week"
                 weekBlock = block
             }
         }
         if dayBlocks.isEmpty {
-            var starts: [Int] = []
-            for index in 0..<headers.count {
-                if index == storeIdx { continue }
-                if salesField(headers[index]) == "sales" { starts.append(index) }
-            }
-            for start in starts {
+            let first = storeIdx + 1
+            for (offset, day) in weekdays.enumerated() {
+                let start = first + offset * 12
+                guard start < headers.count else { break }
                 if name(for: start) == "Week" { continue }
-                var block = SalesBlock(label: weekdays.indices.contains(dayBlocks.count) ? weekdays[dayBlocks.count] : "Sunday")
-                block.sales = start
-                for col in start..<min(start + 12, headers.count) {
-                    guard let field = salesField(headers[col]) else { continue }
-                    switch field {
-                    case "sales": block.sales = col
-                    case "yoy": block.yoy = col
-                    case "orders": block.orders = col
-                    default: break
-                    }
-                }
-                dayBlocks.append(block)
-                if dayBlocks.count == 7 { break }
+                dayBlocks.append(powerBIBlock(start: start, label: day))
+            }
+            let weekStart = first + 7 * 12
+            if weekBlock.sales == nil, weekStart < headers.count {
+                weekBlock = powerBIBlock(start: weekStart, label: "Week")
             }
         }
         guard weekBlock.sales != nil || !dayBlocks.isEmpty else { return nil }
