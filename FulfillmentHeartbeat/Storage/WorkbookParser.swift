@@ -1150,6 +1150,7 @@ enum WorkbookParser {
             if !above.contains(where: {
                 let lower = $0.lowercased()
                 return lower.contains("sun") || lower.contains("weekday") || lower.contains("monday")
+                    || lower.contains("tue") || lower.contains("wed")
                     || lower.contains("1-sun") || lower.contains("friday") || lower.contains("saturday")
             }) {
                 continue
@@ -1216,9 +1217,34 @@ enum WorkbookParser {
         guard !blocks.isEmpty else { return nil }
 
         let weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-        let matrixWidth = max(headers.count, matrix.map(\.count).max() ?? 0)
         var dayBlocks: [SalesBlock] = []
-        if let firstSales = starts.first {
+        var usedStarts: Set<Int> = []
+        for name in weekdays {
+            guard let start = starts.first(where: {
+                !usedStarts.contains($0)
+                    && salesDayName(weekdayLabels.indices.contains($0) ? weekdayLabels[$0] : "") == name
+            }) else { continue }
+            usedStarts.insert(start)
+            if var block = blocks.first(where: { $0.sales == start }) {
+                block.label = name
+                dayBlocks.append(block)
+            }
+        }
+        if dayBlocks.count < 3 {
+            dayBlocks = []
+            for start in starts {
+                let name = salesDayName(weekdayLabels.indices.contains(start) ? weekdayLabels[start] : "")
+                if name == "Week" { continue }
+                guard var block = blocks.first(where: { $0.sales == start }) else { continue }
+                let label = weekdays.indices.contains(dayBlocks.count) ? weekdays[dayBlocks.count] : name
+                block.label = label
+                dayBlocks.append(block)
+                if dayBlocks.count == 7 { break }
+            }
+        }
+        if dayBlocks.count < 3, let firstSales = starts.first {
+            dayBlocks = []
+            let matrixWidth = max(headers.count, matrix.map(\.count).max() ?? 0)
             for index in 0..<7 {
                 let start = firstSales + index * 12
                 guard start < matrixWidth else { break }
@@ -1238,26 +1264,14 @@ enum WorkbookParser {
                 dayBlocks.append(block)
             }
         }
-        if dayBlocks.count < 7 {
-            let fallback = blocks.filter { salesDayName($0.label) != "Week" }
-            if fallback.count >= 7 {
-                dayBlocks = Array(fallback.prefix(7))
-            } else if blocks.count >= 7 {
-                dayBlocks = Array(blocks.prefix(7))
-            } else {
-                dayBlocks = fallback
-            }
-            for index in dayBlocks.indices where index < weekdays.count {
-                dayBlocks[index].label = weekdays[index]
-            }
-        }
 
+        let matrixWidth = max(headers.count, matrix.map(\.count).max() ?? 0)
         let weekBlock: SalesBlock = {
-            let weekStart = (starts.first ?? 0) + 7 * 12
-            if let named = blocks.first(where: { $0.sales == weekStart }) {
+            if let named = blocks.first(where: { salesDayName($0.label) == "Week" }) {
                 return named
             }
-            if let named = blocks.first(where: { salesDayName($0.label) == "Week" }) {
+            let weekStart = (starts.first ?? 0) + 7 * 12
+            if let named = blocks.first(where: { $0.sales == weekStart }) {
                 return named
             }
             var block = SalesBlock(label: "Week")

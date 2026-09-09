@@ -1665,7 +1665,7 @@ final class HeartbeatStore: ObservableObject {
                 )
                 if ok {
                     UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
-                    UserDefaults.standard.set(175, forKey: "hb.parserStamp")
+                    UserDefaults.standard.set(176, forKey: "hb.parserStamp")
                     return
                 }
                 lastError = "Workbook did not parse."
@@ -1707,19 +1707,20 @@ final class HeartbeatStore: ObservableObject {
             && (pack?.updated ?? "") >= remoteUpdated
             && Self.hasUsableSales(rows)
             && Self.hasUsableLostRevenue(rows)
+            && Self.salesDayCount(rows) >= 3
         if packCoversWorkbook {
             UserDefaults.standard.set(remoteXlsx, forKey: "hb.cloudXlsxBytes")
             if !remoteUpdated.isEmpty {
                 UserDefaults.standard.set(remoteUpdated, forKey: "hb.cloudXlsxUpdated")
             }
-            UserDefaults.standard.set(175, forKey: "hb.parserStamp")
+            UserDefaults.standard.set(176, forKey: "hb.parserStamp")
             return
         }
         let sameFile = remoteXlsx == knownXlsx && (remoteUpdated.isEmpty || remoteUpdated == knownUpdated)
         if sameFile {
-            if parserStamp >= 175 { return }
-            if Self.hasUsableSales(rows), Self.hasUsableLostRevenue(rows), Self.hasWeekSalesDays(rows) {
-                UserDefaults.standard.set(175, forKey: "hb.parserStamp")
+            if parserStamp >= 176, Self.salesDayCount(rows) >= 3 { return }
+            if Self.hasUsableSales(rows), Self.hasUsableLostRevenue(rows), Self.salesDayCount(rows) >= 3 {
+                UserDefaults.standard.set(176, forKey: "hb.parserStamp")
                 return
             }
         }
@@ -1786,7 +1787,7 @@ final class HeartbeatStore: ObservableObject {
         }
         let fileChanged = remoteXlsx > 1_000 && (remoteXlsx != knownXlsx || (!remoteUpdated.isEmpty && remoteUpdated != knownUpdated))
         let firstLoad = !hasPack
-        let needsParserPass = stamp < 175 && !Self.hasWeekSalesDays(rows)
+        let needsParserPass = stamp < 176 || Self.salesDayCount(rows) < 3
         guard remoteXlsx > 1_000, firstLoad || fileChanged || needsParserPass else {
             if hasPack {
                 isImporting = false
@@ -1816,7 +1817,7 @@ final class HeartbeatStore: ObservableObject {
             )
             if ok {
                 UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
-                UserDefaults.standard.set(175, forKey: "hb.parserStamp")
+                UserDefaults.standard.set(176, forKey: "hb.parserStamp")
                 let info = await PulseCloud.objectInfo(remoteName)
                 if !info.updated.isEmpty {
                     UserDefaults.standard.set(info.updated, forKey: "hb.cloudXlsxUpdated")
@@ -2803,10 +2804,21 @@ final class HeartbeatStore: ObservableObject {
         return stores.count >= 200 && dollars >= 5_000_000
     }
 
-    private static func hasWeekSalesDays(_ rows: [MetricRow]) -> Bool {
-        rows.contains {
-            $0.section == .sales && ($0.number("sales_d1_dollars") ?? 0) > 0
+    private static func salesDayCount(_ rows: [MetricRow]) -> Int {
+        var seen: Set<Int> = []
+        for row in rows where row.section == .sales {
+            for index in 0..<7 {
+                if (row.number("sales_d\(index)_dollars") ?? 0) > 0 {
+                    seen.insert(index)
+                }
+            }
+            if seen.count == 7 { break }
         }
+        return seen.count
+    }
+
+    private static func hasWeekSalesDays(_ rows: [MetricRow]) -> Bool {
+        salesDayCount(rows) >= 2
     }
 
     private static func hasUsableFiveStar(_ rows: [MetricRow]) -> Bool {
