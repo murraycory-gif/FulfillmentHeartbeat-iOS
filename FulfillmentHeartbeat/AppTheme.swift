@@ -324,9 +324,8 @@ enum HubLayout {
         let name = marketingName(machine: machine, kind: kind, phoneGen: phoneGen)
         let fourGig = ramGB < 6
         let thirteenClass = (phoneGen ?? 99) <= 13
-        /// iPhone 13 / 4GB iPad: light sqlite (labor+picker after dashboard).
-        let lightLaunch = kind == .phone && (fourGig || thirteenClass)
-            || kind == .pad && fourGig
+        /// iPhone 13 / 4GB iPad / every pad: skip labor+picker on first sqlite read.
+        let lightLaunch = kind != .mac
         /// 555 iPad path: never parse the 11MB xlsx. Mac is the publisher.
         let skipExcel = kind != .mac
         return Profile(

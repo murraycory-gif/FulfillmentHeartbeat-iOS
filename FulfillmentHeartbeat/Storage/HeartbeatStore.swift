@@ -132,7 +132,9 @@ final class HeartbeatStore: ObservableObject {
         } else {
             await importCloudSQLiteIfPresent()
         }
-        await loadPublishedFacts()
+        if HubLayout.ingestsWorkbook || !Self.hasUsableLostRevenue(rows) {
+            await loadPublishedFacts()
+        }
         if cachedSummaries.isEmpty, !rows.isEmpty {
             rebuildIndex()
             installCompanyWideFast()
@@ -154,9 +156,12 @@ final class HeartbeatStore: ObservableObject {
         await syncCloudPackIfChanged(snap)
         if HubLayout.profile.skipExcel {
             applyLocalCards()
-            await loadPublishedFacts()
             if HubLayout.lightLaunch {
-                Task { await self.loadHeavySections() }
+                Task {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    guard self.isReady else { return }
+                    await self.loadHeavySections()
+                }
             }
             return
         }
@@ -1370,7 +1375,9 @@ final class HeartbeatStore: ObservableObject {
             }
             if self.pendingHeavyExtras {
                 self.pendingHeavyExtras = false
-                self.scheduleHeavyExtras(latest: self.latestBySection, roster: self.roster)
+                if !HubLayout.lightLaunch {
+                    self.scheduleHeavyExtras(latest: self.latestBySection, roster: self.roster)
+                }
             }
             self.startCloudHydrateIfNeeded()
         }
@@ -2840,6 +2847,7 @@ final class HeartbeatStore: ObservableObject {
         if !needsRolePick {
             filterStamp += 1
         }
+        scheduleHeavyExtras(latest: latestBySection, roster: roster)
     }
 
     private func refreshSummary(for section: MetricSection, rows: [MetricRow]) {
@@ -2980,12 +2988,14 @@ final class HeartbeatStore: ObservableObject {
 
     private func persist() {
         persistFilters()
+        guard HubLayout.ingestsWorkbook else { return }
         guard packDirty else { return }
         Task { await persistNow() }
     }
 
     private func persistNow() async {
         persistFilters()
+        guard HubLayout.ingestsWorkbook else { packDirty = false; return }
         guard packDirty else { return }
         let packURL = sqliteURL
         let packRows = rows
