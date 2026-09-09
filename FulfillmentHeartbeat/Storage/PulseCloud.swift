@@ -22,7 +22,8 @@ enum PulseCloud {
     }
 
     static func objectSize(_ name: String) async -> Int {
-        await objectInfo(name).size
+        let info = await objectInfo(name)
+        return info.size
     }
 
     static func objectInfo(_ name: String) async -> (size: Int, updated: String) {

@@ -1737,7 +1737,8 @@ final class HeartbeatStore: ObservableObject {
         let stamp = UserDefaults.standard.integer(forKey: "hb.parserStamp")
         var remoteUpdated = ""
         for name in PulseCloud.workbookNames where name == remoteName {
-            remoteUpdated = await PulseCloud.objectInfo(name).updated
+            let info = await PulseCloud.objectInfo(name)
+            remoteUpdated = info.updated
             break
         }
         let fileChanged = remoteXlsx > 1_000 && (remoteXlsx != knownXlsx || (!remoteUpdated.isEmpty && remoteUpdated != knownUpdated))
