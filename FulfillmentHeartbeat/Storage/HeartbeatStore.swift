@@ -88,6 +88,7 @@ final class HeartbeatStore: ObservableObject {
     private var unfilteredWarmTask: Task<Void, Never>?
     private var pulseGeneration = 0
     private var masterBookmark: Data?
+    private var lastCloudPullAt: Date?
     private var lifetimeObservers: [NSObjectProtocol] = []
 
     init(rootURL: URL? = nil) {
@@ -168,7 +169,9 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func hydrateFromCloudInBackground() async {
-        await loadPublishedFacts()
+        if !Self.hasUsableLostRevenue(rows) {
+            await loadPublishedFacts()
+        }
         await syncServerWorkbookIfChanged()
     }
 
@@ -1544,6 +1547,8 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func pullLatestWorkbookIfNeeded() {
+        if let last = lastCloudPullAt, Date().timeIntervalSince(last) < 300 { return }
+        lastCloudPullAt = Date()
         Task { await pullWatchedWorkbook() }
         pullCloudPackIfNeeded()
     }
@@ -1625,7 +1630,14 @@ final class HeartbeatStore: ObservableObject {
         }
         let knownXlsx = UserDefaults.standard.integer(forKey: "hb.cloudXlsxBytes")
         let parserStamp = UserDefaults.standard.integer(forKey: "hb.parserStamp")
-        guard remoteXlsx > 1_000, remoteXlsx != knownXlsx || parserStamp < 175 else { return }
+        guard remoteXlsx > 1_000 else { return }
+        if remoteXlsx == knownXlsx {
+            if parserStamp >= 175 { return }
+            if Self.hasUsableSales(rows), Self.hasUsableLostRevenue(rows), Self.hasWeekSalesDays(rows) {
+                UserDefaults.standard.set(175, forKey: "hb.parserStamp")
+                return
+            }
+        }
         await importCloudWorkbook(blocking: false)
     }
 
@@ -1670,7 +1682,7 @@ final class HeartbeatStore: ObservableObject {
         let stamp = UserDefaults.standard.integer(forKey: "hb.parserStamp")
         let fileChanged = knownXlsx > 0 && remoteXlsx != knownXlsx
         let firstLoad = !hasPack
-        let needsParserPass = stamp < 175
+        let needsParserPass = stamp < 175 && !Self.hasWeekSalesDays(rows)
         guard remoteXlsx > 1_000, firstLoad || fileChanged || needsParserPass else {
             if hasPack {
                 isImporting = false
@@ -1701,8 +1713,10 @@ final class HeartbeatStore: ObservableObject {
             if ok {
                 UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
                 UserDefaults.standard.set(175, forKey: "hb.parserStamp")
-                publishFacts()
-                publishCloudPack()
+                if fileChanged || firstLoad {
+                    publishFacts()
+                    publishCloudPack()
+                }
             } else if !hasPack {
                 UserDefaults.standard.removeObject(forKey: "hb.cloudXlsxBytes")
                 isImporting = false
@@ -2469,7 +2483,9 @@ final class HeartbeatStore: ObservableObject {
                 var snap = self.snapshotPulse()
                 snap.grainPacks = packs
                 self.unfilteredPulse = snap
-                self.filterStamp += 1
+                if !self.needsRolePick {
+                    self.filterStamp += 1
+                }
             }
         }
     }
@@ -2528,7 +2544,6 @@ final class HeartbeatStore: ObservableObject {
                 cachedChecklistGroups = pulse.checklistGroups
             }
             refreshChecklistOpenCount()
-            objectWillChange.send()
             return
         }
         filteredLatest = pulse.filteredLatest
@@ -2549,7 +2564,6 @@ final class HeartbeatStore: ObservableObject {
         cachedCardFlags = pulse.cardFlags
         cachedGrainPacks = pulse.grainPacks
         refreshChecklistOpenCount()
-        objectWillChange.send()
     }
 
     private func refreshFilterOptions() {
@@ -2655,6 +2669,12 @@ final class HeartbeatStore: ObservableObject {
         return stores.count >= 200 && dollars >= 5_000_000
     }
 
+    private static func hasWeekSalesDays(_ rows: [MetricRow]) -> Bool {
+        rows.contains {
+            $0.section == .sales && ($0.number("sales_d1_dollars") ?? 0) > 0
+        }
+    }
+
     private static func hasUsableFiveStar(_ rows: [MetricRow]) -> Bool {
         var stores = Set<String>()
         for row in rows where row.section == .fiveStar {
@@ -2675,6 +2695,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func loadPublishedFacts() async {
+        if Self.hasUsableLostRevenue(rows) { return }
         importProgress.label = "Loading store facts"
         let incoming: [MetricRow] = await Task.detached(priority: .userInitiated) {
             await PulseFacts.loadRows()
@@ -2722,6 +2743,7 @@ final class HeartbeatStore: ObservableObject {
                         grain: .region
                     )
                 }.value
+                hydrating = true
                 rows = pack.rows
                 uploads = pack.uploads.sorted { $0.uploadedAt > $1.uploadedAt }
                 seeded = true
@@ -2730,6 +2752,7 @@ final class HeartbeatStore: ObservableObject {
                 sessionRole = nil
                 needsRolePick = true
                 install(caches)
+                hydrating = false
                 applyLocalCards()
                 importProgress.loaded = MetricSection.uploadOrder.count
                 scheduleHeavyExtras(latest: caches.filteredLatest, roster: caches.roster)
@@ -2836,6 +2859,7 @@ final class HeartbeatStore: ObservableObject {
         if !bits.pickerIndex.isEmpty {
             pickerIndex = bits.pickerIndex
             pickerFocusHealth = bits.pickerFocusHealth
+            return
         } else if pickerIndex[.all] == nil || pickerIndex[.all]?.isEmpty == true, !pickers.isEmpty {
             pickerIndex[.all] = Array(pickers.indices)
         }
