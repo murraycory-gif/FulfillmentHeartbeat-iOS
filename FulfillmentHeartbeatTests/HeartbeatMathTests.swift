@@ -736,12 +736,21 @@ final class HeartbeatMathTests: XCTestCase {
     func testDistrictD3MatchesRoster03() {
         XCTAssertTrue(HeartbeatMath.districtMatchKeys("D3").contains("3"))
         XCTAssertTrue(HeartbeatMath.districtMatchKeys("03").contains("3"))
+        XCTAssertTrue(HeartbeatMath.districtMatchKeys("03").contains("d3"))
+        XCTAssertFalse(HeartbeatMath.districtMatchKeys("B3").contains("3"))
+        XCTAssertFalse(HeartbeatMath.districtMatchKeys("J3").contains("3"))
         var filters = DashboardFilters()
         filters.district = "D3"
         XCTAssertTrue(filters.includesDistrict("03"))
         XCTAssertTrue(filters.includesDistrict("3"))
         XCTAssertTrue(filters.includesDistrict("D3"))
         XCTAssertFalse(filters.includesDistrict("J1"))
+        XCTAssertFalse(filters.includesDistrict("B3"))
+        XCTAssertFalse(filters.includesDistrict("I3"))
+        filters.district = "03"
+        XCTAssertTrue(filters.includesDistrict("D3"))
+        XCTAssertFalse(filters.includesDistrict("B3"))
+        XCTAssertFalse(filters.includesDistrict("J3"))
         let rosterRows = [
             MetricRow(
                 section: .storeRoster,

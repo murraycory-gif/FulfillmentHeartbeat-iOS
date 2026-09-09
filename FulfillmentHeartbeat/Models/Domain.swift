@@ -974,15 +974,24 @@ enum HeartbeatMath {
         return compact
     }
 
-    /// D3, 03, and 3 are the same district code. J2 also matches 2.
+    /// "03" and "3" mean District 3 (D3). B3/J3/I3 stay themselves.
     static func districtMatchKeys(_ raw: String) -> Set<String> {
         let primary = districtMatchKey(raw)
         guard !primary.isEmpty else { return [] }
         var keys: Set<String> = [primary]
-        let letters = primary.prefix(while: \.isLetter)
-        let digits = primary.drop(while: \.isLetter)
-        if letters.count == 1, !digits.isEmpty, digits.allSatisfy(\.isNumber), let value = Int(digits) {
-            keys.insert(String(value))
+        let letters = String(primary.prefix(while: \.isLetter))
+        let digits = String(primary.drop(while: \.isLetter))
+        guard !digits.isEmpty, digits.allSatisfy(\.isNumber), let value = Int(digits) else {
+            return keys
+        }
+        let num = String(value)
+        let padded = String(format: "%02d", value)
+        if letters.isEmpty {
+            keys.insert("d\(num)")
+            keys.insert(padded)
+        } else if letters == "d" {
+            keys.insert(num)
+            keys.insert(padded)
         }
         return keys
     }

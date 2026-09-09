@@ -3748,13 +3748,11 @@ private struct PulseCaches {
         }
         var districtKeys: Set<String> = []
         for part in filters.districts {
-            let key = HeartbeatMath.districtMatchKey(part)
-            if !key.isEmpty { districtKeys.insert(key) }
+            districtKeys.formUnion(HeartbeatMath.districtMatchKeys(part))
         }
         for store in allowed {
             if let district = roster[store]?.district {
-                let key = HeartbeatMath.districtMatchKey(district)
-                if !key.isEmpty { districtKeys.insert(key) }
+                districtKeys.formUnion(HeartbeatMath.districtMatchKeys(district))
             }
         }
         var seen: Set<String> = []
@@ -3772,7 +3770,7 @@ private struct PulseCaches {
                 if let value = roster[store]?.district, !value.isEmpty { return value }
                 return row.district
             }()
-            if !districtKeys.isEmpty, districtKeys.contains(HeartbeatMath.districtMatchKey(district)) {
+            if !districtKeys.isEmpty, !HeartbeatMath.districtMatchKeys(district).isDisjoint(with: districtKeys) {
                 let key = store.isEmpty ? "\(row.storeName ?? "")|\(district)" : store
                 if seen.insert(key).inserted { out.append(row) }
                 continue
