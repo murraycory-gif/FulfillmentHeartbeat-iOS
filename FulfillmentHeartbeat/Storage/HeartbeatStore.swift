@@ -277,7 +277,7 @@ final class HeartbeatStore: ObservableObject {
 
     func refreshSalesExpandCache() {
         let source = salesStores()
-        let grain = effectiveDashboardGrain ?? .region
+        let grain = effectiveDashboardGrain
         cachedSalesScopeRows = SalesRollupBuilder.dashboardRows(from: source, grain: grain)
         cachedSalesDayRows = SalesRollupBuilder.dayRows(from: source)
     }
@@ -1612,10 +1612,13 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func syncCloudPackIfChanged(_ snap: [String: PulseCloud.ObjectStat]? = nil) async {
-        let info = snap?[PulseCloud.object] ?? PulseCloud.ObjectStat(
-            size: await PulseCloud.objectSize(PulseCloud.object),
-            updated: ""
-        )
+        let info: PulseCloud.ObjectStat
+        if let hit = snap?[PulseCloud.object] {
+            info = hit
+        } else {
+            let remote = await PulseCloud.objectInfo(PulseCloud.object)
+            info = PulseCloud.ObjectStat(size: remote.size, updated: remote.updated)
+        }
         let known = UserDefaults.standard.integer(forKey: "hb.cloudPackBytes")
         let knownUpdated = UserDefaults.standard.string(forKey: "hb.cloudPackUpdated") ?? ""
         let same = info.size > 50_000
@@ -1676,7 +1679,12 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func syncServerWorkbookIfChanged(_ snap: [String: PulseCloud.ObjectStat]? = nil) async {
-        let listing = snap ?? await PulseCloud.snapshot()
+        let listing: [String: PulseCloud.ObjectStat]
+        if let snap {
+            listing = snap
+        } else {
+            listing = await PulseCloud.snapshot()
+        }
         var remoteXlsx = 0
         var remoteUpdated = ""
         var remoteName = PulseCloud.workbookNames[0]

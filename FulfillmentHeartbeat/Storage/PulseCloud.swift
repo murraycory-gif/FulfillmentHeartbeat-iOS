@@ -47,7 +47,8 @@ enum PulseCloud {
     }
 
     static func objectInfo(_ name: String) async -> (size: Int, updated: String) {
-        let stat = await snapshot()[name]
+        let map = await snapshot()
+        let stat = map[name]
         return (stat?.size ?? 0, stat?.updated ?? "")
     }
 
