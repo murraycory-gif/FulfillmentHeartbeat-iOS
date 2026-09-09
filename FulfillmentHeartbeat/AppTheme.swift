@@ -236,39 +236,49 @@ struct BrandButtonStyle: ButtonStyle {
 }
 
 enum HubLayout {
-    /// Hardware class. Layout, launch, and paging never mix these.
+    /// Hardware family. Layout, launch, and paging never mix these.
     enum Kind { case phone, pad, mac }
 
-    static var kind: Kind {
-        #if targetEnvironment(macCatalyst)
-        return .mac
-        #else
-        return UIDevice.current.userInterfaceIdiom == .phone ? .phone : .pad
-        #endif
+    /// One profile per device. Call sites use capabilities, not RAM guesses.
+    struct Profile: Equatable {
+        var kind: Kind
+        var machine: String
+        var name: String
+        var ramGB: Int
+        /// iPhone 13, 17, … nil on iPad/Mac.
+        var phoneGeneration: Int?
+        /// Skip the xlsx parser (phones + 4GB iPads). Pack-only.
+        var skipExcel: Bool
+        /// Skip labor/picker on first sqlite read (iPhone 13 / 4GB).
+        var lightLaunch: Bool
+        var phoneChrome: Bool
+        var hydrateNeighbors: Bool
+        var rasterizeSwipe: Bool
+        var grainCap: Int
+        var storeGrainCap: Int
     }
 
-    static var isPhoneDevice: Bool { kind == .phone }
-    static var isPadDevice: Bool { kind == .pad }
-    static var isMac: Bool { kind == .mac }
+    static let profile: Profile = makeProfile()
 
-    /// 4GB class (iPhone 13 / SE 3 / old iPads).
-    static var lowMemory: Bool {
-        ProcessInfo.processInfo.physicalMemory < 5_500_000_000
-    }
+    static var kind: Kind { profile.kind }
+    static var isPhoneDevice: Bool { profile.kind == .phone }
+    static var isPadDevice: Bool { profile.kind == .pad }
+    static var isMac: Bool { profile.kind == .mac }
+    static var lowMemory: Bool { profile.ramGB < 6 }
+    static var lightLaunch: Bool { profile.lightLaunch }
+    /// Skip Excel. Name kept for HeartbeatStore call sites.
+    static var constrained: Bool { profile.skipExcel }
 
-    /// Skip labor/picker on first sqlite read. iPhone 13 / 4GB iPads only.
-    static var lightLaunch: Bool { lowMemory }
-
-    /// Skip Excel parse. Every iPhone, plus 4GB iPads. iPhone 17 still
-    /// loads the full sqlite pack so dashboard sections are complete.
-    static var constrained: Bool { isPhoneDevice || lowMemory }
-
-    /// Phone chrome stays phone even in landscape. iPad/Mac stay regular
-    /// even in split view. Never drive this off width alone.
     static func isPhone(_ sizeClass: UserInterfaceSizeClass?) -> Bool {
         _ = sizeClass
-        return isPhoneDevice
+        return profile.phoneChrome
     }
+
+    static var grainCap: Int { profile.grainCap }
+    static var storeGrainCap: Int { profile.storeGrainCap }
+    static var pickerCap: Int { 50 }
+    static var hydrateNeighbors: Bool { profile.hydrateNeighbors }
+    static var rasterizeSwipe: Bool { profile.rasterizeSwipe }
 
     static func phoneBannerTitleFont() -> Font { AppTheme.rounded(.footnote, weight: .bold) }
     static func phoneBannerIconFont() -> Font { AppTheme.rounded(.footnote, weight: .semibold) }
@@ -277,7 +287,7 @@ enum HubLayout {
 
     static func flagColumns(count: Int, width: CGFloat) -> Int {
         guard count > 0 else { return 1 }
-        if isPhoneDevice { return 1 }
+        if profile.phoneChrome { return 1 }
         if width < 500 { return 1 }
         let chip: CGFloat
         if width < 700 { chip = 164 }
@@ -297,20 +307,95 @@ enum HubLayout {
 
     static func uploadColumns(width: CGFloat, sizeClass: UserInterfaceSizeClass? = .regular) -> Int {
         if isPhone(sizeClass) { return 1 }
-        return width >= 720 ? 2 : 2
+        return 2
     }
 
     static func grid(_ count: Int, spacing: CGFloat = 12, minWidth: CGFloat = 140) -> [GridItem] {
         Array(repeating: GridItem(.flexible(minimum: minWidth), spacing: spacing), count: max(1, count))
     }
 
-    static var grainCap: Int { lightLaunch ? 12 : 24 }
-    static var storeGrainCap: Int { lightLaunch ? 16 : 50 }
-    static var pickerCap: Int { 50 }
-    /// Next page hydrates on swipe. Taps never pre-build neighbors.
-    static var hydrateNeighbors: Bool { false }
-    /// Rasterizing huge SwiftUI lists stalls Mac. iPad only.
-    static var rasterizeSwipe: Bool { isPadDevice && !lowMemory }
+    private static func makeProfile() -> Profile {
+        let kind = detectKind()
+        let machine = machineIdentifier()
+        let ramGB = max(1, Int(ProcessInfo.processInfo.physicalMemory / 1_000_000_000))
+        let phoneGen = phoneGeneration(machine)
+        let name = marketingName(machine: machine, kind: kind, phoneGen: phoneGen)
+        let fourGig = ramGB < 6
+        let thirteenClass = (phoneGen ?? 99) <= 13
+        let lightLaunch = kind == .phone && (fourGig || thirteenClass)
+            || kind == .pad && fourGig
+        let skipExcel = kind == .phone || fourGig
+        return Profile(
+            kind: kind,
+            machine: machine,
+            name: name,
+            ramGB: ramGB,
+            phoneGeneration: phoneGen,
+            skipExcel: skipExcel,
+            lightLaunch: lightLaunch,
+            phoneChrome: kind == .phone,
+            hydrateNeighbors: kind == .pad && !fourGig,
+            rasterizeSwipe: kind == .pad && !fourGig,
+            grainCap: lightLaunch ? 12 : 24,
+            storeGrainCap: lightLaunch ? 16 : 50
+        )
+    }
+
+    private static func detectKind() -> Kind {
+        #if targetEnvironment(macCatalyst)
+        return .mac
+        #else
+        return UIDevice.current.userInterfaceIdiom == .phone ? .phone : .pad
+        #endif
+    }
+
+    private static func machineIdentifier() -> String {
+        var info = utsname()
+        uname(&info)
+        return Mirror(reflecting: info.machine).children.reduce(into: "") { result, child in
+            guard let value = child.value as? Int8, value != 0 else { return }
+            result.append(Character(UnicodeScalar(UInt8(value))))
+        }
+    }
+
+    /// Apple product name → iPhone generation. iPhone14,5 = 13, iPhone18,1 = 17.
+    private static func phoneGeneration(_ machine: String) -> Int? {
+        guard machine.hasPrefix("iPhone") else { return nil }
+        let code = String(machine.dropFirst("iPhone".count))
+        let major = Int(code.split(separator: ",").first ?? "") ?? 0
+        switch machine {
+        case "iPhone14,2", "iPhone14,3", "iPhone14,4", "iPhone14,5", "iPhone14,6":
+            return 13
+        case "iPhone14,7", "iPhone14,8", "iPhone15,2", "iPhone15,3":
+            return 14
+        case "iPhone15,4", "iPhone15,5", "iPhone16,1", "iPhone16,2":
+            return 15
+        case "iPhone17,1", "iPhone17,2", "iPhone17,3", "iPhone17,4", "iPhone17,5":
+            return 16
+        default:
+            if machine.hasPrefix("iPhone18") { return 17 }
+            if machine.hasPrefix("iPhone19") { return 18 }
+            if major >= 18 { return 17 }
+            if major >= 17 { return 16 }
+            if major >= 16 { return 15 }
+            if major >= 15 { return 14 }
+            if major >= 14 { return 13 }
+            if major >= 13 { return 12 }
+            return major > 0 ? major : nil
+        }
+    }
+
+    private static func marketingName(machine: String, kind: Kind, phoneGen: Int?) -> String {
+        if kind == .mac { return "Mac" }
+        if let gen = phoneGen {
+            if machine.contains("iPhone14,2") || machine.contains("iPhone14,3") { return "iPhone 13 Pro" }
+            if machine.contains("iPhone14,4") { return "iPhone 13 mini" }
+            if machine.contains("iPhone14,6") { return "iPhone SE (3rd)" }
+            return "iPhone \(gen)"
+        }
+        if machine.hasPrefix("iPad") { return "iPad" }
+        return UIDevice.current.model
+    }
 }
 
 private struct HubWidthKey: PreferenceKey {
