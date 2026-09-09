@@ -147,12 +147,13 @@ private func phoneMoney(_ value: Double?) -> String? {
     return nil
 }
 
-private struct PhonePulseCard: View {
+struct PhonePulseCard: View {
     let card: SectionSummary
     let flags: [HeartbeatMath.FiveStarFlag]
     let grains: [DashScopePack]
     let grain: DashScopeGrain?
     var extraPct: Double? = nil
+    var tappable: Bool = true
     let action: () -> Void
 
     private var titleText: String {
@@ -174,40 +175,14 @@ private struct PhonePulseCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Button(action: action) {
-                HStack(alignment: .center, spacing: 10) {
-                    DashCardGlyph(symbol: card.section.symbol, health: card.health, compact: true)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(titleText)
-                            .font(AppTheme.rounded(.subheadline, weight: .bold))
-                            .foregroundStyle(AppTheme.text)
-                            .lineLimit(1)
-                        Text(riskText)
-                            .font(AppTheme.rounded(.caption, weight: .semibold))
-                            .foregroundStyle(dashInk(card.riskCount == 0 ? .good : .risk))
-                            .lineLimit(1)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text(valueText)
-                            .font(AppTheme.rounded(.title3, weight: .bold).monospacedDigit())
-                            .foregroundStyle(dashInk(card.health))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.55)
-                        if let extraPct {
-                            Text(HeartbeatFormat.pct(extraPct))
-                                .font(AppTheme.rounded(.caption, weight: .bold).monospacedDigit())
-                                .foregroundStyle(dashInk(card.health))
-                                .lineLimit(1)
-                        }
-                        HealthBadge(health: card.health, prominent: true, compact: true)
-                    }
-                    Image(systemName: "chevron.right")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(AppTheme.textTertiary)
+            if tappable {
+                Button(action: action) {
+                    header
                 }
+                .buttonStyle(DashLiftStyle())
+            } else {
+                header
             }
-            .buttonStyle(DashLiftStyle())
             PhoneFlagStrip(flags: statusFlags(flags))
             if let grain {
                 DashScopeStrip(section: card.section, grain: grain, packs: grains, width: 390)
@@ -215,9 +190,45 @@ private struct PhonePulseCard: View {
         }
         .modifier(DashCardChrome(health: card.health))
     }
+
+    private var header: some View {
+        HStack(alignment: .center, spacing: 10) {
+            DashCardGlyph(symbol: card.section.symbol, health: card.health, compact: true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(titleText)
+                    .font(AppTheme.rounded(.subheadline, weight: .bold))
+                    .foregroundStyle(AppTheme.text)
+                    .lineLimit(1)
+                Text(riskText)
+                    .font(AppTheme.rounded(.caption, weight: .semibold))
+                    .foregroundStyle(dashInk(card.riskCount == 0 ? .good : .risk))
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(valueText)
+                    .font(AppTheme.rounded(.title3, weight: .bold).monospacedDigit())
+                    .foregroundStyle(dashInk(card.health))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.55)
+                if let extraPct {
+                    Text(HeartbeatFormat.pct(extraPct))
+                        .font(AppTheme.rounded(.caption, weight: .bold).monospacedDigit())
+                        .foregroundStyle(dashInk(card.health))
+                        .lineLimit(1)
+                }
+                HealthBadge(health: card.health, prominent: true, compact: true)
+            }
+            if tappable {
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(AppTheme.textTertiary)
+            }
+        }
+    }
 }
 
-private struct PhoneFlagStrip: View {
+struct PhoneFlagStrip: View {
     let flags: [HeartbeatMath.FiveStarFlag]
 
     private var shown: [HeartbeatMath.FiveStarFlag] {
@@ -557,7 +568,7 @@ struct DashScopeStrip: View {
     }
 }
 
-private struct PhoneGrainRow: View {
+struct PhoneGrainRow: View {
     let label: String
     let value: String
     let count: Int?

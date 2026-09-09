@@ -1494,6 +1494,7 @@ struct FilterColumn: View {
 struct StoreTable: View {
     let section: MetricSection
     let rows: [MetricRow]
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     private enum Column: String, CaseIterable, Identifiable {
         case store, district, om, result, status
@@ -1533,6 +1534,24 @@ struct StoreTable: View {
                     detail: "Adjust filters or upload a file for this section."
                 )
                 .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 20, trailing: 20))
+                .listRowSeparator(.hidden)
+                .listRowBackground(AppTheme.bg)
+            }
+        } else if HubLayout.isPhone(sizeClass) {
+            Section {
+                VStack(spacing: 6) {
+                    ForEach(Array(sortedRows.prefix(40))) { row in
+                        let view = StoreCellViewModel.make(section: section, row: row)
+                        let health = HeartbeatMath.health(for: section, row: row)
+                        PhoneGrainRow(
+                            label: section == .pickerScorecard ? row.shopperName : HeartbeatMath.storeDisplayLabel(row),
+                            value: view.primary,
+                            count: nil,
+                            health: health == .none ? .good : health
+                        )
+                    }
+                }
+                .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 12, trailing: 12))
                 .listRowSeparator(.hidden)
                 .listRowBackground(AppTheme.bg)
             }
@@ -4838,6 +4857,7 @@ struct FiveStarStickyStoreHeader: View {
 struct FiveStarRollupTable: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var headerPin: LaborHeaderPin
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var grain: LaborRollupGrain? = .division
     @State private var summary: [FiveStarRollupRow] = []
     @State private var sortKey = "presub"
@@ -4861,6 +4881,20 @@ struct FiveStarRollupTable: View {
                 }
                 .buttonStyle(.plain)
                 if expanded {
+                    if HubLayout.isPhone(sizeClass) {
+                        VStack(spacing: 6) {
+                            ForEach(summary.prefix(20)) { row in
+                                PhoneGrainRow(
+                                    label: row.label,
+                                    value: HeartbeatFormat.stars(row.rating),
+                                    count: grain == .store ? nil : row.storeCount,
+                                    health: HeartbeatMath.band(row.presub, good: HeartbeatMath.missingItemsGoal, watch: HeartbeatMath.missingItemsWatch, invert: true)
+                                )
+                            }
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.bottom, 10)
+                    } else {
                     HubAdaptiveHScroll {
                     VStack(alignment: .leading, spacing: 10) {
                     FiveStarMetricHeader(
@@ -4886,6 +4920,7 @@ struct FiveStarRollupTable: View {
                     }
                     .padding(.horizontal, 12)
                     .padding(.bottom, 12)
+                    }
                 }
             }
             .background(AppTheme.tableFill)
@@ -9741,7 +9776,10 @@ private struct HubPhoneTableModifier: ViewModifier {
     var minWidth: CGFloat
 
     func body(content: Content) -> some View {
-        if sizeClass == .regular {
+        if HubLayout.isPhone(sizeClass) {
+            content
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+        } else if sizeClass == .regular {
             content
         } else {
             ScrollView(.horizontal, showsIndicators: true) {
@@ -9790,6 +9828,9 @@ struct HubAdaptiveHScroll<Content: View>: View {
     var body: some View {
         Group {
             if HubLayout.isPhone(sizeClass) {
+                content
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
                 ViewThatFits(in: .horizontal) {
                     content
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -9799,7 +9840,7 @@ struct HubAdaptiveHScroll<Content: View>: View {
                             .frame(minWidth: 780, maxWidth: .infinity, alignment: .leading)
                     }
                 }
-            } else {
+            }
                 ViewThatFits(in: .horizontal) {
                     content
                         .frame(maxWidth: .infinity, alignment: .leading)

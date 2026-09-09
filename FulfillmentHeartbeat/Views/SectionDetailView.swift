@@ -28,7 +28,7 @@ struct SectionDetailView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if sizeClass == .regular {
+            if !HubLayout.isPhone(sizeClass) {
                 HubStickyPageBanner(
                     icon: section.symbol,
                     title: section.bannerTitle,
@@ -39,7 +39,7 @@ struct SectionDetailView: View {
             List {
             Section {
                 pageIntro
-                    .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 4, trailing: 20))
+                    .listRowInsets(EdgeInsets(top: 8, leading: HubLayout.isPhone(sizeClass) ? 12 : 20, bottom: 4, trailing: HubLayout.isPhone(sizeClass) ? 12 : 20))
                     .listRowSeparator(.hidden)
                     .listRowBackground(AppTheme.bg)
             }
@@ -237,11 +237,23 @@ struct SectionDetailView: View {
     @ViewBuilder
     private var pageIntro: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(section.blurb)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(AppTheme.textTertiary)
-                .lineLimit(1)
-                .padding(.horizontal, 2)
+            if HubLayout.isPhone(sizeClass) {
+                PhonePulseCard(
+                    card: summary,
+                    flags: store.dashboardFlags(for: section),
+                    grains: [],
+                    grain: nil,
+                    extraPct: section == .lostRevenue ? summary.lostRevenuePct : nil,
+                    tappable: false,
+                    action: {}
+                )
+            } else {
+                Text(section.blurb)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(AppTheme.textTertiary)
+                    .lineLimit(1)
+                    .padding(.horizontal, 2)
+            }
 
             if section == .labor, store.laborNeedsReload() {
                 HStack(alignment: .top, spacing: 10) {
@@ -295,7 +307,12 @@ struct SectionDetailView: View {
                 .background(AppTheme.warnSoft, in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous))
             }
 
-            if section == .labor {
+            if HubLayout.isPhone(sizeClass) {
+                if section == .labor { LaborWeekFilterBar() }
+                if section == .missingItems || section == .preSubOOS {
+                    MissingItemsCategoryFilter(selected: $miCategories, width: pageWidth)
+                }
+            } else if section == .labor {
                 LaborWeekFilterBar()
                 laborStatusTiles
             } else if section == .sales {
@@ -307,8 +324,8 @@ struct SectionDetailView: View {
                 MissingItemsCategoryFilter(selected: $miCategories, width: pageWidth)
             } else if section == .pickerScorecard {
                 LazyVGrid(
-                    columns: HubLayout.grid(4, spacing: HubLayout.isPhone(sizeClass) ? 8 : 10, minWidth: HubLayout.isPhone(sizeClass) ? 140 : 160),
-                    spacing: HubLayout.isPhone(sizeClass) ? 8 : 10
+                    columns: HubLayout.grid(4, spacing: 10, minWidth: 160),
+                    spacing: 10
                 ) {
                     pickerStatusTiles
                 }
