@@ -54,11 +54,12 @@ struct RoleGateView: View {
     private var roleStep: some View {
         VStack(spacing: 12) {
             ForEach(HeartbeatRole.allCases) { item in
-                roleCard(item)
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        pick(item)
-                    }
+                Button {
+                    pick(item)
+                } label: {
+                    roleCard(item)
+                }
+                .buttonStyle(.plain)
             }
         }
     }

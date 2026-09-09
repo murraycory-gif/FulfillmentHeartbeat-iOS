@@ -90,6 +90,8 @@ final class HeartbeatStore: ObservableObject {
     private var masterBookmark: Data?
     private var lastCloudPullAt: Date?
     private var lifetimeObservers: [NSObjectProtocol] = []
+    private var cloudHydrateStarted = false
+    private var pendingHeavyExtras = false
 
     init(rootURL: URL? = nil) {
         fileManager = .default
@@ -133,10 +135,6 @@ final class HeartbeatStore: ObservableObject {
             importLabel = nil
             isReady = true
             needsRolePick = true
-            Task {
-                await self.loadHeavySections()
-                await self.hydrateFromCloudInBackground()
-            }
             return
         }
         if !Self.hasUsableLabor(rows) || !Self.hasUsablePicker(rows) {
@@ -1389,10 +1387,31 @@ final class HeartbeatStore: ObservableObject {
             next.om = om
         }
         next.sanitize()
-        guard filters != next else { return }
-        Task { @MainActor in
-            self.filters = next
-            self.persistFilters()
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            if self.filters != next {
+                self.filters = next
+                self.persistFilters()
+            } else if !next.isActive {
+                self.rebuildCompanyGrainPacks()
+            }
+            if self.pendingHeavyExtras {
+                self.pendingHeavyExtras = false
+                self.scheduleHeavyExtras(latest: self.latestBySection, roster: self.roster)
+            }
+            self.startCloudHydrateIfNeeded()
+        }
+    }
+
+    private func startCloudHydrateIfNeeded() {
+        guard !cloudHydrateStarted else { return }
+        cloudHydrateStarted = true
+        Task {
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            if HubLayout.constrained {
+                await self.loadHeavySections()
+            }
+            await self.hydrateFromCloudInBackground()
         }
     }
 
@@ -2484,7 +2503,10 @@ final class HeartbeatStore: ObservableObject {
                 pickerIndex[.all] = Array(pickers.indices)
             }
         }
-        rebuildCompanyGrainPacks()
+        cachedGrainPacks = PulseCaches.placeholderGrainPacks(grain: effectiveDashboardGrain)
+        if !needsRolePick {
+            rebuildCompanyGrainPacks()
+        }
         if unfilteredPulse == nil {
             unfilteredPulse = snapshotPulse()
         }
@@ -2498,7 +2520,7 @@ final class HeartbeatStore: ObservableObject {
         let stores = cachedStores
         let rosterCopy = roster
         let token = filterStamp
-        Task.detached(priority: .userInitiated) {
+        Task.detached(priority: .utility) {
             let packs = PulseCaches.grainPacks(
                 latest: latest,
                 grain: grain,
@@ -2789,10 +2811,7 @@ final class HeartbeatStore: ObservableObject {
                 hydrating = false
                 applyLocalCards()
                 importProgress.loaded = MetricSection.uploadOrder.count
-                if HubLayout.constrained {
-                    return
-                }
-                scheduleHeavyExtras(latest: caches.filteredLatest, roster: caches.roster)
+                pendingHeavyExtras = true
                 return
             }
         }
