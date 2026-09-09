@@ -99,23 +99,50 @@ enum PulseCloud {
     }
 
     static func downloadPack() async throws -> Data {
-        var request = URLRequest(url: packURL)
-        request.httpMethod = "GET"
-        applyAuth(&request)
-        let (data, response) = try await URLSession.shared.data(for: request)
-        guard let http = response as? HTTPURLResponse else { throw PulseCloudError.network }
-        if http.statusCode == 200, !data.isEmpty { return data }
-        if http.statusCode == 400 || http.statusCode == 404 {
-            var fallback = URLRequest(url: publicPackURL)
-            fallback.httpMethod = "GET"
-            applyAuth(&fallback)
-            let (alt, altResponse) = try await URLSession.shared.data(for: fallback)
-            guard let altHTTP = altResponse as? HTTPURLResponse, altHTTP.statusCode == 200, !alt.isEmpty else {
-                throw PulseCloudError.missing
+        let temp = FileManager.default.temporaryDirectory.appendingPathComponent("heartbeat-pack-\(UUID().uuidString).sqlite")
+        defer { try? FileManager.default.removeItem(at: temp) }
+        let size = try await downloadPack(to: temp)
+        guard size > 50_000 else { throw PulseCloudError.missing }
+        return try Data(contentsOf: temp, options: [.mappedIfSafe])
+    }
+
+    /// Stream the pack to disk. Do not hold the file in RAM (iPhone 13 jetsam).
+    static func downloadPack(to dest: URL) async throws -> Int {
+        var last: Error = PulseCloudError.missing
+        for url in [packURL, publicPackURL] {
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            request.timeoutInterval = 180
+            applyAuth(&request)
+            do {
+                let (temp, response) = try await URLSession.shared.download(for: request)
+                guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                    last = PulseCloudError.http((response as? HTTPURLResponse)?.statusCode ?? 0)
+                    continue
+                }
+                let size = (try FileManager.default.attributesOfItem(atPath: temp.path)[.size] as? NSNumber)?.intValue ?? 0
+                guard size > 50_000 else {
+                    last = PulseCloudError.missing
+                    continue
+                }
+                let folder = dest.deletingLastPathComponent()
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                let staged = folder.appendingPathComponent("heartbeat-incoming.sqlite")
+                if FileManager.default.fileExists(atPath: staged.path) {
+                    try FileManager.default.removeItem(at: staged)
+                }
+                try FileManager.default.moveItem(at: temp, to: staged)
+                if FileManager.default.fileExists(atPath: dest.path) {
+                    _ = try FileManager.default.replaceItemAt(dest, withItemAt: staged)
+                } else {
+                    try FileManager.default.moveItem(at: staged, to: dest)
+                }
+                return size
+            } catch {
+                last = error
             }
-            return alt
         }
-        throw PulseCloudError.http(http.statusCode)
+        throw last
     }
 
     static func uploadPack(_ data: Data) async throws {

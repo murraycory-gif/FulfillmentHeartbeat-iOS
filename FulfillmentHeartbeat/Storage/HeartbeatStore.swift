@@ -172,12 +172,12 @@ final class HeartbeatStore: ObservableObject {
     private func hydrateFromCloudInBackground() async {
         await syncCloudPackIfChanged()
         if HubLayout.constrained {
-            await loadHeavySections()
+            applyLocalCards()
+            return
         }
         if !Self.hasUsableLostRevenue(rows) {
             await loadPublishedFacts()
         }
-        if HubLayout.constrained { return }
         if Self.hasUsableSales(rows), Self.hasWeekSalesDays(rows), Self.hasUsableLostRevenue(rows) {
             return
         }
@@ -1408,9 +1408,6 @@ final class HeartbeatStore: ObservableObject {
         cloudHydrateStarted = true
         Task {
             try? await Task.sleep(nanoseconds: 350_000_000)
-            if HubLayout.constrained {
-                await self.loadHeavySections()
-            }
             await self.hydrateFromCloudInBackground()
         }
     }
@@ -1677,17 +1674,21 @@ final class HeartbeatStore: ObservableObject {
         let remote = await PulseCloud.objectSize(PulseCloud.object)
         guard remote > 50_000 else { return }
         let known = UserDefaults.standard.integer(forKey: "hb.cloudPackBytes")
-        let localComplete = Self.hasFullScorecards(rows)
-        if known == remote, localComplete { return }
+        let build = UserDefaults.standard.string(forKey: "hb.packBuild") ?? ""
+        let packReady = Self.hasUsableSales(rows) && Self.hasUsableLostRevenue(rows)
+        let sameFile = known == remote && packReady && build == BuildStamp.id
+        if sameFile { return }
         do {
-            let data = try await PulseCloud.downloadPack()
-            guard data.count > 50_000 else { return }
             let dest = sqliteURL
-            try await Task.detached(priority: .userInitiated) {
-                try data.write(to: dest, options: .atomic)
-            }.value
-            UserDefaults.standard.set(data.count, forKey: "hb.cloudPackBytes")
+            let size = try await PulseCloud.downloadPack(to: dest)
             await loadPack()
+            guard seeded, !rows.isEmpty else { return }
+            UserDefaults.standard.set(size, forKey: "hb.cloudPackBytes")
+            UserDefaults.standard.set(BuildStamp.id, forKey: "hb.packBuild")
+            if HubLayout.constrained {
+                applyLocalCards()
+                return
+            }
             await loadHeavySections()
             if !Self.hasUsableLostRevenue(rows) {
                 await loadPublishedFacts()
@@ -2664,6 +2665,15 @@ final class HeartbeatStore: ObservableObject {
         .labor, .pickerScorecard, .pickPathPicker
     ]
 
+    private static var launchSkip: Set<MetricSection> {
+        var skip = deferredSections
+        if HubLayout.constrained {
+            skip.insert(.missingItems)
+            skip.insert(.preSubOOSItem)
+        }
+        return skip
+    }
+
     private func lightRows(_ rows: [MetricRow]) -> [MetricRow] {
         rows.filter { !Self.deferredSections.contains($0.section) }
     }
@@ -2780,7 +2790,7 @@ final class HeartbeatStore: ObservableObject {
     private func loadPack() async {
         if PulseSQLite.exists(at: sqliteURL) {
             let url = sqliteURL
-            let skipHeavy: Set<MetricSection> = HubLayout.constrained ? Self.deferredSections : []
+            let skipHeavy: Set<MetricSection> = HubLayout.constrained ? Self.launchSkip : []
             let pack = await Task.detached(priority: .userInitiated) {
                 try? PulseSQLite.read(from: url, skipping: skipHeavy)
             }.value
@@ -2823,46 +2833,28 @@ final class HeartbeatStore: ObservableObject {
     private func loadHeavySections() async {
         guard HubLayout.constrained else { return }
         guard PulseSQLite.exists(at: sqliteURL) else { return }
+        applyLocalCards()
         let url = sqliteURL
-        let extra = await Task.detached(priority: .utility) {
-            try? PulseSQLite.read(from: url, only: [.labor, .pickerScorecard, .pickPathPicker])
-        }.value
-        guard let extra, !extra.rows.isEmpty else { return }
-        let incoming = extra.rows
         let rosterCopy = roster
-        let indexed = await Task.detached(priority: .utility) { () -> [MetricSection: [MetricRow]] in
-            var latest: [MetricSection: [MetricRow]] = [:]
-            let labor = incoming.filter {
-                $0.section == .labor
-                    && $0.textPayload["labor_grain"] != "market"
-                    && !$0.storeNumber.isEmpty
+        let laborLatest = await Task.detached(priority: .utility) { () -> [MetricRow] in
+            guard let pack = try? PulseSQLite.read(from: url, only: [.labor]) else { return [] }
+            let stores = pack.rows.filter {
+                $0.textPayload["labor_grain"] != "market" && !$0.storeNumber.isEmpty
             }
-            latest[.labor] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(labor), roster: rosterCopy)
-            let pickers = incoming.filter { $0.section == .pickerScorecard }
-            latest[.pickerScorecard] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerShopper(pickers), roster: rosterCopy)
-            let path = incoming.filter { $0.section == .pickPathPicker }
-            latest[.pickPathPicker] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerShopper(path), roster: rosterCopy)
-            return latest
+            return HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(stores), roster: rosterCopy)
         }.value
-        rows.removeAll { Self.deferredSections.contains($0.section) }
-        rows.append(contentsOf: incoming)
-        for (section, sectionRows) in indexed {
-            latestBySection[section] = sectionRows
-            if !filters.isActive {
-                filteredLatest[section] = sectionRows
-            }
+        guard !laborLatest.isEmpty else { return }
+        latestBySection[.labor] = laborLatest
+        if !filters.isActive {
+            filteredLatest[.labor] = laborLatest
         }
         rebuildLaborWeekIndex()
-        if let pickers = indexed[.pickerScorecard], !pickers.isEmpty {
-            cachedPickerBoard = HeartbeatMath.pickerBoard(pickers)
-            cachedSummaries = MetricSection.dashboardCards.map { section in
-                HeartbeatMath.summarize(
-                    section,
-                    rows: filteredLatest[section] ?? latestBySection[section] ?? [],
-                    upload: uploads.first { $0.section == section }
-                )
-            }
-            scheduleHeavyExtras(latest: latestBySection, roster: roster)
+        if let index = cachedSummaries.firstIndex(where: { $0.section == .labor }) {
+            cachedSummaries[index] = HeartbeatMath.summarize(
+                .labor,
+                rows: laborLatest,
+                upload: uploads.first { $0.section == .labor }
+            )
         }
         if !needsRolePick {
             filterStamp += 1
