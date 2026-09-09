@@ -15,7 +15,7 @@ struct DashboardView: View {
 
     private var dashboardBody: some View {
         VStack(spacing: 0) {
-            if sizeClass == .regular {
+            if !HubLayout.isPhone(sizeClass) {
                 HubStickyPageBanner(
                     icon: "waveform.path.ecg",
                     title: "Operational Heartbeat",
@@ -49,8 +49,8 @@ struct DashboardView: View {
                             open(card.section)
                         }
                         .equatable()
-                        .padding(.horizontal, sizeClass == .regular ? 20 : 12)
-                        .padding(.vertical, 6)
+                        .padding(.horizontal, HubLayout.isPhone(sizeClass) ? 12 : 20)
+                        .padding(.vertical, HubLayout.isPhone(sizeClass) ? 5 : 6)
                     }
                     if !store.seeded {
                         HubCard {
@@ -108,10 +108,10 @@ struct DashboardView: View {
     }
 
     private func open(_ section: MetricSection) {
-        if sizeClass == .regular {
-            router.open(section: section)
-        } else {
+        if HubLayout.isPhone(sizeClass) {
             pushedSection = section
+        } else {
+            router.open(section: section)
         }
     }
 }
@@ -131,6 +131,134 @@ private func statusFlags(_ flags: [HeartbeatMath.FiveStarFlag]) -> [HeartbeatMat
     return flags
 }
 
+private func phoneMoney(_ value: Double?) -> String? {
+    guard let value else { return nil }
+    let sign = value < 0 ? "-" : ""
+    let amount = abs(value)
+    if amount >= 1_000_000_000 {
+        return "\(sign)$\(String(format: "%.1f", amount / 1_000_000_000))B"
+    }
+    if amount >= 1_000_000 {
+        return "\(sign)$\(String(format: "%.1f", amount / 1_000_000))M"
+    }
+    if amount >= 10_000 {
+        return "\(sign)$\(String(format: "%.0f", amount / 1_000))K"
+    }
+    return nil
+}
+
+private struct PhonePulseCard: View {
+    let card: SectionSummary
+    let flags: [HeartbeatMath.FiveStarFlag]
+    let grains: [DashScopePack]
+    let grain: DashScopeGrain?
+    var extraPct: Double? = nil
+    let action: () -> Void
+
+    private var titleText: String {
+        if card.section == .lostRevenue { return "Loss Revenue" }
+        if card.section == .pickPath { return "Pick Path" }
+        return card.section.title
+    }
+
+    private var valueText: String {
+        phoneMoney(card.headline) ?? card.headlineText
+    }
+
+    private var riskText: String {
+        let n = HeartbeatFormat.num(Double(card.riskCount))
+        let unit = card.section == .pickerScorecard ? "pickers" : "stores"
+        if card.riskCount == 0 { return "No \(unit) at risk" }
+        return "\(n) \(unit) at risk"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Button(action: action) {
+                HStack(alignment: .center, spacing: 10) {
+                    DashCardGlyph(symbol: card.section.symbol, health: card.health, compact: true)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(titleText)
+                            .font(AppTheme.rounded(.subheadline, weight: .bold))
+                            .foregroundStyle(AppTheme.text)
+                            .lineLimit(1)
+                        Text(riskText)
+                            .font(AppTheme.rounded(.caption, weight: .semibold))
+                            .foregroundStyle(dashInk(card.riskCount == 0 ? .good : .risk))
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(valueText)
+                            .font(AppTheme.rounded(.title3, weight: .bold).monospacedDigit())
+                            .foregroundStyle(dashInk(card.health))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.55)
+                        if let extraPct {
+                            Text(HeartbeatFormat.pct(extraPct))
+                                .font(AppTheme.rounded(.caption, weight: .bold).monospacedDigit())
+                                .foregroundStyle(dashInk(card.health))
+                                .lineLimit(1)
+                        }
+                        HealthBadge(health: card.health, prominent: true, compact: true)
+                    }
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(AppTheme.textTertiary)
+                }
+            }
+            .buttonStyle(DashLiftStyle())
+            PhoneFlagStrip(flags: statusFlags(flags))
+            if let grain {
+                DashScopeStrip(section: card.section, grain: grain, packs: grains, width: 390)
+            }
+        }
+        .modifier(DashCardChrome(health: card.health))
+    }
+}
+
+private struct PhoneFlagStrip: View {
+    let flags: [HeartbeatMath.FiveStarFlag]
+
+    var body: some View {
+        if flags.isEmpty {
+            EmptyView()
+        } else {
+            HStack(spacing: 6) {
+                ForEach(flags.prefix(4)) { flag in
+                    let tone = flag.health == .none ? Health.good : flag.health
+                    VStack(spacing: 2) {
+                        Text(phoneFlagValue(flag))
+                            .font(AppTheme.rounded(.subheadline, weight: .bold).monospacedDigit())
+                            .foregroundStyle(dashInk(tone))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.6)
+                        Text(flag.name)
+                            .font(AppTheme.rounded(.caption2, weight: .semibold))
+                            .foregroundStyle(AppTheme.textSecondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 7)
+                    .padding(.horizontal, 4)
+                    .background(AppTheme.healthWash(tone), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8, style: .continuous)
+                            .stroke(dashInk(tone).opacity(0.22), lineWidth: 1)
+                    )
+                }
+            }
+        }
+    }
+
+    private func phoneFlagValue(_ flag: HeartbeatMath.FiveStarFlag) -> String {
+        if flag.stores > 0 { return HeartbeatFormat.num(Double(flag.stores)) }
+        if !flag.value.isEmpty { return flag.value }
+        return "—"
+    }
+}
+
 struct DashLostBanner: View {
     let summary: SectionSummary
     let flags: [HeartbeatMath.FiveStarFlag]
@@ -141,7 +269,7 @@ struct DashLostBanner: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var flagsOpen = false
 
-    private var compact: Bool { sizeClass != .regular }
+    private var compact: Bool { HubLayout.isPhone(sizeClass) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -153,14 +281,7 @@ struct DashLostBanner: View {
                 }
             }
             .buttonStyle(DashLiftStyle())
-            if compact {
-                if !flags.isEmpty {
-                    DashFlagGrid(
-                        flags: statusFlags(flags),
-                        columns: HubLayout.flagColumns(count: statusFlags(flags).count, width: max(width, 320))
-                    )
-                }
-            } else {
+            if !compact {
                 DashFlagGrid(
                     flags: statusFlags(flags),
                     columns: HubLayout.flagColumns(count: statusFlags(flags).count, width: width)
@@ -293,26 +414,23 @@ struct DashScopeStrip: View {
                     dayRows = store.cachedSalesDayRows
                 }
             } label: {
-                HStack(spacing: 10) {
+                HStack(spacing: 8) {
                     Image(systemName: grain.symbol)
-                        .font(.subheadline.weight(.bold))
+                        .font(.caption.weight(.bold))
                         .foregroundStyle(Color.white)
                     Text(grain.title)
-                        .font(AppTheme.rounded(.subheadline, weight: .bold))
+                        .font(AppTheme.rounded(HubLayout.isPhone(sizeClass) ? .caption : .subheadline, weight: .bold))
                         .foregroundStyle(Color.white)
-                    Text("\(bannerCount) \(bannerCount == 1 ? String(grain.unit.dropLast()) : grain.unit)")
+                    Text("\(bannerCount)")
                         .font(AppTheme.rounded(.caption, weight: .semibold))
                         .foregroundStyle(Color.white.opacity(0.85))
                     Spacer(minLength: 8)
-                    Text(expanded ? "Tap to collapse" : "Tap to expand")
-                        .font(AppTheme.rounded(.caption, weight: .bold))
-                        .foregroundStyle(Color.white)
                     Image(systemName: expanded ? "chevron.up" : "chevron.down")
                         .font(.caption.weight(.bold))
                         .foregroundStyle(Color.white)
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
+                .padding(.horizontal, HubLayout.isPhone(sizeClass) ? 10 : 14)
+                .padding(.vertical, HubLayout.isPhone(sizeClass) ? 8 : 10)
                 .background(AppTheme.blue, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 .contentShape(Rectangle())
             }
@@ -667,7 +785,7 @@ struct DashCallout: View, Equatable {
     @State private var width: CGFloat = 980
     @State private var flagsOpen = false
 
-    private var compact: Bool { sizeClass != .regular }
+    private var compact: Bool { HubLayout.isPhone(sizeClass) }
 
     static func == (lhs: DashCallout, rhs: DashCallout) -> Bool {
         lhs.card == rhs.card && lhs.flags == rhs.flags && lhs.grains == rhs.grains && lhs.grain == rhs.grain
@@ -675,16 +793,21 @@ struct DashCallout: View, Equatable {
 
     var body: some View {
         Group {
-            if card.section == .lostRevenue {
+            if compact {
+                PhonePulseCard(
+                    card: card,
+                    flags: flags,
+                    grains: grains,
+                    grain: grain,
+                    extraPct: card.section == .lostRevenue ? card.lostRevenuePct : nil,
+                    action: action
+                )
+            } else if card.section == .lostRevenue {
                 DashLostBanner(summary: card, flags: flags, grains: grains, grain: grain, width: width, action: action)
             } else {
                 VStack(alignment: .leading, spacing: 12) {
                     Button(action: action) {
-                        if compact {
-                            compactHeader
-                        } else {
-                            wideHeader
-                        }
+                        wideHeader
                     }
                     .buttonStyle(DashLiftStyle())
                     DashFlagGrid(
