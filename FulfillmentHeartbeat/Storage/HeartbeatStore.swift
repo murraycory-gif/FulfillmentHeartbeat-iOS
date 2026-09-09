@@ -3267,23 +3267,3 @@ private enum PulseDisk {
         return try decoder.decode(HeartbeatSnapshot.self, from: data)
     }
 }
-
-private extension Array where Element: Hashable {
-    func uniqued() -> [Element] {
-        var seen = Set<Element>()
-        return filter { seen.insert($0).inserted }
-    }
-}
-
-private extension Array where Element == String {
-    func uniquedIgnoringCase() -> [String] {
-        var seen = Set<String>()
-        var out: [String] = []
-        for value in self {
-            let key = HeartbeatMath.normalize(value)
-            guard !key.isEmpty, seen.insert(key).inserted else { continue }
-            out.append(value)
-        }
-        return out
-    }
-}
