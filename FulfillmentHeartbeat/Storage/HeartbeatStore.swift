@@ -126,45 +126,36 @@ final class HeartbeatStore: ObservableObject {
         isReady = false
         importProgress.label = "Opening the floor"
         await loadPack()
-        await loadPublishedFacts()
-        if !Self.hasUsableLabor(rows) || !Self.hasUsablePicker(rows) {
-            await importCloudSQLiteIfPresent()
-        }
-        if seeded, !rows.isEmpty {
-            if cachedSummaries.isEmpty {
-                rebuildIndex()
-                installCompanyWideFast()
-            }
-            if Self.salesNeedsDayRepair(rows) {
-                importProgress.label = "Loading sales"
-                await repairSalesFromCloud()
-            }
-            isImporting = false
-            importLabel = nil
-            isReady = true
-            needsRolePick = true
-            return
-        }
         await importCloudSQLiteIfPresent()
         await loadPublishedFacts()
+        if cachedSummaries.isEmpty, !rows.isEmpty {
+            rebuildIndex()
+            installCompanyWideFast()
+        }
         if seeded, !rows.isEmpty {
-            if cachedSummaries.isEmpty {
-                rebuildIndex()
-                installCompanyWideFast()
-            }
-            if Self.salesNeedsDayRepair(rows) {
-                importProgress.label = "Loading sales"
-                await repairSalesFromCloud()
-            }
             isImporting = false
             importLabel = nil
             isReady = true
             needsRolePick = true
+            if HubLayout.ingestsWorkbook {
+                Task { await self.ingestWorkbookOnMacIfNeeded() }
+            }
             return
+        }
+        if HubLayout.ingestsWorkbook {
+            importProgress.label = "Building today's pack"
+            await ingestWorkbookOnMacIfNeeded()
+            if seeded, !rows.isEmpty {
+                isImporting = false
+                importLabel = nil
+                isReady = true
+                needsRolePick = true
+                return
+            }
         }
         isImporting = false
         importLabel = nil
-        errorMessage = errorMessage ?? "Could not load Heartbeat from the cloud."
+        errorMessage = errorMessage ?? "Could not load Heartbeat pack from the cloud."
     }
 
     private func hydrateFromCloudInBackground() async {
@@ -1569,8 +1560,10 @@ final class HeartbeatStore: ObservableObject {
     func pullLatestWorkbookIfNeeded() {
         if let last = lastCloudPullAt, Date().timeIntervalSince(last) < 300 { return }
         lastCloudPullAt = Date()
-        Task { await pullWatchedWorkbook() }
         pullCloudPackIfNeeded()
+        guard HubLayout.ingestsWorkbook else { return }
+        Task { await pullWatchedWorkbook() }
+        Task { await ingestWorkbookOnMacIfNeeded() }
     }
 
     func pullCloudPackIfNeeded() {
@@ -1618,6 +1611,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func pullWorkbookFromServer() async {
+        guard HubLayout.ingestsWorkbook else { return }
         isImporting = true
         importProgress.label = "Downloading workbook"
         importLabel = "Downloading workbook"
@@ -1653,51 +1647,9 @@ final class HeartbeatStore: ObservableObject {
     private func syncServerWorkbookIfChanged(_ snap: [String: PulseCloud.ObjectStat]? = nil) async {
     }
 
-    private static func salesNeedsDayRepair(_ rows: [MetricRow]) -> Bool {
-        let sales = rows.filter { $0.section == .sales }
-        guard !sales.isEmpty else { return true }
-        return !sales.contains {
-            ($0.textPayload["sales_days"] ?? "").localizedCaseInsensitiveContains("Tuesday")
-        }
-    }
-
-    private func repairSalesFromCloud() async {
-        guard Self.salesNeedsDayRepair(rows) else { return }
-        var remoteName = "Heartbeat Daily Report.xlsx"
-        var found = false
-        for name in PulseCloud.workbookNames {
-            let size = await PulseCloud.objectSize(name)
-            if size > 1_000 {
-                remoteName = name
-                found = true
-                break
-            }
-        }
-        guard found else { return }
-        do {
-            let book = try await PulseCloud.downloadNamed(remoteName)
-            let parsed = await Task.detached(priority: .utility) {
-                WorkbookParser.parseSalesOnly(data: book)
-            }.value
-            let incoming = parsed.map { $0.asRow(section: .sales) }
-            guard incoming.contains(where: { ($0.number("sales_dollars") ?? 0) > 0 }) else { return }
-            rows = rows.filter { $0.section != .sales } + incoming
-            latestBySection[.sales] = HeartbeatMath.latestPerStore(incoming.filter { !$0.storeNumber.isEmpty })
-            filteredLatest[.sales] = latestBySection[.sales]
-            let salesSummary = HeartbeatMath.summarize(.sales, rows: incoming, upload: uploads.first { $0.section == .sales })
-            if let index = cachedSummaries.firstIndex(where: { $0.section == .sales }) {
-                cachedSummaries[index] = salesSummary
-            } else {
-                cachedSummaries.insert(salesSummary, at: 0)
-            }
-            refreshSalesExpandCache()
-            seeded = true
-            packDirty = true
-            UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
-            UserDefaults.standard.set(180, forKey: "hb.parserStamp")
-        } catch {
-            return
-        }
+    private func ingestWorkbookOnMacIfNeeded() async {
+        guard HubLayout.ingestsWorkbook else { return }
+        await importCloudWorkbook(blocking: true)
     }
 
     private func importCloudSQLiteIfPresent() async {
@@ -1736,6 +1688,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func importCloudWorkbook(blocking: Bool) async {
+        guard HubLayout.ingestsWorkbook else { return }
         var remoteXlsx = 0
         var remoteName = "Heartbeat Daily Report.xlsx"
         for name in PulseCloud.workbookNames {
@@ -1749,7 +1702,6 @@ final class HeartbeatStore: ObservableObject {
         let knownXlsx = UserDefaults.standard.integer(forKey: "hb.cloudXlsxBytes")
         let knownUpdated = UserDefaults.standard.string(forKey: "hb.cloudXlsxUpdated") ?? ""
         let hasPack = seeded && !rows.isEmpty
-        if HubLayout.constrained, hasPack { return }
         var remoteUpdated = ""
         for name in PulseCloud.workbookNames where name == remoteName {
             let info = await PulseCloud.objectInfo(name)
@@ -1758,27 +1710,18 @@ final class HeartbeatStore: ObservableObject {
         }
         let fileChanged = remoteXlsx > 1_000 && (remoteXlsx != knownXlsx || (!remoteUpdated.isEmpty && remoteUpdated != knownUpdated))
         let firstLoad = !hasPack
-        guard remoteXlsx > 1_000, firstLoad || fileChanged else {
-            if hasPack {
-                isImporting = false
-                isReady = true
-            }
-            await repairSalesFromCloud()
-            return
-        }
+        guard remoteXlsx > 1_000, firstLoad || fileChanged else { return }
         if !hasPack {
             isImporting = true
             isReady = false
-            importLabel = "Loading the data"
-            importProgress.label = "Loading the data"
+            importLabel = "Building today's pack"
+            importProgress.label = "Building today's pack"
             importProgress.loaded = 0
             importProgress.expected = MetricSection.uploadOrder.count
         }
         do {
             let book = try await PulseCloud.downloadNamed(remoteName)
-            if blocking || !hasPack {
-                importProgress.label = "Reading workbook"
-            }
+            importProgress.label = "Reading workbook"
             let ok = await runMasterImport(
                 data: book,
                 filename: remoteName,
@@ -1793,22 +1736,19 @@ final class HeartbeatStore: ObservableObject {
                 if !info.updated.isEmpty {
                     UserDefaults.standard.set(info.updated, forKey: "hb.cloudXlsxUpdated")
                 }
-                if fileChanged || firstLoad {
-                    publishFacts()
-                    publishCloudPack()
-                }
+                publishFacts()
+                publishCloudPack()
             } else if !hasPack {
                 UserDefaults.standard.removeObject(forKey: "hb.cloudXlsxBytes")
                 isImporting = false
                 importLabel = nil
                 errorMessage = "Cloud workbook did not load."
             }
-            return
         } catch {
             if !hasPack {
                 isImporting = false
                 importLabel = nil
-                errorMessage = "Could not load Heartbeat Daily Report from the cloud."
+                errorMessage = "Could not build Heartbeat pack from the workbook."
             }
         }
     }

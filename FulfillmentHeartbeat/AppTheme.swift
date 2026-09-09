@@ -268,6 +268,8 @@ enum HubLayout {
     static var lightLaunch: Bool { profile.lightLaunch }
     /// Skip Excel. Name kept for HeartbeatStore call sites.
     static var constrained: Bool { profile.skipExcel }
+    /// Only the Mac builds the sqlite pack from Excel. Phones and iPads never unzip xlsx.
+    static var ingestsWorkbook: Bool { isMac }
 
     static func isPhone(_ sizeClass: UserInterfaceSizeClass?) -> Bool {
         _ = sizeClass
