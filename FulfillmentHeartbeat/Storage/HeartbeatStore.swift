@@ -3457,10 +3457,19 @@ struct PulseCaches {
             } else {
                 lines = Array(HeartbeatMath.dashboardScopeLines(section: section, rows: rows, grain: grain).prefix(cap))
             }
-            let shown = lines.isEmpty ? (rows.isEmpty ? placeholderLines(grain) : []) : lines
-            if shown.isEmpty {
-                out[section] = []
-                continue
+            let shown: [DashScopeLine]
+            if grain == .region {
+                let byLabel = Dictionary(uniqueKeysWithValues: lines.map { ($0.label, $0) })
+                shown = MarketRegion.allCases.map { region in
+                    byLabel[region.rawValue] ?? DashScopeLine(
+                        label: region.rawValue,
+                        value: "—",
+                        health: .none,
+                        count: 0
+                    )
+                }
+            } else {
+                shown = lines.isEmpty ? placeholderLines(grain) : lines
             }
             var packs: [DashScopePack]
             if grain == .region {
@@ -3472,7 +3481,7 @@ struct PulseCaches {
             } else {
                 packs = shown.map { DashScopePack(line: $0, flags: [], children: []) }
             }
-            if section != .sales {
+            if section != .sales, section != .pickerScorecard {
                 let map = grainFlags(section: section, grain: grain, packs: packs, latest: latest, roster: roster)
                 packs = packs.map { pack in
                     var next = pack

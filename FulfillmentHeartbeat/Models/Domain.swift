@@ -590,9 +590,11 @@ enum HeartbeatMath {
         }
         guard let identity else { return row }
         var next = row
-        if !identity.division.isEmpty { next.division = identity.division }
-        if !identity.district.isEmpty { next.textPayload["district"] = identity.district }
-        if !identity.om.isEmpty { next.operationsOM = identity.om }
+        if next.division.isEmpty, !identity.division.isEmpty { next.division = identity.division }
+        if (next.textPayload["district"] ?? "").isEmpty, !identity.district.isEmpty {
+            next.textPayload["district"] = identity.district
+        }
+        if next.operationsOM.isEmpty, !identity.om.isEmpty { next.operationsOM = identity.om }
         if next.storeName == nil || next.storeName?.isEmpty == true { next.storeName = identity.name }
         return next
     }
