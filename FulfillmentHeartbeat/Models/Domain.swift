@@ -974,24 +974,15 @@ enum HeartbeatMath {
         return compact
     }
 
-    /// "03" and "3" mean District 3 (D3). B3/J3/I3 stay themselves.
+    /// 03 and 3 are the same numbered district. D3 and B3 stay themselves.
+    /// Never map 03 → D3 — both exist in the roster as different districts.
     static func districtMatchKeys(_ raw: String) -> Set<String> {
-        let primary = districtMatchKey(raw)
-        guard !primary.isEmpty else { return [] }
-        var keys: Set<String> = [primary]
-        let letters = String(primary.prefix(while: \.isLetter))
-        let digits = String(primary.drop(while: \.isLetter))
-        guard !digits.isEmpty, digits.allSatisfy(\.isNumber), let value = Int(digits) else {
-            return keys
-        }
-        let num = String(value)
-        let padded = String(format: "%02d", value)
-        if letters.isEmpty {
-            keys.insert("d\(num)")
-            keys.insert(padded)
-        } else if letters == "d" {
-            keys.insert(num)
-            keys.insert(padded)
+        let compact = compactKey(canonicalDistrict(raw))
+        guard !compact.isEmpty else { return [] }
+        var keys: Set<String> = [compact]
+        if compact.allSatisfy(\.isNumber), let value = Int(compact) {
+            keys.insert(String(value))
+            keys.insert(String(format: "%02d", value))
         }
         return keys
     }
@@ -2398,7 +2389,7 @@ enum HeartbeatMath {
         for row in stores {
             guard let lost = row.number("lost_revenue") else { continue }
             dollars += lost
-            if let ecomm = row.number("ecomm_sales"), ecomm > 0 {
+            if let ecomm = row.number("ecomm_sales"), ecomm >= 20 {
                 sales += ecomm
             }
         }

@@ -126,6 +126,7 @@ final class HeartbeatStore: ObservableObject {
         isReady = false
         importProgress.label = "Opening the floor"
         await loadPack()
+        await loadPublishedFacts()
         if seeded, !rows.isEmpty {
             if cachedSummaries.isEmpty {
                 rebuildIndex()
@@ -191,11 +192,9 @@ final class HeartbeatStore: ObservableObject {
         await syncCloudPackIfChanged(snap)
         if HubLayout.profile.skipExcel {
             applyLocalCards()
+            await loadPublishedFacts()
             if HubLayout.lightLaunch {
                 Task { await self.loadHeavySections() }
-            }
-            if HubLayout.isPadDevice, !Self.hasUsableLostRevenue(rows) {
-                await loadPublishedFacts()
             }
             return
         }
@@ -2841,17 +2840,34 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func loadPublishedFacts() async {
-        if Self.hasUsableLostRevenue(rows) { return }
         importProgress.label = "Loading store facts"
         let incoming: [MetricRow] = await Task.detached(priority: .userInitiated) {
             await PulseFacts.loadRows()
         }.value
         guard !incoming.isEmpty else { return }
-        var replace: Set<MetricSection> = [.lostRevenue]
-        if incoming.contains(where: { $0.section == .storeRoster }) { replace.insert(.storeRoster) }
-        rows.removeAll { replace.contains($0.section) }
-        rows.append(contentsOf: incoming.filter { replace.contains($0.section) })
+        let factLost = incoming.filter { $0.section == .lostRevenue && !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty }
+        let factRoster = incoming.filter { $0.section == .storeRoster }
+        let factSales = incoming.filter { $0.section == .sales && !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty }
+        let lostStores = Set(factLost.map { HeartbeatMath.canonicalStore($0.storeNumber) })
+        let salesStores = Set(factSales.map { HeartbeatMath.canonicalStore($0.storeNumber) })
+        if !factRoster.isEmpty {
+            rows.removeAll { $0.section == .storeRoster }
+            rows.append(contentsOf: factRoster)
+        }
+        if !lostStores.isEmpty {
+            rows.removeAll { row in
+                row.section == .lostRevenue && lostStores.contains(HeartbeatMath.canonicalStore(row.storeNumber))
+            }
+            rows.append(contentsOf: factLost)
+        }
+        if !salesStores.isEmpty {
+            rows.removeAll { row in
+                row.section == .sales && salesStores.contains(HeartbeatMath.canonicalStore(row.storeNumber))
+            }
+            rows.append(contentsOf: factSales)
+        }
         seeded = true
+        rebuildLostIndex()
         rebuildIndex()
         if filters.isActive {
             applyVisibleFilter()
