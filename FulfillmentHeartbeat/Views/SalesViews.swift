@@ -245,19 +245,22 @@ struct SalesPack {
         let items = rows.reduce(0) { $0 + HeartbeatMath.salesItems($1) }
         let hd = rows.compactMap { $0.number("sales_hd_orders") }.reduce(0, +)
         let dug = rows.compactMap { $0.number("sales_dug_orders") }.reduce(0, +)
-        let yoyWeight = rows.reduce(0.0) {
-            $0 + (($1.number("sales_yoy_pct") ?? 0) * HeartbeatMath.salesHeadlineDollars($1))
-        }
         self.sales = sales
         self.orders = orders
         self.items = items
         self.hd = hd
         self.dug = dug
-        self.yoy = sales > 0 ? yoyWeight / sales : HeartbeatMath.average(rows.compactMap { $0.number("sales_yoy_pct") })
-        self.aos = orders > 0 ? sales / orders : HeartbeatMath.average(rows.compactMap { $0.number("sales_aos") ?? $0.number("sales_aov") })
-        self.aiv = HeartbeatMath.average(rows.compactMap { $0.number("sales_aiv") })
-        self.ipt = HeartbeatMath.average(rows.compactMap { $0.number("sales_ipt") })
-        self.ordersYoy = HeartbeatMath.average(rows.compactMap { $0.number("sales_orders_yoy_pct") })
+        self.yoy = HeartbeatMath.salesRollupYoY(
+            current: rows.map { HeartbeatMath.salesHeadlineDollars($0) },
+            yoyPct: rows.map { $0.number("sales_yoy_pct") }
+        )
+        self.aos = orders > 0 ? sales / orders : nil
+        self.aiv = items > 0 ? sales / items : nil
+        self.ipt = orders > 0 ? items / orders : nil
+        self.ordersYoy = HeartbeatMath.salesRollupYoY(
+            current: rows.map { HeartbeatMath.salesOrders($0) },
+            yoyPct: rows.map { $0.number("sales_orders_yoy_pct") }
+        )
         self.health = HeartbeatMath.salesHealth(planPct: nil, yoy: yoy)
     }
 
@@ -425,15 +428,15 @@ enum SalesRollupBuilder {
         var sales = Array(repeating: 0.0, count: 7)
         var orders = Array(repeating: 0.0, count: 7)
         var items = Array(repeating: 0.0, count: 7)
-        var yoyWeight = Array(repeating: 0.0, count: 7)
-        var ordersYoy = Array(repeating: [Double](), count: 7)
-        var aiv = Array(repeating: [Double](), count: 7)
-        var ipt = Array(repeating: [Double](), count: 7)
+        var lastSales = Array(repeating: 0.0, count: 7)
+        var lastOrders = Array(repeating: 0.0, count: 7)
         var seen = Set<String>()
         var unique: [MetricRow] = []
         for store in stores {
             let key = HeartbeatMath.canonicalStore(store.storeNumber)
-            guard !key.isEmpty, seen.insert(key).inserted else { continue }
+            if key.isEmpty || key == "TOTAL" { continue }
+            if store.textPayload["sales_grain"] == "company" { continue }
+            guard seen.insert(key).inserted else { continue }
             unique.append(store)
         }
         let storeCount = unique.count
@@ -452,13 +455,16 @@ enum SalesRollupBuilder {
                 }
                 let prefix = "sales_d\(sourceIndex)_"
                 let daySales = store.number(prefix + "dollars") ?? 0
+                let dayOrders = store.number(prefix + "orders") ?? 0
                 sales[index] += daySales
-                orders[index] += store.number(prefix + "orders") ?? 0
+                orders[index] += dayOrders
                 items[index] += store.number(prefix + "items") ?? 0
-                yoyWeight[index] += (store.number(prefix + "yoy_pct") ?? 0) * daySales
-                if let value = store.number(prefix + "orders_yoy_pct") { ordersYoy[index].append(value) }
-                if let value = store.number(prefix + "aiv") { aiv[index].append(value) }
-                if let value = store.number(prefix + "ipt") { ipt[index].append(value) }
+                if let last = HeartbeatMath.salesPriorFromYoY(current: daySales, yoyPct: store.number(prefix + "yoy_pct")) {
+                    lastSales[index] += last
+                }
+                if let last = HeartbeatMath.salesPriorFromYoY(current: dayOrders, yoyPct: store.number(prefix + "orders_yoy_pct")) {
+                    lastOrders[index] += last
+                }
             }
         }
         return week.enumerated().compactMap { index, name in
@@ -466,7 +472,8 @@ enum SalesRollupBuilder {
             if daySales <= 0, orders[index] <= 0 { return nil }
             let dayOrders = orders[index]
             let dayItems = items[index]
-            let yoy = daySales > 0 ? yoyWeight[index] / daySales : nil
+            let yoy: Double? = lastSales[index] > 0 ? (daySales / lastSales[index] - 1) * 100 : nil
+            let ordYoy: Double? = lastOrders[index] > 0 ? (dayOrders / lastOrders[index] - 1) * 100 : nil
             return SalesRollupRow(
                 label: name,
                 storeCount: storeCount,
@@ -474,11 +481,11 @@ enum SalesRollupBuilder {
                     sales: daySales,
                     yoy: yoy,
                     orders: dayOrders,
-                    ordersYoy: HeartbeatMath.average(ordersYoy[index]),
+                    ordersYoy: ordYoy,
                     aos: dayOrders > 0 ? daySales / dayOrders : nil,
-                    aiv: dayItems > 0 ? daySales / dayItems : HeartbeatMath.average(aiv[index]),
+                    aiv: dayItems > 0 ? daySales / dayItems : nil,
                     items: dayItems,
-                    ipt: dayOrders > 0 ? dayItems / dayOrders : HeartbeatMath.average(ipt[index]),
+                    ipt: dayOrders > 0 ? dayItems / dayOrders : nil,
                     hd: nil,
                     dug: nil,
                     health: HeartbeatMath.salesHealth(planPct: nil, yoy: yoy)

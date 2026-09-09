@@ -1633,11 +1633,12 @@ enum HeartbeatMath {
                 },
                 by: { canonicalStore($0.storeNumber) }
             ).compactMap { $0.value.first }
-            let companyRows = rows.filter { $0.textPayload["sales_grain"] == "company" }
             let storeSum = stores.reduce(0) { $0 + salesHeadlineDollars($1) }
             let dollars = storeSum
-            let yoy = companyRows.compactMap { $0.number("sales_yoy_pct") }.last
-                ?? average(stores.compactMap { $0.number("sales_yoy_pct") })
+            let yoy = salesRollupYoY(
+                current: stores.map { salesHeadlineDollars($0) },
+                yoyPct: stores.map { $0.number("sales_yoy_pct") }
+            )
             let plan = stores.compactMap { $0.number("sales_plan") }.reduce(0, +)
             let planPct: Double? = {
                 if let direct = average(stores.compactMap { $0.number("sales_plan_pct") }) { return direct }
@@ -2393,6 +2394,25 @@ enum HeartbeatMath {
         let week = row.number("sales_items") ?? 0
         let days = (0..<7).compactMap { row.number("sales_d\($0)_items") }.reduce(0, +)
         return max(week, days)
+    }
+
+    static func salesPriorFromYoY(current: Double, yoyPct: Double?) -> Double? {
+        guard current > 0, let yoyPct else { return nil }
+        let factor = 1 + yoyPct / 100
+        guard factor > 0.02 else { return nil }
+        return current / factor
+    }
+
+    static func salesRollupYoY(current: [Double], yoyPct: [Double?]) -> Double? {
+        var thisYear = 0.0
+        var lastYear = 0.0
+        for (value, pct) in zip(current, yoyPct) {
+            guard let last = salesPriorFromYoY(current: value, yoyPct: pct) else { continue }
+            thisYear += value
+            lastYear += last
+        }
+        guard lastYear > 0, thisYear > 0 else { return nil }
+        return (thisYear / lastYear - 1) * 100
     }
 
     static func salesHealth(_ row: MetricRow) -> Health {
