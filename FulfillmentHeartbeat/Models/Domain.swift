@@ -974,8 +974,8 @@ enum HeartbeatMath {
         return compact
     }
 
-    /// 03 and 3 are the same numbered district. D3 and B3 stay themselves.
-    /// Never map 03 → D3 — both exist in the roster as different districts.
+    /// Numbered codes (03, 3) match each other. Letter codes (D3, B3) match
+    /// only themselves. Do not map 03→D3 or B3→3 — the roster has both.
     static func districtMatchKeys(_ raw: String) -> Set<String> {
         let compact = compactKey(canonicalDistrict(raw))
         guard !compact.isEmpty else { return [] }

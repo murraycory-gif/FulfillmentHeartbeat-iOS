@@ -780,5 +780,33 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(summary?.headline ?? 0, 2_510, accuracy: 0.01)
         XCTAssertEqual(summary?.storeCount, 1)
     }
+
+    func testPublishedFactsKeepsDistrict03SeparateFromD3() throws {
+        let tests = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        let url = tests.deletingLastPathComponent().appendingPathComponent("FulfillmentHeartbeat/facts.json")
+        let file = try JSONDecoder().decode(PulseFactsFile.self, from: Data(contentsOf: url))
+        let rows = PulseFacts.metricRows(from: file)
+        XCTAssertGreaterThan(rows.count, 1000)
+
+        func summary(for district: String) -> SectionSummary {
+            var filters = DashboardFilters()
+            filters.district = district
+            let caches = PulseCaches.build(rows: rows, filters: filters, uploads: [], heavy: false, grain: .store)
+            return caches.cachedSummaries.first { $0.section == .lostRevenue }!
+        }
+
+        let d03 = summary(for: "03")
+        let dD3 = summary(for: "D3")
+        let dB3 = summary(for: "B3")
+        XCTAssertEqual(d03.storeCount, 20)
+        XCTAssertEqual(d03.headline ?? 0, 36_193, accuracy: 1)
+        XCTAssertEqual(dD3.storeCount, 17)
+        XCTAssertEqual(dD3.headline ?? 0, 21_547, accuracy: 1)
+        XCTAssertEqual(dB3.storeCount, 23)
+        XCTAssertGreaterThan(dB3.headline ?? 0, 50_000)
+        XCTAssertNotEqual(d03.headline, dD3.headline)
+        XCTAssertLessThan(d03.lostRevenuePct ?? 99, 20)
+        XCTAssertLessThan(dD3.lostRevenuePct ?? 99, 20)
+    }
 }
 

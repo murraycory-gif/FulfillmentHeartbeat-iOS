@@ -2352,20 +2352,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func lostRevenueMatching(allowed: Set<String>) -> [MetricRow] {
-        var out = lostRevenueForStores(allowed)
-        let wanted = Set(filters.districts.flatMap { HeartbeatMath.districtMatchKeys($0) })
-        guard !wanted.isEmpty else { return out }
-        if lostByStore.isEmpty { rebuildLostIndex() }
-        var seen = Set(out.map { HeartbeatMath.canonicalStore($0.storeNumber) })
-        for (store, row) in lostByStore {
-            if seen.contains(store) { continue }
-            let district = roster[store]?.district ?? row.district
-            if HeartbeatMath.districtMatchKeys(district).isDisjoint(with: wanted) { continue }
-            if (row.number("lost_revenue") ?? 0) == 0 { continue }
-            seen.insert(store)
-            out.append(row)
-        }
-        return out
+        lostRevenueForStores(allowed)
     }
 
     private func applyFilters() {
@@ -3737,17 +3724,9 @@ private struct PulseCaches {
     ) -> [MetricRow] {
         let matched = rowsMatchingStores(pool, stores: scope, skipMarket: true)
         if !matched.isEmpty { return matched }
-        let loose = rowsMatchingStores(pool, stores: scope, skipMarket: false).filter {
+        return rowsMatchingStores(pool, stores: scope, skipMarket: false).filter {
             !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty
         }
-        if !loose.isEmpty { return loose }
-        return scopedRows(
-            HeartbeatMath.applyRoster(pool, roster: roster),
-            allowed: scope,
-            roster: roster,
-            filters: filters,
-            skipMarket: true
-        )
     }
 
     static func scopedRows(
@@ -3762,15 +3741,6 @@ private struct PulseCaches {
         for store in allowed {
             aliases.formUnion(HeartbeatMath.storeAliases(store))
         }
-        var districtKeys: Set<String> = []
-        for part in filters.districts {
-            districtKeys.formUnion(HeartbeatMath.districtMatchKeys(part))
-        }
-        for store in allowed {
-            if let district = roster[store]?.district {
-                districtKeys.formUnion(HeartbeatMath.districtMatchKeys(district))
-            }
-        }
         var seen: Set<String> = []
         var out: [MetricRow] = []
         out.reserveCapacity(min(rows.count, max(allowed.count, 8)))
@@ -3778,23 +3748,9 @@ private struct PulseCaches {
             if skipMarket, row.textPayload["lost_grain"] == "market", HeartbeatMath.canonicalStore(row.storeNumber).isEmpty { continue }
             if HeartbeatMath.isIgnoredStore(row.storeNumber), row.section != .sales { continue }
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
-            if !store.isEmpty, !aliases.isEmpty, !HeartbeatMath.storeAliases(store).isDisjoint(with: aliases) {
-                if seen.insert(store).inserted { out.append(row) }
-                continue
-            }
-            let district = {
-                if let value = roster[store]?.district, !value.isEmpty { return value }
-                return row.district
-            }()
-            if !districtKeys.isEmpty, !HeartbeatMath.districtMatchKeys(district).isDisjoint(with: districtKeys) {
-                let key = store.isEmpty ? "\(row.storeName ?? "")|\(district)" : store
-                if seen.insert(key).inserted { out.append(row) }
-                continue
-            }
-            if rowMatchesFilter(row, allowed: allowed, roster: roster, filters: filters) {
-                let key = store.isEmpty ? row.id.uuidString : store
-                if seen.insert(key).inserted { out.append(row) }
-            }
+            if store.isEmpty { continue }
+            guard !aliases.isEmpty, !HeartbeatMath.storeAliases(store).isDisjoint(with: aliases) else { continue }
+            if seen.insert(store).inserted { out.append(row) }
         }
         return out
     }
