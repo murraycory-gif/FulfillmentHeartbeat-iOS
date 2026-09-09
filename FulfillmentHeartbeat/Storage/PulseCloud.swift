@@ -21,27 +21,43 @@ enum PulseCloud {
         projectURL.appendingPathComponent("storage/v1/object/public/\(bucket)/\(object)")
     }
 
-    static func objectSize(_ name: String) async -> Int {
-        let info = await objectInfo(name)
-        return info.size
+    struct ObjectStat {
+        var size: Int
+        var updated: String
     }
 
-    static func objectInfo(_ name: String) async -> (size: Int, updated: String) {
-        let rows = await listObjects()
-        for row in rows {
-            guard let fileName = row["name"] as? String, fileName == name else { continue }
+    static func snapshot() async -> [String: ObjectStat] {
+        var map: [String: ObjectStat] = [:]
+        for row in await listObjects() {
+            guard let name = row["name"] as? String else { continue }
             var size = 0
             if let meta = row["metadata"] as? [String: Any] {
                 if let value = meta["size"] as? Int { size = value }
                 else if let value = meta["contentLength"] as? Int { size = value }
             }
             let updated = (row["updated_at"] as? String) ?? (row["created_at"] as? String) ?? ""
-            return (size, updated)
+            map[name] = ObjectStat(size: size, updated: updated)
         }
-        return (0, "")
+        return map
     }
 
+    static func objectSize(_ name: String) async -> Int {
+        let info = await objectInfo(name)
+        return info.size
+    }
+
+    static func objectInfo(_ name: String) async -> (size: Int, updated: String) {
+        let stat = await snapshot()[name]
+        return (stat?.size ?? 0, stat?.updated ?? "")
+    }
+
+    private static var listedAt: Date?
+    private static var listedRows: [[String: Any]] = []
+
     private static func listObjects() async -> [[String: Any]] {
+        if let listedAt, Date().timeIntervalSince(listedAt) < 20, !listedRows.isEmpty {
+            return listedRows
+        }
         var request = URLRequest(url: projectURL.appendingPathComponent("storage/v1/object/list/\(bucket)"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -51,7 +67,9 @@ enum PulseCloud {
         guard let (data, response) = try? await URLSession.shared.data(for: request),
               let http = response as? HTTPURLResponse, http.statusCode == 200,
               let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
-        else { return [] }
+        else { return listedRows }
+        listedAt = Date()
+        listedRows = rows
         return rows
     }
 

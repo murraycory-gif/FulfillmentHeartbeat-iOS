@@ -187,7 +187,8 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func hydrateFromCloudInBackground() async {
-        await syncCloudPackIfChanged()
+        let snap = await PulseCloud.snapshot()
+        await syncCloudPackIfChanged(snap)
         if HubLayout.constrained {
             applyLocalCards()
             Task { await self.loadHeavySections() }
@@ -196,7 +197,7 @@ final class HeartbeatStore: ObservableObject {
         if !Self.hasUsableLostRevenue(rows) {
             await loadPublishedFacts()
         }
-        await syncServerWorkbookIfChanged()
+        await syncServerWorkbookIfChanged(snap)
     }
 
     private func applyLocalCards() {
@@ -1603,21 +1604,23 @@ final class HeartbeatStore: ObservableObject {
 
     private func refreshFromCloud() async {
         guard !isImporting else { return }
-        await syncCloudPackIfChanged()
+        let snap = await PulseCloud.snapshot()
+        await syncCloudPackIfChanged(snap)
         if !HubLayout.constrained {
-            await syncServerWorkbookIfChanged()
+            await syncServerWorkbookIfChanged(snap)
         }
     }
 
-    private func syncCloudPackIfChanged() async {
-        let info = await PulseCloud.objectInfo(PulseCloud.object)
+    private func syncCloudPackIfChanged(_ snap: [String: PulseCloud.ObjectStat]? = nil) async {
+        let info = snap?[PulseCloud.object] ?? PulseCloud.ObjectStat(
+            size: await PulseCloud.objectSize(PulseCloud.object),
+            updated: ""
+        )
         let known = UserDefaults.standard.integer(forKey: "hb.cloudPackBytes")
         let knownUpdated = UserDefaults.standard.string(forKey: "hb.cloudPackUpdated") ?? ""
-        let build = UserDefaults.standard.string(forKey: "hb.packBuild") ?? ""
         let same = info.size > 50_000
             && info.size == known
             && (info.updated.isEmpty || info.updated == knownUpdated)
-            && build == BuildStamp.id
         if info.size > 50_000, !same {
             await importCloudSQLiteIfPresent()
         }
@@ -1672,13 +1675,13 @@ final class HeartbeatStore: ObservableObject {
         }
     }
 
-    private func syncServerWorkbookIfChanged() async {
+    private func syncServerWorkbookIfChanged(_ snap: [String: PulseCloud.ObjectStat]? = nil) async {
+        let listing = snap ?? await PulseCloud.snapshot()
         var remoteXlsx = 0
         var remoteUpdated = ""
         var remoteName = PulseCloud.workbookNames[0]
         for name in PulseCloud.workbookNames {
-            let info = await PulseCloud.objectInfo(name)
-            if info.size > 1_000 {
+            if let info = listing[name], info.size > 1_000 {
                 remoteXlsx = info.size
                 remoteUpdated = info.updated
                 remoteName = name
@@ -1689,6 +1692,21 @@ final class HeartbeatStore: ObservableObject {
         let knownUpdated = UserDefaults.standard.string(forKey: "hb.cloudXlsxUpdated") ?? ""
         let parserStamp = UserDefaults.standard.integer(forKey: "hb.parserStamp")
         guard remoteXlsx > 1_000 else { return }
+        let pack = listing[PulseCloud.object]
+        let packCoversWorkbook = (pack?.size ?? 0) > 50_000
+            && !remoteUpdated.isEmpty
+            && !(pack?.updated.isEmpty ?? true)
+            && (pack?.updated ?? "") >= remoteUpdated
+            && Self.hasUsableSales(rows)
+            && Self.hasUsableLostRevenue(rows)
+        if packCoversWorkbook {
+            UserDefaults.standard.set(remoteXlsx, forKey: "hb.cloudXlsxBytes")
+            if !remoteUpdated.isEmpty {
+                UserDefaults.standard.set(remoteUpdated, forKey: "hb.cloudXlsxUpdated")
+            }
+            UserDefaults.standard.set(175, forKey: "hb.parserStamp")
+            return
+        }
         let sameFile = remoteXlsx == knownXlsx && (remoteUpdated.isEmpty || remoteUpdated == knownUpdated)
         if sameFile {
             if parserStamp >= 175 { return }
@@ -1705,9 +1723,8 @@ final class HeartbeatStore: ObservableObject {
         let remote = await PulseCloud.objectSize(PulseCloud.object)
         guard remote > 50_000 else { return }
         let known = UserDefaults.standard.integer(forKey: "hb.cloudPackBytes")
-        let build = UserDefaults.standard.string(forKey: "hb.packBuild") ?? ""
         let packReady = Self.hasUsableSales(rows) && Self.hasUsableLostRevenue(rows)
-        let sameFile = known == remote && packReady && build == BuildStamp.id
+        let sameFile = known == remote && packReady
         if sameFile { return }
         do {
             let dest = sqliteURL
