@@ -233,6 +233,17 @@ final class HeartbeatStore: ObservableObject {
         latestBySection[section] ?? []
     }
 
+    func salesCompanyFact() -> MetricRow? {
+        let pool = (latestBySection[.sales] ?? []) + rows.filter { $0.section == .sales }
+        if let hit = pool.first(where: { $0.textPayload["sales_grain"] == "company" }) {
+            return hit
+        }
+        return pool.first {
+            HeartbeatMath.canonicalStore($0.storeNumber).isEmpty
+                && HeartbeatMath.salesHeadlineDollars($0) >= 5_000_000
+        }
+    }
+
     func salesStores() -> [MetricRow] {
         SalesRollupBuilder.source(from: allLatest(for: .sales), filters: filters, roster: roster)
     }
@@ -243,7 +254,7 @@ final class HeartbeatStore: ObservableObject {
         cachedSalesScopeRows = SalesRollupBuilder.dashboardRows(from: source, grain: grain)
         cachedSalesDayRows = SalesRollupBuilder.dayRows(
             from: source,
-            company: filters.isActive ? nil : allLatest(for: .sales).first { $0.textPayload["sales_grain"] == "company" }
+            company: filters.isActive ? nil : salesCompanyFact()
         )
     }
 

@@ -12,7 +12,7 @@ struct OverviewSalesBlock: View {
         let mid = midRows(from: stores)
         let days = SalesRollupBuilder.dayRows(
             from: stores,
-            company: store.filters.isActive ? nil : store.allLatest(for: .sales).first { $0.textPayload["sales_grain"] == "company" }
+            company: store.filters.isActive ? nil : store.salesCompanyFact()
         )
         VStack(alignment: .leading, spacing: 16) {
             overviewTable(title: scopeTitle, rows: [

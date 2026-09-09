@@ -1293,39 +1293,37 @@ enum WorkbookParser {
             let rawStore = cell(storeIdx)
             if !rawDivision.isEmpty { lastDivision = rawDivision }
             if !rawDistrict.isEmpty && !isTotalCell(rawDistrict) { lastDistrict = rawDistrict }
-            if isTotalCell(rawDivision) {
-                if rawStore.isEmpty || isTotalCell(rawStore) {
-                    var payload: [String: Double] = [:]
-                    applySalesBlock(weekBlock, line: line, prefix: "sales_", payload: &payload)
-                    for (offset, block) in dayBlocks.enumerated() where block.sales != weekBlock.sales {
-                        applySalesBlock(block, line: line, prefix: "sales_d\(offset)_", payload: &payload)
+            if isTotalCell(rawDivision), !rawStore.isEmpty, !isTotalCell(rawStore) { continue }
+            if isTotalCell(rawStore) || isTotalCell(rawDivision) {
+                var payload: [String: Double] = [:]
+                applySalesBlock(weekBlock, line: line, prefix: "sales_", payload: &payload)
+                for (offset, block) in dayBlocks.enumerated() where block.sales != weekBlock.sales {
+                    applySalesBlock(block, line: line, prefix: "sales_d\(offset)_", payload: &payload)
+                }
+                if payload["sales_dollars"] == nil {
+                    let daySum = (0..<7).compactMap { payload["sales_d\($0)_dollars"] }.reduce(0, +)
+                    if daySum > 0 { payload["sales_dollars"] = daySum }
+                }
+                if payload["sales_dollars"] != nil {
+                    var text: [String: String] = ["sales_grain": "company"]
+                    if !week.isEmpty { text["sales_week"] = week }
+                    if !dayBlocks.isEmpty {
+                        text["sales_days"] = dayBlocks.map(\.label).joined(separator: ",")
                     }
-                    if payload["sales_dollars"] == nil {
-                        let daySum = (0..<7).compactMap { payload["sales_d\($0)_dollars"] }.reduce(0, +)
-                        if daySum > 0 { payload["sales_dollars"] = daySum }
-                    }
-                    if payload["sales_dollars"] != nil {
-                        var text: [String: String] = ["sales_grain": "company"]
-                        if !week.isEmpty { text["sales_week"] = week }
-                        if !dayBlocks.isEmpty {
-                            text["sales_days"] = dayBlocks.map(\.label).joined(separator: ",")
-                        }
-                        out.append(
-                            ParsedWorkbookRow(
-                                division: "",
-                                operationsOM: "",
-                                storeNumber: "",
-                                storeName: "Total Sales $",
-                                recordedOn: week.isEmpty ? nil : week,
-                                payload: payload,
-                                textPayload: text
-                            )
+                    out.append(
+                        ParsedWorkbookRow(
+                            division: "",
+                            operationsOM: "",
+                            storeNumber: "",
+                            storeName: "Total Sales $",
+                            recordedOn: week.isEmpty ? nil : week,
+                            payload: payload,
+                            textPayload: text
                         )
-                    }
+                    )
                 }
                 continue
             }
-            if isTotalCell(rawStore) { continue }
             if rawStore.isEmpty { continue }
             let store = HeartbeatMath.canonicalStore(rawStore)
             if store.isEmpty { continue }
