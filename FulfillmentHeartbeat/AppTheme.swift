@@ -256,11 +256,12 @@ enum HubLayout {
         ProcessInfo.processInfo.physicalMemory < 5_500_000_000
     }
 
-    /// iPhone always. 4GB iPad too. Skip labor/picker and Excel on launch.
-    static var lightLaunch: Bool { isPhoneDevice || lowMemory }
+    /// Skip labor/picker on first sqlite read. iPhone 13 / 4GB iPads only.
+    static var lightLaunch: Bool { lowMemory }
 
-    /// Back-compat for store/pager. Means lightLaunch, not "small screen".
-    static var constrained: Bool { lightLaunch }
+    /// Skip Excel parse. Every iPhone, plus 4GB iPads. iPhone 17 still
+    /// loads the full sqlite pack so dashboard sections are complete.
+    static var constrained: Bool { isPhoneDevice || lowMemory }
 
     /// Phone chrome stays phone even in landscape. iPad/Mac stay regular
     /// even in split view. Never drive this off width alone.
