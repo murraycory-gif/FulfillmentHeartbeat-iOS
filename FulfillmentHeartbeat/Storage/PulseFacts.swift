@@ -64,17 +64,7 @@ enum PulseFacts {
         let file: PulseFactsFile?
         switch (bundledFile, cloudFile) {
         case let (bundled?, cloud?):
-            let bundledOK = isUsable(bundled) && salesWeek(bundled) >= 50_000_000
-            let cloudOK = isUsable(cloud) && salesWeek(cloud) >= 50_000_000
-            if cloudOK, salesWeek(cloud) >= salesWeek(bundled) * 0.95, scoredStores(cloud) >= scoredStores(bundled) {
-                file = cloud
-            } else if bundledOK {
-                file = bundled
-            } else if cloudOK {
-                file = cloud
-            } else {
-                file = scoredStores(bundled) >= scoredStores(cloud) ? bundled : cloud
-            }
+            file = isUsable(cloud) ? cloud : bundled
         case let (bundled?, nil):
             file = bundled
         case let (nil, cloud?):

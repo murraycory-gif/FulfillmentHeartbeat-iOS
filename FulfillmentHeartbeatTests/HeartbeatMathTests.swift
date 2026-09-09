@@ -868,5 +868,66 @@ final class HeartbeatMathTests: XCTestCase {
         let other = PulseCaches.build(rows: rows, filters: filters, uploads: [], heavy: false, grain: .store)
         XCTAssertTrue((PulseCaches.allowedStores(roster: other.roster, filters: filters) ?? []).isEmpty)
     }
+
+    func testSalesHeadlineUsesTotalColumnNotDaySum() {
+        var row = MetricRow(
+            section: .sales,
+            division: "Jewel Osco",
+            operationsOM: "",
+            storeNumber: "1",
+            payload: [
+                "sales_dollars": 39_761_217,
+                "sales_d0_dollars": 13_466_026,
+                "sales_d1_dollars": 15_180_411,
+                "sales_d2_dollars": 11_114_780
+            ],
+            textPayload: ["sales_grain": "store"]
+        )
+        XCTAssertEqual(HeartbeatMath.salesHeadlineDollars(row), 39_761_217, accuracy: 0.5)
+
+        row.payload["sales_dollars"] = 0
+        XCTAssertEqual(
+            HeartbeatMath.salesHeadlineDollars(row),
+            13_466_026 + 15_180_411 + 11_114_780,
+            accuracy: 0.5
+        )
+
+        let summary = HeartbeatMath.summarize(.sales, rows: [
+            MetricRow(
+                section: .sales,
+                division: "",
+                operationsOM: "",
+                storeNumber: "",
+                payload: ["sales_dollars": 132_830_508],
+                textPayload: ["sales_grain": "company"]
+            ),
+            MetricRow(
+                section: .sales,
+                division: "Jewel Osco",
+                operationsOM: "",
+                storeNumber: "1",
+                payload: ["sales_dollars": 13_466_026],
+                textPayload: ["sales_grain": "store"]
+            ),
+            MetricRow(
+                section: .sales,
+                division: "Shaws",
+                operationsOM: "",
+                storeNumber: "2",
+                payload: ["sales_dollars": 15_180_411],
+                textPayload: ["sales_grain": "store"]
+            ),
+            MetricRow(
+                section: .sales,
+                division: "United",
+                operationsOM: "",
+                storeNumber: "3",
+                payload: ["sales_dollars": 11_114_780],
+                textPayload: ["sales_grain": "store"]
+            )
+        ], upload: nil)
+        XCTAssertEqual(summary.headline ?? 0, 39_761_217, accuracy: 0.5)
+        XCTAssertEqual(summary.storeCount, 3)
+    }
 }
 

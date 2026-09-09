@@ -1661,7 +1661,7 @@ final class HeartbeatStore: ObservableObject {
                 )
                 if ok {
                     UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
-                    UserDefaults.standard.set(176, forKey: "hb.parserStamp")
+                    UserDefaults.standard.set(177, forKey: "hb.parserStamp")
                     return
                 }
                 lastError = "Workbook did not parse."
@@ -1703,22 +1703,16 @@ final class HeartbeatStore: ObservableObject {
             && (pack?.updated ?? "") >= remoteUpdated
             && Self.hasUsableSales(rows)
             && Self.hasUsableLostRevenue(rows)
-            && Self.salesDayCount(rows) >= 3
-        if packCoversWorkbook {
+        if packCoversWorkbook, parserStamp >= 177 {
             UserDefaults.standard.set(remoteXlsx, forKey: "hb.cloudXlsxBytes")
             if !remoteUpdated.isEmpty {
                 UserDefaults.standard.set(remoteUpdated, forKey: "hb.cloudXlsxUpdated")
             }
-            UserDefaults.standard.set(176, forKey: "hb.parserStamp")
             return
         }
         let sameFile = remoteXlsx == knownXlsx && (remoteUpdated.isEmpty || remoteUpdated == knownUpdated)
-        if sameFile {
-            if parserStamp >= 176, Self.salesDayCount(rows) >= 3 { return }
-            if Self.hasUsableSales(rows), Self.hasUsableLostRevenue(rows), Self.salesDayCount(rows) >= 3 {
-                UserDefaults.standard.set(176, forKey: "hb.parserStamp")
-                return
-            }
+        if sameFile, parserStamp >= 177, Self.hasUsableSales(rows), Self.hasUsableLostRevenue(rows) {
+            return
         }
         _ = remoteName
         await importCloudWorkbook(blocking: false)
@@ -1783,7 +1777,7 @@ final class HeartbeatStore: ObservableObject {
         }
         let fileChanged = remoteXlsx > 1_000 && (remoteXlsx != knownXlsx || (!remoteUpdated.isEmpty && remoteUpdated != knownUpdated))
         let firstLoad = !hasPack
-        let needsParserPass = stamp < 176 || Self.salesDayCount(rows) < 3
+        let needsParserPass = stamp < 177
         guard remoteXlsx > 1_000, firstLoad || fileChanged || needsParserPass else {
             if hasPack {
                 isImporting = false
@@ -1813,7 +1807,7 @@ final class HeartbeatStore: ObservableObject {
             )
             if ok {
                 UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
-                UserDefaults.standard.set(176, forKey: "hb.parserStamp")
+                UserDefaults.standard.set(177, forKey: "hb.parserStamp")
                 let info = await PulseCloud.objectInfo(remoteName)
                 if !info.updated.isEmpty {
                     UserDefaults.standard.set(info.updated, forKey: "hb.cloudXlsxUpdated")
@@ -2823,11 +2817,7 @@ final class HeartbeatStore: ObservableObject {
         guard !incoming.isEmpty else { return }
         let factLost = incoming.filter { $0.section == .lostRevenue && !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty }
         let factRoster = incoming.filter { $0.section == .storeRoster }
-        let factSales = incoming.filter { $0.section == .sales && !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty }
-        let factFive = incoming.filter { $0.section == .fiveStar && !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty }
         let lostStores = Set(factLost.map { HeartbeatMath.canonicalStore($0.storeNumber) })
-        let salesStores = Set(factSales.map { HeartbeatMath.canonicalStore($0.storeNumber) })
-        let fiveStores = Set(factFive.map { HeartbeatMath.canonicalStore($0.storeNumber) })
         if !factRoster.isEmpty {
             rows.removeAll { $0.section == .storeRoster }
             rows.append(contentsOf: factRoster)
@@ -2838,18 +2828,7 @@ final class HeartbeatStore: ObservableObject {
             }
             rows.append(contentsOf: factLost)
         }
-        if !salesStores.isEmpty {
-            rows.removeAll { row in
-                row.section == .sales && salesStores.contains(HeartbeatMath.canonicalStore(row.storeNumber))
-            }
-            rows.append(contentsOf: factSales)
-        }
-        if !fiveStores.isEmpty {
-            rows.removeAll { row in
-                row.section == .fiveStar && fiveStores.contains(HeartbeatMath.canonicalStore(row.storeNumber))
-            }
-            rows.append(contentsOf: factFive)
-        }
+        // Sales and 5-star come from the live workbook. Facts.json is last week's snapshot.
         seeded = true
         rebuildLostIndex()
         rebuildIndex()

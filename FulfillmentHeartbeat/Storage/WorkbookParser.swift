@@ -1158,7 +1158,11 @@ enum WorkbookParser {
             var last = ""
             for index in 0..<headers.count {
                 let raw = index < above.count ? above[index].trimmingCharacters(in: .whitespacesAndNewlines) : ""
-                if !raw.isEmpty && raw.lowercased() != "weekday" { last = salesDayName(raw) }
+                if !raw.isEmpty && raw.lowercased() != "weekday" {
+                    last = salesDayName(raw)
+                } else if salesField(index < headers.count ? headers[index] : "") == "sales" {
+                    last = ""
+                }
                 weekdayLabels[index] = last
             }
             break
@@ -1242,55 +1246,20 @@ enum WorkbookParser {
                 if dayBlocks.count == 7 { break }
             }
         }
-        if dayBlocks.count < 3, let firstSales = starts.first {
-            dayBlocks = []
-            let matrixWidth = max(headers.count, matrix.map(\.count).max() ?? 0)
-            for index in 0..<7 {
-                let start = firstSales + index * 12
-                guard start < matrixWidth else { break }
-                var block = SalesBlock(label: weekdays[index])
-                block.sales = start
-                block.yoy = start + 1
-                block.orders = start + 2
-                block.ordersYoy = start + 3
-                block.aos = start + 4
-                block.aosYoy = start + 5
-                block.aiv = start + 6
-                block.aivYoy = start + 7
-                block.ipt = start + 8
-                block.iptYoy = start + 9
-                block.items = start + 10
-                block.itemsYoy = start + 11
-                dayBlocks.append(block)
-            }
-        }
 
-        let matrixWidth = max(headers.count, matrix.map(\.count).max() ?? 0)
         let weekBlock: SalesBlock = {
-            if let named = blocks.first(where: { salesDayName($0.label) == "Week" }) {
+            if let named = blocks.last(where: { salesDayName($0.label) == "Week" }) {
                 return named
             }
-            let weekStart = (starts.first ?? 0) + 7 * 12
-            if let named = blocks.first(where: { $0.sales == weekStart }) {
-                return named
+            if blocks.count >= 2 {
+                var last = blocks[blocks.count - 1]
+                last.label = "Week"
+                return last
             }
-            var block = SalesBlock(label: "Week")
-            if weekStart < matrixWidth {
-                block.sales = weekStart
-                block.yoy = weekStart + 1
-                block.orders = weekStart + 2
-                block.ordersYoy = weekStart + 3
-                block.aos = weekStart + 4
-                block.aosYoy = weekStart + 5
-                block.aiv = weekStart + 6
-                block.aivYoy = weekStart + 7
-                block.ipt = weekStart + 8
-                block.iptYoy = weekStart + 9
-                block.items = weekStart + 10
-                if weekStart + 11 < matrixWidth { block.itemsYoy = weekStart + 11 }
-            }
-            return block
+            var empty = SalesBlock(label: "Week")
+            return empty
         }()
+        dayBlocks.removeAll { $0.sales != nil && $0.sales == weekBlock.sales }
 
         let week = salesWeek(from: Array(matrix.prefix(headerIdx)))
         var lastDivision = ""
@@ -1314,12 +1283,12 @@ enum WorkbookParser {
                 if rawStore.isEmpty || isTotalCell(rawStore) {
                     var payload: [String: Double] = [:]
                     applySalesBlock(weekBlock, line: line, prefix: "sales_", payload: &payload)
-                    for (offset, block) in dayBlocks.enumerated() {
+                    for (offset, block) in dayBlocks.enumerated() where block.sales != weekBlock.sales {
                         applySalesBlock(block, line: line, prefix: "sales_d\(offset)_", payload: &payload)
                     }
-                    let daySum = (0..<7).compactMap { payload["sales_d\($0)_dollars"] }.reduce(0, +)
-                    if daySum > (payload["sales_dollars"] ?? 0) + 0.5 {
-                        payload["sales_dollars"] = daySum
+                    if payload["sales_dollars"] == nil {
+                        let daySum = (0..<7).compactMap { payload["sales_d\($0)_dollars"] }.reduce(0, +)
+                        if daySum > 0 { payload["sales_dollars"] = daySum }
                     }
                     if payload["sales_dollars"] != nil {
                         var text: [String: String] = ["sales_grain": "company"]
@@ -1349,16 +1318,16 @@ enum WorkbookParser {
             if payload["sales_aov"] == nil, let sales = payload["sales_dollars"], let orders = payload["sales_orders"], orders > 0 {
                 payload["sales_aov"] = sales / orders
             }
-            for (offset, block) in dayBlocks.enumerated() {
+            for (offset, block) in dayBlocks.enumerated() where block.sales != weekBlock.sales {
                 applySalesBlock(block, line: line, prefix: "sales_d\(offset)_", payload: &payload)
             }
-            let daySum = (0..<7).compactMap { payload["sales_d\($0)_dollars"] }.reduce(0, +)
-            if daySum > (payload["sales_dollars"] ?? 0) + 0.5 {
-                payload["sales_dollars"] = daySum
+            if payload["sales_dollars"] == nil {
+                let daySum = (0..<7).compactMap { payload["sales_d\($0)_dollars"] }.reduce(0, +)
+                if daySum > 0 { payload["sales_dollars"] = daySum }
             }
-            let dayOrders = (0..<7).compactMap { payload["sales_d\($0)_orders"] }.reduce(0, +)
-            if dayOrders > (payload["sales_orders"] ?? 0) + 0.5 {
-                payload["sales_orders"] = dayOrders
+            if payload["sales_orders"] == nil {
+                let dayOrders = (0..<7).compactMap { payload["sales_d\($0)_orders"] }.reduce(0, +)
+                if dayOrders > 0 { payload["sales_orders"] = dayOrders }
             }
             var text: [String: String] = ["sales_grain": "store"]
             if !lastDistrict.isEmpty { text["district"] = lastDistrict }

@@ -1635,8 +1635,7 @@ enum HeartbeatMath {
             ).compactMap { $0.value.first }
             let companyRows = rows.filter { $0.textPayload["sales_grain"] == "company" }
             let storeSum = stores.reduce(0) { $0 + salesHeadlineDollars($1) }
-            let companyVal = companyRows.map { salesHeadlineDollars($0) }.max() ?? 0
-            let dollars = max(companyVal, storeSum)
+            let dollars = storeSum
             let yoy = companyRows.compactMap { $0.number("sales_yoy_pct") }.last
                 ?? average(stores.compactMap { $0.number("sales_yoy_pct") })
             let plan = stores.compactMap { $0.number("sales_plan") }.reduce(0, +)
@@ -1652,7 +1651,7 @@ enum HeartbeatMath {
             return SectionSummary(
                 section: section,
                 storeCount: stores.count,
-                headline: stores.isEmpty && companyVal == 0 ? nil : dollars,
+                headline: stores.isEmpty && dollars == 0 ? nil : dollars,
                 headlineLabel: "eComm sales",
                 secondary: stores.isEmpty
                     ? "No Sales rows in this filter"
@@ -2381,15 +2380,13 @@ enum HeartbeatMath {
     }
 
     static func salesHeadlineDollars(_ row: MetricRow) -> Double {
-        let week = row.number("sales_dollars") ?? 0
-        let days = (0..<7).compactMap { row.number("sales_d\($0)_dollars") }.reduce(0, +)
-        return max(week, days)
+        if let week = row.number("sales_dollars"), week > 0 { return week }
+        return (0..<7).compactMap { row.number("sales_d\($0)_dollars") }.reduce(0, +)
     }
 
     static func salesOrders(_ row: MetricRow) -> Double {
-        let week = row.number("sales_orders") ?? 0
-        let days = (0..<7).compactMap { row.number("sales_d\($0)_orders") }.reduce(0, +)
-        return max(week, days)
+        if let week = row.number("sales_orders"), week > 0 { return week }
+        return (0..<7).compactMap { row.number("sales_d\($0)_orders") }.reduce(0, +)
     }
 
     static func salesItems(_ row: MetricRow) -> Double {
