@@ -1,5 +1,8 @@
 import Foundation
 import zlib
+#if !HEARTBEAT_INGEST
+import Compression
+#endif
 
 struct ParsedWorkbookRow {
     var division: String
@@ -4914,6 +4917,7 @@ private func inflate(_ source: Data, uncompressedSize: Int) -> Data? {
     if let out = inflateWindow(wrapped, uncompressedSize: uncompressedSize, windowBits: MAX_WBITS), !out.isEmpty {
         return out
     }
+    #if !HEARTBEAT_INGEST
     let dstSize = max(uncompressedSize, source.count * 8 + 64)
     var dest = Data(count: dstSize)
     let written = dest.withUnsafeMutableBytes { destPtr -> Int in
@@ -4956,6 +4960,9 @@ private func inflate(_ source: Data, uncompressedSize: Int) -> Data? {
     guard written2 > 0 else { return nil }
     dest2.count = written2
     return dest2
+    #else
+    return nil
+    #endif
 }
 
 private func usableInflateHint(_ uncompressedSize: Int, compressed: Int) -> Int {

@@ -8,6 +8,9 @@ let package = Package(
         .executableTarget(
             name: "HeartbeatIngest",
             path: "Sources",
+            swiftSettings: [
+                .define("HEARTBEAT_INGEST"),
+            ],
             linkerSettings: [
                 .linkedLibrary("sqlite3"),
                 .linkedLibrary("z"),
