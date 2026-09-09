@@ -288,7 +288,8 @@ enum HubLayout {
     static var grainCap: Int { constrained ? 12 : 24 }
     static var storeGrainCap: Int { constrained ? 16 : 50 }
     static var pickerCap: Int { 50 }
-    static var hydrateNeighbors: Bool { true }
+    /// Swipe can hydrate the next page on demand. Taps never pre-build neighbors.
+    static var hydrateNeighbors: Bool { false }
 }
 
 private struct HubWidthKey: PreferenceKey {

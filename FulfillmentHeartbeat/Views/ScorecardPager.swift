@@ -72,8 +72,12 @@ struct ScorecardPager: UIViewControllerRepresentable, Equatable {
         }
 
         func freezeForSwipe(_ on: Bool) {
+            #if targetEnvironment(macCatalyst)
+            return
+            #else
             view.layer.shouldRasterize = on
             view.layer.rasterizationScale = UIScreen.main.scale
+            #endif
         }
 
         @available(*, unavailable)
@@ -131,8 +135,6 @@ struct ScorecardPager: UIViewControllerRepresentable, Equatable {
             var out: [HubDestination] = []
             if index > 0 { out.append(items[index - 1]) }
             if index + 1 < items.count { out.append(items[index + 1]) }
-            if index > 1 { out.append(items[index - 2]) }
-            if index + 2 < items.count { out.append(items[index + 2]) }
             return out
         }
 
@@ -153,7 +155,6 @@ struct ScorecardPager: UIViewControllerRepresentable, Equatable {
             pager.setViewControllers([host(for: dest)], direction: .forward, animated: false)
             pager.dataSource = self
             resetScroll(pager)
-            warmSides(of: dest)
         }
 
         private func warmSides(of dest: HubDestination) {
@@ -205,8 +206,9 @@ struct ScorecardPager: UIViewControllerRepresentable, Equatable {
         ) {
             if let host = pendingViewControllers.first as? PageHost {
                 isSwiping = true
-                cache[displayed]?.freezeForSwipe(true)
-                host.freezeForSwipe(true)
+                if !host.hydrated {
+                    hydrate(host.dest)
+                }
             }
         }
 
