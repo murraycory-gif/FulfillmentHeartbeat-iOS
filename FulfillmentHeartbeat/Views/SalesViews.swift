@@ -440,7 +440,7 @@ enum SalesRollupBuilder {
             unique.append(store)
         }
         let storeCount = unique.count
-        if let company, !unique.isEmpty {
+        if let company {
             let names = (company.textPayload["sales_days"] ?? "")
                 .split(separator: ",")
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }

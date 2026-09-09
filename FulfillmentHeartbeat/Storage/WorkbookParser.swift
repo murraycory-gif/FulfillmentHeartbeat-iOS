@@ -1307,6 +1307,9 @@ enum WorkbookParser {
                     if payload["sales_dollars"] != nil {
                         var text: [String: String] = ["sales_grain": "company"]
                         if !week.isEmpty { text["sales_week"] = week }
+                        if !dayBlocks.isEmpty {
+                            text["sales_days"] = dayBlocks.map(\.label).joined(separator: ",")
+                        }
                         out.append(
                             ParsedWorkbookRow(
                                 division: "",

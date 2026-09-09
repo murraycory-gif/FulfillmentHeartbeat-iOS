@@ -782,7 +782,17 @@ enum HeartbeatMath {
         for row in rows {
             let number = canonicalStore(row.storeNumber)
             if isIgnoredStore(number), row.section != .sales { continue }
-            if row.textPayload["sales_grain"] == "company" || row.textPayload["sales_grain"] == "day" { continue }
+            if row.textPayload["sales_grain"] == "day" { continue }
+            if row.textPayload["sales_grain"] == "company" {
+                if let existing = map["__sales_company__"] {
+                    if (row.recordedOn ?? "") >= (existing.recordedOn ?? "") {
+                        map["__sales_company__"] = row
+                    }
+                } else {
+                    map["__sales_company__"] = row
+                }
+                continue
+            }
             let key = number.isEmpty
                 ? "\(row.division)|\(row.operationsOM)|\(row.storeName ?? "")"
                 : number
