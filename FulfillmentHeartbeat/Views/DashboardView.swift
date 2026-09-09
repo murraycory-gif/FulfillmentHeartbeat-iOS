@@ -436,40 +436,27 @@ struct DashScopeStrip: View {
             }
             .buttonStyle(.plain)
             if expanded {
-                VStack(alignment: .leading, spacing: 10) {
-                    if section == .sales {
-                        if HubLayout.isPhone(sizeClass) {
-                            VStack(spacing: 8) {
-                                ForEach(visibleSalesRows.prefix(20)) { row in
-                                    OverviewSalesPhoneCard(label: row.label, count: row.storeCount, pack: row.pack)
-                                }
-                            }
-                            if !visibleDayRows.isEmpty {
-                                Text("By Day")
-                                    .font(AppTheme.rounded(.subheadline, weight: .bold))
-                                    .foregroundStyle(AppTheme.text)
-                                    .padding(.top, 8)
-                                ForEach(visibleDayRows) { row in
-                                    OverviewSalesPhoneCard(label: row.label, count: nil, pack: row.pack)
-                                }
-                            }
-                        } else {
+                if HubLayout.isPhone(sizeClass) {
+                    phoneExpandedList
+                } else {
+                    VStack(alignment: .leading, spacing: 10) {
+                        if section == .sales {
                             OverviewSalesAlignedTable(title: grain.title, rows: Array(visibleSalesRows.prefix(20)), showCount: grain != .store)
                             if !visibleDayRows.isEmpty {
                                 OverviewSalesAlignedTable(title: "By Day", rows: visibleDayRows, showCount: false)
                                     .padding(.top, 8)
                             }
-                        }
-                    } else {
-                        LazyVStack(spacing: 8) {
-                            ForEach(Array(packs.prefix(12))) { pack in
-                                DashScopeGrainCard(
-                                    pack: pack,
-                                    grain: grain,
-                                    flags: section == .sales ? [] : (pack.flags.isEmpty ? (flagMap[pack.id] ?? flagMap[pack.line.label] ?? []) : pack.flags),
-                                    width: width,
-                                    section: section
-                                )
+                        } else {
+                            VStack(spacing: 8) {
+                                ForEach(Array(packs.prefix(12))) { pack in
+                                    DashScopeGrainCard(
+                                        pack: pack,
+                                        grain: grain,
+                                        flags: pack.flags.isEmpty ? (flagMap[pack.id] ?? flagMap[pack.line.label] ?? []) : pack.flags,
+                                        width: width,
+                                        section: section
+                                    )
+                                }
                             }
                         }
                     }
@@ -507,6 +494,84 @@ struct DashScopeStrip: View {
             $0.line.count > 0 || (!$0.line.value.isEmpty && $0.line.value != "—")
         }
         return live.isEmpty ? packs.count : live.count
+    }
+
+    @ViewBuilder
+    private var phoneExpandedList: some View {
+        VStack(spacing: 6) {
+            if section == .sales {
+                ForEach(Array(visibleSalesRows.prefix(8))) { row in
+                    PhoneGrainRow(
+                        label: row.label,
+                        value: phoneMoney(row.pack.sales) ?? HeartbeatFormat.money(row.pack.sales ?? 0),
+                        count: row.storeCount,
+                        health: row.pack.health
+                    )
+                }
+                if !visibleDayRows.isEmpty {
+                    Text("By Day")
+                        .font(AppTheme.rounded(.caption, weight: .bold))
+                        .foregroundStyle(AppTheme.textSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, 4)
+                    ForEach(visibleDayRows.prefix(7)) { row in
+                        PhoneGrainRow(
+                            label: row.label,
+                            value: phoneMoney(row.pack.sales) ?? HeartbeatFormat.money(row.pack.sales ?? 0),
+                            count: nil,
+                            health: row.pack.health
+                        )
+                    }
+                }
+            } else {
+                ForEach(Array(packs.prefix(8))) { pack in
+                    PhoneGrainRow(
+                        label: pack.line.label,
+                        value: pack.line.value,
+                        count: grain == .store ? nil : pack.line.count,
+                        health: pack.line.health == .none ? .good : pack.line.health
+                    )
+                }
+            }
+        }
+    }
+}
+
+private struct PhoneGrainRow: View {
+    let label: String
+    let value: String
+    let count: Int?
+    let health: Health
+
+    var body: some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(label)
+                    .font(AppTheme.rounded(.subheadline, weight: .bold))
+                    .foregroundStyle(AppTheme.text)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                if let count, count > 0 {
+                    Text(count == 1 ? "1 store" : "\(count) stores")
+                        .font(AppTheme.rounded(.caption2, weight: .semibold))
+                        .foregroundStyle(AppTheme.textSecondary)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Text(value)
+                .font(AppTheme.rounded(.subheadline, weight: .bold).monospacedDigit())
+                .foregroundStyle(dashInk(health))
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+            HealthBadge(health: health, prominent: true, compact: true)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.black.opacity(0.08), lineWidth: 1)
+        )
     }
 }
 
@@ -990,6 +1055,7 @@ private struct DashCardChrome: ViewModifier {
                 RoundedRectangle(cornerRadius: phone ? 12 : 16, style: .continuous)
                     .stroke(Color.black.opacity(0.08), lineWidth: 1)
             }
+            .clipShape(RoundedRectangle(cornerRadius: phone ? 12 : 16, style: .continuous))
             .shadow(color: Color.black.opacity(0.04), radius: 3, y: 1)
             .contentShape(RoundedRectangle(cornerRadius: phone ? 12 : 16, style: .continuous))
     }
