@@ -1067,6 +1067,23 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(days[2].pack.aos ?? 0, 90.518, accuracy: 0.05)
         XCTAssertEqual(days[2].pack.aiv ?? 0, 4.351, accuracy: 0.05)
         XCTAssertEqual(days[2].pack.ipt ?? 0, 20.803, accuracy: 0.05)
+
+        let companyRow = parsed.first { $0.textPayload["sales_grain"] == "company" }.map { $0.asRow(section: .sales) }
+        XCTAssertNotNil(companyRow)
+        let locked = SalesRollupBuilder.dayRows(
+            from: parsed.map { $0.asRow(section: .sales) }.filter { !$0.storeNumber.isEmpty && $0.storeNumber != "Total" },
+            company: companyRow
+        )
+        XCTAssertEqual(locked[0].pack.sales ?? 0, 13_375_189.33, accuracy: 0.5)
+        XCTAssertEqual(locked[0].pack.yoy ?? 0, -5.90, accuracy: 0.05)
+        XCTAssertEqual(locked[0].pack.orders ?? 0, 139_882, accuracy: 0.5)
+        XCTAssertEqual(locked[0].pack.ordersYoy ?? 0, -2.73, accuracy: 0.05)
+        XCTAssertEqual(locked[0].pack.aos ?? 0, 95.62, accuracy: 0.05)
+        XCTAssertEqual(locked[0].pack.aiv ?? 0, 4.39, accuracy: 0.02)
+        XCTAssertEqual(locked[0].pack.ipt ?? 0, 21.78, accuracy: 0.05)
+        XCTAssertEqual(locked[0].pack.items ?? 0, 3_046_298, accuracy: 0.5)
+        XCTAssertEqual(locked[1].pack.yoy ?? 0, 55.03, accuracy: 0.08)
+        XCTAssertEqual(locked[1].pack.ordersYoy ?? 0, 48.25, accuracy: 0.08)
     }
 }
 

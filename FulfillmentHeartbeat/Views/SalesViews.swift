@@ -10,7 +10,10 @@ struct OverviewSalesBlock: View {
         let stores = store.salesStores()
         let total = SalesPack(rows: stores)
         let mid = midRows(from: stores)
-        let days = SalesRollupBuilder.dayRows(from: stores)
+        let days = SalesRollupBuilder.dayRows(
+            from: stores,
+            company: store.filters.isActive ? nil : store.allLatest(for: .sales).first { $0.textPayload["sales_grain"] == "company" }
+        )
         VStack(alignment: .leading, spacing: 16) {
             overviewTable(title: scopeTitle, rows: [
                 SalesRollupRow(label: scopeTitle, storeCount: Set(stores.map(\.storeNumber)).count, pack: total)
@@ -239,6 +242,8 @@ struct SalesPack {
         health = HeartbeatMath.salesHealth(planPct: nil, yoy: yoy)
     }
 
+    /// Company math: sum $, sum orders, sum items. YoY is this-year vs last-year, not an average of store %.
+    /// AOS = $/orders. AIV = $/items. Items/txn = items/orders.
     init(rows: [MetricRow]) {
         let sales = rows.reduce(0) { $0 + HeartbeatMath.salesHeadlineDollars($1) }
         let orders = rows.reduce(0) { $0 + HeartbeatMath.salesOrders($1) }
@@ -423,13 +428,8 @@ enum SalesRollupBuilder {
         }
     }
 
-    static func dayRows(from stores: [MetricRow]) -> [SalesRollupRow] {
+    static func dayRows(from stores: [MetricRow], company: MetricRow? = nil) -> [SalesRollupRow] {
         let week = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-        var sales = Array(repeating: 0.0, count: 7)
-        var orders = Array(repeating: 0.0, count: 7)
-        var items = Array(repeating: 0.0, count: 7)
-        var lastSales = Array(repeating: 0.0, count: 7)
-        var lastOrders = Array(repeating: 0.0, count: 7)
         var seen = Set<String>()
         var unique: [MetricRow] = []
         for store in stores {
@@ -440,6 +440,23 @@ enum SalesRollupBuilder {
             unique.append(store)
         }
         let storeCount = unique.count
+        if let company, !unique.isEmpty {
+            let names = (company.textPayload["sales_days"] ?? "")
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            let locked = week.enumerated().compactMap { index, name -> SalesRollupRow? in
+                let sourceIndex = names.firstIndex(where: { $0.caseInsensitiveCompare(name) == .orderedSame }) ?? index
+                let pack = SalesPack(company, prefix: "sales_d\(sourceIndex)_")
+                guard (pack.sales ?? 0) > 0 || (pack.orders ?? 0) > 0 else { return nil }
+                return SalesRollupRow(label: name, storeCount: storeCount, pack: pack)
+            }
+            if !locked.isEmpty { return locked }
+        }
+        var sales = Array(repeating: 0.0, count: 7)
+        var orders = Array(repeating: 0.0, count: 7)
+        var items = Array(repeating: 0.0, count: 7)
+        var lastSales = Array(repeating: 0.0, count: 7)
+        var lastOrders = Array(repeating: 0.0, count: 7)
         for store in unique {
             let names = (store.textPayload["sales_days"] ?? "")
                 .split(separator: ",")

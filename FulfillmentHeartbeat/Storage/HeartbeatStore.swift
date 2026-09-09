@@ -241,7 +241,10 @@ final class HeartbeatStore: ObservableObject {
         let source = salesStores()
         let grain = effectiveDashboardGrain
         cachedSalesScopeRows = SalesRollupBuilder.dashboardRows(from: source, grain: grain)
-        cachedSalesDayRows = SalesRollupBuilder.dayRows(from: source)
+        cachedSalesDayRows = SalesRollupBuilder.dayRows(
+            from: source,
+            company: filters.isActive ? nil : allLatest(for: .sales).first { $0.textPayload["sales_grain"] == "company" }
+        )
     }
 
     func rollupStores(for section: MetricSection) -> [MetricRow] {
