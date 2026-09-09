@@ -929,5 +929,40 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(summary.headline ?? 0, 39_761_217, accuracy: 0.5)
         XCTAssertEqual(summary.storeCount, 3)
     }
+
+    func testFactsSnapshotCannotReplaceLiveSales() {
+        let live = MetricRow(
+            section: .sales,
+            division: "Jewel Osco",
+            operationsOM: "",
+            storeNumber: "1",
+            payload: ["sales_dollars": 39_761_217],
+            textPayload: ["sales_grain": "store", "sales_week": "202637"]
+        )
+        let stale = MetricRow(
+            section: .sales,
+            division: "Jewel Osco",
+            operationsOM: "",
+            storeNumber: "1",
+            payload: ["sales_dollars": 132_830_508],
+            textPayload: ["sales_grain": "store", "sales_week": "202636"]
+        )
+        let roster = MetricRow(
+            section: .storeRoster,
+            division: "Jewel Osco",
+            operationsOM: "Pat",
+            storeNumber: "1",
+            textPayload: ["roster": "1", "district": "03"]
+        )
+        XCTAssertEqual(PulseDataPolicy.identityOnly([stale, roster]).map(\.section), [.storeRoster])
+        let afterFacts = PulseDataPolicy.applyIdentity(existing: [live], identity: [stale, roster])
+        XCTAssertEqual(afterFacts.filter { $0.section == .sales }.count, 1)
+        XCTAssertEqual(afterFacts.first { $0.section == .sales }?.payload["sales_dollars"], 39_761_217)
+
+        let merged = PulseDataPolicy.replaceLiveSections(existing: [stale], live: [live])
+        XCTAssertEqual(merged.count, 1)
+        XCTAssertEqual(merged[0].payload["sales_dollars"], 39_761_217)
+        XCTAssertEqual(PulseDataPolicy.weekKey(from: merged), "202637")
+    }
 }
 

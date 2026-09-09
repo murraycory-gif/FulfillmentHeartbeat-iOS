@@ -54,8 +54,14 @@ enum PulseFacts {
         return out
     }
 
+    /// Roster only. Scorecard dollars always come from the live workbook.
+    static func identityRows(from file: PulseFactsFile) -> [MetricRow] {
+        file.roster.map { metricRow($0, section: .storeRoster, extra: ["roster": "1"]) }
+    }
+
     static func isUsable(_ file: PulseFactsFile) -> Bool {
-        file.lostRevenue.filter { !$0.store.isEmpty && ($0.numbers["lost_revenue"] ?? 0) > 0 }.count >= 200
+        file.roster.filter { !$0.store.isEmpty }.count >= 200
+            || file.lostRevenue.filter { !$0.store.isEmpty }.count >= 200
     }
 
     static func loadRows() async -> [MetricRow] {
@@ -73,26 +79,12 @@ enum PulseFacts {
             file = nil
         }
         guard let file, isUsable(file) else { return [] }
-        return metricRows(from: file)
+        return identityRows(from: file)
     }
 
     private static func decode(_ data: Data?) -> PulseFactsFile? {
         guard let data, data.count > 1_000 else { return nil }
         return try? JSONDecoder().decode(PulseFactsFile.self, from: data)
-    }
-
-    private static func salesWeek(_ file: PulseFactsFile) -> Double {
-        var total = 0.0
-        for row in file.sales where !row.store.isEmpty {
-            let week = row.numbers["sales_dollars"] ?? 0
-            let days = (0..<7).reduce(0.0) { $0 + (row.numbers["sales_d\($1)_dollars"] ?? 0) }
-            total += max(week, days)
-        }
-        return total
-    }
-
-    private static func scoredStores(_ file: PulseFactsFile) -> Int {
-        file.lostRevenue.filter { !$0.store.isEmpty && ($0.numbers["lost_revenue"] ?? 0) > 0 }.count
     }
 
     static func bundledData() -> Data? {
@@ -156,5 +148,35 @@ enum PulseFacts {
             payload: fact.numbers,
             textPayload: text
         )
+    }
+}
+
+/// Live workbook is the only source for dollars. Facts.json is roster identity.
+enum PulseDataPolicy {
+    static func weekKey(from rows: [MetricRow]) -> String {
+        for row in rows where row.section == .sales {
+            if let week = row.textPayload["sales_week"], !week.isEmpty { return week }
+            if let recorded = row.recordedOn, !recorded.isEmpty { return recorded }
+        }
+        return ""
+    }
+
+    static func identityOnly(_ rows: [MetricRow]) -> [MetricRow] {
+        rows.filter { $0.section == .storeRoster || $0.textPayload["roster"] == "1" }
+    }
+
+    static func applyIdentity(existing: [MetricRow], identity: [MetricRow]) -> [MetricRow] {
+        let roster = identityOnly(identity)
+        guard !roster.isEmpty else { return existing }
+        var next = existing.filter { $0.section != .storeRoster && $0.textPayload["roster"] != "1" }
+        next.append(contentsOf: roster)
+        return next
+    }
+
+    /// Incoming workbook sections replace the same sections. Never keep a larger stale total.
+    static func replaceLiveSections(existing: [MetricRow], live: [MetricRow]) -> [MetricRow] {
+        let liveSections = Set(live.map(\.section))
+        let kept = existing.filter { !liveSections.contains($0.section) }
+        return kept + live
     }
 }

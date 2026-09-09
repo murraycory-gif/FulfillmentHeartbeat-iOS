@@ -1661,7 +1661,7 @@ final class HeartbeatStore: ObservableObject {
                 )
                 if ok {
                     UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
-                    UserDefaults.standard.set(177, forKey: "hb.parserStamp")
+                    UserDefaults.standard.set(178, forKey: "hb.parserStamp")
                     return
                 }
                 lastError = "Workbook did not parse."
@@ -1703,7 +1703,7 @@ final class HeartbeatStore: ObservableObject {
             && (pack?.updated ?? "") >= remoteUpdated
             && Self.hasUsableSales(rows)
             && Self.hasUsableLostRevenue(rows)
-        if packCoversWorkbook, parserStamp >= 177 {
+        if packCoversWorkbook, parserStamp >= 178 {
             UserDefaults.standard.set(remoteXlsx, forKey: "hb.cloudXlsxBytes")
             if !remoteUpdated.isEmpty {
                 UserDefaults.standard.set(remoteUpdated, forKey: "hb.cloudXlsxUpdated")
@@ -1711,7 +1711,7 @@ final class HeartbeatStore: ObservableObject {
             return
         }
         let sameFile = remoteXlsx == knownXlsx && (remoteUpdated.isEmpty || remoteUpdated == knownUpdated)
-        if sameFile, parserStamp >= 177, Self.hasUsableSales(rows), Self.hasUsableLostRevenue(rows) {
+        if sameFile, parserStamp >= 178, Self.hasUsableSales(rows), Self.hasUsableLostRevenue(rows) {
             return
         }
         _ = remoteName
@@ -1777,7 +1777,7 @@ final class HeartbeatStore: ObservableObject {
         }
         let fileChanged = remoteXlsx > 1_000 && (remoteXlsx != knownXlsx || (!remoteUpdated.isEmpty && remoteUpdated != knownUpdated))
         let firstLoad = !hasPack
-        let needsParserPass = stamp < 177
+        let needsParserPass = stamp < 178
         guard remoteXlsx > 1_000, firstLoad || fileChanged || needsParserPass else {
             if hasPack {
                 isImporting = false
@@ -1807,7 +1807,7 @@ final class HeartbeatStore: ObservableObject {
             )
             if ok {
                 UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
-                UserDefaults.standard.set(177, forKey: "hb.parserStamp")
+                UserDefaults.standard.set(178, forKey: "hb.parserStamp")
                 let info = await PulseCloud.objectInfo(remoteName)
                 if !info.updated.isEmpty {
                     UserDefaults.standard.set(info.updated, forKey: "hb.cloudXlsxUpdated")
@@ -2114,6 +2114,10 @@ final class HeartbeatStore: ObservableObject {
         let token = masterApplyToken
         let nextRows = rows
         let nextUploads = uploads
+        let week = PulseDataPolicy.weekKey(from: nextRows)
+        if !week.isEmpty {
+            UserDefaults.standard.set(week, forKey: "hb.dataWeek")
+        }
         let caches = await Task.detached(priority: .userInitiated) {
             PulseCaches.build(rows: nextRows, filters: DashboardFilters(), uploads: nextUploads, heavy: false, grain: .region)
         }.value
@@ -2815,20 +2819,10 @@ final class HeartbeatStore: ObservableObject {
             await PulseFacts.loadRows()
         }.value
         guard !incoming.isEmpty else { return }
-        let factLost = incoming.filter { $0.section == .lostRevenue && !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty }
-        let factRoster = incoming.filter { $0.section == .storeRoster }
-        let lostStores = Set(factLost.map { HeartbeatMath.canonicalStore($0.storeNumber) })
-        if !factRoster.isEmpty {
-            rows.removeAll { $0.section == .storeRoster }
-            rows.append(contentsOf: factRoster)
-        }
-        if !lostStores.isEmpty {
-            rows.removeAll { row in
-                row.section == .lostRevenue && lostStores.contains(HeartbeatMath.canonicalStore(row.storeNumber))
-            }
-            rows.append(contentsOf: factLost)
-        }
-        // Sales and 5-star come from the live workbook. Facts.json is last week's snapshot.
+        let identity = PulseDataPolicy.identityOnly(incoming)
+        guard !identity.isEmpty else { return }
+        rows = PulseDataPolicy.applyIdentity(existing: rows, identity: identity)
+        // Never copy sales / lost revenue / 5-star dollars from facts.json.
         seeded = true
         rebuildLostIndex()
         rebuildIndex()
