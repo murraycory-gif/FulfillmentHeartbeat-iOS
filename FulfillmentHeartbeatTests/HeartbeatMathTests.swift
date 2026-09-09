@@ -733,6 +733,51 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(summary?.storeCount, 1)
     }
 
+    func testLaunchLeavesSplashWhenLocalPackIsInMemory() {
+        XCTAssertTrue(PulseLaunch.leaveSplash(localPackBytes: 80_000, loadedRows: 12))
+        XCTAssertFalse(PulseLaunch.leaveSplash(localPackBytes: 80_000, loadedRows: 0))
+        XCTAssertFalse(PulseLaunch.leaveSplash(localPackBytes: 1_200, loadedRows: 40))
+    }
+
+    func testLaunchDoesNotRefetchTheSameLocalPack() {
+        XCTAssertFalse(
+            PulseLaunch.shouldFetchRemotePack(remoteBytes: 2_000_000, localBytes: 2_000_000, localRowsLoaded: 400)
+        )
+        XCTAssertTrue(
+            PulseLaunch.shouldFetchRemotePack(remoteBytes: 2_100_000, localBytes: 2_000_000, localRowsLoaded: 400)
+        )
+        XCTAssertTrue(
+            PulseLaunch.shouldFetchRemotePack(remoteBytes: 2_000_000, localBytes: 0, localRowsLoaded: 0)
+        )
+        XCTAssertTrue(
+            PulseLaunch.shouldFetchRemotePack(remoteBytes: 2_000_000, localBytes: 2_000_000, localRowsLoaded: 0)
+        )
+        XCTAssertFalse(
+            PulseLaunch.shouldFetchRemotePack(remoteBytes: 12_000, localBytes: 0, localRowsLoaded: 0)
+        )
+    }
+
+    func testConstrainedRefreshDoesNotReloadPackInSession() {
+        XCTAssertFalse(PulseLaunch.reloadInSessionAfterFetch(constrained: true, localRowsLoaded: 400))
+        XCTAssertTrue(PulseLaunch.reloadInSessionAfterFetch(constrained: true, localRowsLoaded: 0))
+        XCTAssertTrue(PulseLaunch.reloadInSessionAfterFetch(constrained: false, localRowsLoaded: 400))
+    }
+
+    func testMissingPackMessageIsActionable() {
+        let message = PulseLaunch.missingPackMessage()
+        XCTAssertTrue(message.contains("Try again"))
+        XCTAssertFalse(message.isEmpty)
+    }
+
+    func testUsablePackFileRejectsTinyStubs() {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("hb-stub-\(UUID().uuidString).sqlite")
+        FileManager.default.createFile(atPath: url.path, contents: Data(repeating: 1, count: 1_200), attributes: nil)
+        XCTAssertFalse(PulseSQLite.isUsableFile(at: url))
+        XCTAssertFalse(PulseSQLite.exists(at: url))
+        try? FileManager.default.removeItem(at: url)
+        XCTAssertFalse(PulseSQLite.exists(at: url))
+    }
+
     func testDistrictD3MatchesRoster03() {
         XCTAssertTrue(HeartbeatMath.districtMatchKeys("D3").contains("3"))
         XCTAssertTrue(HeartbeatMath.districtMatchKeys("03").contains("3"))

@@ -124,49 +124,42 @@ final class HeartbeatStore: ObservableObject {
         loadMasterLink()
         isImporting = true
         isReady = false
+        errorMessage = nil
         importProgress.label = "Opening the floor"
         await loadPack()
         if seeded, !rows.isEmpty {
-            if cachedSummaries.isEmpty {
-                rebuildIndex()
-                installCompanyWideFast()
-            }
-            isImporting = false
-            importLabel = nil
-            isReady = true
-            needsRolePick = true
+            finishLocalLaunch()
             return
         }
-        if !Self.hasUsableLabor(rows) || !Self.hasUsablePicker(rows) {
-            await importCloudSQLiteIfPresent()
-        }
-        await loadPublishedFacts()
+        importProgress.label = "Looking for a cloud pack"
+        await importCloudSQLiteIfPresent(reason: .boot)
         if seeded, !rows.isEmpty {
-            if cachedSummaries.isEmpty {
-                rebuildIndex()
-                installCompanyWideFast()
-            }
-            isImporting = false
-            importLabel = nil
-            isReady = true
-            needsRolePick = true
-            Task { await self.importCloudWorkbook(blocking: false) }
+            finishLocalLaunch()
             return
         }
-        await importCloudWorkbook(blocking: true)
-        if !Self.hasUsableLostRevenue(rows) {
-            await loadPublishedFacts()
-        }
+        isImporting = false
+        importLabel = nil
+        errorMessage = PulseLaunch.missingPackMessage()
+    }
+
+    private func finishLocalLaunch() {
         if cachedSummaries.isEmpty, !rows.isEmpty {
             rebuildIndex()
             installCompanyWideFast()
         }
         isImporting = false
         importLabel = nil
-        if seeded, !rows.isEmpty {
-            isReady = true
-            needsRolePick = true
-        }
+        isReady = true
+        needsRolePick = true
+    }
+
+    func retryLaunch() {
+        guard !isImporting else { return }
+        errorMessage = nil
+        isReady = false
+        isImporting = true
+        importProgress.label = "Loading the data"
+        Task { await boot() }
     }
 
     private func hydrateFromCloudInBackground() async {
@@ -1573,6 +1566,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func pullLatestWorkbookIfNeeded() {
+        guard isReady, !needsRolePick, !isImporting else { return }
         if let last = lastCloudPullAt, Date().timeIntervalSince(last) < 300 { return }
         lastCloudPullAt = Date()
         Task { await pullWatchedWorkbook() }
@@ -1593,9 +1587,13 @@ final class HeartbeatStore: ObservableObject {
 
     private func syncCloudPackIfChanged() async {
         let remote = await PulseCloud.objectSize(PulseCloud.object)
-        let known = UserDefaults.standard.integer(forKey: "hb.cloudPackBytes")
-        if remote > 50_000, remote != known {
-            await importCloudSQLiteIfPresent()
+        let localBytes = PulseSQLite.fileBytes(at: sqliteURL)
+        if PulseLaunch.shouldFetchRemotePack(
+            remoteBytes: remote,
+            localBytes: localBytes,
+            localRowsLoaded: rows.count
+        ) {
+            await importCloudSQLiteIfPresent(reason: .refresh)
         }
         await importCloudCardsIfPresent()
     }
@@ -1670,21 +1668,45 @@ final class HeartbeatStore: ObservableObject {
         await importCloudWorkbook(blocking: false)
     }
 
-    private func importCloudSQLiteIfPresent() async {
+    private enum PackFetchReason {
+        case boot, refresh
+    }
+
+    private func importCloudSQLiteIfPresent(reason: PackFetchReason) async {
         let remote = await PulseCloud.objectSize(PulseCloud.object)
-        guard remote > 50_000 else { return }
-        let known = UserDefaults.standard.integer(forKey: "hb.cloudPackBytes")
-        let build = UserDefaults.standard.string(forKey: "hb.packBuild") ?? ""
-        let packReady = Self.hasUsableSales(rows) && Self.hasUsableLostRevenue(rows)
-        let sameFile = known == remote && packReady && build == BuildStamp.id
-        if sameFile { return }
+        let localBytes = PulseSQLite.fileBytes(at: sqliteURL)
+        let alreadyLoaded = rows.count
+        guard PulseLaunch.shouldFetchRemotePack(
+            remoteBytes: remote,
+            localBytes: localBytes,
+            localRowsLoaded: alreadyLoaded
+        ) else { return }
+        let staging = sqliteURL.deletingLastPathComponent().appendingPathComponent(PulseLaunch.stagingFileName)
+        let timeout = reason == .boot ? PulseLaunch.bootDownloadTimeout : 180
         do {
-            let dest = sqliteURL
-            let size = try await PulseCloud.downloadPack(to: dest)
-            await loadPack()
-            guard seeded, !rows.isEmpty else { return }
+            let size = try await PulseCloud.downloadPack(to: staging, timeout: timeout)
+            guard PulseSQLite.isUsableFile(at: staging) else {
+                try? fileManager.removeItem(at: staging)
+                return
+            }
+            let shouldReload = PulseLaunch.reloadInSessionAfterFetch(
+                constrained: HubLayout.constrained,
+                localRowsLoaded: alreadyLoaded
+            )
+            if shouldReload {
+                await loadPack(from: staging)
+                guard seeded, !rows.isEmpty else {
+                    try? fileManager.removeItem(at: staging)
+                    return
+                }
+            }
+            try promoteStagingPack(staging)
             UserDefaults.standard.set(size, forKey: "hb.cloudPackBytes")
             UserDefaults.standard.set(BuildStamp.id, forKey: "hb.packBuild")
+            if !shouldReload {
+                applyLocalCards()
+                return
+            }
             if HubLayout.constrained {
                 applyLocalCards()
                 return
@@ -1694,7 +1716,15 @@ final class HeartbeatStore: ObservableObject {
                 await loadPublishedFacts()
             }
         } catch {
-            return
+            try? fileManager.removeItem(at: staging)
+        }
+    }
+
+    private func promoteStagingPack(_ staging: URL) throws {
+        if fileManager.fileExists(atPath: sqliteURL.path) {
+            _ = try fileManager.replaceItemAt(sqliteURL, withItemAt: staging)
+        } else {
+            try fileManager.moveItem(at: staging, to: sqliteURL)
         }
     }
 
@@ -2788,46 +2818,57 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func loadPack() async {
-        if PulseSQLite.exists(at: sqliteURL) {
-            let url = sqliteURL
-            let skipHeavy: Set<MetricSection> = HubLayout.constrained ? Self.launchSkip : []
-            let pack = await Task.detached(priority: .userInitiated) {
-                try? PulseSQLite.read(from: url, skipping: skipHeavy)
-            }.value
-            if let pack, !pack.rows.isEmpty {
-                importProgress.label = "Setting the aisle"
-                let packRows = pack.rows
-                let packUploads = pack.uploads
-                let caches = await Task.detached(priority: .userInitiated) {
-                    PulseCaches.build(
-                        rows: packRows,
-                        filters: DashboardFilters(),
-                        uploads: packUploads,
-                        heavy: false,
-                        grain: .region
-                    )
-                }.value
-                hydrating = true
-                rows = pack.rows
-                uploads = pack.uploads.sorted { $0.uploadedAt > $1.uploadedAt }
-                seeded = true
-                usingDatabasePack = true
-                if !isReady {
-                    filters = DashboardFilters()
-                    sessionRole = nil
-                    needsRolePick = true
-                }
-                install(caches)
-                hydrating = false
-                applyLocalCards()
-                importProgress.loaded = MetricSection.uploadOrder.count
-                pendingHeavyExtras = true
-                return
+        await loadPack(from: sqliteURL)
+    }
+
+    private func loadPack(from url: URL) async {
+        guard PulseSQLite.isUsableFile(at: url) else {
+            if url == sqliteURL {
+                isReady = false
+                rebuildIndex()
+                applyFilters()
             }
+            return
         }
-        isReady = false
-        rebuildIndex()
-        applyFilters()
+        let skipHeavy: Set<MetricSection> = HubLayout.constrained ? Self.launchSkip : []
+        let pack = await Task.detached(priority: .userInitiated) {
+            try? PulseSQLite.read(from: url, skipping: skipHeavy)
+        }.value
+        if let pack, !pack.rows.isEmpty {
+            importProgress.label = "Setting the aisle"
+            let packRows = pack.rows
+            let packUploads = pack.uploads
+            let caches = await Task.detached(priority: .userInitiated) {
+                PulseCaches.build(
+                    rows: packRows,
+                    filters: DashboardFilters(),
+                    uploads: packUploads,
+                    heavy: false,
+                    grain: .region
+                )
+            }.value
+            hydrating = true
+            rows = pack.rows
+            uploads = pack.uploads.sorted { $0.uploadedAt > $1.uploadedAt }
+            seeded = true
+            usingDatabasePack = true
+            if !isReady {
+                filters = DashboardFilters()
+                sessionRole = nil
+                needsRolePick = true
+            }
+            install(caches)
+            hydrating = false
+            applyLocalCards()
+            importProgress.loaded = MetricSection.uploadOrder.count
+            pendingHeavyExtras = true
+            return
+        }
+        if url == sqliteURL {
+            isReady = false
+            rebuildIndex()
+            applyFilters()
+        }
     }
 
     private func loadHeavySections() async {

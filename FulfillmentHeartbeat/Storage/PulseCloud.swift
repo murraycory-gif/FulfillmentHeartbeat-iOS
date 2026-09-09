@@ -107,12 +107,14 @@ enum PulseCloud {
     }
 
     /// Stream the pack to disk. Do not hold the file in RAM (iPhone 13 jetsam).
-    static func downloadPack(to dest: URL) async throws -> Int {
+    /// `dest` must be a staging file — never the live `heartbeat.sqlite` until
+    /// the caller has verified the download.
+    static func downloadPack(to dest: URL, timeout: TimeInterval = 180) async throws -> Int {
         var last: Error = PulseCloudError.missing
         for url in [packURL, publicPackURL] {
             var request = URLRequest(url: url)
             request.httpMethod = "GET"
-            request.timeoutInterval = 180
+            request.timeoutInterval = timeout
             applyAuth(&request)
             do {
                 let (temp, response) = try await URLSession.shared.download(for: request)

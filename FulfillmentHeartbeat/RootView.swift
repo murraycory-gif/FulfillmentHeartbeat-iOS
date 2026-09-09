@@ -39,6 +39,7 @@ struct RootView: View {
 }
 
 struct LaunchSplashView: View {
+    @EnvironmentObject private var store: HeartbeatStore
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var quipIndex = 0
 
@@ -73,15 +74,29 @@ struct LaunchSplashView: View {
                     forceTrace: true
                 )
                 VStack(spacing: 10) {
-                    ProgressView()
-                        .controlSize(.regular)
-                        .tint(AppTheme.blue)
-                    Text(Self.quips[quipIndex % Self.quips.count])
-                        .font(.system(size: phone ? 16 : 18, weight: .semibold))
-                        .foregroundStyle(AppTheme.text)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.8)
+                    if let error = store.errorMessage, !store.isImporting {
+                        Text(error)
+                            .font(.system(size: phone ? 16 : 18, weight: .semibold))
+                            .foregroundStyle(AppTheme.text)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 8)
+                        Button("Try again") {
+                            store.retryLaunch()
+                        }
+                        .font(.system(size: phone ? 16 : 17, weight: .semibold))
+                        .foregroundStyle(AppTheme.blue)
+                        .padding(.top, 4)
+                    } else {
+                        ProgressView()
+                            .controlSize(.regular)
+                            .tint(AppTheme.blue)
+                        Text(store.importProgress.label ?? Self.quips[quipIndex % Self.quips.count])
+                            .font(.system(size: phone ? 16 : 18, weight: .semibold))
+                            .foregroundStyle(AppTheme.text)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(3)
+                            .minimumScaleFactor(0.8)
+                    }
                 }
                 .padding(.top, 4)
             }
