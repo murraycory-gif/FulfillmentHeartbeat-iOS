@@ -21,12 +21,8 @@ enum PulseCloud {
         projectURL.appendingPathComponent("storage/v1/object/public/\(bucket)/\(object)")
     }
 
-    private static var listedAt: Date?
-    private static var listedRows: [[String: Any]] = []
-    private static let listLock = NSLock()
-
     static func objectSize(_ name: String) async -> Int {
-        objectInfo(name).size
+        await objectInfo(name).size
     }
 
     static func objectInfo(_ name: String) async -> (size: Int, updated: String) {
@@ -45,13 +41,6 @@ enum PulseCloud {
     }
 
     private static func listObjects() async -> [[String: Any]] {
-        listLock.lock()
-        if let listedAt, Date().timeIntervalSince(listedAt) < 45, !listedRows.isEmpty {
-            let cached = listedRows
-            listLock.unlock()
-            return cached
-        }
-        listLock.unlock()
         var request = URLRequest(url: projectURL.appendingPathComponent("storage/v1/object/list/\(bucket)"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -61,16 +50,7 @@ enum PulseCloud {
         guard let (data, response) = try? await URLSession.shared.data(for: request),
               let http = response as? HTTPURLResponse, http.statusCode == 200,
               let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
-        else {
-            listLock.lock()
-            let cached = listedRows
-            listLock.unlock()
-            return cached
-        }
-        listLock.lock()
-        listedAt = Date()
-        listedRows = rows
-        listLock.unlock()
+        else { return [] }
         return rows
     }
 
