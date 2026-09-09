@@ -215,6 +215,19 @@ enum WorkbookParser {
         return sheets
     }
 
+    static func parseSalesOnly(data: Data) -> [ParsedWorkbookRow] {
+        let unzipped = stripWrapper(data)
+        let zip = Self.openWorkbook(unzipped) ?? Self.openWorkbook(data) ?? extractZipPayload(unzipped).flatMap(Self.openWorkbook)
+        guard let zip else { return [] }
+        let strings = zip.file(named: "xl/sharedStrings.xml").flatMap { String(data: $0, encoding: .utf8) }.map(SharedStrings.parse) ?? []
+        for entry in sheetMap(from: zip) {
+            if section(fromSheetName: entry.name) == .sales {
+                return parseSalesFromZip(zip: zip, path: entry.path, strings: strings)
+            }
+        }
+        return []
+    }
+
     static func stripWrapper(_ data: Data) -> Data {
         if data.count > 128, data.starts(with: [0x50, 0x4B, 0x03, 0x04]) { return data }
         guard let eocd = ZipArchive.findEOCD(data), eocd + 22 <= data.count else {
@@ -1126,7 +1139,7 @@ enum WorkbookParser {
         if lower.contains("thu") { return "Thursday" }
         if lower.contains("fri") { return "Friday" }
         if lower.contains("sat") { return "Saturday" }
-        if lower.contains("total") { return "Week" }
+        if lower.contains("total"), !lower.contains("item") { return "Week" }
         return raw.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
@@ -1318,10 +1331,6 @@ enum WorkbookParser {
             if store.isEmpty { continue }
             var payload: [String: Double] = [:]
             applySalesBlock(weekBlock, line: line, prefix: "sales_", payload: &payload)
-            if payload["sales_dollars"] == nil && payload["sales_orders"] == nil { continue }
-            if payload["sales_aov"] == nil, let sales = payload["sales_dollars"], let orders = payload["sales_orders"], orders > 0 {
-                payload["sales_aov"] = sales / orders
-            }
             for (offset, block) in dayBlocks.enumerated() where block.sales != weekBlock.sales {
                 applySalesBlock(block, line: line, prefix: "sales_d\(offset)_", payload: &payload)
             }
@@ -1332,6 +1341,10 @@ enum WorkbookParser {
             if payload["sales_orders"] == nil {
                 let dayOrders = (0..<7).compactMap { payload["sales_d\($0)_orders"] }.reduce(0, +)
                 if dayOrders > 0 { payload["sales_orders"] = dayOrders }
+            }
+            if payload["sales_dollars"] == nil && payload["sales_orders"] == nil { continue }
+            if payload["sales_aov"] == nil, let sales = payload["sales_dollars"], let orders = payload["sales_orders"], orders > 0 {
+                payload["sales_aov"] = sales / orders
             }
             var text: [String: String] = ["sales_grain": "store"]
             if !lastDistrict.isEmpty { text["district"] = lastDistrict }
