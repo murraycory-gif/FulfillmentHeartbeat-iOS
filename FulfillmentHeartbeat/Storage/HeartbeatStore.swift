@@ -123,10 +123,34 @@ final class HeartbeatStore: ObservableObject {
         isReady = false
         importProgress.label = "Opening the floor"
         await loadPack()
+        if seeded, !rows.isEmpty {
+            if cachedSummaries.isEmpty {
+                rebuildIndex()
+                installCompanyWideFast()
+            }
+            isImporting = false
+            importLabel = nil
+            isReady = true
+            needsRolePick = true
+            Task { await self.hydrateFromCloudInBackground() }
+            return
+        }
         if !Self.hasUsableLabor(rows) || !Self.hasUsablePicker(rows) {
             await importCloudSQLiteIfPresent()
         }
         await loadPublishedFacts()
+        if seeded, !rows.isEmpty {
+            if cachedSummaries.isEmpty {
+                rebuildIndex()
+                installCompanyWideFast()
+            }
+            isImporting = false
+            importLabel = nil
+            isReady = true
+            needsRolePick = true
+            Task { await self.importCloudWorkbook(blocking: false) }
+            return
+        }
         await importCloudWorkbook(blocking: true)
         if !Self.hasUsableLostRevenue(rows) {
             await loadPublishedFacts()
@@ -141,6 +165,11 @@ final class HeartbeatStore: ObservableObject {
             isReady = true
             needsRolePick = true
         }
+    }
+
+    private func hydrateFromCloudInBackground() async {
+        await loadPublishedFacts()
+        await syncServerWorkbookIfChanged()
     }
 
     private func applyLocalCards() {
@@ -1638,8 +1667,11 @@ final class HeartbeatStore: ObservableObject {
         }
         let knownXlsx = UserDefaults.standard.integer(forKey: "hb.cloudXlsxBytes")
         let hasPack = seeded && !rows.isEmpty
-        let packComplete = hasPack && Self.hasFullScorecards(rows)
-        guard remoteXlsx > 1_000, remoteXlsx != knownXlsx || !packComplete || UserDefaults.standard.integer(forKey: "hb.parserStamp") < 175 else {
+        let stamp = UserDefaults.standard.integer(forKey: "hb.parserStamp")
+        let fileChanged = knownXlsx > 0 && remoteXlsx != knownXlsx
+        let firstLoad = !hasPack
+        let needsParserPass = stamp < 175
+        guard remoteXlsx > 1_000, firstLoad || fileChanged || needsParserPass else {
             if hasPack {
                 isImporting = false
                 isReady = true
@@ -1668,9 +1700,7 @@ final class HeartbeatStore: ObservableObject {
             )
             if ok {
                 UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
-                if Self.hasFullScorecards(rows) {
-                    UserDefaults.standard.set(175, forKey: "hb.parserStamp")
-                }
+                UserDefaults.standard.set(175, forKey: "hb.parserStamp")
                 publishFacts()
                 publishCloudPack()
             } else if !hasPack {
