@@ -1360,7 +1360,9 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func applyLaunchRole(_ role: HeartbeatRole, region: String = "", division: String = "", district: String = "", om: String = "") {
+        needsRolePick = false
         sessionRole = role
+        UserDefaults.standard.set(role.rawValue, forKey: "hb.sessionRole")
         var next = DashboardFilters()
         switch role {
         case .backstage:
@@ -1376,10 +1378,10 @@ final class HeartbeatStore: ObservableObject {
             next.om = om
         }
         next.sanitize()
-        needsRolePick = false
-        if filters != next {
-            filters = next
-            persistFilters()
+        guard filters != next else { return }
+        Task { @MainActor in
+            self.filters = next
+            self.persistFilters()
         }
     }
 
@@ -2020,7 +2022,7 @@ final class HeartbeatStore: ObservableObject {
         }.value
         guard token == masterApplyToken else { return }
         hydrating = true
-        if presentRoleGate {
+        if presentRoleGate, sessionRole == nil {
             filters = DashboardFilters()
             sessionRole = nil
             needsRolePick = true
@@ -2748,9 +2750,11 @@ final class HeartbeatStore: ObservableObject {
                 uploads = pack.uploads.sorted { $0.uploadedAt > $1.uploadedAt }
                 seeded = true
                 usingDatabasePack = true
-                filters = DashboardFilters()
-                sessionRole = nil
-                needsRolePick = true
+                if !isReady {
+                    filters = DashboardFilters()
+                    sessionRole = nil
+                    needsRolePick = true
+                }
                 install(caches)
                 hydrating = false
                 applyLocalCards()

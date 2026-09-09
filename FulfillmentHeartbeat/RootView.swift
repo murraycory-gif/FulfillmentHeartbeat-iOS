@@ -6,12 +6,13 @@ struct RootView: View {
     var body: some View {
         ZStack {
             AppTheme.bg.ignoresSafeArea()
-            if store.isReady && !store.isImporting {
+            if store.isReady {
                 MainHubView()
                     .transition(.opacity)
                     .overlay {
                         if store.needsRolePick {
                             RoleGateView()
+                                .zIndex(20)
                                 .transition(.opacity)
                         }
                     }

@@ -25,7 +25,10 @@ struct RoleGateView: View {
                 .frame(maxWidth: 720)
                 .frame(maxWidth: .infinity)
             }
+            .scrollBounceBehavior(.basedOnSize)
+            .scrollDismissesKeyboard(.interactively)
         }
+        .contentShape(Rectangle())
         .preferredColorScheme(.light)
     }
 
@@ -51,47 +54,54 @@ struct RoleGateView: View {
     private var roleStep: some View {
         VStack(spacing: 12) {
             ForEach(HeartbeatRole.allCases) { item in
-                Button {
-                    if item == .backstage {
-                        store.applyLaunchRole(.backstage)
-                    } else {
-                        query = ""
-                        role = item
+                roleCard(item)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        pick(item)
                     }
-                } label: {
-                    HStack(alignment: .top, spacing: phone ? 12 : 16) {
-                        Image(systemName: item.symbol)
-                            .font((phone ? Font.body : Font.title2).weight(.semibold))
-                            .foregroundStyle(AppTheme.blue)
-                            .frame(width: phone ? 28 : 36, height: phone ? 28 : 36)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(item.title)
-                                .font((phone ? Font.headline : Font.title3).weight(.bold))
-                                .foregroundStyle(AppTheme.text)
-                                .multilineTextAlignment(.leading)
-                            Text(item.detail)
-                                .font(phone ? .caption : .subheadline)
-                                .foregroundStyle(AppTheme.textSecondary)
-                                .multilineTextAlignment(.leading)
-                        }
-                        Spacer(minLength: 8)
-                        Image(systemName: "chevron.right")
-                            .font(.body.weight(.semibold))
-                            .foregroundStyle(AppTheme.textTertiary)
-                    }
-                    .padding(18)
-                    .background(
-                        RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                            .fill(AppTheme.card)
-                    )
-                    .overlay(
-                        RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                            .stroke(AppTheme.blue.opacity(0.18), lineWidth: 1.5)
-                    )
-                }
-                .buttonStyle(.plain)
             }
         }
+    }
+
+    private func pick(_ item: HeartbeatRole) {
+        if item == .backstage {
+            store.applyLaunchRole(.backstage)
+        } else {
+            query = ""
+            role = item
+        }
+    }
+
+    private func roleCard(_ item: HeartbeatRole) -> some View {
+        HStack(alignment: .top, spacing: phone ? 12 : 16) {
+            Image(systemName: item.symbol)
+                .font((phone ? Font.body : Font.title2).weight(.semibold))
+                .foregroundStyle(AppTheme.blue)
+                .frame(width: phone ? 28 : 36, height: phone ? 28 : 36)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.title)
+                    .font((phone ? Font.headline : Font.title3).weight(.bold))
+                    .foregroundStyle(AppTheme.text)
+                    .multilineTextAlignment(.leading)
+                Text(item.detail)
+                    .font(phone ? .caption : .subheadline)
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .multilineTextAlignment(.leading)
+            }
+            Spacer(minLength: 8)
+            Image(systemName: "chevron.right")
+                .font(.body.weight(.semibold))
+                .foregroundStyle(AppTheme.textTertiary)
+        }
+        .padding(18)
+        .background(
+            RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                .fill(AppTheme.card)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                .stroke(AppTheme.blue.opacity(0.18), lineWidth: 1.5)
+        )
     }
 
     @ViewBuilder
@@ -117,15 +127,14 @@ struct RoleGateView: View {
             switch role {
             case .evp:
                 ForEach(MarketRegion.allCases) { region in
-                    Button {
+                    scopeCard(
+                        title: region.rawValue,
+                        detail: region.gateDivisions.joined(separator: " · ")
+                    )
+                    .contentShape(Rectangle())
+                    .onTapGesture {
                         store.applyLaunchRole(.evp, region: region.rawValue)
-                    } label: {
-                        scopeCard(
-                            title: region.rawValue,
-                            detail: region.gateDivisions.joined(separator: " · ")
-                        )
                     }
-                    .buttonStyle(.plain)
                 }
             case .director:
                 ForEach(MarketRegion.allCases) { region in
@@ -134,12 +143,11 @@ struct RoleGateView: View {
                         .foregroundStyle(AppTheme.blue)
                         .padding(.top, 8)
                     ForEach(region.gateDivisions, id: \.self) { division in
-                        Button {
-                            store.applyLaunchRole(.director, division: division)
-                        } label: {
-                            scopeCard(title: division, detail: region.rawValue)
-                        }
-                        .buttonStyle(.plain)
+                        scopeCard(title: division, detail: region.rawValue)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                store.applyLaunchRole(.director, division: division)
+                            }
                     }
                 }
             case .om:
@@ -163,12 +171,11 @@ struct RoleGateView: View {
                     .padding(.top, 8)
             } else {
                 ForEach(filteredDistricts, id: \.self) { district in
-                    Button {
-                        store.applyLaunchRole(.districtManager, district: district)
-                    } label: {
-                        scopeCard(title: district, detail: "District")
-                    }
-                    .buttonStyle(.plain)
+                    scopeCard(title: district, detail: "District")
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            store.applyLaunchRole(.districtManager, district: district)
+                        }
                 }
             }
         }
@@ -185,12 +192,11 @@ struct RoleGateView: View {
                     .padding(.top, 8)
             } else {
                 ForEach(filteredOMs, id: \.self) { om in
-                    Button {
-                        store.applyLaunchRole(.om, om: om)
-                    } label: {
-                        scopeCard(title: om, detail: "Operations Manager")
-                    }
-                    .buttonStyle(.plain)
+                    scopeCard(title: om, detail: "Operations Manager")
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            store.applyLaunchRole(.om, om: om)
+                        }
                 }
             }
         }

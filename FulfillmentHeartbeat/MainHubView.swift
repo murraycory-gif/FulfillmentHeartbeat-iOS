@@ -110,7 +110,7 @@ final class HubRouter: ObservableObject {
     var current: HubDestination { destination }
 
     init() {
-        destination = .upload
+        destination = .dashboard
     }
 
     func open(_ dest: HubDestination) {
