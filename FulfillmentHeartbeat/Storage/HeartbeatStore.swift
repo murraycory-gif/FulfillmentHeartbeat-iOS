@@ -2351,10 +2351,6 @@ final class HeartbeatStore: ObservableObject {
         return out
     }
 
-    private func lostRevenueMatching(allowed: Set<String>) -> [MetricRow] {
-        lostRevenueForStores(allowed)
-    }
-
     private func applyFilters() {
         refilterTask?.cancel()
         applyVisibleFilter()
@@ -2419,11 +2415,12 @@ final class HeartbeatStore: ObservableObject {
         var next: [MetricSection: [MetricRow]] = [:]
         next.reserveCapacity(latestBySection.count)
         for (section, sectionRows) in latestBySection {
-            if section == .pickPathPicker { continue }
-            if section == .lostRevenue { continue }
-            next[section] = PulseCaches.rowsMatchingStores(sectionRows, stores: allowed, skipMarket: false)
+            next[section] = PulseCaches.rowsMatchingStores(
+                sectionRows,
+                stores: allowed,
+                skipMarket: section == .lostRevenue || section == .labor
+            )
         }
-        next[.lostRevenue] = lostRevenueMatching(allowed: allowed)
         filteredLatest = latestBySection.merging(next) { _, new in new }
         cachedSummaries = MetricSection.dashboardCards.map { section in
             HeartbeatMath.summarize(
@@ -2835,8 +2832,10 @@ final class HeartbeatStore: ObservableObject {
         let factLost = incoming.filter { $0.section == .lostRevenue && !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty }
         let factRoster = incoming.filter { $0.section == .storeRoster }
         let factSales = incoming.filter { $0.section == .sales && !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty }
+        let factFive = incoming.filter { $0.section == .fiveStar && !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty }
         let lostStores = Set(factLost.map { HeartbeatMath.canonicalStore($0.storeNumber) })
         let salesStores = Set(factSales.map { HeartbeatMath.canonicalStore($0.storeNumber) })
+        let fiveStores = Set(factFive.map { HeartbeatMath.canonicalStore($0.storeNumber) })
         if !factRoster.isEmpty {
             rows.removeAll { $0.section == .storeRoster }
             rows.append(contentsOf: factRoster)
@@ -2852,6 +2851,12 @@ final class HeartbeatStore: ObservableObject {
                 row.section == .sales && salesStores.contains(HeartbeatMath.canonicalStore(row.storeNumber))
             }
             rows.append(contentsOf: factSales)
+        }
+        if !fiveStores.isEmpty {
+            rows.removeAll { row in
+                row.section == .fiveStar && fiveStores.contains(HeartbeatMath.canonicalStore(row.storeNumber))
+            }
+            rows.append(contentsOf: factFive)
         }
         seeded = true
         rebuildLostIndex()
@@ -3246,7 +3251,7 @@ private enum PulseDisk {
     }
 }
 
-private struct PulseCaches {
+struct PulseCaches {
     var latestBySection: [MetricSection: [MetricRow]]
     var roster: [String: HeartbeatMath.StoreIdentity]
     var filteredLatest: [MetricSection: [MetricRow]]
@@ -3342,24 +3347,10 @@ private struct PulseCaches {
         nextLatest.reserveCapacity(latest.count)
         if let allowed {
             for (section, rows) in latest {
-                if section == .pickPathPicker {
-                    nextLatest[section] = rows
-                    continue
-                }
-                if section == .lostRevenue {
-                    nextLatest[section] = lostRevenueRows(
-                        pool: rows,
-                        scope: allowed,
-                        roster: roster,
-                        filters: filters
-                    )
-                    continue
-                }
-                nextLatest[section] = scopedRows(
+                nextLatest[section] = rowsMatchingStores(
                     rows,
-                    allowed: allowed,
-                    roster: roster,
-                    filters: filters
+                    stores: allowed,
+                    skipMarket: section == .lostRevenue || section == .labor
                 )
             }
         } else {

@@ -807,6 +807,26 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertNotEqual(d03.headline, dD3.headline)
         XCTAssertLessThan(d03.lostRevenuePct ?? 99, 20)
         XCTAssertLessThan(dD3.lostRevenuePct ?? 99, 20)
+
+        func caches(for district: String) -> PulseCaches {
+            var filters = DashboardFilters()
+            filters.district = district
+            return PulseCaches.build(rows: rows, filters: filters, uploads: [], heavy: false, grain: .store)
+        }
+        let c03 = caches(for: "03")
+        XCTAssertEqual(c03.cachedStores.count, 20)
+        let sales = c03.cachedSummaries.first { $0.section == .sales }
+        XCTAssertEqual(sales?.storeCount, 20)
+        XCTAssertEqual(sales?.headline ?? 0, 2_312_699, accuracy: 5)
+        let five = c03.cachedSummaries.first { $0.section == .fiveStar }
+        XCTAssertEqual(five?.storeCount, 20)
+        XCTAssertEqual(five?.headline ?? 0, 4.525, accuracy: 0.02)
+        let labor = PulseCaches.rowsMatchingStores(
+            rows.filter { $0.section == .lostRevenue },
+            stores: Set(c03.cachedStores.map(\.number)),
+            skipMarket: true
+        )
+        XCTAssertEqual(labor.count, 20)
     }
 }
 

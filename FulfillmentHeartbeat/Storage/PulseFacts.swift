@@ -40,7 +40,7 @@ enum PulseFacts {
 
     static func metricRows(from file: PulseFactsFile) -> [MetricRow] {
         var out: [MetricRow] = []
-        out.reserveCapacity(file.roster.count + file.lostRevenue.count + file.sales.count)
+        out.reserveCapacity(file.roster.count + file.lostRevenue.count + file.sales.count + file.fiveStar.count)
         out.append(contentsOf: file.roster.map { metricRow($0, section: .storeRoster, extra: ["roster": "1"]) })
         out.append(contentsOf: file.lostRevenue.map { fact in
             let grain = fact.store.isEmpty || fact.text["lost_grain"] == "market" ? "market" : "store"
@@ -50,6 +50,7 @@ enum PulseFacts {
             let grain = fact.store.isEmpty || fact.text["sales_grain"] == "company" ? "company" : "store"
             return metricRow(fact, section: .sales, extra: ["sales_grain": grain])
         })
+        out.append(contentsOf: file.fiveStar.map { metricRow($0, section: .fiveStar, extra: [:]) })
         return out
     }
 
