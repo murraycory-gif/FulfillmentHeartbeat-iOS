@@ -9642,6 +9642,8 @@ struct HubBrandBar: View {
         let active = store.filters.summaryParts.filter(\.active).map(\.text)
         return active.isEmpty ? "Total Company" : active.joined(separator: " · ")
     }
+
+    private var compactBannerTitle: String {
         switch router.current {
         case .dashboard: return "Operational Heartbeat"
         case .upload: return "Upload"
@@ -9831,16 +9833,6 @@ struct HubAdaptiveHScroll<Content: View>: View {
                 content
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                ViewThatFits(in: .horizontal) {
-                    content
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    ScrollView(.horizontal, showsIndicators: true) {
-                        content
-                            .padding(.horizontal, 8)
-                            .frame(minWidth: 780, maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-            }
                 ViewThatFits(in: .horizontal) {
                     content
                         .frame(maxWidth: .infinity, alignment: .leading)
