@@ -178,9 +178,6 @@ final class HeartbeatStore: ObservableObject {
         if !Self.hasUsableLostRevenue(rows) {
             await loadPublishedFacts()
         }
-        if Self.hasUsableSales(rows), Self.hasWeekSalesDays(rows), Self.hasUsableLostRevenue(rows) {
-            return
-        }
         await syncServerWorkbookIfChanged()
     }
 
@@ -1589,6 +1586,9 @@ final class HeartbeatStore: ObservableObject {
     private func refreshFromCloud() async {
         guard !isImporting else { return }
         await syncCloudPackIfChanged()
+        if !HubLayout.constrained {
+            await syncServerWorkbookIfChanged()
+        }
     }
 
     private func syncCloudPackIfChanged() async {
@@ -1717,7 +1717,7 @@ final class HeartbeatStore: ObservableObject {
         let hasPack = seeded && !rows.isEmpty
         if HubLayout.constrained, hasPack { return }
         let stamp = UserDefaults.standard.integer(forKey: "hb.parserStamp")
-        let fileChanged = knownXlsx > 0 && remoteXlsx != knownXlsx
+        let fileChanged = remoteXlsx > 1_000 && remoteXlsx != knownXlsx
         let firstLoad = !hasPack
         let needsParserPass = stamp < 175 && !Self.hasWeekSalesDays(rows)
         guard remoteXlsx > 1_000, firstLoad || fileChanged || needsParserPass else {
