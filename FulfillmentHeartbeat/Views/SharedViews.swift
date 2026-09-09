@@ -9508,7 +9508,7 @@ struct HubChromeModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         Group {
-            if sizeClass != .regular {
+            if HubLayout.isPhone(sizeClass) {
                 VStack(spacing: 0) {
                     HubBrandBar(showBack: showBack, showsFilters: showsFilters)
                     content
@@ -9618,7 +9618,7 @@ struct HubBrandBar: View {
         return store.sharedDataWindow()
     }
 
-    private var compact: Bool { sizeClass != .regular }
+    private var compact: Bool { HubLayout.isPhone(sizeClass) }
 
     private var regularBar: some View {
         ZStack {
@@ -9642,28 +9642,25 @@ struct HubBrandBar: View {
     }
 
     private var compactBar: some View {
-        HStack(spacing: 8) {
-            HubNavControl(symbol: "line.3.horizontal", title: "Pages") {
-                router.showCompactMenu = true
-            }
-            if showBack {
-                HubNavControl(symbol: "chevron.left", title: "Dashboard") {
-                    router.open(.dashboard)
+        ZStack {
+            HStack(spacing: 8) {
+                HubNavControl(symbol: "line.3.horizontal", title: "Pages") {
+                    router.showCompactMenu = true
                 }
+                if showBack {
+                    HubNavControl(symbol: "chevron.left", title: "Dashboard") {
+                        router.open(.dashboard)
+                    }
+                }
+                Spacer(minLength: 4)
+                assistButton
             }
-            VStack(alignment: .leading, spacing: 0) {
-                Text("Heartbeat")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(AppTheme.blue)
-                    .lineLimit(1)
-                DayGreeting(font: .caption.weight(.semibold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-            }
-            .layoutPriority(1)
-            Spacer(minLength: 4)
-            assistButton
+            .zIndex(2)
+            BeatingHeartbeatMark(height: 30, showsTrace: true, showsWordmark: true, forceTrace: true)
+                .padding(.horizontal, 78)
+                .allowsHitTesting(false)
         }
+        .frame(minHeight: 36)
     }
 
     private var rolePill: some View {
