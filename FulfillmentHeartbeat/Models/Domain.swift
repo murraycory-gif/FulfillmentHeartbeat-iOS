@@ -586,7 +586,6 @@ enum HeartbeatMath {
         if next.storeName == nil || next.storeName?.isEmpty == true { next.storeName = identity.name }
         return next
     }
-    }
 
     static func dashboardScopeKey(_ row: MetricRow, grain: DashScopeGrain) -> String? {
         switch grain {
