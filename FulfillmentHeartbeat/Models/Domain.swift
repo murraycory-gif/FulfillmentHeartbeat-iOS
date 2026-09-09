@@ -573,21 +573,19 @@ enum HeartbeatMath {
 
     static func rowsFillingRoster(_ rows: [MetricRow], roster: [String: StoreIdentity]) -> [MetricRow] {
         guard !roster.isEmpty else { return rows }
-        return rows.map { row in
-            let store = canonicalStore(row.storeNumber)
-            guard let identity = roster[store] else { return row }
-            var next = row
-            if next.division.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                next.division = identity.division
-            }
-            if next.district.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !identity.district.isEmpty {
-                next.textPayload["district"] = identity.district
-            }
-            if next.operationsOM.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                next.operationsOM = identity.om
-            }
-            return next
-        }
+        return rows.map { stampRoster($0, roster: roster) }
+    }
+
+    static func stampRoster(_ row: MetricRow, roster: [String: StoreIdentity]) -> MetricRow {
+        let store = canonicalStore(row.storeNumber)
+        guard let identity = roster[store] else { return row }
+        var next = row
+        if !identity.division.isEmpty { next.division = identity.division }
+        if !identity.district.isEmpty { next.textPayload["district"] = identity.district }
+        if !identity.om.isEmpty { next.operationsOM = identity.om }
+        if next.storeName == nil || next.storeName?.isEmpty == true { next.storeName = identity.name }
+        return next
+    }
     }
 
     static func dashboardScopeKey(_ row: MetricRow, grain: DashScopeGrain) -> String? {
@@ -1156,15 +1154,24 @@ enum HeartbeatMath {
             var current = map[number] ?? StoreIdentity(division: "", district: "", om: "", name: nil)
             if !row.division.isEmpty {
                 let name = MarketRegion.canonicalName(row.division)
-                if !name.isEmpty { current.division = name }
+                let fromRoster = row.section == .storeRoster || row.textPayload["roster"] == "1"
+                if !name.isEmpty, current.division.isEmpty || fromRoster {
+                    current.division = name
+                }
             }
             if !row.district.isEmpty {
                 let district = canonicalDistrict(row.district)
-                if !district.isEmpty { current.district = district }
+                let fromRoster = row.section == .storeRoster || row.textPayload["roster"] == "1"
+                if !district.isEmpty, current.district.isEmpty || fromRoster {
+                    current.district = district
+                }
             }
             if !row.operationsOM.isEmpty {
                 let om = canonicalOM(row.operationsOM)
-                if !om.isEmpty { current.om = om }
+                let fromRoster = row.section == .storeRoster || row.textPayload["roster"] == "1"
+                if !om.isEmpty, current.om.isEmpty || fromRoster {
+                    current.om = om
+                }
             }
             if current.name == nil, let name = row.storeName, !name.isEmpty { current.name = name }
             map[number] = current
@@ -1307,37 +1314,10 @@ enum HeartbeatMath {
     }
 
     static func applyRoster(_ rows: [MetricRow], roster: [String: StoreIdentity]) -> [MetricRow] {
-        var districtDivision: [String: String] = [:]
-        for identity in roster.values {
-            let district = normalize(canonicalDistrict(identity.district))
-            let division = MarketRegion.canonicalName(identity.division)
-            if !district.isEmpty, !division.isEmpty {
-                districtDivision[district] = division
-            }
-        }
-        return rows.map { row in
-            let number = canonicalStore(row.storeNumber)
-            let known = roster[number]
-            var text = row.textPayload
-            if let district = known?.district, !district.isEmpty {
-                text["district"] = district
-            }
-            let districtKey = normalize(canonicalDistrict(known?.district.isEmpty == false ? known!.district : row.district))
-            let division: String = {
-                if let known = known?.division, !known.isEmpty { return MarketRegion.canonicalName(known) }
-                if let mapped = districtDivision[districtKey] { return mapped }
-                return MarketRegion.canonicalName(row.division)
-            }()
-            return MetricRow(
-                section: row.section,
-                division: division,
-                operationsOM: known?.om.isEmpty == false ? known!.om : row.operationsOM,
-                storeNumber: number,
-                storeName: row.storeName ?? known?.name,
-                recordedOn: row.recordedOn,
-                payload: remapSchedulePayload(row.payload),
-                textPayload: text
-            )
+        rows.map { row in
+            var next = stampRoster(row, roster: roster)
+            next.payload = remapSchedulePayload(next.payload)
+            return next
         }
     }
 

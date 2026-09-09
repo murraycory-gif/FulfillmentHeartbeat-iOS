@@ -254,15 +254,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func rows(for section: MetricSection, relaxUnknown: Bool = false) -> [MetricRow] {
-        if relaxUnknown {
-            return HeartbeatMath.filtered(
-                latestBySection[section] ?? [],
-                filters: filters,
-                relaxUnknown: true,
-                universe: latestUniverse
-            )
-        }
-        return filteredLatest[section] ?? []
+        HeartbeatMath.rowsFillingRoster(filteredLatest[section] ?? [], roster: roster)
     }
 
     func marketStores() -> [HeartbeatMath.MarketStore] { filteredMarket }
@@ -288,9 +280,14 @@ final class HeartbeatStore: ObservableObject {
 
     func rollupStores(for section: MetricSection) -> [MetricRow] {
         switch section {
-        case .pickerScorecard, .pickPathPicker, .preSubOOSItem, .aisleMapper, .storeRoster:
-            let raw = allLatest(for: section).filter { !$0.storeNumber.isEmpty }
-            return RollupMarketFill.scopedRollup(raw, filters: filters, roster: roster)
+        case .pickerScorecard, .pickPathPicker, .preSubOOSItem, .aisleMapper:
+            let allowed = PulseCaches.allowedStores(roster: roster, filters: filters)
+                ?? Set(roster.keys.map { HeartbeatMath.canonicalStore($0) })
+            return (allLatest(for: section)).compactMap { row in
+                let store = HeartbeatMath.canonicalStore(row.storeNumber)
+                guard !store.isEmpty, allowed.contains(store) else { return nil }
+                return HeartbeatMath.stampRoster(row, roster: roster)
+            }
         default:
             return rosterJoined(for: section)
         }
@@ -326,12 +323,7 @@ final class HeartbeatStore: ObservableObject {
         for store in allowed.sorted(by: { ($0 as NSString).localizedStandardCompare($1) == .orderedAscending }) {
             let identity = roster[store]
             if var row = byStore[store] {
-                if row.division.isEmpty { row.division = identity?.division ?? row.division }
-                if row.operationsOM.isEmpty { row.operationsOM = identity?.om ?? row.operationsOM }
-                if row.district.isEmpty, let district = identity?.district, !district.isEmpty {
-                    row.textPayload["district"] = district
-                }
-                if row.storeName == nil { row.storeName = identity?.name }
+                row = HeartbeatMath.stampRoster(row, roster: roster)
                 out.append(row)
             } else if let identity {
                 out.append(
@@ -352,7 +344,7 @@ final class HeartbeatStore: ObservableObject {
     func displayRows(for section: MetricSection) -> [MetricRow] {
         switch section {
         case .pickerScorecard, .pickPathPicker, .preSubOOSItem, .aisleMapper, .storeRoster:
-            return filteredLatest[section] ?? []
+            return HeartbeatMath.rowsFillingRoster(filteredLatest[section] ?? [], roster: roster)
         default:
             return rosterJoined(for: section)
         }

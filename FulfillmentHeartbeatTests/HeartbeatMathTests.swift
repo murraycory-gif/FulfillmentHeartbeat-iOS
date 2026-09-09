@@ -828,5 +828,45 @@ final class HeartbeatMathTests: XCTestCase {
         )
         XCTAssertEqual(labor.count, 20)
     }
+
+    func testRosterDistrictWinsOverSheetStampOnEverySection() {
+        let roster = MetricRow(
+            section: .storeRoster,
+            division: "Jewel Osco",
+            operationsOM: "Pat",
+            storeNumber: "667",
+            textPayload: ["roster": "1", "district": "03"]
+        )
+        func sheet(_ section: MetricSection, extra: [String: String] = [:]) -> MetricRow {
+            var text = extra
+            text["district"] = "B3"
+            return MetricRow(
+                section: section,
+                division: "Shaws",
+                operationsOM: "Wrong",
+                storeNumber: "667",
+                payload: ["lost_revenue": 100, "ecomm_sales": 5_000, "sales_dollars": 9_000, "star_rating": 4.2],
+                textPayload: text
+            )
+        }
+        let rows = [
+            roster,
+            sheet(.lostRevenue, extra: ["lost_grain": "store"]),
+            sheet(.sales, extra: ["sales_grain": "store"]),
+            sheet(.fiveStar)
+        ]
+        var filters = DashboardFilters()
+        filters.district = "03"
+        let caches = PulseCaches.build(rows: rows, filters: filters, uploads: [], heavy: false, grain: .store)
+        XCTAssertEqual(PulseCaches.allowedStores(roster: caches.roster, filters: filters), ["667"])
+        for section in [MetricSection.lostRevenue, .sales, .fiveStar] {
+            let row = caches.filteredLatest[section]?.first
+            XCTAssertEqual(HeartbeatMath.canonicalDistrict(row?.district ?? ""), "03", "\(section)")
+            XCTAssertEqual(MarketRegion.canonicalName(row?.division ?? ""), "Jewel Osco", "\(section)")
+        }
+        filters.district = "B3"
+        let other = PulseCaches.build(rows: rows, filters: filters, uploads: [], heavy: false, grain: .store)
+        XCTAssertTrue((PulseCaches.allowedStores(roster: other.roster, filters: filters) ?? []).isEmpty)
+    }
 }
 
