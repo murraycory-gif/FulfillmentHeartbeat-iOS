@@ -220,12 +220,17 @@ private struct PhonePulseCard: View {
 private struct PhoneFlagStrip: View {
     let flags: [HeartbeatMath.FiveStarFlag]
 
+    private var shown: [HeartbeatMath.FiveStarFlag] {
+        Array(flags.prefix(4))
+    }
+
     var body: some View {
-        if flags.isEmpty {
+        if shown.isEmpty {
             EmptyView()
         } else {
-            HStack(spacing: 6) {
-                ForEach(flags.prefix(4)) { flag in
+            let columns = shown.count > 3 ? [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)] : Array(repeating: GridItem(.flexible(), spacing: 6), count: shown.count)
+            LazyVGrid(columns: columns, spacing: 6) {
+                ForEach(shown) { flag in
                     let tone = flag.health == .none ? Health.good : flag.health
                     VStack(spacing: 2) {
                         Text(phoneFlagValue(flag))
@@ -233,15 +238,16 @@ private struct PhoneFlagStrip: View {
                             .foregroundStyle(dashInk(tone))
                             .lineLimit(1)
                             .minimumScaleFactor(0.6)
-                        Text(flag.name)
+                        Text(phoneFlagName(flag.name))
                             .font(AppTheme.rounded(.caption2, weight: .semibold))
                             .foregroundStyle(AppTheme.textSecondary)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.center)
+                            .minimumScaleFactor(0.8)
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 7)
-                    .padding(.horizontal, 4)
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .padding(.vertical, 6)
+                    .padding(.horizontal, 6)
                     .background(AppTheme.healthWash(tone), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -253,9 +259,23 @@ private struct PhoneFlagStrip: View {
     }
 
     private func phoneFlagValue(_ flag: HeartbeatMath.FiveStarFlag) -> String {
-        if flag.stores > 0 { return HeartbeatFormat.num(Double(flag.stores)) }
         if !flag.value.isEmpty { return flag.value }
+        if flag.stores > 0 { return HeartbeatFormat.num(Double(flag.stores)) }
         return "—"
+    }
+
+    private func phoneFlagName(_ name: String) -> String {
+        let lower = name.lowercased()
+        if lower.contains("total lost") { return "Lost Revenue" }
+        if lower.contains("post sub") { return "Post Sub" }
+        if lower.contains("refund") { return "Refunds" }
+        if lower.contains("reduced") { return "Capacity" }
+        if lower.contains("missed sales") { return "Missed Sales" }
+        if lower.contains("cancel") { return "Cancels" }
+        if lower.contains("kill") { return "Kill Switch" }
+        if lower.contains("pre sub") { return "Pre Sub" }
+        if name.count <= 14 { return name }
+        return name.split(separator: "(").first.map(String.init)?.trimmingCharacters(in: .whitespaces) ?? name
     }
 }
 

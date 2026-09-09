@@ -9595,14 +9595,18 @@ struct HubBrandBar: View {
         HubBanner(
             icon: router.current.symbol,
             title: compactBannerTitle,
-            accessory: store.filters.summary,
+            accessory: compactBannerAccessory,
             trailing: compactBannerWindow,
             clipped: false
         )
         .clipShape(RoundedRectangle(cornerRadius: compact ? 10 : 14, style: .continuous))
     }
 
-    private var compactBannerTitle: String {
+    private var compactBannerAccessory: String {
+        if !store.filters.isActive { return "Total Company" }
+        let active = store.filters.summaryParts.filter(\.active).map(\.text)
+        return active.isEmpty ? "Total Company" : active.joined(separator: " · ")
+    }
         switch router.current {
         case .dashboard: return "Operational Heartbeat"
         case .upload: return "Upload"
