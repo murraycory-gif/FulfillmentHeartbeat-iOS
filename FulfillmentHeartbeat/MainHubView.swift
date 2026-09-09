@@ -166,11 +166,8 @@ struct MainHubView: View {
             }
         }
         .onChange(of: store.needsRolePick) { _, needs in
-            if !needs {
+            if !needs, router.destination != .dashboard {
                 router.open(.dashboard)
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                    coach.presentIfNeeded(for: .dashboard)
-                }
             }
         }
         .onChange(of: router.destination) { _, dest in

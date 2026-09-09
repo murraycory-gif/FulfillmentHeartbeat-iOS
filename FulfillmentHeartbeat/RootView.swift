@@ -33,7 +33,7 @@ struct RootView: View {
                 .environmentObject(store)
         }
         .animation(.easeOut(duration: 0.18), value: store.isReady)
-        .animation(.easeOut(duration: 0.18), value: store.needsRolePick)
+        .animation(nil, value: store.needsRolePick)
     }
 }
 

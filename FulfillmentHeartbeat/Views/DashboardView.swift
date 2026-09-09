@@ -8,11 +8,9 @@ struct DashboardView: View {
     @State private var showError = false
 
     var body: some View {
-        if store.needsRolePick {
-            AppTheme.bg.ignoresSafeArea()
-        } else {
-            dashboardBody
-        }
+        dashboardBody
+            .opacity(store.needsRolePick ? 0 : 1)
+            .allowsHitTesting(!store.needsRolePick)
     }
 
     private var dashboardBody: some View {
