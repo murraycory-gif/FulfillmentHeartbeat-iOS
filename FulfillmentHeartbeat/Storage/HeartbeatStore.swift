@@ -2738,12 +2738,7 @@ final class HeartbeatStore: ObservableObject {
     ]
 
     private static var launchSkip: Set<MetricSection> {
-        var skip = deferredSections
-        if HubLayout.constrained {
-            skip.insert(.missingItems)
-            skip.insert(.preSubOOSItem)
-        }
-        return skip
+        deferredSections
     }
 
     private func lightRows(_ rows: [MetricRow]) -> [MetricRow] {
@@ -2914,33 +2909,71 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func loadHeavySections() async {
-        guard HubLayout.constrained else { return }
+        guard HubLayout.lightLaunch else { return }
         guard PulseSQLite.exists(at: sqliteURL) else { return }
         applyLocalCards()
         let url = sqliteURL
         let rosterCopy = roster
-        let laborLatest = await Task.detached(priority: .utility) { () -> [MetricRow] in
-            guard let pack = try? PulseSQLite.read(from: url, only: [.labor]) else { return [] }
-            let stores = pack.rows.filter {
-                $0.textPayload["labor_grain"] != "market" && !$0.storeNumber.isEmpty
+
+        if (latestBySection[.labor] ?? []).isEmpty {
+            let laborLatest = await Task.detached(priority: .utility) { () -> [MetricRow] in
+                guard let pack = try? PulseSQLite.read(from: url, only: [.labor]) else { return [] }
+                let stores = pack.rows.filter {
+                    $0.textPayload["labor_grain"] != "market" && !$0.storeNumber.isEmpty
+                }
+                return HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(stores), roster: rosterCopy)
+            }.value
+            if !laborLatest.isEmpty {
+                latestBySection[.labor] = laborLatest
+                if !filters.isActive { filteredLatest[.labor] = laborLatest }
+                rebuildLaborWeekIndex()
+                refreshSummary(for: .labor, rows: laborLatest)
             }
-            return HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(stores), roster: rosterCopy)
-        }.value
-        guard !laborLatest.isEmpty else { return }
-        latestBySection[.labor] = laborLatest
-        if !filters.isActive {
-            filteredLatest[.labor] = laborLatest
         }
-        rebuildLaborWeekIndex()
-        if let index = cachedSummaries.firstIndex(where: { $0.section == .labor }) {
-            cachedSummaries[index] = HeartbeatMath.summarize(
-                .labor,
-                rows: laborLatest,
-                upload: uploads.first { $0.section == .labor }
-            )
+
+        if (latestBySection[.pickerScorecard] ?? []).count < 50 {
+            let pickers = await Task.detached(priority: .utility) { () -> [MetricRow] in
+                guard let pack = try? PulseSQLite.read(from: url, only: [.pickerScorecard, .pickPathPicker]) else {
+                    return []
+                }
+                return pack.rows
+            }.value
+            if !pickers.isEmpty {
+                let pickerRows = pickers.filter { $0.section == .pickerScorecard }
+                let pathRows = pickers.filter { $0.section == .pickPathPicker }
+                rows.removeAll { $0.section == .pickerScorecard || $0.section == .pickPathPicker }
+                rows.append(contentsOf: pickers)
+                latestBySection[.pickerScorecard] = pickerRows
+                if !pathRows.isEmpty { latestBySection[.pickPathPicker] = pathRows }
+                if !filters.isActive {
+                    filteredLatest[.pickerScorecard] = pickerRows
+                    if !pathRows.isEmpty { filteredLatest[.pickPathPicker] = pathRows }
+                }
+                if !pickerRows.isEmpty {
+                    pickerIndex[.all] = Array(pickerRows.indices)
+                }
+                refreshSummary(for: .pickerScorecard, rows: pickerRows)
+                if cachedPickerBoard.shopperCount == 0 {
+                    cachedPickerBoard = HeartbeatMath.pickerBoard(pickerRows)
+                }
+            }
         }
+
         if !needsRolePick {
             filterStamp += 1
+        }
+    }
+
+    private func refreshSummary(for section: MetricSection, rows: [MetricRow]) {
+        let summary = HeartbeatMath.summarize(
+            section,
+            rows: rows,
+            upload: uploads.first { $0.section == section }
+        )
+        if let index = cachedSummaries.firstIndex(where: { $0.section == section }) {
+            cachedSummaries[index] = summary
+        } else {
+            cachedSummaries.append(summary)
         }
     }
 
