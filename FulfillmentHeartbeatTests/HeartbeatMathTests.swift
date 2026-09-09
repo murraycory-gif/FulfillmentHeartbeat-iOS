@@ -964,5 +964,29 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(merged[0].payload["sales_dollars"], 39_761_217)
         XCTAssertEqual(PulseDataPolicy.weekKey(from: merged), "202637")
     }
+
+    func testSalesDayRowsKeepTuesday() {
+        let row = MetricRow(
+            section: .sales,
+            division: "Jewel Osco",
+            operationsOM: "",
+            storeNumber: "1",
+            payload: [
+                "sales_dollars": 39_761_217,
+                "sales_d0_dollars": 13_466_026,
+                "sales_d1_dollars": 15_180_411,
+                "sales_d2_dollars": 11_114_780,
+                "sales_d0_orders": 1,
+                "sales_d1_orders": 1,
+                "sales_d2_orders": 1
+            ],
+            textPayload: ["sales_grain": "store", "sales_days": "Sunday,Monday,Tuesday"]
+        )
+        let days = SalesRollupBuilder.dayRows(from: [row])
+        XCTAssertEqual(days.map(\.label), ["Sunday", "Monday", "Tuesday"])
+        XCTAssertEqual(days[0].pack.sales ?? 0, 13_466_026, accuracy: 0.5)
+        XCTAssertEqual(days[1].pack.sales ?? 0, 15_180_411, accuracy: 0.5)
+        XCTAssertEqual(days[2].pack.sales ?? 0, 11_114_780, accuracy: 0.5)
+    }
 }
 

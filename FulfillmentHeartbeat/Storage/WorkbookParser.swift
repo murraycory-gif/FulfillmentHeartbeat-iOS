@@ -1143,6 +1143,7 @@ enum WorkbookParser {
             if lower == "store" || lower == "store_id" || lower == "store id" { storeIdx = index }
         }
         guard let storeIdx else { return nil }
+        let weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
 
         var weekdayLabels = Array(repeating: "", count: headers.count)
         let lookback = matrix[max(0, headerIdx - 3)..<headerIdx]
@@ -1152,6 +1153,7 @@ enum WorkbookParser {
                 return lower.contains("sun") || lower.contains("weekday") || lower.contains("monday")
                     || lower.contains("tue") || lower.contains("wed")
                     || lower.contains("1-sun") || lower.contains("friday") || lower.contains("saturday")
+                    || lower.contains("total")
             }) {
                 continue
             }
@@ -1160,12 +1162,16 @@ enum WorkbookParser {
                 let raw = index < above.count ? above[index].trimmingCharacters(in: .whitespacesAndNewlines) : ""
                 if !raw.isEmpty && raw.lowercased() != "weekday" {
                     last = salesDayName(raw)
-                } else if salesField(index < headers.count ? headers[index] : "") == "sales" {
-                    last = ""
                 }
                 weekdayLabels[index] = last
             }
             break
+        }
+        for index in 0..<headers.count {
+            let fromHeader = salesDayName(headers[index])
+            if fromHeader == "Week" || weekdays.contains(fromHeader) {
+                weekdayLabels[index] = fromHeader
+            }
         }
 
         var blocks: [SalesBlock] = []
@@ -1220,27 +1226,29 @@ enum WorkbookParser {
         }
         guard !blocks.isEmpty else { return nil }
 
-        let weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+        func name(for start: Int) -> String {
+            let above = weekdayLabels.indices.contains(start) ? salesDayName(weekdayLabels[start]) : ""
+            if weekdays.contains(above) || above == "Week" { return above }
+            let header = start < headers.count ? salesDayName(headers[start]) : ""
+            if weekdays.contains(header) || header == "Week" { return header }
+            return above
+        }
+
         var dayBlocks: [SalesBlock] = []
         var usedStarts: Set<Int> = []
-        for name in weekdays {
-            guard let start = starts.first(where: {
-                !usedStarts.contains($0)
-                    && salesDayName(weekdayLabels.indices.contains($0) ? weekdayLabels[$0] : "") == name
-            }) else { continue }
+        for day in weekdays {
+            guard let start = starts.first(where: { !usedStarts.contains($0) && name(for: $0) == day }) else { continue }
             usedStarts.insert(start)
             if var block = blocks.first(where: { $0.sales == start }) {
-                block.label = name
+                block.label = day
                 dayBlocks.append(block)
             }
         }
-        if dayBlocks.count < 3 {
-            dayBlocks = []
+        if dayBlocks.isEmpty {
             for start in starts {
-                let name = salesDayName(weekdayLabels.indices.contains(start) ? weekdayLabels[start] : "")
-                if name == "Week" { continue }
+                if name(for: start) == "Week" { continue }
                 guard var block = blocks.first(where: { $0.sales == start }) else { continue }
-                let label = weekdays.indices.contains(dayBlocks.count) ? weekdays[dayBlocks.count] : name
+                let label = weekdays.indices.contains(dayBlocks.count) ? weekdays[dayBlocks.count] : name(for: start)
                 block.label = label
                 dayBlocks.append(block)
                 if dayBlocks.count == 7 { break }
@@ -1248,16 +1256,17 @@ enum WorkbookParser {
         }
 
         let weekBlock: SalesBlock = {
-            if let named = blocks.last(where: { salesDayName($0.label) == "Week" }) {
+            if let start = starts.last(where: { name(for: $0) == "Week" }),
+               var named = blocks.first(where: { $0.sales == start }) {
+                named.label = "Week"
                 return named
             }
-            if blocks.count >= 2 {
-                var last = blocks[blocks.count - 1]
+            if let start = starts.last, name(for: start).isEmpty, dayBlocks.contains(where: { $0.sales != start }),
+               var last = blocks.first(where: { $0.sales == start }) {
                 last.label = "Week"
                 return last
             }
-            var empty = SalesBlock(label: "Week")
-            return empty
+            return SalesBlock(label: "Week")
         }()
         dayBlocks.removeAll { $0.sales != nil && $0.sales == weekBlock.sales }
 

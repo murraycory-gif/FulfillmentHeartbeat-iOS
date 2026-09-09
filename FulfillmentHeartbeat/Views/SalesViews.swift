@@ -429,13 +429,27 @@ enum SalesRollupBuilder {
         var ordersYoy = Array(repeating: [Double](), count: 7)
         var aiv = Array(repeating: [Double](), count: 7)
         var ipt = Array(repeating: [Double](), count: 7)
-        let storeCount = Set(stores.map(\.storeNumber)).count
+        var seen = Set<String>()
+        var unique: [MetricRow] = []
         for store in stores {
+            let key = HeartbeatMath.canonicalStore(store.storeNumber)
+            guard !key.isEmpty, seen.insert(key).inserted else { continue }
+            unique.append(store)
+        }
+        let storeCount = unique.count
+        for store in unique {
             let names = (store.textPayload["sales_days"] ?? "")
                 .split(separator: ",")
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             for index in 0..<7 {
-                let sourceIndex = names.firstIndex(where: { $0.caseInsensitiveCompare(week[index]) == .orderedSame }) ?? index
+                let sourceIndex: Int
+                if let match = names.firstIndex(where: { $0.caseInsensitiveCompare(week[index]) == .orderedSame }) {
+                    sourceIndex = match
+                } else if names.isEmpty {
+                    sourceIndex = index
+                } else {
+                    continue
+                }
                 let prefix = "sales_d\(sourceIndex)_"
                 let daySales = store.number(prefix + "dollars") ?? 0
                 sales[index] += daySales
