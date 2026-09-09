@@ -1,0 +1,106 @@
+name: Cook Heartbeat pack
+
+# Turns Heartbeat Daily Report.xlsx in Supabase into current.sqlite.
+# Testers never parse Excel. Cory's Mac does not need to be on.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/15 * * * *"
+
+jobs:
+  cook:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download workbook from Supabase
+        env:
+          PROJECT: https://pcnjujfmlsklhrosxzlt.supabase.co
+          KEY: sb_publishable_T3Pzm01sMXCv2rQaCeP_Kg_4ao2M5zd
+        run: |
+          set -euo pipefail
+          curl -sS -X POST \
+            -H "Authorization: Bearer $KEY" -H "apikey: $KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"prefix":"","limit":50}' \
+            "$PROJECT/storage/v1/object/list/heartbeat-packs" > /tmp/bucket.json
+          python3 - <<'PY'
+          import json, os
+          rows = json.load(open("/tmp/bucket.json"))
+          files = {r["name"]: r for r in rows}
+          xlsx = files.get("Heartbeat Daily Report.xlsx")
+          pack = files.get("current.sqlite")
+          if not xlsx:
+              raise SystemExit("No Heartbeat Daily Report.xlsx in the bucket.")
+          xlsx_updated = xlsx.get("updated_at") or ""
+          pack_updated = (pack or {}).get("updated_at") or ""
+          force = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
+          print(f"xlsx {xlsx_updated} sqlite {pack_updated} force={force}")
+          if not force and pack_updated and xlsx_updated <= pack_updated:
+              open("/tmp/skip", "w").write("1")
+              print("Pack is already newer than the workbook. Skip.")
+          PY
+          if [ -f /tmp/skip ]; then
+            echo "skip=1" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          curl -sS -L -o /tmp/daily.xlsx \
+            -H "Authorization: Bearer $KEY" -H "apikey: $KEY" \
+            "$PROJECT/storage/v1/object/public/heartbeat-packs/Heartbeat%20Daily%20Report.xlsx"
+          ls -l /tmp/daily.xlsx
+
+      - name: Build kitchen
+        if: env.skip != '1'
+        run: |
+          set -euo pipefail
+          INGEST=Tools/HeartbeatIngest
+          mkdir -p "$INGEST/Sources"
+          cp FulfillmentHeartbeat/Models/Domain.swift "$INGEST/Sources/"
+          cp FulfillmentHeartbeat/Storage/WorkbookParser.swift "$INGEST/Sources/"
+          cp FulfillmentHeartbeat/Storage/PulseSQLite.swift "$INGEST/Sources/"
+          cp FulfillmentHeartbeat/BuildStamp.swift "$INGEST/Sources/"
+          cp Tools/HeartbeatIngest/main.swift "$INGEST/Sources/"
+          cd "$INGEST"
+          swift build -c release
+
+      - name: Cook sqlite pack
+        if: env.skip != '1'
+        run: |
+          set -euo pipefail
+          Tools/HeartbeatIngest/.build/release/HeartbeatIngest /tmp/daily.xlsx /tmp/current.sqlite
+          ls -l /tmp/current.sqlite
+
+      - name: Publish current.sqlite
+        if: env.skip != '1'
+        env:
+          PROJECT: https://pcnjujfmlsklhrosxzlt.supabase.co
+          KEY: sb_publishable_T3Pzm01sMXCv2rQaCeP_Kg_4ao2M5zd
+        run: |
+          set -euo pipefail
+          BYTES=$(wc -c < /tmp/current.sqlite | tr -d ' ')
+          if [ "$BYTES" -lt 50000 ]; then
+            echo "Pack too small ($BYTES)"
+            exit 1
+          fi
+          CODE=$(curl -sS -o /tmp/up.txt -w "%{http_code}" \
+            -X POST \
+            -H "Authorization: Bearer $KEY" -H "apikey: $KEY" \
+            -H "Content-Type: application/octet-stream" \
+            -H "x-upsert: true" \
+            --data-binary @/tmp/current.sqlite \
+            "$PROJECT/storage/v1/object/heartbeat-packs/current.sqlite")
+          if [ "$CODE" != "200" ] && [ "$CODE" != "201" ]; then
+            CODE=$(curl -sS -o /tmp/up.txt -w "%{http_code}" \
+              -X PUT \
+              -H "Authorization: Bearer $KEY" -H "apikey: $KEY" \
+              -H "Content-Type: application/octet-stream" \
+              -H "x-upsert: true" \
+              --data-binary @/tmp/current.sqlite \
+              "$PROJECT/storage/v1/object/heartbeat-packs/current.sqlite")
+          fi
+          echo "upload $CODE"
+          cat /tmp/up.txt
+          if [ "$CODE" != "200" ] && [ "$CODE" != "201" ]; then
+            exit 1
+          fi
+          echo "Published current.sqlite ($BYTES bytes)."

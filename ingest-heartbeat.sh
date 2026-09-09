@@ -2,7 +2,7 @@
 # Daily ingest. Excel never runs on iPhone/iPad.
 #
 # 1. Upload Heartbeat Daily Report.xlsx to the bucket.
-# 2. Open Heartbeat on THIS Mac. The Mac builds current.sqlite and publishes it.
+# 2. GitHub cooks current.sqlite (Mac does not need to be on).
 # 3. Testers open Heartbeat — they only download the pack.
 #
 # Usage:
@@ -51,10 +51,11 @@ if [ "$CODE" != "200" ] && [ "$CODE" != "201" ]; then
 fi
 
 echo "Workbook is in the bucket."
-echo
-echo "Next: open Heartbeat on this Mac."
-echo "Splash will say “Building today's pack”, then publish current.sqlite."
-echo "iPad and iPhone testers only download that pack. They never parse Excel."
-if command -v open >/dev/null 2>&1; then
-  open -a FulfillmentHeartbeat 2>/dev/null || true
+if command -v gh >/dev/null 2>&1; then
+  echo "Starting the cloud kitchen…"
+  gh workflow run cook-heartbeat-pack.yml --repo murraycory-gif/FulfillmentHeartbeat-iOS || true
 fi
+echo
+echo "GitHub is cooking current.sqlite. Usually a few minutes."
+echo "Watch: https://github.com/murraycory-gif/FulfillmentHeartbeat-iOS/actions"
+echo "Testers: force-close Heartbeat, open it again. They never pick a file."
