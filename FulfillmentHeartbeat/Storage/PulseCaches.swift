@@ -742,6 +742,11 @@ struct PulseCaches {
         from latest: [MetricSection: [MetricRow]],
         roster: [String: HeartbeatMath.StoreIdentity]
     ) -> [MetricSection: [ChecklistDriverGroup]] {
+        #if HEARTBEAT_INGEST
+        _ = latest
+        _ = roster
+        return [:]
+        #else
         var groups: [MetricSection: [ChecklistDriverGroup]] = [:]
         for section in MetricSection.dashboardCards {
             let rows = HeartbeatMath.topOpportunityStores(section: section, rows: latest[section] ?? [], limit: 10)
@@ -801,6 +806,7 @@ struct PulseCaches {
             groups[.pickerScorecard] = pickerGroups
         }
         return groups
+        #endif
     }
 }
 
