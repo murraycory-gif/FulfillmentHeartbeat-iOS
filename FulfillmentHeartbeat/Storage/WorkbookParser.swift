@@ -228,6 +228,10 @@ enum WorkbookParser {
         return []
     }
 
+    static func parseSalesMatrix(_ matrix: [[String]]) -> [ParsedWorkbookRow] {
+        parseSales(matrix) ?? []
+    }
+
     static func stripWrapper(_ data: Data) -> Data {
         if data.count > 128, data.starts(with: [0x50, 0x4B, 0x03, 0x04]) { return data }
         guard let eocd = ZipArchive.findEOCD(data), eocd + 22 <= data.count else {
@@ -1143,6 +1147,10 @@ enum WorkbookParser {
         return raw.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// Power BI eComm Sales export (Heartbeat Daily Report, tab Sales):
+    /// a Weekday row of 1-SUNDAY..7-SATURDAY then Total, each 12 metric columns,
+    /// then a Store header. Later Total copies are ignored. -1 is blank.
+    /// As the week fills, Wednesday–Saturday pick up automatically.
     private static func parseSales(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {
         guard let headerIdx = matrix.firstIndex(where: isSalesHeader) else { return nil }
         let headers = matrix[headerIdx]

@@ -988,5 +988,53 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(days[1].pack.sales ?? 0, 15_180_411, accuracy: 0.5)
         XCTAssertEqual(days[2].pack.sales ?? 0, 11_114_780, accuracy: 0.5)
     }
+
+    func testPowerBISalesTabSundayMondayTuesdayAndTotal() {
+        func block(_ dollars: String, _ yoy: String, _ orders: String) -> [String] {
+            [dollars, yoy, orders, "0", "90", "0", "4.5", "0", "20", "0", "100", "0"]
+        }
+        let metric = ["Sales $", "Sales YoY %", "Orders", "Orders YoY %", "AOS", "AOS YoY %", "AIV", "AIV YoY", "Items P/TXN", "Item P/TXN YoY", "Total Items", "Total Items YoY"]
+        let weekday = ["Weekday"]
+            + Array(repeating: "1-SUNDAY", count: 12)
+            + Array(repeating: "2-MONDAY", count: 12)
+            + Array(repeating: "3-TUESDAY", count: 12)
+            + Array(repeating: "4-WEDNESDAY", count: 12)
+            + Array(repeating: "Total", count: 12)
+            + Array(repeating: "Total", count: 12)
+        let header = ["Store"] + metric + metric + metric + metric + metric + metric
+        let store = ["1"]
+            + block("5448.03", "-0.24", "54")
+            + block("6257.51", "0.54", "60")
+            + block("5974.18", "0.69", "66")
+            + block("-1", "-1", "-1")
+            + block("17679.72", "0.20", "180")
+            + block("17679.72", "0.20", "180")
+        let total = ["Total"]
+            + block("13375189", "-0.04", "100")
+            + block("15072088", "0.53", "100")
+            + block("11022667", "0.10", "100")
+            + block("-1", "-1", "-1")
+            + block("39469945", "0.20", "300")
+            + block("39469945", "0.20", "300")
+        let parsed = WorkbookParser.parseSalesMatrix([
+            ["Week", "202637"],
+            weekday,
+            header,
+            store,
+            total
+        ])
+        let row = parsed.first { $0.storeNumber == "1" }
+        XCTAssertNotNil(row)
+        XCTAssertEqual(row?.payload["sales_dollars"] ?? 0, 17679.72, accuracy: 0.02)
+        XCTAssertEqual(row?.payload["sales_d0_dollars"] ?? 0, 5448.03, accuracy: 0.02)
+        XCTAssertEqual(row?.payload["sales_d1_dollars"] ?? 0, 6257.51, accuracy: 0.02)
+        XCTAssertEqual(row?.payload["sales_d2_dollars"] ?? 0, 5974.18, accuracy: 0.02)
+        XCTAssertNil(row?.payload["sales_d3_dollars"])
+        XCTAssertTrue((row?.textPayload["sales_days"] ?? "").contains("Tuesday"))
+        let company = parsed.first { $0.textPayload["sales_grain"] == "company" }
+        XCTAssertEqual(company?.payload["sales_dollars"] ?? 0, 39_469_945, accuracy: 1)
+        let days = SalesRollupBuilder.dayRows(from: parsed.map { $0.asRow(section: .sales) }.filter { !$0.storeNumber.isEmpty })
+        XCTAssertEqual(days.map(\.label), ["Sunday", "Monday", "Tuesday"])
+    }
 }
 
