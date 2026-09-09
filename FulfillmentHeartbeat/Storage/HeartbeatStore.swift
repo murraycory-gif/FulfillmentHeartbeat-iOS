@@ -139,7 +139,10 @@ final class HeartbeatStore: ObservableObject {
             importLabel = nil
             isReady = true
             needsRolePick = true
-            Task { await self.repairSalesFromCloud() }
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                await self.repairSalesFromCloud()
+            }
             return
         }
         await importCloudSQLiteIfPresent()
@@ -153,22 +156,15 @@ final class HeartbeatStore: ObservableObject {
             importLabel = nil
             isReady = true
             needsRolePick = true
-            Task { await self.repairSalesFromCloud() }
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                await self.repairSalesFromCloud()
+            }
             return
-        }
-        await importCloudWorkbook(blocking: false)
-        if cachedSummaries.isEmpty, !rows.isEmpty {
-            rebuildIndex()
-            installCompanyWideFast()
         }
         isImporting = false
         importLabel = nil
-        if seeded, !rows.isEmpty {
-            isReady = true
-            needsRolePick = true
-        } else {
-            errorMessage = errorMessage ?? "Could not load Heartbeat from the cloud."
-        }
+        errorMessage = errorMessage ?? "Could not load Heartbeat from the cloud."
     }
 
     private func hydrateFromCloudInBackground() async {
@@ -1659,47 +1655,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func syncServerWorkbookIfChanged(_ snap: [String: PulseCloud.ObjectStat]? = nil) async {
-        let listing: [String: PulseCloud.ObjectStat]
-        if let snap {
-            listing = snap
-        } else {
-            listing = await PulseCloud.snapshot()
-        }
-        var remoteXlsx = 0
-        var remoteUpdated = ""
-        var remoteName = PulseCloud.workbookNames[0]
-        for name in PulseCloud.workbookNames {
-            if let info = listing[name], info.size > 1_000 {
-                remoteXlsx = info.size
-                remoteUpdated = info.updated
-                remoteName = name
-                break
-            }
-        }
-        let knownXlsx = UserDefaults.standard.integer(forKey: "hb.cloudXlsxBytes")
-        let knownUpdated = UserDefaults.standard.string(forKey: "hb.cloudXlsxUpdated") ?? ""
-        let parserStamp = UserDefaults.standard.integer(forKey: "hb.parserStamp")
-        guard remoteXlsx > 1_000 else { return }
-        let pack = listing[PulseCloud.object]
-        let packCoversWorkbook = (pack?.size ?? 0) > 50_000
-            && !remoteUpdated.isEmpty
-            && !(pack?.updated.isEmpty ?? true)
-            && (pack?.updated ?? "") >= remoteUpdated
-            && Self.hasUsableSales(rows)
-            && Self.hasUsableLostRevenue(rows)
-        if packCoversWorkbook, parserStamp >= 180 {
-            UserDefaults.standard.set(remoteXlsx, forKey: "hb.cloudXlsxBytes")
-            if !remoteUpdated.isEmpty {
-                UserDefaults.standard.set(remoteUpdated, forKey: "hb.cloudXlsxUpdated")
-            }
-            return
-        }
-        let sameFile = remoteXlsx == knownXlsx && (remoteUpdated.isEmpty || remoteUpdated == knownUpdated)
-        if sameFile, parserStamp >= 180, Self.hasUsableSales(rows), Self.hasUsableLostRevenue(rows) {
-            return
-        }
-        _ = remoteName
-        await importCloudWorkbook(blocking: false)
+        await repairSalesFromCloud()
     }
 
     private func importCloudSQLiteIfPresent() async {
@@ -1762,13 +1718,26 @@ final class HeartbeatStore: ObservableObject {
             let incoming = parsed.map { $0.asRow(section: .sales) }
             guard incoming.contains(where: { ($0.number("sales_dollars") ?? 0) > 0 }) else { return }
             rows = rows.filter { $0.section != .sales } + incoming
+            latestBySection[.sales] = HeartbeatMath.latestPerStore(incoming.filter { !$0.storeNumber.isEmpty })
+            filteredLatest[.sales] = latestBySection[.sales]
+            let salesSummary = HeartbeatMath.summarize(.sales, rows: incoming, upload: uploads.first { $0.section == .sales })
+            if let index = cachedSummaries.firstIndex(where: { $0.section == .sales }) {
+                cachedSummaries[index] = salesSummary
+            } else {
+                cachedSummaries.insert(salesSummary, at: 0)
+            }
+            refreshSalesExpandCache()
             seeded = true
             packDirty = true
-            refreshSalesExpandCache()
-            applyVisibleFilter()
-            persist()
             UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
             UserDefaults.standard.set(180, forKey: "hb.parserStamp")
+            let snapshotRows = rows
+            let snapshotUploads = uploads
+            let snapshotSeeded = seeded
+            let url = packURL
+            Task.detached(priority: .utility) {
+                try? PulseSQLite.write(rows: snapshotRows, uploads: snapshotUploads, seeded: snapshotSeeded, to: url)
+            }
         } catch {
             return
         }

@@ -1180,103 +1180,76 @@ enum WorkbookParser {
             }
             break
         }
-        for index in 0..<headers.count {
-            let fromHeader = salesDayName(headers[index])
-            if fromHeader == "Week" || weekdays.contains(fromHeader) {
-                weekdayLabels[index] = fromHeader
-            }
-        }
-
-        var blocks: [SalesBlock] = []
-        var starts: [Int] = []
-        for index in 0..<headers.count {
-            if index == storeIdx || index == divisionIdx || index == districtIdx { continue }
-            if salesField(headers[index]) == "sales" { starts.append(index) }
-        }
-        if starts.isEmpty {
-            let firstMetric = max(storeIdx, divisionIdx ?? -1, districtIdx ?? -1) + 1
-            if firstMetric < headers.count { starts = [firstMetric] }
-        }
-        for (offset, start) in starts.enumerated() {
-            let end = offset + 1 < starts.count ? starts[offset + 1] : headers.count
-            var block = SalesBlock(label: weekdayLabels.indices.contains(start) ? weekdayLabels[start] : "")
-            let width = end - start
-            if width >= 10 {
-                block.sales = start
-                block.yoy = start + 1
-                block.orders = start + 2
-                block.ordersYoy = start + 3
-                block.aos = start + 4
-                block.aosYoy = start + 5
-                block.aiv = start + 6
-                block.aivYoy = start + 7
-                block.ipt = start + 8
-                block.iptYoy = start + 9
-                block.items = start + 10
-                if width > 11 { block.itemsYoy = start + 11 }
-            }
-            for index in start..<end {
-                guard let field = salesField(headers[index]) else { continue }
-                switch field {
-                case "sales": block.sales = index
-                case "yoy": block.yoy = index
-                case "orders": block.orders = index
-                case "orders_yoy": block.ordersYoy = index
-                case "aos": block.aos = index
-                case "aos_yoy": block.aosYoy = index
-                case "aiv": block.aiv = index
-                case "aiv_yoy": block.aivYoy = index
-                case "ipt": block.ipt = index
-                case "ipt_yoy": block.iptYoy = index
-                case "items": block.items = index
-                case "items_yoy": block.itemsYoy = index
-                case "hd": block.hd = index
-                case "dug": block.dug = index
-                default: break
-                }
-            }
-            blocks.append(block)
-        }
-        guard !blocks.isEmpty else { return nil }
 
         func name(for start: Int) -> String {
             let above = weekdayLabels.indices.contains(start) ? salesDayName(weekdayLabels[start]) : ""
             if weekdays.contains(above) || above == "Week" { return above }
-            let header = start < headers.count ? salesDayName(headers[start]) : ""
-            if weekdays.contains(header) || header == "Week" { return header }
-            return above
+            return ""
         }
 
         var dayBlocks: [SalesBlock] = []
-        var usedStarts: Set<Int> = []
-        for day in weekdays {
-            guard let start = starts.first(where: { !usedStarts.contains($0) && name(for: $0) == day }) else { continue }
-            usedStarts.insert(start)
-            if var block = blocks.first(where: { $0.sales == start }) {
-                block.label = day
+        var weekBlock = SalesBlock(label: "Week")
+        var cursor = storeIdx + 1
+        while cursor < headers.count {
+            let label = name(for: cursor)
+            let start = cursor
+            cursor += 1
+            while cursor < headers.count, name(for: cursor) == label {
+                cursor += 1
+            }
+            var block = SalesBlock(label: label)
+            for col in start..<cursor {
+                guard col < headers.count, let field = salesField(headers[col]) else { continue }
+                switch field {
+                case "sales": if block.sales == nil { block.sales = col }
+                case "yoy": if block.yoy == nil { block.yoy = col }
+                case "orders": if block.orders == nil { block.orders = col }
+                case "orders_yoy": if block.ordersYoy == nil { block.ordersYoy = col }
+                case "aos": if block.aos == nil { block.aos = col }
+                case "aos_yoy": if block.aosYoy == nil { block.aosYoy = col }
+                case "aiv": if block.aiv == nil { block.aiv = col }
+                case "aiv_yoy": if block.aivYoy == nil { block.aivYoy = col }
+                case "ipt": if block.ipt == nil { block.ipt = col }
+                case "ipt_yoy": if block.iptYoy == nil { block.iptYoy = col }
+                case "items": if block.items == nil { block.items = col }
+                case "items_yoy": if block.itemsYoy == nil { block.itemsYoy = col }
+                case "hd": if block.hd == nil { block.hd = col }
+                case "dug": if block.dug == nil { block.dug = col }
+                default: break
+                }
+            }
+            if weekdays.contains(label), block.sales != nil, !dayBlocks.contains(where: { $0.label == label }) {
+                block.label = label
                 dayBlocks.append(block)
+            } else if label == "Week", weekBlock.sales == nil {
+                block.label = "Week"
+                weekBlock = block
             }
         }
         if dayBlocks.isEmpty {
+            var starts: [Int] = []
+            for index in 0..<headers.count {
+                if index == storeIdx { continue }
+                if salesField(headers[index]) == "sales" { starts.append(index) }
+            }
             for start in starts {
                 if name(for: start) == "Week" { continue }
-                guard var block = blocks.first(where: { $0.sales == start }) else { continue }
-                let label = weekdays.indices.contains(dayBlocks.count) ? weekdays[dayBlocks.count] : name(for: start)
-                block.label = label
+                var block = SalesBlock(label: weekdays.indices.contains(dayBlocks.count) ? weekdays[dayBlocks.count] : "Sunday")
+                block.sales = start
+                for col in start..<min(start + 12, headers.count) {
+                    guard let field = salesField(headers[col]) else { continue }
+                    switch field {
+                    case "sales": block.sales = col
+                    case "yoy": block.yoy = col
+                    case "orders": block.orders = col
+                    default: break
+                    }
+                }
                 dayBlocks.append(block)
                 if dayBlocks.count == 7 { break }
             }
         }
-
-        let weekBlock: SalesBlock = {
-            if let start = starts.first(where: { name(for: $0) == "Week" }),
-               var named = blocks.first(where: { $0.sales == start }) {
-                named.label = "Week"
-                return named
-            }
-            return SalesBlock(label: "Week")
-        }()
-        dayBlocks.removeAll { $0.sales != nil && $0.sales == weekBlock.sales }
+        guard weekBlock.sales != nil || !dayBlocks.isEmpty else { return nil }
 
         let week = salesWeek(from: Array(matrix.prefix(headerIdx)))
         var lastDivision = ""
