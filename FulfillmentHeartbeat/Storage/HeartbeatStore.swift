@@ -280,7 +280,7 @@ final class HeartbeatStore: ObservableObject {
         let pool: [MetricRow]
         switch section {
         case .labor:
-            pool = laborTableRows()
+            pool = allLatest(for: .labor)
         default:
             pool = allLatest(for: section)
         }
@@ -405,7 +405,7 @@ final class HeartbeatStore: ObservableObject {
         grain: DashScopeGrain,
         packs: [DashScopePack]
     ) -> [String: [HeartbeatMath.FiveStarFlag]] {
-        PulseCaches.grainFlags(section: section, grain: grain, packs: packs, latest: filteredLatest)
+        PulseCaches.grainFlags(section: section, grain: grain, packs: packs, latest: filteredLatest, roster: roster)
     }
 
     func dashboardScopeCount(_ grain: DashScopeGrain) -> Int {
@@ -751,7 +751,7 @@ final class HeartbeatStore: ObservableObject {
 
     func laborTableRows() -> [MetricRow] {
         if laborWeekFilter.isEmpty {
-            return displayRows(for: .labor)
+            return rosterJoined(for: .labor)
         }
         var out: [MetricRow] = []
         out.reserveCapacity(laborWeeksByStore.count)
@@ -2188,9 +2188,15 @@ final class HeartbeatStore: ObservableObject {
                 latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(source), roster: roster)
             } else if section == .labor {
                 let stores = sectionRows.filter {
+                    $0.textPayload["labor_grain"] == "store" && !$0.storeNumber.isEmpty
+                }
+                let fallback = sectionRows.filter {
                     $0.textPayload["labor_grain"] != "market" && !$0.storeNumber.isEmpty
                 }
-                latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(stores), roster: roster)
+                latest[section] = HeartbeatMath.applyRoster(
+                    HeartbeatMath.latestPerStore(stores.isEmpty ? fallback : stores),
+                    roster: roster
+                )
             } else if section == .pickerScorecard || section == .pickPathPicker {
                 latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerShopper(sectionRows), roster: roster)
             } else {
@@ -3194,9 +3200,15 @@ struct PulseCaches {
                 latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(source), roster: roster)
             } else if section == .labor {
                 let stores = sectionRows.filter {
+                    $0.textPayload["labor_grain"] == "store" && !$0.storeNumber.isEmpty
+                }
+                let fallback = sectionRows.filter {
                     $0.textPayload["labor_grain"] != "market" && !$0.storeNumber.isEmpty
                 }
-                latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(stores), roster: roster)
+                latest[section] = HeartbeatMath.applyRoster(
+                    HeartbeatMath.latestPerStore(stores.isEmpty ? fallback : stores),
+                    roster: roster
+                )
             } else if section == .pickerScorecard || section == .pickPathPicker {
                 latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerShopper(sectionRows), roster: roster)
             } else {
@@ -3327,7 +3339,7 @@ struct PulseCaches {
             pickPathPickersByStore: path.buckets,
             pickPathByShopper: path.byShopper,
             pphPickersByStore: pph,
-            cachedCardFlags: cardFlags(latest: nextLatest),
+            cachedCardFlags: cardFlags(latest: nextLatest, laborMarket: laborMarket),
             cachedGrainPacks: grainPacks(
                     latest: nextLatest,
                     grain: grain,
@@ -3356,16 +3368,23 @@ struct PulseCaches {
         )
     }
 
-    static func cardFlags(latest: [MetricSection: [MetricRow]]) -> [MetricSection: [HeartbeatMath.FiveStarFlag]] {
+    static func cardFlags(
+        latest: [MetricSection: [MetricRow]],
+        laborMarket: MetricRow? = nil
+    ) -> [MetricSection: [HeartbeatMath.FiveStarFlag]] {
         let pickers = latest[.pickerScorecard] ?? []
         let pathPickers = latest[.pickPathPicker] ?? []
         let items = latest[.preSubOOSItem] ?? []
         var out: [MetricSection: [HeartbeatMath.FiveStarFlag]] = [:]
         out.reserveCapacity(MetricSection.dashboardCards.count)
         for section in MetricSection.dashboardCards {
+            var rows = latest[section] ?? []
+            if section == .labor, let laborMarket {
+                rows.append(laborMarket)
+            }
             out[section] = HeartbeatMath.dashboardActionFlags(
                 section: section,
-                rows: latest[section] ?? [],
+                rows: rows,
                 pickers: pickers,
                 pathPickers: pathPickers,
                 items: items,
@@ -3404,7 +3423,11 @@ struct PulseCaches {
             } else {
                 lines = Array(HeartbeatMath.dashboardScopeLines(section: section, rows: rows, grain: grain).prefix(cap))
             }
-            let shown = lines.isEmpty ? placeholderLines(grain) : lines
+            let shown = lines.isEmpty ? (rows.isEmpty ? placeholderLines(grain) : []) : lines
+            if shown.isEmpty {
+                out[section] = []
+                continue
+            }
             var packs: [DashScopePack]
             if grain == .region {
                 let markets = HeartbeatMath.dashboardScopeLines(section: section, rows: rows, grain: .division)
@@ -3415,8 +3438,8 @@ struct PulseCaches {
             } else {
                 packs = shown.map { DashScopePack(line: $0, flags: [], children: []) }
             }
-            if section != .sales, section != .pickerScorecard {
-                let map = grainFlags(section: section, grain: grain, packs: packs, latest: latest)
+            if section != .sales {
+                let map = grainFlags(section: section, grain: grain, packs: packs, latest: latest, roster: roster)
                 packs = packs.map { pack in
                     var next = pack
                     next.flags = map[pack.id] ?? map[pack.line.label] ?? []
@@ -3453,9 +3476,10 @@ struct PulseCaches {
         section: MetricSection,
         grain: DashScopeGrain,
         packs: [DashScopePack],
-        latest: [MetricSection: [MetricRow]]
+        latest: [MetricSection: [MetricRow]],
+        roster: [String: HeartbeatMath.StoreIdentity] = [:]
     ) -> [String: [HeartbeatMath.FiveStarFlag]] {
-        let rows = latest[section] ?? []
+        let rows = HeartbeatMath.rowsFillingRoster(latest[section] ?? [], roster: roster)
         var buckets: [String: [MetricRow]] = [:]
         func key(for row: MetricRow) -> String? {
             if grain == .store {

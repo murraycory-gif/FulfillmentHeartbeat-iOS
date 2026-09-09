@@ -578,7 +578,17 @@ enum HeartbeatMath {
 
     static func stampRoster(_ row: MetricRow, roster: [String: StoreIdentity]) -> MetricRow {
         let store = canonicalStore(row.storeNumber)
-        guard let identity = roster[store] else { return row }
+        guard !store.isEmpty else { return row }
+        var identity = roster[store]
+        if identity == nil {
+            for alias in storeAliases(store) {
+                if let hit = roster[alias] {
+                    identity = hit
+                    break
+                }
+            }
+        }
+        guard let identity else { return row }
         var next = row
         if !identity.division.isEmpty { next.division = identity.division }
         if !identity.district.isEmpty { next.textPayload["district"] = identity.district }
@@ -591,8 +601,14 @@ enum HeartbeatMath {
         switch grain {
         case .region:
             let market = RollupMarketFill.divisionKey(row.division)
-            guard !market.isEmpty, market != "Unassigned" else { return nil }
-            return MarketRegion.containing(market)?.rawValue
+            if !market.isEmpty, market != "Unassigned", let region = MarketRegion.containing(market) {
+                return region.rawValue
+            }
+            let district = RollupMarketFill.districtKey(row.district)
+            if !district.isEmpty, let region = MarketRegion.containing(district) {
+                return region.rawValue
+            }
+            return nil
         case .division:
             let key = RollupMarketFill.divisionKey(row.division)
             return key.isEmpty ? nil : key
@@ -756,10 +772,15 @@ enum HeartbeatMath {
         if section == .dynacap { return dynacapActionFlags(rows) }
         if section == .preSubOOS { return preSubActionFlags(rows, items: items) }
         if section == .pickerScorecard {
-            let shoppers = rows.filter { !$0.shopperName.isEmpty || !$0.shopperKey.isEmpty }
-            let healthy = shoppers.filter { health(for: .pickerScorecard, row: $0) == .good }.count
-            let watch = shoppers.filter { health(for: .pickerScorecard, row: $0) == .watch }.count
-            let risk = shoppers.filter { health(for: .pickerScorecard, row: $0) == .risk }.count
+            let shoppers = rows.filter { isRealPicker($0) }
+            func tone(_ row: MetricRow) -> Health {
+                var health = pickerHealth(row)
+                if health == .none, pickerHasVolume(row) { health = .watch }
+                return health
+            }
+            let healthy = shoppers.filter { tone($0) == .good }.count
+            let watch = shoppers.filter { tone($0) == .watch }.count
+            let risk = shoppers.filter { tone($0) == .risk }.count
             return bandFlags(healthy: healthy, watch: watch, risk: risk, unit: "shoppers")
         }
         let stores = rows.filter { !isIgnoredStore($0.storeNumber) && !$0.storeNumber.isEmpty }
