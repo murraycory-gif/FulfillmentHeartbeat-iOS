@@ -2853,7 +2853,7 @@ final class HeartbeatStore: ObservableObject {
     private func loadPack() async {
         if PulseSQLite.exists(at: sqliteURL) {
             let url = sqliteURL
-            let skipHeavy: Set<MetricSection> = HubLayout.constrained ? Self.launchSkip : []
+            let skipHeavy: Set<MetricSection> = HubLayout.lightLaunch ? Self.launchSkip : []
             let pack = await Task.detached(priority: .userInitiated) {
                 try? PulseSQLite.read(from: url, skipping: skipHeavy)
             }.value

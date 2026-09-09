@@ -236,14 +236,37 @@ struct BrandButtonStyle: ButtonStyle {
 }
 
 enum HubLayout {
-    /// One app. iPad = `.regular` chrome and tables. iPhone = compact chrome.
-    /// New features (filters, week chips, shoppers, share) must ship on both
-    /// paths — never iPad-only logic unless the control is iPad-only (sticky headers).
-    /// Phone-only layouts. iPad is `.regular` even in split view — never use raw width
-    /// alone to decide phone UI or iPad pages pick up compact chrome, 2-up tiles,
-    /// and forced horizontal tables.
+    /// Hardware class. Layout, launch, and paging never mix these.
+    enum Kind { case phone, pad, mac }
+
+    static var kind: Kind {
+        #if targetEnvironment(macCatalyst)
+        return .mac
+        #else
+        return UIDevice.current.userInterfaceIdiom == .phone ? .phone : .pad
+        #endif
+    }
+
+    static var isPhoneDevice: Bool { kind == .phone }
+    static var isPadDevice: Bool { kind == .pad }
+    static var isMac: Bool { kind == .mac }
+
+    /// 4GB class (iPhone 13 / SE 3 / old iPads).
+    static var lowMemory: Bool {
+        ProcessInfo.processInfo.physicalMemory < 5_500_000_000
+    }
+
+    /// iPhone always. 4GB iPad too. Skip labor/picker and Excel on launch.
+    static var lightLaunch: Bool { isPhoneDevice || lowMemory }
+
+    /// Back-compat for store/pager. Means lightLaunch, not "small screen".
+    static var constrained: Bool { lightLaunch }
+
+    /// Phone chrome stays phone even in landscape. iPad/Mac stay regular
+    /// even in split view. Never drive this off width alone.
     static func isPhone(_ sizeClass: UserInterfaceSizeClass?) -> Bool {
-        sizeClass != .regular
+        _ = sizeClass
+        return isPhoneDevice
     }
 
     static func phoneBannerTitleFont() -> Font { AppTheme.rounded(.footnote, weight: .bold) }
@@ -253,6 +276,7 @@ enum HubLayout {
 
     static func flagColumns(count: Int, width: CGFloat) -> Int {
         guard count > 0 else { return 1 }
+        if isPhoneDevice { return 1 }
         if width < 500 { return 1 }
         let chip: CGFloat
         if width < 700 { chip = 164 }
@@ -279,17 +303,13 @@ enum HubLayout {
         Array(repeating: GridItem(.flexible(minimum: minWidth), spacing: spacing), count: max(1, count))
     }
 
-    /// 4GB devices and every iPhone. Launch skips labor/picker and never parses Excel.
-    static var constrained: Bool {
-        ProcessInfo.processInfo.physicalMemory < 5_500_000_000
-            || UIDevice.current.userInterfaceIdiom == .phone
-    }
-
-    static var grainCap: Int { constrained ? 12 : 24 }
-    static var storeGrainCap: Int { constrained ? 16 : 50 }
+    static var grainCap: Int { lightLaunch ? 12 : 24 }
+    static var storeGrainCap: Int { lightLaunch ? 16 : 50 }
     static var pickerCap: Int { 50 }
-    /// Swipe can hydrate the next page on demand. Taps never pre-build neighbors.
+    /// Next page hydrates on swipe. Taps never pre-build neighbors.
     static var hydrateNeighbors: Bool { false }
+    /// Rasterizing huge SwiftUI lists stalls Mac. iPad only.
+    static var rasterizeSwipe: Bool { isPadDevice && !lowMemory }
 }
 
 private struct HubWidthKey: PreferenceKey {

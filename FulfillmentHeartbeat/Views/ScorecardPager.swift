@@ -72,12 +72,9 @@ struct ScorecardPager: UIViewControllerRepresentable, Equatable {
         }
 
         func freezeForSwipe(_ on: Bool) {
-            #if targetEnvironment(macCatalyst)
-            return
-            #else
+            guard HubLayout.rasterizeSwipe else { return }
             view.layer.shouldRasterize = on
             view.layer.rasterizationScale = UIScreen.main.scale
-            #endif
         }
 
         @available(*, unavailable)

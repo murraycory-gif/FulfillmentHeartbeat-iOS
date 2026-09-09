@@ -135,7 +135,7 @@ struct MainHubView: View {
 
     var body: some View {
         Group {
-            if sizeClass == .regular {
+            if sizeClass == .regular, !HubLayout.isPhoneDevice {
                 NavigationSplitView(columnVisibility: $columnVisibility) {
                     sidebar
                         .navigationSplitViewColumnWidth(min: 240, ideal: 272, max: 320)
