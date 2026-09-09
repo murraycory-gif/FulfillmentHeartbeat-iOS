@@ -189,9 +189,14 @@ final class HeartbeatStore: ObservableObject {
     private func hydrateFromCloudInBackground() async {
         let snap = await PulseCloud.snapshot()
         await syncCloudPackIfChanged(snap)
-        if HubLayout.constrained {
+        if HubLayout.profile.skipExcel {
             applyLocalCards()
-            Task { await self.loadHeavySections() }
+            if HubLayout.lightLaunch {
+                Task { await self.loadHeavySections() }
+            }
+            if HubLayout.isPadDevice, !Self.hasUsableLostRevenue(rows) {
+                await loadPublishedFacts()
+            }
             return
         }
         if !Self.hasUsableLostRevenue(rows) {
