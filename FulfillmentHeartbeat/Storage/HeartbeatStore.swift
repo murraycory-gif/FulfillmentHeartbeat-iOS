@@ -2821,18 +2821,26 @@ final class HeartbeatStore: ObservableObject {
         let rosterCopy = roster
 
         if (latestBySection[.labor] ?? []).isEmpty {
-            let laborLatest = await Task.detached(priority: .utility) { () -> [MetricRow] in
+            let laborPack = await Task.detached(priority: .utility) { () -> [MetricRow] in
                 guard let pack = try? PulseSQLite.read(from: url, only: [.labor]) else { return [] }
-                let stores = pack.rows.filter {
+                return pack.rows
+            }.value
+            if !laborPack.isEmpty {
+                rows.removeAll { $0.section == .labor }
+                rows.append(contentsOf: laborPack)
+                let stores = laborPack.filter {
+                    $0.textPayload["labor_grain"] == "store" && !$0.storeNumber.isEmpty
+                }
+                let fallback = laborPack.filter {
                     $0.textPayload["labor_grain"] != "market" && !$0.storeNumber.isEmpty
                 }
-                return HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(stores), roster: rosterCopy)
-            }.value
-            if !laborLatest.isEmpty {
+                let laborLatest = HeartbeatMath.applyRoster(
+                    HeartbeatMath.latestPerStore(stores.isEmpty ? fallback : stores),
+                    roster: rosterCopy
+                )
                 latestBySection[.labor] = laborLatest
                 if !filters.isActive { filteredLatest[.labor] = laborLatest }
                 rebuildLaborWeekIndex()
-                refreshSummary(for: .labor, rows: laborLatest)
             }
         }
 
@@ -2864,10 +2872,36 @@ final class HeartbeatStore: ObservableObject {
             }
         }
 
+        refreshDashboardChrome()
         if !needsRolePick {
             filterStamp += 1
         }
         scheduleHeavyExtras(latest: latestBySection, roster: roster)
+    }
+
+    private func refreshDashboardChrome() {
+        let grain = effectiveDashboardGrain
+        cachedCardFlags = PulseCaches.cardFlags(
+            latest: filteredLatest,
+            laborMarket: laborMarketRow()
+        )
+        cachedGrainPacks = PulseCaches.grainPacks(
+            latest: filteredLatest,
+            grain: grain,
+            hidePicker: false,
+            stores: cachedStores,
+            roster: roster
+        )
+        if let labor = filteredLatest[.labor] {
+            refreshSummary(for: .labor, rows: labor + [laborMarketRow()].compactMap { $0 })
+        }
+        if let pickers = filteredLatest[.pickerScorecard] {
+            refreshSummary(for: .pickerScorecard, rows: pickers)
+            if cachedPickerBoard.shopperCount == 0 {
+                cachedPickerBoard = HeartbeatMath.pickerBoard(pickers)
+            }
+        }
+        refreshSalesExpandCache()
     }
 
     private func refreshSummary(for section: MetricSection, rows: [MetricRow]) {
