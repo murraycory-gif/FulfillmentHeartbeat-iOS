@@ -279,9 +279,10 @@ enum HubLayout {
         Array(repeating: GridItem(.flexible(minimum: minWidth), spacing: spacing), count: max(1, count))
     }
 
-    /// 4GB phones (iPhone 13 and older) and 4GB iPads. Import and pager stay lighter.
+    /// 4GB devices and every iPhone. Launch skips labor/picker and never parses Excel.
     static var constrained: Bool {
         ProcessInfo.processInfo.physicalMemory < 5_500_000_000
+            || UIDevice.current.userInterfaceIdiom == .phone
     }
 
     static var grainCap: Int { constrained ? 12 : 24 }

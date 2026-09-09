@@ -140,6 +140,23 @@ final class HeartbeatStore: ObservableObject {
         if !Self.hasUsableLabor(rows) || !Self.hasUsablePicker(rows) {
             await importCloudSQLiteIfPresent()
         }
+        if HubLayout.constrained {
+            if seeded, !rows.isEmpty {
+                if cachedSummaries.isEmpty {
+                    rebuildIndex()
+                    installCompanyWideFast()
+                }
+                isImporting = false
+                importLabel = nil
+                isReady = true
+                needsRolePick = true
+            } else {
+                isImporting = false
+                importLabel = nil
+                errorMessage = errorMessage ?? "Could not load Heartbeat from the cloud."
+            }
+            return
+        }
         await loadPublishedFacts()
         if seeded, !rows.isEmpty {
             if cachedSummaries.isEmpty {
@@ -173,6 +190,7 @@ final class HeartbeatStore: ObservableObject {
         await syncCloudPackIfChanged()
         if HubLayout.constrained {
             applyLocalCards()
+            Task { await self.loadHeavySections() }
             return
         }
         if !Self.hasUsableLostRevenue(rows) {
