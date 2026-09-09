@@ -2916,6 +2916,10 @@ final class HeartbeatStore: ObservableObject {
             }
         }
 
+        if usingPackChrome, !filters.isActive {
+            return
+        }
+
         let grain = effectiveDashboardGrain
         let latest = filteredLatest
         let stores = cachedStores
@@ -2932,19 +2936,7 @@ final class HeartbeatStore: ObservableObject {
                 roster: rosterCopy
             )
             await MainActor.run {
-                if self.usingPackChrome, !self.filters.isActive {
-                    if let laborRows {
-                        self.refreshSummary(for: .labor, rows: laborRows + [laborMarket].compactMap { $0 })
-                    }
-                    if let pickerRows {
-                        self.refreshSummary(for: .pickerScorecard, rows: pickerRows)
-                    }
-                    self.refreshSalesExpandCache()
-                    if !self.needsRolePick {
-                        self.filterStamp += 1
-                    }
-                    return
-                }
+                if self.usingPackChrome, !self.filters.isActive { return }
                 self.cachedCardFlags = flags
                 self.cachedGrainPacks = packs
                 if let laborRows {

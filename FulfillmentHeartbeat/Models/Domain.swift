@@ -629,6 +629,10 @@ enum HeartbeatMath {
         let source = section == .pickerScorecard ? latestPerShopper(rows) : rows
         var buckets: [String: [MetricRow]] = [:]
         for row in source {
+            if row.textPayload["lost_grain"] == "market" { continue }
+            if row.textPayload["labor_grain"] == "market" { continue }
+            if row.textPayload["sales_grain"] == "company" { continue }
+            if isIgnoredStore(row.storeNumber), section != .sales { continue }
             guard let key = dashboardScopeKey(row, grain: grain) else { continue }
             buckets[key, default: []].append(row)
         }
@@ -774,15 +778,21 @@ enum HeartbeatMath {
         if section == .dynacap { return dynacapActionFlags(rows) }
         if section == .preSubOOS { return preSubActionFlags(rows, items: items) }
         if section == .pickerScorecard {
-            let shoppers = rows.filter { isRealPicker($0) }
+            let shoppers = rows.filter { isRealPicker($0) || pickerHasVolume($0) }
             func tone(_ row: MetricRow) -> Health {
                 var health = pickerHealth(row)
                 if health == .none, pickerHasVolume(row) { health = .watch }
                 return health
             }
-            let healthy = shoppers.filter { tone($0) == .good }.count
-            let watch = shoppers.filter { tone($0) == .watch }.count
-            let risk = shoppers.filter { tone($0) == .risk }.count
+            var healthy = shoppers.filter { tone($0) == .good }.count
+            var watch = shoppers.filter { tone($0) == .watch }.count
+            var risk = shoppers.filter { tone($0) == .risk }.count
+            if healthy + watch + risk == 0, !shoppers.isEmpty {
+                let board = pickerBoard(shoppers)
+                healthy = board.strongCount
+                risk = board.opportunityCount
+                watch = max(0, shoppers.count - healthy - risk)
+            }
             return bandFlags(healthy: healthy, watch: watch, risk: risk, unit: "shoppers")
         }
         let stores = rows.filter { !isIgnoredStore($0.storeNumber) && !$0.storeNumber.isEmpty }
@@ -2339,10 +2349,13 @@ enum HeartbeatMath {
     }
 
     static func laborRollup(_ rows: [MetricRow], key: String) -> Double? {
-        if let market = rows.first(where: { $0.textPayload["labor_grain"] == "market" }) {
-            return market.number(key)
+        if let market = rows.first(where: { $0.textPayload["labor_grain"] == "market" }),
+           let value = market.number(key) {
+            return value
         }
-        let stores = rows.filter { $0.textPayload["labor_grain"] != "market" }
+        let stores = rows.filter {
+            $0.textPayload["labor_grain"] != "market" && !isIgnoredStore($0.storeNumber)
+        }
         if stores.count == 1 { return stores[0].number(key) }
         if key == "schedule_efficiency_pct" {
             return laborWeighted(stores, key: key, weightKey: "empower_hrs")
@@ -2494,12 +2507,13 @@ enum HeartbeatMath {
     }
 
     static func isRealPicker(_ row: MetricRow) -> Bool {
-        let name = row.shopperName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if name.isEmpty { return false }
-        if name.localizedCaseInsensitiveContains("unknown") { return false }
         let store = row.storeNumber
         if store.localizedCaseInsensitiveContains("filter") { return false }
         if store.localizedCaseInsensitiveContains("WEEK") { return false }
+        if let id = row.shopperId, !id.isEmpty { return true }
+        let name = row.shopperName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if name.isEmpty { return pickerHasVolume(row) }
+        if name.localizedCaseInsensitiveContains("unknown") { return pickerHasVolume(row) }
         return true
     }
 

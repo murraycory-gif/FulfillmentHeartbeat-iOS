@@ -46,6 +46,10 @@ enum HeartbeatIngest {
         try PulseSQLite.write(rows: rows, uploads: uploads, seeded: true, chrome: chrome, to: sqlite)
         let size = (try FileManager.default.attributesOfItem(atPath: sqlite.path)[.size] as? NSNumber)?.intValue ?? 0
         print("Wrote \(rows.count) rows + \(chrome.summaries.count) dashboard cards → \(sqlite.lastPathComponent) (\(size) bytes)")
+        for summary in chrome.summaries {
+            let head = summary.headline.map { String(format: "%.2f", $0) } ?? "—"
+            print("  card \(summary.section.rawValue): stores=\(summary.storeCount) head=\(head) risk=\(summary.riskCount)")
+        }
         let loaded = Set(uploads.map(\.section))
         let missing = MetricSection.uploadOrder.filter { !loaded.contains($0) }
         if !missing.isEmpty {
