@@ -1592,9 +1592,15 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func syncCloudPackIfChanged() async {
-        let remote = await PulseCloud.objectSize(PulseCloud.object)
+        let info = await PulseCloud.objectInfo(PulseCloud.object)
         let known = UserDefaults.standard.integer(forKey: "hb.cloudPackBytes")
-        if remote > 50_000, remote != known {
+        let knownUpdated = UserDefaults.standard.string(forKey: "hb.cloudPackUpdated") ?? ""
+        let build = UserDefaults.standard.string(forKey: "hb.packBuild") ?? ""
+        let same = info.size > 50_000
+            && info.size == known
+            && (info.updated.isEmpty || info.updated == knownUpdated)
+            && build == BuildStamp.id
+        if info.size > 50_000, !same {
             await importCloudSQLiteIfPresent()
         }
         await importCloudCardsIfPresent()
@@ -1650,23 +1656,30 @@ final class HeartbeatStore: ObservableObject {
 
     private func syncServerWorkbookIfChanged() async {
         var remoteXlsx = 0
+        var remoteUpdated = ""
+        var remoteName = PulseCloud.workbookNames[0]
         for name in PulseCloud.workbookNames {
-            let size = await PulseCloud.objectSize(name)
-            if size > 1_000 {
-                remoteXlsx = size
+            let info = await PulseCloud.objectInfo(name)
+            if info.size > 1_000 {
+                remoteXlsx = info.size
+                remoteUpdated = info.updated
+                remoteName = name
                 break
             }
         }
         let knownXlsx = UserDefaults.standard.integer(forKey: "hb.cloudXlsxBytes")
+        let knownUpdated = UserDefaults.standard.string(forKey: "hb.cloudXlsxUpdated") ?? ""
         let parserStamp = UserDefaults.standard.integer(forKey: "hb.parserStamp")
         guard remoteXlsx > 1_000 else { return }
-        if remoteXlsx == knownXlsx {
+        let sameFile = remoteXlsx == knownXlsx && (remoteUpdated.isEmpty || remoteUpdated == knownUpdated)
+        if sameFile {
             if parserStamp >= 175 { return }
             if Self.hasUsableSales(rows), Self.hasUsableLostRevenue(rows), Self.hasWeekSalesDays(rows) {
                 UserDefaults.standard.set(175, forKey: "hb.parserStamp")
                 return
             }
         }
+        _ = remoteName
         await importCloudWorkbook(blocking: false)
     }
 
@@ -1685,6 +1698,10 @@ final class HeartbeatStore: ObservableObject {
             guard seeded, !rows.isEmpty else { return }
             UserDefaults.standard.set(size, forKey: "hb.cloudPackBytes")
             UserDefaults.standard.set(BuildStamp.id, forKey: "hb.packBuild")
+            let stamp = await PulseCloud.objectInfo(PulseCloud.object)
+            if !stamp.updated.isEmpty {
+                UserDefaults.standard.set(stamp.updated, forKey: "hb.cloudPackUpdated")
+            }
             if HubLayout.constrained {
                 applyLocalCards()
                 return
@@ -1714,10 +1731,16 @@ final class HeartbeatStore: ObservableObject {
             }
         }
         let knownXlsx = UserDefaults.standard.integer(forKey: "hb.cloudXlsxBytes")
+        let knownUpdated = UserDefaults.standard.string(forKey: "hb.cloudXlsxUpdated") ?? ""
         let hasPack = seeded && !rows.isEmpty
         if HubLayout.constrained, hasPack { return }
         let stamp = UserDefaults.standard.integer(forKey: "hb.parserStamp")
-        let fileChanged = remoteXlsx > 1_000 && remoteXlsx != knownXlsx
+        var remoteUpdated = ""
+        for name in PulseCloud.workbookNames where name == remoteName {
+            remoteUpdated = await PulseCloud.objectInfo(name).updated
+            break
+        }
+        let fileChanged = remoteXlsx > 1_000 && (remoteXlsx != knownXlsx || (!remoteUpdated.isEmpty && remoteUpdated != knownUpdated))
         let firstLoad = !hasPack
         let needsParserPass = stamp < 175 && !Self.hasWeekSalesDays(rows)
         guard remoteXlsx > 1_000, firstLoad || fileChanged || needsParserPass else {
@@ -1750,6 +1773,10 @@ final class HeartbeatStore: ObservableObject {
             if ok {
                 UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
                 UserDefaults.standard.set(175, forKey: "hb.parserStamp")
+                let info = await PulseCloud.objectInfo(remoteName)
+                if !info.updated.isEmpty {
+                    UserDefaults.standard.set(info.updated, forKey: "hb.cloudXlsxUpdated")
+                }
                 if fileChanged || firstLoad {
                     publishFacts()
                     publishCloudPack()

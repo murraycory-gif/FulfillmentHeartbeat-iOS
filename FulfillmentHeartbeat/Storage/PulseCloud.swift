@@ -26,15 +26,22 @@ enum PulseCloud {
     private static let listLock = NSLock()
 
     static func objectSize(_ name: String) async -> Int {
+        objectInfo(name).size
+    }
+
+    static func objectInfo(_ name: String) async -> (size: Int, updated: String) {
         let rows = await listObjects()
         for row in rows {
             guard let fileName = row["name"] as? String, fileName == name else { continue }
+            var size = 0
             if let meta = row["metadata"] as? [String: Any] {
-                if let size = meta["size"] as? Int { return size }
-                if let size = meta["contentLength"] as? Int { return size }
+                if let value = meta["size"] as? Int { size = value }
+                else if let value = meta["contentLength"] as? Int { size = value }
             }
+            let updated = (row["updated_at"] as? String) ?? (row["created_at"] as? String) ?? ""
+            return (size, updated)
         }
-        return 0
+        return (0, "")
     }
 
     private static func listObjects() async -> [[String: Any]] {
