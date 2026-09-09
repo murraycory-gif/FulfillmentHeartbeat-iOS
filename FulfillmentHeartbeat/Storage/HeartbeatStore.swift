@@ -1734,7 +1734,7 @@ final class HeartbeatStore: ObservableObject {
             let snapshotRows = rows
             let snapshotUploads = uploads
             let snapshotSeeded = seeded
-            let url = packURL
+            let url = sqliteURL
             Task.detached(priority: .utility) {
                 try? PulseSQLite.write(rows: snapshotRows, uploads: snapshotUploads, seeded: snapshotSeeded, to: url)
             }
