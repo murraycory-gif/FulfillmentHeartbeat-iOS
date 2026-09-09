@@ -2995,10 +2995,8 @@ final class HeartbeatStore: ObservableObject {
         let incomingLabor = packRows.filter { $0.section == .labor }.count
         let diskPicker = PulseSQLite.sectionCount(from: packURL, section: .pickerScorecard)
         let diskLabor = PulseSQLite.sectionCount(from: packURL, section: .labor)
-        if incomingPicker + incomingLabor < diskPicker + diskLabor {
-            packDirty = false
-            return
-        }
+        if diskPicker > 100, incomingPicker == 0 { packDirty = false; return }
+        if diskLabor > 100, incomingLabor == 0 { packDirty = false; return }
         do {
             try await Task.detached(priority: .utility) {
                 try PulseSQLite.write(rows: packRows, uploads: packUploads, seeded: packSeeded, to: packURL)
