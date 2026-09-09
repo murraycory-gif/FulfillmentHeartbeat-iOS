@@ -476,7 +476,7 @@ struct UploadRecord: Identifiable, Codable, Hashable {
     }
 }
 
-struct SectionSummary: Identifiable, Equatable {
+struct SectionSummary: Identifiable, Equatable, Codable {
     var section: MetricSection
     var storeCount: Int
     var headline: Double?
@@ -1870,7 +1870,7 @@ enum HeartbeatMath {
         componentStar(row, starKey: "oth5_star", pctKey: "oth5_pct", full: 92, half: 78)
     }
 
-    struct FiveStarFlag: Identifiable, Equatable, Sendable {
+    struct FiveStarFlag: Identifiable, Equatable, Sendable, Codable {
         var id: String { name }
         let name: String
         let value: String
@@ -3085,7 +3085,7 @@ enum DashScopeGrain: String, Sendable, Equatable {
     }
 }
 
-struct DashScopeLine: Identifiable, Equatable, Sendable {
+struct DashScopeLine: Identifiable, Equatable, Sendable, Codable {
     var label: String
     var value: String
     var health: Health
@@ -3093,7 +3093,7 @@ struct DashScopeLine: Identifiable, Equatable, Sendable {
     var id: String { label }
 }
 
-struct DashScopePack: Identifiable, Equatable, Sendable {
+struct DashScopePack: Identifiable, Equatable, Sendable, Codable {
     var line: DashScopeLine
     var flags: [HeartbeatMath.FiveStarFlag]
     var children: [DashScopeLine] = []
