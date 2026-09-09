@@ -172,16 +172,16 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func hydrateFromCloudInBackground() async {
+        await syncCloudPackIfChanged()
         if HubLayout.constrained {
-            await syncCloudPackIfChanged()
-            if !Self.hasUsableLostRevenue(rows) {
-                await loadPublishedFacts()
-            }
             await loadHeavySections()
-            return
         }
         if !Self.hasUsableLostRevenue(rows) {
             await loadPublishedFacts()
+        }
+        if HubLayout.constrained { return }
+        if Self.hasUsableSales(rows), Self.hasWeekSalesDays(rows), Self.hasUsableLostRevenue(rows) {
+            return
         }
         await syncServerWorkbookIfChanged()
     }
@@ -2255,6 +2255,23 @@ final class HeartbeatStore: ObservableObject {
         return out
     }
 
+    private func lostRevenueMatching(allowed: Set<String>) -> [MetricRow] {
+        var out = lostRevenueForStores(allowed)
+        let wanted = Set(filters.districts.flatMap { HeartbeatMath.districtMatchKeys($0) })
+        guard !wanted.isEmpty else { return out }
+        if lostByStore.isEmpty { rebuildLostIndex() }
+        var seen = Set(out.map { HeartbeatMath.canonicalStore($0.storeNumber) })
+        for (store, row) in lostByStore {
+            if seen.contains(store) { continue }
+            let district = roster[store]?.district ?? row.district
+            if HeartbeatMath.districtMatchKeys(district).isDisjoint(with: wanted) { continue }
+            if (row.number("lost_revenue") ?? 0) == 0 { continue }
+            seen.insert(store)
+            out.append(row)
+        }
+        return out
+    }
+
     private func applyFilters() {
         refilterTask?.cancel()
         applyVisibleFilter()
@@ -2323,10 +2340,7 @@ final class HeartbeatStore: ObservableObject {
             if section == .lostRevenue { continue }
             next[section] = PulseCaches.rowsMatchingStores(sectionRows, stores: allowed, skipMarket: false)
         }
-        next[.lostRevenue] = lostRevenueForStores(allowed)
-        if next[.lostRevenue]?.count ?? 0 < max(8, allowed.count / 4) {
-            next[.lostRevenue] = rosterJoined(for: .lostRevenue).filter { $0.number("lost_revenue") != nil }
-        }
+        next[.lostRevenue] = lostRevenueMatching(allowed: allowed)
         filteredLatest = latestBySection.merging(next) { _, new in new }
         cachedSummaries = MetricSection.dashboardCards.map { section in
             HeartbeatMath.summarize(
@@ -3488,6 +3502,49 @@ private struct PulseCaches {
             }
         }
         HeartbeatMath.fillDivisionsFromDistrict(in: &roster)
+        for row in rows {
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            guard !store.isEmpty, !HeartbeatMath.isIgnoredStore(store) else { continue }
+            var identity = roster[store] ?? HeartbeatMath.StoreIdentity(
+                division: "",
+                district: "",
+                om: "",
+                name: row.storeName
+            )
+            var changed = roster[store] == nil
+            if identity.district.isEmpty {
+                let district = HeartbeatMath.canonicalDistrict(row.district)
+                if !district.isEmpty {
+                    identity.district = district
+                    changed = true
+                }
+            }
+            if identity.division.isEmpty {
+                let division = MarketRegion.canonicalName(row.division)
+                if !division.isEmpty {
+                    identity.division = division
+                    changed = true
+                } else {
+                    let raw = row.division.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !raw.isEmpty {
+                        identity.division = raw
+                        changed = true
+                    }
+                }
+            }
+            if identity.om.isEmpty {
+                let om = HeartbeatMath.canonicalOM(row.operationsOM)
+                if !om.isEmpty {
+                    identity.om = om
+                    changed = true
+                }
+            }
+            if identity.name == nil, let name = row.storeName, !name.isEmpty {
+                identity.name = name
+                changed = true
+            }
+            if changed { roster[store] = identity }
+        }
         return roster
     }
 

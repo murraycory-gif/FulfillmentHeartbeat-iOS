@@ -934,12 +934,22 @@ enum WorkbookParser {
         for line in matrix.dropFirst(headerIndex + 1) {
             if line.allSatisfy({ $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) { continue }
             var store = ""
+            var division = ""
+            var district = ""
             var payload: [String: Double] = [:]
             for (index, key) in keys.enumerated() {
                 guard !key.isEmpty else { continue }
                 let raw = index < line.count ? line[index] : ""
                 if key == "store" {
                     store = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                    continue
+                }
+                if key == "division" {
+                    division = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                    continue
+                }
+                if key == "district" {
+                    district = raw.trimmingCharacters(in: .whitespacesAndNewlines)
                     continue
                 }
                 if let number = cellNumber(raw) {
@@ -958,9 +968,11 @@ enum WorkbookParser {
             }
             var text: [String: String] = ["lost_grain": isTotal ? "market" : "store"]
             if isTotal { text["parser_rev"] = "lost1" }
+            let districtCanon = HeartbeatMath.canonicalDistrict(district)
+            if !districtCanon.isEmpty { text["district"] = districtCanon }
             out.append(
                 ParsedWorkbookRow(
-                    division: "",
+                    division: MarketRegion.canonicalName(division),
                     operationsOM: "",
                     storeNumber: isTotal ? "" : store,
                     storeName: isTotal ? "Total" : nil,
@@ -982,6 +994,8 @@ enum WorkbookParser {
             || lower.contains("store #") || (lower.contains("store") && !lower.contains("lost") && !lower.contains("sales")) {
             return "store"
         }
+        if lower == "division" || (lower.contains("division") && !lower.contains("lost")) { return "division" }
+        if lower == "district" || (lower.contains("district") && !lower.contains("lost")) { return "district" }
         if (lower.contains("ecomm") || lower.contains("e-comm") || lower.contains("ecommerce")) && lower.contains("sales") {
             return "ecomm_sales"
         }

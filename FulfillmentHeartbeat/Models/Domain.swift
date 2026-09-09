@@ -974,6 +974,19 @@ enum HeartbeatMath {
         return compact
     }
 
+    /// D3, 03, and 3 are the same district code. J2 also matches 2.
+    static func districtMatchKeys(_ raw: String) -> Set<String> {
+        let primary = districtMatchKey(raw)
+        guard !primary.isEmpty else { return [] }
+        var keys: Set<String> = [primary]
+        let letters = primary.prefix(while: \.isLetter)
+        let digits = primary.drop(while: \.isLetter)
+        if letters.count == 1, !digits.isEmpty, digits.allSatisfy(\.isNumber), let value = Int(digits) {
+            keys.insert(String(value))
+        }
+        return keys
+    }
+
     static func normalize(_ raw: String) -> String {
         raw.trimmingCharacters(in: .whitespacesAndNewlines)
             .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
@@ -3098,9 +3111,11 @@ struct DashboardFilters: Equatable, Codable {
     func includesDistrict(_ value: String) -> Bool {
         let selected = Self.parts(district)
         if selected.isEmpty { return true }
-        let valueKey = HeartbeatMath.districtMatchKey(value)
-        if valueKey.isEmpty { return false }
-        return selected.contains { HeartbeatMath.districtMatchKey($0) == valueKey }
+        let wanted = Set(selected.flatMap { HeartbeatMath.districtMatchKeys($0) })
+        if wanted.isEmpty { return false }
+        let have = HeartbeatMath.districtMatchKeys(value)
+        if have.isEmpty { return false }
+        return !wanted.isDisjoint(with: have)
     }
 
     func includesOM(_ value: String) -> Bool {

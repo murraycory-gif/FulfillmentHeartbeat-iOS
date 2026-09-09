@@ -732,5 +732,43 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(summary?.headline ?? 0, 2_510, accuracy: 0.01)
         XCTAssertEqual(summary?.storeCount, 1)
     }
+
+    func testDistrictD3MatchesRoster03() {
+        XCTAssertTrue(HeartbeatMath.districtMatchKeys("D3").contains("3"))
+        XCTAssertTrue(HeartbeatMath.districtMatchKeys("03").contains("3"))
+        var filters = DashboardFilters()
+        filters.district = "D3"
+        XCTAssertTrue(filters.includesDistrict("03"))
+        XCTAssertTrue(filters.includesDistrict("3"))
+        XCTAssertTrue(filters.includesDistrict("D3"))
+        XCTAssertFalse(filters.includesDistrict("J1"))
+        let rosterRows = [
+            MetricRow(
+                section: .storeRoster,
+                division: "NorCal",
+                operationsOM: "Jino Arvin",
+                storeNumber: "304",
+                textPayload: ["roster": "1", "district": "03"]
+            )
+        ]
+        let lost = MetricRow(
+            section: .lostRevenue,
+            storeNumber: "304",
+            payload: ["lost_revenue": 2_510, "ecomm_sales": 50_254],
+            textPayload: ["lost_grain": "store"]
+        )
+        let caches = PulseCaches.build(
+            rows: rosterRows + [lost],
+            filters: filters,
+            uploads: [],
+            heavy: false,
+            grain: .store
+        )
+        let allowed = PulseCaches.allowedStores(roster: caches.roster, filters: filters) ?? []
+        XCTAssertTrue(allowed.contains("304"))
+        let summary = caches.cachedSummaries.first { $0.section == .lostRevenue }
+        XCTAssertEqual(summary?.headline ?? 0, 2_510, accuracy: 0.01)
+        XCTAssertEqual(summary?.storeCount, 1)
+    }
 }
 
