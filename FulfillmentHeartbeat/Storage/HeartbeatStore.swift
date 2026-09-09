@@ -126,7 +126,12 @@ final class HeartbeatStore: ObservableObject {
         isReady = false
         importProgress.label = "Opening the floor"
         await loadPack()
-        await importCloudSQLiteIfPresent()
+        if HubLayout.ingestsWorkbook {
+            importProgress.label = "Building today's pack"
+            await ingestWorkbookOnMacIfNeeded()
+        } else {
+            await importCloudSQLiteIfPresent()
+        }
         await loadPublishedFacts()
         if cachedSummaries.isEmpty, !rows.isEmpty {
             rebuildIndex()
@@ -137,21 +142,7 @@ final class HeartbeatStore: ObservableObject {
             importLabel = nil
             isReady = true
             needsRolePick = true
-            if HubLayout.ingestsWorkbook {
-                Task { await self.ingestWorkbookOnMacIfNeeded() }
-            }
             return
-        }
-        if HubLayout.ingestsWorkbook {
-            importProgress.label = "Building today's pack"
-            await ingestWorkbookOnMacIfNeeded()
-            if seeded, !rows.isEmpty {
-                isImporting = false
-                importLabel = nil
-                isReady = true
-                needsRolePick = true
-                return
-            }
         }
         isImporting = false
         importLabel = nil
@@ -1699,26 +1690,14 @@ final class HeartbeatStore: ObservableObject {
                 break
             }
         }
-        let knownXlsx = UserDefaults.standard.integer(forKey: "hb.cloudXlsxBytes")
-        let knownUpdated = UserDefaults.standard.string(forKey: "hb.cloudXlsxUpdated") ?? ""
         let hasPack = seeded && !rows.isEmpty
-        var remoteUpdated = ""
-        for name in PulseCloud.workbookNames where name == remoteName {
-            let info = await PulseCloud.objectInfo(name)
-            remoteUpdated = info.updated
-            break
-        }
-        let fileChanged = remoteXlsx > 1_000 && (remoteXlsx != knownXlsx || (!remoteUpdated.isEmpty && remoteUpdated != knownUpdated))
-        let firstLoad = !hasPack
-        guard remoteXlsx > 1_000, firstLoad || fileChanged else { return }
-        if !hasPack {
-            isImporting = true
-            isReady = false
-            importLabel = "Building today's pack"
-            importProgress.label = "Building today's pack"
-            importProgress.loaded = 0
-            importProgress.expected = MetricSection.uploadOrder.count
-        }
+        guard remoteXlsx > 1_000 else { return }
+        isImporting = true
+        isReady = false
+        importLabel = "Building today's pack"
+        importProgress.label = "Building today's pack"
+        importProgress.loaded = 0
+        importProgress.expected = MetricSection.uploadOrder.count
         do {
             let book = try await PulseCloud.downloadNamed(remoteName)
             importProgress.label = "Reading workbook"
