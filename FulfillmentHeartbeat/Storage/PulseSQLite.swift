@@ -86,15 +86,16 @@ enum PulseSQLite {
         try FileManager.default.moveItem(at: temp, to: url)
     }
 
-    static func read(from url: URL, skipping skip: Set<MetricSection> = []) throws -> Pack {
+    static func read(from url: URL, skipping skip: Set<MetricSection> = [], only: Set<MetricSection> = []) throws -> Pack {
         var db: OpaquePointer?
         guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK, let db else {
             throw PulseSQLError.open
         }
         defer { sqlite3_close(db) }
 
-        sqlite3_exec(db, "PRAGMA mmap_size=268435456;", nil, nil, nil)
-        sqlite3_exec(db, "PRAGMA cache_size=-8000;", nil, nil, nil)
+        let lowMemory = ProcessInfo.processInfo.physicalMemory < 5_500_000_000
+        sqlite3_exec(db, lowMemory ? "PRAGMA mmap_size=33554432;" : "PRAGMA mmap_size=268435456;", nil, nil, nil)
+        sqlite3_exec(db, lowMemory ? "PRAGMA cache_size=-2000;" : "PRAGMA cache_size=-8000;", nil, nil, nil)
 
         var metaStmt: OpaquePointer?
         defer { sqlite3_finalize(metaStmt) }
@@ -115,7 +116,10 @@ enum PulseSQLite {
         }
 
         let sql: String
-        if skip.isEmpty {
+        if !only.isEmpty {
+            let list = only.map { "'\($0.rawValue)'" }.joined(separator: ",")
+            sql = "SELECT id, section, store_number, division, operations_om, store_name, recorded_on, payload_json, text_json FROM facts WHERE section IN (\(list));"
+        } else if skip.isEmpty {
             sql = "SELECT id, section, store_number, division, operations_om, store_name, recorded_on, payload_json, text_json FROM facts;"
         } else {
             let list = skip.map { "'\($0.rawValue)'" }.joined(separator: ",")

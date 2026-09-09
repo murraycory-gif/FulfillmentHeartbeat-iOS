@@ -133,7 +133,10 @@ final class HeartbeatStore: ObservableObject {
             importLabel = nil
             isReady = true
             needsRolePick = true
-            Task { await self.hydrateFromCloudInBackground() }
+            Task {
+                await self.loadHeavySections()
+                await self.hydrateFromCloudInBackground()
+            }
             return
         }
         if !Self.hasUsableLabor(rows) || !Self.hasUsablePicker(rows) {
@@ -169,6 +172,14 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func hydrateFromCloudInBackground() async {
+        if HubLayout.constrained {
+            await syncCloudPackIfChanged()
+            if !Self.hasUsableLostRevenue(rows) {
+                await loadPublishedFacts()
+            }
+            await loadHeavySections()
+            return
+        }
         if !Self.hasUsableLostRevenue(rows) {
             await loadPublishedFacts()
         }
@@ -1658,7 +1669,10 @@ final class HeartbeatStore: ObservableObject {
             }.value
             UserDefaults.standard.set(data.count, forKey: "hb.cloudPackBytes")
             await loadPack()
-            await loadPublishedFacts()
+            await loadHeavySections()
+            if !Self.hasUsableLostRevenue(rows) {
+                await loadPublishedFacts()
+            }
         } catch {
             return
         }
@@ -1681,6 +1695,7 @@ final class HeartbeatStore: ObservableObject {
         }
         let knownXlsx = UserDefaults.standard.integer(forKey: "hb.cloudXlsxBytes")
         let hasPack = seeded && !rows.isEmpty
+        if HubLayout.constrained, hasPack { return }
         let stamp = UserDefaults.standard.integer(forKey: "hb.parserStamp")
         let fileChanged = knownXlsx > 0 && remoteXlsx != knownXlsx
         let firstLoad = !hasPack
@@ -2729,8 +2744,9 @@ final class HeartbeatStore: ObservableObject {
     private func loadPack() async {
         if PulseSQLite.exists(at: sqliteURL) {
             let url = sqliteURL
+            let skipHeavy: Set<MetricSection> = HubLayout.constrained ? Self.deferredSections : []
             let pack = await Task.detached(priority: .userInitiated) {
-                try? PulseSQLite.read(from: url)
+                try? PulseSQLite.read(from: url, skipping: skipHeavy)
             }.value
             if let pack, !pack.rows.isEmpty {
                 importProgress.label = "Setting the aisle"
@@ -2759,6 +2775,9 @@ final class HeartbeatStore: ObservableObject {
                 hydrating = false
                 applyLocalCards()
                 importProgress.loaded = MetricSection.uploadOrder.count
+                if HubLayout.constrained {
+                    return
+                }
                 scheduleHeavyExtras(latest: caches.filteredLatest, roster: caches.roster)
                 return
             }
@@ -2766,6 +2785,55 @@ final class HeartbeatStore: ObservableObject {
         isReady = false
         rebuildIndex()
         applyFilters()
+    }
+
+    private func loadHeavySections() async {
+        guard HubLayout.constrained else { return }
+        guard PulseSQLite.exists(at: sqliteURL) else { return }
+        let url = sqliteURL
+        let extra = await Task.detached(priority: .utility) {
+            try? PulseSQLite.read(from: url, only: [.labor, .pickerScorecard, .pickPathPicker])
+        }.value
+        guard let extra, !extra.rows.isEmpty else { return }
+        let incoming = extra.rows
+        let rosterCopy = roster
+        let indexed = await Task.detached(priority: .utility) { () -> [MetricSection: [MetricRow]] in
+            var latest: [MetricSection: [MetricRow]] = [:]
+            let labor = incoming.filter {
+                $0.section == .labor
+                    && $0.textPayload["labor_grain"] != "market"
+                    && !$0.storeNumber.isEmpty
+            }
+            latest[.labor] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(labor), roster: rosterCopy)
+            let pickers = incoming.filter { $0.section == .pickerScorecard }
+            latest[.pickerScorecard] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerShopper(pickers), roster: rosterCopy)
+            let path = incoming.filter { $0.section == .pickPathPicker }
+            latest[.pickPathPicker] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerShopper(path), roster: rosterCopy)
+            return latest
+        }.value
+        rows.removeAll { Self.deferredSections.contains($0.section) }
+        rows.append(contentsOf: incoming)
+        for (section, sectionRows) in indexed {
+            latestBySection[section] = sectionRows
+            if !filters.isActive {
+                filteredLatest[section] = sectionRows
+            }
+        }
+        rebuildLaborWeekIndex()
+        if let pickers = indexed[.pickerScorecard], !pickers.isEmpty {
+            cachedPickerBoard = HeartbeatMath.pickerBoard(pickers)
+            cachedSummaries = MetricSection.dashboardCards.map { section in
+                HeartbeatMath.summarize(
+                    section,
+                    rows: filteredLatest[section] ?? latestBySection[section] ?? [],
+                    upload: uploads.first { $0.section == section }
+                )
+            }
+            scheduleHeavyExtras(latest: latestBySection, roster: roster)
+        }
+        if !needsRolePick {
+            filterStamp += 1
+        }
     }
 
     private func hydrateDeferredPack(from url: URL, uploads: [UploadRecord]) async {
