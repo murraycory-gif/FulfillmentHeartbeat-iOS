@@ -424,7 +424,14 @@ struct PulseCaches {
         }
         var out: [MetricSection: [DashScopePack]] = [:]
         for section in MetricSection.dashboardCards {
-            if hidePicker, section == .pickerScorecard { continue }
+            // Never drop Picker ScoreCard from dashboard packs. hidePicker only
+            // skips shopper-join extras — empty picker rows must not emit a
+            // placeholder pack that wipes live chrome grain.
+            if section == .pickerScorecard {
+                if (latest[section] ?? []).isEmpty { continue }
+            } else if hidePicker, section == .pickPathPicker {
+                continue
+            }
             let rows = HeartbeatMath.rowsFillingRoster(latest[section] ?? [], roster: roster)
             let lines: [DashScopeLine]
             if grain == .store, !stores.isEmpty {

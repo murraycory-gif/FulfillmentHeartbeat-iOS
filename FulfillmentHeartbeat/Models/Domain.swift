@@ -738,7 +738,7 @@ enum HeartbeatMath {
         case .pph:
             return ["PPH", "At Goal", "Below 74"]
         case .labor:
-            return ["TvA", "Act Cost", "Cost Tgt", "Sch Eff", "UPLH", "Wage", "AIV"]
+            return ["Target Vs Actual", "Act Cost", "Cost Tgt", "Sch Eff", "UPLH", "Wage", "AIV"]
         case .pickerScorecard:
             return ["Shoppers", "Healthy", "Watch", "At Risk"]
         case .sales:
@@ -859,9 +859,10 @@ enum HeartbeatMath {
                 health
             )
         case .labor:
+            let tva = laborRollup(rows, key: "target_vs_actual_pct")
             return (
                 [
-                    HeartbeatFormat.pct(laborRollup(rows, key: "target_vs_actual_pct")),
+                    HeartbeatFormat.pct(tva),
                     HeartbeatFormat.pct(laborRollup(rows, key: "act_cost_pct")),
                     HeartbeatFormat.pct(laborRollup(rows, key: "cost_trgt_pct")),
                     HeartbeatFormat.pct(laborRollup(rows, key: "schedule_efficiency_pct")),
@@ -869,7 +870,7 @@ enum HeartbeatMath {
                     HeartbeatFormat.pct(laborRollup(rows, key: "wage_impact_pct")),
                     HeartbeatFormat.pct(laborRollup(rows, key: "aiv_impact_pct")),
                 ],
-                health
+                laborHealth(tva)
             )
         case .pickerScorecard:
             let shoppers = rows.filter { isRealPicker($0) || pickerHasVolume($0) }
@@ -3183,6 +3184,41 @@ enum HeartbeatMath {
         if value <= 0 { return .good }
         if value <= laborWatch { return .watch }
         return .risk
+    }
+
+    static func parsePctToken(_ text: String) -> Double? {
+        let trimmed = text
+            .replacingOccurrences(of: "%", with: "")
+            .replacingOccurrences(of: ",", with: "")
+            .replacingOccurrences(of: "$", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty || trimmed == "—" { return nil }
+        return Double(trimmed)
+    }
+
+    /// Expand cell ink. Labor polarity: +red / −green. Cost Target stays black.
+    /// Healthy / Watch / At Risk columns match callout colors. Other cells use row health.
+    static func dashboardExpandCellHealth(
+        section: MetricSection,
+        header: String,
+        text: String,
+        rowHealth: Health
+    ) -> Health {
+        let key = compactKey(header)
+        if key.contains("costtgt") || key.contains("costtarget") {
+            return .none
+        }
+        if key.contains("targetvsactual") || key == "tva"
+            || key == "uplh" || key == "wage" || key == "aiv" {
+            return laborHealth(parsePctToken(text))
+        }
+        if key == "healthy" || key == "atgoal" { return .good }
+        if key == "watch" { return .watch }
+        if key.contains("atrisk") || key == "below74" || key == "risk" { return .risk }
+        if section == .labor, key.contains("scheff") || key.contains("actcost") {
+            return .none
+        }
+        return rowHealth
     }
 
     static func lostRevenueHealth(_ row: MetricRow) -> Health {

@@ -1461,6 +1461,187 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(HeartbeatMath.grainRowsAreLive(scoped))
     }
 
+    func testPickerGrainPacksStayWhenFactsExistEvenIfHidePicker() {
+        func shopper(_ id: String, region: String) -> MetricRow {
+            MetricRow(
+                section: .pickerScorecard,
+                division: region,
+                storeNumber: "12",
+                payload: ["pph": 40, "orders": 20],
+                textPayload: ["shopper_id": id, "shopper_name": id]
+            )
+        }
+        let latest: [MetricSection: [MetricRow]] = [
+            .pickerScorecard: [
+                shopper("A", "Jewel Osco"),
+                shopper("B", "NorCal"),
+                shopper("C", "Southern"),
+                shopper("D", "Seattle"),
+            ]
+        ]
+        let hidden = PulseCaches.grainPacks(
+            latest: latest,
+            grain: .region,
+            hidePicker: true,
+            roster: [:]
+        )
+        XCTAssertFalse(
+            (hidden[.pickerScorecard] ?? []).isEmpty,
+            "hidePicker must not drop Picker ScoreCard packs when facts exist"
+        )
+        XCTAssertTrue(PulseLaunch.pickerPacksAreLive(hidden[.pickerScorecard] ?? []))
+        let empty = PulseCaches.grainPacks(
+            latest: [:],
+            grain: .region,
+            hidePicker: true,
+            roster: [:]
+        )
+        XCTAssertTrue(
+            (empty[.pickerScorecard] ?? []).isEmpty,
+            "empty picker facts must not emit placeholder packs that wipe chrome"
+        )
+        let chrome = PulseDashChrome(
+            summaries: [
+                SectionSummary(
+                    section: .pickerScorecard,
+                    storeCount: 26_349,
+                    headline: 26_349,
+                    headlineLabel: "Shoppers",
+                    secondary: "",
+                    health: .watch,
+                    watchCount: 0,
+                    riskCount: 4_000,
+                    lastFilename: nil,
+                    lastUploadedAt: nil
+                )
+            ],
+            flags: [:],
+            packs: [:],
+            pickerShoppers: 26_349
+        )
+        XCTAssertTrue(PulseLaunch.pickerFactsExist(chrome: chrome, latestCount: 0, sqliteCount: 26_349))
+        let seeded = PulseLaunch.pickerExpandRows(from: chrome)
+        XCTAssertTrue(HeartbeatMath.grainRowsAreLive(seeded))
+        XCTAssertTrue(
+            PulseLaunch.dashboardExpandIsLive(
+                section: .pickerScorecard,
+                salesRows: [],
+                grainRows: seeded,
+                pickerFacts: 26_349
+            )
+        )
+        XCTAssertTrue(
+            PulseLaunch.dashboardExpandIsLive(
+                section: .pickerScorecard,
+                salesRows: [],
+                grainRows: [],
+                pickerFacts: 26_349
+            ),
+            "expandLive must not stay false when the pack has picker rows"
+        )
+        let emptyPaint = SectionSummary(
+            section: .pickerScorecard,
+            storeCount: 0,
+            headline: 0,
+            headlineLabel: "Shoppers",
+            secondary: "",
+            health: .none,
+            watchCount: 0,
+            riskCount: 0
+        )
+        let merged = PulseLaunch.mergeDashboardSummaries(
+            painted: [emptyPaint],
+            live: [chrome.card(.pickerScorecard)!]
+        )
+        XCTAssertEqual(merged.first?.headline ?? 0, 26_349, accuracy: 0.5)
+        let wipedPacks = PulseLaunch.mergeDashboardPacks(
+            incoming: [:],
+            live: hidden
+        )
+        XCTAssertTrue(PulseLaunch.pickerPacksAreLive(wipedPacks[.pickerScorecard] ?? []))
+        XCTAssertFalse(PulseLaunch.shouldStreamPickerOnDashboard())
+        XCTAssertFalse(PulseLaunch.shouldStampHubWhenExpandCacheFills())
+        XCTAssertFalse(PulseLaunch.shouldMountHubUnderRoleGate())
+        XCTAssertFalse(PulseLaunch.shouldUsePagingScroll())
+        XCTAssertFalse(PulseLaunch.shouldRemountPageOnDestinationChange())
+    }
+
+    func testLaborExpandPolarityAndTargetVsActualStatus() {
+        XCTAssertEqual(HeartbeatMath.dashboardTableHeaders(.labor).first, "Target Vs Actual")
+        XCTAssertFalse(HeartbeatMath.dashboardTableHeaders(.labor).contains("TvA"))
+        XCTAssertEqual(HeartbeatMath.laborHealth(-1.2), .good)
+        XCTAssertEqual(HeartbeatMath.laborHealth(1.5), .watch)
+        XCTAssertEqual(HeartbeatMath.laborHealth(4.0), .risk)
+        XCTAssertEqual(
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: .labor, header: "Target Vs Actual", text: "-1.20%", rowHealth: .risk
+            ),
+            .good
+        )
+        XCTAssertEqual(
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: .labor, header: "Target Vs Actual", text: "4.00%", rowHealth: .good
+            ),
+            .risk
+        )
+        XCTAssertEqual(
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: .labor, header: "Cost Tgt", text: "12.00%", rowHealth: .risk
+            ),
+            .none
+        )
+        XCTAssertEqual(
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: .labor, header: "UPLH", text: "2.00%", rowHealth: .none
+            ),
+            .watch
+        )
+        XCTAssertEqual(
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: .labor, header: "Wage", text: "-0.40%", rowHealth: .none
+            ),
+            .good
+        )
+        XCTAssertEqual(
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: .labor, header: "AIV", text: "5.10%", rowHealth: .none
+            ),
+            .risk
+        )
+        let over = MetricRow(
+            section: .labor,
+            storeNumber: "1",
+            payload: ["target_vs_actual_pct": 5, "schedule_efficiency_pct": 99],
+            textPayload: ["labor_grain": "store"]
+        )
+        let under = MetricRow(
+            section: .labor,
+            storeNumber: "2",
+            payload: ["target_vs_actual_pct": -2, "schedule_efficiency_pct": 40],
+            textPayload: ["labor_grain": "store"]
+        )
+        XCTAssertEqual(HeartbeatMath.dashboardTableValues(.labor, rows: [over]).health, .risk)
+        XCTAssertEqual(HeartbeatMath.dashboardTableValues(.labor, rows: [under]).health, .good)
+        XCTAssertEqual(
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: .pickerScorecard, header: "Healthy", text: "10", rowHealth: .watch
+            ),
+            .good
+        )
+        XCTAssertEqual(
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: .pickerScorecard, header: "Watch", text: "4", rowHealth: .good
+            ),
+            .watch
+        )
+        XCTAssertEqual(
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: .missingItems, header: "At Risk", text: "3", rowHealth: .good
+            ),
+            .risk
+        )
+    }
+
     func testUnfilteredLostRevenueSecondaryDollarsPreferMarketTOKeys() {
         let market = MetricRow(
             section: .lostRevenue,

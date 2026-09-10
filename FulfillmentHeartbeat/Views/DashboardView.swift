@@ -531,6 +531,7 @@ struct DashScopeStrip: View {
             } else if !grainRows.isEmpty {
                 OverviewMetricAlignedTable(
                     title: grain.title,
+                    section: section,
                     headers: HeartbeatMath.dashboardTableHeaders(section),
                     rows: grain == .store ? Array(grainRows.prefix(40)) : grainRows,
                     showCount: grain != .store,
@@ -543,6 +544,7 @@ struct DashScopeStrip: View {
 
 struct OverviewMetricAlignedTable: View {
     let title: String
+    var section: MetricSection = .lostRevenue
     let headers: [String]
     let rows: [HeartbeatMath.DashboardGrainTableRow]
     var showCount: Bool
@@ -564,6 +566,7 @@ struct OverviewMetricAlignedTable: View {
     var body: some View {
         HubAdaptiveHScroll(minWidth: floor, minHeight: CGFloat(max(rows.count, 1)) * 36 + 48) {
             OverviewMetricColumns(
+                section: section,
                 headers: headers,
                 rows: rows,
                 showCount: showCount,
@@ -577,6 +580,7 @@ struct OverviewMetricAlignedTable: View {
 }
 
 private struct OverviewMetricColumns: View {
+    var section: MetricSection
     let headers: [String]
     let rows: [HeartbeatMath.DashboardGrainTableRow]
     var showCount: Bool
@@ -639,8 +643,17 @@ private struct OverviewMetricColumns: View {
             if showCount {
                 cell(stores, header: header, width: storeWidth, secondary: true)
             }
-            ForEach(Array(values.enumerated()), id: \.offset) { _, text in
-                cell(text, header: header, width: valueWidth, tone: header ? nil : health)
+            ForEach(Array(values.enumerated()), id: \.offset) { index, text in
+                let title = index < headers.count ? headers[index] : text
+                let tone: Health? = header
+                    ? nil
+                    : HeartbeatMath.dashboardExpandCellHealth(
+                        section: section,
+                        header: title,
+                        text: text,
+                        rowHealth: health ?? .none
+                    )
+                cell(text, header: header, width: valueWidth, tone: tone, wrapHeader: header && title.contains(" "))
             }
             Group {
                 if header {
@@ -661,12 +674,20 @@ private struct OverviewMetricColumns: View {
         .background(stripe ? AppTheme.blueSoft.opacity(0.35) : Color.clear)
     }
 
-    private func cell(_ text: String, header: Bool, width: CGFloat, secondary: Bool = false, tone: Health? = nil) -> some View {
+    private func cell(
+        _ text: String,
+        header: Bool,
+        width: CGFloat,
+        secondary: Bool = false,
+        tone: Health? = nil,
+        wrapHeader: Bool = false
+    ) -> some View {
         Text(header ? text.uppercased() : text)
             .font(AppTheme.rounded(header ? .caption2 : .subheadline, weight: header ? .bold : .bold).monospacedDigit())
             .foregroundStyle(header ? AppTheme.textSecondary : ink(tone, secondary: secondary))
-            .lineLimit(1)
-            .minimumScaleFactor(0.55)
+            .lineLimit(header && wrapHeader ? 2 : 1)
+            .minimumScaleFactor(0.5)
+            .multilineTextAlignment(.trailing)
             .frame(width: width, alignment: .trailing)
     }
 

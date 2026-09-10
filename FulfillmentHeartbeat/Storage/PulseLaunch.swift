@@ -250,13 +250,31 @@ enum PulseLaunch {
     }
 
     /// Chevron / table gate. Never open a header shell over an empty body.
+    /// Picker is live when grain is live OR the pack/chrome has picker facts
+    /// (caller must seed grain before first paint so the body is not empty).
     static func dashboardExpandIsLive(
         section: MetricSection,
         salesRows: [SalesRollupRow],
-        grainRows: [HeartbeatMath.DashboardGrainTableRow]
+        grainRows: [HeartbeatMath.DashboardGrainTableRow],
+        pickerFacts: Int = 0
     ) -> Bool {
         if section == .sales { return salesExpandIsLive(salesRows) }
+        if section == .pickerScorecard {
+            if HeartbeatMath.grainRowsAreLive(grainRows) { return true }
+            return pickerFacts > 0
+        }
         return HeartbeatMath.grainRowsAreLive(grainRows)
+    }
+
+    static func pickerFactsExist(
+        chrome: PulseDashChrome?,
+        latestCount: Int,
+        sqliteCount: Int = 0
+    ) -> Bool {
+        latestCount > 0
+            || sqliteCount > 0
+            || (chrome?.pickerOK ?? false)
+            || (chrome?.card(.pickerScorecard)?.headline ?? 0) > 0
     }
 
     /// Live expand caches only. Never `packs.count` — `placeholderGrainPacks`
@@ -501,15 +519,56 @@ enum PulseLaunch {
     }
 
     /// Keep a live chrome/filter card when this paint has not loaded that section yet.
+    /// Picker / Sales / Loss Revenue golds must not be replaced by an empty paint.
     static func mergeDashboardSummaries(painted: [SectionSummary], live: [SectionSummary]) -> [SectionSummary] {
         let kept = Dictionary(uniqueKeysWithValues: live.map { ($0.section, $0) })
         return painted.map { card in
-            guard card.storeCount == 0, (card.headline ?? 0) == 0,
-                  let liveCard = kept[card.section],
-                  liveCard.storeCount > 0 || (liveCard.headline ?? 0) > 0
-            else { return card }
-            return liveCard
+            guard let liveCard = kept[card.section] else { return card }
+            let liveHead = liveCard.headline ?? 0
+            let paintedHead = card.headline ?? 0
+            if card.section == .pickerScorecard, liveHead > paintedHead { return liveCard }
+            if card.storeCount == 0, paintedHead == 0,
+               liveCard.storeCount > 0 || liveHead > 0 {
+                return liveCard
+            }
+            return card
         }
+    }
+
+    static func pickerSummaryFromChrome(_ chrome: PulseDashChrome) -> SectionSummary? {
+        if let card = chrome.card(.pickerScorecard), (card.headline ?? 0) > 0 || card.storeCount > 0 {
+            return card
+        }
+        guard chrome.pickerShoppers > 0 else { return nil }
+        let shoppers = chrome.pickerShoppers
+        return SectionSummary(
+            section: .pickerScorecard,
+            storeCount: shoppers,
+            headline: Double(shoppers),
+            headlineLabel: "Shoppers",
+            secondary: "\(chrome.pickerOpportunity) opportunity · \(chrome.pickerStrong) doing well",
+            health: .watch,
+            watchCount: 0,
+            riskCount: chrome.pickerOpportunity,
+            lastFilename: nil,
+            lastUploadedAt: nil
+        )
+    }
+
+    static func pickerPacksAreLive(_ packs: [DashScopePack]) -> Bool {
+        packs.contains { $0.line.count > 0 || (!$0.line.value.isEmpty && $0.line.value != "—") }
+    }
+
+    static func mergeDashboardPacks(
+        incoming: [MetricSection: [DashScopePack]],
+        live: [MetricSection: [DashScopePack]]
+    ) -> [MetricSection: [DashScopePack]] {
+        var next = incoming
+        if !pickerPacksAreLive(next[.pickerScorecard] ?? []),
+           pickerPacksAreLive(live[.pickerScorecard] ?? []) {
+            next[.pickerScorecard] = live[.pickerScorecard]
+        }
+        return next
     }
 
     /// O(1) store membership. Never `allowed.contains { sameStore }`.
