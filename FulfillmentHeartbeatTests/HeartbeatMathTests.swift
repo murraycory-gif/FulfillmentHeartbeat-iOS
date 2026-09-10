@@ -1255,6 +1255,13 @@ final class HeartbeatMathTests: XCTestCase {
         let lightLost = light.summaries.first { $0.section == .lostRevenue }
         XCTAssertEqual(lightLost?.storeCount, 20)
         XCTAssertEqual(lightLost?.headline ?? 0, 36_193, accuracy: 1)
+
+        let allowed = PulseCaches.allowedStores(roster: roster, filters: district)
+        let page = PulseQuery.slice(warehouse[.lostRevenue] ?? [], allowed: allowed)
+        XCTAssertEqual(page.count, 20)
+        XCTAssertEqual(page.reduce(0) { $0 + ($1.number("lost_revenue") ?? 0) }, 36_193, accuracy: 1)
+        let unfilteredFallback = PulseQuery.slice(warehouse[.lostRevenue] ?? [], allowed: nil)
+        XCTAssertGreaterThan(unfilteredFallback.count, 2_000)
     }
 
     func testWarehouseKeepsFullPackAndFillsThinPack() {

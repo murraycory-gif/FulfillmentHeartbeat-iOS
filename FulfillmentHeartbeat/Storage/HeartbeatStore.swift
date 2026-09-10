@@ -245,7 +245,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func rows(for section: MetricSection, relaxUnknown: Bool = false) -> [MetricRow] {
-        HeartbeatMath.rowsFillingRoster(filteredLatest[section] ?? [], roster: roster)
+        HeartbeatMath.rowsFillingRoster(displayRows(for: section), roster: roster)
     }
 
     func marketStores() -> [HeartbeatMath.MarketStore] { filteredMarket }
@@ -255,28 +255,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func allLatest(for section: MetricSection) -> [MetricRow] {
-        if factsOwned.contains(section), let ram = latestBySection[section], !ram.isEmpty {
-            return ram
-        }
-        let ram = latestBySection[section] ?? []
-        if section == .lostRevenue || section == .sales || section == .fiveStar {
-            let facts = PulseFacts.bundledMetricRows().filter {
-                $0.section == section
-                    && $0.textPayload["lost_grain"] != "market"
-                    && $0.textPayload["sales_grain"] != "company"
-                    && $0.textPayload["sales_grain"] != "day"
-                    && !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty
-                    && !$0.payload.isEmpty
-            }
-            let ramScored = ram.filter { !$0.payload.isEmpty && !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty }.count
-            if facts.count > ramScored {
-                let stamped = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(facts), roster: roster)
-                latestBySection[section] = stamped
-                factsOwned.insert(section)
-                return stamped
-            }
-        }
-        return ram
+        latestBySection[section] ?? []
     }
 
     func salesCompanyFact() -> MetricRow? {
@@ -291,7 +270,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func salesStores() -> [MetricRow] {
-        SalesRollupBuilder.source(from: allLatest(for: .sales), filters: filters, roster: roster)
+        SalesRollupBuilder.source(from: displayRows(for: .sales), filters: DashboardFilters(), roster: roster)
     }
 
     func refreshSalesExpandCache() {
@@ -368,7 +347,10 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func displayRows(for section: MetricSection) -> [MetricRow] {
-        PulseQuery.slice(filteredLatest[section] ?? allLatest(for: section), allowed: nil)
+        PulseQuery.slice(
+            latestBySection[section] ?? [],
+            allowed: PulseCaches.allowedStores(roster: roster, filters: filters)
+        )
     }
 
     func summary(for section: MetricSection) -> SectionSummary {
