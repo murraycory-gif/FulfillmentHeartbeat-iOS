@@ -2436,25 +2436,6 @@ final class HeartbeatStore: ObservableObject {
         for row in hits {
             extra[row.section, default: []].append(row)
         }
-        for (section, rows) in extra {
-            if section == .pickerScorecard || section == .pickPathPicker {
-                latestBySection[section] = HeartbeatMath.applyRoster(
-                    HeartbeatMath.latestPerShopper(rows),
-                    roster: roster
-                )
-            } else {
-                latestBySection[section] = HeartbeatMath.applyRoster(
-                    HeartbeatMath.latestPerStore(rows),
-                    roster: roster
-                )
-            }
-        }
-        if extra[.lostRevenue] != nil {
-            rebuildLostIndex()
-        }
-        if extra[.labor] != nil {
-            rebuildLaborWeekIndex()
-        }
         paintFiltered(allowed: allowed, extra: extra)
         let grain = effectiveDashboardGrain
         let hidePicker = sessionRole == .evp
@@ -2580,7 +2561,6 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func rebuildCompanyGrainPacks() {
-        if usingPackChrome, !filters.isActive { return }
         let grain = effectiveDashboardGrain
         let latest = latestBySection
         let hidePicker = true
@@ -2836,32 +2816,31 @@ final class HeartbeatStore: ObservableObject {
         }.value
         guard !incoming.isEmpty else { return }
         rows = PulseDataPolicy.applyIdentity(existing: rows, identity: incoming)
-        let before = rows.count
         rows = PulseDataPolicy.fillMissing(existing: rows, facts: incoming)
         seeded = true
-        let filledLost = rows.count > before
-        if filledLost {
-            let lost = incoming.filter { $0.section == .lostRevenue }
-            if !lost.isEmpty {
-                let stamped = HeartbeatMath.applyRoster(
-                    HeartbeatMath.latestPerStore(lost.filter { $0.textPayload["lost_grain"] != "market" }),
-                    roster: roster
-                )
-                var merged = latestBySection[.lostRevenue] ?? []
-                var have: Set<String> = []
-                for row in merged {
-                    have.formUnion(HeartbeatMath.storeAliases(row.storeNumber))
-                }
-                for row in stamped where !have.contains(HeartbeatMath.canonicalStore(row.storeNumber)) {
-                    merged.append(row)
-                    have.formUnion(HeartbeatMath.storeAliases(row.storeNumber))
-                }
-                latestBySection[.lostRevenue] = merged
+        let lost = incoming.filter { $0.section == .lostRevenue }
+        if !lost.isEmpty {
+            let stamped = HeartbeatMath.applyRoster(
+                HeartbeatMath.latestPerStore(lost.filter { $0.textPayload["lost_grain"] != "market" }),
+                roster: roster
+            )
+            var merged = latestBySection[.lostRevenue] ?? []
+            var have: Set<String> = []
+            for row in merged {
+                have.formUnion(HeartbeatMath.storeAliases(row.storeNumber))
             }
+            for row in stamped where !have.contains(HeartbeatMath.canonicalStore(row.storeNumber)) {
+                merged.append(row)
+                have.formUnion(HeartbeatMath.storeAliases(row.storeNumber))
+            }
+            latestBySection[.lostRevenue] = merged
         }
         rebuildLostIndex()
         if filters.isActive {
             applyVisibleFilter()
+        } else {
+            overlayFilledFactsOnChrome()
+            rebuildCompanyGrainPacks()
         }
     }
 
@@ -2973,8 +2952,38 @@ final class HeartbeatStore: ObservableObject {
         filteredLatest = latestBySection
         refreshFilterOptions()
         applyDashChrome(chrome)
+        overlayFilledFactsOnChrome()
+        cachedGrainPacks = PulseCaches.placeholderGrainPacks(grain: effectiveDashboardGrain)
+        rebuildCompanyGrainPacks()
         refreshSalesExpandCache()
         return true
+    }
+
+    private func overlayFilledFactsOnChrome() {
+        let lost = (latestBySection[.lostRevenue] ?? []).filter {
+            $0.textPayload["lost_grain"] != "market"
+                && !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty
+        }
+        guard lost.count >= 200 else { return }
+        let summary = HeartbeatMath.summarize(
+            .lostRevenue,
+            rows: lost,
+            upload: uploads.first { $0.section == .lostRevenue }
+        )
+        let current = cachedSummaries.first { $0.section == .lostRevenue }
+        let currentCount = current?.storeCount ?? 0
+        let currentDollars = current?.headline ?? 0
+        let nextDollars = summary.headline ?? 0
+        guard summary.storeCount > currentCount || nextDollars > currentDollars * 1.02 else { return }
+        cachedSummaries = cachedSummaries.map { $0.section == .lostRevenue ? summary : $0 }
+        if var chrome = packChrome {
+            chrome.summaries = chrome.summaries.map { $0.section == .lostRevenue ? summary : $0 }
+            packChrome = chrome
+        }
+        if let flags = PulseCaches.cardFlags(latest: [.lostRevenue: lost])[.lostRevenue] {
+            cachedCardFlags[.lostRevenue] = flags
+        }
+        filteredLatest[.lostRevenue] = latestBySection[.lostRevenue] ?? lost
     }
 
     func ensureSectionLoaded(_ section: MetricSection) async {
