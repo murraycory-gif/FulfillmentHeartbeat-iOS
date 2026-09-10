@@ -901,7 +901,7 @@ enum HeartbeatMath {
             let group = buckets[label] ?? []
             let built = dashboardTableValues(section, rows: group, goalFallback: goalFallback)
             return DashboardGrainTableRow(
-                label: label,
+                label: grain == .district ? displayGrainLabel(label) : label,
                 storeCount: group.count,
                 values: built.values,
                 health: built.health
@@ -933,7 +933,7 @@ enum HeartbeatMath {
             }
             if values.isEmpty { values = [line.value.isEmpty ? "—" : line.value] }
             return DashboardGrainTableRow(
-                label: line.label,
+                label: displayGrainLabel(line.label),
                 storeCount: line.count,
                 values: values,
                 health: line.health
@@ -1354,6 +1354,37 @@ enum HeartbeatMath {
             return String(canon[match])
         }
         return canon
+    }
+
+    /// Grain / filter label: J3CHICAGO and "308 - J3 CHICAGO" → J3. Leaves stores and markets alone.
+    static func displayGrainLabel(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        let short = shortDistrictName(trimmed)
+        guard short.range(of: #"^[A-Z]{1,3}\d{1,2}$"#, options: .regularExpression) != nil else {
+            return trimmed
+        }
+        let compact = compactKey(trimmed)
+        let shortCompact = compactKey(short)
+        if compact == shortCompact { return short }
+        if compact.hasPrefix(shortCompact), compact.dropFirst(shortCompact.count).contains(where: \.isLetter) {
+            return short
+        }
+        if compact.contains(shortCompact),
+           trimmed.contains(where: { $0 == "-" || $0 == "·" || $0.isWhitespace }) {
+            let rest = compact.replacingOccurrences(of: shortCompact, with: "")
+            if rest.contains(where: \.isLetter) { return short }
+        }
+        return trimmed
+    }
+
+    /// Roster names that are really district titles should not appear on store chips.
+    static func usableStoreName(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return nil }
+        if displayGrainLabel(trimmed) != trimmed { return nil }
+        return trimmed
     }
 
     static func storeDisplayLabel(

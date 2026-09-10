@@ -5293,10 +5293,10 @@ enum RollupMarketFill {
     }
 
     static func districtKey(_ raw: String) -> String {
-        let value = HeartbeatMath.canonicalDistrict(raw)
+        let value = HeartbeatMath.displayGrainLabel(HeartbeatMath.canonicalDistrict(raw))
         if !value.isEmpty { return value }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "Unassigned" : trimmed
+        return trimmed.isEmpty ? "Unassigned" : HeartbeatMath.displayGrainLabel(trimmed)
     }
 
     static func grain(for filters: DashboardFilters) -> LaborRollupGrain {
@@ -9973,6 +9973,7 @@ struct HubStoreCard<Content: View>: View {
 struct HubAdaptiveHScroll<Content: View>: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     var minWidth: CGFloat? = nil
+    var minHeight: CGFloat = 0
     @ViewBuilder var content: Content
     @State private var available: CGFloat = 0
 
@@ -9994,7 +9995,7 @@ struct HubAdaptiveHScroll<Content: View>: View {
                 .frame(minWidth: max(span, floor), alignment: .topLeading)
         }
         .fixedSize(horizontal: false, vertical: true)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(minHeight: minHeight > 0 ? minHeight : nil, maxWidth: .infinity, alignment: .leading)
         .background(
             GeometryReader { geo in
                 Color.clear.preference(key: HubWidthKey.self, value: geo.size.width)
@@ -10955,7 +10956,10 @@ final class MailShareActivity: UIActivity {
         }
         let mail = MFMailComposeViewController()
         mail.setSubject(packet.subject)
-        mail.setMessageBody(packet.html, isHTML: true)
+        mail.setMessageBody(packet.brief, isHTML: false)
+        if let url = PulseShare.writeHTMLFile(packet), let data = try? Data(contentsOf: url) {
+            mail.addAttachmentData(data, mimeType: "text/html", fileName: "heartbeat-recap.html")
+        }
         let closer = MailShareCloser(owner: self)
         self.closer = closer
         mail.mailComposeDelegate = closer
@@ -11102,7 +11106,10 @@ enum PulseShare {
         }
         let mail = MFMailComposeViewController()
         mail.setSubject(packet.subject)
-        mail.setMessageBody(packet.html, isHTML: true)
+        mail.setMessageBody(packet.brief, isHTML: false)
+        if let url = writeHTMLFile(packet), let data = try? Data(contentsOf: url) {
+            mail.addAttachmentData(data, mimeType: "text/html", fileName: "heartbeat-recap.html")
+        }
         if !to.isEmpty {
             mail.setToRecipients(to)
         }
@@ -11150,10 +11157,9 @@ enum PulseShare {
 
     @MainActor
     static func prepareOutlook(_ packet: PulseMail.Packet) async {
-        if jpegHTML == packet.html, !recapImages.isEmpty { return }
-        jpegHTML = packet.html
-        let media = await RecapRenderer.render(html: packet.html)
-        recapImages = RecapRenderer.inlineImages(media.images)
+        if jpegHTML == packet.brief, !recapImages.isEmpty { return }
+        jpegHTML = packet.brief
+        recapImages = []
     }
 
     @MainActor
@@ -11186,24 +11192,11 @@ enum PulseShare {
             popover.permittedArrowDirections = []
         }
         presenter.present(sheet, animated: true)
-        Task { @MainActor in
-            await warmJpegs(packet.html)
-        }
     }
 
     @MainActor
     static func openOutlook(_ packet: PulseMail.Packet) async {
-        if jpegURLs.isEmpty || jpegHTML != packet.html {
-            await warmJpegs(packet.html)
-        }
-        openOutlook(subject: packet.subject, jpegURLs: jpegURLs)
-    }
-
-    @MainActor
-    private static func warmJpegs(_ html: String) async {
-        jpegHTML = html
-        let media = await RecapRenderer.render(html: html)
-        jpegURLs = RecapRenderer.jpegFiles(media.images)
+        openOutlook(subject: packet.subject, jpegURLs: [])
     }
 
     static func openOutlook(subject: String, jpegURLs: [URL]) {

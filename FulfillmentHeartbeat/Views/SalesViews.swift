@@ -123,7 +123,7 @@ struct OverviewSalesAlignedTable: View {
     }
 
     var body: some View {
-        HubAdaptiveHScroll(minWidth: floor) {
+        HubAdaptiveHScroll(minWidth: floor, minHeight: CGFloat(max(rows.count, 1)) * 36 + 48) {
             OverviewSalesColumns(
                 title: title,
                 rows: rows,

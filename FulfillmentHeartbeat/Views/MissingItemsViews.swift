@@ -231,7 +231,10 @@ struct MissingItemsTable: View {
                         showCount: false,
                         available: max(pageWidth - 48, 320)
                     )
-                    HubAdaptiveHScroll(minWidth: metrics.tableWidth) {
+                    HubAdaptiveHScroll(
+                        minWidth: metrics.tableWidth,
+                        minHeight: CGFloat(max(snaps.count, 1)) * 52 + 64
+                    ) {
                         VStack(alignment: .leading, spacing: 6) {
                             MissingItemsMetricHeader(
                                 label: "Store",
@@ -273,14 +276,6 @@ struct MissingItemsTable: View {
                         }
                         .frame(minWidth: metrics.tableWidth, alignment: .leading)
                     }
-                    .background(
-                        GeometryReader { geo in
-                            Color.clear.preference(
-                                key: LaborHeaderMinYKey.self,
-                                value: (geo.frame(in: .global).minY / 12).rounded() * 12
-                            )
-                        }
-                    )
                 }
                 .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 20, trailing: 20))
                 .listRowSeparator(.hidden)
@@ -1147,7 +1142,10 @@ struct PreSubItemTable: View {
                         .padding(.horizontal, 12)
                         .padding(.bottom, 12)
                     } else {
-                        HubAdaptiveHScroll(minWidth: PreSubItemLayout.floor) {
+                        HubAdaptiveHScroll(
+                            minWidth: PreSubItemLayout.floor,
+                            minHeight: CGFloat(max(snaps.count, 1)) * 52 + 64
+                        ) {
                             VStack(alignment: .leading, spacing: 0) {
                                 PreSubItemColumns(
                                     snaps: snaps,

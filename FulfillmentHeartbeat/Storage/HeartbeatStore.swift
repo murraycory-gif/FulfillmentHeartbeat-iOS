@@ -1511,7 +1511,7 @@ final class HeartbeatStore: ObservableObject {
                 if seen[number] == nil { seen[number] = identity.name ?? "" }
             }
             return seen.keys.sorted(by: HeartbeatFormat.storeOrder).map { number in
-                let name = seen[number] ?? ""
+                let name = HeartbeatMath.usableStoreName(seen[number]) ?? ""
                 let label = name.isEmpty ? number : "\(number) · \(name)"
                 return (id: number, label: label)
             }

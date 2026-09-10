@@ -755,6 +755,11 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(HeartbeatMath.shortDistrictName("308 - J3 CHICAGO"), "J3")
         XCTAssertEqual(HeartbeatMath.canonicalDistrict("308 - J3 CHICAGO"), "J3")
         XCTAssertEqual(HeartbeatMath.shortDistrictName("J3 CHICAGO"), "J3")
+        XCTAssertEqual(HeartbeatMath.displayGrainLabel("308 - J3 CHICAGO"), "J3")
+        XCTAssertEqual(HeartbeatMath.displayGrainLabel("J3CHICAGO"), "J3")
+        XCTAssertEqual(HeartbeatMath.displayGrainLabel("308 | Jewel Osco"), "308 | Jewel Osco")
+        XCTAssertNil(HeartbeatMath.usableStoreName("J3 CHICAGO"))
+        XCTAssertEqual(HeartbeatMath.usableStoreName("Joliet Larkin"), "Joliet Larkin")
         XCTAssertTrue(HeartbeatMath.districtMatchKeys("J3CHICAGO").contains("j3"))
         XCTAssertTrue(HeartbeatMath.districtMatchKeys("J3").contains("j3"))
         XCTAssertEqual(RollupMarketFill.districtKey("J3CHICAGO"), "J3")
@@ -1969,6 +1974,8 @@ final class HeartbeatMathTests: XCTestCase {
         let cappedPacket = PulseMail.make(cappedSnap, pages: [.pickPath])
         XCTAssertTrue(cappedPacket.html.contains("80 of 120"), cappedPacket.html)
         XCTAssertEqual(alreadyCapped.count, 80)
+        XCTAssertLessThan(cappedPacket.html.count, 250_000)
+        XCTAssertFalse(cappedPacket.brief.isEmpty)
     }
 
     func testUsablePackFileRejectsTinyStubs() {
