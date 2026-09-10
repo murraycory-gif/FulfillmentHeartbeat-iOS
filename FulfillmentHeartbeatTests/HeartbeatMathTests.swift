@@ -1656,6 +1656,9 @@ final class HeartbeatMathTests: XCTestCase {
         storeFilter.store = districtStores[0]
         let one = PulseLaunch.seatSlice(warehouse: warehouse, roster: roster, filters: storeFilter)
         let oneCounts = PulseLaunch.summaryStoreCounts(one.summaries)
+        XCTAssertEqual(PulseCaches.allowedStores(roster: roster, filters: storeFilter), [districtStores[0]])
+        XCTAssertTrue(PulseLaunch.grainRowsScopedToFilter(regionChrome, filters: storeFilter).isEmpty)
+        XCTAssertTrue(PulseLaunch.pickerExpandRows(from: chrome, filters: storeFilter).isEmpty)
         for section in MetricSection.dashboardCards {
             XCTAssertEqual(oneCounts[section], 1, "\(section.rawValue) store filter must keep 1 store")
             XCTAssertEqual(
@@ -1663,7 +1666,27 @@ final class HeartbeatMathTests: XCTestCase {
                 [districtStores[0]],
                 "\(section.rawValue) store filter leaked another store"
             )
+            let table = one.tables[section] ?? []
+            XCTAssertTrue(HeartbeatMath.grainRowsAreLive(table), "\(section.rawValue) store expand must be live")
+            XCTAssertEqual(table.count, 1, "\(section.rawValue) store grain must be one seat row")
         }
+        let storePicker = PulseLaunch.pickerExpandTable(
+            seatRows: one.filtered[.pickerScorecard] ?? [],
+            chrome: chrome,
+            filters: storeFilter,
+            grain: .store
+        )
+        XCTAssertTrue(HeartbeatMath.grainRowsAreLive(storePicker))
+        XCTAssertEqual(storePicker.count, 1)
+        XCTAssertTrue(
+            PulseLaunch.dashboardExpandIsLive(
+                section: .pickerScorecard,
+                salesRows: [],
+                grainRows: storePicker,
+                pickerFacts: 1
+            ),
+            "store-filter Picker expand must open with seat rows"
+        )
         var region = DashboardFilters()
         region.region = MarketRegion.california.rawValue
         let california = PulseLaunch.seatSlice(warehouse: warehouse, roster: roster, filters: region)
