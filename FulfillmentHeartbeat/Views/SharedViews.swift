@@ -9995,7 +9995,7 @@ struct HubAdaptiveHScroll<Content: View>: View {
                 .frame(minWidth: max(span, floor), alignment: .topLeading)
         }
         .fixedSize(horizontal: false, vertical: true)
-        .frame(minHeight: minHeight > 0 ? minHeight : nil, maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: minHeight > 0 ? minHeight : nil, alignment: .leading)
         .background(
             GeometryReader { geo in
                 Color.clear.preference(key: HubWidthKey.self, value: geo.size.width)
