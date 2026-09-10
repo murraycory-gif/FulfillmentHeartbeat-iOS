@@ -2099,7 +2099,13 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseLaunch.shouldKeepHydratingThroughFinishLocalLaunch())
         XCTAssertEqual(HeartbeatMath.dashboardTableHeaders(.pickerScorecard), ["Shoppers", "Healthy", "Watch", "At Risk"])
         XCTAssertTrue(PulseLaunch.shouldRebuildPickerIndexOnSeatPaint(filtersActive: true, seatRowCount: 2))
+        XCTAssertFalse(PulseLaunch.shouldRebuildPickerIndexOnSeatPaint(filtersActive: false, seatRowCount: 80))
         XCTAssertTrue(PulseLaunch.shouldWipePickerIndexOnSeatClear())
+        XCTAssertTrue(PulseLaunch.shouldWipePickerIndexOnSeatApply())
+        XCTAssertTrue(PulseLaunch.shouldRejectCompanyPickerIndexUnderSeat())
+        XCTAssertTrue(PulseLaunch.pickerIndexMatchesSeat(visibleCount: 40, indexedAll: 40))
+        XCTAssertFalse(PulseLaunch.pickerIndexMatchesSeat(visibleCount: 40, indexedAll: 26349))
+        XCTAssertFalse(PulseLaunch.pickerIndexMatchesSeat(visibleCount: 0, indexedAll: 0))
         XCTAssertFalse(PulseLaunch.isBlandBootStatus(PulseLaunch.BootPhase.buildingTables.label))
         XCTAssertEqual(
             PulseLaunch.displayLoadStatus("Building store tables"),

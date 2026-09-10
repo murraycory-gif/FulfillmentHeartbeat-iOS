@@ -301,6 +301,16 @@ enum PulseLaunch {
 
     static func shouldWipePickerIndexOnSeatClear() -> Bool { true }
 
+    /// Continue / a new seat must drop the company index before readStores lands.
+    static func shouldWipePickerIndexOnSeatApply() -> Bool { true }
+
+    /// Company pulse / cache / heavy extras must not replace seat buckets.
+    static func shouldRejectCompanyPickerIndexUnderSeat() -> Bool { true }
+
+    static func pickerIndexMatchesSeat(visibleCount: Int, indexedAll: Int) -> Bool {
+        visibleCount > 0 && indexedAll == visibleCount
+    }
+
     static func maxWarmScorecardHosts() -> Int { 2 }
 
     static func warmScorecardList(

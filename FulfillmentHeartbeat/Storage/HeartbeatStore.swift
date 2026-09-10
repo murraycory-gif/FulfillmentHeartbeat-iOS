@@ -1106,7 +1106,9 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func pickerFocusHealth(for focus: PickerFocus) -> Health {
-        pickerFocusHealth[focus] ?? Health.none
+        let pickers = visiblePickers()
+        guard pickerIndexMatches(pickers) else { return Health.none }
+        return pickerFocusHealth[focus] ?? Health.none
     }
 
     func pickerPage(focus: PickerFocus, sort: PickerSort, ascending: Bool, limit: Int) -> [MetricRow] {
@@ -1141,7 +1143,10 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func pickerIndexMatches(_ pickers: [MetricRow]) -> Bool {
-        (pickerIndex[.all] ?? []).count == pickers.count && pickers.count > 0
+        PulseLaunch.pickerIndexMatchesSeat(
+            visibleCount: pickers.count,
+            indexedAll: (pickerIndex[.all] ?? []).count
+        )
     }
 
     private func comparePickers(_ lhs: MetricRow, _ rhs: MetricRow, sort: PickerSort) -> ComparisonResult {
@@ -2147,9 +2152,13 @@ final class HeartbeatStore: ObservableObject {
         cachedCardFlags = [:]
         lastPickerStampCount = 0
         if PulseLaunch.shouldWipePickerIndexOnSeatClear() {
-            pickerIndex = [:]
-            pickerFocusHealth = [:]
+            wipePickerIndex()
         }
+    }
+
+    private func wipePickerIndex() {
+        pickerIndex = [:]
+        pickerFocusHealth = [:]
     }
 
     func loadSampleMarket() {
@@ -3095,6 +3104,9 @@ final class HeartbeatStore: ObservableObject {
             }
             return
         }
+        if PulseLaunch.shouldWipePickerIndexOnSeatApply() {
+            wipePickerIndex()
+        }
         if PulseLaunch.shouldKeepLiveCalloutsUntilFilterPaint() {
             invalidateShareGrainTables()
             cachedGrainPacks = PulseCaches.placeholderGrainPacks(grain: effectiveDashboardGrain)
@@ -3861,9 +3873,11 @@ final class HeartbeatStore: ObservableObject {
 
     private func install(_ pulse: FilterPulse) {
         if filters.isActive {
-            cachedPickerBoard = pulse.pickerBoard
-            pickerIndex = pulse.pickerIndex
-            pickerFocusHealth = pulse.pickerFocusHealth
+            if !PulseLaunch.shouldRejectCompanyPickerIndexUnderSeat() {
+                cachedPickerBoard = pulse.pickerBoard
+                pickerIndex = pulse.pickerIndex
+                pickerFocusHealth = pulse.pickerFocusHealth
+            }
             pickPathPickersByStore = pulse.pickPathPickersByStore
             pickPathByShopper = pulse.pickPathByShopper
             installPPHPickerIndex(fromRows: pulse.pphPickersByStore)
@@ -4338,15 +4352,9 @@ final class HeartbeatStore: ObservableObject {
                     includeAll: true
                 )
                 cachedPickerBoard = HeartbeatMath.pickerBoard(latest)
-                if PulseLaunch.shouldRebuildPickerIndexOnSeatPaint(
-                    filtersActive: true,
-                    seatRowCount: latest.count
-                ) {
-                    schedulePickerIndex(latest)
-                }
+                rebuildSeatPickerIndex()
             } else if PulseLaunch.shouldWipePickerIndexOnSeatClear() {
-                pickerIndex = [:]
-                pickerFocusHealth = [:]
+                wipePickerIndex()
             }
             let table = PulseLaunch.pickerExpandTable(
                 seatRows: latest,
@@ -4495,6 +4503,7 @@ final class HeartbeatStore: ObservableObject {
             incoming: rows
         )
         lockPickerDashboard()
+        rebuildSeatPickerIndex()
         if PulseLaunch.shouldPublishSeatFill(
             dest: visibleDestination,
             interactiveAt: hubBecameInteractiveAt
@@ -4759,12 +4768,28 @@ final class HeartbeatStore: ObservableObject {
         acknowledgeBackgroundFill(stampIfAllowed: PulseLaunch.shouldStampPickerOrPageOnlyInstall())
     }
 
+    private func rebuildSeatPickerIndex() {
+        guard filters.isActive else { return }
+        let seat = filteredLatest[.pickerScorecard] ?? []
+        if PulseLaunch.shouldRebuildPickerIndexOnSeatPaint(filtersActive: true, seatRowCount: seat.count) {
+            schedulePickerIndex(seat)
+        } else {
+            wipePickerIndex()
+        }
+    }
+
     private func schedulePickerIndex(_ pickers: [MetricRow]) {
-        let count = pickers.count
+        let seat = filters.isActive ? (filteredLatest[.pickerScorecard] ?? []) : pickers
+        let source = filters.isActive ? seat : pickers
+        let count = source.count
+        guard count > 0 else { return }
         Task.detached(priority: .background) {
-            let built = PulseCaches.pickerBuckets(pickers)
+            let built = PulseCaches.pickerBuckets(source)
             await MainActor.run {
                 guard (self.filteredLatest[.pickerScorecard] ?? []).count == count else { return }
+                if self.filters.isActive, PulseLaunch.shouldRejectCompanyPickerIndexUnderSeat() {
+                    guard (self.filteredLatest[.pickerScorecard] ?? []).count == count else { return }
+                }
                 self.pickerIndex = built.index
                 self.pickerFocusHealth = built.health
             }
@@ -4998,23 +5023,31 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func install(_ caches: PulseCaches) {
+        let seatPickers = filters.isActive ? (filteredLatest[.pickerScorecard] ?? []) : []
         latestBySection = caches.latestBySection
         roster = caches.roster
         filteredLatest = caches.filteredLatest
+        if filters.isActive, PulseLaunch.shouldRejectCompanyPickerIndexUnderSeat(), !seatPickers.isEmpty {
+            filteredLatest[.pickerScorecard] = seatPickers
+        }
         filteredMarket = caches.filteredMarket
         cachedDivisions = caches.cachedDivisions
         cachedDistricts = caches.cachedDistricts
         cachedOMs = caches.cachedOMs
         cachedStores = caches.cachedStores
         cachedChecklistGroups = caches.cachedChecklistGroups
-        pickerIndex = caches.pickerIndex
-        if (pickerIndex[.all] ?? []).isEmpty {
-            let pickers = caches.filteredLatest[.pickerScorecard] ?? []
-            if !pickers.isEmpty {
-                pickerIndex[.all] = Array(pickers.indices)
+        if filters.isActive, PulseLaunch.shouldRejectCompanyPickerIndexUnderSeat() {
+            rebuildSeatPickerIndex()
+        } else {
+            pickerIndex = caches.pickerIndex
+            if (pickerIndex[.all] ?? []).isEmpty {
+                let pickers = caches.filteredLatest[.pickerScorecard] ?? []
+                if !pickers.isEmpty {
+                    pickerIndex[.all] = Array(pickers.indices)
+                }
             }
+            pickerFocusHealth = caches.pickerFocusHealth
         }
-        pickerFocusHealth = caches.pickerFocusHealth
         pickPathPickersByStore = caches.pickPathPickersByStore
         pickPathByShopper = caches.pickPathByShopper
         installPPHPickerIndex(fromRows: caches.pphPickersByStore)
@@ -5060,6 +5093,10 @@ final class HeartbeatStore: ObservableObject {
         installPPHPickerIndex(fromRows: bits.pphPickersByStore)
         refreshChecklistOpenCount()
         let pickers = filteredLatest[.pickerScorecard] ?? []
+        if filters.isActive, PulseLaunch.shouldRejectCompanyPickerIndexUnderSeat() {
+            rebuildSeatPickerIndex()
+            return
+        }
         if !bits.pickerIndex.isEmpty {
             pickerIndex = bits.pickerIndex
             pickerFocusHealth = bits.pickerFocusHealth
