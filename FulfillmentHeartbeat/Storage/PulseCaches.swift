@@ -399,14 +399,6 @@ struct PulseCaches {
             } else {
                 packs = shown.map { DashScopePack(line: $0, flags: [], children: []) }
             }
-            if section != .sales, section != .pickerScorecard {
-                let map = grainFlags(section: section, grain: grain, packs: packs, latest: latest, roster: roster)
-                packs = packs.map { pack in
-                    var next = pack
-                    next.flags = map[pack.id] ?? map[pack.line.label] ?? []
-                    return next
-                }
-            }
             out[section] = packs
         }
         return out

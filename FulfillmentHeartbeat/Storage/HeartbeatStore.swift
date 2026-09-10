@@ -96,6 +96,7 @@ final class HeartbeatStore: ObservableObject {
     private var usingPackChrome = false
     private var packChrome: PulseDashChrome?
     private var factsOwned: Set<MetricSection> = []
+    private var didAdoptExcelFacts = false
 
     init(rootURL: URL? = nil) {
         fileManager = .default
@@ -130,6 +131,12 @@ final class HeartbeatStore: ObservableObject {
         isReady = false
         importProgress.label = "Opening the floor"
         await loadPack()
+        if seeded, !cachedSummaries.isEmpty {
+            isImporting = false
+            importLabel = nil
+            isReady = true
+            needsRolePick = true
+        }
         if HubLayout.ingestsWorkbook {
             importProgress.label = "Building today's pack"
             await ingestWorkbookOnMacIfNeeded()
@@ -137,12 +144,8 @@ final class HeartbeatStore: ObservableObject {
             await importCloudSQLiteIfPresent()
         }
         await loadPublishedFacts()
-        paintFactsScorecards()
-        if cachedSummaries.isEmpty, !rows.isEmpty {
-            rebuildIndex()
-            installCompanyWideFast()
-            paintFactsScorecards()
-        }
+        await paintFromWarehouse(light: true)
+        Task { await self.paintFromWarehouse(light: false) }
         if seeded, !cachedSummaries.isEmpty {
             isImporting = false
             importLabel = nil
@@ -1394,7 +1397,7 @@ final class HeartbeatStore: ObservableObject {
             persistFilters()
         }
         needsRolePick = false
-        paintFromWarehouse()
+        Task { await paintFromWarehouse(light: true) }
         startCloudHydrateIfNeeded()
     }
 
@@ -1429,7 +1432,7 @@ final class HeartbeatStore: ObservableObject {
         filters = DashboardFilters()
         hydrating = false
         persistFilters()
-        paintFromWarehouse()
+        Task { await paintFromWarehouse(light: false) }
     }
 
     func loadSampleMarket() {
@@ -2297,34 +2300,46 @@ final class HeartbeatStore: ObservableObject {
 
     private func applyFilters() {
         refilterTask?.cancel()
-        paintFromWarehouse()
+        refilterTask = Task { await self.paintFromWarehouse(light: false) }
     }
 
     private func restoreCompanyWide() {
-        paintFromWarehouse()
+        Task { await paintFromWarehouse(light: false) }
     }
 
     private func applyVisibleFilter() {
-        paintFromWarehouse()
+        Task { await paintFromWarehouse(light: false) }
     }
 
-    private func paintFromWarehouse() {
-        adoptExcelFactsIntoWarehouse()
-        let view = PulseQuery.paint(
-            warehouse: latestBySection,
-            roster: roster,
-            filters: filters,
-            grain: effectiveDashboardGrain,
-            uploads: uploads,
-            hidePicker: sessionRole == .evp
-        )
+    @MainActor
+    private func paintFromWarehouse(light: Bool) async {
+        await adoptExcelFactsIntoWarehouse()
+        let warehouse = latestBySection
+        let rosterCopy = roster
+        let current = filters
+        let grain = effectiveDashboardGrain
+        let uploadsCopy = uploads
+        let hidePicker = true
+        let view = await Task.detached(priority: .userInitiated) {
+            PulseQuery.paint(
+                warehouse: warehouse,
+                roster: rosterCopy,
+                filters: current,
+                grain: grain,
+                uploads: uploadsCopy,
+                hidePicker: hidePicker,
+                light: light
+            )
+        }.value
+        guard filters == current else { return }
         filteredLatest = view.filtered
         cachedSummaries = view.summaries
-        cachedCardFlags = view.flags
-        cachedGrainPacks = view.grains
-        cachedStores = view.stores
-        cachedDistricts = view.districts
-        cachedOMs = view.oms
+        if !view.flags.isEmpty {
+            cachedCardFlags = view.flags
+        }
+        if !light || cachedGrainPacks.isEmpty {
+            cachedGrainPacks = view.grains
+        }
         if !view.pickers.isEmpty {
             cachedPickerBoard = HeartbeatMath.pickerBoard(view.pickers)
         }
@@ -2414,20 +2429,13 @@ final class HeartbeatStore: ObservableObject {
         }
         cachedCardFlags = PulseCaches.cardFlags(latest: latestBySection)
         refreshSalesExpandCache()
-        let pickers = latestBySection[.pickerScorecard] ?? []
-        if !pickers.isEmpty {
-            cachedPickerBoard = HeartbeatMath.pickerBoard(pickers)
-            if (pickerIndex[.all] ?? []).isEmpty {
-                pickerIndex[.all] = Array(pickers.indices)
-            }
-        }
         if !usingPackChrome {
             cachedGrainPacks = PulseCaches.placeholderGrainPacks(grain: effectiveDashboardGrain)
         }
         if unfilteredPulse == nil {
             unfilteredPulse = snapshotPulse()
         }
-        paintFactsScorecards()
+        Task { await paintFromWarehouse(light: true) }
     }
 
     private func rebuildCompanyGrainPacks() {
@@ -2707,9 +2715,9 @@ final class HeartbeatStore: ObservableObject {
         }
         rebuildLostIndex()
         if filters.isActive {
-            applyVisibleFilter()
+            Task { await paintFromWarehouse(light: false) }
         } else {
-            paintFactsScorecards()
+            Task { await paintFromWarehouse(light: true) }
         }
     }
 
@@ -2764,7 +2772,6 @@ final class HeartbeatStore: ObservableObject {
                 if let chrome {
                     applyDashChrome(chrome)
                 }
-                paintFactsScorecards()
                 hydrating = false
                 applyLocalCards()
                 importProgress.loaded = MetricSection.uploadOrder.count
@@ -2819,14 +2826,18 @@ final class HeartbeatStore: ObservableObject {
     @discardableResult
     private func restorePackChrome() -> Bool {
         guard !latestBySection.isEmpty else { return false }
-        paintFromWarehouse()
+        paintFactsScorecards()
         return true
     }
 
     /// Put Excel store rows for Sales, 5 Star, and Loss Revenue into the warehouse.
-    /// Does not paint. paintFromWarehouse() is the only display path.
-    private func adoptExcelFactsIntoWarehouse() {
-        let facts = PulseFacts.bundledMetricRows()
+    private func adoptExcelFactsIntoWarehouse() async {
+        if didAdoptExcelFacts, factsOwned.contains(.lostRevenue), factsOwned.contains(.sales) {
+            return
+        }
+        let facts = await Task.detached(priority: .userInitiated) {
+            PulseFacts.bundledMetricRows()
+        }.value
         guard !facts.isEmpty else { return }
         for row in facts where row.section == .storeRoster || row.textPayload["roster"] == "1" {
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
@@ -2848,10 +2859,11 @@ final class HeartbeatStore: ObservableObject {
             latestBySection[section] = stamped
             factsOwned.insert(section)
         }
+        didAdoptExcelFacts = true
     }
 
     private func paintFactsScorecards() {
-        paintFromWarehouse()
+        Task { await paintFromWarehouse(light: true) }
     }
 
     func ensureSectionLoaded(_ section: MetricSection) async {
@@ -2889,7 +2901,7 @@ final class HeartbeatStore: ObservableObject {
         if section == .labor {
             rebuildLaborWeekIndex()
         }
-        paintFromWarehouse()
+        await paintFromWarehouse(light: false)
     }
 
     private func hydrateFilteredHeavy() async {
@@ -2989,7 +3001,7 @@ final class HeartbeatStore: ObservableObject {
         hydrating = true
         install(caches)
         hydrating = false
-        paintFactsScorecards()
+        Task { await paintFromWarehouse(light: true) }
         scheduleHeavyExtras(latest: caches.filteredLatest, roster: caches.roster)
     }
 

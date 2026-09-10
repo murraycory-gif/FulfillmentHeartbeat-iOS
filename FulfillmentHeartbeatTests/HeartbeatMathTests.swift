@@ -1216,7 +1216,7 @@ final class HeartbeatMathTests: XCTestCase {
 
         let company = PulseQuery.paint(
             warehouse: warehouse, roster: roster, filters: DashboardFilters(),
-            grain: .region, uploads: [], hidePicker: true
+            grain: .region, uploads: [], hidePicker: true, light: false
         )
         let sales = company.summaries.first { $0.section == .sales }
         XCTAssertEqual(sales?.headline ?? 0, 132_830_509, accuracy: 50)
@@ -1229,7 +1229,7 @@ final class HeartbeatMathTests: XCTestCase {
         district.district = "03"
         let d3 = PulseQuery.paint(
             warehouse: warehouse, roster: roster, filters: district,
-            grain: .store, uploads: [], hidePicker: true
+            grain: .store, uploads: [], hidePicker: true, light: false
         )
         let d3Lost = d3.summaries.first { $0.section == .lostRevenue }
         XCTAssertEqual(d3Lost?.storeCount, 20)
@@ -1242,7 +1242,7 @@ final class HeartbeatMathTests: XCTestCase {
         jewel.division = "Jewel Osco"
         let jo = PulseQuery.paint(
             warehouse: warehouse, roster: roster, filters: jewel,
-            grain: .district, uploads: [], hidePicker: true
+            grain: .district, uploads: [], hidePicker: true, light: false
         )
         let joLost = jo.summaries.first { $0.section == .lostRevenue }
         XCTAssertEqual(joLost?.storeCount, 179)

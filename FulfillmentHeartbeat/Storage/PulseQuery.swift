@@ -9,10 +9,11 @@ enum PulseQuery {
         var flags: [MetricSection: [HeartbeatMath.FiveStarFlag]]
         var grains: [MetricSection: [DashScopePack]]
         var pickers: [MetricRow]
-        var stores: [(number: String, name: String?)]
-        var districts: [String]
-        var oms: [String]
     }
+
+    static let skipOnLight: Set<MetricSection> = [
+        .pickerScorecard, .pickPathPicker, .preSubOOSItem
+    ]
 
     static func isStoreFact(_ row: MetricRow) -> Bool {
         if HeartbeatMath.canonicalStore(row.storeNumber).isEmpty { return false }
@@ -35,12 +36,14 @@ enum PulseQuery {
         filters: DashboardFilters,
         grain: DashScopeGrain,
         uploads: [UploadRecord],
-        hidePicker: Bool
+        hidePicker: Bool,
+        light: Bool
     ) -> View {
         let allowed = PulseCaches.allowedStores(roster: roster, filters: filters)
         var filtered: [MetricSection: [MetricRow]] = [:]
         filtered.reserveCapacity(warehouse.count)
         for (section, rows) in warehouse {
+            if light, skipOnLight.contains(section) { continue }
             filtered[section] = slice(rows, allowed: allowed)
         }
         let summaries = MetricSection.dashboardCards.map { section in
@@ -50,30 +53,29 @@ enum PulseQuery {
                 upload: uploads.first { $0.section == section }
             )
         }
+        if light {
+            return View(
+                filtered: filtered,
+                summaries: summaries,
+                flags: [:],
+                grains: PulseCaches.placeholderGrainPacks(grain: grain),
+                pickers: []
+            )
+        }
         let flags = PulseCaches.cardFlags(latest: filtered)
         let grains = PulseCaches.grainPacks(
             latest: filtered,
             grain: grain,
-            hidePicker: hidePicker,
+            hidePicker: true,
             stores: [],
             roster: [:]
         )
-        let pickers = filtered[.pickerScorecard] ?? []
-        let storeNumbers = (allowed ?? Set(roster.keys)).sorted(by: HeartbeatFormat.storeOrder)
-        let stores = storeNumbers.map { number -> (number: String, name: String?) in
-            (number, roster[HeartbeatMath.canonicalStore(number)]?.name)
-        }
-        let districts = Set(roster.values.map(\.district).filter { !$0.isEmpty }).sorted()
-        let oms = Set(roster.values.map(\.om).filter { !$0.isEmpty }).sorted()
         return View(
             filtered: filtered,
             summaries: summaries,
             flags: flags,
             grains: grains,
-            pickers: pickers,
-            stores: stores,
-            districts: Array(districts),
-            oms: Array(oms)
+            pickers: hidePicker ? [] : (filtered[.pickerScorecard] ?? [])
         )
     }
 }
