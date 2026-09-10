@@ -6,6 +6,7 @@ struct DashboardView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var pushedSection: MetricSection?
     @State private var showError = false
+    @State private var cardWidth: CGFloat = 980
 
     var body: some View {
         dashboardBody
@@ -44,7 +45,8 @@ struct DashboardView: View {
                             card: card,
                             flags: store.dashboardFlags(for: card.section),
                             grains: store.dashboardGrains(for: card.section),
-                            grain: store.effectiveDashboardGrain
+                            grain: store.effectiveDashboardGrain,
+                            width: cardWidth
                         ) {
                             open(card.section)
                         }
@@ -70,6 +72,16 @@ struct DashboardView: View {
             .scrollIndicators(.hidden)
             .scrollBounceBehavior(.basedOnSize)
             .transaction { $0.animation = nil }
+            .background(
+                GeometryReader { geo in
+                    Color.clear.preference(key: HubWidthKey.self, value: geo.size.width)
+                }
+            )
+            .onPreferenceChange(HubWidthKey.self) { value in
+                if value > 0, abs(value - cardWidth) > 12 {
+                    cardWidth = value
+                }
+            }
             .navigationDestination(item: $pushedSection) { section in
                 SectionDetailView(section: section)
             }
@@ -965,15 +977,15 @@ struct DashCallout: View, Equatable {
     let flags: [HeartbeatMath.FiveStarFlag]
     let grains: [DashScopePack]
     let grain: DashScopeGrain?
+    let width: CGFloat
     let action: () -> Void
     @Environment(\.horizontalSizeClass) private var sizeClass
-    @State private var width: CGFloat = 980
-    @State private var flagsOpen = false
 
     private var compact: Bool { HubLayout.isPhone(sizeClass) }
 
     static func == (lhs: DashCallout, rhs: DashCallout) -> Bool {
-        lhs.card == rhs.card && lhs.flags == rhs.flags && lhs.grains == rhs.grains && lhs.grain == rhs.grain
+        lhs.card == rhs.card && lhs.flags == rhs.flags && lhs.grains == rhs.grains
+            && lhs.grain == rhs.grain && lhs.width == rhs.width
     }
 
     var body: some View {
@@ -1006,7 +1018,6 @@ struct DashCallout: View, Equatable {
                 .modifier(DashCardChrome(health: card.health))
             }
         }
-        .readWidth($width)
     }
 
     private var titleText: String {

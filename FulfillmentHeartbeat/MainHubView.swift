@@ -353,16 +353,24 @@ struct MainHubView: View {
     @ViewBuilder
     private var detail: some View {
         NavigationStack {
-            ScorecardPager(router: router) { dest in
-                AnyView(
-                    page(for: dest)
-                        .environmentObject(store)
-                        .environmentObject(router)
-                )
+            Group {
+                if PulseLaunch.shouldUsePagingScroll() {
+                    ScorecardPager(router: router) { dest in
+                        AnyView(
+                            page(for: dest)
+                                .environmentObject(store)
+                                .environmentObject(router)
+                        )
+                    }
+                    .equatable()
+                } else {
+                    page(for: router.current)
+                        .id(router.current)
+                }
             }
-            .equatable()
             .clipped()
             .ignoresSafeArea(edges: .bottom)
+            .animation(nil, value: router.current)
         }
         .background(AppTheme.bg.ignoresSafeArea())
         .hubChrome(

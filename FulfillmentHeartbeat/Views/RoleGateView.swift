@@ -6,6 +6,7 @@ struct RoleGateView: View {
     @State private var role: HeartbeatRole?
     @State private var query = ""
     @State private var selected: Set<String> = []
+    @State private var committingSeat = false
 
     private var phone: Bool { HubLayout.isPhone(sizeClass) }
 
@@ -220,14 +221,14 @@ struct RoleGateView: View {
         let noun = role.map { count == 1 ? $0.pickNoun : "\($0.pickNoun)s" } ?? "items"
         return VStack(spacing: 10) {
             Button(action: continueIntoDashboard) {
-                Text(count == 0 ? "Select at least one" : "Continue with \(count) \(noun)")
+                Text(count == 0 ? "Select at least one" : committingSeat ? "Opening the aisle…" : "Continue with \(count) \(noun)")
                     .font(.headline.weight(.bold))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)
             }
             .buttonStyle(PrimaryButtonStyle())
-            .disabled(count == 0)
-            .opacity(count == 0 ? 0.45 : 1)
+            .disabled(count == 0 || committingSeat)
+            .opacity(count == 0 || committingSeat ? 0.45 : 1)
             Button("Back to Who’s looking", action: backToSeats)
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(AppTheme.blue)
@@ -240,7 +241,10 @@ struct RoleGateView: View {
     }
 
     private func continueIntoDashboard() {
-        guard let role, !selected.isEmpty else { return }
+        guard let role, !selected.isEmpty, !committingSeat else { return }
+        if PulseLaunch.shouldRevealHubAfterSeatPaint() {
+            committingSeat = true
+        }
         let joined = selected.sorted().joined(separator: "\n")
         switch role {
         case .evp:

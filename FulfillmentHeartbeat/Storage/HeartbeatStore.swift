@@ -1778,11 +1778,24 @@ final class HeartbeatStore: ObservableObject {
             filters = next
             persistFilters()
         }
+        if PulseLaunch.shouldRevealHubAfterSeatPaint() {
+            Task { @MainActor in
+                if filterChanged, let job = self.refilterTask {
+                    await job.value
+                }
+                self.revealHubAfterSeat()
+            }
+            return
+        }
+        revealHubAfterSeat()
+    }
+
+    private func revealHubAfterSeat() {
+        guard needsRolePick else { return }
         needsRolePick = false
         noteHubInteractive()
-        if !filterChanged {
-            scheduleGrainPaint(generation: paintGeneration)
-        }
+        // Seat paint skipped grains while Who's looking was up. Start them now.
+        scheduleGrainPaint(generation: paintGeneration)
         startCloudHydrateIfNeeded()
     }
 

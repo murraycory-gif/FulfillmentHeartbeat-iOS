@@ -7,15 +7,21 @@ struct RootView: View {
         ZStack {
             AppTheme.bg.ignoresSafeArea()
             if store.isReady {
-                MainHubView()
-                    .transition(.opacity)
-                    .overlay {
-                        if store.needsRolePick {
-                            RoleGateView()
-                                .zIndex(20)
-                                .transition(.opacity)
+                if store.needsRolePick, !PulseLaunch.shouldMountHubUnderRoleGate() {
+                    RoleGateView()
+                        .zIndex(20)
+                        .transition(.opacity)
+                } else {
+                    MainHubView()
+                        .transition(.opacity)
+                        .overlay {
+                            if store.needsRolePick, PulseLaunch.shouldMountHubUnderRoleGate() {
+                                RoleGateView()
+                                    .zIndex(20)
+                                    .transition(.opacity)
+                            }
                         }
-                    }
+                }
             } else {
                 LaunchSplashView()
             }

@@ -3,6 +3,8 @@ import UIKit
 
 /// Native paging between Dashboard and scorecards. Sidebar taps jump; swipes page.
 /// Same pager on iPhone 13+ (CompactNavSheet) and iPad 13+ (overlay drawer).
+/// Off by default (`PulseLaunch.shouldUsePagingScroll()`): a UIPageViewController
+/// wrapping SwiftUI ScrollView steals / hitches vertical dashboard drags.
 struct ScorecardPager: UIViewControllerRepresentable, Equatable {
     @ObservedObject var router: HubRouter
     var page: (HubDestination) -> AnyView

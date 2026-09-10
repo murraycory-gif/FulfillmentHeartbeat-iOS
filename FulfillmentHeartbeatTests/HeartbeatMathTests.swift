@@ -679,6 +679,28 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     @MainActor
+    func testApplyLaunchRoleKeepsWhoIsLookingUntilSeatPaint() async {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = HeartbeatStore(rootURL: root)
+        XCTAssertTrue(store.needsRolePick)
+        store.applyLaunchRole(.districtManager, district: "03")
+        XCTAssertEqual(store.filters.district, "03")
+        var revealed = !store.needsRolePick
+        if !revealed {
+            for _ in 0..<80 {
+                try? await Task.sleep(nanoseconds: 25_000_000)
+                if !store.needsRolePick {
+                    revealed = true
+                    break
+                }
+            }
+        }
+        XCTAssertTrue(revealed, "Who's looking should dismiss after the seat paint lands")
+        XCTAssertEqual(store.filters.district, "03")
+        XCTAssertEqual(store.effectiveDashboardGrain, .store)
+    }
+
+    @MainActor
     func testChecklistReadyAfterEveryKPIHasStatus() {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = HeartbeatStore(rootURL: root)
@@ -1931,6 +1953,9 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseLaunch.shouldPaintScorecardTablesAfterChrome())
         XCTAssertTrue(PulseLaunch.shouldDeferDestinationWorkOnNav())
         XCTAssertTrue(PulseLaunch.shouldHoldSeatPickerUntilWarehouseReady())
+        XCTAssertFalse(PulseLaunch.shouldMountHubUnderRoleGate())
+        XCTAssertFalse(PulseLaunch.shouldUsePagingScroll())
+        XCTAssertTrue(PulseLaunch.shouldRevealHubAfterSeatPaint())
         XCTAssertFalse(PulseLaunch.shouldShowHubFillBanner(needsRolePick: true, warehouseHydrating: true))
         XCTAssertTrue(PulseLaunch.shouldShowHubFillBanner(needsRolePick: false, warehouseHydrating: true))
         XCTAssertFalse(PulseLaunch.shouldShowHubFillBanner(needsRolePick: false, warehouseHydrating: false))

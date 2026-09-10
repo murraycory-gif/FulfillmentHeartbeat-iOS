@@ -219,7 +219,21 @@ enum PulseLaunch {
     /// Dashboard under Who's looking must not rebuild on every wave paint.
     static func shouldStampUIDuringRolePick() -> Bool { false }
 
+    /// Who's looking is a full page — never a veil over a live hub.
+    /// Overlaying MainHubView kept the pager + dashboard mounted and invalidating
+    /// under the picker; that is the lag on the first vertical swipe after Continue.
+    static func shouldMountHubUnderRoleGate() -> Bool { false }
+
+    /// Horizontal UIPageViewController wrapping SwiftUI ScrollView fights vertical
+    /// drags (nested UIScrollView). Sidebar / page taps still switch via HubRouter.
+    static func shouldUsePagingScroll() -> Bool { false }
+
+    /// Apply the seat filter while Who's looking is still up, then mount the hub
+    /// so Continue does not land on a mid-paint dashboard.
+    static func shouldRevealHubAfterSeatPaint() -> Bool { true }
+
     /// Horizontal page swipe must not steal vertical dashboard drags.
+    /// Kept for the unused pager path; paging itself is off.
     static func shouldLockPagerScrollDirection() -> Bool { true }
 
     static var seatLoadTitle: String { "Setting the floor" }
