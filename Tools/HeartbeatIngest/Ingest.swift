@@ -39,7 +39,7 @@ enum HeartbeatIngest {
             rows: rows,
             filters: DashboardFilters(),
             uploads: uploads,
-            heavy: false,
+            heavy: true,
             grain: .region
         )
         let chrome = PulseDashChrome.from(caches)
@@ -51,6 +51,12 @@ enum HeartbeatIngest {
             print("  card \(summary.section.rawValue): stores=\(summary.storeCount) head=\(head) risk=\(summary.riskCount)")
         }
         print("  picker shoppers=\(chrome.pickerShoppers) opportunity=\(chrome.pickerOpportunity) strong=\(chrome.pickerStrong)")
+        for section in [MetricSection.lostRevenue, .labor, .sales, .fiveStar] {
+            let count = rows.filter {
+                $0.section == section && !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty
+            }.count
+            print("  \(section.rawValue) store facts=\(count)")
+        }
         for section in [MetricSection.lostRevenue, .labor, .sales, .fiveStar, .pickerScorecard] {
             let packs = chrome.packs[section.rawValue] ?? []
             guard !packs.isEmpty else { continue }

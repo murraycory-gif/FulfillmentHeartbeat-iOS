@@ -2354,15 +2354,49 @@ final class HeartbeatStore: ObservableObject {
             return
         }
         let allowed = PulseCaches.allowedStores(roster: roster, filters: filters) ?? []
+        paintFiltered(allowed: allowed, extra: [:])
+        let url = sqliteURL
+        let current = filters
+        let rosterCopy = roster
+        refilterTask?.cancel()
+        refilterTask = Task.detached(priority: .userInitiated) {
+            var sections = Set(MetricSection.dashboardCards)
+            sections.insert(.pickerScorecard)
+            sections.insert(.pickPathPicker)
+            let hits = PulseSQLite.readStores(from: url, sections: sections, stores: allowed)
+                .map { HeartbeatMath.stampRoster($0, roster: rosterCopy) }
+            guard !Task.isCancelled else { return }
+            await MainActor.run {
+                guard !Task.isCancelled, self.filters == current else { return }
+                self.mergeSqliteHits(hits, allowed: allowed)
+            }
+        }
+    }
+
+    private func paintFiltered(allowed: Set<String>, extra: [MetricSection: [MetricRow]]) {
         var next: [MetricSection: [MetricRow]] = [:]
-        next.reserveCapacity(latestBySection.count + 1)
-        next[.lostRevenue] = scopedLostRevenue(allowed)
-        for (section, sectionRows) in latestBySection where section != .lostRevenue {
+        next.reserveCapacity(latestBySection.count + extra.count + 1)
+        for section in MetricSection.dashboardCards {
+            if let rows = extra[section], !rows.isEmpty {
+                next[section] = PulseCaches.rowsMatchingStores(
+                    rows,
+                    stores: allowed,
+                    skipMarket: section == .labor || section == .lostRevenue
+                )
+                continue
+            }
+            if section == .lostRevenue {
+                next[section] = scopedLostRevenue(allowed)
+                continue
+            }
             next[section] = PulseCaches.rowsMatchingStores(
-                sectionRows,
+                latestOrFacts(for: section),
                 stores: allowed,
                 skipMarket: section == .labor
             )
+        }
+        if let pickers = extra[.pickerScorecard], !pickers.isEmpty {
+            next[.pickerScorecard] = PulseCaches.rowsMatchingStores(pickers, stores: allowed, skipMarket: false)
         }
         filteredLatest = latestBySection.merging(next) { _, new in new }
         cachedSummaries = MetricSection.dashboardCards.map { section in
@@ -2387,26 +2421,47 @@ final class HeartbeatStore: ObservableObject {
         } else {
             cachedGrainPacks = PulseCaches.placeholderGrainPacks(grain: grain)
         }
+        if let pickers = next[.pickerScorecard], !pickers.isEmpty {
+            cachedPickerBoard = HeartbeatMath.pickerBoard(pickers)
+        }
         filterStamp += 1
         refreshSalesExpandCache()
-        if (latestBySection[.labor] ?? []).isEmpty || (latestBySection[.pickerScorecard] ?? []).isEmpty {
-            Task { await self.hydrateFilteredHeavy() }
+    }
+
+    private func mergeSqliteHits(_ hits: [MetricRow], allowed: Set<String>) {
+        guard !hits.isEmpty else { return }
+        var extra: [MetricSection: [MetricRow]] = [:]
+        extra.reserveCapacity(16)
+        for row in hits {
+            extra[row.section, default: []].append(row)
         }
-        let latest = latestBySection
+        for (section, rows) in extra {
+            if section == .pickerScorecard || section == .pickPathPicker {
+                latestBySection[section] = HeartbeatMath.applyRoster(
+                    HeartbeatMath.latestPerShopper(rows),
+                    roster: roster
+                )
+            } else {
+                latestBySection[section] = HeartbeatMath.applyRoster(
+                    HeartbeatMath.latestPerStore(rows),
+                    roster: roster
+                )
+            }
+        }
+        if extra[.lostRevenue] != nil {
+            rebuildLostIndex()
+        }
+        if extra[.labor] != nil {
+            rebuildLaborWeekIndex()
+        }
+        paintFiltered(allowed: allowed, extra: extra)
+        let grain = effectiveDashboardGrain
+        let hidePicker = sessionRole == .evp
+        let stores = cachedStores
         let rosterCopy = roster
-        let nextCopy = next
+        let packed = filteredLatest
         let current = filters
-        refilterTask?.cancel()
-        refilterTask = Task.detached(priority: .utility) {
-            let pickers = PulseCaches.rowsMatchingStores(
-                latest[.pickerScorecard] ?? [],
-                stores: allowed,
-                skipMarket: false
-            )
-            let pickerBits = PulseCaches.pickerIndexValues(pickers)
-            let board = HeartbeatMath.pickerBoard(pickers)
-            var packed = nextCopy
-            packed[.pickerScorecard] = pickers
+        Task.detached(priority: .utility) {
             let packs = PulseCaches.grainPacks(
                 latest: packed,
                 grain: grain,
@@ -2414,14 +2469,18 @@ final class HeartbeatStore: ObservableObject {
                 stores: stores,
                 roster: rosterCopy
             )
+            let pickers = packed[.pickerScorecard] ?? []
+            let pickerBits = PulseCaches.pickerIndexValues(pickers)
+            let board = HeartbeatMath.pickerBoard(pickers)
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 guard !Task.isCancelled, self.filters == current else { return }
-                self.filteredLatest[.pickerScorecard] = pickers
-                self.cachedPickerBoard = board
-                self.pickerIndex = pickerBits.index
-                self.pickerFocusHealth = pickerBits.health
                 self.cachedGrainPacks = packs
+                if !pickers.isEmpty {
+                    self.cachedPickerBoard = board
+                    self.pickerIndex = pickerBits.index
+                    self.pickerFocusHealth = pickerBits.health
+                }
                 self.filterStamp += 1
             }
         }
@@ -2668,7 +2727,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private static let deferredSections: Set<MetricSection> = [
-        .labor, .pickerScorecard, .pickPathPicker
+        .pickerScorecard, .pickPathPicker
     ]
 
     private static var launchSkip: Set<MetricSection> {

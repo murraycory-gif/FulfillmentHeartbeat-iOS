@@ -51,9 +51,10 @@ enum PulseSQLite {
         for row in rows {
             sqlite3_reset(insert)
             sqlite3_clear_bindings(insert)
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
             bind(insert, 1, row.id.uuidString)
             bind(insert, 2, row.section.rawValue)
-            bind(insert, 3, row.storeNumber)
+            bind(insert, 3, store.isEmpty ? row.storeNumber : store)
             bind(insert, 4, row.division)
             bind(insert, 5, row.operationsOM)
             bind(insert, 6, row.storeName)
@@ -148,25 +149,123 @@ enum PulseSQLite {
         rows.reserveCapacity(8_192)
         var counts: [String: Int] = [:]
         while sqlite3_step(stmt) == SQLITE_ROW {
-            let idRaw = string(stmt, 0)
-            let sectionRaw = string(stmt, 1)
-            guard let section = MetricSection(rawValue: sectionRaw) else { continue }
-            let row = MetricRow(
-                id: UUID(uuidString: idRaw) ?? UUID(),
-                section: section,
-                division: string(stmt, 3),
-                operationsOM: string(stmt, 4),
-                storeNumber: string(stmt, 2),
-                storeName: optional(stmt, 5),
-                recordedOn: optional(stmt, 6),
-                payload: decodeMap(optional(stmt, 7) ?? "{}"),
-                textPayload: decodeText(optional(stmt, 8) ?? "{}")
-            )
+            guard let row = metricRow(stmt) else { continue }
             rows.append(row)
-            counts[section.rawValue, default: 0] += 1
+            counts[row.section.rawValue, default: 0] += 1
         }
         let chrome = readChrome(db: db)
         return Pack(rows: rows, uploads: uploads, seeded: seeded, counts: counts, writtenAt: writtenAt, chrome: chrome)
+    }
+
+    /// Filter path: pull only the stores in the current filter from the pack.
+    static func readStores(
+        from url: URL,
+        sections: Set<MetricSection>,
+        stores: Set<String>
+    ) -> [MetricRow] {
+        guard !sections.isEmpty, !stores.isEmpty, exists(at: url) else { return [] }
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK, let db else {
+            return []
+        }
+        defer { sqlite3_close(db) }
+        sqlite3_exec(db, "PRAGMA mmap_size=33554432;", nil, nil, nil)
+        sqlite3_exec(db, "PRAGMA cache_size=-4000;", nil, nil, nil)
+
+        var keys: [String] = []
+        var seen: Set<String> = []
+        for store in stores {
+            for alias in HeartbeatMath.storeAliases(store) where seen.insert(alias).inserted {
+                keys.append(alias)
+            }
+        }
+        guard !keys.isEmpty else { return [] }
+
+        var out: [MetricRow] = []
+        out.reserveCapacity(max(stores.count * 2, 32))
+        let sectionList = Array(sections)
+        let chunkSize = 180
+        var start = 0
+        while start < keys.count {
+            let end = min(start + chunkSize, keys.count)
+            let slice = Array(keys[start..<end])
+            start = end
+            let sectionMarks = Array(repeating: "?", count: sectionList.count).joined(separator: ",")
+            let storeMarks = Array(repeating: "?", count: slice.count).joined(separator: ",")
+            let sql = """
+            SELECT id, section, store_number, division, operations_om, store_name, recorded_on, payload_json, text_json
+            FROM facts
+            WHERE section IN (\(sectionMarks)) AND store_number IN (\(storeMarks));
+            """
+            var stmt: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { continue }
+            defer { sqlite3_finalize(stmt) }
+            var index: Int32 = 1
+            for section in sectionList {
+                bind(stmt, index, section.rawValue)
+                index += 1
+            }
+            for key in slice {
+                bind(stmt, index, key)
+                index += 1
+            }
+            while sqlite3_step(stmt) == SQLITE_ROW {
+                if let row = metricRow(stmt) {
+                    out.append(row)
+                }
+            }
+        }
+
+        let found = Set(out.map(\.section))
+        let light: Set<MetricSection> = [
+            .sales, .lostRevenue, .fiveStar, .labor, .missingItems, .preSubOOS,
+            .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pph
+        ]
+        for section in sections where light.contains(section) && !found.contains(section) {
+            out.append(contentsOf: rowsMatchingSection(db: db, section: section, stores: stores))
+        }
+        return out
+    }
+
+    private static func rowsMatchingSection(
+        db: OpaquePointer,
+        section: MetricSection,
+        stores: Set<String>
+    ) -> [MetricRow] {
+        var stmt: OpaquePointer?
+        let sql = """
+        SELECT id, section, store_number, division, operations_om, store_name, recorded_on, payload_json, text_json
+        FROM facts WHERE section = ?;
+        """
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { return [] }
+        defer { sqlite3_finalize(stmt) }
+        bind(stmt, 1, section.rawValue)
+        var pool: [MetricRow] = []
+        pool.reserveCapacity(2_200)
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            if let row = metricRow(stmt) {
+                pool.append(row)
+            }
+        }
+        return PulseCaches.rowsMatchingStores(pool, stores: stores, skipMarket: true)
+    }
+
+    private static func metricRow(_ stmt: OpaquePointer) -> MetricRow? {
+        let sectionRaw = string(stmt, 1)
+        guard let section = MetricSection(rawValue: sectionRaw) else { return nil }
+        let rawStore = string(stmt, 2)
+        let store = HeartbeatMath.canonicalStore(rawStore)
+        return MetricRow(
+            id: UUID(uuidString: string(stmt, 0)) ?? UUID(),
+            section: section,
+            division: string(stmt, 3),
+            operationsOM: string(stmt, 4),
+            storeNumber: store.isEmpty ? rawStore : store,
+            storeName: optional(stmt, 5),
+            recordedOn: optional(stmt, 6),
+            payload: decodeMap(optional(stmt, 7) ?? "{}"),
+            textPayload: decodeText(optional(stmt, 8) ?? "{}")
+        )
     }
 
     static func exists(at url: URL) -> Bool {

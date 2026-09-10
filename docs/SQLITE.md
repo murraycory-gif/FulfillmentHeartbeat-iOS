@@ -1,12 +1,27 @@
-# Known-good load
+# Heartbeat pack
 
-**HB-0828.159 / 1.0 (530)** is the build that loaded every scorecard correctly
-from `Heartbeat Daily Report.xlsx` (Labor + Picker included).
+The iPad is a **viewer**. GitHub Actions cooks `Heartbeat Daily Report.xlsx`
+into `current.sqlite` and publishes it to the `heartbeat-packs` bucket.
 
-Do not change the parse path for those sheets.
+## How a filter works
 
-Speed after that build:
-- If the on-device pack already has Labor and Picker, skip the splash and
-  skip the workbook download.
-- Show Who's looking as soon as rows are in memory. Dashboard caches fill
-  right after.
+Company-wide paints the cooked dashboard tiles.
+
+District / division / store is a database lookup:
+
+```
+SELECT … FROM facts
+WHERE section IN (sales, lostRevenue, labor, …)
+  AND store_number IN (roster stores for this filter)
+```
+
+If store numbers in the sheet are padded (`0667` vs `667`), the lookup
+retries the whole section and joins on aliases. The iPad does **not**
+rebuild company math.
+
+Labor loads on open. Picker shoppers load for the stores in the current
+filter, then the full list when that page opens.
+
+## Stamp
+
+HB-0828.306 / 1.0 (628)

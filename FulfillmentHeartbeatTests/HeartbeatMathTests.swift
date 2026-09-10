@@ -1085,5 +1085,37 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(locked[1].pack.yoy ?? 0, 55.03, accuracy: 0.08)
         XCTAssertEqual(locked[1].pack.ordersYoy ?? 0, 48.25, accuracy: 0.08)
     }
+
+    func testFilterJoinMatchesPaddedStoreNumbers() {
+        let roster: [String: HeartbeatMath.StoreIdentity] = [
+            "667": .init(division: "Jewel Osco", district: "D3", om: "Pat", name: nil),
+            "304": .init(division: "NorCal", district: "03", om: "Jino", name: nil)
+        ]
+        var filters = DashboardFilters()
+        filters.district = "D3"
+        let allowed = PulseCaches.allowedStores(roster: roster, filters: filters) ?? []
+        XCTAssertEqual(allowed, ["667"])
+        let padded = MetricRow(
+            section: .lostRevenue,
+            storeNumber: "0667",
+            payload: ["lost_revenue": 1_832, "ecomm_sales": 40_000],
+            textPayload: ["lost_grain": "store"]
+        )
+        let other = MetricRow(
+            section: .lostRevenue,
+            storeNumber: "0304",
+            payload: ["lost_revenue": 2_510, "ecomm_sales": 50_000],
+            textPayload: ["lost_grain": "store"]
+        )
+        let scoped = PulseCaches.rowsMatchingStores(
+            [padded, other],
+            stores: allowed,
+            skipMarket: true
+        )
+        XCTAssertEqual(scoped.map(\.storeNumber), ["0667"])
+        let summary = HeartbeatMath.summarize(.lostRevenue, rows: scoped, upload: nil)
+        XCTAssertEqual(summary.headline ?? 0, 1_832, accuracy: 0.01)
+        XCTAssertEqual(summary.storeCount, 1)
+    }
 }
 
