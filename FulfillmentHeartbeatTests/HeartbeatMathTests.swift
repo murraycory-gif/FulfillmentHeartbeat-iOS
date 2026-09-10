@@ -357,6 +357,70 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(expanded.first { $0.storeNumber == "1" }?.division, "Jewel Osco")
     }
 
+    func testDynacapDashboardFlagsJoinStorePPH() {
+        let dyn = MetricRow(
+            section: .dynacap,
+            division: "Jewel Osco",
+            operationsOM: "A",
+            storeNumber: "308",
+            payload: ["dynacap_rate": 67.0, "utilization_pct": 21.36]
+        )
+        let pph = MetricRow(
+            section: .pph,
+            division: "Jewel Osco",
+            operationsOM: "A",
+            storeNumber: "308",
+            payload: ["pph": 74.3]
+        )
+        let blank = HeartbeatMath.dynacapActionFlags([dyn])
+        XCTAssertEqual(blank.first { $0.name == "Store PPH" }?.value, "—")
+        let joined = HeartbeatMath.overlayStorePPH([dyn], from: [pph])
+        XCTAssertEqual(joined.first?.number("pph"), 74.3)
+        let flags = HeartbeatMath.dashboardActionFlags(
+            section: .dynacap,
+            rows: [dyn],
+            pphRows: [pph]
+        )
+        XCTAssertEqual(flags.first { $0.name == "Pieces / Hr" }?.value, "67.0")
+        XCTAssertEqual(flags.first { $0.name == "Store PPH" }?.value, "74.3")
+        XCTAssertNotEqual(flags.first { $0.name == "Store PPH" }?.value, "—")
+        XCTAssertEqual(flags.first { $0.name == "Utilization" }?.value, "21.36%")
+        let grain = HeartbeatMath.dashboardGrainTable(
+            section: .dynacap,
+            rows: joined,
+            grain: .region,
+            order: ["East Region"]
+        )
+        XCTAssertEqual(grain.first?.values[1], "74.3")
+    }
+
+    func testPreSubTopItemCalloutStaysCompact() {
+        let item = MetricRow(
+            section: .preSubOOSItem,
+            division: "Jewel Osco",
+            operationsOM: "A",
+            storeNumber: "308",
+            payload: ["presub_pct": 12.4],
+            textPayload: ["bpn": "970014483 - Plums Prune - Each - 100"]
+        )
+        let flags = HeartbeatMath.preSubActionFlags([], items: [item])
+        let top = flags.first { $0.name == "#1 Pre-Sub Item" }
+        XCTAssertNotNil(top)
+        XCTAssertFalse(top?.value.contains("970014483") == true, top?.value ?? "")
+        XCTAssertTrue(top?.value.contains("Plums") == true, top?.value ?? "")
+        XCTAssertLessThanOrEqual(top?.value.count ?? 99, 36)
+        XCTAssertEqual(
+            HeartbeatMath.compactCalloutLabel("970014483 - Plums Prune - Each - 100"),
+            "Plums Prune - Each -…"
+        )
+        let fourWide = HubLayout.calloutColumns(count: 4, width: 1_000)
+        XCTAssertEqual(fourWide, 4)
+        let fourTight = HubLayout.calloutColumns(count: 4, width: 600)
+        XCTAssertLessThanOrEqual(fourTight, 2)
+        let tile = HubLayout.calloutTileMinWidth(columns: 4, width: 900, phone: false)
+        XCTAssertLessThanOrEqual(tile * 4 + HubLayout.calloutGridSpacing * 3, 900)
+    }
+
     func testLatestPerStoreKeepsNewestDate() {
         let older = MetricRow(section: .fiveStar, division: "10", operationsOM: "A", storeNumber: "1487", recordedOn: "2026-08-03", payload: ["star_rating": 4.1])
         let newer = MetricRow(section: .fiveStar, division: "10", operationsOM: "A", storeNumber: "1487", recordedOn: "2026-08-17", payload: ["star_rating": 4.8])

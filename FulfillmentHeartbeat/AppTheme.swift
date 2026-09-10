@@ -384,14 +384,30 @@ enum HubLayout {
             else { maxCols = 2 }
         } else if width >= 1100 {
             maxCols = 4
-        } else if width >= 760 {
+        } else if width >= 840 {
             maxCols = 4
-        } else {
+        } else if width >= 760 {
             maxCols = 3
+        } else {
+            maxCols = 2
         }
         if count == 5 { return min(3, maxCols) }
         if count == 7 { return min(4, maxCols) }
-        return max(1, min(count, maxCols))
+        var cols = max(1, min(count, maxCols))
+        let minTile = calloutMinWidth(phone: isPhone(sizeClass))
+        if width > 1, cols >= 4 {
+            let needed = CGFloat(cols) * minTile + CGFloat(cols - 1) * calloutGridSpacing
+            if width < needed { cols = min(cols, 2) }
+        }
+        return cols
+    }
+
+    /// Grid columns must never demand more width than the card.
+    static func calloutTileMinWidth(columns: Int, width: CGFloat, phone: Bool) -> CGFloat {
+        let cols = max(columns, 1)
+        let spacing = calloutGridSpacing * CGFloat(cols - 1)
+        let fit = max(width - spacing, 1) / CGFloat(cols)
+        return max(64, min(calloutMinWidth(phone: phone), fit))
     }
 
     static func kpiColumns(width: CGFloat, sizeClass: UserInterfaceSizeClass? = .regular) -> Int {

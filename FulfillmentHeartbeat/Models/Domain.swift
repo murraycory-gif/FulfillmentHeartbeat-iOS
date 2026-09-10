@@ -1162,6 +1162,7 @@ enum HeartbeatMath {
         pickers: [MetricRow] = [],
         pathPickers: [MetricRow] = [],
         items: [MetricRow] = [],
+        pphRows: [MetricRow] = [],
         includeAll: Bool = false
     ) -> [FiveStarFlag] {
         if section == .sales { return salesActionFlags(rows) }
@@ -1170,7 +1171,9 @@ enum HeartbeatMath {
         if section == .labor { return laborActionFlags(rows) }
         if section == .scheduleQuality { return scheduleActionFlags(rows, includeAll: true) }
         if section == .pickPath { return pickPathMetricFlags(rows) }
-        if section == .dynacap { return dynacapActionFlags(rows) }
+        if section == .dynacap {
+            return dynacapActionFlags(overlayStorePPH(rows, from: pphRows, pickers: pickers))
+        }
         if section == .preSubOOS { return preSubActionFlags(rows, items: items) }
         if section == .pickerScorecard {
             let shoppers = rows.filter { isRealPicker($0) || pickerHasVolume($0) }
@@ -1491,6 +1494,17 @@ enum HeartbeatMath {
         return trimmed
     }
 
+    /// Dashboard KPI chips must stay inside the card. Strip leading SKU codes and cap length.
+    static func compactCalloutLabel(_ raw: String, limit: Int = 22) -> String {
+        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let range = text.range(of: #"^\d{5,}\s*[-\u2013:]\s*"#, options: .regularExpression) {
+            text.removeSubrange(range)
+        }
+        text = text.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        guard text.count > limit else { return text }
+        return String(text.prefix(limit - 1)).trimmingCharacters(in: .whitespacesAndNewlines) + "…"
+    }
+
     /// Roster names that are really district titles should not appear on store chips.
     static func usableStoreName(_ raw: String?) -> String? {
         guard let raw else { return nil }
@@ -1742,6 +1756,54 @@ enum HeartbeatMath {
             .filter(hasRate)
         if !perStore.isEmpty { return perStore }
         return materializeDistrictMetric(rows, roster: roster).filter(hasRate)
+    }
+
+    /// Dynacap sheets carry pieces/hr + utilization. Store PPH lives on the PPH (or picker) scorecard.
+    static func storePPHLookup(_ rows: [MetricRow]) -> [String: Double] {
+        var sums: [String: (total: Double, count: Int)] = [:]
+        sums.reserveCapacity(min(rows.count, 2_200))
+        for row in rows {
+            let store = canonicalStore(row.storeNumber)
+            guard !store.isEmpty, let pph = row.number("pph") ?? row.number("pure_pph") else { continue }
+            let cur = sums[store] ?? (0, 0)
+            sums[store] = (cur.total + pph, cur.count + 1)
+        }
+        var out: [String: Double] = [:]
+        out.reserveCapacity(sums.count)
+        for (store, pair) in sums where pair.count > 0 {
+            out[store] = pair.total / Double(pair.count)
+        }
+        return out
+    }
+
+    static func overlayStorePPH(
+        _ rows: [MetricRow],
+        from pphRows: [MetricRow],
+        pickers: [MetricRow] = []
+    ) -> [MetricRow] {
+        var map = storePPHLookup(pphRows)
+        if map.count < 8 {
+            for (store, pph) in storePPHLookup(pickers) where map[store] == nil {
+                map[store] = pph
+            }
+        }
+        guard !map.isEmpty else { return rows }
+        return rows.map { row in
+            if row.number("pph") != nil || row.number("pure_pph") != nil { return row }
+            let store = canonicalStore(row.storeNumber)
+            guard let pph = map[store] else { return row }
+            var next = row
+            next.payload["pph"] = pph
+            return next
+        }
+    }
+
+    static func overlayDynacapPPH(_ latest: [MetricSection: [MetricRow]]) -> [MetricSection: [MetricRow]] {
+        guard let dyn = latest[.dynacap], !dyn.isEmpty else { return latest }
+        let next = overlayStorePPH(dyn, from: latest[.pph] ?? [], pickers: latest[.pickerScorecard] ?? [])
+        var out = latest
+        out[.dynacap] = next
+        return out
     }
 
     static func materializePickPath(_ rows: [MetricRow], roster: [String: StoreIdentity]) -> [MetricRow] {
@@ -2631,7 +2693,7 @@ enum HeartbeatMath {
         let stores = rows.filter { !isIgnoredStore($0.storeNumber) && !$0.storeNumber.isEmpty }
         let scoped = stores.isEmpty ? rows : stores
         let pieces = average(scoped.compactMap { $0.number("dynacap_rate", "pieces_per_hour") })
-        let pph = average(scoped.compactMap { $0.number("pph") })
+        let pph = average(scoped.compactMap { $0.number("pph") ?? $0.number("pure_pph") })
         let util = average(scoped.compactMap { $0.number("utilization_pct", "pickup_util_pct") })
         return [
             FiveStarFlag(
@@ -2642,9 +2704,9 @@ enum HeartbeatMath {
             ),
             FiveStarFlag(
                 name: "Store PPH",
-                value: HeartbeatFormat.num(pph),
+                value: HeartbeatFormat.num(pph, digits: 1),
                 health: band(pph, good: pphGoal, watch: pphRisk),
-                stores: scoped.filter { band($0.number("pph"), good: pphGoal, watch: pphRisk) == .risk }.count
+                stores: scoped.filter { band($0.number("pph") ?? $0.number("pure_pph"), good: pphGoal, watch: pphRisk) == .risk }.count
             ),
             FiveStarFlag(
                 name: "Utilization",
@@ -2671,7 +2733,7 @@ enum HeartbeatMath {
         }
         if let ranked {
             let name = ranked.textPayload["bpn"]?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let label = (name?.isEmpty == false ? name! : "Top item")
+            let label = compactCalloutLabel(name?.isEmpty == false ? name! : "Top item")
             flags.append(
                 FiveStarFlag(
                     name: "#1 Pre-Sub Item",

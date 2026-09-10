@@ -454,6 +454,13 @@ final class HeartbeatStore: ObservableObject {
             let raw = (latestBySection[.dynacap] ?? []) + rows.filter { $0.section == .dynacap }
             source = HeartbeatMath.materializeDynacap(raw, roster: roster)
         }
+        if section == .dynacap {
+            source = HeartbeatMath.overlayStorePPH(
+                source,
+                from: latestBySection[.pph] ?? filteredLatest[.pph] ?? [],
+                pickers: latestBySection[.pickerScorecard] ?? filteredLatest[.pickerScorecard] ?? []
+            )
+        }
         if grain == .region, !filters.isActive {
             source = PulseQuery.fillMissingRegions(
                 existing: source,
@@ -548,11 +555,13 @@ final class HeartbeatStore: ObservableObject {
         let rows = (filteredLatest[metric] ?? []).filter { HeartbeatMath.dashboardScopeKey($0, grain: grain) == label }
         let items = (filteredLatest[.preSubOOSItem] ?? []).filter { HeartbeatMath.dashboardScopeKey($0, grain: grain) == label }
         let pickers = (filteredLatest[.pickerScorecard] ?? []).filter { HeartbeatMath.dashboardScopeKey($0, grain: grain) == label }
+        let pphRows = (filteredLatest[.pph] ?? []).filter { HeartbeatMath.dashboardScopeKey($0, grain: grain) == label }
         return HeartbeatMath.dashboardActionFlags(
             section: metric,
             rows: rows,
             pickers: pickers,
             items: items,
+            pphRows: pphRows,
             includeAll: true
         )
     }
@@ -2429,6 +2438,7 @@ final class HeartbeatStore: ObservableObject {
         if let path = latest[.pickPath] {
             latest[.pickPath] = HeartbeatMath.applyAisleMapper(path, from: latest[.aisleMapper] ?? [])
         }
+        latest = HeartbeatMath.overlayDynacapPPH(latest)
         latestBySection = latest
         rebuildLostIndex()
         cachedDivisions = MarketRegion.uniqueNames(roster.values.map(\.division)).sorted()
@@ -2650,6 +2660,7 @@ final class HeartbeatStore: ObservableObject {
             let expanded = HeartbeatMath.materializeDynacap(raw, roster: roster)
             if !expanded.isEmpty { warehouse[.dynacap] = expanded }
         }
+        warehouse = HeartbeatMath.overlayDynacapPPH(warehouse)
         if filters.isActive, let allowed = PulseCaches.allowedStores(roster: roster, filters: filters) {
             let lost = scopedLostRevenue(allowed)
             if !lost.isEmpty { warehouse[.lostRevenue] = lost }
@@ -3524,6 +3535,9 @@ final class HeartbeatStore: ObservableObject {
         }.value
         guard !incoming.isEmpty else { return }
         latestBySection[section] = incoming
+        if section == .dynacap || section == .pph || section == .pickerScorecard {
+            latestBySection = HeartbeatMath.overlayDynacapPPH(latestBySection)
+        }
         if section == .labor {
             rebuildLaborWeekIndex()
         }

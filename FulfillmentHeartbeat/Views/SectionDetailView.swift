@@ -990,8 +990,9 @@ struct HubCalloutGrid<Content: View>: View {
     var body: some View {
         let columns = HubLayout.calloutColumns(count: count, width: width, sizeClass: sizeClass)
         let phone = HubLayout.isPhone(sizeClass)
+        let tileMin = HubLayout.calloutTileMinWidth(columns: columns, width: width, phone: phone)
         LazyVGrid(
-            columns: HubLayout.grid(columns, spacing: HubLayout.calloutGridSpacing, minWidth: HubLayout.calloutMinWidth(phone: phone)),
+            columns: HubLayout.grid(columns, spacing: HubLayout.calloutGridSpacing, minWidth: tileMin),
             spacing: HubLayout.calloutGridSpacing
         ) {
             content

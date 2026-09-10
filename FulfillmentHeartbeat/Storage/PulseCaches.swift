@@ -172,6 +172,7 @@ struct PulseCaches {
         if let path = latest[.pickPath] {
             latest[.pickPath] = HeartbeatMath.applyAisleMapper(path, from: latest[.aisleMapper] ?? [])
         }
+        latest = HeartbeatMath.overlayDynacapPPH(latest)
         return refilter(
             latest: latest,
             roster: roster,
@@ -342,6 +343,7 @@ struct PulseCaches {
                 pickers: pickers,
                 pathPickers: pathPickers,
                 items: items,
+                pphRows: latest[.pph] ?? [],
                 includeAll: false
             )
         }
@@ -418,7 +420,14 @@ struct PulseCaches {
         guard let grain else { return [:] }
         var out: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] = [:]
         for (section, sectionPacks) in packs {
-            let rows = HeartbeatMath.rowsFillingRoster(latest[section] ?? [], roster: roster)
+            var rows = HeartbeatMath.rowsFillingRoster(latest[section] ?? [], roster: roster)
+            if section == .dynacap {
+                rows = HeartbeatMath.overlayStorePPH(
+                    rows,
+                    from: latest[.pph] ?? [],
+                    pickers: latest[.pickerScorecard] ?? []
+                )
+            }
             out[section] = HeartbeatMath.dashboardGrainTableFilled(
                 section: section,
                 rows: rows,
@@ -494,9 +503,20 @@ struct PulseCaches {
         var out: [String: [HeartbeatMath.FiveStarFlag]] = [:]
         out.reserveCapacity(packs.count)
         for pack in packs {
+            var rows = group(for: pack)
+            if section == .dynacap {
+                rows = HeartbeatMath.overlayStorePPH(
+                    rows,
+                    from: latest[.pph] ?? [],
+                    pickers: latest[.pickerScorecard] ?? []
+                )
+            }
             out[pack.id] = HeartbeatMath.dashboardActionFlags(
                 section: section,
-                rows: group(for: pack),
+                rows: rows,
+                pickers: latest[.pickerScorecard] ?? [],
+                items: latest[.preSubOOSItem] ?? [],
+                pphRows: latest[.pph] ?? [],
                 includeAll: true
             )
         }

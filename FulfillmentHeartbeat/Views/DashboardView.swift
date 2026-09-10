@@ -859,14 +859,16 @@ struct DashFlagGrid: View {
         } else {
             let cols = HubLayout.calloutColumns(count: flags.count, width: width, sizeClass: sizeClass)
             let phone = HubLayout.isPhone(sizeClass)
+            let tileMin = HubLayout.calloutTileMinWidth(columns: cols, width: width, phone: phone)
             LazyVGrid(
-                columns: HubLayout.grid(cols, spacing: HubLayout.calloutGridSpacing, minWidth: HubLayout.calloutMinWidth(phone: phone)),
+                columns: HubLayout.grid(cols, spacing: HubLayout.calloutGridSpacing, minWidth: tileMin),
                 spacing: HubLayout.calloutGridSpacing
             ) {
                 ForEach(flags) { flag in
                     DashFlagChip(flag: flag)
                 }
             }
+            .clipped()
         }
     }
 }
@@ -896,9 +898,9 @@ private struct DashFlagChip: View {
             Text(flag.value.isEmpty ? countLine : flag.value)
                 .font(.system(size: HubLayout.calloutValueSize(phone: compact), weight: .bold, design: .rounded).monospacedDigit())
                 .foregroundStyle(dashInk(tone))
-                .lineLimit(1)
-                .minimumScaleFactor(0.55)
-                .fixedSize(horizontal: true, vertical: false)
+                .lineLimit(2)
+                .minimumScaleFactor(0.45)
+                .frame(maxWidth: .infinity, alignment: .leading)
             Text(flag.value.isEmpty ? (tone.label) : countLine)
                 .font(AppTheme.rounded(.caption, weight: .medium))
                 .foregroundStyle(AppTheme.textSecondary)
@@ -908,6 +910,7 @@ private struct DashFlagChip: View {
         .padding(compact ? 10 : 11)
         .padding(.leading, 4)
         .frame(maxWidth: .infinity, minHeight: HubLayout.calloutMinHeight(phone: compact), alignment: .topLeading)
+        .clipped()
         .background {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color.white)
