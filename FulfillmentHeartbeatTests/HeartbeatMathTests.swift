@@ -1742,11 +1742,13 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseLaunch.needsShopperJoin(.pph))
         XCTAssertTrue(PulseLaunch.needsShopperJoin(.pickerScorecard))
         XCTAssertFalse(PulseLaunch.needsShopperJoin(.sales))
-        XCTAssertTrue(PulseLaunch.shouldStampPicker(replace: true, dest: .dashboard, count: 80, lastStampCount: 0))
+        XCTAssertFalse(PulseLaunch.shouldStampPicker(replace: true, dest: .dashboard, count: 80, lastStampCount: 0))
+        XCTAssertTrue(PulseLaunch.shouldStampPicker(replace: true, dest: .pickerScorecard, count: 80, lastStampCount: 0))
         XCTAssertFalse(PulseLaunch.shouldStampPicker(replace: false, dest: .dashboard, count: 200, lastStampCount: 80))
         XCTAssertFalse(PulseLaunch.shouldStampPicker(replace: false, dest: .pph, count: 500, lastStampCount: 80))
         XCTAssertTrue(PulseLaunch.shouldStampPicker(replace: false, dest: .pph, count: 880, lastStampCount: 80))
-        XCTAssertTrue(PulseLaunch.shouldRefreshPickerChrome(replace: true, dest: .dashboard, stamp: true))
+        XCTAssertFalse(PulseLaunch.shouldRefreshPickerChrome(replace: true, dest: .dashboard, stamp: true))
+        XCTAssertTrue(PulseLaunch.shouldRefreshPickerChrome(replace: true, dest: .pickerScorecard, stamp: true))
         XCTAssertFalse(PulseLaunch.shouldRefreshPickerChrome(replace: false, dest: .dashboard, stamp: false))
         XCTAssertTrue(PulseLaunch.shouldRefreshPickerChrome(replace: false, dest: .pph, stamp: true))
         XCTAssertFalse(PulseLaunch.shouldTouchPickerUI(stamp: false, chrome: false))
@@ -1760,9 +1762,13 @@ final class HeartbeatMathTests: XCTestCase {
 
     func testPostReadyWorkStaysOffSplashAndCoolsTheHub() {
         XCTAssertGreaterThan(PulseLaunch.grainPaintDelayNanoseconds, 0)
+        XCTAssertGreaterThan(PulseLaunch.hubFirstInteractionNanoseconds, 0)
+        XCTAssertGreaterThan(PulseLaunch.grainPaintDelayNanoseconds, PulseLaunch.hubFirstInteractionNanoseconds)
         XCTAssertGreaterThan(PulseLaunch.cloudHydrateDelayNanoseconds, PulseLaunch.grainPaintDelayNanoseconds)
         XCTAssertTrue(PulseLaunch.streamPickerAfterReady)
         XCTAssertTrue(PulseLaunch.streamPickerSnappyAfterReady)
+        XCTAssertTrue(PulseLaunch.shouldDeferPickerStreamUntilHubQuiet())
+        XCTAssertTrue(PulseLaunch.shouldDeferGrainTablesUntilHubQuiet())
         XCTAssertEqual(PulseLaunch.pickerUIStampStride, 800)
         XCTAssertGreaterThan(PulseLaunch.pickerChunkPauseNanoseconds, 0)
         XCTAssertFalse(PulseLaunch.loadPageOnlyOnReady)
@@ -2114,6 +2120,21 @@ final class HeartbeatMathTests: XCTestCase {
         )
         XCTAssertEqual(table.first?.label, "California Region")
         XCTAssertTrue(table.first?.values.contains("3.71%") == true, "\(table.first?.values ?? [])")
+        XCTAssertEqual(
+            HeartbeatMath.lostRevenueGoalFallback([market, store]) ?? 0,
+            3.71,
+            accuracy: 0.01
+        )
+        let dashed = HeartbeatMath.DashboardGrainTableRow(
+            label: "J3",
+            storeCount: 4,
+            values: ["$1,200", "4.20%", "—", "$28,000", "—", "—", "—", "—", "—"],
+            health: .watch
+        )
+        XCTAssertTrue(HeartbeatMath.grainTableNeedsGoalFill([dashed]))
+        let patched = HeartbeatMath.fillingLostRevenueGoal([dashed], goal: 3.71)
+        XCTAssertFalse(HeartbeatMath.grainTableNeedsGoalFill(patched))
+        XCTAssertEqual(patched.first?.values[2], "3.71%")
         let fromPacks = HeartbeatMath.dashboardGrainRowsFromPacks(
             [DashScopePack(line: DashScopeLine(label: "California Region", value: "4.24%", health: .watch, count: 604), flags: [])],
             section: .lostRevenue
@@ -2161,6 +2182,35 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(table.first?.values[0].contains("1,200") == true, "\(table.first?.values ?? [])")
         XCTAssertTrue(table.first?.values.contains("3.71%") == true, "\(table.first?.values ?? [])")
         XCTAssertTrue(HeartbeatMath.grainRowsAreLive(table))
+        let market = MetricRow(
+            section: .lostRevenue,
+            division: "",
+            operationsOM: "",
+            storeNumber: "",
+            payload: ["lost_revenue_goal_pct": 3.71, "ecomm_sales": 46_000_000],
+            textPayload: ["lost_grain": "market"]
+        )
+        let roster: [String: HeartbeatMath.StoreIdentity] = [
+            "308": .init(division: "Jewel Osco", district: "J3CHICAGO", om: "A", name: nil)
+        ]
+        for grain in [DashScopeGrain.region, .district, .store] {
+            let painted = PulseQuery.paint(
+                warehouse: [.lostRevenue: [market, store]],
+                roster: roster,
+                filters: DashboardFilters(),
+                grain: grain,
+                uploads: [],
+                hidePicker: true,
+                light: false
+            )
+            let rows = painted.tables[.lostRevenue] ?? []
+            XCTAssertFalse(rows.isEmpty, "\(grain) expand empty")
+            XCTAssertFalse(HeartbeatMath.grainTableNeedsGoalFill(rows), "\(grain) Goal % \(rows.map(\.values))")
+            for row in rows where row.storeCount > 0 || row.values.contains(where: { $0 != "—" }) {
+                XCTAssertNotEqual(row.values[2], "—", "\(grain) \(row.label) \(row.values)")
+                XCTAssertTrue(row.values.contains("3.71%"), "\(grain) \(row.label) \(row.values)")
+            }
+        }
         let dynacap = HeartbeatMath.dashboardGrainTableFilled(
             section: .dynacap,
             rows: [

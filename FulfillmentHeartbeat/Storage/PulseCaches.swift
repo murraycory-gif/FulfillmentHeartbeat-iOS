@@ -432,6 +432,7 @@ struct PulseCaches {
     ) -> [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] {
         guard let grain else { return [:] }
         var out: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] = [:]
+        let lostGoal = goalFallback ?? HeartbeatMath.lostRevenueGoalFallback(latest[.lostRevenue] ?? [])
         for (section, sectionPacks) in packs {
             var rows = HeartbeatMath.rowsFillingRoster(latest[section] ?? [], roster: roster)
             if section == .dynacap {
@@ -441,13 +442,17 @@ struct PulseCaches {
                     pickers: latest[.pickerScorecard] ?? []
                 )
             }
-            out[section] = HeartbeatMath.dashboardGrainTableFilled(
+            var table = HeartbeatMath.dashboardGrainTableFilled(
                 section: section,
                 rows: rows,
                 grain: grain,
                 order: sectionPacks.map(\.line.label),
-                goalFallback: section == .lostRevenue ? goalFallback : nil
+                goalFallback: section == .lostRevenue ? lostGoal : nil
             )
+            if section == .lostRevenue, let lostGoal, HeartbeatMath.grainTableNeedsGoalFill(table) {
+                table = HeartbeatMath.fillingLostRevenueGoal(table, goal: lostGoal)
+            }
+            out[section] = table
         }
         return out
     }

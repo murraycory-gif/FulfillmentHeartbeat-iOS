@@ -51,7 +51,7 @@ struct RoleGateView: View {
                 .fixedSize(horizontal: false, vertical: true)
             if store.sessionRole != nil {
                 Button("Stay in this view") {
-                    store.needsRolePick = false
+                    store.finishRoleGate()
                 }
                 .font(.headline.weight(.semibold))
                 .foregroundStyle(AppTheme.blue)

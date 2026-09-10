@@ -7,11 +7,17 @@ enum PulseLaunch {
     static let stagingFileName = "heartbeat-cloud.sqlite"
     static let bootDownloadTimeout: TimeInterval = 25
     /// Let the hub settle before expanding grains. Cards already painted.
-    static let grainPaintDelayNanoseconds: UInt64 = 2_000_000_000
+    static let grainPaintDelayNanoseconds: UInt64 = 2_800_000_000
+    /// First scroll / nav after Dashboard lands must not fight pack/grain/picker work.
+    static let hubFirstInteractionNanoseconds: UInt64 = 1_200_000_000
     /// Stream shoppers after splash so the dashboard card fills. Never on splash.
     static let streamPickerAfterReady = true
     /// After ready, first chunk only — do not await the rest of the pack.
     static let streamPickerSnappyAfterReady = true
+    /// Do not start shopper streaming until Who's looking is done and the hub can scroll.
+    static func shouldDeferPickerStreamUntilHubQuiet() -> Bool { true }
+    /// Expand-table prefetch waits so it cannot steal the first scroll/nav turn.
+    static func shouldDeferGrainTablesUntilHubQuiet() -> Bool { true }
     static let loadPageOnlyOnReady = false
     /// First shoppers so Picker / dashboard paint before the rest of the pack.
     static let pickerFirstPaintCount = 80
@@ -31,14 +37,15 @@ enum PulseLaunch {
         count: Int,
         lastStampCount: Int
     ) -> Bool {
-        if replace { return true }
         guard needsShopperJoin(dest) else { return false }
+        if replace { return true }
         return count - lastStampCount >= pickerUIStampStride
     }
 
-    /// Heavy picker chrome (board, flags, PPH index) only on first paint or a join-page stamp.
+    /// Heavy picker chrome only on join pages. Dashboard parks the warehouse without a SwiftUI stamp.
     static func shouldRefreshPickerChrome(replace: Bool, dest: HubDestination, stamp: Bool) -> Bool {
-        replace || (stamp && needsShopperJoin(dest))
+        guard needsShopperJoin(dest) else { return false }
+        return replace || stamp
     }
 
     /// Skip SwiftUI / filterStamp work when a background chunk has nothing new to show.

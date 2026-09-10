@@ -201,12 +201,21 @@ enum PulseQuery {
             stores: stores,
             roster: roster
         )
+        let goalFallback = HeartbeatMath.lostRevenueGoalFallback(
+            (warehouse[.lostRevenue] ?? []) + (filtered[.lostRevenue] ?? [])
+        )
         return View(
             filtered: filtered,
             summaries: summaries,
             flags: flags,
             grains: grains,
-            tables: PulseCaches.grainTables(latest: filtered, grain: grain, roster: roster, packs: grains),
+            tables: PulseCaches.grainTables(
+                latest: filtered,
+                grain: grain,
+                roster: roster,
+                packs: grains,
+                goalFallback: goalFallback
+            ),
             pickers: hidePicker ? [] : (filtered[.pickerScorecard] ?? [])
         )
     }

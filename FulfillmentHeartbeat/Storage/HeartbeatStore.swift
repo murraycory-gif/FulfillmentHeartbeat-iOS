@@ -94,6 +94,7 @@ final class HeartbeatStore: ObservableObject {
     private var visibleDestination: HubDestination = .dashboard
     private var pickerStreamDone = false
     private var grainPaintSettled = false
+    private var hubBecameInteractiveAt: Date?
     private var lastPickerStampCount = 0
     private var paintGeneration = 0
     private var pageOnlyGeneration = -1
@@ -193,9 +194,18 @@ final class HeartbeatStore: ObservableObject {
         lastCloudPullAt = Date()
     }
 
-    /// Splash stays local-first. First shoppers fill the dashboard card; the rest yields.
+    /// Splash stays local-first. Shopper streaming waits until the Dashboard can scroll.
     private func fillAfterReady() async {
         guard PulseLaunch.streamPickerAfterReady else { return }
+        if PulseLaunch.shouldDeferPickerStreamUntilHubQuiet() {
+            while needsRolePick {
+                try? await Task.sleep(nanoseconds: 80_000_000)
+                if Task.isCancelled { return }
+            }
+            noteHubInteractive()
+            try? await Task.sleep(nanoseconds: PulseLaunch.hubFirstInteractionNanoseconds)
+            if Task.isCancelled { return }
+        }
         await streamPicker(preferSnappy: PulseLaunch.streamPickerSnappyAfterReady)
     }
 
@@ -453,7 +463,13 @@ final class HeartbeatStore: ObservableObject {
             return
         }
         let cached = cachedGrainTables[section] ?? []
-        if !HeartbeatMath.grainRowsAreLive(cached) || regionExpandNeedsFill(cached) {
+        if section == .lostRevenue, HeartbeatMath.grainTableNeedsGoalFill(cached),
+           let goal = lostRevenueGoalFallbackValue() {
+            cachedGrainTables[section] = HeartbeatMath.fillingLostRevenueGoal(cached, goal: goal)
+        }
+        let next = cachedGrainTables[section] ?? cached
+        if !HeartbeatMath.grainRowsAreLive(next) || regionExpandNeedsFill(next)
+            || (section == .lostRevenue && HeartbeatMath.grainTableNeedsGoalFill(next)) {
             cachedGrainTables[section] = buildGrainTableNow(for: section)
         }
     }
@@ -494,9 +510,7 @@ final class HeartbeatStore: ObservableObject {
         }
         let packs = cachedGrainPacks[section] ?? []
         let order = packs.map(\.line.label)
-        let goalFallback = section == .lostRevenue
-            ? lostRevenueMarketRow().flatMap { HeartbeatMath.lostRevenueGoalPct($0) }
-            : nil
+        let goalFallback = section == .lostRevenue ? lostRevenueGoalFallbackValue() : nil
         let table = HeartbeatMath.dashboardGrainTableFilled(
             section: section,
             rows: source,
@@ -504,6 +518,9 @@ final class HeartbeatStore: ObservableObject {
             order: order,
             goalFallback: goalFallback
         )
+        if section == .lostRevenue, let goalFallback, HeartbeatMath.grainTableNeedsGoalFill(table) {
+            return HeartbeatMath.fillingLostRevenueGoal(table, goal: goalFallback)
+        }
         if HeartbeatMath.grainRowsAreLive(table) { return table }
         return HeartbeatMath.dashboardGrainRowsFromPacks(packs, section: section, goalFallback: goalFallback)
     }
@@ -513,8 +530,12 @@ final class HeartbeatStore: ObservableObject {
         let latest = filteredLatest.isEmpty ? latestBySection : filteredLatest
         let packs = cachedGrainPacks
         let rosterCopy = roster
-        let goalFallback = lostRevenueMarketRow().flatMap { HeartbeatMath.lostRevenueGoalPct($0) }
-        Task.detached(priority: .userInitiated) {
+        let goalFallback = lostRevenueGoalFallbackValue()
+        let delay = grainTablePrefetchDelayNanoseconds()
+        Task.detached(priority: .background) {
+            if delay > 0 {
+                try? await Task.sleep(nanoseconds: delay)
+            }
             let tables = PulseCaches.grainTables(
                 latest: latest,
                 grain: grain,
@@ -527,6 +548,24 @@ final class HeartbeatStore: ObservableObject {
                 self.mergeGrainTables(tables)
             }
         }
+    }
+
+    private func lostRevenueGoalFallbackValue() -> Double? {
+        lostRevenueMarketRow().flatMap { HeartbeatMath.lostRevenueGoalPct($0) }
+            ?? HeartbeatMath.lostRevenueGoalFallback(
+                (latestBySection[.lostRevenue] ?? []) + (filteredLatest[.lostRevenue] ?? [])
+            )
+    }
+
+    private func grainTablePrefetchDelayNanoseconds() -> UInt64 {
+        guard PulseLaunch.shouldDeferGrainTablesUntilHubQuiet() else { return 0 }
+        let quiet = PulseLaunch.hubFirstInteractionNanoseconds
+        if needsRolePick { return quiet }
+        guard let start = hubBecameInteractiveAt else { return quiet }
+        let elapsed = Date().timeIntervalSince(start)
+        if elapsed >= Double(quiet) / 1_000_000_000 { return 0 }
+        let remaining = Double(quiet) / 1_000_000_000 - elapsed
+        return UInt64(max(0, remaining) * 1_000_000_000)
     }
 
     private func mergeGrainTables(_ tables: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]]) {
@@ -542,7 +581,17 @@ final class HeartbeatStore: ObservableObject {
                 changed = true
             }
         }
-        if changed { filterStamp += 1 }
+        if let goal = lostRevenueGoalFallbackValue(),
+           HeartbeatMath.grainTableNeedsGoalFill(cachedGrainTables[.lostRevenue] ?? []) {
+            cachedGrainTables[.lostRevenue] = HeartbeatMath.fillingLostRevenueGoal(
+                cachedGrainTables[.lostRevenue] ?? [],
+                goal: goal
+            )
+            changed = true
+        }
+        if changed, !needsRolePick, grainPaintSettled {
+            filterStamp += 1
+        }
     }
 
     func dashboardGrainChildren(section: MetricSection, label: String) -> [DashScopeLine] {
@@ -1611,10 +1660,20 @@ final class HeartbeatStore: ObservableObject {
             persistFilters()
         }
         needsRolePick = false
+        noteHubInteractive()
         if !filterChanged {
             scheduleGrainPaint(generation: paintGeneration)
         }
         startCloudHydrateIfNeeded()
+    }
+
+    func finishRoleGate() {
+        needsRolePick = false
+        noteHubInteractive()
+    }
+
+    private func noteHubInteractive() {
+        if hubBecameInteractiveAt == nil { hubBecameInteractiveAt = Date() }
     }
 
     private func startCloudHydrateIfNeeded() {
@@ -2810,6 +2869,13 @@ final class HeartbeatStore: ObservableObject {
             }
             cachedGrainPacks = view.grains
             cachedGrainTables = tables
+            if let goal = lostRevenueGoalFallbackValue(),
+               HeartbeatMath.grainTableNeedsGoalFill(cachedGrainTables[.lostRevenue] ?? []) {
+                cachedGrainTables[.lostRevenue] = HeartbeatMath.fillingLostRevenueGoal(
+                    cachedGrainTables[.lostRevenue] ?? [],
+                    goal: goal
+                )
+            }
             grainPaintSettled = true
         } else if cachedGrainPacks.isEmpty {
             cachedGrainPacks = view.grains
@@ -2986,7 +3052,13 @@ final class HeartbeatStore: ObservableObject {
                 stores: stores,
                 roster: rosterCopy
             )
-            let tables = PulseCaches.grainTables(latest: latest, grain: grain, roster: rosterCopy, packs: packs)
+            let tables = PulseCaches.grainTables(
+                latest: latest,
+                grain: grain,
+                roster: rosterCopy,
+                packs: packs,
+                goalFallback: HeartbeatMath.lostRevenueGoalFallback(latest[.lostRevenue] ?? [])
+            )
             await MainActor.run {
                 guard !self.filters.isActive else { return }
                 guard self.effectiveDashboardGrain == grain else { return }
@@ -3450,7 +3522,7 @@ final class HeartbeatStore: ObservableObject {
         let rosterCopy = roster
         let firstLimit = PulseLaunch.pickerFirstPaintCount
         let chunk = PulseLaunch.pickerChunkCount
-        let firstPriority: TaskPriority = preferSnappy ? .userInitiated : .utility
+        let firstPriority: TaskPriority = (preferSnappy && !isReady) ? .userInitiated : .utility
         if (latestBySection[.pickerScorecard] ?? []).isEmpty {
             pickerLoading = true
         }
@@ -3459,28 +3531,29 @@ final class HeartbeatStore: ObservableObject {
             return HeartbeatMath.applyRoster(HeartbeatMath.latestPerShopper(raw), roster: rosterCopy)
         }.value
         applyPickerChunk(firstRows, replace: true)
-        pickerLoadTask = Task {
+        pickerLoadTask = Task.detached(priority: .background) {
             var offset = firstRows.count
             var warehouse = firstRows
             while !Task.isCancelled {
                 try? await Task.sleep(nanoseconds: PulseLaunch.pickerChunkPauseNanoseconds)
                 guard !Task.isCancelled else { return }
-                let more = await Task.detached(priority: .background) { () -> [MetricRow] in
-                    let raw = PulseSQLite.readSection(from: url, section: .pickerScorecard, limit: chunk, offset: offset)
-                    return HeartbeatMath.applyRoster(HeartbeatMath.latestPerShopper(raw), roster: rosterCopy)
-                }.value
+                let raw = PulseSQLite.readSection(from: url, section: .pickerScorecard, limit: chunk, offset: offset)
+                let more = HeartbeatMath.applyRoster(HeartbeatMath.latestPerShopper(raw), roster: rosterCopy)
                 if more.isEmpty { break }
                 offset += more.count
                 guard !Task.isCancelled else { return }
                 warehouse = PulseLaunch.mergePickerRows(existing: warehouse, incoming: more)
                 let snapshot = warehouse
-                await MainActor.run {
-                    self.parkPickerWarehouse(snapshot)
+                let dest = await MainActor.run { self.visibleDestination }
+                if PulseLaunch.needsShopperJoin(dest) {
+                    await MainActor.run { self.parkPickerWarehouse(snapshot) }
                 }
                 if more.count < chunk { break }
             }
+            let final = warehouse
             await MainActor.run {
-                self.pickerStreamDone = (self.latestBySection[.pickerScorecard] ?? []).count >= 2
+                self.latestBySection[.pickerScorecard] = final
+                self.pickerStreamDone = final.count >= 2
                 self.pickerLoading = false
                 let join = PulseLaunch.needsShopperJoin(self.visibleDestination)
                 if join {
@@ -3715,7 +3788,13 @@ final class HeartbeatStore: ObservableObject {
                 stores: stores,
                 roster: rosterCopy
             )
-            let tables = PulseCaches.grainTables(latest: latest, grain: grain, roster: rosterCopy, packs: packs)
+            let tables = PulseCaches.grainTables(
+                latest: latest,
+                grain: grain,
+                roster: rosterCopy,
+                packs: packs,
+                goalFallback: HeartbeatMath.lostRevenueGoalFallback(latest[.lostRevenue] ?? [])
+            )
             await MainActor.run {
                 if self.usingPackChrome, !self.filters.isActive { return }
                 self.cachedCardFlags = flags

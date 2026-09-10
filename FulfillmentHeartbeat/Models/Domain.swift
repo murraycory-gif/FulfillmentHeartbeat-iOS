@@ -920,6 +920,35 @@ enum HeartbeatMath {
         }
     }
 
+    /// Expand has dollars/other columns but Goal % is still a dash.
+    static func grainTableNeedsGoalFill(_ rows: [DashboardGrainTableRow]) -> Bool {
+        guard let index = dashboardTableHeaders(.lostRevenue).firstIndex(of: "Goal %") else { return false }
+        return rows.contains { row in
+            guard index < row.values.count else { return true }
+            let goal = row.values[index]
+            let hasBook = row.storeCount > 0 || row.values.contains { $0 != "—" && !$0.isEmpty && $0 != goal }
+            return hasBook && (goal == "—" || goal.isEmpty)
+        }
+    }
+
+    static func fillingLostRevenueGoal(_ rows: [DashboardGrainTableRow], goal: Double) -> [DashboardGrainTableRow] {
+        guard let index = dashboardTableHeaders(.lostRevenue).firstIndex(of: "Goal %") else { return rows }
+        let text = HeartbeatFormat.pct(goal)
+        return rows.map { row in
+            guard index < row.values.count else { return row }
+            let current = row.values[index]
+            guard current == "—" || current.isEmpty else { return row }
+            var values = row.values
+            values[index] = text
+            return DashboardGrainTableRow(
+                label: row.label,
+                storeCount: row.storeCount,
+                values: values,
+                health: row.health
+            )
+        }
+    }
+
     static func dashboardGrainTable(
         section: MetricSection,
         rows: [MetricRow],
@@ -3078,6 +3107,20 @@ enum HeartbeatMath {
         if sales > 0, dollars > 0 { return dollars / sales * 100 }
         if let avg = average(rows.compactMap { lostRevenueGoalPct($0) }) { return avg }
         return fallback
+    }
+
+    /// Market / FY row in the book, else inherited store goals. Used when grain buckets skip `lost_grain=market`.
+    static func lostRevenueGoalFallback(_ rows: [MetricRow]) -> Double? {
+        if let market = rows.first(where: { $0.textPayload["lost_grain"] == "market" }),
+           let pct = lostRevenueGoalPct(market) {
+            return pct
+        }
+        if let total = rows.first(where: {
+            canonicalStore($0.storeNumber).isEmpty && lostRevenueGoalPct($0) != nil
+        }), let pct = lostRevenueGoalPct(total) {
+            return pct
+        }
+        return lostRevenueInheritedGoalPct(rows: rows.filter { $0.textPayload["lost_grain"] != "market" })
     }
 
     static func lostRevenueTotals(_ stores: [MetricRow]) -> (dollars: Double, sales: Double, pct: Double?) {
