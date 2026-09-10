@@ -617,24 +617,24 @@ enum PulseLaunch {
     static func shouldLockPagerScrollDirection() -> Bool { true }
 
     static let aisleQuips: [String] = [
-        "The ice cream just made a run for it…",
-        "A pumpkin cut the banana line…",
-        "Herding avocados. They formed a union…",
-        "The rotisserie chicken clocked out early…",
-        "Chasing a lime that knows parkour…",
-        "The grapes rolled under the heart…",
-        "Asking the frozen pizza for a pep talk…",
-        "The oat milk is hiding behind the kale…",
-        "A witch took the last rotisserie ticket…",
-        "The blueberries staged a jailbreak…",
-        "Bagging kale like it owes us rent…",
-        "The pickles filed a formal complaint…",
-        "A ghost is sampling the samples…",
-        "Corralling cartwheels in produce…",
-        "The baguettes are warming up. Literally…"
+        "The rotisserie chicken just stole a scooter…",
+        "A pumpkin is holding the bananas hostage…",
+        "The avocados unionized. They want bubble wrap…",
+        "Grapes on the roof. They learned parkour…",
+        "The frozen pizza started a TED talk…",
+        "Kale filed for witness protection…",
+        "Oat milk started a leftover support group…",
+        "A witch is price-checking the candy corn…",
+        "Blueberries posted bail for the strawberries…",
+        "The pickles are in mediation with the relish…",
+        "A ghost asked if we price-match Costco…",
+        "The baguettes clocked in and unionized…",
+        "Cart 14 is doing donuts in produce…",
+        "The deli turkey requested a lawyer…",
+        "We're negotiating with a stubborn watermelon…"
     ]
 
-    static var seatLoadTitle: String { "The ice cream just made a run for it…" }
+    static var seatLoadTitle: String { "The rotisserie chicken just stole a scooter…" }
 
     static func seatLoadQuip(at index: Int) -> String {
         guard !aisleQuips.isEmpty else { return seatLoadTitle }

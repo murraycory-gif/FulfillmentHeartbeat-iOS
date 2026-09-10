@@ -504,21 +504,20 @@ private struct SeatLoadStage: View {
         let phone = HubLayout.isPhone(sizeClass)
         let halloween = PulseLaunch.shouldMountSeatLoadHalloween(warehouseHydrating: true)
         VStack(spacing: 0) {
-            Spacer(minLength: 16)
+            Spacer()
             BeatingHeartbeatMark(height: phone ? 56 : 72, showsTrace: true, forceTrace: true)
                 .frame(maxWidth: .infinity)
-            VStack(spacing: phone ? 14 : 18) {
-                ZStack {
-                    ProgressView(value: progress.fraction, total: 1)
-                        .tint(AppTheme.blue)
-                        .frame(maxWidth: phone ? 260 : 340)
-                    if halloween {
-                        HalloweenSeatParade(jumpAnchor: 0.50)
-                            .frame(height: phone ? 76 : 88)
-                            .accessibilityHidden(true)
-                    }
+            ZStack {
+                SeatLoadProgressLine(fraction: progress.fraction, width: phone ? 260 : 340)
+                if halloween {
+                    HalloweenSeatParade(jumpAnchor: 0.50)
+                        .frame(height: phone ? 84 : 96)
+                        .accessibilityHidden(true)
                 }
-                .frame(height: halloween ? (phone ? 80 : 92) : 16)
+            }
+            .frame(height: halloween ? (phone ? 88 : 100) : 18)
+            .padding(.top, phone ? 16 : 22)
+            VStack(spacing: phone ? 10 : 12) {
                 Text(PulseLaunch.seatLoadTitle)
                     .font((phone ? Font.title3 : Font.title2).weight(.bold))
                     .foregroundStyle(AppTheme.text)
@@ -535,9 +534,9 @@ private struct SeatLoadStage: View {
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(.top, phone ? 18 : 24)
+            .padding(.top, phone ? 16 : 20)
             .padding(.horizontal, phone ? 24 : 36)
-            Spacer(minLength: 24)
+            Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
@@ -551,8 +550,26 @@ private struct SeatLoadStage: View {
     }
 }
 
+private struct SeatLoadProgressLine: View {
+    let fraction: Double
+    let width: CGFloat
+
+    var body: some View {
+        let clamped = min(max(fraction, 0), 1)
+        ZStack(alignment: .leading) {
+            Capsule(style: .continuous)
+                .fill(AppTheme.blue.opacity(0.16))
+            Capsule(style: .continuous)
+                .fill(AppTheme.blue)
+                .frame(width: max(width * clamped, 8))
+        }
+        .frame(width: width, height: 6)
+        .frame(maxWidth: .infinity)
+    }
+}
+
 /// Seat-load only. Canvas shapes + emoji offsets — no Lottie, video, or GIF.
-/// Runners chase across the Fulfillment mark and jump at the heart. Unmount stops it.
+/// Runners chase the progress line and hop over it. Unmount stops it.
 private struct HalloweenSeatParade: View {
     /// Jump when a runner crosses this fraction of the track (progress line / heart).
     var jumpAnchor: CGFloat = 0.50
@@ -591,13 +608,13 @@ private struct HalloweenSeatParade: View {
                 let width = max(size.width, 1)
                 let heartX = width * jumpAnchor
                 let track = width + 72
-                let ground = size.height * 0.62
+                let ground = size.height * 0.58
                 for runner in pack {
                     let travel = (t * runner.speed + runner.phase * track)
                         .truncatingRemainder(dividingBy: track) - 36
-                    let nearHeart = abs(travel - heartX) < 34
+                    let nearHeart = abs(travel - heartX) < 38
                     let bob = sin(t * 5.2 + runner.phase * 8) * 3
-                    let jump = nearHeart ? runner.hop : max(0, bob)
+                    let jump = nearHeart ? runner.hop + 10 : max(0, bob)
                     let point = CGPoint(x: travel, y: ground + runner.lane - jump)
                     switch runner.kind {
                     case .pumpkin:

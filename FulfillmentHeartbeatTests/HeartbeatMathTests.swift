@@ -1980,9 +1980,12 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(PulseLaunch.shouldMountSeatLoadHalloween(warehouseHydrating: false))
         XCTAssertLessThanOrEqual(PulseLaunch.halloweenParadeFPS, 15)
         XCTAssertGreaterThanOrEqual(PulseLaunch.halloweenParadeFPS, 8)
-        XCTAssertTrue(PulseLaunch.aisleQuips.contains(PulseLaunch.seatLoadTitle) || PulseLaunch.seatLoadTitle.contains("aisle"))
+        XCTAssertTrue(PulseLaunch.aisleQuips.contains(PulseLaunch.seatLoadTitle))
         XCTAssertTrue(PulseLaunch.seatLoadDirective.localizedCaseInsensitiveContains("unlock"))
         XCTAssertFalse(PulseLaunch.seatLoadTitle.localizedCaseInsensitiveContains("setting the floor"))
+        XCTAssertFalse(PulseLaunch.seatLoadTitle.localizedCaseInsensitiveContains("ice cream aisle"))
+        XCTAssertFalse(PulseLaunch.aisleQuips.contains(where: { $0.localizedCaseInsensitiveContains("runaway lime") }))
+        XCTAssertFalse(PulseLaunch.aisleQuips.contains(where: { $0.localizedCaseInsensitiveContains("ice cream aisle") }))
         XCTAssertFalse(PulseLaunch.seatLoadDirective.localizedCaseInsensitiveContains("choosing a seat"))
     }
 
@@ -3461,7 +3464,7 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(PulseLaunch.seatLoadTitle.isEmpty)
         XCTAssertFalse(PulseLaunch.seatLoadDirective.isEmpty)
         XCTAssertFalse(PulseLaunch.aisleQuips.isEmpty)
-        XCTAssertTrue(PulseLaunch.aisleQuips.contains(where: { $0.localizedCaseInsensitiveContains("ice cream") }))
+        XCTAssertTrue(PulseLaunch.aisleQuips.contains(where: { $0.localizedCaseInsensitiveContains("rotisserie") }))
         XCTAssertEqual(PulseLaunch.seatLoadQuip(at: 0), PulseLaunch.aisleQuips[0])
         XCTAssertEqual(PulseLaunch.seatLoadQuip(at: PulseLaunch.aisleQuips.count), PulseLaunch.aisleQuips[0])
         XCTAssertTrue(PulseLaunch.shouldHoldSeatPickerUntilWarehouseReady())
