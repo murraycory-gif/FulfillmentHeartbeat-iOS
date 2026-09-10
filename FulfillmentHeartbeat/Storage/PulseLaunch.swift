@@ -261,6 +261,25 @@ enum PulseLaunch {
     /// Keep Dashboard mounted so returning from a scorecard is not a full remount.
     static func shouldKeepDashboardHostWarm() -> Bool { true }
 
+    /// Keep the last N scorecard hosts mounted so sidebar switches are not a List teardown.
+    static func shouldKeepVisitedScorecardHostsWarm() -> Bool { true }
+
+    static func maxWarmScorecardHosts() -> Int { 2 }
+
+    static func warmScorecardList(
+        existing: [MetricSection],
+        incoming: MetricSection?,
+        cap: Int = maxWarmScorecardHosts()
+    ) -> [MetricSection] {
+        guard let incoming else { return existing }
+        var next = existing.filter { $0 != incoming }
+        next.append(incoming)
+        if next.count > cap {
+            next.removeFirst(next.count - cap)
+        }
+        return next
+    }
+
     /// Store snap trees stay empty until the user opens the HubStoreCard.
     static func shouldBuildStoreSnapsWhileCollapsed() -> Bool { false }
 

@@ -244,6 +244,8 @@ struct SectionDetailView: View {
                 guard isActivePage else { return }
                 laborHeaderPin.openOnPageEnter()
             }
+        } else if PulseLaunch.shouldKeepVisitedScorecardHostsWarm() {
+            laborHeaderPin.pinned = false
         } else {
             showTables = false
             laborHeaderPin.rollupExpanded = false

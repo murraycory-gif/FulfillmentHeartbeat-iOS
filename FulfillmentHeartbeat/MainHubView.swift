@@ -154,6 +154,7 @@ struct MainHubView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @StateObject private var router = HubRouter()
     @StateObject private var coach = CoachGuide()
+    @State private var warmScorecards: [MetricSection] = []
 
     var body: some View {
         Group {
@@ -177,6 +178,7 @@ struct MainHubView: View {
         }
         .onAppear {
             store.setVisibleDestination(router.current)
+            rememberWarm(router.current)
             guard !store.needsRolePick else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                 coach.presentIfNeeded(for: router.current)
@@ -189,6 +191,7 @@ struct MainHubView: View {
         }
         .onChange(of: router.destination) { _, dest in
             store.setVisibleDestination(dest)
+            rememberWarm(dest)
             guard !store.needsRolePick else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                 coach.presentIfNeeded(for: dest)
@@ -382,8 +385,8 @@ struct MainHubView: View {
         )
     }
 
-    /// Dashboard stays mounted. Scorecards still swap, but store tables wait
-    /// until after chrome (`showTables`) so a sidebar tap is not a full List cook.
+    /// Dashboard stays mounted. Last scorecards stay mounted so a sidebar
+    /// switch is opacity, not a SectionDetailView teardown.
     @ViewBuilder
     private var warmDetail: some View {
         ZStack {
@@ -392,10 +395,22 @@ struct MainHubView: View {
                 .opacity(router.current == .dashboard ? 1 : 0)
                 .allowsHitTesting(router.current == .dashboard)
                 .accessibilityHidden(router.current != .dashboard)
-            if router.current != .dashboard {
-                page(for: router.current)
+            ForEach(warmScorecards, id: \.self) { section in
+                SectionDetailView(section: section)
+                    .hubPageCanvas()
+                    .opacity(router.current.section == section ? 1 : 0)
+                    .allowsHitTesting(router.current.section == section)
+                    .accessibilityHidden(router.current.section != section)
             }
         }
+    }
+
+    private func rememberWarm(_ dest: HubDestination) {
+        guard PulseLaunch.shouldKeepVisitedScorecardHostsWarm() else { return }
+        warmScorecards = PulseLaunch.warmScorecardList(
+            existing: warmScorecards,
+            incoming: dest.section
+        )
     }
 
     @ViewBuilder

@@ -1954,6 +1954,16 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseLaunch.shouldDeferSectionSQLUntilAfterChrome())
         XCTAssertTrue(PulseLaunch.shouldHoldSeatPickerUntilWarehouseReady())
         XCTAssertTrue(PulseLaunch.shouldKeepDashboardHostWarm())
+        XCTAssertTrue(PulseLaunch.shouldKeepVisitedScorecardHostsWarm())
+        XCTAssertEqual(PulseLaunch.maxWarmScorecardHosts(), 2)
+        XCTAssertEqual(
+            PulseLaunch.warmScorecardList(existing: [.labor], incoming: .sales),
+            [.labor, .sales]
+        )
+        XCTAssertEqual(
+            PulseLaunch.warmScorecardList(existing: [.labor, .sales], incoming: .pph),
+            [.sales, .pph]
+        )
         XCTAssertFalse(PulseLaunch.shouldBuildStoreSnapsWhileCollapsed())
         XCTAssertTrue(PulseLaunch.shouldSkipCollapsedStoreRebuild(expanded: false))
         XCTAssertFalse(PulseLaunch.shouldSkipCollapsedStoreRebuild(expanded: true))
