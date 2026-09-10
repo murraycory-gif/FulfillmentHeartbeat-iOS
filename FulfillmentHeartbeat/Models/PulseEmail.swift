@@ -458,11 +458,17 @@ enum PulseMail {
     }
 
     private static func grainHTML(_ section: MetricSection, snap: Snapshot, grain: DashScopeGrain) -> String {
+        let rows = (snap.rows[section] ?? []).filter { $0.textPayload["sales_grain"] != "company" }
         if let cached = snap.grainTables[section], !cached.isEmpty,
            PulseLaunch.grainTableMatchesCurrent(labels: cached.map(\.label), grain: grain) {
-            return grainTableHTML(cached, section: section, grain: grain)
+            let filled = HeartbeatMath.fillingGrainTable(
+                cached,
+                section: section,
+                metricRows: rows,
+                grain: grain
+            )
+            return grainTableHTML(filled, section: section, grain: grain)
         }
-        let rows = (snap.rows[section] ?? []).filter { $0.textPayload["sales_grain"] != "company" }
         let lines = HeartbeatMath.dashboardScopeLines(section: section, rows: rows, grain: grain)
             .filter { $0.label != "Unassigned" && !$0.label.isEmpty }
         guard !lines.isEmpty else { return "" }
@@ -499,7 +505,13 @@ enum PulseMail {
             if grain != .store {
                 cells += numCell(HeartbeatFormat.num(Double(line.storeCount)), muted: true)
             }
-            for value in line.values {
+            let metrics = HeartbeatMath.dashboardTableHeaders(section)
+            let values = HeartbeatMath.mergedGrainValues(
+                current: line.values,
+                incoming: [],
+                headerCount: metrics.count
+            )
+            for value in values {
                 cells += numCell(value)
             }
             cells += statusCell(health)
@@ -1359,7 +1371,12 @@ enum PulseMail {
                 let cached = snap.grainTables[card.section] ?? []
                 let grainRows: [HeartbeatMath.DashboardGrainTableRow]
                 if !cached.isEmpty, PulseLaunch.grainTableMatchesCurrent(labels: cached.map(\.label), grain: grain) {
-                    grainRows = cached
+                    grainRows = HeartbeatMath.fillingGrainTable(
+                        cached,
+                        section: card.section,
+                        metricRows: snap.rows[card.section] ?? [],
+                        grain: grain
+                    )
                 } else {
                     grainRows = HeartbeatMath.dashboardGrainTable(
                         section: card.section,

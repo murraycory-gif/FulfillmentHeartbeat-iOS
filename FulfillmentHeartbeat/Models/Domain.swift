@@ -881,6 +881,21 @@ enum HeartbeatMath {
                 ],
                 health
             )
+        case .sales:
+            let sales = rows.reduce(0) { $0 + salesHeadlineDollars($1) }
+            let orders = rows.reduce(0) { $0 + salesOrders($1) }
+            let yoy = salesRollupYoY(
+                current: rows.map { salesHeadlineDollars($0) },
+                yoyPct: rows.map { $0.number("sales_yoy_pct") }
+            )
+            return (
+                [
+                    HeartbeatFormat.money(sales),
+                    HeartbeatFormat.pct(yoy),
+                    HeartbeatFormat.num(orders, digits: 0),
+                ],
+                salesHealth(planPct: nil, yoy: yoy)
+            )
         default:
             return ([scopeHeadline(section, rows: rows)], health)
         }
@@ -947,6 +962,100 @@ enum HeartbeatMath {
                 health: row.health
             )
         }
+    }
+
+    /// Share / pack chrome often keeps the first metric and drops YoY, Orders, PPH, …
+    static func grainTableNeedsColumnFill(_ rows: [DashboardGrainTableRow], section: MetricSection) -> Bool {
+        let count = dashboardTableHeaders(section).count
+        guard count > 1 else { return false }
+        return rows.contains { row in
+            row.values.count < count
+                || row.values.dropFirst().allSatisfy { $0 == "—" || $0.isEmpty }
+        }
+    }
+
+    /// Keep grain labels (1490 | NorCal) and fill missing metric cells from the same filtered rows expand uses.
+    static func fillingGrainTable(
+        _ rows: [DashboardGrainTableRow],
+        section: MetricSection,
+        metricRows: [MetricRow],
+        grain: DashScopeGrain,
+        goalFallback: Double? = nil
+    ) -> [DashboardGrainTableRow] {
+        let headers = dashboardTableHeaders(section)
+        guard !rows.isEmpty, headers.count > 1, !metricRows.isEmpty else {
+            return paddedGrainTable(rows, headerCount: headers.count)
+        }
+        let rebuilt = dashboardGrainTableFilled(
+            section: section,
+            rows: metricRows,
+            grain: grain,
+            order: rows.map(\.label),
+            goalFallback: goalFallback
+        )
+        var aliasToRow: [String: DashboardGrainTableRow] = [:]
+        aliasToRow.reserveCapacity(rebuilt.count * 3)
+        for row in rebuilt {
+            for alias in grainAliasKeys(row.label, grain: grain) where aliasToRow[alias] == nil {
+                aliasToRow[alias] = row
+            }
+        }
+        func match(_ label: String) -> DashboardGrainTableRow? {
+            for alias in grainAliasKeys(label, grain: grain) {
+                if let hit = aliasToRow[alias] { return hit }
+            }
+            return nil
+        }
+        return rows.map { row in
+            let incoming = match(row.label)
+            return DashboardGrainTableRow(
+                label: row.label,
+                storeCount: max(row.storeCount, incoming?.storeCount ?? 0),
+                values: mergedGrainValues(
+                    current: row.values,
+                    incoming: incoming?.values ?? [],
+                    headerCount: headers.count
+                ),
+                health: row.health == .none ? (incoming?.health ?? row.health) : row.health
+            )
+        }
+    }
+
+    static func paddedGrainTable(
+        _ rows: [DashboardGrainTableRow],
+        headerCount: Int
+    ) -> [DashboardGrainTableRow] {
+        guard headerCount > 0 else { return rows }
+        return rows.map { row in
+            guard row.values.count != headerCount else { return row }
+            return DashboardGrainTableRow(
+                label: row.label,
+                storeCount: row.storeCount,
+                values: mergedGrainValues(current: row.values, incoming: [], headerCount: headerCount),
+                health: row.health
+            )
+        }
+    }
+
+    static func mergedGrainValues(current: [String], incoming: [String], headerCount: Int) -> [String] {
+        var out: [String] = []
+        out.reserveCapacity(headerCount)
+        for index in 0..<headerCount {
+            let have = index < current.count ? current[index] : ""
+            let next = index < incoming.count ? incoming[index] : ""
+            if next != "—" && !next.isEmpty {
+                out.append(next)
+            } else if have != "—" && !have.isEmpty {
+                out.append(have)
+            } else if !next.isEmpty {
+                out.append(next)
+            } else if !have.isEmpty {
+                out.append(have)
+            } else {
+                out.append("—")
+            }
+        }
+        return out
     }
 
     static func dashboardGrainTable(

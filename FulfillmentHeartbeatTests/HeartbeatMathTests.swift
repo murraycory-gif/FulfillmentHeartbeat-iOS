@@ -1617,7 +1617,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testDashboardGrainTableKeepsFullMoneyAndColumnCounts() {
-        for section in MetricSection.dashboardCards where section != .sales {
+        for section in MetricSection.dashboardCards {
             let headers = HeartbeatMath.dashboardTableHeaders(section)
             XCTAssertFalse(headers.isEmpty, "\(section) needs Sales-style columns")
         }
@@ -1649,6 +1649,32 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(table[0].values.count, HeartbeatMath.dashboardTableHeaders(.lostRevenue).count)
         XCTAssertTrue(table[0].values[0].contains("1,234,567.89"), table[0].values[0])
         XCTAssertFalse(table[0].values[0].contains("M"))
+        let salesRow = MetricRow(
+            section: .sales,
+            division: "NorCal",
+            operationsOM: "A",
+            storeNumber: "1490",
+            payload: [
+                "sales_dollars": 22_108.67,
+                "sales_yoy_pct": -4.2,
+                "sales_orders": 82,
+            ],
+            textPayload: ["district": "03", "sales_grain": "store"]
+        )
+        let salesValues = HeartbeatMath.dashboardTableValues(.sales, rows: [salesRow])
+        XCTAssertEqual(salesValues.values.count, HeartbeatMath.dashboardTableHeaders(.sales).count)
+        XCTAssertTrue(salesValues.values[0].contains("22,108.67"), salesValues.values[0])
+        XCTAssertEqual(salesValues.values[1], "-4.20%")
+        XCTAssertEqual(salesValues.values[2], "82")
+        let salesTable = HeartbeatMath.dashboardGrainTable(
+            section: .sales,
+            rows: [salesRow],
+            grain: .store,
+            order: []
+        )
+        XCTAssertEqual(salesTable.first?.values.count, 3)
+        XCTAssertEqual(salesTable.first?.values[1], "-4.20%")
+        XCTAssertEqual(salesTable.first?.values[2], "82")
         XCTAssertGreaterThan(HubLayout.readableTableFloor(phone: true, columns: 8, showCount: true), 700)
         XCTAssertGreaterThan(
             HubLayout.readableTableFloor(phone: false, columns: 8, showCount: true),
@@ -2869,6 +2895,91 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(html.contains("District 03"), html)
         XCTAssertTrue(html.contains("Stores"), html)
         XCTAssertTrue(html.contains("304") || html.contains("12,500") || html.contains("$12,500"), html)
+        XCTAssertTrue(html.contains("40"), html)
+    }
+
+    func testShareStoreGrainFillsSalesYoYAndOrdersFromFilteredRows() {
+        let stores = [
+            MetricRow(
+                section: .sales,
+                division: "NorCal",
+                operationsOM: "A",
+                storeNumber: "1490",
+                payload: ["sales_dollars": 22_108.67, "sales_yoy_pct": -4.2, "sales_orders": 82],
+                textPayload: ["district": "03", "sales_grain": "store"]
+            ),
+            MetricRow(
+                section: .sales,
+                division: "NorCal",
+                operationsOM: "A",
+                storeNumber: "3116",
+                payload: ["sales_dollars": 72_987.06, "sales_yoy_pct": -5.1, "sales_orders": 210],
+                textPayload: ["district": "03", "sales_grain": "store"]
+            ),
+        ]
+        let sparse = stores.map { row in
+            HeartbeatMath.DashboardGrainTableRow(
+                label: "\(row.storeNumber) | NorCal",
+                storeCount: 1,
+                values: [HeartbeatFormat.money(row.number("sales_dollars"))],
+                health: .risk
+            )
+        }
+        XCTAssertTrue(HeartbeatMath.grainTableNeedsColumnFill(sparse, section: .sales))
+        let filled = HeartbeatMath.fillingGrainTable(
+            sparse,
+            section: .sales,
+            metricRows: stores,
+            grain: .store
+        )
+        XCTAssertEqual(filled.count, 2)
+        XCTAssertEqual(filled[0].values.count, 3)
+        XCTAssertEqual(filled[0].values[1], "-4.20%")
+        XCTAssertEqual(filled[0].values[2], "82")
+        XCTAssertEqual(filled[1].values[1], "-5.10%")
+        XCTAssertEqual(filled[1].values[2], "210")
+        let snap = PulseMail.Snapshot(
+            filterSummary: "All regions · All divisions · District 03 · All OMs · All stores",
+            grain: "store",
+            summaries: [
+                SectionSummary(
+                    section: .sales,
+                    storeCount: 2,
+                    headline: 95_095.73,
+                    headlineLabel: "eComm sales",
+                    secondary: "",
+                    health: .risk,
+                    watchCount: 0,
+                    riskCount: 2
+                )
+            ],
+            rows: [.sales: stores],
+            pickerCounts: [:],
+            generatedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            grainTables: [.sales: sparse]
+        )
+        let html = PulseMail.make(snap, pages: [.dashboard]).html
+        XCTAssertTrue(html.contains("1490"), html)
+        XCTAssertTrue(html.contains("3116"), html)
+        XCTAssertTrue(html.contains("YoY %"), html)
+        XCTAssertTrue(html.contains("Orders"), html)
+        XCTAssertTrue(html.contains("-4.20%"), html)
+        XCTAssertTrue(html.contains("-5.10%"), html)
+        XCTAssertTrue(html.contains(">82<") || html.contains("82"), html)
+        XCTAssertTrue(html.contains("210"), html)
+        let packed = HeartbeatMath.dashboardGrainRowsFromPacks(
+            [DashScopePack(line: DashScopeLine(label: "1490 | NorCal", value: "$22,108.67", health: .risk, count: 1), flags: [])],
+            section: .sales
+        )
+        XCTAssertTrue(HeartbeatMath.grainTableNeedsColumnFill(packed, section: .sales))
+        let packedFilled = HeartbeatMath.fillingGrainTable(
+            packed,
+            section: .sales,
+            metricRows: stores,
+            grain: .store
+        )
+        XCTAssertEqual(packedFilled.first?.values[1], "-4.20%")
+        XCTAssertEqual(packedFilled.first?.values[2], "82")
     }
 
     func testSupportedFloorIPhone13AndiPad13FlowEvenColumns() {
