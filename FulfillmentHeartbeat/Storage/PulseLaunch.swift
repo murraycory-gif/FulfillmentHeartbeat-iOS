@@ -335,6 +335,42 @@ enum PulseLaunch {
     /// One EnvironmentObject ping when seat shoppers land. Not `filterStamp`.
     static func shouldPublishPickerSeatFirstPaint() -> Bool { true }
 
+    /// Off-actor. `HeartbeatStore` is `@MainActor`; detached pack reads must not hop back.
+    static func materializeSectionRows(
+        _ rows: [MetricRow],
+        section: MetricSection,
+        roster: [String: HeartbeatMath.StoreIdentity]
+    ) -> [MetricRow] {
+        switch section {
+        case .labor:
+            let stores = rows.filter {
+                $0.textPayload["labor_grain"] == "store" && !$0.storeNumber.isEmpty
+            }
+            let fallback = rows.filter {
+                $0.textPayload["labor_grain"] != "market" && !$0.storeNumber.isEmpty
+            }
+            return HeartbeatMath.applyRoster(
+                HeartbeatMath.latestPerStore(stores.isEmpty ? fallback : stores),
+                roster: roster
+            )
+        case .pickerScorecard, .pickPathPicker:
+            return HeartbeatMath.applyRoster(HeartbeatMath.latestPerShopper(rows), roster: roster)
+        case .lostRevenue:
+            let source = rows.filter { $0.textPayload["lost_grain"] != "market" }
+            var collapsed = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(source), roster: roster)
+            if let market = rows.first(where: { $0.textPayload["lost_grain"] == "market" }) {
+                collapsed.append(market)
+            }
+            return collapsed
+        case .dynacap:
+            return HeartbeatMath.materializeDynacap(rows, roster: roster)
+        case .pph:
+            return HeartbeatMath.materializePPH(rows, roster: roster)
+        default:
+            return HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(rows), roster: roster)
+        }
+    }
+
     /// Lightweight Halloween parade on Who's looking load only. Flip off after the season.
     static func shouldPlaySeatLoadHalloween() -> Bool { true }
 

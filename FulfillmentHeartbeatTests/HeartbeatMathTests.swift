@@ -2137,6 +2137,23 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(PulseLaunch.shouldStreamCompanyPickerForSeatFirstPaint())
         XCTAssertTrue(PulseLaunch.shouldLoadSeatSectionOnPageOpen(filtersActive: true))
         XCTAssertFalse(PulseLaunch.shouldLoadSeatSectionOnPageOpen(filtersActive: false))
+        let shopper = MetricRow(
+            section: .pickerScorecard,
+            division: "NorCal",
+            operationsOM: "Jino Arvin",
+            storeNumber: "12",
+            payload: ["pph": 80, "orders": 20],
+            textPayload: ["shopper_id": "A12", "shopper_name": "A12", "district": "03"]
+        )
+        XCTAssertEqual(
+            PulseLaunch.materializeSectionRows(
+                [shopper],
+                section: .pickerScorecard,
+                roster: [:]
+            ).count,
+            1,
+            "materialize must run off-actor (PulseLaunch, not HeartbeatStore)"
+        )
     }
 
     func testDistrictAndStoreSeatNeverEmptyWhenPackHasFacts() {
@@ -2192,10 +2209,10 @@ final class HeartbeatMathTests: XCTestCase {
             fact(.preSubOOSItem, $0, payload: ["item_count": 3], extra: ["item_desc": "milk"])
         }
         warehouse[.aisleMapper] = all.map {
-            fact(.aisleMapper, $0, payload: [:], extra: ["aisle_mapper_update": "2026-09-01", "aisle_sequence_update": "2026-09-01"])
+            fact(.aisleMapper, $0, payload: ["mapper": 1], extra: ["aisle_mapper_update": "2026-09-01"])
         }
         warehouse[.storeRoster] = all.map {
-            fact(.storeRoster, $0, payload: [:], extra: ["roster": "1"])
+            fact(.storeRoster, $0, payload: ["roster": 1], extra: ["roster": "1"])
         }
         var district = DashboardFilters()
         district.district = "03"
