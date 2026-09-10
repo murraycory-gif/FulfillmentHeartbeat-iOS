@@ -36,7 +36,10 @@ struct RootView: View {
         .animation(.easeOut(duration: 0.18), value: store.isReady)
         .animation(nil, value: store.needsRolePick)
         .overlay(alignment: .top) {
-            if store.isReady, store.warehouseHydrating {
+            if PulseLaunch.shouldShowHubFillBanner(
+                needsRolePick: store.needsRolePick,
+                warehouseHydrating: store.warehouseHydrating
+            ) {
                 WarehouseFillBanner()
                     .padding(.top, 6)
                     .zIndex(30)

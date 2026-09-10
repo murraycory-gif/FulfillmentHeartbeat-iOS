@@ -68,6 +68,7 @@ struct DashboardView: View {
                 }
             }
             .scrollIndicators(.hidden)
+            .scrollBounceBehavior(.basedOnSize)
             .transaction { $0.animation = nil }
             .navigationDestination(item: $pushedSection) { section in
                 SectionDetailView(section: section)

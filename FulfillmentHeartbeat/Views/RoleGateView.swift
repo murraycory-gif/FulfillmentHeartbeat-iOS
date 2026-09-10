@@ -12,26 +12,43 @@ struct RoleGateView: View {
     var body: some View {
         ZStack {
             AppTheme.bg.ignoresSafeArea()
-            ScrollView {
-                VStack(alignment: .leading, spacing: phone ? 22 : 28) {
-                    if let role {
-                        scopeHeader(role)
-                        scopeStep(role)
-                    } else {
-                        seatHeader
-                        roleStep
-                    }
+            if store.warehouseHydrating, PulseLaunch.shouldHoldSeatPickerUntilWarehouseReady() {
+                VStack(spacing: 0) {
+                    seatHeader
+                        .padding(.horizontal, phone ? 20 : 36)
+                        .padding(.top, phone ? 20 : 36)
+                        .frame(maxWidth: 760, alignment: .leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Spacer(minLength: 12)
+                    SeatLoadPanel(
+                        progress: store.importProgress,
+                        caption: store.aisleFillCaption
+                    )
+                    Spacer(minLength: 24)
                 }
-                .padding(.horizontal, phone ? 20 : 36)
-                .padding(.vertical, phone ? 20 : 36)
-                .frame(maxWidth: 760)
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: phone ? 22 : 28) {
+                        seatHeader
+                        if let role {
+                            scopeHeader(role)
+                            scopeStep(role)
+                        } else {
+                            roleStep
+                        }
+                    }
+                    .padding(.horizontal, phone ? 20 : 36)
+                    .padding(.vertical, phone ? 20 : 36)
+                    .frame(maxWidth: 760)
+                    .frame(maxWidth: .infinity)
+                }
+                .scrollBounceBehavior(.basedOnSize)
+                .scrollDismissesKeyboard(.interactively)
             }
-            .scrollBounceBehavior(.basedOnSize)
-            .scrollDismissesKeyboard(.interactively)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if role != nil {
+            if role != nil, !(store.warehouseHydrating && PulseLaunch.shouldHoldSeatPickerUntilWarehouseReady()) {
                 continueBar
             }
         }
@@ -45,11 +62,16 @@ struct RoleGateView: View {
             Text("Who’s looking?")
                 .font(phone ? .largeTitle.weight(.bold) : .largeTitle.weight(.bold))
                 .foregroundStyle(AppTheme.text)
-            Text("Pick a seat. The dashboard only includes that book of business.")
+            Text(
+                store.warehouseHydrating && PulseLaunch.shouldHoldSeatPickerUntilWarehouseReady()
+                    ? "The floor is loading. Seats unlock when it is ready."
+                    : "Pick a seat. The dashboard only includes that book of business."
+            )
                 .font(phone ? .body : .title3)
                 .foregroundStyle(AppTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
-            if store.sessionRole != nil {
+            if store.sessionRole != nil,
+               !(store.warehouseHydrating && PulseLaunch.shouldHoldSeatPickerUntilWarehouseReady()) {
                 Button("Stay in this view") {
                     store.finishRoleGate()
                 }
@@ -57,21 +79,11 @@ struct RoleGateView: View {
                 .foregroundStyle(AppTheme.blue)
                 .padding(.top, 2)
             }
-            Text("Choose a seat")
-                .font(.subheadline.weight(.bold))
-                .foregroundStyle(AppTheme.textSecondary)
-                .padding(.top, 8)
-            if store.warehouseHydrating {
-                HStack(spacing: 10) {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(AppTheme.blue)
-                    Text(store.aisleFillCaption)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(AppTheme.textSecondary)
-                        .lineLimit(2)
-                }
-                .padding(.top, 4)
+            if !(store.warehouseHydrating && PulseLaunch.shouldHoldSeatPickerUntilWarehouseReady()) {
+                Text("Choose a seat")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .padding(.top, 8)
             }
         }
     }
@@ -119,6 +131,9 @@ struct RoleGateView: View {
     }
 
     private func pick(_ item: HeartbeatRole) {
+        if PulseLaunch.shouldHoldSeatPickerUntilWarehouseReady(), store.warehouseHydrating {
+            return
+        }
         if item == .backstage {
             store.applyLaunchRole(.backstage)
         } else {
@@ -481,5 +496,52 @@ private struct FlexibleChipWrap: View {
                 .accessibilityLabel("Remove \(item.label)")
             }
         }
+    }
+}
+
+private struct SeatLoadPanel: View {
+    @ObservedObject var progress: ImportProgress
+    var caption: String
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
+    var body: some View {
+        let phone = HubLayout.isPhone(sizeClass)
+        VStack(spacing: phone ? 16 : 20) {
+            ProgressView()
+                .controlSize(.regular)
+                .tint(AppTheme.blue)
+            Text(PulseLaunch.seatLoadTitle)
+                .font((phone ? Font.title3 : Font.title2).weight(.bold))
+                .foregroundStyle(AppTheme.text)
+                .multilineTextAlignment(.center)
+            Text(caption)
+                .font(phone ? .body : .title3)
+                .foregroundStyle(AppTheme.textSecondary)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.8)
+            ProgressView(value: progress.fraction, total: 1)
+                .tint(AppTheme.blue)
+                .frame(maxWidth: phone ? 240 : 320)
+            Text(PulseLaunch.seatLoadDirective)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(AppTheme.blue)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, phone ? 24 : 36)
+        .padding(.vertical, phone ? 28 : 36)
+        .frame(maxWidth: 420)
+        .background(
+            RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                .fill(AppTheme.card)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
+                .stroke(AppTheme.blue.opacity(0.18), lineWidth: 1.5)
+        )
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(PulseLaunch.seatLoadTitle). \(caption). \(PulseLaunch.seatLoadDirective)")
     }
 }

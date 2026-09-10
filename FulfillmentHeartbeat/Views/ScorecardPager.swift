@@ -29,6 +29,7 @@ struct ScorecardPager: UIViewControllerRepresentable, Equatable {
         context.coordinator.attach(pager)
         let dest = router.current
         context.coordinator.snap(to: dest, animated: false)
+        context.coordinator.lockPagerScroll(pager)
         return pager
     }
 
@@ -90,6 +91,17 @@ struct ScorecardPager: UIViewControllerRepresentable, Equatable {
 
         func attach(_ pager: UIPageViewController) {
             self.pager = pager
+            lockPagerScroll(pager)
+        }
+
+        func lockPagerScroll(_ pager: UIPageViewController) {
+            guard PulseLaunch.shouldLockPagerScrollDirection() else { return }
+            for sub in pager.view.subviews {
+                guard let scroll = sub as? UIScrollView else { continue }
+                scroll.isDirectionalLockEnabled = true
+                scroll.delaysContentTouches = false
+                scroll.canCancelContentTouches = true
+            }
         }
 
         func host(for dest: HubDestination) -> PageHost {

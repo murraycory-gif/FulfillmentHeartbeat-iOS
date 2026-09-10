@@ -208,6 +208,26 @@ enum PulseLaunch {
     /// Grain paint / picker stream wait until the destination's first paint has committed.
     static func shouldDeferDestinationWorkOnNav() -> Bool { true }
 
+    /// Who's looking is the directed start. Seats stay locked until the warehouse is on the floor.
+    static func shouldHoldSeatPickerUntilWarehouseReady() -> Bool { true }
+
+    /// Hub fill banner is for post-seat hydrate only. Who's looking owns the centered load UI.
+    static func shouldShowHubFillBanner(needsRolePick: Bool, warehouseHydrating: Bool) -> Bool {
+        warehouseHydrating && !needsRolePick
+    }
+
+    /// Dashboard under Who's looking must not rebuild on every wave paint.
+    static func shouldStampUIDuringRolePick() -> Bool { false }
+
+    /// Horizontal page swipe must not steal vertical dashboard drags.
+    static func shouldLockPagerScrollDirection() -> Bool { true }
+
+    static var seatLoadTitle: String { "Setting the floor" }
+
+    static var seatLoadDirective: String {
+        "Wait until this finishes — then pick a seat."
+    }
+
     /// Neighbor scorecards stay blank. Hydrating them makes filterStamp rebuild two extra full tables.
     static func shouldKeepNeighborPagesHydrated() -> Bool { false }
 

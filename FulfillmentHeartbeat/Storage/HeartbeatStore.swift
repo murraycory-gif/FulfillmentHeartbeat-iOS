@@ -3111,6 +3111,9 @@ final class HeartbeatStore: ObservableObject {
         if !filters.isActive {
             unfilteredPulse = snapshotPulse()
         }
+        if needsRolePick, !PulseLaunch.shouldStampUIDuringRolePick() {
+            return
+        }
         filterStamp += 1
     }
 
