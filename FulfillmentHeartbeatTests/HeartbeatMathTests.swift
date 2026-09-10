@@ -752,6 +752,9 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(HeartbeatMath.canonicalDistrict("03"), "03")
         XCTAssertEqual(HeartbeatMath.canonicalDistrict("J3"), "J3")
         XCTAssertEqual(HeartbeatMath.shortDistrictName("J3CHICAGO"), "J3")
+        XCTAssertEqual(HeartbeatMath.shortDistrictName("308 - J3 CHICAGO"), "J3")
+        XCTAssertEqual(HeartbeatMath.canonicalDistrict("308 - J3 CHICAGO"), "J3")
+        XCTAssertEqual(HeartbeatMath.shortDistrictName("J3 CHICAGO"), "J3")
         XCTAssertTrue(HeartbeatMath.districtMatchKeys("J3CHICAGO").contains("j3"))
         XCTAssertTrue(HeartbeatMath.districtMatchKeys("J3").contains("j3"))
         XCTAssertEqual(RollupMarketFill.districtKey("J3CHICAGO"), "J3")
@@ -1807,6 +1810,21 @@ final class HeartbeatMathTests: XCTestCase {
         )
         XCTAssertEqual(stamped.division, "NorCal")
         XCTAssertEqual(RollupMarketFill.missingRegions(present: ["East Region", "South Region", "West Region"]), ["California Region"])
+        var california = DashboardFilters()
+        california.region = "California Region"
+        XCTAssertTrue(california.includesDivision("NorCal"))
+        XCTAssertTrue(california.includesDivision("SoCal"))
+        XCTAssertTrue(california.includesDivision("California"))
+        XCTAssertTrue(california.includesDivision("California Region"))
+        XCTAssertFalse(california.includesDivision("Jewel Osco"))
+        XCTAssertTrue(MarketRegion.matchesDivision("California", "NorCal"))
+        let schedule = [
+            MetricRow(section: .scheduleQuality, division: "California", operationsOM: "", storeNumber: "304", payload: ["schedule_efficiency_pct": 92], textPayload: ["district": "J3CHICAGO"]),
+            MetricRow(section: .scheduleQuality, division: "Jewel Osco", operationsOM: "", storeNumber: "100", payload: ["schedule_efficiency_pct": 80]),
+        ]
+        let kept = HeartbeatMath.filtered(schedule, filters: california)
+        XCTAssertTrue(kept.contains { $0.storeNumber == "304" })
+        XCTAssertFalse(kept.contains { $0.storeNumber == "100" })
     }
 
     func testLostRevenueGoalPctUsesDollarsWhenPctMissing() {

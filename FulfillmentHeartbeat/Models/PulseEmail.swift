@@ -128,12 +128,14 @@ enum PulseMail {
         let chosen = pages.isEmpty ? Set(SharePage.allCases) : pages
         let names = SharePage.allCases.filter { chosen.contains($0) }.map(\.title)
         let subject = "Fulfillment Heartbeat — \(snap.filterSummary) — \(HeartbeatFormat.stamp(snap.generatedAt))"
-        return Packet(
-            subject: subject,
-            html: html(snap, pages: chosen),
-            plain: plain(snap, pages: chosen),
-            brief: brief(snap, pages: chosen, names: names)
-        )
+        return autoreleasepool {
+            Packet(
+                subject: subject,
+                html: html(snap, pages: chosen),
+                plain: plain(snap, pages: chosen),
+                brief: brief(snap, pages: chosen, names: names)
+            )
+        }
     }
 
     private static func brief(_ snap: Snapshot, pages: Set<SharePage>, names: [String]) -> String {

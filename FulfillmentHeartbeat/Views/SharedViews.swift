@@ -1209,9 +1209,14 @@ struct ShareRecapCompose: View {
             .padding(.vertical, 12)
             .background(AppTheme.card)
 
-            RecapWebView(html: packet.html)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color(red: 0.96, green: 0.97, blue: 0.99))
+            ScrollView {
+                Text(packet.brief)
+                    .font(.body)
+                    .foregroundStyle(AppTheme.text)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+            }
+            .background(Color(red: 0.96, green: 0.97, blue: 0.99))
 
             Button(action: sendMail) {
                 Text("Send")
@@ -2109,12 +2114,25 @@ private struct PickPathCheapLine: View, Equatable {
     }
 }
 
-private struct PickPathMetricLine: View, Equatable {
+private struct PickPathMetricLine: View {
     let label: String
     var count: Int? = nil
+    var labelWidth: CGFloat = PickPathMath.labelW
     let path: Double?
     let pph: Double?
     let orders: Double?
+    @Environment(\.hubTableWidth) private var tableWidth
+
+    private var valueW: CGFloat {
+        HubLayout.evenValueWidth(
+            available: tableWidth,
+            phone: HubLayout.isPhoneDevice,
+            columns: 3,
+            showCount: count != nil,
+            district: labelWidth < 120,
+            valueMin: HubLayout.dashboardValueMin(phone: HubLayout.isPhoneDevice, columns: 3)
+        )
+    }
 
     var body: some View {
         let health = PickPathMath.pathHealth(path)
@@ -2124,7 +2142,7 @@ private struct PickPathMetricLine: View, Equatable {
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .frame(width: PickPathMath.labelW, alignment: .leading)
+                .frame(width: labelWidth, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
                     .font(.subheadline.weight(.semibold).monospacedDigit())
@@ -2146,7 +2164,7 @@ private struct PickPathMetricLine: View, Equatable {
             .foregroundStyle(ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
-            .frame(maxWidth: .infinity, alignment: .trailing)
+            .frame(width: valueW, alignment: .trailing)
             .padding(.vertical, 6)
             .padding(.horizontal, 6)
             .background(
@@ -2178,27 +2196,47 @@ struct PickPathMetricHeader: View {
     let label: String
     var showCount: Bool = false
     var showDates: Bool = false
+    var labelWidth: CGFloat = PickPathMath.labelW
     var active: String? = nil
     var ascending: Bool = false
     var onSelect: ((String) -> Void)? = nil
+    @Environment(\.hubTableWidth) private var tableWidth
+
+    private var valueW: CGFloat {
+        HubLayout.evenValueWidth(
+            available: tableWidth,
+            phone: HubLayout.isPhoneDevice,
+            columns: showDates ? 5 : 3,
+            showCount: showCount,
+            district: labelWidth < 120,
+            valueMin: HubLayout.dashboardValueMin(phone: HubLayout.isPhoneDevice, columns: showDates ? 5 : 3)
+        )
+    }
 
     var body: some View {
         HStack(spacing: showDates ? PickPathMath.gutter : 6) {
             head(label, key: "label", alignment: .leading)
-                .frame(width: PickPathMath.labelW, alignment: .leading)
+                .frame(width: labelWidth, alignment: .leading)
             if showCount {
                 head("Stores", key: "count", alignment: .trailing)
                     .frame(width: PickPathMath.countW, alignment: .trailing)
             }
             head("Pick Path", key: "path")
+                .frame(width: valueW, alignment: .trailing)
             if showDates {
                 head("Avg PPH", key: "pph")
+                    .frame(width: valueW, alignment: .trailing)
                 head("Orders", key: "orders")
+                    .frame(width: valueW, alignment: .trailing)
                 head("Mapper", key: "mapper", alignment: .center)
+                    .frame(width: valueW, alignment: .center)
                 head("Sequence", key: "sequence", alignment: .center)
+                    .frame(width: valueW, alignment: .center)
             } else {
                 head("Avg PPH", key: "pph")
+                    .frame(width: valueW, alignment: .trailing)
                 head("Orders", key: "orders")
+                    .frame(width: valueW, alignment: .trailing)
             }
             head("Status", key: "status", alignment: .trailing)
                 .frame(width: PickPathMath.statusW, alignment: .trailing)
@@ -2297,11 +2335,20 @@ struct PickPathRollupTable: View {
                 }
                 .buttonStyle(.plain)
                 if expanded {
-                    HubAdaptiveHScroll {
+                    HubAdaptiveHScroll(
+                        minWidth: HubLayout.readableTableFloor(
+                            phone: HubLayout.isPhoneDevice,
+                            columns: 3,
+                            showCount: grain != .store,
+                            district: grain == .district,
+                            valueMin: HubLayout.dashboardValueMin(phone: HubLayout.isPhoneDevice, columns: 3)
+                        )
+                    ) {
                     VStack(alignment: .leading, spacing: 10) {
                     PickPathMetricHeader(
                         label: grain.columnTitle,
                         showCount: grain != .store,
+                        labelWidth: grain.labelWidth,
                         active: sortKey,
                         ascending: sortAscending,
                         onSelect: applySort
@@ -2310,6 +2357,7 @@ struct PickPathRollupTable: View {
                         PickPathMetricLine(
                             label: row.label,
                             count: grain == .store ? nil : row.storeCount,
+                            labelWidth: grain.labelWidth,
                             path: row.path,
                             pph: row.pph,
                             orders: row.orders
@@ -7753,7 +7801,7 @@ private struct ScheduleCheapLine: View, Equatable {
     }
 }
 
-private struct ScheduleMetricLine: View, Equatable {
+private struct ScheduleMetricLine: View {
     let label: String
     var count: Int? = nil
     var labelWidth: CGFloat = HubLayout.pageLabelWidth
@@ -7761,6 +7809,18 @@ private struct ScheduleMetricLine: View, Equatable {
     let staffing: Double?
     let under: Double?
     let over: Double?
+    @Environment(\.hubTableWidth) private var tableWidth
+
+    private var valueW: CGFloat {
+        HubLayout.evenValueWidth(
+            available: tableWidth,
+            phone: HubLayout.isPhoneDevice,
+            columns: 5,
+            showCount: count != nil,
+            district: labelWidth < 120,
+            valueMin: HubLayout.dashboardValueMin(phone: HubLayout.isPhoneDevice, columns: 5)
+        )
+    }
 
     var body: some View {
         let health = ScheduleRollupRow(id: label, label: label, storeCount: count ?? 0, efficiency: efficiency, staffing: staffing, under: under, over: over).health
@@ -7794,9 +7854,8 @@ private struct ScheduleMetricLine: View, Equatable {
             .foregroundStyle(brand ? AppTheme.blue : ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
-            .frame(maxWidth: .infinity, alignment: .trailing)
+            .frame(width: valueW, alignment: .trailing)
             .padding(.vertical, 6)
-            .padding(.horizontal, 6)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(brand ? AppTheme.blueSoft : wash(health))
@@ -7829,6 +7888,18 @@ struct ScheduleMetricHeader: View {
     var active: String? = nil
     var ascending: Bool = false
     var onSelect: ((String) -> Void)? = nil
+    @Environment(\.hubTableWidth) private var tableWidth
+
+    private var valueW: CGFloat {
+        HubLayout.evenValueWidth(
+            available: tableWidth,
+            phone: HubLayout.isPhoneDevice,
+            columns: 5,
+            showCount: showCount,
+            district: labelWidth < 120,
+            valueMin: HubLayout.dashboardValueMin(phone: HubLayout.isPhoneDevice, columns: 5)
+        )
+    }
 
     var body: some View {
         HStack(spacing: 6) {
@@ -7839,10 +7910,15 @@ struct ScheduleMetricHeader: View {
                     .frame(width: 58, alignment: .trailing)
             }
             head("Efficiency", key: "efficiency")
+                .frame(width: valueW, alignment: .trailing)
             head("Staffing % (Pch vs Tgt)", key: "staffing")
+                .frame(width: valueW, alignment: .trailing)
             head("Goal", key: "goal")
+                .frame(width: valueW, alignment: .trailing)
             head("Under", key: "under")
+                .frame(width: valueW, alignment: .trailing)
             head("Over", key: "over")
+                .frame(width: valueW, alignment: .trailing)
             head("Status", key: "status", alignment: .trailing)
                 .frame(width: 88, alignment: .trailing)
         }
@@ -7935,7 +8011,15 @@ struct ScheduleRollupTable: View {
                 }
                 .buttonStyle(.plain)
                 if expanded {
-                    HubAdaptiveHScroll {
+                    HubAdaptiveHScroll(
+                        minWidth: HubLayout.readableTableFloor(
+                            phone: HubLayout.isPhoneDevice,
+                            columns: 5,
+                            showCount: grain != .store,
+                            district: grain == .district,
+                            valueMin: HubLayout.dashboardValueMin(phone: HubLayout.isPhoneDevice, columns: 5)
+                        )
+                    ) {
                     VStack(alignment: .leading, spacing: 10) {
                     ScheduleMetricHeader(
                         label: grain.columnTitle,
@@ -9893,7 +9977,7 @@ struct HubAdaptiveHScroll<Content: View>: View {
     @State private var available: CGFloat = 0
 
     private var floor: CGFloat {
-        minWidth ?? (HubLayout.isPhone(sizeClass) ? 920 : 1040)
+        minWidth ?? (HubLayout.isPhone(sizeClass) ? 640 : 780)
     }
 
     private var span: CGFloat {

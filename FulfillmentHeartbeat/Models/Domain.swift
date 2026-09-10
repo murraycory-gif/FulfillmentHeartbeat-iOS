@@ -1196,7 +1196,10 @@ enum HeartbeatMath {
         if !selectedDivisions.isEmpty {
             divisionValues = selectedDivisions
         } else {
-            divisionValues = selectedRegions.flatMap { MarketRegion(rawValue: $0)?.divisions ?? [] }
+            divisionValues = selectedRegions.flatMap { name -> [String] in
+                let region = MarketRegion(rawValue: name) ?? MarketRegion.named(name)
+                return region?.divisions ?? []
+            }
         }
         let districtValues = DashboardFilters.parts(district)
         let omValues = DashboardFilters.parts(om)
@@ -1336,16 +1339,20 @@ enum HeartbeatMath {
         return value
     }
 
-    /// Filter-true short name: J3CHICAGO → J3, J1NORTHSHORE → J1. Leaves 03 / D3 / J3 alone.
+    /// Filter-true short name: J3CHICAGO → J3, J1NORTHSHORE → J1, "308 - J3 CHICAGO" → J3.
+    /// Leaves 03 / D3 / J3 alone.
     static func shortDistrictName(_ raw: String) -> String {
         let canon = raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
         guard !canon.isEmpty else { return "" }
-        guard let match = canon.range(of: #"^[A-Z]{1,3}\d{1,2}"#, options: .regularExpression) else {
-            return canon
+        if let match = canon.range(of: #"^[A-Z]{1,3}\d{1,2}"#, options: .regularExpression) {
+            let prefix = String(canon[match])
+            let rest = canon[match.upperBound...]
+            if rest.contains(where: \.isLetter) { return prefix }
+            return canon.replacingOccurrences(of: "\\s+", with: "", options: .regularExpression)
         }
-        let prefix = String(canon[match])
-        let rest = canon[match.upperBound...]
-        if rest.contains(where: \.isLetter) { return prefix }
+        if let match = canon.range(of: #"[A-Z]{1,3}\d{1,2}(?=[\s\-]*[A-Z])"#, options: .regularExpression) {
+            return String(canon[match])
+        }
         return canon
     }
 
@@ -3566,10 +3573,12 @@ struct DashboardFilters: Equatable, Codable {
             return selected.contains { MarketRegion.matchesDivision(value, $0) }
         }
         let selectedRegions = Self.parts(region)
-        if !selectedRegions.isEmpty {
-            return selectedRegions.contains { MarketRegion(rawValue: $0)?.contains(value) == true }
+        if selectedRegions.isEmpty { return true }
+        return selectedRegions.contains { name in
+            guard let region = MarketRegion(rawValue: name) ?? MarketRegion.named(name) else { return false }
+            if region.contains(value) { return true }
+            return MarketRegion.containing(value) == region
         }
-        return true
     }
 
     func includesDistrict(_ value: String) -> Bool {
@@ -3748,6 +3757,10 @@ enum MarketRegion: String, CaseIterable, Identifiable, Sendable {
         let a = canonicalName(lhs)
         let b = canonicalName(rhs)
         if !a.isEmpty, !b.isEmpty { return HeartbeatMath.compactKey(a) == HeartbeatMath.compactKey(b) }
+        if let left = containing(lhs), let right = containing(rhs), left == right,
+           named(lhs) != nil || named(rhs) != nil {
+            return true
+        }
         return HeartbeatMath.compactKey(lhs) == HeartbeatMath.compactKey(rhs) && !HeartbeatMath.compactKey(lhs).isEmpty
     }
 

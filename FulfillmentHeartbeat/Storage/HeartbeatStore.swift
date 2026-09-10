@@ -3717,9 +3717,10 @@ final class HeartbeatStore: ObservableObject {
         for section in needed {
             let all = displayRows(for: section)
             rowTotals[section] = all.count
-            rows[section] = PulseMail.cappedStoreRows(all, section: section)
+            let capped = PulseMail.cappedStoreRows(all, section: section)
+            rows[section] = capped
             if section == .sales {
-                for row in all where !row.storeNumber.isEmpty && row.textPayload["sales_grain"] != "company" {
+                for row in capped where !row.storeNumber.isEmpty && row.textPayload["sales_grain"] != "company" {
                     sums.salesDollars += row.number("sales_dollars") ?? 0
                     sums.salesOrders += row.number("sales_orders") ?? 0
                     sums.hdOrders += row.number("sales_hd_orders") ?? 0
@@ -3727,14 +3728,14 @@ final class HeartbeatStore: ObservableObject {
                 }
             }
             if section == .lostRevenue {
-                for row in all where !row.storeNumber.isEmpty {
+                for row in capped where !row.storeNumber.isEmpty {
                     sums.ecommSales += row.number("ecomm_sales") ?? 0
                     sums.postSub += row.number("post_sub_oos_foregone") ?? 0
                 }
             }
         }
         if needed.contains(.pph) {
-            for row in rows[.pph] ?? [] {
+            for row in (rows[.pph] ?? []).prefix(20) {
                 let key = HeartbeatMath.canonicalStore(row.storeNumber)
                 pickerCounts[key] = pphPickerCount(forStore: key)
             }
