@@ -3232,8 +3232,9 @@ final class HeartbeatStore: ObservableObject {
                     filtersActive: false
                 )
             }
-            if !filters.isActive {
-                rebuildCompanyGrainPacks()
+            if !filters.isActive, let chrome = packChrome {
+                seedExpandTablesFromChrome(chrome)
+                seedPickerGrainFromChrome(chrome)
             }
             lockPickerDashboard()
             refreshSalesExpandCache()
