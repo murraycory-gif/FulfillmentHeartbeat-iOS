@@ -36,7 +36,12 @@ enum PulseQuery {
 
     /// Keep every shopper in the filter. Store-fact slice keeps one row per store.
     static func sliceShoppers(_ rows: [MetricRow], allowed: Set<String>?) -> [MetricRow] {
-        let shoppers = rows.filter(isShopperRow)
+        var shoppers = rows.filter(isShopperRow)
+        if shoppers.isEmpty {
+            shoppers = rows.filter {
+                $0.section == .pickerScorecard || $0.section == .pickPathPicker
+            }
+        }
         guard let allowed else { return shoppers }
         return shoppers.filter { row in
             let store = HeartbeatMath.canonicalStore(row.storeNumber)

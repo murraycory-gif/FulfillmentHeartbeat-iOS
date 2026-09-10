@@ -1285,6 +1285,35 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(collapsed.count, 1)
         XCTAssertEqual(PulseQuery.sliceSection(.pickerScorecard, rows: rows, allowed: allowed).count, 2)
         XCTAssertEqual(PulseQuery.sliceSection(.lostRevenue, rows: rows, allowed: allowed).count, 1)
+
+        let unnamed = [
+            MetricRow(section: .pickerScorecard, division: "", operationsOM: "", storeNumber: "304", payload: [:], textPayload: [:]),
+            MetricRow(section: .pickerScorecard, division: "", operationsOM: "", storeNumber: "304", payload: [:], textPayload: ["shopper_name": ""]),
+        ]
+        XCTAssertEqual(PulseQuery.sliceShoppers(unnamed, allowed: allowed).count, 2)
+
+        var warehouse: [MetricSection: [MetricRow]] = [.pickerScorecard: rows]
+        let light = PulseQuery.paint(
+            warehouse: warehouse,
+            roster: [:],
+            filters: DashboardFilters(),
+            grain: .region,
+            uploads: [],
+            hidePicker: true,
+            light: true
+        )
+        XCTAssertEqual(light.filtered[.pickerScorecard]?.count, 3)
+        warehouse[.pickerScorecard] = [rows[0]]
+        let splash = PulseQuery.paint(
+            warehouse: warehouse,
+            roster: [:],
+            filters: DashboardFilters(),
+            grain: .region,
+            uploads: [],
+            hidePicker: true,
+            light: true
+        )
+        XCTAssertNil(splash.filtered[.pickerScorecard])
     }
 
     func testWarehouseKeepsFullPackAndFillsThinPack() {

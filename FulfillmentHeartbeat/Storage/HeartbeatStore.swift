@@ -136,8 +136,7 @@ final class HeartbeatStore: ObservableObject {
         await paintFromWarehouse(light: true)
         if canLeaveSplash() {
             finishLocalLaunch()
-            Task { await self.paintFromWarehouse(light: false) }
-            Task { await self.loadDeferredPicker() }
+            Task { await self.fillAfterReady() }
             if HubLayout.ingestsWorkbook {
                 Task { await self.ingestWorkbookOnMacIfNeeded() }
             }
@@ -154,8 +153,7 @@ final class HeartbeatStore: ObservableObject {
         }
         if canLeaveSplash() {
             finishLocalLaunch()
-            Task { await self.paintFromWarehouse(light: false) }
-            Task { await self.loadDeferredPicker() }
+            Task { await self.fillAfterReady() }
             return
         }
         isImporting = false
@@ -179,6 +177,13 @@ final class HeartbeatStore: ObservableObject {
         importLabel = nil
         isReady = true
         needsRolePick = true
+    }
+
+    /// Load shoppers after splash, then grain-paint with the warehouse that has them.
+    /// Parallel ready-paint used to overwrite a just-filled Picker ScoreCard.
+    private func fillAfterReady() async {
+        await loadDeferredPicker()
+        await paintFromWarehouse(light: false)
     }
 
     func retryLaunch() {
@@ -1421,6 +1426,7 @@ final class HeartbeatStore: ObservableObject {
         }
         needsRolePick = false
         Task {
+            await loadDeferredPicker()
             await paintFromWarehouse(light: true)
             await paintFromWarehouse(light: false)
         }
@@ -1735,7 +1741,10 @@ final class HeartbeatStore: ObservableObject {
             }
             await paintFromWarehouse(light: true)
             if reason != .boot {
-                Task { await self.paintFromWarehouse(light: false) }
+                Task {
+                    await self.loadDeferredPicker()
+                    await self.paintFromWarehouse(light: false)
+                }
             }
         } catch {
             try? fileManager.removeItem(at: staging)
@@ -2397,8 +2406,15 @@ final class HeartbeatStore: ObservableObject {
             )
         }.value
         guard filters == current else { return }
+        let priorPickers = filteredLatest[.pickerScorecard] ?? []
         filteredLatest = view.filtered
         cachedSummaries = view.summaries
+        keepDeferredPickers(
+            painted: view.filtered[.pickerScorecard] ?? [],
+            warehouse: warehouse[.pickerScorecard] ?? [],
+            prior: priorPickers,
+            filters: current
+        )
         if !view.flags.isEmpty {
             cachedCardFlags = view.flags
         }
@@ -2934,6 +2950,32 @@ final class HeartbeatStore: ObservableObject {
 
     private func loadDeferredPicker() async {
         await ensureSectionLoaded(.pickerScorecard)
+    }
+
+    /// A ready-time grain paint can snapshot the warehouse before shoppers land.
+    /// Keep the deferred fill unless this filter truly has no shoppers.
+    private func keepDeferredPickers(
+        painted: [MetricRow],
+        warehouse: [MetricRow],
+        prior: [MetricRow],
+        filters: DashboardFilters
+    ) {
+        if painted.count >= 2 { return }
+        let allowed = PulseCaches.allowedStores(roster: roster, filters: filters)
+        if warehouse.count >= 2 {
+            let sliced = PulseQuery.sliceSection(.pickerScorecard, rows: warehouse, allowed: allowed)
+            if !sliced.isEmpty {
+                filteredLatest[.pickerScorecard] = sliced
+                cachedPickerBoard = HeartbeatMath.pickerBoard(sliced)
+                refreshSummary(for: .pickerScorecard, rows: sliced)
+                schedulePickerIndex(sliced)
+            }
+            return
+        }
+        if prior.count >= 2 {
+            filteredLatest[.pickerScorecard] = prior
+            cachedPickerBoard = HeartbeatMath.pickerBoard(prior)
+        }
     }
 
     private func refreshLoadedPickers() {

@@ -607,6 +607,7 @@ struct BeatingHeartbeatMark: View {
     var height: CGFloat = 52
     var showsTrace: Bool = true
     var showsWordmark: Bool = true
+    var showsCaption: Bool = true
     var forceTrace: Bool = false
 
     var body: some View {
@@ -616,7 +617,7 @@ struct BeatingHeartbeatMark: View {
                 if showsWordmark {
                     FulfillmentWordmark(height: min(height, 56))
                 }
-                heartBlock
+                heartWithCaption
             }
             .frame(maxWidth: .infinity)
         }
@@ -629,7 +630,21 @@ struct BeatingHeartbeatMark: View {
             if showsWordmark {
                 FulfillmentWordmark(height: height)
             }
+            heartWithCaption
+        }
+    }
+
+    private var heartWithCaption: some View {
+        VStack(alignment: .leading, spacing: height * 0.06) {
             heartBlock
+            if showsCaption {
+                Text("Heartbeat")
+                    .font(.system(size: max(9, height * 0.22), weight: .bold, design: .default))
+                    .foregroundStyle(Color(hex: "003DA5"))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                    .frame(width: height, alignment: .center)
+            }
         }
     }
 
@@ -717,7 +732,12 @@ struct HubNavLogo: View {
     var height: CGFloat = 32
 
     var body: some View {
-        BeatingHeartbeatMark(height: height, showsTrace: pulse, showsWordmark: pulse)
+        BeatingHeartbeatMark(
+            height: height,
+            showsTrace: pulse,
+            showsWordmark: false,
+            showsCaption: true
+        )
     }
 }
 
@@ -975,6 +995,12 @@ struct FilterBar: View {
 
     var body: some View {
         HStack(spacing: 8) {
+            if !compactPills, store.filters.isActive {
+                Button("Clear") { store.clearFilters() }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(AppTheme.blue)
+                    .frame(minHeight: 44)
+            }
             ViewThatFits(in: .horizontal) {
                 pills
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -992,20 +1018,34 @@ struct FilterBar: View {
         }
     }
 
+    private var compactPills: Bool { HubLayout.isPhone(sizeClass) }
+
     private var pills: some View {
-        HStack(spacing: 10) {
-            HubChromePill(
-                title: store.filters.isActive ? compactFilterTitle : "Filters",
-                symbol: "line.3.horizontal.decrease.circle",
-                selected: store.filters.isActive
-            ) {
-                openFilters(.region)
-            }
-            if store.filters.isActive {
-                Button("Clear") { store.clearFilters() }
-                    .font(HubLayout.isPhone(sizeClass) ? .caption2.weight(.semibold) : .subheadline.weight(.semibold))
-                    .foregroundStyle(AppTheme.blue)
-                    .frame(minHeight: HubLayout.isPhone(sizeClass) ? HubLayout.phoneControlHeight : 44)
+        HStack(spacing: compactPills ? 10 : 8) {
+            if compactPills {
+                HubChromePill(
+                    title: store.filters.isActive ? compactFilterTitle : "Filters",
+                    symbol: "line.3.horizontal.decrease.circle",
+                    selected: store.filters.isActive
+                ) {
+                    openFilters(.region)
+                }
+                if store.filters.isActive {
+                    Button("Clear") { store.clearFilters() }
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(AppTheme.blue)
+                        .frame(minHeight: HubLayout.phoneControlHeight)
+                }
+            } else {
+                ForEach(FilterFocus.allCases) { focus in
+                    HubChromePill(
+                        title: pillTitle(for: focus),
+                        symbol: focus.symbol,
+                        selected: !store.filters.values(for: focus).isEmpty
+                    ) {
+                        openFilters(focus)
+                    }
+                }
             }
             HubChromePill(
                 title: "Share",
@@ -9676,10 +9716,10 @@ struct HubBrandBar: View {
                 assistButton
             }
             .zIndex(2)
-            BeatingHeartbeatMark(height: markHeight, showsTrace: true)
+            BeatingHeartbeatMark(height: markHeight, showsTrace: true, showsCaption: true)
                 .allowsHitTesting(false)
         }
-        .frame(minHeight: markHeight + 8)
+        .frame(minHeight: markHeight + 22)
     }
 
     private var compactBar: some View {
