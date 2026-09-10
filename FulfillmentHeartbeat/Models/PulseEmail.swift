@@ -108,21 +108,11 @@ enum PulseMail {
         .scheduleQuality, .pickerScorecard, .pph, .labor,
     ]
 
-    /// Keep mail HTML and the MainActor snapshot off the Jetsam cliff.
-    /// Same columns as the page; first page of rows.
-    static let storeRowCap = 80
-    static let grainRowCap = 40
-
-    /// Copy at most `storeRowCap` rows so Share never duplicates the warehouse.
-    static func cappedStoreRows(_ rows: [MetricRow], section: MetricSection) -> [MetricRow] {
-        if rows.count <= storeRowCap { return rows }
-        if section == .pickerScorecard || section == .preSubOOSItem || section == .pickPathPicker {
-            return Array(rows.prefix(storeRowCap))
-        }
-        let ranked = rows.indices.sorted {
-            HeartbeatFormat.storeOrder(rows[$0].storeNumber, rows[$1].storeNumber)
-        }
-        return ranked.prefix(storeRowCap).map { rows[$0] }
+    /// Share sends the current filtered page: every grain/store row the user sees.
+    /// Jetsam safety is the file-URL path, not truncating the view.
+    static func pageRows(_ rows: [MetricRow], section: MetricSection) -> [MetricRow] {
+        _ = section
+        return rows
     }
 
     static func make(
@@ -134,13 +124,25 @@ enum PulseMail {
         let names = SharePage.allCases.filter { chosen.contains($0) }.map(\.title)
         let subject = "Fulfillment Heartbeat — \(snap.filterSummary) — \(HeartbeatFormat.stamp(snap.generatedAt))"
         return autoreleasepool {
-            let htmlString = html(snap, pages: chosen)
-            let file = writeHTMLStreaming(htmlString)
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("Fulfillment-Heartbeat-\(UUID().uuidString).html")
+            let sink = HTMLSink(keepString: persistHTML, fileURL: url)
+            writeHTML(snap, pages: chosen, to: sink)
+            sink.close()
+            let htmlString = persistHTML ? sink.string : ""
+            let file: URL?
+            if sink.wroteFile {
+                file = url
+            } else if persistHTML {
+                file = writeHTMLStreaming(htmlString)
+            } else {
+                file = nil
+            }
             return Packet(
                 subject: subject,
-                html: persistHTML ? htmlString : "",
+                html: htmlString,
                 htmlFile: file,
-                plain: plain(snap, pages: chosen),
+                plain: persistHTML ? plain(snap, pages: chosen) : "",
                 brief: brief(snap, pages: chosen, names: names)
             )
         }
@@ -179,6 +181,43 @@ enum PulseMail {
         packet.htmlFile ?? packet.brief
     }
 
+    /// Writes one section at a time so the full filtered page can land in a file
+    /// without keeping the giant HTML string (or an attributed string) in RAM.
+    private final class HTMLSink {
+        private var chunks: [String] = []
+        private let keepString: Bool
+        private var handle: FileHandle?
+        let fileURL: URL?
+        private(set) var wroteFile = false
+
+        init(keepString: Bool, fileURL: URL?) {
+            self.keepString = keepString
+            self.fileURL = fileURL
+            if let fileURL {
+                FileManager.default.createFile(atPath: fileURL.path, contents: nil)
+                handle = try? FileHandle(forWritingTo: fileURL)
+            }
+        }
+
+        func append(_ text: String) {
+            if keepString { chunks.append(text) }
+            if let handle, let data = text.data(using: .utf8) {
+                try? handle.write(contentsOf: data)
+                wroteFile = true
+            }
+        }
+
+        func close() {
+            try? handle?.synchronize()
+            try? handle?.close()
+            handle = nil
+        }
+
+        var string: String { chunks.joined() }
+
+        deinit { close() }
+    }
+
     private static func brief(_ snap: Snapshot, pages: Set<SharePage>, names: [String]) -> String {
         var lines = [
             "Fulfillment Heartbeat",
@@ -198,8 +237,28 @@ enum PulseMail {
         return lines.joined(separator: "\n")
     }
 
+    /// One section at a time so Share can stream the full filtered page to a file.
+    private static func writeHTML(_ snap: Snapshot, pages: Set<SharePage>, to sink: HTMLSink) {
+        sink.append(htmlHead(snap))
+        if pages.contains(.dashboard) {
+            sink.append(dashboardHTML(snap))
+        }
+        for page in SharePage.allCases {
+            guard page != .dashboard, pages.contains(page), let section = page.section else { continue }
+            sink.append(sectionHTML(section, snap: snap))
+        }
+        sink.append("<p class=\"sub\">Sent from Fulfillment Heartbeat</p></div></body></html>")
+    }
+
     private static func html(_ snap: Snapshot, pages: Set<SharePage>) -> String {
-        var out = """
+        let sink = HTMLSink(keepString: true, fileURL: nil)
+        writeHTML(snap, pages: pages, to: sink)
+        sink.close()
+        return sink.string
+    }
+
+    private static func htmlHead(_ snap: Snapshot) -> String {
+        """
         <!DOCTYPE html><html><head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -234,15 +293,6 @@ enum PulseMail {
         <h1>Fulfillment Heartbeat</h1>
         <p class="sub">\(esc(snap.filterSummary))<br>\(esc(HeartbeatFormat.stamp(snap.generatedAt))) · Same layout and columns as the in-app page · Upload is not included</p>
         """
-        if pages.contains(.dashboard) {
-            out += dashboardHTML(snap)
-        }
-        for page in SharePage.allCases {
-            guard page != .dashboard, pages.contains(page), let section = page.section else { continue }
-            out += sectionHTML(section, snap: snap)
-        }
-        out += "<p class=\"sub\">Sent from Fulfillment Heartbeat</p></div></body></html>"
-        return out
     }
 
     private static func dashboardHTML(_ snap: Snapshot) -> String {
@@ -346,16 +396,13 @@ enum PulseMail {
         if section == .sales {
             return salesGrainTable(rows: rows, grain: grain, order: lines.map(\.label))
         }
-        let table = Array(
-            HeartbeatMath.dashboardGrainTableFilled(
-                section: section,
-                rows: rows,
-                grain: grain,
-                order: lines.map(\.label)
-            )
-            .filter { $0.label != "Unassigned" && !$0.label.isEmpty }
-            .prefix(grainRowCap)
+        let table = HeartbeatMath.dashboardGrainTableFilled(
+            section: section,
+            rows: rows,
+            grain: grain,
+            order: lines.map(\.label)
         )
+        .filter { $0.label != "Unassigned" && !$0.label.isEmpty }
         return grainTableHTML(table, section: section, grain: grain)
     }
 
@@ -364,7 +411,7 @@ enum PulseMail {
         section: MetricSection,
         grain: DashScopeGrain
     ) -> String {
-        let shown = Array(table.filter { $0.label != "Unassigned" && !$0.label.isEmpty }.prefix(grainRowCap))
+        let shown = table.filter { $0.label != "Unassigned" && !$0.label.isEmpty }
         guard !shown.isEmpty else { return "" }
         var headers = ["Scope"]
         if grain != .store { headers.append("Stores") }
@@ -406,7 +453,6 @@ enum PulseMail {
         var body = ""
         var shown = 0
         for label in labels {
-            if shown >= grainRowCap { break }
             let group = buckets[label] ?? []
             if group.isEmpty { continue }
             shown += 1
@@ -816,7 +862,10 @@ enum PulseMail {
         default: title = "Store"
         }
         let usable = rows.filter {
-            !$0.storeNumber.isEmpty || section == .pickerScorecard || section == .preSubOOSItem
+            PulseQuery.isStoreFact($0)
+                || !$0.storeNumber.isEmpty
+                || section == .pickerScorecard
+                || section == .preSubOOSItem
         }
         if usable.isEmpty {
             return bar(title, "No rows in this view")
@@ -827,7 +876,7 @@ enum PulseMail {
         } else {
             ordered = usable.sorted { HeartbeatFormat.storeOrder($0.storeNumber, $1.storeNumber) }
         }
-        let shown = Array(ordered.prefix(storeRowCap))
+        let shown = ordered
         var body = ""
         for row in shown {
             let health = HeartbeatMath.health(for: section, row: row)
@@ -1193,12 +1242,12 @@ enum PulseMail {
             for card in snap.summaries {
                 lines.append("\(card.section.title): \(card.headlineText) · \(card.health.label) · \(riskLine(card.section, card))")
                 let grain = dashGrain(snap)
-                let grainRows = Array((snap.grainTables[card.section] ?? HeartbeatMath.dashboardGrainTable(
+                let grainRows = snap.grainTables[card.section] ?? HeartbeatMath.dashboardGrainTable(
                     section: card.section,
                     rows: snap.rows[card.section] ?? [],
                     grain: grain,
                     order: []
-                )).prefix(grainRowCap))
+                )
                 if !grainRows.isEmpty {
                     lines.append(HeartbeatMath.dashboardTableHeaders(card.section).joined(separator: " | "))
                     for line in grainRows {

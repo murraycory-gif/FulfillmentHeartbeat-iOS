@@ -976,7 +976,7 @@ struct FilterBar: View {
     var body: some View {
         HStack(spacing: 8) {
             if !compactPills, store.filters.isActive {
-                Button("Clear") { store.clearFilters() }
+                Button("Clear") { clearNow() }
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(AppTheme.blue)
                     .frame(minHeight: 44)
@@ -1011,7 +1011,7 @@ struct FilterBar: View {
                     openFilters(.region)
                 }
                 if store.filters.isActive {
-                    Button("Clear") { store.clearFilters() }
+                    Button("Clear") { clearNow() }
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(AppTheme.blue)
                         .frame(minHeight: HubLayout.phoneControlHeight)
@@ -1058,6 +1058,14 @@ struct FilterBar: View {
 
     private func openFilters(_ focus: FilterFocus) {
         sheetFocus = focus
+    }
+
+    private func clearNow() {
+        var transaction = Transaction()
+        transaction.animation = nil
+        withTransaction(transaction) {
+            store.clearFilters()
+        }
     }
 }
 

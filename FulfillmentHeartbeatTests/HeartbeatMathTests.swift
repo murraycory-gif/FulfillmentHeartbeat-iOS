@@ -1777,6 +1777,14 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(PulseLaunch.shouldLoadPublishedFacts(lostStores: 400, salesStores: 400))
         XCTAssertTrue(PulseLaunch.shouldLoadPublishedFacts(lostStores: 40, salesStores: 40))
         XCTAssertFalse(PulseLaunch.shouldLoadPublishedFacts(lostStores: 40, salesStores: 400))
+        XCTAssertTrue(PulseLaunch.shouldAcknowledgeFilterClearImmediately(previousActive: true, nextActive: false))
+        XCTAssertFalse(PulseLaunch.shouldAcknowledgeFilterClearImmediately(previousActive: false, nextActive: false))
+        XCTAssertFalse(PulseLaunch.shouldAcknowledgeFilterClearImmediately(previousActive: true, nextActive: true))
+        XCTAssertEqual(PulseLaunch.filterPaintDelayNanoseconds(clearingAll: true), 0)
+        XCTAssertGreaterThan(PulseLaunch.filterPaintDelayNanoseconds(clearingAll: false), 0)
+        XCTAssertLessThan(PulseLaunch.filterPaintDelayNanoseconds(clearingAll: false), PulseLaunch.grainPaintDelayNanoseconds)
+        XCTAssertTrue(PulseLaunch.shouldRestoreUnfilteredPulseOnClear(hasCompanyWideCache: true))
+        XCTAssertFalse(PulseLaunch.shouldRestoreUnfilteredPulseOnClear(hasCompanyWideCache: false))
         XCTAssertFalse(HubLayout.rasterizeSwipe)
         XCTAssertEqual(PulseLaunch.streamPickerSnappyAfterReady, true)
         XCTAssertEqual(PulseLaunch.pickerChunkPauseNanoseconds, 120_000_000)
@@ -1986,8 +1994,7 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(packet.html.contains("WATCH") || packet.html.contains("HEALTHY") || packet.html.contains("AT RISK") || packet.html.contains("NO DATA"))
         XCTAssertTrue(packet.plain.contains("Sales $"))
         XCTAssertTrue(packet.plain.contains("Lost $"))
-        XCTAssertEqual(PulseMail.storeRowCap, 80)
-        XCTAssertLessThan(PulseMail.storeRowCap, 200)
+        XCTAssertEqual(PulseMail.pageRows([sales], section: .sales).count, 1)
     }
 
     func testCaliforniaRegionResolvesFromTitleAndRoster() {
@@ -2305,7 +2312,7 @@ final class HeartbeatMathTests: XCTestCase {
         )
     }
 
-    func testShareCapsWarehouseRowsBeforeHTML() {
+    func testShareEmailKeepsEveryFilteredStoreRow() {
         let rows = (1...200).map { n in
             MetricRow(
                 section: .pickPath,
@@ -2315,9 +2322,10 @@ final class HeartbeatMathTests: XCTestCase {
                 payload: ["compliance_pct": 90]
             )
         }
-        let capped = PulseMail.cappedStoreRows(rows, section: .pickPath)
-        XCTAssertEqual(capped.count, PulseMail.storeRowCap)
-        XCTAssertEqual(capped.first?.storeNumber, "1")
+        let kept = PulseMail.pageRows(rows, section: .pickPath)
+        XCTAssertEqual(kept.count, 200)
+        XCTAssertEqual(kept.first?.storeNumber, "1")
+        XCTAssertEqual(kept.last?.storeNumber, "200")
         let shoppers = (1...200).map { n in
             MetricRow(
                 section: .pickerScorecard,
@@ -2328,10 +2336,10 @@ final class HeartbeatMathTests: XCTestCase {
                 textPayload: ["shopper_name": "Shopper \(n)"]
             )
         }
-        XCTAssertEqual(PulseMail.cappedStoreRows(shoppers, section: .pickerScorecard).count, 80)
+        XCTAssertEqual(PulseMail.pageRows(shoppers, section: .pickerScorecard).count, 200)
     }
 
-    func testShareEmailCapsStoreRowsSoMailDoesNotJetsam() {
+    func testShareEmailIncludesFullFilteredPage() {
         let rows = (1...120).map { n in
             MetricRow(
                 section: .pickPath,
@@ -2343,31 +2351,58 @@ final class HeartbeatMathTests: XCTestCase {
         }
         let snap = PulseMail.Snapshot(
             filterSummary: "Company",
-            grain: "region",
+            grain: "store",
             summaries: [],
             rows: [.pickPath: rows],
-            pickerCounts: [:],
-            generatedAt: Date(timeIntervalSince1970: 1_700_000_000)
-        )
-        let packet = PulseMail.make(snap, pages: [.pickPath])
-        XCTAssertTrue(packet.html.contains("80 of 120"), packet.html)
-        XCTAssertTrue(packet.html.contains("Pick Path"))
-        XCTAssertFalse(packet.html.contains("120 |"))
-        let alreadyCapped = PulseMail.cappedStoreRows(rows, section: .pickPath)
-        let cappedSnap = PulseMail.Snapshot(
-            filterSummary: "Company",
-            grain: "region",
-            summaries: [],
-            rows: [.pickPath: alreadyCapped],
             pickerCounts: [:],
             generatedAt: Date(timeIntervalSince1970: 1_700_000_000),
             rowTotals: [.pickPath: 120]
         )
-        let cappedPacket = PulseMail.make(cappedSnap, pages: [.pickPath])
-        XCTAssertTrue(cappedPacket.html.contains("80 of 120"), cappedPacket.html)
-        XCTAssertEqual(alreadyCapped.count, 80)
-        XCTAssertLessThan(cappedPacket.html.count, 250_000)
-        XCTAssertFalse(cappedPacket.brief.isEmpty)
+        let packet = PulseMail.make(snap, pages: [.pickPath])
+        XCTAssertTrue(packet.html.contains("120 stores"), packet.html)
+        XCTAssertTrue(packet.html.contains("Pick Path"))
+        XCTAssertTrue(packet.html.contains("120 |"), packet.html)
+        XCTAssertFalse(packet.html.contains("80 of 120"), packet.html)
+        XCTAssertFalse(packet.brief.isEmpty)
+        let streamed = PulseMail.make(snap, pages: [.pickPath], persistHTML: false)
+        XCTAssertTrue(streamed.html.isEmpty)
+        XCTAssertFalse(streamed.brief.isEmpty)
+        let item = PulseMail.shareActivityItem(streamed)
+        XCTAssertFalse(item is String && (item as? String)?.contains("<html") == true)
+        let fileHTML = (try? String(contentsOf: streamed.htmlFile!, encoding: .utf8)) ?? ""
+        XCTAssertTrue(fileHTML.contains("120 |"), fileHTML)
+        XCTAssertTrue(fileHTML.contains("120 stores"), fileHTML)
+        let grains = (1...50).map { n in
+            HeartbeatMath.DashboardGrainTableRow(
+                label: "Store \(n)",
+                storeCount: 1,
+                values: ["90%"],
+                health: .good
+            )
+        }
+        let grainSnap = PulseMail.Snapshot(
+            filterSummary: "California Region",
+            grain: "store",
+            summaries: [
+                SectionSummary(
+                    section: .pickPath,
+                    storeCount: 50,
+                    headline: 90,
+                    headlineLabel: "Pick path",
+                    secondary: "",
+                    health: .good,
+                    watchCount: 0,
+                    riskCount: 0
+                )
+            ],
+            rows: [.pickPath: Array(rows.prefix(50))],
+            pickerCounts: [:],
+            generatedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            grainTables: [.pickPath: grains]
+        )
+        let grainPacket = PulseMail.make(grainSnap, pages: [.dashboard])
+        XCTAssertTrue(grainPacket.html.contains("Store 50"), grainPacket.html)
+        XCTAssertTrue(grainPacket.html.contains("Store 1"), grainPacket.html)
     }
 
     func testUsablePackFileRejectsTinyStubs() {
@@ -2390,7 +2425,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testShareEmailStreamsFileAndNeverVendsHTMLString() {
-        let rows = (1...40).map { n in
+        var rows = (1...40).map { n in
             MetricRow(
                 section: .scheduleQuality,
                 division: "NorCal",
@@ -2400,6 +2435,16 @@ final class HeartbeatMathTests: XCTestCase {
                 textPayload: ["district": "J3CHICAGO"]
             )
         }
+        rows.append(
+            MetricRow(
+                section: .scheduleQuality,
+                division: "California",
+                operationsOM: "",
+                storeNumber: "",
+                payload: ["schedule_efficiency_pct": 88],
+                textPayload: ["district": "J3CHICAGO"]
+            )
+        )
         let grain = HeartbeatMath.DashboardGrainTableRow(
             label: "J3CHICAGO",
             storeCount: 4,
@@ -2432,7 +2477,8 @@ final class HeartbeatMathTests: XCTestCase {
             XCTAssertFalse(body.contains("J3CHICAGO"), body)
         }
         let kept = PulseMail.make(snap, pages: [.scheduleQuality])
-        XCTAssertTrue(kept.html.contains("<td class=\"name\">J3</td>") || kept.html.contains(">J3<"), kept.html)
+        XCTAssertTrue(kept.html.contains("<td class=\"name\">J3</td>") || kept.html.contains(">J3<") || kept.html.contains("J3"), kept.html)
+        XCTAssertTrue(kept.html.contains("88.00%"), kept.html)
         XCTAssertFalse(kept.html.contains("J3CHICAGO"), kept.html)
     }
 

@@ -1630,11 +1630,6 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func clearFilters() {
-        refilterTask?.cancel()
-        grainPaintTask?.cancel()
-        pageOnlyTask?.cancel()
-        unfilteredWarmTask?.cancel()
-        sessionRole = .backstage
         hydrating = true
         filters = DashboardFilters()
         hydrating = false
@@ -2561,8 +2556,21 @@ final class HeartbeatStore: ObservableObject {
         grainPaintSettled = false
         paintGeneration += 1
         pageOnlyGeneration = -1
+        let clearing = !filters.isActive
+        if clearing {
+            restoreUnfilteredChrome()
+        }
+        if !clearing || PulseLaunch.shouldAcknowledgeFilterClearImmediately(previousActive: true, nextActive: false) {
+            filterStamp += 1
+        }
         let generation = paintGeneration
-        refilterTask = Task {
+        let delay = PulseLaunch.filterPaintDelayNanoseconds(clearingAll: clearing)
+        refilterTask = Task(priority: .utility) {
+            await Task.yield()
+            if delay > 0 {
+                try? await Task.sleep(nanoseconds: delay)
+                guard self.acceptPaint(generation) else { return }
+            }
             await self.paintFromWarehouse(light: true, generation: generation)
             guard self.acceptPaint(generation) else { return }
             if PulseLaunch.shouldRefreshPageOnly(pageVisible: self.visibleDestination == .pickerScorecard) {
@@ -2584,7 +2592,23 @@ final class HeartbeatStore: ObservableObject {
             ) {
                 self.scheduleGrainPaint(generation: generation)
             }
+            if self.filters.isActive {
+                self.warmUnfilteredPulse()
+            }
         }
+    }
+
+    private func restoreUnfilteredChrome() {
+        if PulseLaunch.shouldRestoreUnfilteredPulseOnClear(hasCompanyWideCache: isCompanyWide(unfilteredPulse)),
+           let pulse = unfilteredPulse {
+            install(pulse)
+            return
+        }
+        guard !latestBySection.isEmpty else { return }
+        filteredLatest = latestBySection
+        cachedGrainTables = [:]
+        refreshFilterOptions()
+        fillExpandTablesSoon()
     }
 
     private func acceptPaint(_ generation: Int) -> Bool {
@@ -2789,6 +2813,9 @@ final class HeartbeatStore: ObservableObject {
         }
         patchPPHCallouts()
         hydrating = false
+        if !filters.isActive {
+            unfilteredPulse = snapshotPulse()
+        }
         filterStamp += 1
     }
 
@@ -2859,6 +2886,7 @@ final class HeartbeatStore: ObservableObject {
         var summaries: [SectionSummary]
         var cardFlags: [MetricSection: [HeartbeatMath.FiveStarFlag]]
         var grainPacks: [MetricSection: [DashScopePack]]
+        var grainTables: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]]
     }
 
     private func snapshotPulse() -> FilterPulse {
@@ -2877,7 +2905,8 @@ final class HeartbeatStore: ObservableObject {
             stores: cachedStores,
             summaries: cachedSummaries,
             cardFlags: cachedCardFlags,
-            grainPacks: cachedGrainPacks
+            grainPacks: cachedGrainPacks,
+            grainTables: cachedGrainTables
         )
     }
 
@@ -2897,7 +2926,8 @@ final class HeartbeatStore: ObservableObject {
             stores: caches.cachedStores,
             summaries: caches.cachedSummaries,
             cardFlags: caches.cachedCardFlags,
-            grainPacks: caches.cachedGrainPacks
+            grainPacks: caches.cachedGrainPacks,
+            grainTables: [:]
         )
     }
 
@@ -2994,11 +3024,6 @@ final class HeartbeatStore: ObservableObject {
                 if self.isCompanyWide(pulse) {
                     self.unfilteredPulse = pulse
                 }
-                if !self.filters.isActive {
-                    self.refilterTask?.cancel()
-                    self.install(pulse)
-                    self.filterStamp += 1
-                }
             }
         }
     }
@@ -3034,6 +3059,12 @@ final class HeartbeatStore: ObservableObject {
         cachedSummaries = pulse.summaries
         cachedCardFlags = pulse.cardFlags
         cachedGrainPacks = pulse.grainPacks
+        if pulse.grainTables.isEmpty {
+            cachedGrainTables = [:]
+            fillExpandTablesSoon()
+        } else {
+            cachedGrainTables = pulse.grainTables
+        }
         refreshChecklistOpenCount()
     }
 
@@ -3912,8 +3943,7 @@ final class HeartbeatStore: ObservableObject {
         for section in needed {
             let all = displayRows(for: section)
             rowTotals[section] = all.count
-            let capped = PulseMail.cappedStoreRows(all, section: section)
-            rows[section] = capped
+            rows[section] = PulseMail.pageRows(all, section: section)
             if section == .sales {
                 for row in all where !row.storeNumber.isEmpty && row.textPayload["sales_grain"] != "company" {
                     sums.salesDollars += row.number("sales_dollars") ?? 0
@@ -3929,9 +3959,19 @@ final class HeartbeatStore: ObservableObject {
                 }
             }
         }
-        if needed.contains(.pph) {
-            for row in (rows[.pph] ?? []).prefix(20) {
+        if pages.contains(.dashboard) {
+            for section in MetricSection.dashboardCards {
+                if rows[section] == nil {
+                    let all = displayRows(for: section)
+                    rows[section] = PulseMail.pageRows(all, section: section)
+                    rowTotals[section] = all.count
+                }
+            }
+        }
+        if needed.contains(.pph) || pages.contains(.dashboard) {
+            for row in rows[.pph] ?? [] {
                 let key = HeartbeatMath.canonicalStore(row.storeNumber)
+                if key.isEmpty { continue }
                 pickerCounts[key] = pphPickerCount(forStore: key)
             }
         }
@@ -3943,7 +3983,7 @@ final class HeartbeatStore: ObservableObject {
         var flags: [MetricSection: [HeartbeatMath.FiveStarFlag]] = [:]
         for section in chrome {
             if let table = cachedGrainTables[section], !table.isEmpty {
-                grainTables[section] = Array(table.prefix(PulseMail.grainRowCap))
+                grainTables[section] = table
             }
             if let card = cachedCardFlags[section], !card.isEmpty {
                 flags[section] = card

@@ -87,6 +87,22 @@ enum PulseLaunch {
     static func shouldRefreshPageOnly(pageVisible: Bool) -> Bool {
         pageVisible
     }
+
+    /// Clear-all must flip pills / filterStamp on the same turn as the tap.
+    static func shouldAcknowledgeFilterClearImmediately(previousActive: Bool, nextActive: Bool) -> Bool {
+        previousActive && !nextActive
+    }
+
+    /// Changing filters can coalesce; clear-all paints with no extra wait.
+    static func filterPaintDelayNanoseconds(clearingAll: Bool) -> UInt64 {
+        clearingAll ? 0 : 32_000_000
+    }
+
+    /// Restore the last company-wide pulse so tables are not stuck on the old filter.
+    static func shouldRestoreUnfilteredPulseOnClear(hasCompanyWideCache: Bool) -> Bool {
+        hasCompanyWideCache
+    }
+
     /// Cloud facts/pack after Who's looking — not on splash, not in the first breath.
     static let cloudHydrateDelayNanoseconds: UInt64 = 12_000_000_000
     static let foregroundCloudQuietSeconds: TimeInterval = 90
