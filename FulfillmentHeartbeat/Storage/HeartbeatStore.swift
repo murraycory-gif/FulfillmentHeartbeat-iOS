@@ -1738,6 +1738,10 @@ final class HeartbeatStore: ObservableObject {
         }
     }
 
+    func suggestedSeatValues(for role: HeartbeatRole) -> [String] {
+        PulseLaunch.suggestedSeatValues(role: role, pending: pendingLaunchFilters)
+    }
+
     func applyLaunchRole(
         _ role: HeartbeatRole,
         region: String = "",
@@ -1794,6 +1798,7 @@ final class HeartbeatStore: ObservableObject {
         if let pending = decision.apply {
             filters = pending
         }
+        startCloudHydrateIfNeeded()
     }
 
     private func noteHubInteractive() {

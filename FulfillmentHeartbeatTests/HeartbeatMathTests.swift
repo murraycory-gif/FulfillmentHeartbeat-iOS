@@ -1617,10 +1617,21 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseLaunch.shouldPresentSeatBeforeWarehouse())
         XCTAssertTrue(PulseLaunch.shouldKeepLastSeatOnPackLoad(seatPresented: true))
         XCTAssertFalse(PulseLaunch.shouldKeepLastSeatOnPackLoad(seatPresented: false))
-        XCTAssertTrue(PulseLaunch.shouldSkipRoleGateOnRelaunch(role: .districtManager, filtersActive: true))
-        XCTAssertTrue(PulseLaunch.shouldSkipRoleGateOnRelaunch(role: .backstage, filtersActive: false))
+        XCTAssertFalse(PulseLaunch.shouldSkipRoleGateOnRelaunch(role: .districtManager, filtersActive: true))
+        XCTAssertFalse(PulseLaunch.shouldSkipRoleGateOnRelaunch(role: .backstage, filtersActive: false))
         XCTAssertFalse(PulseLaunch.shouldSkipRoleGateOnRelaunch(role: .districtManager, filtersActive: false))
         XCTAssertFalse(PulseLaunch.shouldSkipRoleGateOnRelaunch(role: nil, filtersActive: true))
+        var lastSeat = DashboardFilters()
+        lastSeat.district = "03"
+        XCTAssertEqual(
+            PulseLaunch.suggestedSeatValues(role: .districtManager, pending: lastSeat),
+            ["03"]
+        )
+        XCTAssertEqual(
+            PulseLaunch.suggestedSeatValues(role: .evp, pending: lastSeat),
+            []
+        )
+        XCTAssertTrue(PulseLaunch.suggestedSeatValues(role: .districtManager, pending: nil).isEmpty)
         XCTAssertFalse(PulseLaunch.shouldAllowShare(warehouseHydrating: true))
         XCTAssertTrue(PulseLaunch.shouldAllowShare(warehouseHydrating: false))
         let phases = PulseLaunch.BootPhase.allCases.sorted { $0.rawValue < $1.rawValue }

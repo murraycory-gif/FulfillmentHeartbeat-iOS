@@ -372,17 +372,28 @@ enum PulseLaunch {
         bytes >= minimumPackBytes
     }
 
-    /// Seat UI (Who's looking / last seat) must not wait on the warehouse walk.
+    /// Seat UI (Who's looking) must not wait on the warehouse walk.
     static func shouldPresentSeatBeforeWarehouse() -> Bool { true }
 
-    /// Keep the last seat when the pack finishes after the hub is already up.
+    /// Keep the seat they just picked when the pack finishes after the hub is already up.
     static func shouldKeepLastSeatOnPackLoad(seatPresented: Bool) -> Bool { seatPresented }
 
-    /// Relaunch skips Who's looking when the last seat and its book are on disk.
+    /// Cold open always presents Who's looking. Never auto-restore last dashboard.
     static func shouldSkipRoleGateOnRelaunch(role: HeartbeatRole?, filtersActive: Bool) -> Bool {
-        guard let role else { return false }
-        if role == .backstage { return true }
-        return filtersActive
+        false
+    }
+
+    /// After they pick a seat, offer last book for that seat. They still tap Continue.
+    static func suggestedSeatValues(role: HeartbeatRole, pending: DashboardFilters?) -> [String] {
+        guard let pending, pending.isActive else { return [] }
+        switch role {
+        case .backstage: return []
+        case .evp: return pending.regions
+        case .director: return pending.divisions
+        case .districtManager: return pending.districts
+        case .om: return pending.oms
+        case .store: return pending.stores
+        }
     }
 
     /// Share needs filtered warehouse rows. Chrome-only District 03 would leak company grain.

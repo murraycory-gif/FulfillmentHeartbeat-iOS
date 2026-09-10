@@ -123,7 +123,7 @@ struct RoleGateView: View {
             store.applyLaunchRole(.backstage)
         } else {
             query = ""
-            selected = []
+            selected = Set(store.suggestedSeatValues(for: item))
             role = item
         }
     }
