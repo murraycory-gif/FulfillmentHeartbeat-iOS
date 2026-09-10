@@ -1808,6 +1808,13 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseLaunch.shouldRebuildPPHIndexDuringPaint(dest: .pickerScorecard))
         XCTAssertTrue(PulseLaunch.shouldSkipWarehousePaintOnClear(restoredCompanyWide: true))
         XCTAssertFalse(PulseLaunch.shouldSkipWarehousePaintOnClear(restoredCompanyWide: false))
+        XCTAssertFalse(PulseLaunch.shouldPaintWarehouseOnClear())
+        XCTAssertFalse(PulseLaunch.grainTableMatchesCurrent(labels: ["East Region", "West Region"], grain: .store))
+        XCTAssertFalse(PulseLaunch.grainTableMatchesCurrent(labels: ["East Region"], grain: .district))
+        XCTAssertTrue(PulseLaunch.grainTableMatchesCurrent(labels: ["East Region", "South Region"], grain: .region))
+        XCTAssertTrue(PulseLaunch.grainTableMatchesCurrent(labels: ["03", "304"], grain: .store))
+        XCTAssertFalse(PulseLaunch.flagsMatchFilter(flagStores: [1841, 77, 243], scopedStores: 20))
+        XCTAssertTrue(PulseLaunch.flagsMatchFilter(flagStores: [18, 2], scopedStores: 20))
         XCTAssertEqual(PulseLaunch.warehousePaintPriority(light: true, hubReady: true), .utility)
         XCTAssertEqual(PulseLaunch.warehousePaintPriority(light: true, hubReady: false), .userInitiated)
         XCTAssertTrue(PulseLaunch.shouldPresentShareSheetWithoutBuildingHTML())
@@ -2806,6 +2813,62 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseLaunch.shouldSetHTMLMessageBody(utf8Count: fromFile.utf8.count))
         let item = PulseMail.shareActivityItem(streamed)
         XCTAssertFalse(item is String && (item as? String)?.contains("<html") == true)
+    }
+
+    func testShareDistrictFilterDoesNotEmitCompanyRegions() {
+        let staleRegions = MarketRegion.allCases.map { region in
+            HeartbeatMath.DashboardGrainTableRow(
+                label: region.rawValue,
+                storeCount: 400,
+                values: ["$11,000,000.00", "4.0%", "4.2%", "1,000", "1.0%", "$50.00", "2.0", "10", "AT RISK"],
+                health: .risk
+            )
+        }
+        let store = MetricRow(
+            section: .sales,
+            division: "NorCal",
+            operationsOM: "A",
+            storeNumber: "304",
+            payload: ["sales_dollars": 12_500, "sales_orders": 40],
+            textPayload: ["district": "03", "sales_grain": "store"]
+        )
+        let snap = PulseMail.Snapshot(
+            filterSummary: "All regions · All divisions · District 03 · All OMs · All stores",
+            grain: "store",
+            summaries: [
+                SectionSummary(
+                    section: .sales,
+                    storeCount: 20,
+                    headline: 466_210.21,
+                    headlineLabel: "eComm sales",
+                    secondary: "",
+                    health: .good,
+                    watchCount: 2,
+                    riskCount: 0
+                )
+            ],
+            rows: [.sales: [store]],
+            pickerCounts: [:],
+            generatedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            grainTables: [.sales: staleRegions],
+            flags: [
+                .sales: [
+                    HeartbeatMath.FiveStarFlag(name: "Healthy", value: "Positive ID", health: .good, stores: 1_841),
+                    HeartbeatMath.FiveStarFlag(name: "Watch", value: "Slightly under", health: .watch, stores: 77),
+                    HeartbeatMath.FiveStarFlag(name: "At Risk", value: "Negative ID", health: .risk, stores: 243),
+                ]
+            ]
+        )
+        let html = PulseMail.make(snap, pages: [.dashboard]).html
+        XCTAssertFalse(html.contains("East Region"), html)
+        XCTAssertFalse(html.contains("South Region"), html)
+        XCTAssertFalse(html.contains("California Region"), html)
+        XCTAssertFalse(html.contains("West Region"), html)
+        XCTAssertFalse(html.contains("Stores · 4"), html)
+        XCTAssertFalse(html.contains("1,841"), html)
+        XCTAssertTrue(html.contains("District 03"), html)
+        XCTAssertTrue(html.contains("Stores"), html)
+        XCTAssertTrue(html.contains("304") || html.contains("12,500") || html.contains("$12,500"), html)
     }
 
     func testSupportedFloorIPhone13AndiPad13FlowEvenColumns() {

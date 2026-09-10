@@ -458,7 +458,8 @@ enum PulseMail {
     }
 
     private static func grainHTML(_ section: MetricSection, snap: Snapshot, grain: DashScopeGrain) -> String {
-        if let cached = snap.grainTables[section], !cached.isEmpty {
+        if let cached = snap.grainTables[section], !cached.isEmpty,
+           PulseLaunch.grainTableMatchesCurrent(labels: cached.map(\.label), grain: grain) {
             return grainTableHTML(cached, section: section, grain: grain)
         }
         let rows = (snap.rows[section] ?? []).filter { $0.textPayload["sales_grain"] != "company" }
@@ -565,7 +566,12 @@ enum PulseMail {
     }
 
     private static func dashboardFlagModels(_ section: MetricSection, snap: Snapshot) -> [HeartbeatMath.FiveStarFlag] {
-        if let cached = snap.flags[section], !cached.isEmpty { return cached }
+        let scoped = snap.summaries.first { $0.section == section }?.storeCount
+            ?? (snap.rows[section] ?? []).filter { !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty }.count
+        if let cached = snap.flags[section], !cached.isEmpty,
+           PulseLaunch.flagsMatchFilter(flagStores: cached.map(\.stores), scopedStores: scoped) {
+            return cached
+        }
         let rows = snap.rows[section] ?? []
         switch section {
         case .fiveStar: return HeartbeatMath.fiveStarActionFlags(rows)
@@ -1350,12 +1356,18 @@ enum PulseMail {
             for card in snap.summaries {
                 lines.append("\(card.section.title): \(card.headlineText) · \(card.health.label) · \(riskLine(card.section, card))")
                 let grain = dashGrain(snap)
-                let grainRows = snap.grainTables[card.section] ?? HeartbeatMath.dashboardGrainTable(
-                    section: card.section,
-                    rows: snap.rows[card.section] ?? [],
-                    grain: grain,
-                    order: []
-                )
+                let cached = snap.grainTables[card.section] ?? []
+                let grainRows: [HeartbeatMath.DashboardGrainTableRow]
+                if !cached.isEmpty, PulseLaunch.grainTableMatchesCurrent(labels: cached.map(\.label), grain: grain) {
+                    grainRows = cached
+                } else {
+                    grainRows = HeartbeatMath.dashboardGrainTable(
+                        section: card.section,
+                        rows: snap.rows[card.section] ?? [],
+                        grain: grain,
+                        order: []
+                    )
+                }
                 if !grainRows.isEmpty {
                     lines.append(HeartbeatMath.dashboardTableHeaders(card.section).joined(separator: " | "))
                     for line in grainRows {

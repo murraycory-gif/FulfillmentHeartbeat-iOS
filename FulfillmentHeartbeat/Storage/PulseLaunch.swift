@@ -202,6 +202,28 @@ enum PulseLaunch {
         restoredCompanyWide
     }
 
+    /// Clear never walks the warehouse again. latestBySection is already company-wide.
+    static func shouldPaintWarehouseOnClear() -> Bool { false }
+
+    /// Company-wide region tables must not ride along with a district/store filter.
+    static func grainTableMatchesCurrent(labels: [String], grain: DashScopeGrain) -> Bool {
+        let regions = Set(MarketRegion.allCases.map(\.rawValue))
+        let looksLikeRegions = labels.contains { regions.contains($0) }
+        switch grain {
+        case .region:
+            return looksLikeRegions || labels.isEmpty
+        case .division, .district, .store:
+            return !looksLikeRegions
+        }
+    }
+
+    /// Flag tiles from the unfiltered book (1,800 stores) must not appear on a 20-store district page.
+    static func flagsMatchFilter(flagStores: [Int], scopedStores: Int) -> Bool {
+        guard scopedStores > 0 else { return true }
+        let biggest = flagStores.max() ?? 0
+        return biggest <= max(scopedStores * 3, scopedStores + 24)
+    }
+
     /// After the hub is up, warehouse paint is utility. userInitiated fights scroll / nav.
     static func warehousePaintPriority(light: Bool, hubReady: Bool) -> TaskPriority {
         if hubReady { return .utility }
