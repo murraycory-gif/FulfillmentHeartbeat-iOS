@@ -988,8 +988,8 @@ struct FilterBar: View {
                     pills
                 }
             }
+            .id(stamp)
         }
-        .id(stamp)
         .fullScreenCover(item: $sheetFocus) { focus in
             FilterSheet(initialFocus: focus)
                 .environmentObject(store)
