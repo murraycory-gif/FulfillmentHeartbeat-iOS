@@ -505,17 +505,23 @@ private struct SeatLoadStage: View {
         let halloween = PulseLaunch.shouldMountSeatLoadHalloween(warehouseHydrating: true)
         VStack(spacing: 0) {
             Spacer()
-            BeatingHeartbeatMark(height: phone ? 56 : 72, showsTrace: true, forceTrace: true)
+            FulfillmentWordmark(height: phone ? 44 : 58)
                 .frame(maxWidth: .infinity)
-            ZStack {
-                SeatLoadProgressLine(fraction: progress.fraction, width: phone ? 260 : 340)
+            BeatingHeartbeatMark(height: phone ? 56 : 72, showsTrace: true, showsWordmark: false, forceTrace: true)
+                .frame(maxWidth: .infinity)
+                .padding(.top, phone ? 8 : 10)
+            ZStack(alignment: .bottom) {
                 if halloween {
                     HalloweenSeatParade(jumpAnchor: 0.50)
-                        .frame(height: phone ? 84 : 96)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: phone ? 108 : 124)
                         .accessibilityHidden(true)
                 }
+                SeatLoadProgressLine(fraction: progress.fraction, width: phone ? 260 : 340)
+                    .padding(.bottom, halloween ? 22 : 0)
             }
-            .frame(height: halloween ? (phone ? 88 : 100) : 18)
+            .frame(height: halloween ? (phone ? 112 : 128) : 18)
+            .frame(maxWidth: .infinity)
             .padding(.top, phone ? 16 : 22)
             VStack(spacing: phone ? 10 : 12) {
                 Text(PulseLaunch.seatLoadTitle)
@@ -563,79 +569,101 @@ private struct SeatLoadProgressLine: View {
                 .fill(AppTheme.blue)
                 .frame(width: max(width * clamped, 8))
         }
-        .frame(width: width, height: 6)
+        .frame(width: width, height: 10)
         .frame(maxWidth: .infinity)
     }
 }
 
-/// Seat-load only. Canvas shapes + emoji offsets — no Lottie, video, or GIF.
-/// Runners chase the progress line and hop over it. Unmount stops it.
+/// Seat-load only. SwiftUI emoji (visible on iPad) hop the progress capsule.
+/// Canvas shapes sit underneath so something still paints if a glyph is blank.
+/// No Lottie, video, or GIF. Unmount stops the TimelineView.
 private struct HalloweenSeatParade: View {
     /// Jump when a runner crosses this fraction of the track (progress line / heart).
     var jumpAnchor: CGFloat = 0.50
 
-    private enum Kind {
-        case pumpkin
-        case ghost
-        case bat
-        case emoji
-    }
-
-    private struct Runner {
-        let kind: Kind
+    private struct Hopper {
         let glyph: String
         let speed: Double
         let phase: Double
-        let lane: CGFloat
+        let size: CGFloat
         let hop: CGFloat
-        let scale: CGFloat
     }
 
-    private let pack: [Runner] = [
-        Runner(kind: .pumpkin, glyph: "", speed: 38, phase: 0.00, lane: 10, hop: 16, scale: 1.00),
-        Runner(kind: .ghost, glyph: "", speed: 44, phase: 0.14, lane: 4, hop: 18, scale: 0.95),
-        Runner(kind: .emoji, glyph: "🧙", speed: 32, phase: 0.28, lane: 12, hop: 14, scale: 1.00),
-        Runner(kind: .pumpkin, glyph: "", speed: 40, phase: 0.40, lane: 16, hop: 15, scale: 0.82),
-        Runner(kind: .bat, glyph: "", speed: 52, phase: 0.55, lane: -2, hop: 20, scale: 1.05),
-        Runner(kind: .emoji, glyph: "🐈‍⬛", speed: 46, phase: 0.70, lane: 8, hop: 13, scale: 1.00),
+    private let hoppers: [Hopper] = [
+        Hopper(glyph: "🎃", speed: 36, phase: 0.00, size: 36, hop: 38),
+        Hopper(glyph: "👻", speed: 42, phase: 0.14, size: 34, hop: 40),
+        Hopper(glyph: "🧙", speed: 30, phase: 0.28, size: 36, hop: 36),
+        Hopper(glyph: "🦇", speed: 50, phase: 0.42, size: 32, hop: 42),
+        Hopper(glyph: "🐈‍⬛", speed: 44, phase: 0.56, size: 34, hop: 36),
+        Hopper(glyph: "🎃", speed: 38, phase: 0.70, size: 32, hop: 38),
+        Hopper(glyph: "👻", speed: 46, phase: 0.84, size: 30, hop: 40),
     ]
 
     var body: some View {
         let fps = max(PulseLaunch.halloweenParadeFPS, 8)
         TimelineView(.periodic(from: .now, by: 1.0 / fps)) { timeline in
             let t = timeline.date.timeIntervalSinceReferenceDate
-            Canvas { context, size in
-                let width = max(size.width, 1)
-                let heartX = width * jumpAnchor
-                let track = width + 72
-                let ground = size.height * 0.58
-                for runner in pack {
-                    let travel = (t * runner.speed + runner.phase * track)
-                        .truncatingRemainder(dividingBy: track) - 36
-                    let nearHeart = abs(travel - heartX) < 38
-                    let bob = sin(t * 5.2 + runner.phase * 8) * 3
-                    let jump = nearHeart ? runner.hop + 10 : max(0, bob)
-                    let point = CGPoint(x: travel, y: ground + runner.lane - jump)
-                    switch runner.kind {
-                    case .pumpkin:
-                        Self.drawPumpkin(context, at: point, scale: runner.scale)
-                    case .ghost:
-                        Self.drawGhost(context, at: point, scale: runner.scale)
-                    case .bat:
-                        Self.drawBat(context, at: point, scale: runner.scale, flap: t)
-                    case .emoji:
-                        context.draw(
-                            Text(runner.glyph).font(.system(size: 20 * runner.scale)),
-                            at: point
-                        )
+            GeometryReader { geo in
+                let width = max(geo.size.width, 1)
+                let barX = width * jumpAnchor
+                let track = width + 96
+                let ground = geo.size.height * 0.82
+                ZStack {
+                    HalloweenSeatParadeShapes(t: t, jumpAnchor: jumpAnchor)
+                    ForEach(Array(hoppers.enumerated()), id: \.offset) { _, hopper in
+                        let travel = (t * hopper.speed + hopper.phase * track)
+                            .truncatingRemainder(dividingBy: track) - 48
+                        let nearBar = abs(CGFloat(travel) - barX) < 52
+                        let bob = sin(t * 5.1 + hopper.phase * 7) * 5
+                        let hop: CGFloat = nearBar ? hopper.hop : CGFloat(max(0, bob))
+                        Text(hopper.glyph)
+                            .font(.system(size: hopper.size))
+                            .position(x: travel, y: ground - hop)
                     }
                 }
             }
         }
+        .frame(maxWidth: .infinity)
         .allowsHitTesting(false)
     }
+}
 
-    private static func drawPumpkin(_ context: GraphicsContext, at p: CGPoint, scale: CGFloat) {
+private struct HalloweenSeatParadeShapes: View {
+    let t: TimeInterval
+    var jumpAnchor: CGFloat = 0.50
+
+    var body: some View {
+        Canvas { context, size in
+            let width = max(size.width, 1)
+            let barX = width * jumpAnchor
+            let track = width + 96
+            let ground = size.height * 0.82
+            let pack: [(speed: Double, phase: Double, hop: CGFloat, kind: Int)] = [
+                (34, 0.08, 28, 0),
+                (48, 0.36, 30, 1),
+                (40, 0.64, 32, 2),
+            ]
+            for runner in pack {
+                let travel = (t * runner.speed + runner.phase * track)
+                    .truncatingRemainder(dividingBy: track) - 48
+                let nearBar = abs(travel - barX) < 52
+                let jump = nearBar ? runner.hop : 4
+                let point = CGPoint(x: travel, y: ground - jump)
+                switch runner.kind {
+                case 0:
+                    HalloweenSeatParade.drawPumpkin(context, at: point, scale: 1.55)
+                case 1:
+                    HalloweenSeatParade.drawGhost(context, at: point, scale: 1.45)
+                default:
+                    HalloweenSeatParade.drawBat(context, at: point, scale: 1.50, flap: t)
+                }
+            }
+        }
+    }
+}
+
+extension HalloweenSeatParade {
+    static func drawPumpkin(_ context: GraphicsContext, at p: CGPoint, scale: CGFloat) {
         let w: CGFloat = 18 * scale
         let h: CGFloat = 15 * scale
         let body = Path(ellipseIn: CGRect(x: p.x - w / 2, y: p.y - h / 2, width: w, height: h))
@@ -650,7 +678,7 @@ private struct HalloweenSeatParade: View {
         context.fill(stem, with: .color(Color(red: 0.22, green: 0.46, blue: 0.18)))
     }
 
-    private static func drawGhost(_ context: GraphicsContext, at p: CGPoint, scale: CGFloat) {
+    static func drawGhost(_ context: GraphicsContext, at p: CGPoint, scale: CGFloat) {
         let w: CGFloat = 16 * scale
         let h: CGFloat = 18 * scale
         var path = Path()
@@ -677,7 +705,7 @@ private struct HalloweenSeatParade: View {
         context.fill(eye2, with: .color(Color(red: 0.15, green: 0.18, blue: 0.28)))
     }
 
-    private static func drawBat(_ context: GraphicsContext, at p: CGPoint, scale: CGFloat, flap: TimeInterval) {
+    static func drawBat(_ context: GraphicsContext, at p: CGPoint, scale: CGFloat, flap: TimeInterval) {
         let spread = 10 * scale + CGFloat(sin(flap * 14)) * 2.5
         var wings = Path()
         wings.move(to: CGPoint(x: p.x, y: p.y))

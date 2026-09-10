@@ -494,11 +494,13 @@ struct DashScopeStrip: View {
         }
         .transaction { $0.animation = nil }
         .onAppear {
+            guard PulseLaunch.shouldPrefetchExpandOnAppear() else { return }
             guard !expandLive else { return }
             Task { await store.prefetchExpand(section: section) }
         }
         .onChange(of: store.filterStamp) { _, _ in
             expanded = false
+            guard PulseLaunch.shouldPrefetchExpandOnFilterStamp() else { return }
             Task { await store.prefetchExpand(section: section) }
         }
     }

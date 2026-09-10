@@ -118,6 +118,7 @@ final class HeartbeatStore: ObservableObject {
     private var factsOwned: Set<MetricSection> = []
     private var didAdoptExcelFacts = false
     private var pendingLaunchFilters: DashboardFilters?
+    private var seatLoadHalloweenStartedAt: Date?
 
     init(rootURL: URL? = nil) {
         fileManager = .default
@@ -157,7 +158,8 @@ final class HeartbeatStore: ObservableObject {
         setBootPhase(.openingFloor)
         let chrome = await loadChromeIfPresent()
         if PulseLaunch.shouldPresentSeatBeforeWarehouse(),
-           PulseLaunch.leaveSplashAfterChrome(paintedStoreCards: PulseLaunch.usablePaintedCards(cachedSummaries)) {
+           PulseLaunch.shouldLeaveSplashForSeatLoad()
+            || PulseLaunch.leaveSplashAfterChrome(paintedStoreCards: PulseLaunch.usablePaintedCards(cachedSummaries)) {
             presentSeatUI()
             warehouseHydrating = true
             Task { await self.finishWarehouseAfterSeat(chrome: chrome) }
@@ -237,6 +239,9 @@ final class HeartbeatStore: ObservableObject {
             needsRolePick = true
         }
         setBootPhase(.presentingSeat)
+        if PulseLaunch.shouldPlaySeatLoadHalloween() {
+            seatLoadHalloweenStartedAt = Date()
+        }
     }
 
     /// Who's looking stays locked only while warehouse work runs. Timeout / fail must unlock.
@@ -255,10 +260,22 @@ final class HeartbeatStore: ObservableObject {
 
     func beginSeatWarehouseHydrating() {
         warehouseHydrating = true
+        if PulseLaunch.shouldPlaySeatLoadHalloween(), seatLoadHalloweenStartedAt == nil {
+            seatLoadHalloweenStartedAt = Date()
+        }
+    }
+
+    private func holdSeatLoadHalloweenIfNeeded() async {
+        guard PulseLaunch.shouldHoldSeatLoadHalloweenMinDwell() else { return }
+        guard PulseLaunch.shouldMountSeatLoadHalloween(warehouseHydrating: warehouseHydrating) else { return }
+        let elapsed = UInt64(max(0, Date().timeIntervalSince(seatLoadHalloweenStartedAt ?? Date())) * 1_000_000_000)
+        let remain = PulseLaunch.halloweenDwellRemainingNanoseconds(elapsedNanoseconds: elapsed)
+        if remain > 0 {
+            try? await Task.sleep(nanoseconds: remain)
+        }
     }
 
     private func finishWarehouseAfterSeat(chrome: PulseDashChrome?) async {
-        defer { unlockWarehouseAfterSeat(outcome: .completed) }
         let work = Task { @MainActor in
             await self.runWarehouseAfterSeat(chrome: chrome)
         }
@@ -269,7 +286,10 @@ final class HeartbeatStore: ObservableObject {
         if timedOut {
             work.cancel()
             unlockWarehouseAfterSeat(outcome: .timedOut)
+            return
         }
+        await holdSeatLoadHalloweenIfNeeded()
+        unlockWarehouseAfterSeat(outcome: .completed)
     }
 
     private func runWarehouseAfterSeat(chrome: PulseDashChrome?) async {
@@ -359,7 +379,11 @@ final class HeartbeatStore: ObservableObject {
 
     private func finishLocalLaunch() {
         presentSeatUI()
-        warehouseHydrating = false
+        if PulseLaunch.shouldKeepHydratingThroughFinishLocalLaunch() {
+            warehouseHydrating = true
+        } else {
+            warehouseHydrating = false
+        }
         setBootPhase(.ready)
     }
 
@@ -2096,6 +2120,10 @@ final class HeartbeatStore: ObservableObject {
         cachedSalesDayRows = []
         cachedCardFlags = [:]
         lastPickerStampCount = 0
+        if PulseLaunch.shouldWipePickerIndexOnSeatClear() {
+            pickerIndex = [:]
+            pickerFocusHealth = [:]
+        }
     }
 
     func loadSampleMarket() {
@@ -3121,35 +3149,37 @@ final class HeartbeatStore: ObservableObject {
             return card
         }
         cachedCardFlags = PulseCaches.cardFlags(latest: latest)
-        let seatStores: [(number: String, name: String?)] = {
-            if let allowed {
-                return allowed.sorted(by: HeartbeatFormat.storeOrder).map {
-                    ($0, roster[HeartbeatMath.canonicalStore($0)]?.name)
+        if PulseLaunch.shouldBuildGrainTablesOnSeatSlice() {
+            let seatStores: [(number: String, name: String?)] = {
+                if let allowed {
+                    return allowed.sorted(by: HeartbeatFormat.storeOrder).map {
+                        ($0, roster[HeartbeatMath.canonicalStore($0)]?.name)
+                    }
                 }
-            }
-            return cachedStores
-        }()
-        let packs = PulseCaches.grainPacks(
-            latest: latest,
-            grain: grain,
-            hidePicker: false,
-            stores: seatStores,
-            roster: roster
-        )
-        cachedGrainPacks = packs
-        cachedGrainTables = PulseLaunch.mergeLiveGrainTables(
-            incoming: PulseCaches.grainTables(
+                return cachedStores
+            }()
+            let packs = PulseCaches.grainPacks(
                 latest: latest,
                 grain: grain,
-                roster: roster,
-                packs: packs,
-                goalFallback: lostRevenueGoalFallbackValue()
-            ),
-            live: cachedGrainTables,
-            grain: grain,
-            filtersActive: true
-        )
-        refreshSalesExpandCache()
+                hidePicker: false,
+                stores: seatStores,
+                roster: roster
+            )
+            cachedGrainPacks = packs
+            cachedGrainTables = PulseLaunch.mergeLiveGrainTables(
+                incoming: PulseCaches.grainTables(
+                    latest: latest,
+                    grain: grain,
+                    roster: roster,
+                    packs: packs,
+                    goalFallback: lostRevenueGoalFallbackValue()
+                ),
+                live: cachedGrainTables,
+                grain: grain,
+                filtersActive: true
+            )
+            refreshSalesExpandCache()
+        }
         lockPickerDashboard()
     }
 
@@ -4275,6 +4305,15 @@ final class HeartbeatStore: ObservableObject {
                     includeAll: true
                 )
                 cachedPickerBoard = HeartbeatMath.pickerBoard(latest)
+                if PulseLaunch.shouldRebuildPickerIndexOnSeatPaint(
+                    filtersActive: true,
+                    seatRowCount: latest.count
+                ) {
+                    schedulePickerIndex(latest)
+                }
+            } else if PulseLaunch.shouldWipePickerIndexOnSeatClear() {
+                pickerIndex = [:]
+                pickerFocusHealth = [:]
             }
             let table = PulseLaunch.pickerExpandTable(
                 seatRows: latest,
@@ -4406,7 +4445,8 @@ final class HeartbeatStore: ObservableObject {
         let allowed = pickerStoreSet() ?? []
         guard filters.isActive, !allowed.isEmpty, PulseSQLite.exists(at: sqliteURL) else { return }
         let wasEmpty = (filteredLatest[.pickerScorecard] ?? []).isEmpty
-        if wasEmpty { pickerLoading = true }
+        let showLoading = wasEmpty && PulseLaunch.shouldShowPickerLoadingOnSeatFill(dest: visibleDestination)
+        if showLoading { pickerLoading = true }
         let url = sqliteURL
         let stores = allowed
         let rosterCopy = roster
@@ -4414,7 +4454,7 @@ final class HeartbeatStore: ObservableObject {
             let raw = PulseSQLite.readStores(from: url, sections: [.pickerScorecard], stores: stores)
             return HeartbeatMath.applyRoster(HeartbeatMath.latestPerShopper(raw), roster: rosterCopy)
         }.value
-        if wasEmpty { pickerLoading = false }
+        if showLoading { pickerLoading = false }
         guard !rows.isEmpty else { return }
         filteredLatest[.pickerScorecard] = rows
         latestBySection[.pickerScorecard] = PulseLaunch.mergePickerRows(
@@ -4422,7 +4462,8 @@ final class HeartbeatStore: ObservableObject {
             incoming: rows
         )
         lockPickerDashboard()
-        if PulseLaunch.shouldPublishPickerSeatFirstPaint() {
+        if PulseLaunch.shouldPublishPickerSeatFirstPaint()
+            || PulseLaunch.shouldPublishPickerSeatOnVisiblePage(dest: visibleDestination) {
             objectWillChange.send()
         }
     }
@@ -4773,7 +4814,8 @@ final class HeartbeatStore: ObservableObject {
         }.value
         guard !incoming.isEmpty else { return }
         adoptSectionWarehouse(section, incoming)
-        if PulseLaunch.shouldPublishPickerSeatFirstPaint() {
+        if PulseLaunch.shouldPublishPickerSeatFirstPaint()
+            || PulseLaunch.shouldPublishPickerSeatOnVisiblePage(dest: visibleDestination) {
             objectWillChange.send()
         }
     }

@@ -262,7 +262,29 @@ enum PulseLaunch {
     static func shouldKeepDashboardHostWarm() -> Bool { true }
 
     /// Keep the last N scorecard hosts mounted so sidebar switches are not a List teardown.
-    static func shouldKeepVisitedScorecardHostsWarm() -> Bool { true }
+    /// Hidden scorecard Lists remounted on every EnvironmentObject ping and
+    /// cooked the iPad after District Continue. Dashboard host stays warm.
+    static func shouldKeepVisitedScorecardHostsWarm() -> Bool { false }
+
+    /// Warm / hidden pages must not rebuild Lists on hub pings.
+    static func shouldRebuildHiddenWarmHostsOnHubPing() -> Bool { false }
+
+    static func shouldRebuildPageOnFilterStamp(pageVisible: Bool) -> Bool {
+        pageVisible || shouldRebuildHiddenWarmHostsOnHubPing()
+    }
+
+    /// `applySeatSliceNow` paints card chrome only. Grain tables fill off-main.
+    static func shouldBuildGrainTablesOnSeatSlice() -> Bool { false }
+
+    /// LazyVStack card appear must not start 12 expand jobs while scrolling.
+    static func shouldPrefetchExpandOnAppear() -> Bool { false }
+
+    /// Seat picker paint must rebuild Healthy / Watch / At Risk from seat rows.
+    static func shouldRebuildPickerIndexOnSeatPaint(filtersActive: Bool, seatRowCount: Int) -> Bool {
+        filtersActive && seatRowCount > 0
+    }
+
+    static func shouldWipePickerIndexOnSeatClear() -> Bool { true }
 
     static func maxWarmScorecardHosts() -> Int { 2 }
 
@@ -332,8 +354,36 @@ enum PulseLaunch {
         !filtersActive && !shouldStreamCompanyPickerForSeatFirstPaint()
     }
 
-    /// One EnvironmentObject ping when seat shoppers land. Not `filterStamp`.
-    static func shouldPublishPickerSeatFirstPaint() -> Bool { true }
+    /// Hub-wide EnvironmentObject ping when seat shoppers land. Off — that
+    /// remounts MainHub + warm Lists on the scroll thread after District
+    /// Continue. Fill stays silent like grain; Picker page reads `pickerFacts`.
+    static func shouldPublishPickerSeatFirstPaint() -> Bool { false }
+
+    /// Join pages may ping once so a mid-fill Picker open still paints.
+    /// Dashboard / other seats must not.
+    static func shouldPublishPickerSeatOnVisiblePage(dest: HubDestination) -> Bool {
+        !shouldPublishPickerSeatFirstPaint() && needsShopperJoin(dest)
+    }
+
+    /// `pickerLoading` is `@Published`. Toggling it on Dashboard remounts the hub.
+    static func shouldShowPickerLoadingOnSeatFill(dest: HubDestination) -> Bool {
+        needsShopperJoin(dest)
+    }
+
+    /// `DashScopeStrip.onChange(filterStamp)` must not `prefetchExpand` every
+    /// card after District Continue. Grain + picker already filled on the
+    /// filter turn; a 12-card prefetch is the residual iPad scroll hitch.
+    static func shouldPrefetchExpandOnFilterStamp() -> Bool { false }
+
+    /// Cold open must leave splash for Who's looking load even when chrome
+    /// cards are 0. Waiting on chrome left RoleGate opening after
+    /// `finishLocalLaunch` had already cleared hydrating — Halloween never mounted.
+    static func shouldLeaveSplashForSeatLoad() -> Bool { true }
+
+    /// `finishLocalLaunch` must keep hydrating so RoleGate can mount Halloween.
+    static func shouldKeepHydratingThroughFinishLocalLaunch() -> Bool {
+        shouldPresentSeatBeforeWarehouse() && shouldHoldSeatPickerUntilWarehouseReady()
+    }
 
     /// Off-actor. `HeartbeatStore` is `@MainActor`; detached pack reads must not hop back.
     static func materializeSectionRows(
@@ -378,6 +428,17 @@ enum PulseLaunch {
     /// Unlocks unmount the view, so the TimelineView / Canvas stops. No Lottie, video, or GIF.
     static func shouldMountSeatLoadHalloween(warehouseHydrating: Bool) -> Bool {
         warehouseHydrating && shouldHoldSeatPickerUntilWarehouseReady() && shouldPlaySeatLoadHalloween()
+    }
+
+    /// One hop cycle must paint before seats unlock. Warehouse-already-cached
+    /// cold opens were clearing hydrating in hundreds of ms — copy only.
+    static func shouldHoldSeatLoadHalloweenMinDwell() -> Bool { true }
+
+    static func seatLoadHalloweenMinDwellNanoseconds() -> UInt64 { 1_400_000_000 }
+
+    static func halloweenDwellRemainingNanoseconds(elapsedNanoseconds: UInt64) -> UInt64 {
+        let minimum = seatLoadHalloweenMinDwellNanoseconds()
+        return elapsedNanoseconds >= minimum ? 0 : minimum - elapsedNanoseconds
     }
 
     /// 12 fps Canvas offsets — cheap enough that seat load must not Jetsam.
@@ -705,6 +766,25 @@ enum PulseLaunch {
         "Hang tight — seats unlock when the pack is on the floor."
     }
 
+    static let blandBootPhrases = [
+        "building store tables",
+        "opening the floor",
+        "reading dashboard chrome",
+        "reading the store pack",
+        "setting the aisle",
+        "choosing a seat",
+        "setting the floor"
+    ]
+
+    static func isBlandBootStatus(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        return blandBootPhrases.contains { lower.contains($0) }
+    }
+
+    static func bootPhaseComedy(_ phase: BootPhase) -> String {
+        seatLoadQuip(at: max(phase.rawValue - 1, 0))
+    }
+
     /// Neighbor scorecards stay blank. Hydrating them makes filterStamp rebuild two extra full tables.
     static func shouldKeepNeighborPagesHydrated() -> Bool { false }
 
@@ -1010,15 +1090,7 @@ enum PulseLaunch {
         case ready = 7
 
         var label: String {
-            switch self {
-            case .openingFloor: return "Opening the floor"
-            case .readingChrome: return "Reading dashboard chrome"
-            case .presentingSeat: return "Choosing a seat"
-            case .readingPack: return "Reading the store pack"
-            case .buildingTables: return "Building store tables"
-            case .paintingAisle: return "Setting the aisle"
-            case .ready: return "Ready"
-            }
+            PulseLaunch.bootPhaseComedy(self)
         }
 
         var fraction: Double {
