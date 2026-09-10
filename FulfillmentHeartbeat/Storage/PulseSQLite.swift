@@ -250,7 +250,8 @@ enum PulseSQLite {
         return PulseCaches.rowsMatchingStores(pool, stores: stores, skipMarket: true)
     }
 
-    private static func metricRow(_ stmt: OpaquePointer) -> MetricRow? {
+    private static func metricRow(_ stmt: OpaquePointer?) -> MetricRow? {
+        guard let stmt else { return nil }
         let sectionRaw = string(stmt, 1)
         guard let section = MetricSection(rawValue: sectionRaw) else { return nil }
         let rawStore = string(stmt, 2)
