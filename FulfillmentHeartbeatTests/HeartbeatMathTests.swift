@@ -1544,6 +1544,174 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(message.isEmpty)
     }
 
+    func testWhoIsLookingSeatsIncludeStoreViewAfterOM() {
+        XCTAssertEqual(
+            HeartbeatRole.allCases.map(\.rawValue),
+            ["backstage", "evp", "director", "districtManager", "om", "store"]
+        )
+        XCTAssertEqual(HeartbeatRole.store.title, "Store View")
+        XCTAssertEqual(HeartbeatRole.om.title, "Operations Manager")
+        XCTAssertEqual(HeartbeatRole.store.dashboardGrain, .store)
+        XCTAssertEqual(HeartbeatRole.store.pickNoun, "store")
+        XCTAssertTrue(HeartbeatRole.evp.detail.localizedCaseInsensitiveContains("many"))
+        XCTAssertTrue(HeartbeatRole.store.detail.localizedCaseInsensitiveContains("store"))
+        var filters = DashboardFilters()
+        filters.region = "East Region\nWest Region"
+        filters.division = "Jewel Osco\nNorCal"
+        filters.district = "Chicago\nDenver"
+        filters.om = "Pat Lee\nSam Ray"
+        filters.store = "304\n412"
+        filters.sanitize()
+        XCTAssertEqual(filters.regions, ["East Region", "West Region"])
+        XCTAssertEqual(Set(filters.divisions), Set(["Jewel Osco", "NorCal"]))
+        XCTAssertEqual(Set(filters.districts), Set(["Chicago", "Denver"]))
+        XCTAssertEqual(Set(filters.oms), Set(["Pat Lee", "Sam Ray"]))
+        XCTAssertEqual(filters.stores, ["304", "412"])
+        XCTAssertTrue(filters.includesStore("304"))
+        XCTAssertTrue(filters.includesStore("412"))
+        XCTAssertFalse(filters.includesStore("999"))
+        XCTAssertTrue(filters.includesDivision("Jewel Osco"))
+        XCTAssertTrue(filters.includesDivision("NorCal"))
+    }
+
+    func testShareEmailMatchesOnScreenTablesAndStaysReadable() {
+        let sales = MetricRow(
+            section: .sales,
+            division: "Jewel Osco",
+            operationsOM: "A",
+            storeNumber: "304",
+            payload: [
+                "sales_dollars": 1_234_567.89,
+                "sales_yoy_pct": -2.4,
+                "sales_orders": 4_200,
+                "sales_orders_yoy_pct": 1.1,
+                "sales_aos": 29.4,
+                "sales_aiv": 4.2,
+                "sales_ipt": 7.1,
+                "sales_items": 29_820,
+            ],
+            textPayload: ["district": "Chicago"]
+        )
+        let lost = MetricRow(
+            section: .lostRevenue,
+            division: "Jewel Osco",
+            operationsOM: "A",
+            storeNumber: "304",
+            payload: [
+                "lost_revenue": 88_210.5,
+                "lost_revenue_pct": 4.2,
+                "ecomm_sales": 2_100_000,
+                "post_sub_oos_foregone": 12_000,
+                "refund_lost": 3_400,
+                "missed_sales": 1_100,
+                "cancelled_lost": 800,
+                "kill_switch_lost": 250,
+            ],
+            textPayload: ["district": "Chicago"]
+        )
+        let missing = MetricRow(
+            section: .missingItems,
+            division: "Jewel Osco",
+            operationsOM: "A",
+            storeNumber: "304",
+            payload: ["mi_pct": 6.8, "mi_grocery": 8.1, "mi_produce": 5.2],
+            textPayload: ["district": "Chicago"]
+        )
+        let picker = MetricRow(
+            section: .pickerScorecard,
+            division: "Jewel Osco",
+            operationsOM: "A",
+            storeNumber: "304",
+            payload: [
+                "pph": 62,
+                "pick_hours": 18.5,
+                "orders": 40,
+                "presub_pct": 8,
+                "ott_pct": 90,
+                "oth5_pct": 80,
+                "coe_pct": 12,
+            ],
+            textPayload: ["shopper_name": "Alex", "district": "Chicago"]
+        )
+        let items = MetricRow(
+            section: .preSubOOSItem,
+            division: "Jewel Osco",
+            operationsOM: "A",
+            storeNumber: "304",
+            payload: ["presub_pct": 12, "presub_count": 18, "presub_dollars": 96, "oos_pct": 4, "oos_dollars": 22],
+            textPayload: ["bpn": "123456", "district": "Chicago"]
+        )
+        let snap = PulseMail.Snapshot(
+            filterSummary: "Midwest · Jewel Osco",
+            grain: "region",
+            summaries: [
+                SectionSummary(
+                    section: .sales,
+                    storeCount: 1,
+                    headline: 1_234_567.89,
+                    headlineLabel: "eComm sales",
+                    secondary: "",
+                    health: .watch,
+                    watchCount: 1,
+                    riskCount: 0
+                ),
+                SectionSummary(
+                    section: .lostRevenue,
+                    storeCount: 1,
+                    headline: 88_210.5,
+                    headlineLabel: "Total Opportunity",
+                    secondary: "",
+                    health: .watch,
+                    watchCount: 1,
+                    riskCount: 0
+                ),
+            ],
+            rows: [
+                .sales: [sales],
+                .lostRevenue: [lost],
+                .missingItems: [missing],
+                .pickerScorecard: [picker],
+                .preSubOOSItem: [items],
+                .preSubOOS: [missing],
+            ],
+            pickerCounts: ["304": 3],
+            generatedAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+        let packet = PulseMail.make(
+            snap,
+            pages: [.dashboard, .sales, .lostRevenue, .missingItems, .preSubOOS, .pickerScorecard]
+        )
+        XCTAssertTrue(packet.subject.contains("Midwest · Jewel Osco"))
+        XCTAssertTrue(packet.html.contains("Midwest · Jewel Osco"))
+        XCTAssertTrue(packet.html.contains("Same layout and columns as the in-app page"))
+        XCTAssertTrue(packet.html.contains("font-size:16px"))
+        XCTAssertTrue(packet.html.contains("font-size:15px"))
+        XCTAssertFalse(packet.html.contains("font-size:9px"))
+        XCTAssertFalse(packet.html.contains("font-size:11px"))
+        for header in HeartbeatMath.dashboardTableHeaders(.lostRevenue) {
+            XCTAssertTrue(packet.html.contains(header), header)
+        }
+        for header in ["Sales $", "YoY %", "Orders", "Ord YoY", "AOS", "AIV", "Items/Txn", "Items"] {
+            XCTAssertTrue(packet.html.contains(header), header)
+        }
+        XCTAssertTrue(packet.html.contains("1,234,567.89"), packet.html)
+        XCTAssertTrue(packet.html.contains("301 Grocery"))
+        XCTAssertTrue(packet.html.contains("329 Produce"))
+        XCTAssertTrue(packet.html.contains("Cancel"))
+        XCTAssertTrue(packet.html.contains("Kill"))
+        for header in ["Hours", "PPH", "Orders", "Presub", "OTT", "OTH5", "COE"] {
+            XCTAssertTrue(packet.html.contains(header), header)
+        }
+        XCTAssertTrue(packet.html.contains("Pre-Sub OOS Items"))
+        XCTAssertTrue(packet.html.contains("123456"))
+        XCTAssertTrue(packet.html.contains("<th"))
+        XCTAssertTrue(packet.html.contains("class=\"data\""))
+        XCTAssertTrue(packet.html.contains("class=\"pill\""))
+        XCTAssertTrue(packet.html.contains("WATCH") || packet.html.contains("HEALTHY") || packet.html.contains("AT RISK") || packet.html.contains("NO DATA"))
+        XCTAssertTrue(packet.plain.contains("Sales $"))
+        XCTAssertTrue(packet.plain.contains("Lost $"))
+    }
+
     func testUsablePackFileRejectsTinyStubs() {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("hb-stub-\(UUID().uuidString).sqlite")
         FileManager.default.createFile(atPath: url.path, contents: Data(repeating: 1, count: 1_200), attributes: nil)

@@ -1096,7 +1096,7 @@ struct SharePulseSheet: View {
                 }
                 .disabled(selected.isEmpty)
             } footer: {
-                Text("Upload is never included. Select every scorecard, or tap only the pages you want in the email.")
+                Text("The email uses the same tables, columns, and filter as the page on screen — larger type, visible headers, full numbers, and readable status pills. Upload is never included.")
             }
 
             Section("Pages") {

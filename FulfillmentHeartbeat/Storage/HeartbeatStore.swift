@@ -1438,7 +1438,14 @@ final class HeartbeatStore: ObservableObject {
         }
     }
 
-    func applyLaunchRole(_ role: HeartbeatRole, region: String = "", division: String = "", district: String = "", om: String = "") {
+    func applyLaunchRole(
+        _ role: HeartbeatRole,
+        region: String = "",
+        division: String = "",
+        district: String = "",
+        om: String = "",
+        store: String = ""
+    ) {
         sessionRole = role
         UserDefaults.standard.set(role.rawValue, forKey: "hb.sessionRole")
         var next = DashboardFilters()
@@ -1449,11 +1456,14 @@ final class HeartbeatStore: ObservableObject {
             next.region = region
         case .director:
             next.division = division
-            next.region = MarketRegion.containing(division)?.rawValue ?? ""
+            let regions = DashboardFilters.parts(division).compactMap { MarketRegion.containing($0)?.rawValue }
+            next.region = Set(regions).sorted().joined(separator: "\n")
         case .districtManager:
             next.district = district
         case .om:
             next.om = om
+        case .store:
+            next.store = store
         }
         next.sanitize()
         let filterChanged = filters != next
@@ -3570,6 +3580,7 @@ final class HeartbeatStore: ObservableObject {
             rows[section] = displayRows(for: section)
         }
         rows[.pickPathPicker] = displayRows(for: .pickPathPicker)
+        rows[.preSubOOSItem] = displayRows(for: .preSubOOSItem)
         let grain = effectiveDashboardGrain.rawValue
         return PulseMail.Snapshot(
             filterSummary: filters.summary,

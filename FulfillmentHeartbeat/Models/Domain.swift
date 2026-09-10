@@ -3288,6 +3288,7 @@ enum HeartbeatRole: String, CaseIterable, Identifiable, Sendable {
     case director
     case districtManager
     case om
+    case store
 
     var id: String { rawValue }
 
@@ -3298,6 +3299,7 @@ enum HeartbeatRole: String, CaseIterable, Identifiable, Sendable {
         case .director: return "Director / Market VP / Sr Director Sales"
         case .districtManager: return "District Manager"
         case .om: return "Operations Manager"
+        case .store: return "Store View"
         }
     }
 
@@ -3306,13 +3308,15 @@ enum HeartbeatRole: String, CaseIterable, Identifiable, Sendable {
         case .backstage:
             return "Total company view · every region, market, and store"
         case .evp:
-            return "East, South, California, or West · markets under each callout"
+            return "One or many regions · markets under each callout"
         case .director:
-            return "One market · districts under each callout"
+            return "One or many markets · districts under each callout"
         case .districtManager:
-            return "Your district · stores under each callout"
+            return "One or many districts · stores under each callout"
         case .om:
-            return "Your OM book · assigned stores under each callout"
+            return "One or many OMs · assigned stores under each callout"
+        case .store:
+            return "One or many stores · that store book of business"
         }
     }
 
@@ -3323,6 +3327,29 @@ enum HeartbeatRole: String, CaseIterable, Identifiable, Sendable {
         case .director: return "chart.bar.doc.horizontal.fill"
         case .districtManager: return "square.grid.2x2.fill"
         case .om: return "person.crop.rectangle.stack.fill"
+        case .store: return "storefront.fill"
+        }
+    }
+
+    var pickNoun: String {
+        switch self {
+        case .evp: return "region"
+        case .director: return "market"
+        case .districtManager: return "district"
+        case .om: return "OM"
+        case .store: return "store"
+        case .backstage: return ""
+        }
+    }
+
+    var searchPrompt: String {
+        switch self {
+        case .evp: return "Search regions"
+        case .director: return "Search markets"
+        case .districtManager: return "Search districts"
+        case .om: return "Search operations managers"
+        case .store: return "Search stores"
+        case .backstage: return ""
         }
     }
 
@@ -3333,7 +3360,7 @@ enum HeartbeatRole: String, CaseIterable, Identifiable, Sendable {
         case .backstage: return .region
         case .evp: return .division
         case .director: return .district
-        case .districtManager, .om: return .store
+        case .districtManager, .om, .store: return .store
         }
     }
 }
