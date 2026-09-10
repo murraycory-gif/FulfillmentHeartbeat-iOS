@@ -172,6 +172,9 @@ enum PulseQuery {
             if skipOnLight.contains(section), !includePageOnly { continue }
             filtered[section] = sliceSection(section, rows: rows, allowed: allowed, filters: filters, roster: roster)
         }
+        if !filters.isActive {
+            restoreCompanyTotals(filtered: &filtered, warehouse: warehouse)
+        }
         let summaries = MetricSection.dashboardCards.map { section in
             HeartbeatMath.summarize(
                 section,
@@ -319,6 +322,23 @@ enum PulseQuery {
             if card.storeCount == 0, kept.storeCount > 0 { return kept }
             return card
         }
+    }
+
+    /// `slice` keeps store facts only. Unfiltered company tiles need the Power BI
+    /// Total Opportunity row so Loss Revenue does not fall through to SUM(stores).
+    /// Filtered seats must not get this row.
+    static func restoreCompanyTotals(
+        filtered: inout [MetricSection: [MetricRow]],
+        warehouse: [MetricSection: [MetricRow]]
+    ) {
+        guard let market = warehouse[.lostRevenue]?.first(where: {
+            $0.textPayload["lost_grain"] == "market"
+                && HeartbeatMath.canonicalStore($0.storeNumber).isEmpty
+        }) else { return }
+        var rows = filtered[.lostRevenue] ?? []
+        if rows.contains(where: { $0.textPayload["lost_grain"] == "market" }) { return }
+        rows.append(market)
+        filtered[.lostRevenue] = rows
     }
 
     /// Progressive section fill: keep live rows when this paint has not loaded that section.

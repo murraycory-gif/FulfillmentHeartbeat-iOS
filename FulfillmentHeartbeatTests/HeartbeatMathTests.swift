@@ -792,6 +792,80 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(HeartbeatFormat.moneyShort(1_100), "$1,100")
     }
 
+    func testLostRevenueHeadlineAndExpandFollowFilterScope() {
+        func store(_ number: String, division: String, lost: Double) -> MetricRow {
+            MetricRow(
+                section: .lostRevenue,
+                division: division,
+                operationsOM: "",
+                storeNumber: number,
+                payload: ["ecomm_sales": lost * 20, "lost_revenue": lost, "lost_revenue_pct": 5],
+                textPayload: ["lost_grain": "store"]
+            )
+        }
+        let east = store("1", division: "Jewel Osco", lost: 760_872.84)
+        let south = store("2", division: "Southern", lost: 277_531.39)
+        let california = store("3", division: "NorCal", lost: 521_791.45)
+        let west = store("4", division: "Portland", lost: 455_728.04)
+        let stores = [east, south, california, west]
+        let raw = stores.compactMap { $0.number("lost_revenue") }.reduce(0, +)
+        XCTAssertEqual(raw, 2_015_923.72, accuracy: 0.05)
+        let market = MetricRow(
+            section: .lostRevenue,
+            division: "",
+            operationsOM: "",
+            storeNumber: "",
+            storeName: "Total",
+            payload: ["ecomm_sales": 49_026_551, "lost_revenue": 1_962_441.23, "lost_revenue_pct": 4.0],
+            textPayload: ["lost_grain": "market"]
+        )
+
+        let company = HeartbeatMath.summarize(.lostRevenue, rows: stores + [market], upload: nil)
+        XCTAssertEqual(company.headline ?? 0, 1_962_441.23, accuracy: 0.01)
+
+        let reconciled = HeartbeatMath.storesReconcilingLostRevenue(stores + [market])
+        let reconciledSum = HeartbeatMath.lostRevenueTotals(
+            reconciled.filter { $0.textPayload["lost_grain"] != "market" }
+        ).dollars
+        XCTAssertEqual(reconciledSum, 1_962_441.23, accuracy: 0.05)
+
+        let table = HeartbeatMath.dashboardGrainTable(
+            section: .lostRevenue,
+            rows: stores + [market],
+            grain: .region,
+            order: [],
+            goalFallback: nil
+        )
+        XCTAssertEqual(table.map(\.label), MarketRegion.allCases.map(\.rawValue))
+        let expandLost = table.compactMap { row -> Double? in
+            guard let raw = row.values.first else { return nil }
+            let digits = raw.filter { $0.isNumber || $0 == "." }
+            return Double(digits)
+        }.reduce(0, +)
+        XCTAssertEqual(expandLost, 1_962_441.23, accuracy: 1)
+
+        let district = HeartbeatMath.summarize(.lostRevenue, rows: [east], upload: nil)
+        XCTAssertEqual(district.headline ?? 0, 760_872.84, accuracy: 0.01)
+        XCTAssertNotEqual(district.headline ?? 0, 1_962_441.23, accuracy: 1)
+        let districtTable = HeartbeatMath.dashboardGrainTable(
+            section: .lostRevenue,
+            rows: [east],
+            grain: .region,
+            order: [],
+            goalFallback: nil
+        )
+        XCTAssertEqual(districtTable.first { $0.label == MarketRegion.east.rawValue }?.storeCount, 1)
+
+        var warehouse: [MetricSection: [MetricRow]] = [.lostRevenue: stores + [market]]
+        var painted: [MetricSection: [MetricRow]] = [.lostRevenue: stores]
+        PulseQuery.restoreCompanyTotals(filtered: &painted, warehouse: warehouse)
+        XCTAssertTrue((painted[.lostRevenue] ?? []).contains { $0.textPayload["lost_grain"] == "market" })
+        XCTAssertFalse(PulseLaunch.shouldStampHubWhenExpandCacheFills())
+        XCTAssertFalse(PulseLaunch.shouldMountHubUnderRoleGate())
+        XCTAssertFalse(PulseLaunch.shouldUsePagingScroll())
+        XCTAssertFalse(PulseLaunch.shouldRemountPageOnDestinationChange())
+    }
+
     func testCanonicalDivisionMapsUnitedAndCompanyMarketsIncludeUnited() {
         XCTAssertEqual(MarketRegion.canonicalName("United"), "United")
         XCTAssertEqual(MarketRegion.canonicalName("United Texas"), "United")

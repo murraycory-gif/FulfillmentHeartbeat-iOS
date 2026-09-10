@@ -639,6 +639,9 @@ final class HeartbeatStore: ObservableObject {
         if source.isEmpty {
             source = HeartbeatMath.rowsFillingRoster(latestBySection[section] ?? [], roster: roster)
         }
+        if section == .lostRevenue {
+            source = attachingCompanyLostTotal(source)
+        }
         let packs = cachedGrainPacks[section] ?? []
         let order = packs.map(\.line.label)
         let goal = section == .lostRevenue ? lostRevenueGoalFallbackValue() : nil
@@ -713,6 +716,9 @@ final class HeartbeatStore: ObservableObject {
             )
             source = HeartbeatMath.rowsFillingRoster(source, roster: roster)
         }
+        if section == .lostRevenue {
+            source = attachingCompanyLostTotal(source)
+        }
         let packs = cachedGrainPacks[section] ?? []
         let order = packs.map(\.line.label)
         let goalFallback = section == .lostRevenue ? lostRevenueGoalFallbackValue() : nil
@@ -732,7 +738,10 @@ final class HeartbeatStore: ObservableObject {
 
     private func fillExpandTablesSoon() {
         let grain = effectiveDashboardGrain
-        let latest = filteredLatest.isEmpty ? latestBySection : filteredLatest
+        var latest = filteredLatest.isEmpty ? latestBySection : filteredLatest
+        if let lost = latest[.lostRevenue] {
+            latest[.lostRevenue] = attachingCompanyLostTotal(lost)
+        }
         let packs = cachedGrainPacks
         let rosterCopy = roster
         let goalFallback = lostRevenueGoalFallbackValue()
@@ -777,8 +786,9 @@ final class HeartbeatStore: ObservableObject {
 
     private func grainTablePrefetchDelayNanoseconds() -> UInt64 {
         guard PulseLaunch.shouldDeferGrainTablesUntilHubQuiet() else { return 0 }
+        // Prefill while Who's looking is up so expand is live on the first hub frame.
+        if needsRolePick { return 0 }
         let quiet = PulseLaunch.hubFirstInteractionNanoseconds
-        if needsRolePick { return quiet }
         guard let start = hubBecameInteractiveAt else { return quiet }
         let elapsed = Date().timeIntervalSince(start)
         if elapsed >= Double(quiet) / 1_000_000_000 { return 0 }
@@ -1253,6 +1263,29 @@ final class HeartbeatStore: ObservableObject {
     func lostRevenueMarketRow() -> MetricRow? {
         let pool = (latestBySection[.lostRevenue] ?? []) + (filteredLatest[.lostRevenue] ?? []) + rows
         return pool.first { $0.textPayload["lost_grain"] == "market" }
+    }
+
+    /// Unfiltered company only. Seat filters must not inherit the global Total.
+    private func attachingCompanyLostTotal(_ rows: [MetricRow]) -> [MetricRow] {
+        guard !filters.isActive else { return rows }
+        if rows.contains(where: { $0.textPayload["lost_grain"] == "market" }) { return rows }
+        guard let market = lostRevenueMarketRow() else { return rows }
+        return rows + [market]
+    }
+
+    private func pinUnfilteredLostRevenueHeadline() {
+        guard !filters.isActive,
+              let market = lostRevenueMarketRow(),
+              let target = market.number("lost_revenue"),
+              target > 0
+        else { return }
+        guard let index = cachedSummaries.firstIndex(where: { $0.section == .lostRevenue }) else { return }
+        if abs((cachedSummaries[index].headline ?? 0) - target) <= 1 { return }
+        cachedSummaries[index] = HeartbeatMath.summarize(
+            .lostRevenue,
+            rows: attachingCompanyLostTotal(filteredLatest[.lostRevenue] ?? []),
+            upload: upload(for: .lostRevenue)
+        )
     }
 
     func dynacapCoverageNote() -> String? {
@@ -3170,6 +3203,7 @@ final class HeartbeatStore: ObservableObject {
             painted: PulseQuery.overlayPageOnlySummaries(painted: view.summaries, live: liveSummaries),
             live: liveSummaries
         )
+        pinUnfilteredLostRevenueHeadline()
         if !view.flags.isEmpty {
             var flags = view.flags
             for (section, nextFlags) in flags {

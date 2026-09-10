@@ -494,6 +494,7 @@ struct DashScopeStrip: View {
         }
         .transaction { $0.animation = nil }
         .onAppear {
+            guard !expandLive else { return }
             Task { await store.prefetchExpand(section: section) }
         }
         .onChange(of: store.filterStamp) { _, _ in

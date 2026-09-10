@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct RoleGateView: View {
     @EnvironmentObject private var store: HeartbeatStore
@@ -46,6 +47,7 @@ struct RoleGateView: View {
                 }
                 .scrollBounceBehavior(.basedOnSize)
                 .scrollDismissesKeyboard(.interactively)
+                .background(SeatScrollTouchFix())
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -132,10 +134,11 @@ struct RoleGateView: View {
     }
 
     private func pick(_ item: HeartbeatRole) {
-        if PulseLaunch.shouldHoldSeatPickerUntilWarehouseReady(), store.warehouseHydrating {
-            return
-        }
+        // Seats are hidden while the warehouse hydrates. Do not swallow a tap
+        // that raced a hydrate flip — that was the Backstage double-tap.
         if item == .backstage {
+            guard !committingSeat else { return }
+            committingSeat = true
             store.applyLaunchRole(.backstage)
         } else {
             query = ""
@@ -547,5 +550,33 @@ private struct SeatLoadPanel: View {
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(PulseLaunch.seatLoadTitle). \(caption). \(PulseLaunch.seatLoadDirective)")
+    }
+}
+
+/// First tap on a seat card must land. ScrollView's default delayed touches
+/// ate the Backstage tap until a second press.
+private struct SeatScrollTouchFix: UIViewRepresentable {
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
+        DispatchQueue.main.async { Self.unlock(from: view) }
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {
+        Self.unlock(from: uiView)
+    }
+
+    private static func unlock(from view: UIView) {
+        var parent = view.superview
+        while let current = parent {
+            if let scroll = current as? UIScrollView {
+                scroll.delaysContentTouches = false
+                scroll.canCancelContentTouches = true
+                return
+            }
+            parent = current.superview
+        }
     }
 }

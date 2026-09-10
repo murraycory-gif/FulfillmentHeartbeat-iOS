@@ -671,7 +671,8 @@ enum HeartbeatMath {
     }
 
     static func dashboardScopeLines(section: MetricSection, rows: [MetricRow], grain: DashScopeGrain) -> [DashScopeLine] {
-        let source = section == .pickerScorecard ? latestPerShopper(rows) : rows
+        let raw = section == .pickerScorecard ? latestPerShopper(rows) : rows
+        let source = section == .lostRevenue ? storesReconcilingLostRevenue(raw) : raw
         var buckets: [String: [MetricRow]] = [:]
         for row in source {
             if row.textPayload["lost_grain"] == "market" { continue }
@@ -1065,7 +1066,8 @@ enum HeartbeatMath {
         order: [String],
         goalFallback: Double? = nil
     ) -> [DashboardGrainTableRow] {
-        let source = section == .pickerScorecard ? latestPerShopper(rows) : rows
+        let raw = section == .pickerScorecard ? latestPerShopper(rows) : rows
+        let source = section == .lostRevenue ? storesReconcilingLostRevenue(raw) : raw
         var buckets: [String: [MetricRow]] = [:]
         for row in source {
             if row.textPayload["lost_grain"] == "market" { continue }
@@ -2354,23 +2356,16 @@ enum HeartbeatMath {
             let market = latest.first { $0.textPayload["lost_grain"] == "market" && $0.storeNumber.isEmpty }
             let marketDollars = market?.number("lost_revenue") ?? 0
             let storeTotals = lostRevenueTotals(stores)
+            // Market row is only in the unfiltered / company slice. Filtered
+            // seats must never see that global Total Opportunity number.
             let dollars: Double?
             let pct: Double?
-            if marketDollars >= 1_000_000, stores.count >= 800 {
+            if marketDollars > 0 {
                 dollars = marketDollars
                 pct = market?.number("lost_revenue_pct")
-            } else if !stores.isEmpty, stores.count < 800 {
+            } else if !stores.isEmpty {
                 dollars = storeTotals.dollars
                 pct = storeTotals.pct
-            } else if marketDollars >= 1_000_000 {
-                dollars = marketDollars
-                pct = market?.number("lost_revenue_pct")
-            } else if storeTotals.dollars >= 1_000_000, (storeTotals.pct ?? 0) < 40 {
-                dollars = storeTotals.dollars
-                pct = storeTotals.pct
-            } else if marketDollars > 0 {
-                dollars = marketDollars
-                pct = market?.number("lost_revenue_pct")
             } else {
                 dollars = nil
                 pct = nil
@@ -3242,6 +3237,61 @@ enum HeartbeatMath {
             return pct
         }
         return lostRevenueInheritedGoalPct(rows: rows.filter { $0.textPayload["lost_grain"] != "market" })
+    }
+
+    /// Power BI Total Opportunity (market row) is not SUM(store `lost_revenue`).
+    /// Unfiltered company view keeps the market total and scales store dollars so
+    /// expand rows add to the same headline. Filtered seats have no market row.
+    static func lostRevenueReconcileFactor(stores: [MetricRow], market: MetricRow?) -> Double {
+        guard let target = market?.number("lost_revenue"), target > 0 else { return 1 }
+        let raw = lostRevenueTotals(
+            stores.filter {
+                $0.textPayload["lost_grain"] != "market"
+                    && !isIgnoredStore($0.storeNumber)
+                    && !$0.storeNumber.isEmpty
+            }
+        ).dollars
+        guard raw > 0, abs(raw - target) > 0.5 else { return 1 }
+        return target / raw
+    }
+
+    static func storesReconcilingLostRevenue(_ rows: [MetricRow]) -> [MetricRow] {
+        let market = rows.first {
+            $0.textPayload["lost_grain"] == "market" && canonicalStore($0.storeNumber).isEmpty
+        }
+        let factor = lostRevenueReconcileFactor(stores: rows, market: market)
+        guard factor != 1 else { return rows }
+        return rows.map { applyingLostRevenueFactor($0, factor: factor) }
+    }
+
+    static func applyingLostRevenueFactor(_ row: MetricRow, factor: Double) -> MetricRow {
+        if factor == 1 || row.textPayload["lost_grain"] == "market" { return row }
+        let keys = [
+            "lost_revenue",
+            "post_sub_oos_foregone",
+            "refund_lost",
+            "missed_sales",
+            "cancelled_lost",
+            "kill_switch_lost",
+        ]
+        var payload = row.payload
+        for key in keys {
+            if let value = payload[key] { payload[key] = value * factor }
+        }
+        if let lost = payload["lost_revenue"], let ecomm = payload["ecomm_sales"], ecomm > 0 {
+            payload["lost_revenue_pct"] = lost / ecomm * 100
+        }
+        return MetricRow(
+            id: row.id,
+            section: row.section,
+            division: row.division,
+            operationsOM: row.operationsOM,
+            storeNumber: row.storeNumber,
+            storeName: row.storeName,
+            recordedOn: row.recordedOn,
+            payload: payload,
+            textPayload: row.textPayload
+        )
     }
 
     static func lostRevenueTotals(_ stores: [MetricRow]) -> (dollars: Double, sales: Double, pct: Double?) {
