@@ -2157,6 +2157,8 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(PulseSeatPack.Key.company.objectPath, "packs/seat/company/all/current.sqlite")
         XCTAssertEqual(PulseSeatPack.manifestObject, "packs/manifest.json")
         XCTAssertEqual(PulseSeatPack.Key(grain: .district, id: "03").dashboardGrain, .store)
+        XCTAssertFalse(PulseLaunch.shouldPlaySeatLoadHalloween())
+        XCTAssertEqual(PulseSeatPack.deviceCacheCeilingBytes, 250_000_000)
     }
 
     func testSeatPackDistrict03EverySectionStoresEqualsHeartbeatN() throws {
@@ -2259,6 +2261,30 @@ final class HeartbeatMathTests: XCTestCase {
         }
         XCTAssertGreaterThan(chrome.pickerShoppers, 0)
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
+        var grainBySection: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] = [:]
+        for section in MetricSection.dashboardCards {
+            grainBySection[section] = chrome.tables[section.rawValue] ?? []
+        }
+        let fromSeat = PulseSeatPack.expandTables(
+            latest: Dictionary(uniqueKeysWithValues: MetricSection.dashboardCards.map { section in
+                (section, pack.rows.filter { $0.section == section })
+            }),
+            roster: roster,
+            grain: .store
+        )
+        for section in MetricSection.dashboardCards where section != .sales {
+            let table = grainBySection[section] ?? fromSeat[section] ?? []
+            XCTAssertTrue(
+                HeartbeatMath.grainRowsAreLive(table),
+                "\(section.rawValue) Stores footer must be live like Sales — not grey empty"
+            )
+        }
+        XCTAssertTrue(
+            PulseSeatPack.everyDashboardExpandLive(tables: fromSeat, salesLive: true),
+            "every MetricSection expand must be live under District 03"
+        )
+        XCTAssertEqual(PulseSeatPack.deviceCacheCeilingBytes, 250_000_000)
+        XCTAssertEqual(PulseSeatPack.districtTargetBytes, 10_000_000)
     }
 
     func testSeatWarehouseAlwaysClearsHydrating() async {

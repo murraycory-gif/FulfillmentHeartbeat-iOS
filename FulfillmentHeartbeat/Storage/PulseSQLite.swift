@@ -89,6 +89,7 @@ enum PulseSQLite {
         }
         if let chrome {
             writeChrome(chrome, db: db)
+            writeSummaryCards(chrome, db: db)
         }
         sqlite3_exec(db, "COMMIT;", nil, nil, nil)
         if FileManager.default.fileExists(atPath: url.path) {
@@ -354,9 +355,16 @@ enum PulseSQLite {
         text_json TEXT
     );
     CREATE INDEX facts_section_store ON facts(section, store_number);
+    CREATE INDEX facts_store ON facts(store_number);
     CREATE INDEX facts_section_div ON facts(section, division);
     CREATE TABLE dash_chrome (
         id INTEGER PRIMARY KEY,
+        json TEXT NOT NULL
+    );
+    CREATE TABLE summary_cards (
+        section TEXT PRIMARY KEY,
+        store_count INTEGER NOT NULL,
+        headline REAL,
         json TEXT NOT NULL
     );
     """
@@ -380,6 +388,47 @@ enum PulseSQLite {
         }
         bind(stmt, 1, json)
         _ = sqlite3_step(stmt)
+    }
+
+    private static func writeSummaryCards(_ chrome: PulseDashChrome, db: OpaquePointer) {
+        sqlite3_exec(
+            db,
+            "CREATE TABLE IF NOT EXISTS summary_cards (section TEXT PRIMARY KEY, store_count INTEGER NOT NULL, headline REAL, json TEXT NOT NULL);",
+            nil, nil, nil
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(
+            db,
+            "INSERT OR REPLACE INTO summary_cards(section, store_count, headline, json) VALUES (?, ?, ?, ?);",
+            -1, &stmt, nil
+        ) == SQLITE_OK else { return }
+        for card in chrome.summaries {
+            sqlite3_reset(stmt)
+            sqlite3_clear_bindings(stmt)
+            bind(stmt, 1, card.section.rawValue)
+            sqlite3_bind_int(stmt, 2, Int32(card.storeCount))
+            if let headline = card.headline {
+                sqlite3_bind_double(stmt, 3, headline)
+            } else {
+                sqlite3_bind_null(stmt, 3)
+            }
+            let json = (try? encoder.encode(card)).flatMap { String(data: $0, encoding: .utf8) } ?? "{}"
+            bind(stmt, 4, json)
+            _ = sqlite3_step(stmt)
+        }
+    }
+
+    /// VACUUM after cook so a District pack stays in the 5–10 MB band.
+    static func compact(at url: URL) {
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK, let db else {
+            return
+        }
+        defer { sqlite3_close(db) }
+        sqlite3_exec(db, "VACUUM;", nil, nil, nil)
     }
 
     private static func readChrome(db: OpaquePointer) -> PulseDashChrome? {

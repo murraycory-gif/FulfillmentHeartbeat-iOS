@@ -7,6 +7,10 @@ enum PulseSeatPack {
     static let manifestObject = "packs/manifest.json"
     /// District / store sqlites are small. Do not use the 50 KB market floor.
     static let minimumSeatBytes = 2_000
+    /// Cook target for a District pack. Over this is a warning, not a refuse.
+    static let districtTargetBytes = 10_000_000
+    /// Device cache hard ceiling for `packs/seat/**` (Power BI Mobile is 250 MB).
+    static let deviceCacheCeilingBytes = 250_000_000
 
     static func isUsable(at url: URL) -> Bool {
         PulseSQLite.exists(at: url) && PulseSQLite.fileBytes(at: url) >= minimumSeatBytes
@@ -175,6 +179,7 @@ enum PulseSeatPack {
             chrome.summaries = chrome.summaries.map { PulseLaunch.pinSeatStoreCount($0, seatStores: seatN) }
         }
         try PulseSQLite.write(rows: scoped, uploads: uploads, seeded: true, chrome: chrome, to: dest)
+        PulseSQLite.compact(at: dest)
         let bytes = PulseSQLite.fileBytes(at: dest)
         return Entry(
             grain: key.grain.rawValue,
@@ -275,5 +280,74 @@ enum PulseSeatPack {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(manifest).write(to: manifestURL, options: .atomic)
         return manifest
+    }
+
+    /// Grain tables for every dashboard card from the seat warehouse.
+    /// This is the Stores-footer plane — not a Sales-only prefetch.
+    static func expandTables(
+        latest: [MetricSection: [MetricRow]],
+        roster: [String: HeartbeatMath.StoreIdentity],
+        grain: DashScopeGrain,
+        packs: [MetricSection: [DashScopePack]] = [:]
+    ) -> [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] {
+        PulseCaches.grainTables(
+            latest: latest,
+            grain: grain,
+            roster: roster,
+            packs: packs,
+            goalFallback: HeartbeatMath.lostRevenueGoalFallback(latest[.lostRevenue] ?? [])
+        )
+    }
+
+    static func everyDashboardExpandLive(
+        tables: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]],
+        salesLive: Bool
+    ) -> Bool {
+        MetricSection.dashboardCards.allSatisfy { section in
+            if section == .sales { return salesLive }
+            return HeartbeatMath.grainRowsAreLive(tables[section] ?? [])
+        }
+    }
+
+    static func atomicReplace(from staging: URL, to dest: URL) throws {
+        let folder = dest.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        if FileManager.default.fileExists(atPath: dest.path) {
+            _ = try FileManager.default.replaceItemAt(dest, withItemAt: staging)
+        } else {
+            try FileManager.default.moveItem(at: staging, to: dest)
+        }
+    }
+
+    /// Drop oldest unused seat sqlites until the cache is under the ceiling.
+    static func evictSeatCache(root: URL, keeping key: Key?, ceiling: Int = deviceCacheCeilingBytes) {
+        let seatRoot = root.appendingPathComponent("packs/seat", isDirectory: true)
+        guard FileManager.default.fileExists(atPath: seatRoot.path) else { return }
+        let keep = key.map { localURL(root: root, key: $0).standardizedFileURL.path }
+        let company = localURL(root: root, key: .company).standardizedFileURL.path
+        var files: [(url: URL, bytes: Int, date: Date)] = []
+        if let enumerator = FileManager.default.enumerator(
+            at: seatRoot,
+            includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) {
+            for case let url as URL in enumerator where url.lastPathComponent == "current.sqlite" {
+                let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+                files.append((
+                    url,
+                    values?.fileSize ?? PulseSQLite.fileBytes(at: url),
+                    values?.contentModificationDate ?? .distantPast
+                ))
+            }
+        }
+        var total = files.reduce(0) { $0 + $1.bytes }
+        guard total > ceiling else { return }
+        for file in files.sorted(by: { $0.date < $1.date }) {
+            let path = file.url.standardizedFileURL.path
+            if path == keep || path == company { continue }
+            try? FileManager.default.removeItem(at: file.url)
+            total -= file.bytes
+            if total <= ceiling { break }
+        }
     }
 }

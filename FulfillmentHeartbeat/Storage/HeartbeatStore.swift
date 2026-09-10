@@ -689,7 +689,8 @@ final class HeartbeatStore: ObservableObject {
         }
         if let cached = cachedGrainTables[section], HeartbeatMath.grainRowsAreLive(cached) {
             if !filters.isActive || PulseLaunch.grainTableMatchesCurrent(labels: cached.map(\.label), grain: grain) {
-                if section != .pickerScorecard || PulseLaunch.pickerExpandHasStatusBuckets(cached) {
+                if section != .pickerScorecard || PulseLaunch.pickerExpandHasStatusBuckets(cached)
+                    || PulseSeatPack.shouldPaintHubFromActiveSeatSQLite() {
                     return cached
                 }
             }
@@ -2223,7 +2224,8 @@ final class HeartbeatStore: ObservableObject {
         usingPackChrome = pack.chrome != nil
         seeded = true
         lockPickerDashboard()
-        refreshSalesExpandCache()
+        installSeatExpandTables()
+        PulseSeatPack.evictSeatCache(root: rootURL, keeping: key)
         filterStamp += 1
         objectWillChange.send()
     }
@@ -2298,11 +2300,41 @@ final class HeartbeatStore: ObservableObject {
         lockPickerDashboard()
     }
 
+    /// Seat pack plane: every dashboard card gets a live Stores footer + table.
+    /// Sales used a one-off prefetch in .380 — that left Loss / 5 Star / Labor grey.
+    private func installSeatExpandTables() {
+        let grain = effectiveDashboardGrain
+        let latest = filteredLatest.isEmpty ? latestBySection : filteredLatest
+        let tables = PulseSeatPack.expandTables(
+            latest: latest,
+            roster: roster,
+            grain: grain,
+            packs: cachedGrainPacks
+        )
+        for section in MetricSection.dashboardCards {
+            if let rows = tables[section], HeartbeatMath.grainRowsAreLive(rows) {
+                cachedGrainTables[section] = rows
+            }
+        }
+        refreshSalesExpandCache()
+        if let picker = cachedGrainTables[.pickerScorecard],
+           !PulseLaunch.pickerExpandHasStatusBuckets(picker) {
+            lockPickerDashboard()
+        }
+    }
+
     @discardableResult
     private func downloadSeatPack(_ key: PulseSeatPack.Key, to dest: URL) async -> Bool {
         do {
-            let size = try await PulseCloud.downloadObject(key.objectPath, to: dest)
-            return size > 1_000 && PulseSeatPack.isUsable(at: dest)
+            let staging = dest.deletingLastPathComponent()
+                .appendingPathComponent("incoming-\(UUID().uuidString).sqlite")
+            let size = try await PulseCloud.downloadObject(key.objectPath, to: staging)
+            guard size > 1_000 else {
+                try? fileManager.removeItem(at: staging)
+                return false
+            }
+            try PulseSeatPack.atomicReplace(from: staging, to: dest)
+            return PulseSeatPack.isUsable(at: dest)
         } catch {
             return false
         }

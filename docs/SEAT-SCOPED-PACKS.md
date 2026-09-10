@@ -59,6 +59,14 @@ new seat    → wipe → swap file → paint
 
 Tip 1 does not flip those gates. The seat sqlite **already contains** live grain tables for every dashboard card. The hub installs that chrome.
 
+## Tip 1 addendum (indexed seat file)
+
+- `facts` is the **detail_*** plane, keyed `store_number` (indexes: `facts_section_store`, `facts_store`).
+- `summary_cards` + `dash_chrome` are the **summary_*** plane (card headlines, expand grain, flags).
+- Cook `VACUUM`s the seat sqlite. District target ≤ 10 MB; warn above that.
+- Device download is staging → **atomic replace**. Cache ceiling **250 MB**; oldest unused seat files evict.
+- Continue still installs grain tables for **every** dashboard section so Loss / 5 Star / Labor / etc. get the same live Stores N footer as Sales. `.380` only prefetched Sales.
+
 ## Later tips
 
 - Tip 2: Region / OM / Division published grains; UITableView / LazyVStack store lists
