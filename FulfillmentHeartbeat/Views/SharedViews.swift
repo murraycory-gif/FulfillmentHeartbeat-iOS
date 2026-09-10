@@ -3987,6 +3987,10 @@ private struct PrepCheapLine: View, Equatable {
     var labelWidth: CGFloat = PrepMath.labelW
     @Environment(\.hubTableWidth) private var tableWidth
 
+    static func == (lhs: PrepCheapLine, rhs: PrepCheapLine) -> Bool {
+        lhs.snap == rhs.snap && lhs.expanded == rhs.expanded && lhs.labelWidth == rhs.labelWidth
+    }
+
     private var valueW: CGFloat {
         PrepMath.valueWidth(available: tableWidth, showCount: false, district: labelWidth < 120)
     }
@@ -4066,6 +4070,10 @@ private struct PrepMetricLine: View, Equatable {
     var labelWidth: CGFloat = PrepMath.labelW
     let pnr: Double?
     @Environment(\.hubTableWidth) private var tableWidth
+
+    static func == (lhs: PrepMetricLine, rhs: PrepMetricLine) -> Bool {
+        lhs.label == rhs.label && lhs.count == rhs.count && lhs.labelWidth == rhs.labelWidth && lhs.pnr == rhs.pnr
+    }
 
     private var valueW: CGFloat {
         PrepMath.valueWidth(available: tableWidth, showCount: count != nil, district: labelWidth < 120)
