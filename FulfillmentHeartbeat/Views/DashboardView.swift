@@ -443,13 +443,22 @@ struct DashScopeStrip: View {
     let grain: DashScopeGrain
     let packs: [DashScopePack]
     @State private var expanded = false
+    @State private var salesRows: [SalesRollupRow] = []
+    @State private var dayRows: [SalesRollupRow] = []
+    @State private var grainRows: [HeartbeatMath.DashboardGrainTableRow] = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: expanded ? 10 : 8) {
             Button {
                 var txn = Transaction()
                 txn.animation = nil
-                withTransaction(txn) { expanded.toggle() }
+                withTransaction(txn) {
+                    expanded.toggle()
+                    if expanded { snapshotExpandRows() }
+                }
+                if expanded {
+                    Task { await fillExpandRows() }
+                }
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: grain.symbol)
@@ -491,32 +500,42 @@ struct DashScopeStrip: View {
 
     @ViewBuilder
     private var expandedTables: some View {
-        let grainRows = store.dashboardGrainRows(for: section)
-        let shownGrain = grain == .store ? Array(grainRows.prefix(40)) : grainRows
-        let salesRows = store.salesExpandRows()
-        let shownSales = grain == .store ? Array(salesRows.prefix(40)) : salesRows
         VStack(alignment: .leading, spacing: 10) {
             if section == .sales {
                 OverviewSalesAlignedTable(
                     title: grain.title,
-                    rows: shownSales,
+                    rows: grain == .store ? Array(salesRows.prefix(40)) : salesRows,
                     showCount: grain != .store,
                     district: grain == .district
                 )
-                if !store.cachedSalesDayRows.isEmpty {
-                    OverviewSalesAlignedTable(title: "By Day", rows: store.cachedSalesDayRows, showCount: false)
+                if !dayRows.isEmpty {
+                    OverviewSalesAlignedTable(title: "By Day", rows: dayRows, showCount: false)
                         .padding(.top, 8)
                 }
             } else {
                 OverviewMetricAlignedTable(
                     title: grain.title,
                     headers: HeartbeatMath.dashboardTableHeaders(section),
-                    rows: shownGrain,
+                    rows: grain == .store ? Array(grainRows.prefix(40)) : grainRows,
                     showCount: grain != .store,
                     district: grain == .district
                 )
             }
         }
+    }
+
+    private func snapshotExpandRows() {
+        if section == .sales {
+            salesRows = store.salesExpandRows()
+            dayRows = store.cachedSalesDayRows
+        } else {
+            grainRows = store.dashboardGrainRows(for: section)
+        }
+    }
+
+    private func fillExpandRows() async {
+        await store.prefetchExpand(section: section)
+        snapshotExpandRows()
     }
 }
 

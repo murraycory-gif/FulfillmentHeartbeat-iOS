@@ -1256,6 +1256,23 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(days[2].pack.sales ?? 0, 11_114_780, accuracy: 0.5)
     }
 
+    func testSalesRegionExpandHasFourRegionRows() {
+        let stores = MarketRegion.allCases.enumerated().map { index, region in
+            MetricRow(
+                section: .sales,
+                division: region.gateDivisions[0],
+                storeNumber: "\(index + 1)",
+                payload: ["sales_dollars": Double((index + 1) * 1_000_000), "sales_orders": 10],
+                textPayload: ["sales_grain": "store"]
+            )
+        }
+        let rows = SalesRollupBuilder.dashboardRows(from: stores, grain: .region)
+        XCTAssertEqual(rows.map(\.label), MarketRegion.allCases.map(\.rawValue))
+        XCTAssertTrue(rows.allSatisfy { ($0.pack.sales ?? 0) > 0 })
+        XCTAssertTrue(PulseLaunch.shouldPrefetchSalesExpandWithGrainTables())
+        XCTAssertFalse(PulseLaunch.shouldStampHubWhenExpandCacheFills())
+    }
+
     func testPowerBISalesTabSundayMondayTuesdayAndTotal() {
         let metric = ["Sales $", "Sales YoY %", "Orders", "Orders YoY %", "AOS", "AOS YoY %", "AIV", "AIV YoY", "Items P/TXN", "Item P/TXN YoY", "Total Items", "Total Items YoY"]
         let weekday = ["Weekday"]
@@ -1990,6 +2007,7 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseLaunch.shouldDeferStoreRowBuildUntilExpanded())
         XCTAssertTrue(PulseLaunch.shouldBuildExpandTableOffMain())
         XCTAssertFalse(PulseLaunch.shouldStampHubWhenExpandCacheFills())
+        XCTAssertTrue(PulseLaunch.shouldPrefetchSalesExpandWithGrainTables())
         XCTAssertTrue(PulseLaunch.shouldRevealHubAfterSeatPaint())
         XCTAssertTrue(PulseLaunch.shouldCheckCloudPackDuringSeatWait())
         XCTAssertTrue(PulseLaunch.shouldPinHubChromeAboveContent())

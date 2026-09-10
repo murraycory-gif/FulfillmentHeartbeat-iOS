@@ -601,6 +601,56 @@ final class HeartbeatStore: ObservableObject {
         cachedSalesScopeRows
     }
 
+    /// Fill expand caches off the tap turn. Writes cache only — no filterStamp.
+    func prefetchExpand(section: MetricSection) async {
+        if section == .sales {
+            if !cachedSalesScopeRows.isEmpty { return }
+            let source = salesStores()
+            let grain = effectiveDashboardGrain
+            let company = filters.isActive ? nil : salesCompanyFact()
+            let built = await Task.detached(priority: .userInitiated) {
+                (
+                    SalesRollupBuilder.dashboardRows(from: source, grain: grain),
+                    SalesRollupBuilder.dayRows(from: source, company: company)
+                )
+            }.value
+            if cachedSalesScopeRows.isEmpty || built.0.count >= cachedSalesScopeRows.count {
+                cachedSalesScopeRows = built.0
+                cachedSalesDayRows = built.1
+            }
+            return
+        }
+        if let cached = cachedGrainTables[section], HeartbeatMath.grainRowsAreLive(cached) {
+            return
+        }
+        let grain = effectiveDashboardGrain
+        var source = HeartbeatMath.rowsFillingRoster(displayRows(for: section), roster: roster)
+        if source.isEmpty {
+            source = HeartbeatMath.rowsFillingRoster(latestBySection[section] ?? [], roster: roster)
+        }
+        let packs = cachedGrainPacks[section] ?? []
+        let order = packs.map(\.line.label)
+        let goal = section == .lostRevenue ? lostRevenueGoalFallbackValue() : nil
+        let table = await Task.detached(priority: .userInitiated) {
+            HeartbeatMath.dashboardGrainTableFilled(
+                section: section,
+                rows: source,
+                grain: grain,
+                order: order,
+                goalFallback: goal
+            )
+        }.value
+        if HeartbeatMath.grainRowsAreLive(table) {
+            cachedGrainTables[section] = table
+        } else if cachedGrainTables[section]?.isEmpty != false {
+            cachedGrainTables[section] = HeartbeatMath.dashboardGrainRowsFromPacks(
+                packs,
+                section: section,
+                goalFallback: goal
+            )
+        }
+    }
+
     /// Cache/packs only. Expand must not walk the warehouse on the tap turn.
     func ensureDashboardExpandReady(_ section: MetricSection) {
         if PulseLaunch.shouldBuildExpandTableOffMain() { return }
@@ -679,6 +729,8 @@ final class HeartbeatStore: ObservableObject {
         let rosterCopy = roster
         let goalFallback = lostRevenueGoalFallbackValue()
         let delay = grainTablePrefetchDelayNanoseconds()
+        let salesRaw = latest[.sales] ?? []
+        let company = filters.isActive ? nil : salesCompanyFact()
         Task.detached(priority: .background) {
             if delay > 0 {
                 try? await Task.sleep(nanoseconds: delay)
@@ -690,9 +742,21 @@ final class HeartbeatStore: ObservableObject {
                 packs: packs,
                 goalFallback: goalFallback
             )
+            let salesSource = SalesRollupBuilder.source(
+                from: salesRaw,
+                filters: DashboardFilters(),
+                roster: rosterCopy
+            )
+            let salesScope = SalesRollupBuilder.dashboardRows(from: salesSource, grain: grain)
+            let salesDays = SalesRollupBuilder.dayRows(from: salesSource, company: company)
             await MainActor.run {
                 guard self.effectiveDashboardGrain == grain else { return }
                 self.mergeGrainTables(tables)
+                if PulseLaunch.shouldPrefetchSalesExpandWithGrainTables(),
+                   salesScope.count >= self.cachedSalesScopeRows.count {
+                    self.cachedSalesScopeRows = salesScope
+                    self.cachedSalesDayRows = salesDays
+                }
             }
         }
     }
@@ -3143,7 +3207,7 @@ final class HeartbeatStore: ObservableObject {
         if !light {
             refreshSalesExpandCache()
         }
-        if cachedGrainTables.values.allSatisfy(\.isEmpty) {
+        if cachedGrainTables.values.allSatisfy(\.isEmpty) || cachedSalesScopeRows.isEmpty {
             fillExpandTablesSoon()
         }
         let hasFilteredPPH = (filteredLatest[.pph] ?? []).contains { HeartbeatMath.pphNumber($0) != nil }

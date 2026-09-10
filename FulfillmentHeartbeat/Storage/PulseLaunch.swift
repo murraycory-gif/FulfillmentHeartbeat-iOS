@@ -240,6 +240,10 @@ enum PulseLaunch {
     /// Filling expand cache must not `filterStamp` the hub.
     static func shouldStampHubWhenExpandCacheFills() -> Bool { false }
 
+    /// Sales Regions/Stores expand uses the sales rollup cache, not grain packs.
+    /// Prefetch it with grain tables so the chevron is not headers-only.
+    static func shouldPrefetchSalesExpandWithGrainTables() -> Bool { true }
+
     /// Apply the seat filter while Who's looking is still up, then mount the hub
     /// so Continue does not land on a mid-paint dashboard.
     static func shouldRevealHubAfterSeatPaint() -> Bool { true }
