@@ -7,15 +7,21 @@ struct RootView: View {
         ZStack {
             AppTheme.bg.ignoresSafeArea()
             if store.isReady {
-                MainHubView()
-                    .transition(.opacity)
-                    .overlay {
-                        if store.needsRolePick {
-                            RoleGateView()
-                                .zIndex(20)
-                                .transition(.opacity)
+                if store.needsRolePick, !PulseLaunch.shouldMountHubUnderRoleGate() {
+                    RoleGateView()
+                        .zIndex(20)
+                        .transition(.opacity)
+                } else {
+                    MainHubView()
+                        .transition(.opacity)
+                        .overlay {
+                            if store.needsRolePick, PulseLaunch.shouldMountHubUnderRoleGate() {
+                                RoleGateView()
+                                    .zIndex(20)
+                                    .transition(.opacity)
+                            }
                         }
-                    }
+                }
             } else {
                 LaunchSplashView()
             }
@@ -35,10 +41,21 @@ struct RootView: View {
         }
         .animation(.easeOut(duration: 0.18), value: store.isReady)
         .animation(nil, value: store.needsRolePick)
+        .overlay(alignment: .top) {
+            if PulseLaunch.shouldShowHubFillBanner(
+                needsRolePick: store.needsRolePick,
+                warehouseHydrating: store.warehouseHydrating
+            ) {
+                WarehouseFillBanner()
+                    .padding(.top, 6)
+                    .zIndex(30)
+            }
+        }
     }
 }
 
 struct LaunchSplashView: View {
+    @EnvironmentObject private var store: HeartbeatStore
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var quipIndex = 0
 
@@ -73,15 +90,40 @@ struct LaunchSplashView: View {
                     forceTrace: true
                 )
                 VStack(spacing: 10) {
-                    ProgressView()
-                        .controlSize(.regular)
-                        .tint(AppTheme.blue)
-                    Text(Self.quips[quipIndex % Self.quips.count])
-                        .font(.system(size: phone ? 16 : 18, weight: .semibold))
-                        .foregroundStyle(AppTheme.text)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.8)
+                    if let error = store.errorMessage, !store.isImporting {
+                        Text(error)
+                            .font(.system(size: phone ? 16 : 18, weight: .semibold))
+                            .foregroundStyle(AppTheme.text)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 8)
+                        Button("Try again") {
+                            store.retryLaunch()
+                        }
+                        .font(.system(size: phone ? 16 : 17, weight: .semibold))
+                        .foregroundStyle(AppTheme.blue)
+                        .padding(.top, 4)
+                    } else {
+                        ProgressView()
+                            .controlSize(.regular)
+                            .tint(AppTheme.blue)
+                        Text(store.importProgress.label ?? Self.quips[quipIndex % Self.quips.count])
+                            .font(.system(size: phone ? 16 : 18, weight: .semibold))
+                            .foregroundStyle(AppTheme.text)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(3)
+                            .minimumScaleFactor(0.8)
+                        if store.importProgress.expected > 0 {
+                            ProgressView(
+                                value: store.importProgress.fraction,
+                                total: 1
+                            )
+                            .tint(AppTheme.blue)
+                            .frame(maxWidth: phone ? 220 : 280)
+                            Text("\(store.importProgress.loaded) of \(store.importProgress.expected)")
+                                .font(.system(size: phone ? 13 : 14, weight: .semibold))
+                                .foregroundStyle(AppTheme.textSecondary)
+                        }
+                    }
                 }
                 .padding(.top, 4)
             }
@@ -132,6 +174,27 @@ struct PendingImportSheet: View {
                 }
             }
         }
+    }
+}
+
+private struct WarehouseFillBanner: View {
+    @EnvironmentObject private var store: HeartbeatStore
+
+    var body: some View {
+        VStack(spacing: 6) {
+            Text(store.aisleFillCaption)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(AppTheme.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            ProgressView(value: store.importProgress.fraction, total: 1)
+                .tint(AppTheme.blue)
+                .frame(maxWidth: 280)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(AppTheme.card.opacity(0.96), in: Capsule())
+        .allowsHitTesting(false)
     }
 }
 

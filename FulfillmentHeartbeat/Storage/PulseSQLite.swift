@@ -157,6 +157,41 @@ enum PulseSQLite {
         return Pack(rows: rows, uploads: uploads, seeded: seeded, counts: counts, writtenAt: writtenAt, chrome: chrome)
     }
 
+    /// Page-open path: one section, a slice at a time, so Picker can paint the first shoppers.
+    static func readSection(
+        from url: URL,
+        section: MetricSection,
+        limit: Int,
+        offset: Int = 0
+    ) -> [MetricRow] {
+        guard exists(at: url), limit > 0, offset >= 0 else { return [] }
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK, let db else {
+            return []
+        }
+        defer { sqlite3_close(db) }
+        sqlite3_exec(db, "PRAGMA mmap_size=33554432;", nil, nil, nil)
+        sqlite3_exec(db, "PRAGMA cache_size=-2000;", nil, nil, nil)
+        let sql = """
+        SELECT id, section, store_number, division, operations_om, store_name, recorded_on, payload_json, text_json
+        FROM facts WHERE section = ? LIMIT ? OFFSET ?;
+        """
+        var stmt: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { return [] }
+        defer { sqlite3_finalize(stmt) }
+        bind(stmt, 1, section.rawValue)
+        bind(stmt, 2, limit)
+        bind(stmt, 3, offset)
+        var out: [MetricRow] = []
+        out.reserveCapacity(min(limit, 256))
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            if let row = metricRow(stmt) {
+                out.append(row)
+            }
+        }
+        return out
+    }
+
     /// Filter path: pull only the stores in the current filter from the pack.
     static func readStores(
         from url: URL,
@@ -270,7 +305,16 @@ enum PulseSQLite {
     }
 
     static func exists(at url: URL) -> Bool {
+        isUsableFile(at: url)
+    }
+
+    static func fileBytes(at url: URL) -> Int {
+        PulseLaunch.fileBytes(at: url)
+    }
+
+    static func isUsableFile(at url: URL) -> Bool {
         FileManager.default.fileExists(atPath: url.path)
+            && PulseLaunch.isUsableFileSize(fileBytes(at: url))
     }
 
     static func sectionCount(from url: URL, section: MetricSection) -> Int {
@@ -367,6 +411,10 @@ enum PulseSQLite {
         } else {
             sqlite3_bind_null(stmt, index)
         }
+    }
+
+    private static func bind(_ stmt: OpaquePointer?, _ index: Int32, _ value: Int) {
+        sqlite3_bind_int(stmt, index, Int32(value))
     }
 
     private static func string(_ stmt: OpaquePointer?, _ index: Int32) -> String {

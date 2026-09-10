@@ -635,7 +635,7 @@ struct BeatingHeartbeatMark: View {
 
     private var heartBlock: some View {
         ZStack(alignment: .leading) {
-            if showsTrace, forceTrace || !HubLayout.constrained {
+            if showsTrace || forceTrace {
                 LogoECGUI(lineWidth: height * 0.11)
                     .frame(width: height * 1.42, height: height * 0.70)
                     .offset(x: height * 0.88, y: height * 0.04)
@@ -683,7 +683,7 @@ struct BeatingHeartbeatMark: View {
                 .shadow(color: AppTheme.heart.opacity(0.40), radius: 8, y: 3)
                 .frame(width: height, height: height)
         }
-        .frame(width: showsTrace ? height * 2.32 : height, height: height, alignment: .leading)
+        .frame(width: (showsTrace || forceTrace) ? height * 2.32 : height, height: height, alignment: .leading)
     }
 }
 
@@ -969,67 +969,85 @@ struct HubChromePill: View {
 
 struct FilterBar: View {
     @EnvironmentObject private var store: HeartbeatStore
+    @EnvironmentObject private var router: HubRouter
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var sheetFocus: FilterFocus?
-    @State private var showShare = false
 
     var body: some View {
+        let chromeKey = store.filters.summary
         HStack(spacing: 8) {
+            if !compactPills, store.filters.isActive {
+                Button("Clear") { clearNow() }
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(AppTheme.blue)
+                    .frame(minHeight: 44)
+            }
             ViewThatFits(in: .horizontal) {
                 pills
                 ScrollView(.horizontal, showsIndicators: false) {
                     pills
                 }
             }
+            .id(chromeKey)
         }
         .fullScreenCover(item: $sheetFocus) { focus in
             FilterSheet(initialFocus: focus)
                 .environmentObject(store)
         }
-        .fullScreenCover(isPresented: $showShare) {
-            SharePulseSheet()
-                .environmentObject(store)
-        }
     }
 
+    private var compactPills: Bool { HubLayout.isPhone(sizeClass) }
+
     private var pills: some View {
-        HStack(spacing: 10) {
-            HubChromePill(
-                title: store.filters.isActive ? compactFilterTitle : "Filters",
-                symbol: "line.3.horizontal.decrease.circle",
-                selected: store.filters.isActive
-            ) {
-                openFilters(.region)
+        HStack(spacing: compactPills ? 10 : 8) {
+            if compactPills {
+                HubChromePill(
+                    title: store.filters.isActive ? compactFilterTitle : "Filters",
+                    symbol: "line.3.horizontal.decrease.circle",
+                    selected: store.filters.isActive
+                ) {
+                    openFilters(.region)
+                }
+                if store.filters.isActive {
+                    Button("Clear") { clearNow() }
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(AppTheme.blue)
+                        .frame(minHeight: HubLayout.phoneControlHeight)
+                }
+            } else {
+                ForEach(FilterFocus.allCases) { focus in
+                    HubChromePill(
+                        title: pillTitle(for: focus),
+                        symbol: focus.symbol,
+                        selected: !store.filters.values(for: focus).isEmpty
+                    ) {
+                        openFilters(focus)
+                    }
+                }
             }
-            if store.filters.isActive {
-                Button("Clear") { store.clearFilters() }
-                    .font(HubLayout.isPhone(sizeClass) ? .caption2.weight(.semibold) : .subheadline.weight(.semibold))
-                    .foregroundStyle(AppTheme.blue)
-                    .frame(minHeight: HubLayout.isPhone(sizeClass) ? HubLayout.phoneControlHeight : 44)
-            }
             HubChromePill(
-                title: "Share",
+                title: store.shareReady ? "Share" : "Share…",
                 symbol: "square.and.arrow.up",
                 showsChevron: false
             ) {
-                showShare = true
+                guard store.shareReady else { return }
+                var transaction = Transaction()
+                transaction.animation = nil
+                withTransaction(transaction) {
+                    router.showShare = true
+                }
             }
         }
     }
 
     private func pillTitle(for focus: FilterFocus) -> String {
-        let values = store.filters.values(for: focus)
-        if values.isEmpty { return focus.chipTitle }
-        if values.count == 1 { return values[0] }
-        return "\(values[0]) +\(values.count - 1)"
+        store.filters.chipTitle(for: focus)
     }
 
     private var compactFilterTitle: String {
         let active = FilterFocus.allCases.compactMap { focus -> String? in
-            let values = store.filters.values(for: focus)
-            if values.isEmpty { return nil }
-            if values.count == 1 { return values[0] }
-            return "\(values[0]) +\(values.count - 1)"
+            let title = store.filters.chipTitle(for: focus)
+            return title == focus.chipTitle ? nil : title
         }
         if active.isEmpty { return "Filters" }
         if active.count == 1 { return active[0] }
@@ -1039,23 +1057,37 @@ struct FilterBar: View {
     private func openFilters(_ focus: FilterFocus) {
         sheetFocus = focus
     }
+
+    private func clearNow() {
+        var transaction = Transaction()
+        transaction.animation = nil
+        withTransaction(transaction) {
+            store.clearFilters()
+        }
+    }
 }
 
 struct SharePulseSheet: View {
     @EnvironmentObject private var store: HeartbeatStore
+    @EnvironmentObject private var router: HubRouter
     @Environment(\.dismiss) private var dismiss
-    @State private var selected: Set<PulseMail.SharePage> = Set(PulseMail.SharePage.allCases)
+    @State private var selected: Set<PulseMail.SharePage> = []
     @State private var building = false
     @State private var packet: PulseMail.Packet?
 
     var body: some View {
         NavigationStack {
             if let packet {
-                ShareRecapCompose(packet: packet) {
+                ShareRecapCompose(packet: packet, htmlReady: packet.htmlFile != nil) {
                     self.packet = nil
                 }
             } else {
                 picker
+            }
+        }
+        .onAppear {
+            if selected.isEmpty {
+                selected = [PulseMail.SharePage.from(destination: router.current)]
             }
         }
     }
@@ -1076,7 +1108,7 @@ struct SharePulseSheet: View {
                 }
                 .disabled(selected.isEmpty)
             } footer: {
-                Text("Checklist and Upload are never included. Select every scorecard, or tap only the pages you want in the email.")
+                Text("The email opens as the page you picked — same cards, callouts, and tables. Share sheet stays snappy; the recap builds after you tap Send.")
             }
 
             Section("Pages") {
@@ -1147,19 +1179,25 @@ struct SharePulseSheet: View {
         guard !building, !selected.isEmpty else { return }
         building = true
         let pages = selected
-        let snap = store.pulseMailSnapshot()
         Task { @MainActor in
-            let built = await Task.detached(priority: .userInitiated) {
-                PulseMail.make(snap, pages: pages)
-            }.value
+            await Task.yield()
+            let starter = PulseMail.briefPacket(store.pulseMailBriefSnapshot(pages), pages: pages)
+            packet = starter
             building = false
-            packet = built
+            let snap = store.pulseMailSnapshot(pages)
+            let built = await Task.detached(priority: .utility) {
+                PulseMail.make(snap, pages: pages, persistHTML: false)
+            }.value
+            if packet?.subject == starter.subject {
+                packet = built
+            }
         }
     }
 }
 
 struct ShareRecapCompose: View {
     let packet: PulseMail.Packet
+    var htmlReady: Bool = true
     var onBack: () -> Void
     @State private var to = ""
 
@@ -1188,17 +1226,38 @@ struct ShareRecapCompose: View {
             .padding(.vertical, 12)
             .background(AppTheme.card)
 
-            RecapWebView(html: packet.html)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color(red: 0.96, green: 0.97, blue: 0.99))
+            Group {
+                if let url = packet.htmlFile {
+                    RecapWebView(fileURL: url)
+                } else if !packet.html.isEmpty {
+                    RecapWebView(html: packet.html)
+                } else {
+                    ScrollView {
+                        Text(packet.brief)
+                            .font(.body)
+                            .foregroundStyle(AppTheme.text)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(16)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(red: 0.96, green: 0.97, blue: 0.99))
 
             Button(action: sendMail) {
-                Text("Send")
-                    .font(.headline.weight(.bold))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
+                HStack(spacing: 10) {
+                    if !htmlReady {
+                        ProgressView()
+                            .tint(.white)
+                    }
+                    Text(htmlReady ? "Send" : "Building recap…")
+                        .font(.headline.weight(.bold))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
             }
             .buttonStyle(PrimaryButtonStyle())
+            .disabled(!htmlReady)
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
             .background(AppTheme.bg)
@@ -1224,7 +1283,14 @@ struct ShareRecapCompose: View {
 }
 
 struct RecapWebView: UIViewRepresentable {
-    let html: String
+    var html: String = ""
+    var fileURL: URL? = nil
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    final class Coordinator {
+        var loaded = ""
+    }
 
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
@@ -1239,6 +1305,15 @@ struct RecapWebView: UIViewRepresentable {
     }
 
     func updateUIView(_ web: WKWebView, context: Context) {
+        if let fileURL {
+            let key = fileURL.path
+            guard context.coordinator.loaded != key else { return }
+            context.coordinator.loaded = key
+            web.loadFileURL(fileURL, allowingReadAccessTo: fileURL.deletingLastPathComponent())
+            return
+        }
+        guard !html.isEmpty, context.coordinator.loaded != html else { return }
+        context.coordinator.loaded = html
         web.loadHTMLString(html, baseURL: nil)
     }
 }
@@ -1674,7 +1749,7 @@ struct StoreTable: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            Text(row.district.isEmpty ? "—" : row.district)
+            Text(row.district.isEmpty ? "—" : HeartbeatMath.canonicalDistrict(row.district))
                 .font(.subheadline.monospacedDigit())
                 .foregroundStyle(AppTheme.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1749,35 +1824,39 @@ struct PickPathTable: View {
                     if !next { headerPin.pinned = false }
                     if next { rebuildOrder(sort: sort, ascending: ascending) }
                 } content: {
-                    PickPathMetricHeader(
-                        label: "Store",
-                        showCount: false,
-                        showDates: true,
-                        active: sort.key,
-                        ascending: ascending,
-                        onSelect: applyHeaderSort
-                    )
-                    ForEach(Array(snaps.prefix(limit))) { snap in
-                        PickPathStoreRow(
-                            snap: snap,
-                            expanded: openStore == snap.storeNumber,
-                            onToggle: {
-                                openStore = openStore == snap.storeNumber ? nil : snap.storeNumber
+                    HubAdaptiveHScroll {
+                        VStack(spacing: 0) {
+                            PickPathMetricHeader(
+                                label: "Store",
+                                showCount: false,
+                                showDates: true,
+                                active: sort.key,
+                                ascending: ascending,
+                                onSelect: applyHeaderSort
+                            )
+                            ForEach(Array(snaps.prefix(limit))) { snap in
+                                PickPathStoreRow(
+                                    snap: snap,
+                                    expanded: openStore == snap.storeNumber,
+                                    onToggle: {
+                                        openStore = openStore == snap.storeNumber ? nil : snap.storeNumber
+                                    }
+                                )
                             }
-                        )
-                    }
-                    if orderedCount > snaps.count {
-                        Button {
-                            limit += 50
-                            rebuildOrder(sort: sort, ascending: ascending)
-                        } label: {
-                            Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(AppTheme.blue)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
+                            if orderedCount > snaps.count {
+                                Button {
+                                    limit += 50
+                                    rebuildOrder(sort: sort, ascending: ascending)
+                                } label: {
+                                    Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(AppTheme.blue)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 12)
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
-                        .buttonStyle(.plain)
                     }
                 }
                 .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 20, trailing: 20))
@@ -1877,14 +1956,10 @@ struct PickPathTable: View {
 }
 
 private enum PickPathMath {
-    static let gutter: CGFloat = 8
-    static let labelMin: CGFloat = 148
-    static let labelMax: CGFloat = 180
-    static let countW: CGFloat = 58
-    static let pphW: CGFloat = 84
-    static let ordersW: CGFloat = 72
-    static let dateW: CGFloat = 100
-    static let statusW: CGFloat = 88
+    static let gutter: CGFloat = HubLayout.tableGutter
+    static var labelW: CGFloat { HubLayout.pageLabelWidth }
+    static var countW: CGFloat { HubLayout.readableStoreWidth(phone: HubLayout.isPhoneDevice) }
+    static var statusW: CGFloat { HubLayout.readableStatusWidth(phone: HubLayout.isPhoneDevice) }
 
     static func orders(_ row: MetricRow) -> Double? {
         row.number("orders") ?? row.number("picks_total")
@@ -1945,7 +2020,7 @@ private enum PickPathRollupBuilder {
             let label: String
             switch grain {
             case .region, .division, .district:
-                label = key
+                label = HeartbeatMath.displayGrainLabel(key)
             case .store:
                 let division = group.first?.division ?? ""
                 label = division.isEmpty ? key : "\(key)  |  \(division)"
@@ -1990,7 +2065,7 @@ private struct PickPathLineSnap: Identifiable, Equatable {
         id = row.id
         storeNumber = row.storeNumber
         label = HeartbeatMath.storeDisplayLabel(row)
-        district = row.district
+        district = HeartbeatMath.canonicalDistrict(row.district)
         om = row.operationsOM
         let pathNum = row.number("compliance_pct")
         let pphNum = row.number("pph")
@@ -2029,12 +2104,12 @@ private struct PickPathCheapLine: View, Equatable {
                     .font(.caption.weight(.bold))
                     .foregroundStyle(AppTheme.blue)
             }
-            .frame(minWidth: PickPathMath.labelMin, maxWidth: PickPathMath.labelMax, alignment: .leading)
+            .frame(width: PickPathMath.labelW, alignment: .leading)
             cell(snap.path, snap.pathHealth)
-            cell(snap.pph, snap.pphHealth, width: PickPathMath.pphW)
-            cell(snap.orders, .none, width: PickPathMath.ordersW)
-            cell(snap.mapper, snap.mapperHealth, width: PickPathMath.dateW, alignment: .center)
-            cell(snap.sequence, snap.sequenceHealth, width: PickPathMath.dateW, alignment: .center)
+            cell(snap.pph, snap.pphHealth)
+            cell(snap.orders, .none)
+            cell(snap.mapper, snap.mapperHealth, alignment: .center)
+            cell(snap.sequence, snap.sequenceHealth, alignment: .center)
             Text(snap.health.label.uppercased())
                 .font(.caption.weight(.heavy))
                 .lineLimit(1)
@@ -2048,15 +2123,14 @@ private struct PickPathCheapLine: View, Equatable {
         .padding(.vertical, 4)
     }
 
-    private func cell(_ value: String, _ health: Health, width: CGFloat? = nil, alignment: Alignment = .trailing) -> some View {
+    private func cell(_ value: String, _ health: Health, alignment: Alignment = .trailing) -> some View {
         Text(value.isEmpty ? "—" : value)
             .font(.subheadline.weight(.bold).monospacedDigit())
             .foregroundStyle(ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.7)
             .padding(.horizontal, 6)
-            .frame(maxWidth: width == nil ? .infinity : nil, alignment: alignment)
-            .frame(width: width, alignment: alignment)
+            .frame(maxWidth: .infinity, alignment: alignment)
             .padding(.vertical, 6)
             .background(wash(health), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
@@ -2089,12 +2163,25 @@ private struct PickPathCheapLine: View, Equatable {
     }
 }
 
-private struct PickPathMetricLine: View, Equatable {
+private struct PickPathMetricLine: View {
     let label: String
     var count: Int? = nil
+    var labelWidth: CGFloat = PickPathMath.labelW
     let path: Double?
     let pph: Double?
     let orders: Double?
+    @Environment(\.hubTableWidth) private var tableWidth
+
+    private var valueW: CGFloat {
+        HubLayout.evenValueWidth(
+            available: tableWidth,
+            phone: HubLayout.isPhoneDevice,
+            columns: 3,
+            showCount: count != nil,
+            district: labelWidth < 120,
+            valueMin: HubLayout.dashboardValueMin(phone: HubLayout.isPhoneDevice, columns: 3)
+        )
+    }
 
     var body: some View {
         let health = PickPathMath.pathHealth(path)
@@ -2104,7 +2191,7 @@ private struct PickPathMetricLine: View, Equatable {
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .frame(minWidth: PickPathMath.labelMin, maxWidth: PickPathMath.labelMax, alignment: .leading)
+                .frame(width: labelWidth, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
                     .font(.subheadline.weight(.semibold).monospacedDigit())
@@ -2126,7 +2213,7 @@ private struct PickPathMetricLine: View, Equatable {
             .foregroundStyle(ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
-            .frame(maxWidth: .infinity, alignment: .trailing)
+            .frame(width: valueW, alignment: .trailing)
             .padding(.vertical, 6)
             .padding(.horizontal, 6)
             .background(
@@ -2158,31 +2245,47 @@ struct PickPathMetricHeader: View {
     let label: String
     var showCount: Bool = false
     var showDates: Bool = false
+    var labelWidth: CGFloat = PickPathMath.labelW
     var active: String? = nil
     var ascending: Bool = false
     var onSelect: ((String) -> Void)? = nil
+    @Environment(\.hubTableWidth) private var tableWidth
+
+    private var valueW: CGFloat {
+        HubLayout.evenValueWidth(
+            available: tableWidth,
+            phone: HubLayout.isPhoneDevice,
+            columns: showDates ? 5 : 3,
+            showCount: showCount,
+            district: labelWidth < 120,
+            valueMin: HubLayout.dashboardValueMin(phone: HubLayout.isPhoneDevice, columns: showDates ? 5 : 3)
+        )
+    }
 
     var body: some View {
         HStack(spacing: showDates ? PickPathMath.gutter : 6) {
             head(label, key: "label", alignment: .leading)
-                .frame(minWidth: PickPathMath.labelMin, maxWidth: PickPathMath.labelMax, alignment: .leading)
+                .frame(width: labelWidth, alignment: .leading)
             if showCount {
                 head("Stores", key: "count", alignment: .trailing)
                     .frame(width: PickPathMath.countW, alignment: .trailing)
             }
             head("Pick Path", key: "path")
+                .frame(width: valueW, alignment: .trailing)
             if showDates {
                 head("Avg PPH", key: "pph")
-                    .frame(width: PickPathMath.pphW, alignment: .trailing)
+                    .frame(width: valueW, alignment: .trailing)
                 head("Orders", key: "orders")
-                    .frame(width: PickPathMath.ordersW, alignment: .trailing)
+                    .frame(width: valueW, alignment: .trailing)
                 head("Mapper", key: "mapper", alignment: .center)
-                    .frame(width: PickPathMath.dateW)
+                    .frame(width: valueW, alignment: .center)
                 head("Sequence", key: "sequence", alignment: .center)
-                    .frame(width: PickPathMath.dateW)
+                    .frame(width: valueW, alignment: .center)
             } else {
                 head("Avg PPH", key: "pph")
+                    .frame(width: valueW, alignment: .trailing)
                 head("Orders", key: "orders")
+                    .frame(width: valueW, alignment: .trailing)
             }
             head("Status", key: "status", alignment: .trailing)
                 .frame(width: PickPathMath.statusW, alignment: .trailing)
@@ -2281,11 +2384,20 @@ struct PickPathRollupTable: View {
                 }
                 .buttonStyle(.plain)
                 if expanded {
-                    HubAdaptiveHScroll {
+                    HubAdaptiveHScroll(
+                        minWidth: HubLayout.readableTableFloor(
+                            phone: HubLayout.isPhoneDevice,
+                            columns: 3,
+                            showCount: grain != .store,
+                            district: grain == .district,
+                            valueMin: HubLayout.dashboardValueMin(phone: HubLayout.isPhoneDevice, columns: 3)
+                        )
+                    ) {
                     VStack(alignment: .leading, spacing: 10) {
                     PickPathMetricHeader(
                         label: grain.columnTitle,
                         showCount: grain != .store,
+                        labelWidth: grain.labelWidth,
                         active: sortKey,
                         ascending: sortAscending,
                         onSelect: applySort
@@ -2294,6 +2406,7 @@ struct PickPathRollupTable: View {
                         PickPathMetricLine(
                             label: row.label,
                             count: grain == .store ? nil : row.storeCount,
+                            labelWidth: grain.labelWidth,
                             path: row.path,
                             pph: row.pph,
                             orders: row.orders
@@ -2535,10 +2648,7 @@ private struct PathShopperTable: View {
     }
 
     private var emptyDetail: String {
-        if section == .pickPath || section == .pickPathPicker {
-            return "Upload Pick Path Compliance Picker and Picker ScoreCard to see shoppers for this store."
-        }
-        return "Upload Picker ScoreCard to see shoppers for this store."
+        PulseLaunch.shopperEmptyDetail(loading: store.pickerLoading)
     }
 
     private func pickerLine(_ picker: PathShopperSnap) -> some View {
@@ -2994,7 +3104,9 @@ private enum DynacapRollupBuilder {
     }
 
     static func source(from all: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
-        all.filter { !$0.storeNumber.isEmpty }
+        all.filter {
+            !$0.storeNumber.isEmpty && $0.number("dynacap_rate", "pieces_per_hour") != nil
+        }
     }
 
     static func rows(from stores: [MetricRow], grain: LaborRollupGrain, pphByStore: [String: Double]) -> [DynacapRollupRow] {
@@ -3021,7 +3133,7 @@ private enum DynacapRollupBuilder {
             let label: String
             switch grain {
             case .region, .division, .district:
-                label = key
+                label = HeartbeatMath.displayGrainLabel(key)
             case .store:
                 let division = group.first?.division ?? ""
                 label = division.isEmpty ? key : "\(key)  |  \(division)"
@@ -3060,7 +3172,7 @@ private struct DynacapLineSnap: Identifiable, Equatable {
         id = row.id
         storeNumber = row.storeNumber
         label = HeartbeatMath.storeDisplayLabel(row)
-        district = row.district
+        district = HeartbeatMath.canonicalDistrict(row.district)
         om = row.operationsOM
         let rateNum = DynacapMath.rate(row)
         let utilNum = row.number("utilization_pct")
@@ -3091,7 +3203,7 @@ private struct DynacapCheapLine: View, Equatable {
                     .font(.caption.weight(.bold))
                     .foregroundStyle(AppTheme.blue)
             }
-            .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             cell(snap.rate, snap.health)
             cell(snap.pph, snap.pphHealth)
             cell(DynacapMath.goalText, .none, brand: true)
@@ -3164,7 +3276,7 @@ private struct DynacapMetricLine: View, Equatable {
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
                     .font(.subheadline.weight(.semibold).monospacedDigit())
@@ -3237,7 +3349,7 @@ struct DynacapMetricHeader: View {
     var body: some View {
         HStack(spacing: 6) {
             head(label, key: "label", alignment: .leading)
-                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             if showCount {
                 head("Stores", key: "count", alignment: .trailing)
                     .frame(width: 58, alignment: .trailing)
@@ -3457,7 +3569,7 @@ private struct DynacapStoreExpand: View {
             ("Pieces / hr", snap.rate, snap.health, false),
             ("Store PPH", snap.pph, snap.pphHealth, false),
             ("Goal", DynacapMath.goalText, .none, true),
-            ("Utilization", snap.util, .none, false),
+            ("Utilization", snap.util, snap.util == "—" || snap.util.isEmpty ? .none : .good, false),
         ]
     }
 
@@ -3488,14 +3600,14 @@ private struct DynacapStoreExpand: View {
                 .font(.subheadline.weight(.bold))
                 .foregroundStyle(AppTheme.text)
             if pickers.isEmpty {
-                Text("Upload Picker ScoreCard so shoppers for this store show here with their Pure PPH.")
+                Text(PulseLaunch.shopperEmptyDetail(loading: store.pickerLoading))
                     .font(.subheadline)
                     .foregroundStyle(AppTheme.textSecondary)
                     .padding(.vertical, 6)
             } else {
                 HStack(spacing: 6) {
                     Text("SHOPPER")
-                        .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                        .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
                     Text("SHOPPER PPH")
                         .frame(maxWidth: .infinity, alignment: .trailing)
                     Text("ORDERS")
@@ -3523,7 +3635,7 @@ private struct DynacapStoreExpand: View {
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             cell(HeartbeatFormat.num(picker.number("pph"), digits: 1), health)
             cell(HeartbeatFormat.num(picker.number("orders")), .none)
             cell(HeartbeatFormat.num(picker.number("pick_hours"), digits: 1), .none)
@@ -3678,52 +3790,52 @@ struct PrepTable: View {
             }
             if expanded {
                 Section {
-                    PrepMetricHeader(
-                        label: "Store",
-                        showCount: false,
-                        active: sort.key,
-                        ascending: ascending,
-                        onSelect: applyHeaderSort
-                    )
-                    .background(
-                        GeometryReader { geo in
-                            Color.clear.preference(
-                                key: LaborHeaderMinYKey.self,
-                                value: (geo.frame(in: .global).minY / 12).rounded() * 12
+                    HubAdaptiveHScroll(
+                        minWidth: PrepMath.tableFloor(showCount: false, district: false)
+                    ) {
+                        VStack(alignment: .leading, spacing: 0) {
+                            PrepMetricHeader(
+                                label: "Store",
+                                showCount: false,
+                                active: sort.key,
+                                ascending: ascending,
+                                onSelect: applyHeaderSort
                             )
+                            .background(
+                                GeometryReader { geo in
+                                    Color.clear.preference(
+                                        key: LaborHeaderMinYKey.self,
+                                        value: (geo.frame(in: .global).minY / 12).rounded() * 12
+                                    )
+                                }
+                            )
+                            ForEach(Array(snaps.prefix(limit))) { snap in
+                                PrepStoreRow(
+                                    snap: snap,
+                                    expanded: openStore == snap.storeNumber,
+                                    onToggle: {
+                                        openStore = openStore == snap.storeNumber ? nil : snap.storeNumber
+                                    }
+                                )
+                            }
+                            if orderedCount > snaps.count {
+                                Button {
+                                    limit += 50
+                                    rebuildOrder(sort: sort, ascending: ascending)
+                                } label: {
+                                    Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(AppTheme.blue)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 12)
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
-                    )
-                    .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
+                    }
+                    .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 16, trailing: 20))
                     .listRowSeparator(.hidden)
                     .listRowBackground(AppTheme.tableFill)
-                    ForEach(Array(snaps.prefix(limit))) { snap in
-                        PrepStoreRow(
-                            snap: snap,
-                            expanded: openStore == snap.storeNumber,
-                            onToggle: {
-                                openStore = openStore == snap.storeNumber ? nil : snap.storeNumber
-                            }
-                        )
-                        .listRowInsets(EdgeInsets(top: 5, leading: 20, bottom: 5, trailing: 20))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.tableFill)
-                    }
-                    if orderedCount > snaps.count {
-                        Button {
-                            limit += 50
-                            rebuildOrder(sort: sort, ascending: ascending)
-                        } label: {
-                            Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(AppTheme.blue)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                        }
-                        .buttonStyle(.plain)
-                        .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 16, trailing: 20))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.tableFill)
-                    }
                 }
                 .transaction { $0.animation = nil }
                 .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
@@ -3801,10 +3913,35 @@ struct PrepTable: View {
 private enum PrepMath {
     static let goalText = "1.9%"
     static let watchText = "1.9–2.5%"
+    static let columns = 3
+    static var labelW: CGFloat { HubLayout.pageLabelWidth }
+    static let countW: CGFloat = 58
+    static var statusW: CGFloat { HubLayout.readableStatusWidth(phone: HubLayout.isPhoneDevice) }
 
     static func pnrHealth(_ value: Double?) -> Health {
         guard value != nil else { return .none }
         return HeartbeatMath.band(value, good: HeartbeatMath.pnrGoal, watch: HeartbeatMath.pnrWatch, invert: true)
+    }
+
+    static func valueWidth(available: CGFloat, showCount: Bool, district: Bool) -> CGFloat {
+        HubLayout.evenValueWidth(
+            available: available,
+            phone: HubLayout.isPhoneDevice,
+            columns: columns,
+            showCount: showCount,
+            district: district,
+            valueMin: HubLayout.dashboardValueMin(phone: HubLayout.isPhoneDevice, columns: columns)
+        )
+    }
+
+    static func tableFloor(showCount: Bool, district: Bool) -> CGFloat {
+        HubLayout.readableTableFloor(
+            phone: HubLayout.isPhoneDevice,
+            columns: columns,
+            showCount: showCount,
+            district: district,
+            valueMin: HubLayout.dashboardValueMin(phone: HubLayout.isPhoneDevice, columns: columns)
+        )
     }
 }
 
@@ -3823,7 +3960,9 @@ private enum PrepRollupBuilder {
     }
 
     static func source(from all: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
-        all.filter { !$0.storeNumber.isEmpty }
+        all.filter {
+            !$0.storeNumber.isEmpty && $0.number("pnr_rate_pct", "pnr_hours", "prep_not_ready_pct") != nil
+        }
     }
 
     static func rows(from stores: [MetricRow], grain: LaborRollupGrain) -> [PrepRollupRow] {
@@ -3850,7 +3989,7 @@ private enum PrepRollupBuilder {
             let label: String
             switch grain {
             case .region, .division, .district:
-                label = key
+                label = HeartbeatMath.displayGrainLabel(key)
             case .store:
                 let division = group.first?.division ?? ""
                 label = division.isEmpty ? key : "\(key)  |  \(division)"
@@ -3882,7 +4021,7 @@ private struct PrepLineSnap: Identifiable, Equatable {
         id = row.id
         storeNumber = row.storeNumber
         label = HeartbeatMath.storeDisplayLabel(row)
-        district = row.district
+        district = HeartbeatMath.canonicalDistrict(row.district)
         om = row.operationsOM
         let pnrNum = row.number("pnr_rate_pct", "pnr_hours", "prep_not_ready_pct")
         pnr = HeartbeatFormat.pct(pnrNum)
@@ -3894,6 +4033,16 @@ private struct PrepLineSnap: Identifiable, Equatable {
 private struct PrepCheapLine: View, Equatable {
     let snap: PrepLineSnap
     let expanded: Bool
+    var labelWidth: CGFloat = PrepMath.labelW
+    @Environment(\.hubTableWidth) private var tableWidth
+
+    static func == (lhs: PrepCheapLine, rhs: PrepCheapLine) -> Bool {
+        lhs.snap == rhs.snap && lhs.expanded == rhs.expanded && lhs.labelWidth == rhs.labelWidth
+    }
+
+    private var valueW: CGFloat {
+        PrepMath.valueWidth(available: tableWidth, showCount: false, district: labelWidth < 120)
+    }
 
     var body: some View {
         HStack(spacing: 6) {
@@ -3907,7 +4056,7 @@ private struct PrepCheapLine: View, Equatable {
                     .font(.caption.weight(.bold))
                     .foregroundStyle(AppTheme.blue)
             }
-            .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            .frame(width: labelWidth, alignment: .leading)
             cell(snap.pnr, snap.health)
             cell(PrepMath.goalText, .none, brand: true)
             cell(PrepMath.watchText, .watch)
@@ -3919,7 +4068,7 @@ private struct PrepCheapLine: View, Equatable {
                 .padding(.vertical, 5)
                 .foregroundStyle(Color.white)
                 .background(pill(snap.health), in: Capsule())
-                .frame(width: 88, alignment: .trailing)
+                .frame(width: PrepMath.statusW, alignment: .trailing)
         }
         .padding(.vertical, 4)
     }
@@ -3930,7 +4079,7 @@ private struct PrepCheapLine: View, Equatable {
             .foregroundStyle(brand ? AppTheme.blue : ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
-            .frame(maxWidth: .infinity, alignment: .trailing)
+            .frame(width: valueW, alignment: .trailing)
             .padding(.vertical, 6)
             .padding(.horizontal, 6)
             .background(brand ? AppTheme.blueSoft : wash(health), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -3967,7 +4116,17 @@ private struct PrepCheapLine: View, Equatable {
 private struct PrepMetricLine: View, Equatable {
     let label: String
     var count: Int? = nil
+    var labelWidth: CGFloat = PrepMath.labelW
     let pnr: Double?
+    @Environment(\.hubTableWidth) private var tableWidth
+
+    static func == (lhs: PrepMetricLine, rhs: PrepMetricLine) -> Bool {
+        lhs.label == rhs.label && lhs.count == rhs.count && lhs.labelWidth == rhs.labelWidth && lhs.pnr == rhs.pnr
+    }
+
+    private var valueW: CGFloat {
+        PrepMath.valueWidth(available: tableWidth, showCount: count != nil, district: labelWidth < 120)
+    }
 
     var body: some View {
         let health = PrepMath.pnrHealth(pnr)
@@ -3977,18 +4136,18 @@ private struct PrepMetricLine: View, Equatable {
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                .frame(width: labelWidth, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
                     .font(.subheadline.weight(.semibold).monospacedDigit())
                     .foregroundStyle(AppTheme.textSecondary)
-                    .frame(width: 58, alignment: .trailing)
+                    .frame(width: PrepMath.countW, alignment: .trailing)
             }
             cell(HeartbeatFormat.pct(pnr), health)
             cell(PrepMath.goalText, .none, brand: true)
             cell(PrepMath.watchText, .watch)
             HealthBadge(health: health, prominent: true, compact: true)
-                .frame(width: 88, alignment: .trailing)
+                .frame(width: PrepMath.statusW, alignment: .trailing)
         }
         .tableRowCard(health: health)
     }
@@ -3999,7 +4158,7 @@ private struct PrepMetricLine: View, Equatable {
             .foregroundStyle(brand ? AppTheme.blue : ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
-            .frame(maxWidth: .infinity, alignment: .trailing)
+            .frame(width: valueW, alignment: .trailing)
             .padding(.vertical, 6)
             .padding(.horizontal, 6)
             .background(
@@ -4030,23 +4189,32 @@ private struct PrepMetricLine: View, Equatable {
 struct PrepMetricHeader: View {
     let label: String
     var showCount: Bool = false
+    var labelWidth: CGFloat = PrepMath.labelW
     var active: String? = nil
     var ascending: Bool = false
     var onSelect: ((String) -> Void)? = nil
+    @Environment(\.hubTableWidth) private var tableWidth
+
+    private var valueW: CGFloat {
+        PrepMath.valueWidth(available: tableWidth, showCount: showCount, district: labelWidth < 120)
+    }
 
     var body: some View {
         HStack(spacing: 6) {
             head(label, key: "label", alignment: .leading)
-                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                .frame(width: labelWidth, alignment: .leading)
             if showCount {
                 head("Stores", key: "count", alignment: .trailing)
-                    .frame(width: 58, alignment: .trailing)
+                    .frame(width: PrepMath.countW, alignment: .trailing)
             }
             head("PNR Hours %", key: "pnr")
+                .frame(width: valueW, alignment: .trailing)
             head("Goal", key: "goal")
+                .frame(width: valueW, alignment: .trailing)
             head("Watch", key: "watch")
+                .frame(width: valueW, alignment: .trailing)
             head("Status", key: "status", alignment: .trailing)
-                .frame(width: 88, alignment: .trailing)
+                .frame(width: PrepMath.statusW, alignment: .trailing)
         }
         .font(.caption.weight(.bold))
         .tracking(0.3)
@@ -4141,11 +4309,14 @@ struct PrepRollupTable: View {
                 }
                 .buttonStyle(.plain)
                 if expanded {
-                    HubAdaptiveHScroll {
+                    HubAdaptiveHScroll(
+                        minWidth: PrepMath.tableFloor(showCount: grain != .store, district: grain == .district)
+                    ) {
                     VStack(alignment: .leading, spacing: 10) {
                     PrepMetricHeader(
                         label: grain.columnTitle,
                         showCount: grain != .store,
+                        labelWidth: grain.labelWidth,
                         active: sortKey,
                         ascending: sortAscending,
                         onSelect: applySort
@@ -4154,6 +4325,7 @@ struct PrepRollupTable: View {
                         PrepMetricLine(
                             label: row.label,
                             count: grain == .store ? nil : row.storeCount,
+                            labelWidth: grain.labelWidth,
                             pnr: row.pnr
                         )
                     }
@@ -4533,7 +4705,7 @@ private enum FiveStarRollupBuilder {
             let label: String
             switch grain {
             case .region, .division, .district:
-                label = key
+                label = HeartbeatMath.displayGrainLabel(key)
             case .store:
                 let division = group.first?.division ?? ""
                 label = division.isEmpty ? key : "\(key)  |  \(division)"
@@ -4586,7 +4758,7 @@ private struct FiveStarLineSnap: Identifiable, Equatable {
         id = row.id
         storeNumber = row.storeNumber
         label = HeartbeatMath.storeDisplayLabel(row)
-        district = row.district
+        district = HeartbeatMath.canonicalDistrict(row.district)
         om = row.operationsOM
         let ratingNum = row.number("star_rating")
         let flashNum = row.number("flash_pct")
@@ -4632,7 +4804,7 @@ private struct FiveStarCheapLine: View, Equatable {
                     .font(.caption.weight(.bold))
                     .foregroundStyle(AppTheme.blue)
             }
-            .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             cell(snap.rating, snap.ratingHealth)
             cell(snap.flash, snap.flashHealth)
             cell(snap.presub, snap.presubHealth)
@@ -4710,7 +4882,7 @@ private struct FiveStarMetricLine: View, Equatable {
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
                     .font(.subheadline.weight(.semibold).monospacedDigit())
@@ -4773,7 +4945,7 @@ struct FiveStarMetricHeader: View {
     var body: some View {
         HStack(spacing: 6) {
             head(label, key: "label", alignment: .leading)
-                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             if showCount {
                 head("Stores", key: "count", alignment: .trailing)
                     .frame(width: 58, alignment: .trailing)
@@ -5143,7 +5315,7 @@ struct FiveStarStoreCard: View {
     }
 
     private var metaLine: String {
-        let district = row.district.isEmpty ? "—" : row.district
+        let district = row.district.isEmpty ? "—" : HeartbeatMath.canonicalDistrict(row.district)
         let om = row.operationsOM.isEmpty ? "—" : row.operationsOM
         return "District \(district)  ·  \(om)"
     }
@@ -5217,6 +5389,10 @@ enum LaborRollupGrain {
         case .store: return "Store"
         }
     }
+
+    var labelWidth: CGFloat {
+        HubLayout.scopeLabelWidth(district: self == .district)
+    }
 }
 
 enum RollupMarketFill {
@@ -5228,26 +5404,30 @@ enum RollupMarketFill {
     }
 
     static func districtKey(_ raw: String) -> String {
-        let value = HeartbeatMath.canonicalDistrict(raw)
+        let value = HeartbeatMath.displayGrainLabel(HeartbeatMath.canonicalDistrict(raw))
         if !value.isEmpty { return value }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "Unassigned" : trimmed
+        return trimmed.isEmpty ? "Unassigned" : HeartbeatMath.displayGrainLabel(trimmed)
     }
 
     static func grain(for filters: DashboardFilters) -> LaborRollupGrain {
-        if !filters.division.isEmpty || !filters.district.isEmpty || !filters.om.isEmpty || !filters.store.isEmpty {
-            return .district
+        switch PulseLaunch.dashboardGrain(filters: filters, sessionRole: nil) {
+        case .store: return .store
+        case .district: return .district
+        case .division: return .division
+        case .region: return .region
         }
-        if !filters.region.isEmpty {
-            return .division
-        }
-        return .region
+    }
+
+    static func missingRegions(present: [String]) -> [String] {
+        let seen = Set(present.map { HeartbeatMath.normalize($0) })
+        return MarketRegion.allCases.map(\.rawValue).filter { !seen.contains(HeartbeatMath.normalize($0)) }
     }
 
     static func bucketKey(_ row: MetricRow, grain: LaborRollupGrain) -> String {
         switch grain {
         case .region:
-            return MarketRegion.containing(row.division)?.rawValue ?? "Unassigned"
+            return MarketRegion.resolved(division: row.division, district: row.district)?.rawValue ?? "Unassigned"
         case .division:
             return divisionKey(row.division)
         case .district:
@@ -5403,7 +5583,7 @@ private enum LaborRollupBuilder {
             let label: String
             switch grain {
             case .region, .division, .district:
-                label = key
+                label = HeartbeatMath.displayGrainLabel(key)
             case .store:
                 let division = group.first?.division ?? ""
                 label = division.isEmpty ? key : "\(key)  |  \(division)"
@@ -5452,7 +5632,7 @@ private struct LaborLineSnap: Identifiable, Equatable {
         id = row.id
         storeNumber = row.storeNumber
         label = HeartbeatMath.storeDisplayLabel(row)
-        district = row.district
+        district = HeartbeatMath.canonicalDistrict(row.district)
         om = row.operationsOM
         week = row.textPayload["week"].flatMap { $0.isEmpty ? nil : $0 } ?? "store totals"
         let tvaValue = row.number("target_vs_actual_pct")
@@ -5503,7 +5683,7 @@ private struct LaborCheapLine: View, Equatable {
                     .font(.caption.weight(.bold))
                     .foregroundStyle(AppTheme.blue)
             }
-            .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             cell(snap.tva, snap.tvaHealth)
             cell(snap.cost, .none, brand: true)
             cell(snap.act, snap.actHealth)
@@ -5591,7 +5771,7 @@ private struct LaborMetricLine: View, Equatable {
                         .foregroundStyle(AppTheme.blue)
                 }
             }
-            .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
                     .font(.subheadline.weight(.semibold).monospacedDigit())
@@ -5755,7 +5935,7 @@ struct LaborMetricHeader: View {
     var body: some View {
         HStack(spacing: 6) {
             head(label, key: "label", alignment: .leading)
-                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             if showCount {
                 head("Stores", key: "count", alignment: .trailing)
                     .frame(width: 58, alignment: .trailing)
@@ -6513,22 +6693,32 @@ private enum LostRevenueMath {
         return dollars / sales * 100
     }
 
-    static func pack(_ rows: [MetricRow]) -> LostRevenueRollupRow {
-        let sales = sum(rows, "ecomm_sales")
-        let lost = sum(rows, "lost_revenue")
-        let goalDollars = sum(rows, "lost_revenue_goal")
+    static func pack(_ rows: [MetricRow], fallbackGoal: Double? = nil) -> LostRevenueRollupRow {
+        let stores = HeartbeatMath.lostRevenueStoreRows(rows)
+        let sales = optionalTO(rows, "ecomm_sales")
+        let lost = optionalTO(rows, "lost_revenue")
+        let market = HeartbeatMath.lostRevenueMarketRow(in: rows)
         return LostRevenueRollupRow(
             id: "tmp",
             label: "",
-            storeCount: rows.count,
+            storeCount: stores.count,
             lost: lost,
-            pct: ratio(lost, sales) ?? HeartbeatMath.average(rows.compactMap { $0.number("lost_revenue_pct") }),
-            goal: ratio(goalDollars, sales) ?? HeartbeatMath.average(rows.compactMap { $0.number("lost_revenue_goal_pct") }),
+            pct: market?.number("lost_revenue_pct")
+                ?? ratio(lost, sales)
+                ?? HeartbeatMath.average(stores.compactMap { $0.number("lost_revenue_pct") }),
+            goal: HeartbeatMath.lostRevenueInheritedGoalPct(rows: rows, fallback: fallbackGoal),
             sales: sales,
-            post: sum(rows, "post_sub_oos_foregone"),
-            refund: sum(rows, "refund_lost"),
-            missed: sum(rows, "missed_sales")
+            post: optionalTO(rows, "post_sub_oos_foregone"),
+            refund: optionalTO(rows, "refund_lost"),
+            missed: optionalTO(rows, "missed_sales")
         )
+    }
+
+    static func optionalTO(_ rows: [MetricRow], _ key: String) -> Double? {
+        if let market = HeartbeatMath.lostRevenueMarketRow(in: rows) {
+            return market.number(key)
+        }
+        return sum(HeartbeatMath.lostRevenueStoreRows(rows), key)
     }
 }
 
@@ -6538,12 +6728,15 @@ private enum LostRevenueRollupBuilder {
     }
 
     static func source(from all: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
-        all.filter {
-            $0.textPayload["lost_grain"] != "market" && !$0.storeNumber.isEmpty
+        if filters.isActive {
+            return all.filter {
+                $0.textPayload["lost_grain"] != "market" && !$0.storeNumber.isEmpty
+            }
         }
+        return all
     }
 
-    static func rows(from stores: [MetricRow], grain: LaborRollupGrain) -> [LostRevenueRollupRow] {
+    static func rows(from stores: [MetricRow], grain: LaborRollupGrain, fallbackGoal: Double? = nil) -> [LostRevenueRollupRow] {
         var buckets: [String: [MetricRow]] = [:]
         for row in stores {
             let key: String
@@ -6564,11 +6757,11 @@ private enum LostRevenueRollupBuilder {
         var result: [LostRevenueRollupRow] = []
         result.reserveCapacity(buckets.count)
         for (key, group) in buckets {
-            let packed = LostRevenueMath.pack(group)
+            let packed = LostRevenueMath.pack(group, fallbackGoal: fallbackGoal)
             let label: String
             switch grain {
             case .region, .division, .district:
-                label = key
+                label = HeartbeatMath.displayGrainLabel(key)
             case .store:
                 let division = group.first?.division ?? ""
                 label = division.isEmpty ? key : "\(key)  |  \(division)"
@@ -6614,15 +6807,15 @@ private struct LostRevenueLineSnap: Identifiable, Equatable {
     let refundValue: Double
     let missedValue: Double
 
-    init(_ row: MetricRow) {
+    init(_ row: MetricRow, fallbackGoal: Double? = nil) {
         id = row.id
         storeNumber = row.storeNumber
         label = HeartbeatMath.storeDisplayLabel(row)
-        district = row.district
+        district = HeartbeatMath.canonicalDistrict(row.district)
         om = row.operationsOM
         let lostNum = row.number("lost_revenue")
         let pctNum = row.number("lost_revenue_pct")
-        let goalNum = row.number("lost_revenue_goal_pct")
+        let goalNum = HeartbeatMath.lostRevenueGoalPct(row) ?? fallbackGoal
         let salesNum = row.number("ecomm_sales")
         let postNum = row.number("post_sub_oos_foregone")
         let refundNum = row.number("refund_lost")
@@ -6661,7 +6854,7 @@ private struct LostRevenueCheapLine: View, Equatable {
                     .font(.caption.weight(.bold))
                     .foregroundStyle(AppTheme.blue)
             }
-            .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             cell(snap.lost, snap.health)
             cell(snap.pct, snap.health)
             cell(snap.goal, .none, brand: true)
@@ -6741,7 +6934,7 @@ private struct LostRevenueMetricLine: View, Equatable {
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
                     .font(.subheadline.weight(.semibold).monospacedDigit())
@@ -6805,7 +6998,7 @@ struct LostRevenueMetricHeader: View {
     var body: some View {
         HStack(spacing: 6) {
             head(label, key: "label", alignment: .leading)
-                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             if showCount {
                 head("Stores", key: "count", alignment: .trailing)
                     .frame(width: 58, alignment: .trailing)
@@ -6958,7 +7151,8 @@ struct LostRevenueRollupTable: View {
         grain = next
         guard let next else { summary = []; return }
         let source = LostRevenueRollupBuilder.source(from: store.rollupStores(for: .lostRevenue), filters: store.filters)
-        var rows = LostRevenueRollupBuilder.rows(from: source, grain: next)
+        let fallbackGoal = store.lostRevenueMarketRow().flatMap { HeartbeatMath.lostRevenueGoalPct($0) }
+        var rows = LostRevenueRollupBuilder.rows(from: source, grain: next, fallbackGoal: fallbackGoal)
         if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
                 rows.append(
@@ -7038,6 +7232,9 @@ struct LostRevenueTable: View {
     @State private var orderedCount = 0
 
     private var expanded: Bool { headerPin.storesExpanded }
+    private var fallbackGoal: Double? {
+        store.lostRevenueMarketRow().flatMap { HeartbeatMath.lostRevenueGoalPct($0) }
+    }
 
     var body: some View {
         if rows.isEmpty {
@@ -7060,7 +7257,7 @@ struct LostRevenueTable: View {
                     if !next { headerPin.pinned = false }
                     if next { rebuildOrder(sort: sort, ascending: ascending) }
                 } content: {
-                    HubPhonePane(minWidth: 860) {
+                    HubAdaptiveHScroll(minWidth: 860) {
                         VStack(spacing: 0) {
                             LostRevenueMetricHeader(
                                 label: "Store",
@@ -7141,7 +7338,7 @@ struct LostRevenueTable: View {
             return ascending ? result == .orderedAscending : result == .orderedDescending
         }
         orderedCount = sorted.count
-        snaps = Array(sorted.prefix(limit)).map(LostRevenueLineSnap.init)
+        snaps = Array(sorted.prefix(limit)).map { LostRevenueLineSnap($0, fallbackGoal: fallbackGoal) }
     }
 
     private func compare(_ lhs: MetricRow, _ rhs: MetricRow, sort: Column) -> ComparisonResult {
@@ -7156,7 +7353,7 @@ struct LostRevenueTable: View {
         case .pct:
             return numberOrder(lhs.number("lost_revenue_pct"), rhs.number("lost_revenue_pct"))
         case .goal:
-            return numberOrder(lhs.number("lost_revenue_goal_pct"), rhs.number("lost_revenue_goal_pct"))
+            return numberOrder(HeartbeatMath.lostRevenueGoalPct(lhs), HeartbeatMath.lostRevenueGoalPct(rhs))
         case .sales:
             return numberOrder(lhs.number("ecomm_sales"), rhs.number("ecomm_sales"))
         case .post:
@@ -7557,7 +7754,10 @@ private enum ScheduleRollupBuilder {
     }
 
     static func source(from all: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
-        all.filter { !$0.storeNumber.isEmpty }
+        all.filter {
+            !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty
+                || $0.number("schedule_efficiency_pct") != nil
+        }
     }
 
     static func rows(from stores: [MetricRow], grain: LaborRollupGrain) -> [ScheduleRollupRow] {
@@ -7584,7 +7784,7 @@ private enum ScheduleRollupBuilder {
             let label: String
             switch grain {
             case .region, .division, .district:
-                label = key
+                label = HeartbeatMath.displayGrainLabel(key)
             case .store:
                 let division = group.first?.division ?? ""
                 label = division.isEmpty ? key : "\(key)  |  \(division)"
@@ -7629,7 +7829,7 @@ private struct ScheduleLineSnap: Identifiable, Equatable {
         id = row.id
         storeNumber = row.storeNumber
         label = HeartbeatMath.storeDisplayLabel(row)
-        district = row.district
+        district = HeartbeatMath.canonicalDistrict(row.district)
         om = row.operationsOM
         let efficiencyNum = ScheduleMath.efficiency(row)
         let staffingNum = ScheduleMath.staffing(row)
@@ -7667,7 +7867,7 @@ private struct ScheduleCheapLine: View, Equatable {
                     .font(.caption.weight(.bold))
                     .foregroundStyle(AppTheme.blue)
             }
-            .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             cell(snap.efficiency, snap.efficiencyHealth)
             cell(snap.staffing, snap.staffingHealth)
             cell(ScheduleMath.goalText, .none, brand: true)
@@ -7726,13 +7926,26 @@ private struct ScheduleCheapLine: View, Equatable {
     }
 }
 
-private struct ScheduleMetricLine: View, Equatable {
+private struct ScheduleMetricLine: View {
     let label: String
     var count: Int? = nil
+    var labelWidth: CGFloat = HubLayout.pageLabelWidth
     let efficiency: Double?
     let staffing: Double?
     let under: Double?
     let over: Double?
+    @Environment(\.hubTableWidth) private var tableWidth
+
+    private var valueW: CGFloat {
+        HubLayout.evenValueWidth(
+            available: tableWidth,
+            phone: HubLayout.isPhoneDevice,
+            columns: 5,
+            showCount: count != nil,
+            district: labelWidth < 120,
+            valueMin: HubLayout.dashboardValueMin(phone: HubLayout.isPhoneDevice, columns: 5)
+        )
+    }
 
     var body: some View {
         let health = ScheduleRollupRow(id: label, label: label, storeCount: count ?? 0, efficiency: efficiency, staffing: staffing, under: under, over: over).health
@@ -7742,7 +7955,7 @@ private struct ScheduleMetricLine: View, Equatable {
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                .frame(width: labelWidth, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
                     .font(.subheadline.weight(.semibold).monospacedDigit())
@@ -7766,9 +7979,8 @@ private struct ScheduleMetricLine: View, Equatable {
             .foregroundStyle(brand ? AppTheme.blue : ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
-            .frame(maxWidth: .infinity, alignment: .trailing)
+            .frame(width: valueW, alignment: .trailing)
             .padding(.vertical, 6)
-            .padding(.horizontal, 6)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(brand ? AppTheme.blueSoft : wash(health))
@@ -7797,23 +8009,41 @@ private struct ScheduleMetricLine: View, Equatable {
 struct ScheduleMetricHeader: View {
     let label: String
     var showCount: Bool = false
+    var labelWidth: CGFloat = HubLayout.pageLabelWidth
     var active: String? = nil
     var ascending: Bool = false
     var onSelect: ((String) -> Void)? = nil
+    @Environment(\.hubTableWidth) private var tableWidth
+
+    private var valueW: CGFloat {
+        HubLayout.evenValueWidth(
+            available: tableWidth,
+            phone: HubLayout.isPhoneDevice,
+            columns: 5,
+            showCount: showCount,
+            district: labelWidth < 120,
+            valueMin: HubLayout.dashboardValueMin(phone: HubLayout.isPhoneDevice, columns: 5)
+        )
+    }
 
     var body: some View {
         HStack(spacing: 6) {
             head(label, key: "label", alignment: .leading)
-                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                .frame(width: labelWidth, alignment: .leading)
             if showCount {
                 head("Stores", key: "count", alignment: .trailing)
                     .frame(width: 58, alignment: .trailing)
             }
             head("Efficiency", key: "efficiency")
+                .frame(width: valueW, alignment: .trailing)
             head("Staffing % (Pch vs Tgt)", key: "staffing")
+                .frame(width: valueW, alignment: .trailing)
             head("Goal", key: "goal")
+                .frame(width: valueW, alignment: .trailing)
             head("Under", key: "under")
+                .frame(width: valueW, alignment: .trailing)
             head("Over", key: "over")
+                .frame(width: valueW, alignment: .trailing)
             head("Status", key: "status", alignment: .trailing)
                 .frame(width: 88, alignment: .trailing)
         }
@@ -7906,11 +8136,20 @@ struct ScheduleRollupTable: View {
                 }
                 .buttonStyle(.plain)
                 if expanded {
-                    HubAdaptiveHScroll {
+                    HubAdaptiveHScroll(
+                        minWidth: HubLayout.readableTableFloor(
+                            phone: HubLayout.isPhoneDevice,
+                            columns: 5,
+                            showCount: grain != .store,
+                            district: grain == .district,
+                            valueMin: HubLayout.dashboardValueMin(phone: HubLayout.isPhoneDevice, columns: 5)
+                        )
+                    ) {
                     VStack(alignment: .leading, spacing: 10) {
                     ScheduleMetricHeader(
                         label: grain.columnTitle,
                         showCount: grain != .store,
+                        labelWidth: grain.labelWidth,
                         active: sortKey,
                         ascending: sortAscending,
                         onSelect: applySort
@@ -7919,6 +8158,7 @@ struct ScheduleRollupTable: View {
                         ScheduleMetricLine(
                             label: row.label,
                             count: grain == .store ? nil : row.storeCount,
+                            labelWidth: grain.labelWidth,
                             efficiency: row.efficiency,
                             staffing: row.staffing,
                             under: row.under,
@@ -7949,6 +8189,11 @@ struct ScheduleRollupTable: View {
         guard let next else { summary = []; return }
         let source = ScheduleRollupBuilder.source(from: store.rollupStores(for: .scheduleQuality), filters: store.filters)
         var rows = ScheduleRollupBuilder.rows(from: source, grain: next)
+        if next == .region {
+            for name in RollupMarketFill.missingRegions(present: rows.map(\.label)) {
+                rows.append(ScheduleRollupRow(id: name, label: name, storeCount: 0, efficiency: nil, staffing: nil, under: nil, over: nil))
+            }
+        }
         if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
                 rows.append(ScheduleRollupRow(id: extra.name, label: extra.name, storeCount: extra.storeCount, efficiency: nil, staffing: nil, under: nil, over: nil))
@@ -8122,7 +8367,7 @@ struct PPHTable: View {
                 EmptyHint(
                     symbol: "speedometer",
                     title: "No stores in this view",
-                    detail: "Tap Avg pure PPH to see every store, or pick another callout."
+                    detail: "Tap Week Pure PPH to see every store, or pick another callout."
                 )
                 .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 20, trailing: 20))
                 .listRowSeparator(.hidden)
@@ -8315,7 +8560,7 @@ private enum PPHRollupBuilder {
         all.filter { !$0.storeNumber.isEmpty }
     }
 
-    static func rows(from stores: [MetricRow], grain: LaborRollupGrain, pickerCount: (String) -> Int) -> [PPHRollupRow] {
+    static func rows(from stores: [MetricRow], grain: LaborRollupGrain, pickerCounts: [String: Int]) -> [PPHRollupRow] {
         var buckets: [String: [MetricRow]] = [:]
         for row in stores {
             let key: String
@@ -8339,7 +8584,7 @@ private enum PPHRollupBuilder {
             let label: String
             switch grain {
             case .region, .division, .district:
-                label = key
+                label = HeartbeatMath.displayGrainLabel(key)
             case .store:
                 let division = group.first?.division ?? ""
                 label = division.isEmpty ? key : "\(key)  |  \(division)"
@@ -8350,7 +8595,7 @@ private enum PPHRollupBuilder {
                     label: label,
                     storeCount: group.count,
                     pph: HeartbeatMath.average(group.compactMap { $0.number("pph") }),
-                    pickers: group.reduce(0) { $0 + pickerCount($1.storeNumber) }
+                    pickers: PulseLaunch.pphPickerTotal(storeNumbers: group.map(\.storeNumber), counts: pickerCounts)
                 )
             )
         }
@@ -8374,7 +8619,7 @@ private struct PPHLineSnap: Identifiable, Equatable {
         id = row.id
         storeNumber = row.storeNumber
         label = HeartbeatMath.storeDisplayLabel(row)
-        district = row.district
+        district = HeartbeatMath.canonicalDistrict(row.district)
         om = row.operationsOM
         let pphNum = row.number("pph")
         pph = HeartbeatFormat.num(pphNum, digits: 1)
@@ -8401,7 +8646,7 @@ private struct PPHCheapLine: View, Equatable {
                     .font(.caption.weight(.bold))
                     .foregroundStyle(AppTheme.blue)
             }
-            .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             cell(snap.pph, snap.health)
             cell(snap.pickers, .none)
             cell(PPHMath.goalText, .none, brand: true)
@@ -8472,7 +8717,7 @@ private struct PPHMetricLine: View, Equatable {
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
                     .font(.subheadline.weight(.semibold).monospacedDigit())
@@ -8532,7 +8777,7 @@ struct PPHMetricHeader: View {
     var body: some View {
         HStack(spacing: 6) {
             head(label, key: "label", alignment: .leading)
-                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             if showCount {
                 head("Stores", key: "count", alignment: .trailing)
                     .frame(width: 58, alignment: .trailing)
@@ -8676,7 +8921,7 @@ struct PPHRollupTable: View {
         grain = next
         guard let next else { summary = []; return }
         let source = PPHRollupBuilder.source(from: store.rollupStores(for: .pph), filters: store.filters)
-        var rows = PPHRollupBuilder.rows(from: source, grain: next, pickerCount: { store.pphPickerCount(forStore: $0) })
+        var rows = PPHRollupBuilder.rows(from: source, grain: next, pickerCounts: store.pphPickerCounts())
         if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
                 rows.append(PPHRollupRow(id: extra.name, label: extra.name, storeCount: extra.storeCount, pph: nil, pickers: 0))
@@ -8777,14 +9022,14 @@ private struct PPHStoreExpand: View {
                 .font(.subheadline.weight(.bold))
                 .foregroundStyle(AppTheme.text)
             if pickers.isEmpty {
-                Text("Upload Picker ScoreCard so shoppers for this store can expand here with their Pure PPH.")
+                Text(PulseLaunch.shopperEmptyDetail(loading: store.pickerLoading))
                     .font(.subheadline)
                     .foregroundStyle(AppTheme.textSecondary)
                     .padding(.vertical, 6)
             } else {
                 HStack(spacing: 6) {
                     Text("PICKER")
-                        .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                        .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
                     Text("PURE PPH")
                         .frame(maxWidth: .infinity, alignment: .trailing)
                     Text("ORDERS")
@@ -8812,7 +9057,7 @@ private struct PPHStoreExpand: View {
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             cell(HeartbeatFormat.num(picker.number("pph"), digits: 1), health)
             cell(HeartbeatFormat.num(picker.number("orders")), .none)
             cell(HeartbeatFormat.num(picker.number("pick_hours"), digits: 1), .none)
@@ -8928,11 +9173,25 @@ struct PickerScoreTable: View {
     var body: some View {
         if total == 0 {
             Section {
-                EmptyHint(
-                    symbol: "person.2",
-                    title: "No shoppers in \(focus.title.lowercased())",
-                    detail: "Tap another callout above, or upload the weekly Picker Scorecard."
-                )
+                Group {
+                    if store.pickerLoading {
+                        HStack(spacing: 10) {
+                            ProgressView()
+                                .tint(AppTheme.blue)
+                            Text("Loading shoppers…")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(AppTheme.textSecondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 12)
+                    } else {
+                        EmptyHint(
+                            symbol: "person.2",
+                            title: "No shoppers in \(focus.title.lowercased())",
+                            detail: "Shoppers fill from the Heartbeat pack after ready. Tap another callout, or wait for the stream."
+                        )
+                    }
+                }
                 .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 20, trailing: 20))
                 .listRowSeparator(.hidden)
                 .listRowBackground(AppTheme.bg)
@@ -9543,12 +9802,13 @@ struct HubChromeModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         Group {
-            if HubLayout.isPhone(sizeClass) {
+            if PulseLaunch.shouldPinHubChromeAboveContent() || HubLayout.isPhone(sizeClass) {
                 VStack(spacing: 0) {
                     HubBrandBar(showBack: showBack, showsFilters: showsFilters)
                     content
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 }
+                .safeAreaPadding(.top)
             } else {
                 content
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -9558,7 +9818,7 @@ struct HubChromeModifier: ViewModifier {
                     }
             }
         }
-        .background(AppTheme.bg.ignoresSafeArea())
+        .background(AppTheme.bg.ignoresSafeArea(edges: .bottom))
         .navigationBarTitleDisplayMode(.inline)
         .navigationTitle("")
         .tint(AppTheme.blue)
@@ -9646,8 +9906,6 @@ struct HubBrandBar: View {
     private var compactBannerTitle: String {
         switch router.current {
         case .dashboard: return "Operational Heartbeat"
-        case .upload: return "Upload"
-        case .checklist: return "Checklist"
         default: return router.current.title
         }
     }
@@ -9665,7 +9923,11 @@ struct HubBrandBar: View {
         ZStack {
             HStack(spacing: 4) {
                 HubNavControl(symbol: "line.3.horizontal", title: "Pages") {
-                    router.toggleSidebar()
+                    var transaction = Transaction()
+                    transaction.animation = nil
+                    withTransaction(transaction) {
+                        router.toggleSidebar()
+                    }
                 }
                 if showBack {
                     HubNavControl(symbol: "chevron.left", title: "Dashboard") {
@@ -9676,7 +9938,7 @@ struct HubBrandBar: View {
                 assistButton
             }
             .zIndex(2)
-            BeatingHeartbeatMark(height: markHeight, showsTrace: true)
+            BeatingHeartbeatMark(height: markHeight, showsTrace: true, forceTrace: true)
                 .allowsHitTesting(false)
         }
         .frame(minHeight: markHeight + 8)
@@ -9717,35 +9979,33 @@ struct HubBrandBar: View {
 
     @ViewBuilder
     private var assistButton: some View {
-        if router.current != .checklist {
-            Button {
-                showAssist = true
-            } label: {
-                if compact {
-                    Image(systemName: "sparkles")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 30, height: 30)
-                        .background(AppTheme.blue, in: Circle())
-                } else {
-                    HStack(spacing: 8) {
-                        Image(systemName: "sparkles")
-                            .font(.body.weight(.bold))
-                        Text("Heartbeat Assist")
-                            .font(.subheadline.weight(.bold))
-                            .lineLimit(1)
-                    }
+        Button {
+            showAssist = true
+        } label: {
+            if compact {
+                Image(systemName: "sparkles")
+                    .font(.caption.weight(.bold))
                     .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 11)
-                    .frame(minHeight: 44)
-                    .background(AppTheme.blue, in: Capsule(style: .continuous))
-                    .shadow(color: AppTheme.blue.opacity(0.35), radius: 8, y: 3)
+                    .frame(width: 30, height: 30)
+                    .background(AppTheme.blue, in: Circle())
+            } else {
+                HStack(spacing: 8) {
+                    Image(systemName: "sparkles")
+                        .font(.body.weight(.bold))
+                    Text("Heartbeat Assist")
+                        .font(.subheadline.weight(.bold))
+                        .lineLimit(1)
                 }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 11)
+                .frame(minHeight: 44)
+                .background(AppTheme.blue, in: Capsule(style: .continuous))
+                .shadow(color: AppTheme.blue.opacity(0.35), radius: 8, y: 3)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Heartbeat Assist, build \(BuildStamp.label)")
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Heartbeat Assist, build \(BuildStamp.label)")
     }
 
     private var markHeight: CGFloat {
@@ -9765,7 +10025,7 @@ extension View {
     func hubPageCanvas() -> some View {
         self
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .background(AppTheme.bg.ignoresSafeArea())
+            .background(AppTheme.bg.ignoresSafeArea(edges: .bottom))
     }
 
     func hubPhoneTable(minWidth: CGFloat = 720) -> some View {
@@ -9776,19 +10036,35 @@ extension View {
 private struct HubPhoneTableModifier: ViewModifier {
     @Environment(\.horizontalSizeClass) private var sizeClass
     var minWidth: CGFloat
+    @State private var available: CGFloat = 0
 
     func body(content: Content) -> some View {
-        if HubLayout.isPhone(sizeClass) {
-            content
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-        } else if sizeClass == .regular {
-            content
-        } else {
-            ScrollView(.horizontal, showsIndicators: true) {
+        let floor = max(minWidth, HubLayout.isPhone(sizeClass) ? 920 : minWidth)
+        let span = HubLayout.tableSpan(available: available, floor: floor)
+        Group {
+            if available > 1, available + 0.5 >= floor {
                 content
-                    .frame(minWidth: minWidth, alignment: .topLeading)
+                    .frame(minWidth: available, maxWidth: .infinity, alignment: .topLeading)
+            } else if available > 1 {
+                ScrollView(.horizontal, showsIndicators: true) {
+                    content
+                        .frame(minWidth: floor, alignment: .topLeading)
+                }
+            } else {
+                content
+                    .frame(minWidth: floor, maxWidth: .infinity, alignment: .topLeading)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            GeometryReader { geo in
+                Color.clear.preference(key: HubScrollWidthKey.self, value: geo.size.width)
+            }
+        )
+        .onPreferenceChange(HubScrollWidthKey.self) { value in
+            if value > 0, abs(value - available) > 0.5 { available = value }
+        }
+        .environment(\.hubTableWidth, span)
     }
 }
 
@@ -9796,7 +10072,7 @@ struct HubStoreCard<Content: View>: View {
     let count: Int
     var expanded: Bool
     let toggle: () -> Void
-    @ViewBuilder var content: Content
+    @ViewBuilder var content: () -> Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -9811,10 +10087,11 @@ struct HubStoreCard<Content: View>: View {
             }
             .buttonStyle(.plain)
             if expanded {
-                content
+                content()
                     .padding(.horizontal, 12)
                     .padding(.top, 4)
                     .padding(.bottom, 12)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -9825,26 +10102,39 @@ struct HubStoreCard<Content: View>: View {
 
 struct HubAdaptiveHScroll<Content: View>: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
+    var minWidth: CGFloat? = nil
+    var minHeight: CGFloat = 0
     @ViewBuilder var content: Content
+    @State private var available: CGFloat = 0
+
+    private var floor: CGFloat {
+        minWidth ?? (HubLayout.isPhone(sizeClass) ? 640 : 780)
+    }
+
+    private var span: CGFloat {
+        HubLayout.tableSpan(available: available, floor: floor)
+    }
 
     var body: some View {
-        Group {
-            if HubLayout.isPhone(sizeClass) {
-                content
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                ViewThatFits(in: .horizontal) {
-                    content
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    ScrollView(.horizontal, showsIndicators: true) {
-                        content
-                            .padding(.horizontal, 10)
-                            .frame(minWidth: 1080, alignment: .leading)
-                    }
-                }
-            }
+        // Always a horizontal scroller with an intrinsic height. Switching
+        // in/out of ScrollView after GeometryReader fires collapses List rows
+        // to 0 (Missing Items / Pre-Sub expand paint blank).
+        ScrollView(.horizontal, showsIndicators: true) {
+            content
+                .padding(.trailing, 12)
+                .frame(minWidth: max(span, floor), alignment: .topLeading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: .infinity, minHeight: minHeight > 0 ? minHeight : nil, alignment: .leading)
+        .background(
+            GeometryReader { geo in
+                Color.clear.preference(key: HubScrollWidthKey.self, value: geo.size.width)
+            }
+        )
+        .onPreferenceChange(HubScrollWidthKey.self) { value in
+            if value > 0, abs(value - available) > 0.5 { available = value }
+        }
+        .environment(\.hubTableWidth, max(span, floor))
     }
 }
 
@@ -9984,7 +10274,7 @@ struct FulfillmentChecklistCard: View {
         VStack(spacing: 0) {
             if sizeClass == .regular {
                 HubStickyPageBanner(
-                    icon: HubDestination.checklist.symbol,
+                    icon: "checklist",
                     title: "Operational Heartbeat Checklist",
                     accessory: "\(store.filters.summary)  ·  \(store.checklistOpenCount) open",
                     trailing: store.sharedDataWindow()
@@ -10164,24 +10454,24 @@ struct FulfillmentChecklistCard: View {
     }
 
     private func calloutCard(title: String, value: String, detail: String, health: Health) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .center, spacing: 8) {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .center, spacing: 6) {
                 Text(title)
-                    .font(.title3.weight(.bold))
+                    .font(.headline.weight(.bold))
                     .foregroundStyle(AppTheme.text)
                     .lineLimit(1)
                 Spacer(minLength: 4)
                 HealthBadge(health: health, prominent: true, compact: true)
             }
             Text(value)
-                .font(.system(size: 36, weight: .semibold, design: .rounded).monospacedDigit())
+                .font(.system(size: HubLayout.calloutValueSize(phone: false), weight: .semibold, design: .rounded).monospacedDigit())
                 .foregroundStyle(AppTheme.healthInk(health))
             Text(detail)
-                .font(.subheadline.weight(.medium))
+                .font(.caption.weight(.medium))
                 .foregroundStyle(AppTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(maxWidth: .infinity, minHeight: 124, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: HubLayout.calloutMinHeight(phone: false), alignment: .topLeading)
         .tableRowCard(health: health)
     }
 
@@ -10656,22 +10946,19 @@ struct FlexibleEmailChips: View {
 
 final class PulseShareSource: NSObject, UIActivityItemSource {
     let subject: String
-    let html: String
-    let plain: String
     let brief: String
-    let preview: UIImage?
+    let htmlFile: URL?
 
     init(packet: PulseMail.Packet, preview: UIImage? = nil) {
+        _ = preview
         subject = packet.subject
-        html = packet.html
-        plain = packet.plain
         brief = packet.brief
-        self.preview = preview
+        htmlFile = packet.htmlFile
         super.init()
     }
 
     func activityViewControllerPlaceholderItem(_ activityViewController: UIActivityViewController) -> Any {
-        preview ?? subject
+        htmlFile ?? brief
     }
 
     func activityViewController(
@@ -10688,16 +10975,7 @@ final class PulseShareSource: NSObject, UIActivityItemSource {
         {
             return nil
         }
-        if activityType == .mail
-            || raw.localizedCaseInsensitiveContains("gmail")
-            || raw.localizedCaseInsensitiveContains("googlemail")
-            || raw.localizedCaseInsensitiveContains("yahoo")
-            || raw.localizedCaseInsensitiveContains("spark")
-            || raw.localizedCaseInsensitiveContains("airmail")
-        {
-            return html
-        }
-        return html
+        return htmlFile ?? brief
     }
 
     func activityViewController(
@@ -10718,16 +10996,14 @@ final class PulseShareSource: NSObject, UIActivityItemSource {
         if raw.localizedCaseInsensitiveContains("outlook") || raw.localizedCaseInsensitiveContains("microsoft") {
             return UTType.png.identifier
         }
-        return UTType.html.identifier
+        if htmlFile != nil { return UTType.html.identifier }
+        return UTType.plainText.identifier
     }
 
     func activityViewControllerLinkMetadata(_ activityViewController: UIActivityViewController) -> LPLinkMetadata? {
         let meta = LPLinkMetadata()
         meta.title = "Fulfillment Heartbeat"
         meta.originalURL = URL(string: "heartbeat://pulse")
-        if let preview {
-            meta.imageProvider = NSItemProvider(object: preview)
-        }
         return meta
     }
 }
@@ -10795,8 +11071,7 @@ final class MailShareActivity: UIActivity {
             return
         }
         let mail = MFMailComposeViewController()
-        mail.setSubject(packet.subject)
-        mail.setMessageBody(packet.html, isHTML: true)
+        PulseShare.configureMail(mail, packet: packet)
         let closer = MailShareCloser(owner: self)
         self.closer = closer
         mail.mailComposeDelegate = closer
@@ -10942,13 +11217,39 @@ enum PulseShare {
             return
         }
         let mail = MFMailComposeViewController()
-        mail.setSubject(packet.subject)
-        mail.setMessageBody(packet.html, isHTML: true)
+        configureMail(mail, packet: packet)
         if !to.isEmpty {
             mail.setToRecipients(to)
         }
         mail.mailComposeDelegate = mailCloser
         presenter.present(mail, animated: true)
+    }
+
+    /// Inline Mail-safe HTML in the message body when it fits. Never a duplicate giant attachment.
+    static func configureMail(_ mail: MFMailComposeViewController, packet: PulseMail.Packet) {
+        mail.setSubject(packet.subject)
+        let fileURL = writeHTMLFile(packet)
+        let bytes: Int
+        if let fileURL {
+            bytes = PulseLaunch.fileBytes(at: fileURL)
+        } else {
+            bytes = packet.html.utf8.count
+        }
+        if PulseLaunch.shouldSetHTMLMessageBody(utf8Count: bytes) {
+            let html = PulseMail.html(from: packet)
+            if html.isEmpty {
+                mail.setMessageBody(packet.brief, isHTML: false)
+            } else {
+                mail.setMessageBody(html, isHTML: true)
+            }
+            return
+        }
+        if PulseLaunch.shouldAttachHTMLFile(utf8Count: bytes), let fileURL, let data = try? Data(contentsOf: fileURL) {
+            mail.setMessageBody(PulseMail.overflowMailBody(packet.brief), isHTML: true)
+            mail.addAttachmentData(data, mimeType: "text/html", fileName: "heartbeat-recap.html")
+            return
+        }
+        mail.setMessageBody(packet.brief, isHTML: false)
     }
 
     @MainActor
@@ -10991,16 +11292,15 @@ enum PulseShare {
 
     @MainActor
     static func prepareOutlook(_ packet: PulseMail.Packet) async {
-        if jpegHTML == packet.html, !recapImages.isEmpty { return }
-        jpegHTML = packet.html
-        let media = await RecapRenderer.render(html: packet.html)
-        recapImages = RecapRenderer.inlineImages(media.images)
+        if jpegHTML == packet.brief, !recapImages.isEmpty { return }
+        jpegHTML = packet.brief
+        recapImages = []
     }
 
     @MainActor
     static func present(_ packet: PulseMail.Packet) {
         jpegURLs = []
-        jpegHTML = packet.html
+        jpegHTML = packet.brief
         let source = PulseShareSource(packet: packet)
         let mail = MailShareActivity(packet: packet)
         let sheet = UIActivityViewController(
@@ -11027,24 +11327,11 @@ enum PulseShare {
             popover.permittedArrowDirections = []
         }
         presenter.present(sheet, animated: true)
-        Task { @MainActor in
-            await warmJpegs(packet.html)
-        }
     }
 
     @MainActor
     static func openOutlook(_ packet: PulseMail.Packet) async {
-        if jpegURLs.isEmpty || jpegHTML != packet.html {
-            await warmJpegs(packet.html)
-        }
-        openOutlook(subject: packet.subject, jpegURLs: jpegURLs)
-    }
-
-    @MainActor
-    private static func warmJpegs(_ html: String) async {
-        jpegHTML = html
-        let media = await RecapRenderer.render(html: html)
-        jpegURLs = RecapRenderer.jpegFiles(media.images)
+        openOutlook(subject: packet.subject, jpegURLs: [])
     }
 
     static func openOutlook(subject: String, jpegURLs: [URL]) {
@@ -11082,13 +11369,10 @@ enum PulseShare {
     }
 
     static func writeHTMLFile(_ packet: PulseMail.Packet) -> URL? {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Fulfillment-Heartbeat.html")
-        do {
-            try packet.html.data(using: .utf8)?.write(to: url, options: .atomic)
-            return url
-        } catch {
-            return nil
+        if let existing = packet.htmlFile, FileManager.default.fileExists(atPath: existing.path) {
+            return existing
         }
+        return PulseMail.writeHTMLStreaming(packet.html)
     }
 
     static func topController() -> UIViewController? {
@@ -11122,7 +11406,7 @@ struct MailComposeView: UIViewControllerRepresentable {
             mail.mailComposeDelegate = context.coordinator
             mail.setToRecipients(recipients)
             mail.setSubject(subject)
-            mail.setMessageBody(html, isHTML: true)
+            mail.setMessageBody(plain, isHTML: false)
             return mail
         }
         let fallback = UIActivityViewController(activityItems: [plain], applicationActivities: nil)
