@@ -671,8 +671,7 @@ enum HeartbeatMath {
     }
 
     static func dashboardScopeLines(section: MetricSection, rows: [MetricRow], grain: DashScopeGrain) -> [DashScopeLine] {
-        let raw = section == .pickerScorecard ? latestPerShopper(rows) : rows
-        let source = section == .lostRevenue ? storesReconcilingLostRevenue(raw) : raw
+        let source = section == .pickerScorecard ? latestPerShopper(rows) : rows
         var buckets: [String: [MetricRow]] = [:]
         for row in source {
             if row.textPayload["lost_grain"] == "market" { continue }
@@ -1066,8 +1065,7 @@ enum HeartbeatMath {
         order: [String],
         goalFallback: Double? = nil
     ) -> [DashboardGrainTableRow] {
-        let raw = section == .pickerScorecard ? latestPerShopper(rows) : rows
-        let source = section == .lostRevenue ? storesReconcilingLostRevenue(raw) : raw
+        let source = section == .pickerScorecard ? latestPerShopper(rows) : rows
         var buckets: [String: [MetricRow]] = [:]
         for row in source {
             if row.textPayload["lost_grain"] == "market" { continue }
@@ -3239,56 +3237,9 @@ enum HeartbeatMath {
         return lostRevenueInheritedGoalPct(rows: rows.filter { $0.textPayload["lost_grain"] != "market" })
     }
 
-    /// Excel Breakdown Week column **Total Lost Revenue (Total Opportunity)**.
-    /// Pack key `lost_revenue` is that column only — not a generic Lost Revenue field.
+    /// Excel **Total Lost Revenue (Total Opportunity)** — pack key `lost_revenue`.
     static func totalOpportunityDollars(_ row: MetricRow?) -> Double {
         row?.number("lost_revenue") ?? 0
-    }
-
-    /// Unfiltered: Excel Total / grand-total row (1,962,441), never SUM(store rows)
-    /// when that yields ~2,015,924. Filtered: no Total row in the slice, so expand
-    /// Lost $ is the same column totaled for stores in the seat.
-    static func lostRevenueReconcileFactor(stores: [MetricRow], market: MetricRow?) -> Double {
-        let target = totalOpportunityDollars(market)
-        guard target > 0 else { return 1 }
-        let raw = lostRevenueTotals(
-            stores.filter {
-                $0.textPayload["lost_grain"] != "market"
-                    && !isIgnoredStore($0.storeNumber)
-                    && !$0.storeNumber.isEmpty
-            }
-        ).dollars
-        guard raw > 0, abs(raw - target) > 0.5 else { return 1 }
-        return target / raw
-    }
-
-    static func storesReconcilingLostRevenue(_ rows: [MetricRow]) -> [MetricRow] {
-        let market = rows.first {
-            $0.textPayload["lost_grain"] == "market" && canonicalStore($0.storeNumber).isEmpty
-        }
-        let factor = lostRevenueReconcileFactor(stores: rows, market: market)
-        guard factor != 1 else { return rows }
-        return rows.map { applyingLostRevenueFactor($0, factor: factor) }
-    }
-
-    static func applyingLostRevenueFactor(_ row: MetricRow, factor: Double) -> MetricRow {
-        if factor == 1 || row.textPayload["lost_grain"] == "market" { return row }
-        var payload = row.payload
-        if let value = payload["lost_revenue"] { payload["lost_revenue"] = value * factor }
-        if let lost = payload["lost_revenue"], let ecomm = payload["ecomm_sales"], ecomm > 0 {
-            payload["lost_revenue_pct"] = lost / ecomm * 100
-        }
-        return MetricRow(
-            id: row.id,
-            section: row.section,
-            division: row.division,
-            operationsOM: row.operationsOM,
-            storeNumber: row.storeNumber,
-            storeName: row.storeName,
-            recordedOn: row.recordedOn,
-            payload: payload,
-            textPayload: row.textPayload
-        )
     }
 
     static func lostRevenueTotals(_ stores: [MetricRow]) -> (dollars: Double, sales: Double, pct: Double?) {

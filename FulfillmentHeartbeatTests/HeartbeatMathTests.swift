@@ -822,12 +822,7 @@ final class HeartbeatMathTests: XCTestCase {
 
         let company = HeartbeatMath.summarize(.lostRevenue, rows: stores + [market], upload: nil)
         XCTAssertEqual(company.headline ?? 0, 1_962_441.23, accuracy: 0.01)
-
-        let reconciled = HeartbeatMath.storesReconcilingLostRevenue(stores + [market])
-        let reconciledSum = HeartbeatMath.lostRevenueTotals(
-            reconciled.filter { $0.textPayload["lost_grain"] != "market" }
-        ).dollars
-        XCTAssertEqual(reconciledSum, 1_962_441.23, accuracy: 0.05)
+        XCTAssertEqual(HeartbeatMath.totalOpportunityDollars(market), 1_962_441.23, accuracy: 0.01)
 
         let table = HeartbeatMath.dashboardGrainTable(
             section: .lostRevenue,
@@ -842,7 +837,8 @@ final class HeartbeatMathTests: XCTestCase {
             let digits = raw.filter { $0.isNumber || $0 == "." }
             return Double(digits)
         }.reduce(0, +)
-        XCTAssertEqual(expandLost, 1_962_441.23, accuracy: 1)
+        // Expand is the Excel column on those stores — not a scaled invented total.
+        XCTAssertEqual(expandLost, 2_015_923.72, accuracy: 1)
 
         let district = HeartbeatMath.summarize(.lostRevenue, rows: [east], upload: nil)
         XCTAssertEqual(district.headline ?? 0, 760_872.84, accuracy: 0.01)
