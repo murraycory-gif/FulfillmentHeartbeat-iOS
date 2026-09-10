@@ -420,8 +420,13 @@ enum HubLayout {
     }
 
     static func grid(_ count: Int, spacing: CGFloat = 12, minWidth: CGFloat = 140) -> [GridItem] {
-        Array(repeating: GridItem(.flexible(minimum: minWidth), spacing: spacing), count: max(1, count))
+        Array(
+            repeating: GridItem(.flexible(minimum: 0, maximum: .infinity), spacing: spacing),
+            count: max(1, count)
+        )
     }
+
+    static func calloutTileHeight(phone: Bool) -> CGFloat { calloutMinHeight(phone: phone) }
 
     private static func makeProfile() -> Profile {
         let kind = detectKind()

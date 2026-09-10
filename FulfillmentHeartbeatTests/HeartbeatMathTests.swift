@@ -406,9 +406,10 @@ final class HeartbeatMathTests: XCTestCase {
         let flags = HeartbeatMath.preSubActionFlags([], items: [item])
         let top = flags.first { $0.name == "#1 Pre-Sub Item" }
         XCTAssertNotNil(top)
+        XCTAssertEqual(top?.value, "12.40%")
         XCTAssertFalse(top?.value.contains("970014483") == true, top?.value ?? "")
-        XCTAssertTrue(top?.value.contains("Plums") == true, top?.value ?? "")
-        XCTAssertLessThanOrEqual(top?.value.count ?? 99, 36)
+        XCTAssertTrue(top?.unit.contains("Plums") == true, top?.unit ?? "")
+        XCTAssertLessThanOrEqual(top?.value.count ?? 99, 12)
         XCTAssertEqual(
             HeartbeatMath.compactCalloutLabel("970014483 - Plums Prune - Each - 100"),
             "Plums Prune - Each -…"
@@ -419,6 +420,33 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertLessThanOrEqual(fourTight, 2)
         let tile = HubLayout.calloutTileMinWidth(columns: 4, width: 900, phone: false)
         XCTAssertLessThanOrEqual(tile * 4 + HubLayout.calloutGridSpacing * 3, 900)
+        XCTAssertEqual(HubLayout.calloutTileHeight(phone: false), HubLayout.calloutMinHeight(phone: false))
+        XCTAssertEqual(
+            HubLayout.grid(4, spacing: 8, minWidth: 152).count,
+            4
+        )
+    }
+
+    func testPPHDashboardHasTotalCalloutAndDynacapFallsBackToBookPPH() {
+        let stores = [
+            MetricRow(section: .pph, division: "Jewel Osco", operationsOM: "A", storeNumber: "1", payload: ["pph": 81]),
+            MetricRow(section: .pph, division: "Jewel Osco", operationsOM: "A", storeNumber: "2", payload: ["pph": 70]),
+        ]
+        let flags = HeartbeatMath.dashboardActionFlags(section: .pph, rows: stores)
+        XCTAssertEqual(flags.first?.name, "PPH")
+        XCTAssertEqual(flags.first?.value, "75.5")
+        XCTAssertTrue(flags.contains { $0.name == "Healthy" })
+        XCTAssertTrue(flags.contains { $0.name == "At Risk" })
+        let dyn = MetricRow(
+            section: .dynacap,
+            division: "NorCal",
+            operationsOM: "A",
+            storeNumber: "9999",
+            payload: ["dynacap_rate": 67.0, "utilization_pct": 21.36]
+        )
+        let missed = HeartbeatMath.dynacapActionFlags([dyn], bookPPH: stores)
+        XCTAssertEqual(missed.first { $0.name == "Store PPH" }?.value, "75.5")
+        XCTAssertNotEqual(missed.first { $0.name == "Store PPH" }?.value, "—")
     }
 
     func testLatestPerStoreKeepsNewestDate() {

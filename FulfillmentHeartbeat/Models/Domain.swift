@@ -1172,7 +1172,13 @@ enum HeartbeatMath {
         if section == .scheduleQuality { return scheduleActionFlags(rows, includeAll: true) }
         if section == .pickPath { return pickPathMetricFlags(rows) }
         if section == .dynacap {
-            return dynacapActionFlags(overlayStorePPH(rows, from: pphRows, pickers: pickers))
+            return dynacapActionFlags(
+                overlayStorePPH(rows, from: pphRows, pickers: pickers),
+                bookPPH: pphRows.isEmpty ? pickers : pphRows
+            )
+        }
+        if section == .pph {
+            return pphDashboardFlags(rows, pickers: pickers)
         }
         if section == .preSubOOS { return preSubActionFlags(rows, items: items) }
         if section == .pickerScorecard {
@@ -1788,10 +1794,18 @@ enum HeartbeatMath {
             }
         }
         guard !map.isEmpty else { return rows }
+        var aliased: [String: Double] = map
+        for (store, pph) in map {
+            for alias in storeAliases(store) { aliased[alias] = aliased[alias] ?? pph }
+        }
         return rows.map { row in
             if row.number("pph") != nil || row.number("pure_pph") != nil { return row }
             let store = canonicalStore(row.storeNumber)
-            guard let pph = map[store] else { return row }
+            var pph = aliased[store]
+            if pph == nil {
+                pph = storeAliases(store).compactMap { aliased[$0] }.first
+            }
+            guard let pph else { return row }
             var next = row
             next.payload["pph"] = pph
             return next
@@ -2689,11 +2703,42 @@ enum HeartbeatMath {
         ]
     }
 
-    static func dynacapActionFlags(_ rows: [MetricRow]) -> [FiveStarFlag] {
+    static func pphDashboardFlags(_ rows: [MetricRow], pickers: [MetricRow] = []) -> [FiveStarFlag] {
+        let stores = rows.filter { !isIgnoredStore($0.storeNumber) && !$0.storeNumber.isEmpty }
+        let scored = stores.filter { $0.number("pph") ?? $0.number("pure_pph") != nil }
+        let shoppers = pickers.filter { ($0.number("pph") ?? $0.number("pure_pph")) != nil }
+        let source = scored.isEmpty ? shoppers : scored
+        let pph = average(source.compactMap { $0.number("pph") ?? $0.number("pure_pph") })
+        let healthy = stores.filter { health(for: .pph, row: $0) == .good }.count
+        let watch = stores.filter { health(for: .pph, row: $0) == .watch }.count
+        let risk = stores.filter { health(for: .pph, row: $0) == .risk }.count
+        var flags: [FiveStarFlag] = [
+            FiveStarFlag(
+                name: "PPH",
+                value: HeartbeatFormat.num(pph, digits: 1),
+                health: band(pph, good: pphGoal, watch: pphRisk),
+                stores: source.count,
+                unit: scored.isEmpty && !shoppers.isEmpty ? "shoppers" : "stores"
+            )
+        ]
+        flags += bandFlags(healthy: healthy, watch: watch, risk: risk)
+        return flags
+    }
+
+    static func dynacapActionFlags(_ rows: [MetricRow], bookPPH: [MetricRow] = []) -> [FiveStarFlag] {
         let stores = rows.filter { !isIgnoredStore($0.storeNumber) && !$0.storeNumber.isEmpty }
         let scoped = stores.isEmpty ? rows : stores
         let pieces = average(scoped.compactMap { $0.number("dynacap_rate", "pieces_per_hour") })
-        let pph = average(scoped.compactMap { $0.number("pph") ?? $0.number("pure_pph") })
+        var pph = average(scoped.compactMap { $0.number("pph") ?? $0.number("pure_pph") })
+        var pphStores = scoped.filter { $0.number("pph") ?? $0.number("pure_pph") != nil }
+        if pph == nil || pphStores.isEmpty {
+            let book = bookPPH.filter {
+                !isIgnoredStore($0.storeNumber)
+                    && ($0.number("pph") ?? $0.number("pure_pph")) != nil
+            }
+            pph = average(book.compactMap { $0.number("pph") ?? $0.number("pure_pph") })
+            pphStores = book
+        }
         let util = average(scoped.compactMap { $0.number("utilization_pct", "pickup_util_pct") })
         return [
             FiveStarFlag(
@@ -2706,7 +2751,7 @@ enum HeartbeatMath {
                 name: "Store PPH",
                 value: HeartbeatFormat.num(pph, digits: 1),
                 health: band(pph, good: pphGoal, watch: pphRisk),
-                stores: scoped.filter { band($0.number("pph") ?? $0.number("pure_pph"), good: pphGoal, watch: pphRisk) == .risk }.count
+                stores: pphStores.filter { band($0.number("pph") ?? $0.number("pure_pph"), good: pphGoal, watch: pphRisk) == .risk }.count
             ),
             FiveStarFlag(
                 name: "Utilization",
@@ -2732,15 +2777,18 @@ enum HeartbeatMath {
             (lhs.number("presub_pct") ?? 0) < (rhs.number("presub_pct") ?? 0)
         }
         if let ranked {
-            let name = ranked.textPayload["bpn"]?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let label = compactCalloutLabel(name?.isEmpty == false ? name! : "Top item")
             flags.append(
                 FiveStarFlag(
                     name: "#1 Pre-Sub Item",
-                    value: "\(label) · \(HeartbeatFormat.pct(ranked.number("presub_pct")))",
+                    value: HeartbeatFormat.pct(ranked.number("presub_pct")),
                     health: missingItemsHealth(pct: ranked.number("presub_pct")),
                     stores: 1,
-                    unit: "item"
+                    unit: {
+                        let label = compactCalloutLabel(
+                            ranked.textPayload["bpn"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                        )
+                        return label.isEmpty ? "item" : label
+                    }()
                 )
             )
         }

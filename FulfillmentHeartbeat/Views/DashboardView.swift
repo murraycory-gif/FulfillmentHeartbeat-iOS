@@ -120,8 +120,10 @@ private func statusFlags(_ flags: [HeartbeatMath.FiveStarFlag]) -> [HeartbeatMat
     func pick(_ name: String, health: Health) -> HeartbeatMath.FiveStarFlag {
         named[name.lowercased()] ?? HeartbeatMath.FiveStarFlag(name: name, value: "", health: health, stores: 0)
     }
+    let bandNames: Set<String> = ["healthy", "watch", "at risk"]
+    let extras = flags.filter { !bandNames.contains($0.name.lowercased()) }
     if named["healthy"] != nil || named["watch"] != nil || named["at risk"] != nil {
-        return [pick("Healthy", health: .good), pick("Watch", health: .watch), pick("At Risk", health: .risk)]
+        return extras + [pick("Healthy", health: .good), pick("Watch", health: .watch), pick("At Risk", health: .risk)]
     }
     return flags
 }
@@ -243,16 +245,18 @@ struct PhoneFlagStrip: View {
                             .font(AppTheme.rounded(.title3, weight: .bold).monospacedDigit())
                             .foregroundStyle(dashInk(tone))
                             .lineLimit(1)
-                            .minimumScaleFactor(0.55)
-                            .fixedSize(horizontal: true, vertical: false)
+                            .minimumScaleFactor(0.45)
+                            .truncationMode(.tail)
+                            .frame(maxWidth: .infinity)
                         Text(phoneFlagName(flag.name))
                             .font(AppTheme.rounded(.caption, weight: .semibold))
                             .foregroundStyle(AppTheme.textSecondary)
-                            .lineLimit(2)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                             .multilineTextAlignment(.center)
-                            .minimumScaleFactor(0.8)
+                            .minimumScaleFactor(0.7)
                     }
-                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .frame(maxWidth: .infinity, minHeight: 48, maxHeight: 56)
                     .padding(.vertical, 6)
                     .padding(.horizontal, 6)
                     .background(AppTheme.healthWash(tone), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -859,16 +863,27 @@ struct DashFlagGrid: View {
         } else {
             let cols = HubLayout.calloutColumns(count: flags.count, width: width, sizeClass: sizeClass)
             let phone = HubLayout.isPhone(sizeClass)
-            let tileMin = HubLayout.calloutTileMinWidth(columns: cols, width: width, phone: phone)
-            LazyVGrid(
-                columns: HubLayout.grid(cols, spacing: HubLayout.calloutGridSpacing, minWidth: tileMin),
-                spacing: HubLayout.calloutGridSpacing
-            ) {
-                ForEach(flags) { flag in
-                    DashFlagChip(flag: flag)
+            let tileH = HubLayout.calloutTileHeight(phone: phone)
+            let rows = stride(from: 0, to: flags.count, by: cols).map {
+                Array(flags[$0..<min($0 + cols, flags.count)])
+            }
+            VStack(spacing: HubLayout.calloutGridSpacing) {
+                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                    HStack(spacing: HubLayout.calloutGridSpacing) {
+                        ForEach(row) { flag in
+                            DashFlagChip(flag: flag)
+                                .frame(maxWidth: .infinity, minHeight: tileH, maxHeight: tileH, alignment: .topLeading)
+                        }
+                        if row.count < cols {
+                            ForEach(0..<(cols - row.count), id: \.self) { _ in
+                                Color.clear
+                                    .frame(maxWidth: .infinity, minHeight: tileH, maxHeight: tileH)
+                            }
+                        }
+                    }
                 }
             }
-            .clipped()
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }
@@ -887,9 +902,9 @@ private struct DashFlagChip: View {
                 Text(flag.name)
                     .font(AppTheme.rounded(compact ? .subheadline : .headline, weight: .bold))
                     .foregroundStyle(AppTheme.text)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.75)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.65)
+                    .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if tone != .none {
                     HealthBadge(health: tone, prominent: true, compact: true)
@@ -898,18 +913,21 @@ private struct DashFlagChip: View {
             Text(flag.value.isEmpty ? countLine : flag.value)
                 .font(.system(size: HubLayout.calloutValueSize(phone: compact), weight: .bold, design: .rounded).monospacedDigit())
                 .foregroundStyle(dashInk(tone))
-                .lineLimit(2)
+                .lineLimit(1)
                 .minimumScaleFactor(0.45)
+                .truncationMode(.tail)
                 .frame(maxWidth: .infinity, alignment: .leading)
             Text(flag.value.isEmpty ? (tone.label) : countLine)
                 .font(AppTheme.rounded(.caption, weight: .medium))
                 .foregroundStyle(AppTheme.textSecondary)
-                .lineLimit(2)
-                .minimumScaleFactor(0.8)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(compact ? 10 : 11)
         .padding(.leading, 4)
-        .frame(maxWidth: .infinity, minHeight: HubLayout.calloutMinHeight(phone: compact), alignment: .topLeading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .clipped()
         .background {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -929,6 +947,7 @@ private struct DashFlagChip: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(AppTheme.healthInk(tone).opacity(tone == .risk ? 0.9 : 0.22), lineWidth: tone == .risk ? 2 : 1)
         )
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .shadow(color: Color.black.opacity(0.06), radius: 3, y: 1)
     }
 
