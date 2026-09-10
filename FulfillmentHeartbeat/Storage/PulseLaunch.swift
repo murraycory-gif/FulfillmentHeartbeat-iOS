@@ -14,6 +14,11 @@ enum PulseLaunch {
     static let streamPickerAfterReady = true
     /// After ready, first chunk only — do not await the rest of the pack.
     static let streamPickerSnappyAfterReady = true
+    /// Shopper SQL stays off Dashboard. Streaming the full pack after ready
+    /// plus per-store `sameStore` scans Jetsamed ~5GB on iPad (build 672).
+    static func shouldStreamPickerOnDashboard() -> Bool { false }
+    /// Hard cap so a join-page stream cannot grow without bound.
+    static let pickerWarehouseCap = 4_000
     /// Do not start shopper streaming until Who's looking is done and the hub can scroll.
     static func shouldDeferPickerStreamUntilHubQuiet() -> Bool { true }
     /// Expand-table prefetch waits so it cannot steal the first scroll/nav turn.
@@ -69,6 +74,51 @@ enum PulseLaunch {
             map[pickerRowKey(row)] = row
         }
         return Array(map.values)
+    }
+
+    struct PPHPickerIndex: Equatable {
+        var rows: [String: [MetricRow]] = [:]
+        var counts: [String: Int] = [:]
+    }
+
+    /// One pass over shoppers. Keys include store aliases so "304" / "0304" hit the same bucket.
+    static func pphPickerIndex(_ scorecard: [MetricRow]) -> PPHPickerIndex {
+        var canonical: [String: [MetricRow]] = [:]
+        canonical.reserveCapacity(min(scorecard.count, 2_048))
+        for row in scorecard where row.number("pph") != nil {
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            guard !store.isEmpty else { continue }
+            canonical[store, default: []].append(row)
+        }
+        var rows: [String: [MetricRow]] = [:]
+        var counts: [String: Int] = [:]
+        let aliases = canonical.count * 4
+        rows.reserveCapacity(aliases)
+        counts.reserveCapacity(aliases)
+        for (store, group) in canonical {
+            let n = group.count
+            for alias in HeartbeatMath.storeAliases(store) {
+                rows[alias] = group
+                counts[alias] = n
+            }
+        }
+        return PPHPickerIndex(rows: rows, counts: counts)
+    }
+
+    /// O(1). Missing key is 0 — never scan the shopper pack on the UI path.
+    static func pphPickerCount(store: String, counts: [String: Int]) -> Int {
+        let want = HeartbeatMath.canonicalStore(store)
+        if want.isEmpty { return 0 }
+        return counts[want] ?? counts[store] ?? 0
+    }
+
+    /// Sum O(1) lookups. Used by PPH rollup so body/rebuild never calls `pphPickers`.
+    static func pphPickerTotal(storeNumbers: [String], counts: [String: Int]) -> Int {
+        var total = 0
+        for store in storeNumbers {
+            total += pphPickerCount(store: store, counts: counts)
+        }
+        return total
     }
 
     /// Do not restart grain expand just because the user swiped back to Dashboard.

@@ -8549,7 +8549,7 @@ private enum PPHRollupBuilder {
         all.filter { !$0.storeNumber.isEmpty }
     }
 
-    static func rows(from stores: [MetricRow], grain: LaborRollupGrain, pickerCount: (String) -> Int) -> [PPHRollupRow] {
+    static func rows(from stores: [MetricRow], grain: LaborRollupGrain, pickerCounts: [String: Int]) -> [PPHRollupRow] {
         var buckets: [String: [MetricRow]] = [:]
         for row in stores {
             let key: String
@@ -8584,7 +8584,7 @@ private enum PPHRollupBuilder {
                     label: label,
                     storeCount: group.count,
                     pph: HeartbeatMath.average(group.compactMap { $0.number("pph") }),
-                    pickers: group.reduce(0) { $0 + pickerCount($1.storeNumber) }
+                    pickers: PulseLaunch.pphPickerTotal(storeNumbers: group.map(\.storeNumber), counts: pickerCounts)
                 )
             )
         }
@@ -8910,7 +8910,7 @@ struct PPHRollupTable: View {
         grain = next
         guard let next else { summary = []; return }
         let source = PPHRollupBuilder.source(from: store.rollupStores(for: .pph), filters: store.filters)
-        var rows = PPHRollupBuilder.rows(from: source, grain: next, pickerCount: { store.pphPickerCount(forStore: $0) })
+        var rows = PPHRollupBuilder.rows(from: source, grain: next, pickerCounts: store.pphPickerCounts())
         if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
                 rows.append(PPHRollupRow(id: extra.name, label: extra.name, storeCount: extra.storeCount, pph: nil, pickers: 0))

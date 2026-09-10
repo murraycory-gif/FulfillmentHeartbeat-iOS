@@ -79,6 +79,7 @@ final class HeartbeatStore: ObservableObject {
     private var pickPathPickersByStore: [String: [MetricRow]] = [:]
     private var pickPathByShopper: [String: MetricRow] = [:]
     private var pphPickersByStore: [String: [MetricRow]] = [:]
+    private var pphPickerCountByStore: [String: Int] = [:]
     private var cachedCardFlags: [MetricSection: [HeartbeatMath.FiveStarFlag]] = [:]
     private var cachedGrainPacks: [MetricSection: [DashScopePack]] = [:]
     private var cachedGrainTables: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] = [:]
@@ -194,9 +195,10 @@ final class HeartbeatStore: ObservableObject {
         lastCloudPullAt = Date()
     }
 
-    /// Splash stays local-first. Shopper streaming waits until the Dashboard can scroll.
+    /// Splash stays local-first. Shopper streaming is join-page only — never on Dashboard.
     private func fillAfterReady() async {
         guard PulseLaunch.streamPickerAfterReady else { return }
+        guard PulseLaunch.shouldStreamPickerOnDashboard() else { return }
         if PulseLaunch.shouldDeferPickerStreamUntilHubQuiet() {
             while needsRolePick {
                 try? await Task.sleep(nanoseconds: 80_000_000)
@@ -688,18 +690,15 @@ final class HeartbeatStore: ObservableObject {
 
     func pphPickers(forStore store: String) -> [MetricRow] {
         let want = HeartbeatMath.canonicalStore(store)
-        if let exact = pphPickersByStore[want], !exact.isEmpty {
-            return exact
-        }
-        let source = filteredLatest[.pickerScorecard] ?? latestBySection[.pickerScorecard] ?? []
-        return source.filter {
-            HeartbeatMath.sameStore($0.storeNumber, want) && $0.number("pph") != nil
-        }
+        if want.isEmpty { return [] }
+        return pphPickersByStore[want] ?? pphPickersByStore[store] ?? []
     }
 
     func pphPickerCount(forStore store: String) -> Int {
-        pphPickers(forStore: store).count
+        PulseLaunch.pphPickerCount(store: store, counts: pphPickerCountByStore)
     }
+
+    func pphPickerCounts() -> [String: Int] { pphPickerCountByStore }
 
     func pickPathPickers(forStore store: String) -> [MetricRow] {
         let want = HeartbeatMath.canonicalStore(store)
@@ -707,18 +706,7 @@ final class HeartbeatStore: ObservableObject {
         if let exact = pickPathPickersByStore[want], !exact.isEmpty {
             return exact
         }
-        var matched: [MetricRow] = []
-        for (key, rows) in pickPathPickersByStore where HeartbeatMath.sameStore(key, want) {
-            matched.append(contentsOf: rows)
-        }
-        if !matched.isEmpty { return matched }
-        for section in [MetricSection.pickerScorecard, .pickPathPicker] {
-            let source = latestBySection[section] ?? filteredLatest[section] ?? []
-            for row in source where HeartbeatMath.sameStore(row.storeNumber, want) {
-                matched.append(row)
-            }
-        }
-        return matched
+        return []
     }
 
     func pickPathPicker(forShopper raw: String) -> MetricRow? {
@@ -979,21 +967,22 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func rebuildPPHPickerIndex(scorecard: [MetricRow]) {
-        pphPickersByStore = pphIndexValues(scorecard)
+        installPPHPickerIndex(PulseLaunch.pphPickerIndex(scorecard))
     }
 
-    private func pphIndexValues(_ scorecard: [MetricRow]) -> [String: [MetricRow]] {
-        var buckets: [String: [MetricRow]] = [:]
-        buckets.reserveCapacity(512)
-        for row in scorecard where row.number("pph") != nil {
-            let store = HeartbeatMath.canonicalStore(row.storeNumber)
-            guard !store.isEmpty else { continue }
-            buckets[store, default: []].append(row)
+    private func installPPHPickerIndex(_ index: PulseLaunch.PPHPickerIndex) {
+        pphPickersByStore = index.rows
+        pphPickerCountByStore = index.counts
+    }
+
+    private func installPPHPickerIndex(fromRows rows: [String: [MetricRow]]) {
+        pphPickersByStore = rows
+        var counts: [String: Int] = [:]
+        counts.reserveCapacity(rows.count)
+        for (key, group) in rows {
+            counts[key] = group.count
         }
-        for store in buckets.keys {
-            buckets[store]?.sort { ($0.number("pph") ?? 999) < ($1.number("pph") ?? 999) }
-        }
-        return buckets
+        pphPickerCountByStore = counts
     }
 
     func laborWeekIds() -> [String] {
@@ -3119,7 +3108,7 @@ final class HeartbeatStore: ObservableObject {
             pickerFocusHealth = pulse.pickerFocusHealth
             pickPathPickersByStore = pulse.pickPathPickersByStore
             pickPathByShopper = pulse.pickPathByShopper
-            pphPickersByStore = pulse.pphPickersByStore
+            installPPHPickerIndex(fromRows: pulse.pphPickersByStore)
             if !pulse.checklistGroups.isEmpty {
                 cachedChecklistGroups = pulse.checklistGroups
             }
@@ -3132,7 +3121,7 @@ final class HeartbeatStore: ObservableObject {
         pickerFocusHealth = pulse.pickerFocusHealth
         pickPathPickersByStore = pulse.pickPathPickersByStore
         pickPathByShopper = pulse.pickPathByShopper
-        pphPickersByStore = pulse.pphPickersByStore
+        installPPHPickerIndex(fromRows: pulse.pphPickersByStore)
         if !pulse.checklistGroups.isEmpty || filters.isActive {
             cachedChecklistGroups = pulse.checklistGroups
         }
@@ -3543,6 +3532,7 @@ final class HeartbeatStore: ObservableObject {
                 offset += more.count
                 guard !Task.isCancelled else { return }
                 warehouse = PulseLaunch.mergePickerRows(existing: warehouse, incoming: more)
+                if warehouse.count >= PulseLaunch.pickerWarehouseCap { break }
                 let snapshot = warehouse
                 let dest = await MainActor.run { self.visibleDestination }
                 if PulseLaunch.needsShopperJoin(dest) {
@@ -3887,7 +3877,7 @@ final class HeartbeatStore: ObservableObject {
         pickerFocusHealth = caches.pickerFocusHealth
         pickPathPickersByStore = caches.pickPathPickersByStore
         pickPathByShopper = caches.pickPathByShopper
-        pphPickersByStore = caches.pphPickersByStore
+        installPPHPickerIndex(fromRows: caches.pphPickersByStore)
         if usingPackChrome, packChrome != nil {
             rebuildLostIndex()
             rebuildLaborWeekIndex()
@@ -3927,7 +3917,7 @@ final class HeartbeatStore: ObservableObject {
         cachedChecklistGroups = bits.checklistGroups
         pickPathPickersByStore = bits.pickPathPickersByStore
         pickPathByShopper = bits.pickPathByShopper
-        pphPickersByStore = bits.pphPickersByStore
+        installPPHPickerIndex(fromRows: bits.pphPickersByStore)
         refreshChecklistOpenCount()
         let pickers = filteredLatest[.pickerScorecard] ?? []
         if !bits.pickerIndex.isEmpty {

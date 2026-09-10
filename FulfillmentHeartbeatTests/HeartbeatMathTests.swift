@@ -1767,6 +1767,8 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertGreaterThan(PulseLaunch.cloudHydrateDelayNanoseconds, PulseLaunch.grainPaintDelayNanoseconds)
         XCTAssertTrue(PulseLaunch.streamPickerAfterReady)
         XCTAssertTrue(PulseLaunch.streamPickerSnappyAfterReady)
+        XCTAssertFalse(PulseLaunch.shouldStreamPickerOnDashboard())
+        XCTAssertEqual(PulseLaunch.pickerWarehouseCap, 4_000)
         XCTAssertTrue(PulseLaunch.shouldDeferPickerStreamUntilHubQuiet())
         XCTAssertTrue(PulseLaunch.shouldDeferGrainTablesUntilHubQuiet())
         XCTAssertEqual(PulseLaunch.pickerUIStampStride, 800)
@@ -1807,6 +1809,7 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(PulseMail.SharePage.from(destination: .lostRevenue), .lostRevenue)
         XCTAssertEqual(PulseMail.SharePage.from(destination: .pickerScorecard), .pickerScorecard)
         XCTAssertFalse(HubLayout.rasterizeSwipe)
+        XCTAssertFalse(HubLayout.hydrateNeighbors)
         XCTAssertEqual(PulseLaunch.streamPickerSnappyAfterReady, true)
         XCTAssertEqual(PulseLaunch.pickerChunkPauseNanoseconds, 120_000_000)
         XCTAssertFalse(PulseLaunch.shouldRestartGrainPaint(alreadySettled: true, dest: .dashboard))
@@ -1841,6 +1844,54 @@ final class HeartbeatMathTests: XCTestCase {
         let merged = PulseLaunch.mergePickerRows(existing: [first], incoming: [second])
         XCTAssertEqual(merged.count, 2)
         XCTAssertEqual(PulseLaunch.mergePickerRows(existing: [first], incoming: [first]).count, 1)
+    }
+
+    func testPPHPickerIndexIsO1AliasLookupAndEmptyMissIsZero() {
+        func shopper(_ id: String, store: String, pph: Double?) -> MetricRow {
+            MetricRow(
+                section: .pickerScorecard,
+                division: "NorCal",
+                operationsOM: "A",
+                storeNumber: store,
+                payload: pph.map { ["pph": $0] } ?? [:],
+                textPayload: ["shopper_id": id, "shopper_name": id]
+            )
+        }
+        let indexed = PulseLaunch.pphPickerIndex([
+            shopper("A", store: "0304", pph: 40),
+            shopper("B", store: "304", pph: 50),
+            shopper("SKIP", store: "304", pph: nil),
+            shopper("C", store: "108", pph: 80),
+        ])
+        XCTAssertEqual(PulseLaunch.pphPickerCount(store: "304", counts: indexed.counts), 2)
+        XCTAssertEqual(PulseLaunch.pphPickerCount(store: "0304", counts: indexed.counts), 2)
+        XCTAssertEqual(PulseLaunch.pphPickerCount(store: "00304", counts: indexed.counts), 2)
+        XCTAssertEqual(PulseLaunch.pphPickerCount(store: "108", counts: indexed.counts), 1)
+        XCTAssertEqual(PulseLaunch.pphPickerCount(store: "999", counts: indexed.counts), 0)
+        XCTAssertEqual(PulseLaunch.pphPickerCount(store: "304", counts: [:]), 0)
+        XCTAssertEqual(indexed.rows["304"]?.count, 2)
+        XCTAssertEqual(indexed.rows["0304"]?.count, 2)
+        XCTAssertEqual(
+            PulseLaunch.pphPickerTotal(storeNumbers: ["0304", "108", "999"], counts: indexed.counts),
+            3
+        )
+        XCTAssertEqual(PulseLaunch.pphPickerTotal(storeNumbers: ["304", "304"], counts: [:]), 0)
+
+        var many: [MetricRow] = []
+        many.reserveCapacity(2_000)
+        for store in 1...200 {
+            for picker in 1...10 {
+                many.append(shopper("S\(store)-P\(picker)", store: String(format: "%04d", store), pph: 40))
+            }
+        }
+        let packed = PulseLaunch.pphPickerIndex(many)
+        XCTAssertEqual(PulseLaunch.pphPickerCount(store: "1", counts: packed.counts), 10)
+        XCTAssertEqual(PulseLaunch.pphPickerCount(store: "0001", counts: packed.counts), 10)
+        XCTAssertEqual(PulseLaunch.pphPickerCount(store: "200", counts: packed.counts), 10)
+        XCTAssertEqual(PulseLaunch.pphPickerCount(store: "201", counts: packed.counts), 0)
+        let storeKeys = (1...200).map { String($0) }
+        XCTAssertEqual(PulseLaunch.pphPickerTotal(storeNumbers: storeKeys, counts: packed.counts), 2_000)
+        XCTAssertEqual(PulseLaunch.pphPickerTotal(storeNumbers: storeKeys, counts: [:]), 0)
     }
 
     func testMissingPackMessageIsActionable() {

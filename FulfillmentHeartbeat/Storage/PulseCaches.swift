@@ -919,13 +919,7 @@ struct PulseCaches {
     }
 
     private static func pphIndexValues(_ scorecard: [MetricRow]) -> [String: [MetricRow]] {
-        var buckets: [String: [MetricRow]] = [:]
-        for row in scorecard where row.number("pph") != nil {
-            let store = HeartbeatMath.canonicalStore(row.storeNumber)
-            guard !store.isEmpty else { continue }
-            buckets[store, default: []].append(row)
-        }
-        return buckets
+        return PulseLaunch.pphPickerIndex(scorecard).rows
     }
 
     private static func identity(
