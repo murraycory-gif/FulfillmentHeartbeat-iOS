@@ -1864,6 +1864,72 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseLaunch.flagsMatchFilter(flagStores: [18, 2], scopedStores: 20))
         XCTAssertEqual(PulseLaunch.warehousePaintPriority(light: true, hubReady: true), .utility)
         XCTAssertEqual(PulseLaunch.warehousePaintPriority(light: true, hubReady: false), .userInitiated)
+        XCTAssertEqual(PulseLaunch.warehousePaintPriority(light: true, hubReady: true, firstSectionWave: true), .userInitiated)
+        XCTAssertTrue(PulseLaunch.shouldPaintDashboardSectionsProgressively())
+        XCTAssertEqual(PulseLaunch.dashboardFirstWave.first, .storeRoster)
+        XCTAssertTrue(PulseLaunch.dashboardFirstWave.contains(.sales))
+        XCTAssertTrue(PulseLaunch.dashboardFirstWave.contains(.lostRevenue))
+        XCTAssertFalse(PulseLaunch.dashboardFirstWave.contains(.pickerScorecard))
+        XCTAssertTrue(PulseLaunch.dashboardSecondWave.contains(.labor))
+        XCTAssertFalse(PulseLaunch.dashboardSecondWave.contains(.pickerScorecard))
+        let liveSales = SectionSummary(
+            section: .sales,
+            storeCount: 20,
+            headline: 100,
+            headlineLabel: "eComm sales",
+            secondary: "",
+            health: .good,
+            watchCount: 1,
+            riskCount: 0
+        )
+        let emptyLabor = SectionSummary(
+            section: .labor,
+            storeCount: 0,
+            headline: nil,
+            headlineLabel: "Labor",
+            secondary: "",
+            health: .none,
+            watchCount: 0,
+            riskCount: 0
+        )
+        let liveLabor = SectionSummary(
+            section: .labor,
+            storeCount: 20,
+            headline: 0.99,
+            headlineLabel: "Labor",
+            secondary: "",
+            health: .watch,
+            watchCount: 5,
+            riskCount: 0
+        )
+        let merged = PulseLaunch.mergeDashboardSummaries(
+            painted: [liveSales, emptyLabor],
+            live: [
+                SectionSummary(
+                    section: .sales,
+                    storeCount: 1_800,
+                    headline: 1,
+                    headlineLabel: "eComm sales",
+                    secondary: "",
+                    health: .good,
+                    watchCount: 0,
+                    riskCount: 0
+                ),
+                liveLabor,
+            ]
+        )
+        XCTAssertEqual(merged.first { $0.section == .sales }?.storeCount, 20)
+        XCTAssertEqual(merged.first { $0.section == .labor }?.storeCount, 20)
+        let paintedRows: [MetricSection: [MetricRow]] = [
+            .sales: [MetricRow(section: .sales, division: "NorCal", operationsOM: "A", storeNumber: "1490", payload: ["sales_dollars": 10])],
+        ]
+        let liveRows: [MetricSection: [MetricRow]] = [
+            .sales: [MetricRow(section: .sales, division: "NorCal", operationsOM: "A", storeNumber: "1", payload: ["sales_dollars": 1])],
+            .labor: [MetricRow(section: .labor, division: "NorCal", operationsOM: "A", storeNumber: "1490", payload: ["target_vs_actual_pct": 1])],
+        ]
+        let mergedRows = PulseQuery.mergeFilteredRows(painted: paintedRows, live: liveRows)
+        XCTAssertEqual(mergedRows[.sales]?.first?.storeNumber, "1490")
+        XCTAssertEqual(mergedRows[.labor]?.count, 1)
         XCTAssertTrue(PulseLaunch.shouldPresentShareSheetWithoutBuildingHTML())
         XCTAssertEqual(PulseLaunch.mailBodyMaxBytes, 400_000)
         XCTAssertTrue(PulseLaunch.shouldSetHTMLMessageBody(utf8Count: 12_000))

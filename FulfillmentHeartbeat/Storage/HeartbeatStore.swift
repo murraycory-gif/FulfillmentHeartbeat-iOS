@@ -234,15 +234,26 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func finishWarehouseAfterSeat(chrome: PulseDashChrome?) async {
+        if PulseLaunch.shouldPaintDashboardSectionsProgressively() {
+            setBootPhase(.readingPack)
+            await loadWarehouseWave(PulseLaunch.dashboardFirstWave)
+            applyRestoredLaunchFiltersIfNeeded()
+            setBootPhase(.buildingTables)
+            await paintFromWarehouse(light: true, adoptFacts: false, urgent: true)
+            setBootPhase(.paintingAisle)
+            await loadWarehouseWave(PulseLaunch.dashboardSecondWave)
+            await paintFromWarehouse(light: true, adoptFacts: true)
+            warehouseHydrating = false
+            setBootPhase(.ready)
+            Task { await self.fillAfterReady() }
+            if HubLayout.ingestsWorkbook {
+                Task { await self.ingestWorkbookOnMacIfNeeded() }
+            }
+            return
+        }
         setBootPhase(.readingPack)
         await loadWarehousePack(chromeFirst: chrome)
-        if !needsRolePick, !filters.isActive, let pending = pendingLaunchFilters, pending.isActive {
-            hydrating = true
-            filters = pending
-            hydrating = false
-            pendingLaunchFilters = nil
-            invalidateFilteredGrainChrome()
-        }
+        applyRestoredLaunchFiltersIfNeeded()
         setBootPhase(.paintingAisle)
         await paintFromWarehouse(light: true, adoptFacts: true)
         warehouseHydrating = false
@@ -251,6 +262,17 @@ final class HeartbeatStore: ObservableObject {
         if HubLayout.ingestsWorkbook {
             Task { await self.ingestWorkbookOnMacIfNeeded() }
         }
+    }
+
+    private func applyRestoredLaunchFiltersIfNeeded() {
+        guard !needsRolePick, !filters.isActive,
+              let pending = pendingLaunchFilters, pending.isActive
+        else { return }
+        hydrating = true
+        filters = pending
+        hydrating = false
+        pendingLaunchFilters = nil
+        invalidateFilteredGrainChrome()
     }
 
     private func restoreSessionRoleName() {
@@ -2886,7 +2908,12 @@ final class HeartbeatStore: ObservableObject {
     }
 
     @MainActor
-    private func paintFromWarehouse(light: Bool, generation: Int? = nil, adoptFacts: Bool = false) async {
+    private func paintFromWarehouse(
+        light: Bool,
+        generation: Int? = nil,
+        adoptFacts: Bool = false,
+        urgent: Bool = false
+    ) async {
         if adoptFacts {
             await adoptExcelFactsIntoWarehouse()
         }
@@ -2908,7 +2935,8 @@ final class HeartbeatStore: ObservableObject {
         let dest = visibleDestination
         let paintPriority = PulseLaunch.warehousePaintPriority(
             light: light,
-            hubReady: isReady && !needsRolePick
+            hubReady: isReady && !needsRolePick,
+            firstSectionWave: urgent
         )
         let view = await Task.detached(priority: paintPriority) {
             let facts = needFacts ? PulseFacts.bundledMetricRows() : []
@@ -2940,8 +2968,12 @@ final class HeartbeatStore: ObservableObject {
         let liveFiltered = filteredLatest
         var next = view.filtered
         next = PulseQuery.keepPageOnlyRows(painted: next, live: liveFiltered)
+        next = PulseQuery.mergeFilteredRows(painted: next, live: liveFiltered)
         filteredLatest = next
-        cachedSummaries = PulseQuery.overlayPageOnlySummaries(painted: view.summaries, live: liveSummaries)
+        cachedSummaries = PulseLaunch.mergeDashboardSummaries(
+            painted: PulseQuery.overlayPageOnlySummaries(painted: view.summaries, live: liveSummaries),
+            live: liveSummaries
+        )
         if !view.flags.isEmpty {
             var flags = view.flags
             for (section, nextFlags) in flags {
@@ -3462,6 +3494,51 @@ final class HeartbeatStore: ObservableObject {
             applyDashChrome(chrome)
         }
         return chrome
+    }
+
+    private func loadWarehouseWave(_ sections: [MetricSection]) async {
+        let url = sqliteURL
+        guard PulseSQLite.exists(at: url), !sections.isEmpty else { return }
+        let only = Set(sections)
+        let pack = await Task.detached(priority: .userInitiated) {
+            try? PulseSQLite.read(from: url, only: only)
+        }.value
+        guard let pack, !pack.rows.isEmpty else { return }
+        let packRows = pack.rows
+        let packUploads = pack.uploads
+        let caches = await Task.detached(priority: .userInitiated) {
+            PulseCaches.build(
+                rows: packRows,
+                filters: DashboardFilters(),
+                uploads: packUploads,
+                heavy: false,
+                grain: nil
+            )
+        }.value
+        mergeWarehouse(caches, pack: pack)
+    }
+
+    private func mergeWarehouse(_ caches: PulseCaches, pack: PulseSQLite.Pack) {
+        let incoming = Set(pack.rows.map(\.section))
+        rows.removeAll { incoming.contains($0.section) }
+        rows.append(contentsOf: pack.rows)
+        if !pack.uploads.isEmpty {
+            uploads = pack.uploads.sorted { $0.uploadedAt > $1.uploadedAt }
+        }
+        for (section, sectionRows) in caches.latestBySection where !sectionRows.isEmpty {
+            latestBySection[section] = sectionRows
+        }
+        for (store, identity) in caches.roster {
+            if let have = roster[store], !have.district.isEmpty, identity.district.isEmpty {
+                continue
+            }
+            roster[store] = identity
+        }
+        seeded = true
+        usingDatabasePack = true
+        if latestBySection[.lostRevenue] != nil {
+            rebuildLostIndex()
+        }
     }
 
     private func loadWarehousePack(chromeFirst: PulseDashChrome?) async {

@@ -319,4 +319,16 @@ enum PulseQuery {
             return card
         }
     }
+
+    /// Progressive section fill: keep live rows when this paint has not loaded that section.
+    static func mergeFilteredRows(
+        painted: [MetricSection: [MetricRow]],
+        live: [MetricSection: [MetricRow]]
+    ) -> [MetricSection: [MetricRow]] {
+        var next = live
+        for (section, rows) in painted where !rows.isEmpty {
+            next[section] = rows
+        }
+        return next
+    }
 }

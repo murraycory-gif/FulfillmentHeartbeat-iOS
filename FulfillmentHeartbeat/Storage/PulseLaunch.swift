@@ -225,9 +225,36 @@ enum PulseLaunch {
     }
 
     /// After the hub is up, warehouse paint is utility. userInitiated fights scroll / nav.
-    static func warehousePaintPriority(light: Bool, hubReady: Bool) -> TaskPriority {
+    /// First dashboard wave stays userInitiated so cards land before the rest of the pack.
+    static func warehousePaintPriority(light: Bool, hubReady: Bool, firstSectionWave: Bool = false) -> TaskPriority {
+        if firstSectionWave { return .userInitiated }
         if hubReady { return .utility }
         return light ? .userInitiated : .utility
+    }
+
+    /// Do not wait for the full pack before the first scorecards paint.
+    static func shouldPaintDashboardSectionsProgressively() -> Bool { true }
+
+    /// Roster + the cards at the top of the dashboard. Paint these first.
+    static var dashboardFirstWave: [MetricSection] {
+        [.storeRoster, .sales, .lostRevenue, .missingItems, .fiveStar]
+    }
+
+    /// Remaining dashboard scorecards. Picker stays deferred.
+    static var dashboardSecondWave: [MetricSection] {
+        [.preSubOOS, .pickPath, .aisleMapper, .prepNotReady, .dynacap, .scheduleQuality, .pph, .labor]
+    }
+
+    /// Keep a live chrome/filter card when this paint has not loaded that section yet.
+    static func mergeDashboardSummaries(painted: [SectionSummary], live: [SectionSummary]) -> [SectionSummary] {
+        let kept = Dictionary(uniqueKeysWithValues: live.map { ($0.section, $0) })
+        return painted.map { card in
+            guard card.storeCount == 0, (card.headline ?? 0) == 0,
+                  let liveCard = kept[card.section],
+                  liveCard.storeCount > 0 || (liveCard.headline ?? 0) > 0
+            else { return card }
+            return liveCard
+        }
     }
 
     /// O(1) store membership. Never `allowed.contains { sameStore }`.
