@@ -147,7 +147,11 @@ struct PulseCaches {
                 let source = section == .lostRevenue
                     ? sectionRows.filter { $0.textPayload["lost_grain"] != "market" }
                     : sectionRows
-                latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(source), roster: roster)
+                var collapsed = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(source), roster: roster)
+                if section == .lostRevenue, let market = sectionRows.first(where: { $0.textPayload["lost_grain"] == "market" }) {
+                    collapsed.append(market)
+                }
+                latest[section] = collapsed
             } else if section == .labor {
                 let stores = sectionRows.filter {
                     $0.textPayload["labor_grain"] == "store" && !$0.storeNumber.isEmpty
@@ -415,7 +419,7 @@ struct PulseCaches {
         var out: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] = [:]
         for (section, sectionPacks) in packs {
             let rows = HeartbeatMath.rowsFillingRoster(latest[section] ?? [], roster: roster)
-            out[section] = HeartbeatMath.dashboardGrainTable(
+            out[section] = HeartbeatMath.dashboardGrainTableFilled(
                 section: section,
                 rows: rows,
                 grain: grain,
@@ -473,13 +477,26 @@ struct PulseCaches {
         for row in rows {
             if let key = key(for: row) { buckets[key, default: []].append(row) }
         }
+        var aliasToKey: [String: String] = [:]
+        for key in buckets.keys {
+            for alias in HeartbeatMath.grainAliasKeys(key, grain: grain) where aliasToKey[alias] == nil {
+                aliasToKey[alias] = key
+            }
+        }
+        func group(for pack: DashScopePack) -> [MetricRow] {
+            let match = packKey(pack)
+            for alias in HeartbeatMath.grainAliasKeys(match, grain: grain) {
+                if let key = aliasToKey[alias], let rows = buckets[key] { return rows }
+                if let rows = buckets[alias] { return rows }
+            }
+            return buckets[match] ?? []
+        }
         var out: [String: [HeartbeatMath.FiveStarFlag]] = [:]
         out.reserveCapacity(packs.count)
         for pack in packs {
-            let match = packKey(pack)
             out[pack.id] = HeartbeatMath.dashboardActionFlags(
                 section: section,
-                rows: buckets[match] ?? [],
+                rows: group(for: pack),
                 includeAll: true
             )
         }
@@ -567,13 +584,19 @@ struct PulseCaches {
         skipMarket: Bool
     ) -> [MetricRow] {
         var index: [String: MetricRow] = [:]
+        var districtDynacap: [MetricRow] = []
         index.reserveCapacity(rows.count)
         for row in rows {
             if skipMarket, row.textPayload["lost_grain"] == "market", HeartbeatMath.canonicalStore(row.storeNumber).isEmpty { continue }
             if row.textPayload["sales_grain"] == "company" { continue }
             if HeartbeatMath.isIgnoredStore(row.storeNumber), row.section != .sales { continue }
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
-            guard !store.isEmpty else { continue }
+            if store.isEmpty {
+                if row.section == .dynacap, row.number("dynacap_rate", "pieces_per_hour") != nil {
+                    districtDynacap.append(row)
+                }
+                continue
+            }
             if index[store] == nil { index[store] = row }
             for alias in HeartbeatMath.storeAliases(store) where index[alias] == nil {
                 index[alias] = row
@@ -589,6 +612,10 @@ struct PulseCaches {
             if seen.insert(key).inserted {
                 out.append(row)
             }
+        }
+        if !districtDynacap.isEmpty,
+           !out.contains(where: { $0.section == .dynacap && $0.number("dynacap_rate", "pieces_per_hour") != nil }) {
+            out.append(contentsOf: districtDynacap)
         }
         return out
     }

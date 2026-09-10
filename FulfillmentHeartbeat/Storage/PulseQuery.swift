@@ -20,11 +20,17 @@ enum PulseQuery {
     static var pageOnlySections: Set<MetricSection> { skipOnLight }
 
     static func isStoreFact(_ row: MetricRow) -> Bool {
-        if HeartbeatMath.canonicalStore(row.storeNumber).isEmpty { return false }
         if row.textPayload["lost_grain"] == "market" { return false }
         if row.textPayload["sales_grain"] == "company" { return false }
         if row.textPayload["sales_grain"] == "day" { return false }
         if row.textPayload["labor_grain"] == "market" { return false }
+        if HeartbeatMath.canonicalStore(row.storeNumber).isEmpty {
+            // District-level Dynacap still has a rate. Keep it so the section is not blank.
+            if row.section == .dynacap, row.number("dynacap_rate", "pieces_per_hour") != nil {
+                return !row.payload.isEmpty
+            }
+            return false
+        }
         return !row.payload.isEmpty
     }
 

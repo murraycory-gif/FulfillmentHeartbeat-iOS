@@ -763,13 +763,22 @@ enum HeartbeatMath {
     ) -> (values: [String], health: Health) {
         let health = worstHealth(section, rows: rows)
         let dash = Array(repeating: "—", count: dashboardTableHeaders(section).count)
-        guard !rows.isEmpty else { return (dash, .none) }
+        if rows.isEmpty {
+            if section == .lostRevenue, let goal = goalFallback {
+                var values = dash
+                if let index = dashboardTableHeaders(section).firstIndex(of: "Goal %") {
+                    values[index] = HeartbeatFormat.pct(goal)
+                }
+                return (values, .none)
+            }
+            return (dash, .none)
+        }
         switch section {
         case .lostRevenue:
             let sales = rows.compactMap { $0.number("ecomm_sales") }.reduce(0, +)
             let lost = rows.compactMap { $0.number("lost_revenue") }.reduce(0, +)
             let pct = sales > 0 ? lost / sales * 100 : average(rows.compactMap { $0.number("lost_revenue_pct") })
-            let goal = lostRevenueGoalPct(rows: rows) ?? goalFallback
+            let goal = lostRevenueInheritedGoalPct(rows: rows, fallback: goalFallback)
             return (
                 [
                     HeartbeatFormat.money(lost),
@@ -880,6 +889,40 @@ enum HeartbeatMath {
         }
     }
 
+    /// Pack chrome may still say "J3CHICAGO" / "308 - J3 CHICAGO" while buckets are keyed "J3".
+    static func grainAliasKeys(_ raw: String, grain: DashScopeGrain) -> [String] {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        var keys: [String] = [trimmed]
+        let display = displayGrainLabel(trimmed)
+        if display != trimmed { keys.append(display) }
+        switch grain {
+        case .district:
+            let district = RollupMarketFill.districtKey(trimmed)
+            if district != "Unassigned" { keys.append(district) }
+        case .division:
+            let division = RollupMarketFill.divisionKey(trimmed)
+            if division != "Unassigned" { keys.append(division) }
+        case .region:
+            if let region = MarketRegion.named(trimmed) ?? MarketRegion.containing(trimmed) {
+                keys.append(region.rawValue)
+            }
+        case .store:
+            let number = canonicalStore(trimmed)
+            if !number.isEmpty { keys.append(number) }
+        }
+        let compact = compactKey(display == trimmed ? trimmed : display)
+        if !compact.isEmpty { keys.append(compact) }
+        var seen: Set<String> = []
+        return keys.filter { seen.insert($0).inserted }
+    }
+
+    static func grainRowsAreLive(_ rows: [DashboardGrainTableRow]) -> Bool {
+        rows.contains { row in
+            row.storeCount > 0 || row.values.filter { $0 != "—" && !$0.isEmpty }.count >= 2
+        }
+    }
+
     static func dashboardGrainTable(
         section: MetricSection,
         rows: [MetricRow],
@@ -896,9 +939,25 @@ enum HeartbeatMath {
             guard let key = dashboardScopeKey(row, grain: grain) else { continue }
             buckets[key, default: []].append(row)
         }
-        let labels = order.isEmpty ? buckets.keys.sorted() : order
-        return labels.map { label in
-            let group = buckets[label] ?? []
+        var aliasToKey: [String: String] = [:]
+        aliasToKey.reserveCapacity(buckets.count * 3)
+        for key in buckets.keys {
+            for alias in grainAliasKeys(key, grain: grain) where aliasToKey[alias] == nil {
+                aliasToKey[alias] = key
+            }
+        }
+        func group(for label: String) -> (key: String?, rows: [MetricRow]) {
+            for alias in grainAliasKeys(label, grain: grain) {
+                if let key = aliasToKey[alias], let rows = buckets[key] {
+                    return (key, rows)
+                }
+                if let rows = buckets[alias] {
+                    return (alias, rows)
+                }
+            }
+            return (nil, [])
+        }
+        func makeRow(label: String, group: [MetricRow]) -> DashboardGrainTableRow {
             let built = dashboardTableValues(section, rows: group, goalFallback: goalFallback)
             return DashboardGrainTableRow(
                 label: grain == .district ? displayGrainLabel(label) : label,
@@ -907,23 +966,71 @@ enum HeartbeatMath {
                 health: built.health
             )
         }
+        let labels = order.isEmpty ? buckets.keys.sorted() : order
+        var used: Set<String> = []
+        var table: [DashboardGrainTableRow] = []
+        table.reserveCapacity(max(labels.count, buckets.count))
+        for label in labels {
+            let hit = group(for: label)
+            if let key = hit.key { used.insert(key) }
+            if hit.rows.isEmpty, !buckets.isEmpty { continue }
+            table.append(makeRow(label: label, group: hit.rows))
+        }
+        if !order.isEmpty {
+            for key in buckets.keys.sorted() where !used.contains(key) {
+                let group = buckets[key] ?? []
+                guard !group.isEmpty else { continue }
+                table.append(makeRow(label: key, group: group))
+            }
+        }
+        return table
+    }
+
+    /// Prefer live warehouse buckets. If pack order keys missed, rebuild without order.
+    static func dashboardGrainTableFilled(
+        section: MetricSection,
+        rows: [MetricRow],
+        grain: DashScopeGrain,
+        order: [String],
+        goalFallback: Double? = nil
+    ) -> [DashboardGrainTableRow] {
+        let table = dashboardGrainTable(
+            section: section,
+            rows: rows,
+            grain: grain,
+            order: order,
+            goalFallback: goalFallback
+        )
+        if grainRowsAreLive(table) { return table }
+        guard !order.isEmpty else { return table }
+        let fallback = dashboardGrainTable(
+            section: section,
+            rows: rows,
+            grain: grain,
+            order: [],
+            goalFallback: goalFallback
+        )
+        return grainRowsAreLive(fallback) ? fallback : table
     }
 
     /// Banner packs already have the headline. Use them when the warehouse slice is not ready.
     static func dashboardGrainRowsFromPacks(
         _ packs: [DashScopePack],
-        section: MetricSection
+        section: MetricSection,
+        goalFallback: Double? = nil
     ) -> [DashboardGrainTableRow] {
         let headers = dashboardTableHeaders(section)
         return packs.compactMap { pack -> DashboardGrainTableRow? in
             let line = pack.line
             guard !line.label.isEmpty, line.label != "Unassigned" else { return nil }
             let live = line.count > 0 || (!line.value.isEmpty && line.value != "—")
-            guard live || !pack.flags.isEmpty else { return nil }
+            guard live || !pack.flags.isEmpty || goalFallback != nil else { return nil }
             var values: [String] = []
             values.reserveCapacity(max(headers.count, 1))
             for (index, header) in headers.enumerated() {
-                if let flag = pack.flags.first(where: { flagName($0.name, matches: header) }), !flag.value.isEmpty {
+                if header == "Goal %", let goal = goalFallback {
+                    values.append(HeartbeatFormat.pct(goal))
+                } else if let flag = pack.flags.first(where: { flagName($0.name, matches: header) }), !flag.value.isEmpty {
                     values.append(flag.value)
                 } else if index == 0 {
                     values.append(line.value.isEmpty ? "—" : line.value)

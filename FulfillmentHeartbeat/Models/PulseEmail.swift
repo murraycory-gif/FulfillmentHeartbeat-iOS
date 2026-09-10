@@ -306,7 +306,7 @@ enum PulseMail {
             return salesGrainTable(rows: rows, grain: grain, order: lines.map(\.label))
         }
         let table = Array(
-            HeartbeatMath.dashboardGrainTable(
+            HeartbeatMath.dashboardGrainTableFilled(
                 section: section,
                 rows: rows,
                 grain: grain,

@@ -412,8 +412,10 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func dashboardGrainRows(for section: MetricSection) -> [HeartbeatMath.DashboardGrainTableRow] {
-        if let cached = cachedGrainTables[section], !cached.isEmpty { return cached }
-        return buildGrainTableNow(for: section)
+        if let cached = cachedGrainTables[section] { return cached }
+        let table = buildGrainTableNow(for: section)
+        cachedGrainTables[section] = table
+        return table
     }
 
     func salesExpandRows() -> [SalesRollupRow] {
@@ -427,9 +429,9 @@ final class HeartbeatStore: ObservableObject {
             if cachedSalesScopeRows.isEmpty { refreshSalesExpandCache() }
             return
         }
-        if cachedGrainTables[section]?.isEmpty ?? true {
+        if !HeartbeatMath.grainRowsAreLive(cachedGrainTables[section] ?? []) {
             let table = buildGrainTableNow(for: section)
-            if !table.isEmpty { cachedGrainTables[section] = table }
+            cachedGrainTables[section] = table
         }
     }
 
@@ -439,21 +441,27 @@ final class HeartbeatStore: ObservableObject {
         if source.isEmpty {
             source = HeartbeatMath.rowsFillingRoster(latestBySection[section] ?? [], roster: roster)
         }
+        if section == .lostRevenue, source.filter({ $0.number("lost_revenue") != nil }).isEmpty {
+            source = HeartbeatMath.rowsFillingRoster(latestOrFacts(for: .lostRevenue), roster: roster)
+        }
+        if section == .dynacap, source.filter({ $0.number("dynacap_rate", "pieces_per_hour") != nil }).isEmpty {
+            let raw = (latestBySection[.dynacap] ?? []) + rows.filter { $0.section == .dynacap }
+            source = HeartbeatMath.materializeDynacap(raw, roster: roster)
+        }
         let packs = cachedGrainPacks[section] ?? []
         let order = packs.map(\.line.label)
         let goalFallback = section == .lostRevenue
             ? lostRevenueMarketRow().flatMap { HeartbeatMath.lostRevenueGoalPct($0) }
             : nil
-        let table = HeartbeatMath.dashboardGrainTable(
+        let table = HeartbeatMath.dashboardGrainTableFilled(
             section: section,
             rows: source,
             grain: grain,
             order: order,
             goalFallback: goalFallback
         )
-        let live = table.filter { $0.storeCount > 0 || $0.values.contains(where: { $0 != "—" && !$0.isEmpty }) }
-        if !live.isEmpty { return live }
-        return HeartbeatMath.dashboardGrainRowsFromPacks(packs, section: section)
+        if HeartbeatMath.grainRowsAreLive(table) { return table }
+        return HeartbeatMath.dashboardGrainRowsFromPacks(packs, section: section, goalFallback: goalFallback)
     }
 
     private func fillExpandTablesSoon() {
@@ -480,6 +488,11 @@ final class HeartbeatStore: ObservableObject {
     private func mergeGrainTables(_ tables: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]]) {
         var changed = false
         for (section, rows) in tables where !rows.isEmpty {
+            if !HeartbeatMath.grainRowsAreLive(rows),
+               let keep = cachedGrainTables[section],
+               HeartbeatMath.grainRowsAreLive(keep) {
+                continue
+            }
             if cachedGrainTables[section] != rows {
                 cachedGrainTables[section] = rows
                 changed = true
@@ -2377,7 +2390,11 @@ final class HeartbeatStore: ObservableObject {
                 let source = section == .lostRevenue
                     ? sectionRows.filter { $0.textPayload["lost_grain"] != "market" }
                     : sectionRows
-                latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(source), roster: roster)
+                var collapsed = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(source), roster: roster)
+                if section == .lostRevenue, let market = sectionRows.first(where: { $0.textPayload["lost_grain"] == "market" }) {
+                    collapsed.append(market)
+                }
+                latest[section] = collapsed
             } else if section == .labor {
                 let stores = sectionRows.filter {
                     $0.textPayload["labor_grain"] == "store" && !$0.storeNumber.isEmpty
@@ -2607,7 +2624,23 @@ final class HeartbeatStore: ObservableObject {
         if adoptFacts {
             await adoptExcelFactsIntoWarehouse()
         }
-        let warehouse = latestBySection
+        var warehouse = latestBySection
+        if (warehouse[.lostRevenue] ?? []).filter(PulseQuery.isStoreFact).count < 8 {
+            let filled = latestOrFacts(for: .lostRevenue)
+            if filled.filter(PulseQuery.isStoreFact).count > (warehouse[.lostRevenue] ?? []).filter(PulseQuery.isStoreFact).count {
+                warehouse[.lostRevenue] = filled
+            }
+        }
+        if (warehouse[.dynacap] ?? []).filter({ $0.number("dynacap_rate", "pieces_per_hour") != nil }).isEmpty {
+            let raw = (latestBySection[.dynacap] ?? []) + rows.filter { $0.section == .dynacap }
+            let expanded = HeartbeatMath.materializeDynacap(raw, roster: roster)
+            if !expanded.isEmpty { warehouse[.dynacap] = expanded }
+        }
+        if filters.isActive, let allowed = PulseCaches.allowedStores(roster: roster, filters: filters) {
+            let lost = scopedLostRevenue(allowed)
+            if !lost.isEmpty { warehouse[.lostRevenue] = lost }
+        }
+        let paintedWarehouse = warehouse
         let rosterCopy = roster
         let current = filters
         let grain = effectiveDashboardGrain
@@ -2616,7 +2649,7 @@ final class HeartbeatStore: ObservableObject {
         let paintPriority: TaskPriority = light ? .userInitiated : .utility
         let view = await Task.detached(priority: paintPriority) {
             PulseQuery.paint(
-                warehouse: warehouse,
+                warehouse: paintedWarehouse,
                 roster: rosterCopy,
                 filters: current,
                 grain: grain,
@@ -2637,7 +2670,16 @@ final class HeartbeatStore: ObservableObject {
         filteredLatest = next
         cachedSummaries = PulseQuery.overlayPageOnlySummaries(painted: view.summaries, live: liveSummaries)
         if !view.flags.isEmpty {
-            cachedCardFlags = view.flags
+            var flags = view.flags
+            for (section, nextFlags) in flags {
+                let live = nextFlags.contains {
+                    $0.stores > 0 || (!$0.value.isEmpty && $0.value != "—" && $0.value != "$0" && $0.value != "$0.00")
+                }
+                if !live, let keep = cachedCardFlags[section], !keep.isEmpty {
+                    flags[section] = keep
+                }
+            }
+            cachedCardFlags = flags
         }
         if let pickers = filteredLatest[.pickerScorecard], !pickers.isEmpty {
             refreshSummary(for: .pickerScorecard, rows: pickers)
@@ -2649,8 +2691,16 @@ final class HeartbeatStore: ObservableObject {
             rebuildPPHPickerIndex(scorecard: pickers)
         }
         if !light {
+            var tables = view.tables
+            for (section, rows) in tables {
+                if !HeartbeatMath.grainRowsAreLive(rows),
+                   let keep = cachedGrainTables[section],
+                   HeartbeatMath.grainRowsAreLive(keep) {
+                    tables[section] = keep
+                }
+            }
             cachedGrainPacks = view.grains
-            cachedGrainTables = view.tables
+            cachedGrainTables = tables
             grainPaintSettled = true
         } else if cachedGrainPacks.isEmpty {
             cachedGrainPacks = view.grains
@@ -3423,7 +3473,13 @@ final class HeartbeatStore: ObservableObject {
                 return HeartbeatMath.applyRoster(HeartbeatMath.latestPerShopper(rows), roster: rosterCopy)
             case .lostRevenue:
                 let source = rows.filter { $0.textPayload["lost_grain"] != "market" }
-                return HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(source), roster: rosterCopy)
+                var collapsed = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(source), roster: rosterCopy)
+                if let market = rows.first(where: { $0.textPayload["lost_grain"] == "market" }) {
+                    collapsed.append(market)
+                }
+                return collapsed
+            case .dynacap:
+                return HeartbeatMath.materializeDynacap(rows, roster: rosterCopy)
             default:
                 return HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(rows), roster: rosterCopy)
             }

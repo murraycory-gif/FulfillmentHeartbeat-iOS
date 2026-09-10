@@ -502,6 +502,16 @@ struct HubWidthKey: PreferenceKey {
     }
 }
 
+/// Table scrollers must not share HubWidthKey with dashboard card readWidth —
+/// that preference war relayouts every grain table after ready and heats the iPad.
+struct HubScrollWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        let next = nextValue()
+        if next > 0 { value = next }
+    }
+}
+
 private struct HubTableWidthKey: EnvironmentKey {
     static let defaultValue: CGFloat = 0
 }

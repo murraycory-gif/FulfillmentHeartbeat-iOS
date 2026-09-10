@@ -3055,7 +3055,9 @@ private enum DynacapRollupBuilder {
     }
 
     static func source(from all: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
-        all.filter { !$0.storeNumber.isEmpty }
+        all.filter {
+            !$0.storeNumber.isEmpty && $0.number("dynacap_rate", "pieces_per_hour") != nil
+        }
     }
 
     static func rows(from stores: [MetricRow], grain: LaborRollupGrain, pphByStore: [String: Double]) -> [DynacapRollupRow] {
@@ -3739,52 +3741,52 @@ struct PrepTable: View {
             }
             if expanded {
                 Section {
-                    PrepMetricHeader(
-                        label: "Store",
-                        showCount: false,
-                        active: sort.key,
-                        ascending: ascending,
-                        onSelect: applyHeaderSort
-                    )
-                    .background(
-                        GeometryReader { geo in
-                            Color.clear.preference(
-                                key: LaborHeaderMinYKey.self,
-                                value: (geo.frame(in: .global).minY / 12).rounded() * 12
+                    HubAdaptiveHScroll(
+                        minWidth: PrepMath.tableFloor(showCount: false, district: false)
+                    ) {
+                        VStack(alignment: .leading, spacing: 0) {
+                            PrepMetricHeader(
+                                label: "Store",
+                                showCount: false,
+                                active: sort.key,
+                                ascending: ascending,
+                                onSelect: applyHeaderSort
                             )
+                            .background(
+                                GeometryReader { geo in
+                                    Color.clear.preference(
+                                        key: LaborHeaderMinYKey.self,
+                                        value: (geo.frame(in: .global).minY / 12).rounded() * 12
+                                    )
+                                }
+                            )
+                            ForEach(Array(snaps.prefix(limit))) { snap in
+                                PrepStoreRow(
+                                    snap: snap,
+                                    expanded: openStore == snap.storeNumber,
+                                    onToggle: {
+                                        openStore = openStore == snap.storeNumber ? nil : snap.storeNumber
+                                    }
+                                )
+                            }
+                            if orderedCount > snaps.count {
+                                Button {
+                                    limit += 50
+                                    rebuildOrder(sort: sort, ascending: ascending)
+                                } label: {
+                                    Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(AppTheme.blue)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 12)
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
-                    )
-                    .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
+                    }
+                    .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 16, trailing: 20))
                     .listRowSeparator(.hidden)
                     .listRowBackground(AppTheme.tableFill)
-                    ForEach(Array(snaps.prefix(limit))) { snap in
-                        PrepStoreRow(
-                            snap: snap,
-                            expanded: openStore == snap.storeNumber,
-                            onToggle: {
-                                openStore = openStore == snap.storeNumber ? nil : snap.storeNumber
-                            }
-                        )
-                        .listRowInsets(EdgeInsets(top: 5, leading: 20, bottom: 5, trailing: 20))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.tableFill)
-                    }
-                    if orderedCount > snaps.count {
-                        Button {
-                            limit += 50
-                            rebuildOrder(sort: sort, ascending: ascending)
-                        } label: {
-                            Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(AppTheme.blue)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                        }
-                        .buttonStyle(.plain)
-                        .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 16, trailing: 20))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.tableFill)
-                    }
                 }
                 .transaction { $0.animation = nil }
                 .onAppear { rebuildOrder(sort: sort, ascending: ascending) }
@@ -3862,10 +3864,35 @@ struct PrepTable: View {
 private enum PrepMath {
     static let goalText = "1.9%"
     static let watchText = "1.9–2.5%"
+    static let columns = 3
+    static var labelW: CGFloat { HubLayout.pageLabelWidth }
+    static let countW: CGFloat = 58
+    static var statusW: CGFloat { HubLayout.readableStatusWidth(phone: HubLayout.isPhoneDevice) }
 
     static func pnrHealth(_ value: Double?) -> Health {
         guard value != nil else { return .none }
         return HeartbeatMath.band(value, good: HeartbeatMath.pnrGoal, watch: HeartbeatMath.pnrWatch, invert: true)
+    }
+
+    static func valueWidth(available: CGFloat, showCount: Bool, district: Bool) -> CGFloat {
+        HubLayout.evenValueWidth(
+            available: available,
+            phone: HubLayout.isPhoneDevice,
+            columns: columns,
+            showCount: showCount,
+            district: district,
+            valueMin: HubLayout.dashboardValueMin(phone: HubLayout.isPhoneDevice, columns: columns)
+        )
+    }
+
+    static func tableFloor(showCount: Bool, district: Bool) -> CGFloat {
+        HubLayout.readableTableFloor(
+            phone: HubLayout.isPhoneDevice,
+            columns: columns,
+            showCount: showCount,
+            district: district,
+            valueMin: HubLayout.dashboardValueMin(phone: HubLayout.isPhoneDevice, columns: columns)
+        )
     }
 }
 
@@ -3884,7 +3911,9 @@ private enum PrepRollupBuilder {
     }
 
     static func source(from all: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
-        all.filter { !$0.storeNumber.isEmpty }
+        all.filter {
+            !$0.storeNumber.isEmpty && $0.number("pnr_rate_pct", "pnr_hours", "prep_not_ready_pct") != nil
+        }
     }
 
     static func rows(from stores: [MetricRow], grain: LaborRollupGrain) -> [PrepRollupRow] {
@@ -3955,6 +3984,12 @@ private struct PrepLineSnap: Identifiable, Equatable {
 private struct PrepCheapLine: View, Equatable {
     let snap: PrepLineSnap
     let expanded: Bool
+    var labelWidth: CGFloat = PrepMath.labelW
+    @Environment(\.hubTableWidth) private var tableWidth
+
+    private var valueW: CGFloat {
+        PrepMath.valueWidth(available: tableWidth, showCount: false, district: labelWidth < 120)
+    }
 
     var body: some View {
         HStack(spacing: 6) {
@@ -3968,7 +4003,7 @@ private struct PrepCheapLine: View, Equatable {
                     .font(.caption.weight(.bold))
                     .foregroundStyle(AppTheme.blue)
             }
-            .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
+            .frame(width: labelWidth, alignment: .leading)
             cell(snap.pnr, snap.health)
             cell(PrepMath.goalText, .none, brand: true)
             cell(PrepMath.watchText, .watch)
@@ -3980,7 +4015,7 @@ private struct PrepCheapLine: View, Equatable {
                 .padding(.vertical, 5)
                 .foregroundStyle(Color.white)
                 .background(pill(snap.health), in: Capsule())
-                .frame(width: 88, alignment: .trailing)
+                .frame(width: PrepMath.statusW, alignment: .trailing)
         }
         .padding(.vertical, 4)
     }
@@ -3991,7 +4026,7 @@ private struct PrepCheapLine: View, Equatable {
             .foregroundStyle(brand ? AppTheme.blue : ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
-            .frame(maxWidth: .infinity, alignment: .trailing)
+            .frame(width: valueW, alignment: .trailing)
             .padding(.vertical, 6)
             .padding(.horizontal, 6)
             .background(brand ? AppTheme.blueSoft : wash(health), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -4028,7 +4063,13 @@ private struct PrepCheapLine: View, Equatable {
 private struct PrepMetricLine: View, Equatable {
     let label: String
     var count: Int? = nil
+    var labelWidth: CGFloat = PrepMath.labelW
     let pnr: Double?
+    @Environment(\.hubTableWidth) private var tableWidth
+
+    private var valueW: CGFloat {
+        PrepMath.valueWidth(available: tableWidth, showCount: count != nil, district: labelWidth < 120)
+    }
 
     var body: some View {
         let health = PrepMath.pnrHealth(pnr)
@@ -4038,18 +4079,18 @@ private struct PrepMetricLine: View, Equatable {
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
+                .frame(width: labelWidth, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
                     .font(.subheadline.weight(.semibold).monospacedDigit())
                     .foregroundStyle(AppTheme.textSecondary)
-                    .frame(width: 58, alignment: .trailing)
+                    .frame(width: PrepMath.countW, alignment: .trailing)
             }
             cell(HeartbeatFormat.pct(pnr), health)
             cell(PrepMath.goalText, .none, brand: true)
             cell(PrepMath.watchText, .watch)
             HealthBadge(health: health, prominent: true, compact: true)
-                .frame(width: 88, alignment: .trailing)
+                .frame(width: PrepMath.statusW, alignment: .trailing)
         }
         .tableRowCard(health: health)
     }
@@ -4060,7 +4101,7 @@ private struct PrepMetricLine: View, Equatable {
             .foregroundStyle(brand ? AppTheme.blue : ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
-            .frame(maxWidth: .infinity, alignment: .trailing)
+            .frame(width: valueW, alignment: .trailing)
             .padding(.vertical, 6)
             .padding(.horizontal, 6)
             .background(
@@ -4091,23 +4132,32 @@ private struct PrepMetricLine: View, Equatable {
 struct PrepMetricHeader: View {
     let label: String
     var showCount: Bool = false
+    var labelWidth: CGFloat = PrepMath.labelW
     var active: String? = nil
     var ascending: Bool = false
     var onSelect: ((String) -> Void)? = nil
+    @Environment(\.hubTableWidth) private var tableWidth
+
+    private var valueW: CGFloat {
+        PrepMath.valueWidth(available: tableWidth, showCount: showCount, district: labelWidth < 120)
+    }
 
     var body: some View {
         HStack(spacing: 6) {
             head(label, key: "label", alignment: .leading)
-                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
+                .frame(width: labelWidth, alignment: .leading)
             if showCount {
                 head("Stores", key: "count", alignment: .trailing)
-                    .frame(width: 58, alignment: .trailing)
+                    .frame(width: PrepMath.countW, alignment: .trailing)
             }
             head("PNR Hours %", key: "pnr")
+                .frame(width: valueW, alignment: .trailing)
             head("Goal", key: "goal")
+                .frame(width: valueW, alignment: .trailing)
             head("Watch", key: "watch")
+                .frame(width: valueW, alignment: .trailing)
             head("Status", key: "status", alignment: .trailing)
-                .frame(width: 88, alignment: .trailing)
+                .frame(width: PrepMath.statusW, alignment: .trailing)
         }
         .font(.caption.weight(.bold))
         .tracking(0.3)
@@ -4202,11 +4252,14 @@ struct PrepRollupTable: View {
                 }
                 .buttonStyle(.plain)
                 if expanded {
-                    HubAdaptiveHScroll {
+                    HubAdaptiveHScroll(
+                        minWidth: PrepMath.tableFloor(showCount: grain != .store, district: grain == .district)
+                    ) {
                     VStack(alignment: .leading, spacing: 10) {
                     PrepMetricHeader(
                         label: grain.columnTitle,
                         showCount: grain != .store,
+                        labelWidth: grain.labelWidth,
                         active: sortKey,
                         ascending: sortAscending,
                         onSelect: applySort
@@ -4215,6 +4268,7 @@ struct PrepRollupTable: View {
                         PrepMetricLine(
                             label: row.label,
                             count: grain == .store ? nil : row.storeCount,
+                            labelWidth: grain.labelWidth,
                             pnr: row.pnr
                         )
                     }
@@ -9928,11 +9982,11 @@ private struct HubPhoneTableModifier: ViewModifier {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             GeometryReader { geo in
-                Color.clear.preference(key: HubWidthKey.self, value: geo.size.width)
+                Color.clear.preference(key: HubScrollWidthKey.self, value: geo.size.width)
             }
         )
-        .onPreferenceChange(HubWidthKey.self) { value in
-            if value > 0 { available = value }
+        .onPreferenceChange(HubScrollWidthKey.self) { value in
+            if value > 0, abs(value - available) > 0.5 { available = value }
         }
         .environment(\.hubTableWidth, span)
     }
@@ -9998,11 +10052,11 @@ struct HubAdaptiveHScroll<Content: View>: View {
         .frame(maxWidth: .infinity, minHeight: minHeight > 0 ? minHeight : nil, alignment: .leading)
         .background(
             GeometryReader { geo in
-                Color.clear.preference(key: HubWidthKey.self, value: geo.size.width)
+                Color.clear.preference(key: HubScrollWidthKey.self, value: geo.size.width)
             }
         )
-        .onPreferenceChange(HubWidthKey.self) { value in
-            if value > 0 { available = value }
+        .onPreferenceChange(HubScrollWidthKey.self) { value in
+            if value > 0, abs(value - available) > 0.5 { available = value }
         }
         .environment(\.hubTableWidth, max(span, floor))
     }

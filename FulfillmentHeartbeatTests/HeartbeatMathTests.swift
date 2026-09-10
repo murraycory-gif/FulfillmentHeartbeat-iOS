@@ -1210,6 +1210,19 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(summary?.storeCount, 179)
         XCTAssertEqual(summary?.headline ?? 0, 451_085, accuracy: 5)
         XCTAssertNotEqual(summary?.health, .none)
+        let grain = HeartbeatMath.dashboardGrainTableFilled(
+            section: .lostRevenue,
+            rows: caches.filteredLatest[.lostRevenue] ?? [],
+            grain: .district,
+            order: (caches.cachedGrainPacks[.lostRevenue] ?? []).map(\.line.label),
+            goalFallback: HeartbeatMath.lostRevenueGoalPct(
+                rows: [],
+                market: (caches.latestBySection[.lostRevenue] ?? []).first { $0.textPayload["lost_grain"] == "market" }
+            )
+        )
+        XCTAssertTrue(HeartbeatMath.grainRowsAreLive(grain), "Jewel Osco district expand must show dollars")
+        XCTAssertGreaterThan(grain.filter { $0.storeCount > 0 }.count, 3)
+        XCTAssertTrue(grain.contains { $0.values.contains(where: { $0.contains("%") && $0 != "—" }) })
     }
 
     func testCompanyWideLostRevenueRegionsAllHaveDollars() throws {
@@ -1597,6 +1610,16 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseLaunch.shouldLoadPublishedFacts(lostStores: 40, salesStores: 40))
         XCTAssertFalse(PulseLaunch.shouldLoadPublishedFacts(lostStores: 40, salesStores: 400))
         XCTAssertFalse(HubLayout.rasterizeSwipe)
+        XCTAssertEqual(PulseLaunch.streamPickerSnappyAfterReady, true)
+        XCTAssertEqual(PulseLaunch.pickerChunkPauseNanoseconds, 120_000_000)
+        XCTAssertFalse(PulseLaunch.shouldRestartGrainPaint(alreadySettled: true, dest: .dashboard))
+        let goalOnly = HeartbeatMath.DashboardGrainTableRow(
+            label: "J3",
+            storeCount: 0,
+            values: ["—", "—", "3.71%", "—", "—", "—", "—", "—", "—"],
+            health: .none
+        )
+        XCTAssertFalse(HeartbeatMath.grainRowsAreLive([goalOnly]))
         XCTAssertLessThan(HubLayout.calloutMinHeight(phone: false), 104)
         XCTAssertGreaterThanOrEqual(HubLayout.calloutMinHeight(phone: false), 90)
         XCTAssertLessThan(HubLayout.calloutValueSize(phone: false), 26)
@@ -1907,6 +1930,96 @@ final class HeartbeatMathTests: XCTestCase {
         )
         XCTAssertEqual(fromPacks.first?.label, "California Region")
         XCTAssertEqual(fromPacks.first?.values.first, "4.24%")
+        let emptyGoal = HeartbeatMath.dashboardTableValues(.lostRevenue, rows: [], goalFallback: 3.71)
+        XCTAssertTrue(emptyGoal.values.contains("3.71%"), "\(emptyGoal.values)")
+        let withGoal = HeartbeatMath.dashboardGrainRowsFromPacks(
+            [DashScopePack(line: DashScopeLine(label: "California Region", value: "4.24%", health: .watch, count: 604), flags: [])],
+            section: .lostRevenue,
+            goalFallback: 3.71
+        )
+        XCTAssertTrue(withGoal.first?.values.contains("3.71%") == true, "\(withGoal.first?.values ?? [])")
+    }
+
+    func testLostRevenueDistrictExpandMatchesPackLabelsAndFillsGoal() {
+        let store = MetricRow(
+            section: .lostRevenue,
+            division: "Jewel Osco",
+            operationsOM: "A",
+            storeNumber: "308",
+            payload: [
+                "lost_revenue": 1_200,
+                "lost_revenue_pct": 4.2,
+                "ecomm_sales": 28_000,
+                "post_sub_oos_foregone": 100,
+                "refund_lost": 50,
+                "missed_sales": 25,
+                "cancelled_lost": 10,
+                "kill_switch_lost": 5,
+            ],
+            textPayload: ["lost_grain": "store", "district": "J3CHICAGO"]
+        )
+        let table = HeartbeatMath.dashboardGrainTableFilled(
+            section: .lostRevenue,
+            rows: [store],
+            grain: .district,
+            order: ["J3CHICAGO", "308 - J3 CHICAGO"],
+            goalFallback: 3.71
+        )
+        XCTAssertEqual(table.count, 1, "blank pack labels must not hide the live district")
+        XCTAssertEqual(table.first?.label, "J3")
+        XCTAssertGreaterThan(table.first?.storeCount ?? 0, 0)
+        XCTAssertTrue(table.first?.values[0].contains("1,200") == true, "\(table.first?.values ?? [])")
+        XCTAssertTrue(table.first?.values.contains("3.71%") == true, "\(table.first?.values ?? [])")
+        XCTAssertTrue(HeartbeatMath.grainRowsAreLive(table))
+        let dynacap = HeartbeatMath.dashboardGrainTableFilled(
+            section: .dynacap,
+            rows: [
+                MetricRow(
+                    section: .dynacap,
+                    division: "Jewel Osco",
+                    operationsOM: "A",
+                    storeNumber: "308",
+                    payload: ["dynacap_rate": 74.1, "utilization_pct": 81],
+                    textPayload: ["district": "J3CHICAGO"]
+                )
+            ],
+            grain: .district,
+            order: ["J3 CHICAGO"],
+            goalFallback: nil
+        )
+        XCTAssertEqual(dynacap.first?.label, "J3")
+        XCTAssertEqual(dynacap.first?.values.first, "74.1")
+        XCTAssertTrue(PulseQuery.isStoreFact(
+            MetricRow(
+                section: .dynacap,
+                division: "Jewel Osco",
+                operationsOM: "",
+                storeNumber: "",
+                payload: ["dynacap_rate": 74.1],
+                textPayload: ["district": "J3"]
+            )
+        ))
+    }
+
+    func testPrepEvenColumnsMatchPickPathSpread() {
+        let prep = HubLayout.evenValueWidth(
+            available: 1_400,
+            phone: false,
+            columns: 3,
+            showCount: true,
+            district: false,
+            valueMin: HubLayout.dashboardValueMin(phone: false, columns: 3)
+        )
+        let path = HubLayout.evenValueWidth(
+            available: 1_400,
+            phone: false,
+            columns: 3,
+            showCount: true,
+            district: false,
+            valueMin: HubLayout.dashboardValueMin(phone: false, columns: 3)
+        )
+        XCTAssertEqual(prep, path, accuracy: 0.5)
+        XCTAssertGreaterThan(prep, HubLayout.readableValueMin(phone: false))
     }
 
     func testTableLabelWidthFitsRegionNamesAndEvenValues() {
