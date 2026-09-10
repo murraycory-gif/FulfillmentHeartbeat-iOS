@@ -5,6 +5,7 @@ final class ImportProgress: ObservableObject {
     @Published var label: String?
     @Published var loaded = 0
     @Published var expected = 0
+    @Published var fraction = 0.0
     @Published var ready: [String] = []
     @Published var missing: [String] = []
 }
@@ -38,6 +39,7 @@ final class HeartbeatStore: ObservableObject {
     @Published private(set) var linkedMasterLoadedAt: Date?
     @Published var needsRolePick = true
     @Published private(set) var usingDatabasePack = false
+    @Published private(set) var warehouseHydrating = false
     @Published private(set) var sessionRole: HeartbeatRole?
     @Published var laborWeekFilter = ""
     @Published private(set) var pickerLoading = false
@@ -112,6 +114,7 @@ final class HeartbeatStore: ObservableObject {
     private var packChrome: PulseDashChrome?
     private var factsOwned: Set<MetricSection> = []
     private var didAdoptExcelFacts = false
+    private var pendingLaunchFilters: DashboardFilters?
 
     init(rootURL: URL? = nil) {
         fileManager = .default
@@ -132,9 +135,10 @@ final class HeartbeatStore: ObservableObject {
         filters = DashboardFilters()
         isReady = false
         isImporting = true
-        importProgress.label = "Loading the data"
-        importProgress.expected = MetricSection.uploadOrder.count
-        importProgress.loaded = 0
+        importProgress.label = PulseLaunch.BootPhase.openingFloor.label
+        importProgress.expected = PulseLaunch.BootPhase.ready.rawValue
+        importProgress.loaded = PulseLaunch.BootPhase.openingFloor.rawValue
+        importProgress.fraction = PulseLaunch.BootPhase.openingFloor.fraction
         Task { await self.boot() }
         watchAppLifecycle()
     }
@@ -142,11 +146,22 @@ final class HeartbeatStore: ObservableObject {
     private func boot() async {
         loadChecklist()
         loadMasterLink()
+        loadPersistedFilters()
+        restoreSessionRoleName()
         isImporting = true
         isReady = false
         errorMessage = nil
-        importProgress.label = "Opening the floor"
-        await loadPack()
+        setBootPhase(.openingFloor)
+        let chrome = await loadChromeIfPresent()
+        if PulseLaunch.shouldPresentSeatBeforeWarehouse(),
+           PulseLaunch.leaveSplashAfterChrome(paintedStoreCards: PulseLaunch.usablePaintedCards(cachedSummaries)) {
+            presentSeatUI()
+            warehouseHydrating = true
+            Task { await self.finishWarehouseAfterSeat(chrome: chrome) }
+            return
+        }
+        setBootPhase(.readingPack)
+        await loadWarehousePack(chromeFirst: chrome)
         await paintFromWarehouse(light: true, adoptFacts: true)
         if canLeaveSplash() {
             finishLocalLaunch()
@@ -175,6 +190,84 @@ final class HeartbeatStore: ObservableObject {
         errorMessage = PulseLaunch.missingPackMessage()
     }
 
+    private func setBootPhase(_ phase: PulseLaunch.BootPhase) {
+        importProgress.label = phase.label
+        importProgress.loaded = phase.rawValue
+        importProgress.expected = PulseLaunch.BootPhase.ready.rawValue
+        importProgress.fraction = phase.fraction
+    }
+
+    var aisleFillCaption: String {
+        if needsRolePick {
+            return importProgress.label ?? PulseLaunch.BootPhase.readingPack.label
+        }
+        if let pending = pendingLaunchFilters, pending.isActive, warehouseHydrating {
+            return "Opening \(pending.summary)"
+        }
+        return importProgress.label ?? PulseLaunch.BootPhase.paintingAisle.label
+    }
+
+    var shareReady: Bool {
+        PulseLaunch.shouldAllowShare(warehouseHydrating: warehouseHydrating)
+    }
+
+    private func presentSeatUI() {
+        if !cachedSummaries.isEmpty {
+            seeded = true
+        }
+        isImporting = false
+        importLabel = nil
+        isReady = true
+        becameReadyAt = Date()
+        lastCloudPullAt = Date()
+        if PulseLaunch.shouldSkipRoleGateOnRelaunch(
+            role: sessionRole,
+            filtersActive: pendingLaunchFilters?.isActive == true
+        ) {
+            needsRolePick = false
+            noteHubInteractive()
+            startCloudHydrateIfNeeded()
+        } else {
+            needsRolePick = true
+        }
+        setBootPhase(.presentingSeat)
+    }
+
+    private func finishWarehouseAfterSeat(chrome: PulseDashChrome?) async {
+        setBootPhase(.readingPack)
+        await loadWarehousePack(chromeFirst: chrome)
+        if !needsRolePick, !filters.isActive, let pending = pendingLaunchFilters, pending.isActive {
+            hydrating = true
+            filters = pending
+            hydrating = false
+            pendingLaunchFilters = nil
+            invalidateFilteredGrainChrome()
+        }
+        setBootPhase(.paintingAisle)
+        await paintFromWarehouse(light: true, adoptFacts: true)
+        warehouseHydrating = false
+        setBootPhase(.ready)
+        Task { await self.fillAfterReady() }
+        if HubLayout.ingestsWorkbook {
+            Task { await self.ingestWorkbookOnMacIfNeeded() }
+        }
+    }
+
+    private func restoreSessionRoleName() {
+        if let raw = UserDefaults.standard.string(forKey: "hb.sessionRole"),
+           let role = HeartbeatRole(rawValue: raw) {
+            sessionRole = role
+        }
+    }
+
+    private func loadPersistedFilters() {
+        guard fileManager.fileExists(atPath: filtersURL.path),
+              let data = try? Data(contentsOf: filtersURL),
+              let saved = try? JSONDecoder().decode(DashboardFilters.self, from: data)
+        else { return }
+        pendingLaunchFilters = saved
+    }
+
     private func canLeaveSplash() -> Bool {
         PulseLaunch.leaveSplash(
             localPackBytes: PulseSQLite.fileBytes(at: sqliteURL),
@@ -184,15 +277,9 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func finishLocalLaunch() {
-        if !cachedSummaries.isEmpty {
-            seeded = true
-        }
-        isImporting = false
-        importLabel = nil
-        isReady = true
-        needsRolePick = true
-        becameReadyAt = Date()
-        lastCloudPullAt = Date()
+        presentSeatUI()
+        warehouseHydrating = false
+        setBootPhase(.ready)
     }
 
     /// Splash stays local-first. Shopper streaming is join-page only — never on Dashboard.
@@ -240,6 +327,7 @@ final class HeartbeatStore: ObservableObject {
         errorMessage = nil
         isReady = false
         isImporting = true
+        warehouseHydrating = false
         importProgress.label = "Loading the data"
         Task { await boot() }
     }
@@ -1659,6 +1747,9 @@ final class HeartbeatStore: ObservableObject {
     func finishRoleGate() {
         needsRolePick = false
         noteHubInteractive()
+        if let pending = pendingLaunchFilters, pending.isActive, !filters.isActive {
+            filters = pending
+        }
     }
 
     private func noteHubInteractive() {
@@ -1680,13 +1771,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func restoreSessionRole() {
-        if let raw = UserDefaults.standard.string(forKey: "hb.sessionRole"),
-           let role = HeartbeatRole(rawValue: raw) {
-            sessionRole = role
-            needsRolePick = false
-        } else {
-            needsRolePick = true
-        }
+        restoreSessionRoleName()
     }
 
     func clearFilters() {
@@ -3367,27 +3452,37 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func loadPack() async {
-        await loadPack(from: sqliteURL)
+        let chrome = await loadChromeIfPresent()
+        await loadWarehousePack(chromeFirst: chrome)
     }
 
-    private func loadPack(from url: URL) async {
+    private func loadChromeIfPresent() async -> PulseDashChrome? {
+        guard PulseSQLite.exists(at: sqliteURL) else { return nil }
+        setBootPhase(.readingChrome)
+        let url = sqliteURL
+        let chrome = await Task.detached(priority: .userInitiated) {
+            PulseSQLite.readChrome(from: url)
+        }.value
+        if let chrome {
+            applyDashChrome(chrome)
+        }
+        return chrome
+    }
+
+    private func loadWarehousePack(chromeFirst: PulseDashChrome?) async {
+        let url = sqliteURL
         guard PulseSQLite.exists(at: url) else {
             if seeded, !cachedSummaries.isEmpty { return }
             rebuildIndex()
             return
         }
-        let chromeFirst = await Task.detached(priority: .userInitiated) {
-            PulseSQLite.readChrome(from: url)
-        }.value
-        if let chromeFirst {
-            applyDashChrome(chromeFirst)
-        }
+        setBootPhase(.readingPack)
         let skipHeavy: Set<MetricSection> = HubLayout.lightLaunch || chromeFirst != nil ? Self.launchSkip : []
         let pack = await Task.detached(priority: .userInitiated) {
             try? PulseSQLite.read(from: url, skipping: skipHeavy)
         }.value
         if let pack, !pack.rows.isEmpty {
-            importProgress.label = "Setting the aisle"
+            setBootPhase(.buildingTables)
             let packRows = pack.rows
             let packUploads = pack.uploads
             let chrome = pack.chrome ?? chromeFirst

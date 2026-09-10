@@ -31,7 +31,7 @@ struct DashboardView: View {
                             VStack(spacing: 10) {
                                 ProgressView()
                                     .tint(AppTheme.blue)
-                                Text("Setting the aisle…")
+                                Text(store.aisleFillCaption)
                                     .font(.subheadline.weight(.semibold))
                                     .foregroundStyle(AppTheme.textSecondary)
                             }

@@ -1590,6 +1590,27 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(PulseLaunch.leaveSplash(localPackBytes: 1_200, loadedRows: 40))
         XCTAssertTrue(PulseLaunch.leaveSplash(localPackBytes: 0, loadedRows: 0, paintedStoreCards: 3))
         XCTAssertFalse(PulseLaunch.leaveSplash(localPackBytes: 0, loadedRows: 0, paintedStoreCards: 0))
+        XCTAssertTrue(PulseLaunch.leaveSplashAfterChrome(paintedStoreCards: 3))
+        XCTAssertFalse(PulseLaunch.leaveSplashAfterChrome(paintedStoreCards: 0))
+        XCTAssertTrue(PulseLaunch.shouldPresentSeatBeforeWarehouse())
+        XCTAssertTrue(PulseLaunch.shouldKeepLastSeatOnPackLoad(seatPresented: true))
+        XCTAssertFalse(PulseLaunch.shouldKeepLastSeatOnPackLoad(seatPresented: false))
+        XCTAssertTrue(PulseLaunch.shouldSkipRoleGateOnRelaunch(role: .districtManager, filtersActive: true))
+        XCTAssertTrue(PulseLaunch.shouldSkipRoleGateOnRelaunch(role: .backstage, filtersActive: false))
+        XCTAssertFalse(PulseLaunch.shouldSkipRoleGateOnRelaunch(role: .districtManager, filtersActive: false))
+        XCTAssertFalse(PulseLaunch.shouldSkipRoleGateOnRelaunch(role: nil, filtersActive: true))
+        XCTAssertFalse(PulseLaunch.shouldAllowShare(warehouseHydrating: true))
+        XCTAssertTrue(PulseLaunch.shouldAllowShare(warehouseHydrating: false))
+        let phases = PulseLaunch.BootPhase.allCases.sorted { $0.rawValue < $1.rawValue }
+        XCTAssertEqual(phases.first, .openingFloor)
+        XCTAssertEqual(phases.last, .ready)
+        for (index, phase) in phases.enumerated() where index > 0 {
+            XCTAssertGreaterThan(phase.fraction, phases[index - 1].fraction, "\(phase)")
+            XCTAssertFalse(phase.label.isEmpty)
+            XCTAssertNotEqual(phase.label, phases[index - 1].label)
+        }
+        XCTAssertEqual(PulseLaunch.BootPhase.openingFloor.label, "Opening the floor")
+        XCTAssertEqual(PulseLaunch.BootPhase.paintingAisle.label, "Setting the aisle")
     }
 
     func testLaunchDoesNotRefetchTheSameLocalPack() {

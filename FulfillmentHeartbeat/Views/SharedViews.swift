@@ -1024,10 +1024,11 @@ struct FilterBar: View {
                 }
             }
             HubChromePill(
-                title: "Share",
+                title: store.shareReady ? "Share" : "Share…",
                 symbol: "square.and.arrow.up",
                 showsChevron: false
             ) {
+                guard store.shareReady else { return }
                 var transaction = Transaction()
                 transaction.animation = nil
                 withTransaction(transaction) {

@@ -272,6 +272,54 @@ enum PulseLaunch {
         bytes >= minimumPackBytes
     }
 
+    /// Seat UI (Who's looking / last seat) must not wait on the warehouse walk.
+    static func shouldPresentSeatBeforeWarehouse() -> Bool { true }
+
+    /// Keep the last seat when the pack finishes after the hub is already up.
+    static func shouldKeepLastSeatOnPackLoad(seatPresented: Bool) -> Bool { seatPresented }
+
+    /// Relaunch skips Who's looking when the last seat and its book are on disk.
+    static func shouldSkipRoleGateOnRelaunch(role: HeartbeatRole?, filtersActive: Bool) -> Bool {
+        guard let role else { return false }
+        if role == .backstage { return true }
+        return filtersActive
+    }
+
+    /// Share needs filtered warehouse rows. Chrome-only District 03 would leak company grain.
+    static func shouldAllowShare(warehouseHydrating: Bool) -> Bool { !warehouseHydrating }
+
+    /// Boot copy that must move. One spinner phrase for 15s fails the reliability bar.
+    enum BootPhase: Int, CaseIterable {
+        case openingFloor = 1
+        case readingChrome = 2
+        case presentingSeat = 3
+        case readingPack = 4
+        case buildingTables = 5
+        case paintingAisle = 6
+        case ready = 7
+
+        var label: String {
+            switch self {
+            case .openingFloor: return "Opening the floor"
+            case .readingChrome: return "Reading dashboard chrome"
+            case .presentingSeat: return "Choosing a seat"
+            case .readingPack: return "Reading the store pack"
+            case .buildingTables: return "Building store tables"
+            case .paintingAisle: return "Setting the aisle"
+            case .ready: return "Ready"
+            }
+        }
+
+        var fraction: Double {
+            Double(rawValue) / Double(BootPhase.ready.rawValue)
+        }
+    }
+
+    /// Chrome cards are enough to leave splash. Warehouse fill continues behind the seat UI.
+    static func leaveSplashAfterChrome(paintedStoreCards: Int) -> Bool {
+        paintedStoreCards > 0
+    }
+
     /// Leave the splash when a real pack is in memory, or when Excel store
     /// facts already painted dashboard cards (bundled or cloud).
     static func leaveSplash(localPackBytes: Int, loadedRows: Int, paintedStoreCards: Int = 0) -> Bool {

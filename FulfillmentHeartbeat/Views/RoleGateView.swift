@@ -61,6 +61,18 @@ struct RoleGateView: View {
                 .font(.subheadline.weight(.bold))
                 .foregroundStyle(AppTheme.textSecondary)
                 .padding(.top, 8)
+            if store.warehouseHydrating {
+                HStack(spacing: 10) {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(AppTheme.blue)
+                    Text(store.aisleFillCaption)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(AppTheme.textSecondary)
+                        .lineLimit(2)
+                }
+                .padding(.top, 4)
+            }
         }
     }
 
