@@ -90,7 +90,7 @@ struct LaunchSplashView: View {
                         ProgressView()
                             .controlSize(.regular)
                             .tint(AppTheme.blue)
-                        Text(store.importProgress.label ?? Self.quips[quipIndex % Self.quips.count])
+                        Text(PulseLaunch.displayLoadStatus(store.importProgress.label, tick: quipIndex))
                             .font(.system(size: phone ? 16 : 18, weight: .semibold))
                             .foregroundStyle(AppTheme.text)
                             .multilineTextAlignment(.center)

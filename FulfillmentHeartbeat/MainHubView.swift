@@ -452,7 +452,7 @@ private struct ImportProgressCard: View {
             ProgressView()
                 .scaleEffect(1.2)
                 .tint(AppTheme.blue)
-            Text(progress.label ?? "Reading workbook…")
+            Text(PulseLaunch.displayLoadStatus(progress.label, tick: progress.loaded))
                 .font(.headline)
                 .multilineTextAlignment(.center)
             if progress.expected > 0 {

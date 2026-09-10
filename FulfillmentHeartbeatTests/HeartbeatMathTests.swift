@@ -1957,6 +1957,14 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(PulseLaunch.shouldKeepVisitedScorecardHostsWarm())
         XCTAssertFalse(PulseLaunch.shouldRebuildHiddenWarmHostsOnHubPing())
         XCTAssertFalse(PulseLaunch.shouldBuildGrainTablesOnSeatSlice())
+        XCTAssertFalse(PulseLaunch.shouldBuildCardFlagsOnSeatSlice())
+        XCTAssertFalse(PulseLaunch.shouldLockPickerDashboardOnSeatSlice())
+        XCTAssertFalse(PulseLaunch.shouldRefreshFilterOptionsOnSeatSlice())
+        XCTAssertFalse(PulseLaunch.shouldScheduleLiveGrainPaint(filtersActive: true))
+        XCTAssertTrue(PulseLaunch.shouldScheduleLiveGrainPaint(filtersActive: false))
+        XCTAssertFalse(PulseLaunch.shouldPrefillExpandTables(filtersActive: true))
+        XCTAssertTrue(PulseLaunch.shouldPrefillExpandTables(filtersActive: false))
+        XCTAssertFalse(PulseLaunch.shouldIncludeFlagsOnFilterPaint())
         XCTAssertFalse(PulseLaunch.shouldPrefetchExpandOnAppear())
         XCTAssertEqual(PulseLaunch.maxWarmScorecardHosts(), 2)
         XCTAssertEqual(
@@ -2020,6 +2028,11 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(PulseLaunch.shouldPrefetchExpandOnFilterStamp())
         XCTAssertFalse(PulseLaunch.shouldKeepVisitedScorecardHostsWarm())
         XCTAssertFalse(PulseLaunch.shouldBuildGrainTablesOnSeatSlice())
+        XCTAssertFalse(PulseLaunch.shouldBuildCardFlagsOnSeatSlice())
+        XCTAssertFalse(PulseLaunch.shouldLockPickerDashboardOnSeatSlice())
+        XCTAssertFalse(PulseLaunch.shouldScheduleLiveGrainPaint(filtersActive: true))
+        XCTAssertFalse(PulseLaunch.shouldPrefillExpandTables(filtersActive: true))
+        XCTAssertFalse(PulseLaunch.shouldIncludeFlagsOnFilterPaint())
         XCTAssertFalse(PulseLaunch.shouldPrefetchExpandOnAppear())
         XCTAssertTrue(PulseLaunch.shouldWipePickerIndexOnSeatClear())
         XCTAssertTrue(PulseLaunch.shouldRebuildPickerIndexOnSeatPaint(filtersActive: true, seatRowCount: 4))
@@ -2027,6 +2040,15 @@ final class HeartbeatMathTests: XCTestCase {
             XCTAssertFalse(PulseLaunch.isBlandBootStatus(phase.label), phase.label)
         }
         XCTAssertTrue(PulseLaunch.isBlandBootStatus("Building store tables"))
+        XCTAssertTrue(PulseLaunch.isBlandBootStatus("Loading store facts"))
+        XCTAssertEqual(
+            PulseLaunch.displayLoadStatus("Building store tables", tick: 0),
+            PulseLaunch.seatLoadQuip(at: 0)
+        )
+        XCTAssertEqual(
+            PulseLaunch.displayLoadStatus("The avocados unionized. They want bubble wrap…", tick: 9),
+            "The avocados unionized. They want bubble wrap…"
+        )
         XCTAssertFalse(PulseLaunch.shouldInvalidateHubOnBackgroundFill())
         XCTAssertFalse(PulseLaunch.shouldStampHubWhenExpandCacheFills())
         XCTAssertFalse(PulseLaunch.shouldStreamCompanyPickerForSeatFirstPaint())
@@ -3724,7 +3746,7 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(PulseLaunch.shouldPrepareWarehouseOnFilterPaint())
         XCTAssertFalse(PulseLaunch.shouldPublishWarehouseRowsDuringHydrate())
         XCTAssertFalse(PulseLaunch.shouldAdoptFactsDuringInteractivePaint())
-        XCTAssertTrue(PulseLaunch.shouldIncludeFlagsOnFilterPaint())
+        XCTAssertFalse(PulseLaunch.shouldIncludeFlagsOnFilterPaint())
         XCTAssertFalse(PulseLaunch.shouldPatchPPHOnPaint(hasFilteredPPH: true))
         XCTAssertTrue(PulseLaunch.shouldPatchPPHOnPaint(hasFilteredPPH: false))
         XCTAssertTrue(PulseLaunch.shouldPaintDashboardSectionsProgressively())

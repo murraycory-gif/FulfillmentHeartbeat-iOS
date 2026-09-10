@@ -177,11 +177,11 @@ final class HeartbeatStore: ObservableObject {
             return
         }
         if HubLayout.ingestsWorkbook {
-            importProgress.label = "Building today's pack"
+            importProgress.label = PulseLaunch.comedyLoadStatus(at: 4)
             await ingestWorkbookOnMacIfNeeded()
             await paintFromWarehouse(light: true, adoptFacts: true)
         } else if !PulseSQLite.isUsableFile(at: sqliteURL) {
-            importProgress.label = "Looking for a cloud pack"
+            importProgress.label = PulseLaunch.comedyLoadStatus(at: 3)
             await importCloudSQLiteIfPresent(reason: .boot)
             await paintFromWarehouse(light: true, adoptFacts: true)
         }
@@ -207,12 +207,12 @@ final class HeartbeatStore: ObservableObject {
             return PulseLaunch.seatLoadQuip(at: importProgress.loaded)
         }
         if needsRolePick {
-            return importProgress.label ?? PulseLaunch.BootPhase.readingPack.label
+            return PulseLaunch.displayLoadStatus(importProgress.label, tick: importProgress.loaded)
         }
         if let pending = pendingLaunchFilters, pending.isActive, warehouseHydrating {
             return "Opening \(pending.summary)"
         }
-        return importProgress.label ?? PulseLaunch.BootPhase.paintingAisle.label
+        return PulseLaunch.displayLoadStatus(importProgress.label, tick: importProgress.loaded)
     }
 
     var shareReady: Bool {
@@ -449,7 +449,7 @@ final class HeartbeatStore: ObservableObject {
         isReady = false
         isImporting = true
         warehouseHydrating = false
-        importProgress.label = "Loading the data"
+        importProgress.label = PulseLaunch.comedyLoadStatus(at: 1)
         Task { await boot() }
     }
 
@@ -861,6 +861,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func fillExpandTablesSoon() {
+        guard PulseLaunch.shouldPrefillExpandTables(filtersActive: filters.isActive) else { return }
         let grain = effectiveDashboardGrain
         var latest = filteredLatest.isEmpty ? latestBySection : filteredLatest
         if let lost = latest[.lostRevenue] {
@@ -2320,15 +2321,15 @@ final class HeartbeatStore: ObservableObject {
     private func pullWorkbookFromServer() async {
         guard HubLayout.ingestsWorkbook else { return }
         isImporting = true
-        importProgress.label = "Downloading workbook"
-        importLabel = "Downloading workbook"
+        importProgress.label = PulseLaunch.comedyLoadStatus(at: 2)
+        importLabel = PulseLaunch.comedyLoadStatus(at: 2)
         var lastError: String?
         for name in PulseCloud.workbookNames {
             do {
-                importProgress.label = "Downloading \(name)"
+                importProgress.label = PulseLaunch.comedyLoadStatus(at: 2)
                 let book = try await PulseCloud.downloadNamed(name)
                 guard book.count > 1_000 else { continue }
-                importProgress.label = "Reading workbook"
+                importProgress.label = PulseLaunch.comedyLoadStatus(at: 5)
                 let ok = await runMasterImport(
                     data: book,
                     filename: name,
@@ -2449,13 +2450,13 @@ final class HeartbeatStore: ObservableObject {
         guard remoteXlsx > 1_000 else { return }
         isImporting = true
         isReady = false
-        importLabel = "Building today's pack"
-        importProgress.label = "Building today's pack"
+        importLabel = PulseLaunch.comedyLoadStatus(at: 4)
+        importProgress.label = PulseLaunch.comedyLoadStatus(at: 4)
         importProgress.loaded = 0
         importProgress.expected = MetricSection.uploadOrder.count
         do {
             let book = try await PulseCloud.downloadNamed(remoteName)
-            importProgress.label = "Reading workbook"
+            importProgress.label = PulseLaunch.comedyLoadStatus(at: 5)
             let ok = await runMasterImport(
                 data: book,
                 filename: remoteName,
@@ -3122,7 +3123,9 @@ final class HeartbeatStore: ObservableObject {
     /// Rebuild every section card + expand from the seat slice. Never chrome labels.
     private func applySeatSliceNow() {
         guard filters.isActive else { return }
-        refreshFilterOptions()
+        if PulseLaunch.shouldRefreshFilterOptionsOnSeatSlice() {
+            refreshFilterOptions()
+        }
         let allowed = PulseCaches.allowedStores(roster: roster, filters: filters)
         let grain = effectiveDashboardGrain
         var latest: [MetricSection: [MetricRow]] = [:]
@@ -3148,7 +3151,9 @@ final class HeartbeatStore: ObservableObject {
             }
             return card
         }
-        cachedCardFlags = PulseCaches.cardFlags(latest: latest)
+        if PulseLaunch.shouldBuildCardFlagsOnSeatSlice() {
+            cachedCardFlags = PulseCaches.cardFlags(latest: latest)
+        }
         if PulseLaunch.shouldBuildGrainTablesOnSeatSlice() {
             let seatStores: [(number: String, name: String?)] = {
                 if let allowed {
@@ -3180,7 +3185,9 @@ final class HeartbeatStore: ObservableObject {
             )
             refreshSalesExpandCache()
         }
-        lockPickerDashboard()
+        if PulseLaunch.shouldLockPickerDashboardOnSeatSlice() {
+            lockPickerDashboard()
+        }
     }
 
     /// Drop company-wide region tables so Share / expand cannot emit East/South/CA/West under a district filter.
@@ -3370,6 +3377,7 @@ final class HeartbeatStore: ObservableObject {
 
     /// Full grain expand after cards, at utility, and only once the hub is in use.
     private func scheduleGrainPaint(generation: Int? = nil) {
+        guard PulseLaunch.shouldScheduleLiveGrainPaint(filtersActive: filters.isActive) else { return }
         grainPaintTask?.cancel()
         let token = generation ?? paintGeneration
         grainPaintTask = Task(priority: .background) {
@@ -4013,7 +4021,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func loadPublishedFacts() async {
-        importProgress.label = "Loading store facts"
+        importProgress.label = PulseLaunch.comedyLoadStatus(at: 2)
         let incoming: [MetricRow] = await Task.detached(priority: .background) {
             await PulseFacts.loadRows()
         }.value

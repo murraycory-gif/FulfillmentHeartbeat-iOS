@@ -276,6 +276,21 @@ enum PulseLaunch {
     /// `applySeatSliceNow` paints card chrome only. Grain tables fill off-main.
     static func shouldBuildGrainTablesOnSeatSlice() -> Bool { false }
 
+    /// Flag grids walk every section on the Continue turn. Skip — paint fills later.
+    static func shouldBuildCardFlagsOnSeatSlice() -> Bool { false }
+
+    /// `lockPickerDashboard` builds the expand table on main. Seat readStores locks after.
+    static func shouldLockPickerDashboardOnSeatSlice() -> Bool { false }
+
+    /// Roster option rebuild is not Continue-turn work.
+    static func shouldRefreshFilterOptionsOnSeatSlice() -> Bool { false }
+
+    /// Full `paintFromWarehouse(light: false)` under a seat fights the first scroll.
+    static func shouldScheduleLiveGrainPaint(filtersActive: Bool) -> Bool { !filtersActive }
+
+    /// 12-section expand prefill while they drag the District dashboard.
+    static func shouldPrefillExpandTables(filtersActive: Bool) -> Bool { !filtersActive }
+
     /// LazyVStack card appear must not start 12 expand jobs while scrolling.
     static func shouldPrefetchExpandOnAppear() -> Bool { false }
 
@@ -768,12 +783,25 @@ enum PulseLaunch {
 
     static let blandBootPhrases = [
         "building store tables",
+        "building today's pack",
+        "building todays pack",
         "opening the floor",
         "reading dashboard chrome",
         "reading the store pack",
+        "reading workbook",
+        "reading master",
+        "reading pre-sub",
+        "reading sales",
+        "reading loss",
         "setting the aisle",
         "choosing a seat",
-        "setting the floor"
+        "setting the floor",
+        "looking for a cloud pack",
+        "loading the data",
+        "loading store facts",
+        "downloading workbook",
+        "downloading ",
+        "scorecards loaded"
     ]
 
     static func isBlandBootStatus(_ text: String) -> Bool {
@@ -783,6 +811,19 @@ enum PulseLaunch {
 
     static func bootPhaseComedy(_ phase: BootPhase) -> String {
         seatLoadQuip(at: max(phase.rawValue - 1, 0))
+    }
+
+    /// Every load-status line the user can see. Bland copy becomes a grocery quip.
+    static func displayLoadStatus(_ raw: String?, tick: Int = 0) -> String {
+        let text = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if text.isEmpty || isBlandBootStatus(text) {
+            return seatLoadQuip(at: tick)
+        }
+        return text
+    }
+
+    static func comedyLoadStatus(at tick: Int) -> String {
+        seatLoadQuip(at: tick)
     }
 
     /// Neighbor scorecards stay blank. Hydrating them makes filterStamp rebuild two extra full tables.
@@ -876,8 +917,8 @@ enum PulseLaunch {
     /// Excel facts adopt after the aisle can scroll — not on the wave-2 paint the user is dragging through.
     static func shouldAdoptFactsDuringInteractivePaint() -> Bool { false }
 
-    /// Light filter paint still needs flag tiles so callout boxes are not empty headers.
-    static func shouldIncludeFlagsOnFilterPaint() -> Bool { true }
+    /// Flag grids on the post-Continue paint compete with the first District scroll.
+    static func shouldIncludeFlagsOnFilterPaint() -> Bool { false }
 
     /// PPH patch walks shoppers. Skip when the filtered week already has a Pure PPH.
     static func shouldPatchPPHOnPaint(hasFilteredPPH: Bool) -> Bool { !hasFilteredPPH }
