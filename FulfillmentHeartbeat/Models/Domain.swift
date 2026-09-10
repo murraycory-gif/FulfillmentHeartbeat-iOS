@@ -813,7 +813,7 @@ enum HeartbeatMath {
             return (
                 [
                     HeartbeatFormat.pct(average(rows.compactMap { $0.number("compliance_pct") })),
-                    HeartbeatFormat.num(average(rows.compactMap { $0.number("pph") }), digits: 1),
+                    HeartbeatFormat.num(average(rows.compactMap(pphNumber)), digits: 1),
                 ],
                 health
             )
@@ -830,7 +830,7 @@ enum HeartbeatMath {
             return (
                 [
                     HeartbeatFormat.num(average(rows.compactMap { $0.number("dynacap_rate", "pieces_per_hour") }), digits: 1),
-                    HeartbeatFormat.num(average(rows.compactMap { $0.number("pph") }), digits: 1),
+                    HeartbeatFormat.num(weekPurePPH(rows), digits: 1),
                     HeartbeatFormat.pct(average(rows.compactMap { $0.number("utilization_pct", "pickup_util_pct") })),
                 ],
                 health
@@ -846,12 +846,13 @@ enum HeartbeatMath {
                 health
             )
         case .pph:
-            let pph = average(rows.compactMap { $0.number("pph") ?? $0.number("pure_pph") })
+            let pph = weekPurePPH(rows)
+            let stores = latestPerStore(rows.filter { !isIgnoredStore($0.storeNumber) && !$0.storeNumber.isEmpty })
             return (
                 [
                     HeartbeatFormat.num(pph, digits: 1),
-                    HeartbeatFormat.num(Double(rows.filter { ($0.number("pph") ?? $0.number("pure_pph") ?? 0) >= pphGoal }.count)),
-                    HeartbeatFormat.num(Double(rows.filter { ($0.number("pph") ?? $0.number("pure_pph") ?? .greatestFiniteMagnitude) < pphRisk }.count)),
+                    HeartbeatFormat.num(Double(stores.filter { (pphNumber($0) ?? 0) >= pphGoal }.count)),
+                    HeartbeatFormat.num(Double(stores.filter { (pphNumber($0) ?? .greatestFiniteMagnitude) < pphRisk }.count)),
                 ],
                 health
             )
@@ -1142,7 +1143,7 @@ enum HeartbeatMath {
         case .scheduleQuality:
             return HeartbeatFormat.pct(average(rows.compactMap { $0.number("schedule_efficiency_pct") }))
         case .pph:
-            return HeartbeatFormat.num(average(rows.compactMap { $0.number("pph") ?? $0.number("pure_pph") }), digits: 1)
+            return HeartbeatFormat.num(weekPurePPH(rows), digits: 1)
         case .labor:
             return HeartbeatFormat.pct(average(rows.compactMap { $0.number("target_vs_actual_pct") }))
         case .pickerScorecard:
@@ -1764,20 +1765,64 @@ enum HeartbeatMath {
         return materializeDistrictMetric(rows, roster: roster).filter(hasRate)
     }
 
+    static func pphNumber(_ row: MetricRow) -> Double? {
+        row.number("pph") ?? row.number("pure_pph")
+    }
+
+    /// Week Pure PPH (Total) for the stores in `rows`. Multiple DATE rows collapse
+    /// with `latestPerStore` (same as the PPH sheet's Total column). Empty store
+    /// rows are grain totals. Shopper rows only fill when the PPH book is empty.
+    static func weekPurePPH(_ rows: [MetricRow], pickers: [MetricRow] = []) -> Double? {
+        let stores = latestPerStore(rows.filter { !isIgnoredStore($0.storeNumber) && !$0.storeNumber.isEmpty })
+        if let avg = average(stores.compactMap(pphNumber)) { return avg }
+        let grainTotals = rows.filter { canonicalStore($0.storeNumber).isEmpty }
+        if let avg = average(grainTotals.compactMap(pphNumber)) { return avg }
+        let lookup = storePPHLookup(pickers)
+        if lookup.isEmpty { return nil }
+        return average(Array(lookup.values))
+    }
+
+    /// One week Pure PPH (Total) row per store. Picker Total Pure PPH fills only
+    /// when the PPH sheet did not score those stores.
+    static func materializePPH(
+        _ rows: [MetricRow],
+        roster: [String: StoreIdentity],
+        pickers: [MetricRow] = []
+    ) -> [MetricRow] {
+        let perStore = applyRoster(
+            latestPerStore(rows.filter { !canonicalStore($0.storeNumber).isEmpty }),
+            roster: roster
+        ).filter { pphNumber($0) != nil }
+        if !perStore.isEmpty { return perStore }
+        let map = storePPHLookup(pickers)
+        guard !map.isEmpty else { return [] }
+        return map.keys.sorted().compactMap { store in
+            guard let pph = map[store] else { return nil }
+            let identity = roster[store]
+            var text: [String: String] = [:]
+            if let district = identity?.district, !district.isEmpty {
+                text["district"] = district
+            }
+            return MetricRow(
+                section: .pph,
+                division: identity?.division ?? "",
+                operationsOM: identity?.om ?? "",
+                storeNumber: store,
+                storeName: identity?.name,
+                payload: ["pph": pph],
+                textPayload: text
+            )
+        }
+    }
+
     /// Dynacap sheets carry pieces/hr + utilization. Store PPH lives on the PPH (or picker) scorecard.
     static func storePPHLookup(_ rows: [MetricRow]) -> [String: Double] {
-        var sums: [String: (total: Double, count: Int)] = [:]
-        sums.reserveCapacity(min(rows.count, 2_200))
-        for row in rows {
-            let store = canonicalStore(row.storeNumber)
-            guard !store.isEmpty, let pph = row.number("pph") ?? row.number("pure_pph") else { continue }
-            let cur = sums[store] ?? (0, 0)
-            sums[store] = (cur.total + pph, cur.count + 1)
-        }
         var out: [String: Double] = [:]
-        out.reserveCapacity(sums.count)
-        for (store, pair) in sums where pair.count > 0 {
-            out[store] = pair.total / Double(pair.count)
+        out.reserveCapacity(min(rows.count, 2_200))
+        for row in latestPerStore(rows) {
+            let store = canonicalStore(row.storeNumber)
+            guard !store.isEmpty, let pph = pphNumber(row) else { continue }
+            out[store] = pph
         }
         return out
     }
@@ -1799,7 +1844,7 @@ enum HeartbeatMath {
             for alias in storeAliases(store) { aliased[alias] = aliased[alias] ?? pph }
         }
         return rows.map { row in
-            if row.number("pph") != nil || row.number("pure_pph") != nil { return row }
+            if pphNumber(row) != nil { return row }
             let store = canonicalStore(row.storeNumber)
             var pph = aliased[store]
             if pph == nil {
@@ -2088,18 +2133,19 @@ enum HeartbeatMath {
                 overScheduledCount: overRisk
             )
         case .pph:
-            let headline = average(latest.compactMap { $0.number("pph") })
-            let atGoal = latest.filter { ($0.number("pph") ?? 0) >= pphGoal }.count
-            let atRisk = latest.filter { ($0.number("pph") ?? .greatestFiniteMagnitude) < pphRisk }.count
+            let scored = latest.filter { pphNumber($0) != nil }
+            let headline = weekPurePPH(latest)
+            let atGoal = scored.filter { (pphNumber($0) ?? 0) >= pphGoal }.count
+            let atRisk = scored.filter { (pphNumber($0) ?? .greatestFiniteMagnitude) < pphRisk }.count
             return SectionSummary(
                 section: section,
-                storeCount: latest.count,
+                storeCount: scored.count,
                 headline: headline,
-                headlineLabel: "Avg pure PPH",
-                secondary: latest.isEmpty
+                headlineLabel: "Week Pure PPH",
+                secondary: scored.isEmpty
                     ? "No stores in view"
-                    : "\(atGoal) of \(latest.count) at 80 · \(atRisk) below 74",
-                health: latest.isEmpty ? .none : band(headline, good: pphGoal, watch: pphRisk),
+                    : "\(atGoal) of \(scored.count) at 80 · \(atRisk) below 74",
+                health: headline == nil ? .none : band(headline, good: pphGoal, watch: pphRisk),
                 watchCount: watch,
                 riskCount: risk,
                 lastFilename: upload?.filename,
@@ -2704,21 +2750,20 @@ enum HeartbeatMath {
     }
 
     static func pphDashboardFlags(_ rows: [MetricRow], pickers: [MetricRow] = []) -> [FiveStarFlag] {
-        let stores = rows.filter { !isIgnoredStore($0.storeNumber) && !$0.storeNumber.isEmpty }
-        let scored = stores.filter { $0.number("pph") ?? $0.number("pure_pph") != nil }
-        let shoppers = pickers.filter { ($0.number("pph") ?? $0.number("pure_pph")) != nil }
-        let source = scored.isEmpty ? shoppers : scored
-        let pph = average(source.compactMap { $0.number("pph") ?? $0.number("pure_pph") })
-        let healthy = stores.filter { health(for: .pph, row: $0) == .good }.count
-        let watch = stores.filter { health(for: .pph, row: $0) == .watch }.count
-        let risk = stores.filter { health(for: .pph, row: $0) == .risk }.count
+        let stores = latestPerStore(rows.filter { !isIgnoredStore($0.storeNumber) && !$0.storeNumber.isEmpty })
+        let scored = stores.filter { pphNumber($0) != nil }
+        let pph = weekPurePPH(rows, pickers: pickers)
+        let sourceCount = scored.isEmpty ? storePPHLookup(pickers).count : scored.count
+        let healthy = scored.filter { health(for: .pph, row: $0) == .good }.count
+        let watch = scored.filter { health(for: .pph, row: $0) == .watch }.count
+        let risk = scored.filter { health(for: .pph, row: $0) == .risk }.count
         var flags: [FiveStarFlag] = [
             FiveStarFlag(
                 name: "PPH",
                 value: HeartbeatFormat.num(pph, digits: 1),
                 health: band(pph, good: pphGoal, watch: pphRisk),
-                stores: source.count,
-                unit: scored.isEmpty && !shoppers.isEmpty ? "shoppers" : "stores"
+                stores: sourceCount,
+                unit: "stores"
             )
         ]
         flags += bandFlags(healthy: healthy, watch: watch, risk: risk)
@@ -2729,15 +2774,13 @@ enum HeartbeatMath {
         let stores = rows.filter { !isIgnoredStore($0.storeNumber) && !$0.storeNumber.isEmpty }
         let scoped = stores.isEmpty ? rows : stores
         let pieces = average(scoped.compactMap { $0.number("dynacap_rate", "pieces_per_hour") })
-        var pph = average(scoped.compactMap { $0.number("pph") ?? $0.number("pure_pph") })
-        var pphStores = scoped.filter { $0.number("pph") ?? $0.number("pure_pph") != nil }
+        var pph = weekPurePPH(scoped)
+        var pphStores = latestPerStore(scoped.filter { pphNumber($0) != nil })
         if pph == nil || pphStores.isEmpty {
-            let book = bookPPH.filter {
-                !isIgnoredStore($0.storeNumber)
-                    && ($0.number("pph") ?? $0.number("pure_pph")) != nil
-            }
-            pph = average(book.compactMap { $0.number("pph") ?? $0.number("pure_pph") })
-            pphStores = book
+            pph = weekPurePPH(bookPPH)
+            pphStores = latestPerStore(bookPPH.filter {
+                !isIgnoredStore($0.storeNumber) && pphNumber($0) != nil
+            })
         }
         let util = average(scoped.compactMap { $0.number("utilization_pct", "pickup_util_pct") })
         return [
@@ -2751,7 +2794,7 @@ enum HeartbeatMath {
                 name: "Store PPH",
                 value: HeartbeatFormat.num(pph, digits: 1),
                 health: band(pph, good: pphGoal, watch: pphRisk),
-                stores: pphStores.filter { band($0.number("pph") ?? $0.number("pure_pph"), good: pphGoal, watch: pphRisk) == .risk }.count
+                stores: pphStores.filter { band(pphNumber($0), good: pphGoal, watch: pphRisk) == .risk }.count
             ),
             FiveStarFlag(
                 name: "Utilization",
@@ -2799,7 +2842,7 @@ enum HeartbeatMath {
         let stores = rows.filter { !isIgnoredStore($0.storeNumber) && !$0.storeNumber.isEmpty }
         let scoped = stores.isEmpty ? rows : stores
         let path = average(scoped.compactMap { $0.number("compliance_pct") })
-        let pph = average(scoped.compactMap { $0.number("pph") })
+        let pph = average(scoped.compactMap(pphNumber))
         return [
             FiveStarFlag(
                 name: "Pick Path",
@@ -2937,7 +2980,7 @@ enum HeartbeatMath {
     }
 
     static func pphHealth(_ row: MetricRow) -> Health {
-        band(row.number("pph"), good: pphGoal, watch: pphRisk)
+        band(pphNumber(row), good: pphGoal, watch: pphRisk)
     }
 
     static func laborRollup(_ rows: [MetricRow], key: String) -> Double? {

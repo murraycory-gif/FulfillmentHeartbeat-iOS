@@ -197,7 +197,7 @@ enum CoachTour: Equatable {
                 CoachStep(
                     icon: "speedometer",
                     heading: "Callouts",
-                    body: "Avg pure PPH, goal 80, stores at goal, and stores below 74 (at risk). Tap to filter."
+                    body: "Week Pure PPH, goal 80, stores at goal, and stores below 74 (at risk). Tap to filter."
                 ),
                 CoachStep(
                     icon: "person.2.fill",

@@ -447,6 +447,82 @@ final class HeartbeatMathTests: XCTestCase {
         let missed = HeartbeatMath.dynacapActionFlags([dyn], bookPPH: stores)
         XCTAssertEqual(missed.first { $0.name == "Store PPH" }?.value, "75.5")
         XCTAssertNotEqual(missed.first { $0.name == "Store PPH" }?.value, "—")
+
+        let pureOnly = [
+            MetricRow(section: .pph, division: "Jewel Osco", operationsOM: "A", storeNumber: "1", payload: ["pure_pph": 82]),
+            MetricRow(section: .pph, division: "Jewel Osco", operationsOM: "A", storeNumber: "2", payload: ["pure_pph": 70]),
+        ]
+        XCTAssertEqual(HeartbeatMath.weekPurePPH(pureOnly), 76)
+        let summary = HeartbeatMath.summarize(.pph, rows: pureOnly, upload: nil)
+        XCTAssertEqual(summary.headline, 76)
+        XCTAssertEqual(summary.headlineText, "76.0")
+        XCTAssertNotEqual(summary.headlineText, "—")
+
+        let older = MetricRow(section: .pph, division: "Jewel Osco", operationsOM: "A", storeNumber: "1", recordedOn: "2026-09-06", payload: ["pph": 50])
+        let weekTotal = MetricRow(section: .pph, division: "Jewel Osco", operationsOM: "A", storeNumber: "1", recordedOn: "2026-09-08", payload: ["pph": 88.4])
+        XCTAssertEqual(HeartbeatMath.weekPurePPH([older, weekTotal]), 88.4)
+
+        let pickers = [
+            MetricRow(section: .pickerScorecard, division: "Jewel Osco", operationsOM: "A", storeNumber: "10", payload: ["pph": 90], textPayload: ["shopper_id": "A"]),
+            MetricRow(section: .pickerScorecard, division: "Jewel Osco", operationsOM: "A", storeNumber: "11", payload: ["pph": 70], textPayload: ["shopper_id": "B"]),
+        ]
+        XCTAssertEqual(HeartbeatMath.weekPurePPH([], pickers: pickers), 80)
+        let pickerFlags = HeartbeatMath.pphDashboardFlags([], pickers: pickers)
+        XCTAssertEqual(pickerFlags.first?.name, "PPH")
+        XCTAssertEqual(pickerFlags.first?.value, "80.0")
+        XCTAssertNotEqual(pickerFlags.first?.value, "—")
+
+        let east = [
+            MetricRow(section: .pph, division: "Jewel Osco", operationsOM: "A", storeNumber: "1", payload: ["pph": 64]),
+            MetricRow(section: .pph, division: "Jewel Osco", operationsOM: "A", storeNumber: "2", payload: ["pph": 72]),
+        ]
+        let west = [
+            MetricRow(section: .pph, division: "Haggen", operationsOM: "B", storeNumber: "3427", payload: ["pph": 90]),
+        ]
+        XCTAssertEqual(HeartbeatMath.weekPurePPH(east + west)!, (64 + 72 + 90) / 3.0, accuracy: 0.01)
+        XCTAssertEqual(HeartbeatMath.weekPurePPH(east), 68)
+        XCTAssertEqual(HeartbeatMath.pphDashboardFlags(east).first?.value, "68.0")
+        XCTAssertEqual(HeartbeatMath.pphDashboardFlags(west).first?.value, "90.0")
+
+        let material = HeartbeatMath.materializePPH(
+            [],
+            roster: ["10": HeartbeatMath.StoreIdentity(division: "Jewel Osco", district: "J1", om: "A", name: nil)],
+            pickers: pickers
+        )
+        XCTAssertEqual(Set(material.map(\.storeNumber)), Set(["10", "11"]))
+        XCTAssertEqual(HeartbeatMath.weekPurePPH(material), 80)
+
+        let card = PulseCaches.cardFlags(latest: [.pph: stores])
+        XCTAssertEqual(card[.pph]?.first?.name, "PPH")
+        XCTAssertEqual(card[.pph]?.first?.value, "75.5")
+        let light = PulseQuery.paint(
+            warehouse: [.pph: stores],
+            roster: [:],
+            filters: DashboardFilters(),
+            grain: .region,
+            uploads: [],
+            hidePicker: true,
+            light: true
+        )
+        XCTAssertTrue(light.flags.isEmpty)
+        XCTAssertEqual(light.summaries.first { $0.section == .pph }?.headlineText, "75.5")
+        XCTAssertEqual(light.summaries.first { $0.section == .pph }?.headlineLabel, "Week Pure PPH")
+        let jewelOnly = PulseQuery.paint(
+            warehouse: [.pph: east + west],
+            roster: [
+                "1": HeartbeatMath.StoreIdentity(division: "Jewel Osco", district: "J1", om: "A", name: nil),
+                "2": HeartbeatMath.StoreIdentity(division: "Jewel Osco", district: "J1", om: "A", name: nil),
+                "3427": HeartbeatMath.StoreIdentity(division: "Haggen", district: "39", om: "B", name: nil),
+            ],
+            filters: DashboardFilters(division: "Jewel Osco"),
+            grain: .division,
+            uploads: [],
+            hidePicker: true,
+            light: false
+        )
+        XCTAssertEqual(jewelOnly.summaries.first { $0.section == .pph }?.headlineText, "68.0")
+        XCTAssertEqual(jewelOnly.flags[.pph]?.first?.value, "68.0")
+        XCTAssertEqual(jewelOnly.flags[.pph]?.first?.name, "PPH")
     }
 
     func testLatestPerStoreKeepsNewestDate() {

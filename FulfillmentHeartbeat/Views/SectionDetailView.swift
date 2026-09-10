@@ -612,9 +612,9 @@ struct SectionDetailView: View {
     @ViewBuilder
     private var pphStatusTiles: some View {
         let rows = snapshots
-        let atGoal = rows.filter { ($0.number("pph") ?? 0) >= HeartbeatMath.pphGoal }.count
-        let atRisk = rows.filter { ($0.number("pph") ?? .greatestFiniteMagnitude) < HeartbeatMath.pphRisk }.count
-        callout("Avg pure PPH", summary.headlineText, "Goal 80 · watch under 74", summary.health, selected: pphFocus == .all) {
+        let atGoal = rows.filter { (HeartbeatMath.pphNumber($0) ?? 0) >= HeartbeatMath.pphGoal }.count
+        let atRisk = rows.filter { (HeartbeatMath.pphNumber($0) ?? .greatestFiniteMagnitude) < HeartbeatMath.pphRisk }.count
+        callout("Week Pure PPH", summary.headlineText, "Goal 80 · watch under 74", summary.health, selected: pphFocus == .all) {
             pphFocus = .all
         }
         callout("Goal", "80.0", "Target pure PPH", .none, brand: true)

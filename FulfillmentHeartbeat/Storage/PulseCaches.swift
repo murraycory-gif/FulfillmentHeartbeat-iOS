@@ -143,7 +143,13 @@ struct PulseCaches {
                 latest[section] = HeartbeatMath.applyRoster(sectionRows, roster: roster)
             } else if section == .storeRoster {
                 latest[section] = HeartbeatMath.latestPerStore(sectionRows)
-            } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady || section == .pph || section == .lostRevenue || section == .missingItems || section == .preSubOOS || section == .sales {
+            } else if section == .pph {
+                latest[section] = HeartbeatMath.materializePPH(
+                    sectionRows,
+                    roster: roster,
+                    pickers: bySection[.pickerScorecard] ?? []
+                )
+            } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady || section == .lostRevenue || section == .missingItems || section == .preSubOOS || section == .sales {
                 let source = section == .lostRevenue
                     ? sectionRows.filter { $0.textPayload["lost_grain"] != "market" }
                     : sectionRows
@@ -240,7 +246,7 @@ struct PulseCaches {
         var pphByStore: [String: Double] = [:]
         for row in nextLatest[.pph] ?? [] {
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
-            if let value = row.number("pph") { pphByStore[store] = value }
+            if let value = HeartbeatMath.pphNumber(row) { pphByStore[store] = value }
         }
         var pathByStore: [String: Double] = [:]
         for row in nextLatest[.pickPath] ?? [] {

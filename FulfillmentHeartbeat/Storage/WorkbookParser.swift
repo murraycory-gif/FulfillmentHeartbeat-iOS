@@ -681,8 +681,10 @@ enum WorkbookParser {
         case .pickerScorecard: return parsePickerWide(matrix) ?? parseEmployeeWeek(matrix)
         case .pickPathPicker: return parseEmployeeWeek(matrix) ?? parsePickerWide(matrix)
         case .pickPath: return parseStoreWeek(matrix) ?? parseOutline(matrix)
-        case .fiveStar, .pph, .dynacap, .scheduleQuality:
+        case .fiveStar, .dynacap, .scheduleQuality:
             return parseStoreWeek(matrix) ?? parseOutline(matrix) ?? parseFlat(matrix)
+        case .pph:
+            return parseOutline(matrix) ?? parseStoreWeek(matrix) ?? parseFlat(matrix)
         default:
             return nil
         }

@@ -8302,7 +8302,7 @@ struct PPHTable: View {
                 EmptyHint(
                     symbol: "speedometer",
                     title: "No stores in this view",
-                    detail: "Tap Avg pure PPH to see every store, or pick another callout."
+                    detail: "Tap Week Pure PPH to see every store, or pick another callout."
                 )
                 .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 20, trailing: 20))
                 .listRowSeparator(.hidden)

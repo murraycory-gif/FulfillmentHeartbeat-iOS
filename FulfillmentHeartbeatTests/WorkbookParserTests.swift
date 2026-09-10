@@ -280,6 +280,13 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertEqual(store1.payload["pph"] ?? 0, 67.3344365031863, accuracy: 0.001)
         XCTAssertFalse(rows.contains { $0.storeNumber.lowercased() == "total" })
         XCTAssertEqual(rows.filter { $0.storeNumber == "4262" }.count, 1)
+        let metric = rows.map { $0.asRow(section: .pph) }
+        XCTAssertNotNil(HeartbeatMath.weekPurePPH(metric))
+        XCTAssertNotEqual(HeartbeatMath.summarize(.pph, rows: metric, upload: nil).headlineText, "—")
+        let jewel = metric.filter { $0.division == "Jewel Osco" }
+        XCTAssertEqual(HeartbeatMath.weekPurePPH(jewel), 67.3344365031863, accuracy: 0.001)
+        XCTAssertEqual(HeartbeatMath.pphDashboardFlags(jewel).first?.value, "67.3")
+        XCTAssertEqual(HeartbeatMath.pphDashboardFlags(jewel).first?.name, "PPH")
     }
 
     func testPickerScorecardUsesTotalColumnsAndSkipsStoreTotals() throws {

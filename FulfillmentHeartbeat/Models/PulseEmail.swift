@@ -655,7 +655,7 @@ enum PulseMail {
             let atGoal = scored.filter { ($0.number("pph") ?? 0) >= HeartbeatMath.pphGoal }.count
             let atRisk = scored.filter { ($0.number("pph") ?? .greatestFiniteMagnitude) < HeartbeatMath.pphRisk }.count
             items = [
-                tile("Avg pure PPH", summary?.headlineText ?? "—", "Goal 80 · watch under 74", summary?.health ?? .none),
+                tile("Week Pure PPH", summary?.headlineText ?? "—", "Goal 80 · watch under 74", summary?.health ?? .none),
                 tile("Goal", "80.0", "Target pure PPH", .none, brand: true),
                 tile("At goal", HeartbeatFormat.num(Double(atGoal)), "Stores at 80+", .good),
                 tile("Below 74", HeartbeatFormat.num(Double(atRisk)), "At risk stores", atRisk == 0 ? .good : .risk),

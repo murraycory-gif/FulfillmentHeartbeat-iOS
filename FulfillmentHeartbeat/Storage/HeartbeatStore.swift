@@ -2409,7 +2409,13 @@ final class HeartbeatStore: ObservableObject {
                 latest[section] = HeartbeatMath.applyRoster(sectionRows, roster: roster)
             } else if section == .storeRoster {
                 latest[section] = HeartbeatMath.latestPerStore(sectionRows)
-            } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady || section == .pph || section == .lostRevenue || section == .missingItems || section == .preSubOOS || section == .sales {
+            } else if section == .pph {
+                latest[section] = HeartbeatMath.materializePPH(
+                    sectionRows,
+                    roster: roster,
+                    pickers: latest[.pickerScorecard] ?? rows.filter { $0.section == .pickerScorecard }
+                )
+            } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady || section == .lostRevenue || section == .missingItems || section == .preSubOOS || section == .sales {
                 let source = section == .lostRevenue
                     ? sectionRows.filter { $0.textPayload["lost_grain"] != "market" }
                     : sectionRows
@@ -2660,6 +2666,15 @@ final class HeartbeatStore: ObservableObject {
             let expanded = HeartbeatMath.materializeDynacap(raw, roster: roster)
             if !expanded.isEmpty { warehouse[.dynacap] = expanded }
         }
+        if (warehouse[.pph] ?? []).filter({ HeartbeatMath.pphNumber($0) != nil }).isEmpty {
+            let raw = (latestBySection[.pph] ?? []) + rows.filter { $0.section == .pph }
+            let filled = HeartbeatMath.materializePPH(
+                raw,
+                roster: roster,
+                pickers: latestBySection[.pickerScorecard] ?? []
+            )
+            if !filled.isEmpty { warehouse[.pph] = filled }
+        }
         warehouse = HeartbeatMath.overlayDynacapPPH(warehouse)
         if filters.isActive, let allowed = PulseCaches.allowedStores(roster: roster, filters: filters) {
             let lost = scopedLostRevenue(allowed)
@@ -2754,8 +2769,53 @@ final class HeartbeatStore: ObservableObject {
         if cachedGrainTables.values.allSatisfy(\.isEmpty) {
             fillExpandTablesSoon()
         }
+        patchPPHCallouts()
         hydrating = false
         filterStamp += 1
+    }
+
+    /// Light paint skips flag grids (pack chrome stays). .343 built a PPH chip that
+    /// never replaced that chrome, so the total callout stayed blank. Always write
+    /// the filtered week's Pure PPH onto the PPH card — header and equal tiles.
+    private func patchPPHCallouts() {
+        var rows = filteredLatest[.pph] ?? []
+        let pickers = filteredLatest[.pickerScorecard] ?? latestBySection[.pickerScorecard] ?? []
+        if rows.filter({ HeartbeatMath.pphNumber($0) != nil }).isEmpty {
+            let filled = HeartbeatMath.materializePPH(
+                latestBySection[.pph] ?? [],
+                roster: roster,
+                pickers: pickers
+            )
+            if !filled.isEmpty {
+                if filters.isActive, let allowed = PulseCaches.allowedStores(roster: roster, filters: filters) {
+                    rows = PulseQuery.sliceSection(.pph, rows: filled, allowed: allowed)
+                } else {
+                    rows = filled
+                }
+                filteredLatest[.pph] = rows
+            }
+        }
+        cachedCardFlags[.pph] = HeartbeatMath.pphDashboardFlags(rows, pickers: pickers)
+        if !rows.isEmpty {
+            refreshSummary(for: .pph, rows: rows)
+        }
+        if !rows.isEmpty, var dyn = filteredLatest[.dynacap], !dyn.isEmpty {
+            dyn = HeartbeatMath.overlayStorePPH(dyn, from: rows, pickers: pickers)
+            filteredLatest[.dynacap] = dyn
+            cachedCardFlags[.dynacap] = HeartbeatMath.dashboardActionFlags(
+                section: .dynacap,
+                rows: dyn,
+                pickers: pickers,
+                pphRows: rows
+            )
+        } else if let dyn = filteredLatest[.dynacap], !dyn.isEmpty {
+            cachedCardFlags[.dynacap] = HeartbeatMath.dashboardActionFlags(
+                section: .dynacap,
+                rows: dyn,
+                pickers: pickers,
+                pphRows: rows
+            )
+        }
     }
 
 
@@ -3437,6 +3497,7 @@ final class HeartbeatStore: ObservableObject {
                 includeAll: true
             )
             rebuildPPHPickerIndex(scorecard: sliced)
+            patchPPHCallouts()
         }
         pageOnlyGeneration = paintGeneration
         if stamp {
@@ -3529,6 +3590,8 @@ final class HeartbeatStore: ObservableObject {
                 return collapsed
             case .dynacap:
                 return HeartbeatMath.materializeDynacap(rows, roster: rosterCopy)
+            case .pph:
+                return HeartbeatMath.materializePPH(rows, roster: rosterCopy)
             default:
                 return HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(rows), roster: rosterCopy)
             }
@@ -3589,6 +3652,7 @@ final class HeartbeatStore: ObservableObject {
                 self.cachedCardFlags = flags
                 self.cachedGrainPacks = packs
                 self.cachedGrainTables = tables
+                self.patchPPHCallouts()
             }
         }
         if let labor = filteredLatest[.labor] {
