@@ -247,13 +247,17 @@ struct PulseCaches {
                     stores: allowed,
                     skipMarket: section == .lostRevenue || section == .labor
                 )
-                nextLatest[section] = unionRegionBook(
-                    matched,
-                    from: rows,
-                    filters: filters,
-                    roster: roster,
-                    allowed: allowed
-                )
+                if filters.isActive {
+                    nextLatest[section] = PulseQuery.sliceSection(
+                        section,
+                        rows: rows,
+                        allowed: allowed,
+                        filters: filters,
+                        roster: roster
+                    )
+                } else {
+                    nextLatest[section] = matched
+                }
             }
         } else {
             nextLatest = latest
@@ -322,6 +326,9 @@ struct PulseCaches {
             if summary.storeCount == 0, !market.isEmpty, summary.headline == nil {
                 summary.secondary = "No \(section.short) data for \(market.count) stores in this filter"
                 summary.health = .none
+            }
+            if filters.isActive, let allowed, !allowed.isEmpty {
+                return PulseLaunch.pinSeatStoreCount(summary, seatStores: allowed.count)
             }
             return summary
         }
@@ -726,7 +733,8 @@ struct PulseCaches {
         roster: [String: HeartbeatMath.StoreIdentity],
         allowed: Set<String>
     ) -> [MetricRow] {
-        guard filters.isActive, filters.stores.isEmpty else { return matched }
+        if filters.isActive { return matched }
+        guard filters.stores.isEmpty else { return matched }
         let wantedRegions = Set(filters.regions.compactMap { MarketRegion(rawValue: $0) ?? MarketRegion.named($0) })
         let wantedDistricts = Set(filters.districts.map { HeartbeatMath.canonicalDistrict($0) }.filter { !$0.isEmpty })
         guard !wantedRegions.isEmpty || !wantedDistricts.isEmpty || !filters.divisions.isEmpty else { return matched }

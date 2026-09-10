@@ -1019,7 +1019,8 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(allowed, ["304", "667"])
         let summary = caches.cachedSummaries.first { $0.section == .lostRevenue }
         XCTAssertEqual(summary?.headline ?? 0, 2_510, accuracy: 0.01)
-        XCTAssertEqual(summary?.storeCount, 1)
+        XCTAssertEqual(summary?.storeCount, 2, "seat card storeCount is Heartbeat N, not fact coverage")
+        XCTAssertEqual((caches.filteredLatest[.lostRevenue] ?? []).count, 2)
     }
 
     func testDistrictD3MatchesRoster03() {
@@ -1460,6 +1461,10 @@ final class HeartbeatMathTests: XCTestCase {
         var districtFilter = DashboardFilters()
         districtFilter.district = "03"
         XCTAssertTrue(PulseLaunch.pickerExpandRows(from: chrome, filters: districtFilter).isEmpty)
+        var storeFilter = DashboardFilters()
+        storeFilter.store = "304"
+        XCTAssertTrue(PulseLaunch.grainRowsScopedToFilter([jewel, south], filters: storeFilter).isEmpty)
+        XCTAssertTrue(PulseLaunch.pickerExpandRows(from: chrome, filters: storeFilter).isEmpty)
     }
 
     func testSeatFilterKeepsStoreCountsAcrossEverySection() {
@@ -1506,10 +1511,10 @@ final class HeartbeatMathTests: XCTestCase {
         warehouse[.labor] = allStores.map {
             row(.labor, $0, payload: ["target_vs_actual_pct": -1], extra: ["labor_grain": "store"])
         }
-        warehouse[.pickPath] = allStores.map {
+        warehouse[.pickPath] = (Array(districtStores.dropLast(1)) + otherStores).map {
             row(.pickPath, $0, payload: ["compliance_pct": 92])
         }
-        warehouse[.scheduleQuality] = allStores.map {
+        warehouse[.scheduleQuality] = (Array(districtStores.dropLast(2)) + otherStores).map {
             row(.scheduleQuality, $0, payload: ["schedule_efficiency_pct": 91])
         }
         warehouse[.missingItems] = allStores.map {
@@ -1722,11 +1727,103 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(PulseLaunch.shouldRemountPageOnDestinationChange())
         XCTAssertFalse(PulseLaunch.shouldStampHubWhenExpandCacheFills())
         XCTAssertFalse(PulseLaunch.shouldStreamPickerOnDashboard())
+        XCTAssertFalse(PulseLaunch.shouldStampHubOnWarehousePaint())
         XCTAssertEqual(
             HeartbeatMath.dashboardExpandCellHealth(
                 section: .labor, header: "Cost Tgt", text: "12.00%", rowHealth: .risk
             ),
             .none
+        )
+    }
+
+    func testUnionRegionBookIsBannedUnderSeatAndClearDropsSeatGrain() {
+        var district = DashboardFilters()
+        district.district = "03"
+        let kept = MetricRow(
+            section: .scheduleQuality,
+            storeNumber: "304",
+            payload: ["schedule_efficiency_pct": 90],
+            textPayload: ["district": "03"]
+        )
+        let extra = MetricRow(
+            section: .scheduleQuality,
+            division: "NorCal",
+            storeNumber: "9999",
+            payload: ["schedule_efficiency_pct": 40],
+            textPayload: ["district": "03"]
+        )
+        let merged = PulseCaches.unionRegionBook(
+            [kept],
+            from: [kept, extra],
+            filters: district,
+            roster: [:],
+            allowed: ["304"]
+        )
+        XCTAssertEqual(merged.map(\.storeNumber), ["304"])
+        let seat = HeartbeatMath.DashboardGrainTableRow(
+            label: "304 | NorCal",
+            storeCount: 1,
+            values: ["90.0%"],
+            health: .good
+        )
+        let regions = MarketRegion.allCases.map {
+            HeartbeatMath.DashboardGrainTableRow(
+                label: $0.rawValue,
+                storeCount: 400,
+                values: ["400"],
+                health: .watch
+            )
+        }
+        let afterWipe = PulseLaunch.mergeLiveGrainTables(
+            incoming: [.scheduleQuality: regions],
+            live: [:],
+            grain: .region,
+            filtersActive: false
+        )
+        XCTAssertEqual(afterWipe[.scheduleQuality]?.map(\.label), MarketRegion.allCases.map(\.rawValue))
+        let leaked = PulseLaunch.mergeLiveGrainTables(
+            incoming: [.scheduleQuality: regions],
+            live: [.scheduleQuality: [seat]],
+            grain: .region,
+            filtersActive: false
+        )
+        XCTAssertTrue(
+            HeartbeatMath.grainRowsAreLive(leaked[.scheduleQuality] ?? []),
+            "incoming region book wins when present"
+        )
+        XCTAssertFalse(PulseLaunch.grainMatchesSeat([seat], filters: DashboardFilters(), grain: .region))
+        XCTAssertFalse(PulseLaunch.shouldStampHubOnWarehousePaint())
+        XCTAssertFalse(PulseLaunch.shouldStampHubWhenExpandCacheFills())
+        XCTAssertFalse(PulseLaunch.shouldMountHubUnderRoleGate())
+        XCTAssertFalse(PulseLaunch.shouldUsePagingScroll())
+        XCTAssertFalse(PulseLaunch.shouldRemountPageOnDestinationChange())
+        let padded = PulseQuery.padSeatStores(
+            [kept],
+            allowed: ["304", "667"],
+            roster: [
+                "304": .init(division: "NorCal", district: "03", om: "Jino", name: nil),
+                "667": .init(division: "NorCal", district: "03", om: "Jino", name: nil),
+            ],
+            section: .scheduleQuality
+        )
+        XCTAssertEqual(PulseLaunch.uniqueStores(in: padded), ["304", "667"])
+        XCTAssertEqual(
+            PulseLaunch.pinSeatStoreCount(
+                SectionSummary(
+                    section: .scheduleQuality,
+                    storeCount: 1,
+                    headline: 90,
+                    headlineLabel: "Avg",
+                    secondary: "",
+                    health: .good,
+                    watchCount: 0,
+                    riskCount: 0,
+                    lastFilename: nil,
+                    lastUploadedAt: nil
+                ),
+                seatStores: 2
+            ).storeCount,
+            2
         )
     }
 
@@ -4131,6 +4228,7 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(painted.tables.isEmpty)
         XCTAssertFalse(PulseLaunch.shouldPrepareWarehouseOnFilterPaint())
         XCTAssertFalse(PulseLaunch.shouldStampFilterBeforePaint())
+        XCTAssertFalse(PulseLaunch.shouldStampHubOnWarehousePaint())
     }
 
     func testShareDashboardMatchesOnScreenCalloutsAndOpensWithoutHTML() {

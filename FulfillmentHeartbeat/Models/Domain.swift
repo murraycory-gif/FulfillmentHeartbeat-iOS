@@ -1120,7 +1120,7 @@ enum HeartbeatMath {
             if let key = hit.key { used.insert(key) }
             // Keep official region slots so "Regions 4" always paints East/South/California/West.
             // District/store order aliases (J3CHICAGO vs J3) still skip blank placeholders.
-            if hit.rows.isEmpty, !buckets.isEmpty, grain != .region { continue }
+            if hit.rows.isEmpty, !buckets.isEmpty, grain != .region, grain != .store { continue }
             table.append(makeRow(label: label, group: hit.rows))
         }
         if !order.isEmpty {

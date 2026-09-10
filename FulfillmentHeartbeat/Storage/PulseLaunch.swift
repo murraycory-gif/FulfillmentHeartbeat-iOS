@@ -240,6 +240,17 @@ enum PulseLaunch {
     /// Filling expand cache must not `filterStamp` the hub.
     static func shouldStampHubWhenExpandCacheFills() -> Bool { false }
 
+    /// Warehouse / grain paints must not remount page tables while the user scrolls.
+    static func shouldStampHubOnWarehousePaint() -> Bool { false }
+
+    /// Card storeCount under a seat is Heartbeat Stores N, not fact coverage.
+    static func pinSeatStoreCount(_ summary: SectionSummary, seatStores: Int) -> SectionSummary {
+        guard seatStores > 0 else { return summary }
+        var next = summary
+        next.storeCount = seatStores
+        return next
+    }
+
     /// Sales Regions/Stores expand uses the sales rollup cache, not grain packs.
     /// Prefetch it with grain tables so the chevron is not headers-only.
     static func shouldPrefetchSalesExpandWithGrainTables() -> Bool { true }

@@ -47,7 +47,55 @@ enum PulseQuery {
         let facts = rows.filter(isStoreFact)
         guard let allowed else { return facts }
         let matched = PulseCaches.rowsMatchingStores(facts, stores: allowed, skipMarket: true)
-        return PulseCaches.unionRegionBook(matched, from: facts, filters: filters, roster: roster, allowed: allowed)
+        if filters.isActive {
+            return padSeatStores(
+                matched,
+                allowed: allowed,
+                roster: roster,
+                section: matched.first?.section ?? facts.first?.section ?? .storeRoster
+            )
+        }
+        return matched
+    }
+
+    /// Seat tables must list every roster store. Never unionRegionBook extras.
+    static func padSeatStores(
+        _ rows: [MetricRow],
+        allowed: Set<String>,
+        roster: [String: HeartbeatMath.StoreIdentity],
+        section: MetricSection
+    ) -> [MetricRow] {
+        var byStore: [String: MetricRow] = [:]
+        byStore.reserveCapacity(allowed.count)
+        for row in rows {
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            guard !store.isEmpty else { continue }
+            if byStore[store] == nil { byStore[store] = row }
+            for alias in HeartbeatMath.storeAliases(store) where byStore[alias] == nil {
+                byStore[alias] = row
+            }
+        }
+        var out: [MetricRow] = []
+        out.reserveCapacity(allowed.count)
+        for raw in allowed.sorted(by: HeartbeatFormat.storeOrder) {
+            let store = HeartbeatMath.canonicalStore(raw)
+            if let row = byStore[store] ?? byStore[raw] {
+                out.append(HeartbeatMath.stampRoster(row, roster: roster))
+                continue
+            }
+            let identity = roster[store] ?? roster[raw]
+            out.append(
+                MetricRow(
+                    section: section,
+                    division: identity?.division ?? "",
+                    operationsOM: identity?.om ?? "",
+                    storeNumber: store.isEmpty ? raw : store,
+                    storeName: identity?.name,
+                    textPayload: (identity?.district ?? "").isEmpty ? [:] : ["district": identity?.district ?? ""]
+                )
+            )
+        }
+        return out
     }
 
     static func isShopperRow(_ row: MetricRow) -> Bool {
@@ -76,7 +124,13 @@ enum PulseQuery {
         if section == .pickerScorecard || section == .pickPathPicker {
             return sliceShoppers(rows, allowed: allowed)
         }
-        return slice(rows, allowed: allowed, filters: filters, roster: roster)
+        let facts = rows.filter(isStoreFact)
+        guard let allowed else { return facts }
+        let matched = PulseCaches.rowsMatchingStores(facts, stores: allowed, skipMarket: true)
+        if filters.isActive {
+            return padSeatStores(matched, allowed: allowed, roster: roster, section: section)
+        }
+        return matched
     }
 
     static func scoredStoreFacts(_ rows: [MetricRow]) -> [MetricRow] {
@@ -175,12 +229,15 @@ enum PulseQuery {
         if !filters.isActive {
             restoreCompanyTotals(filtered: &filtered, warehouse: warehouse)
         }
-        let summaries = MetricSection.dashboardCards.map { section in
+        var summaries = MetricSection.dashboardCards.map { section in
             HeartbeatMath.summarize(
                 section,
                 rows: filtered[section] ?? [],
                 upload: uploads.first { $0.section == section }
             )
+        }
+        if filters.isActive, let allowed, !allowed.isEmpty {
+            summaries = summaries.map { PulseLaunch.pinSeatStoreCount($0, seatStores: allowed.count) }
         }
         if light {
             return View(

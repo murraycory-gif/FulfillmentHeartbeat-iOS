@@ -21,7 +21,7 @@ struct SectionDetailView: View {
     @State private var pageWidth: CGFloat = 980
 
     private var summary: SectionSummary { store.summary(for: section) }
-    private var snapshots: [MetricRow] { store.displayRows(for: section) }
+    private var snapshots: [MetricRow] { store.seatRows(for: section) }
     private var missingInFile: Bool {
         store.latest(for: section).isEmpty && !store.marketStores().isEmpty
     }
