@@ -2276,6 +2276,13 @@ final class HeartbeatStore: ObservableObject {
             hits = PulseCaches.rowsMatchingStores(pool, stores: allowed, skipMarket: true)
                 .map { HeartbeatMath.stampRoster($0, roster: roster) }
         }
+        if hits.isEmpty {
+            hits = PulseCaches.rowsMatchingStores(
+                PulseFacts.bundledLostRevenue(),
+                stores: allowed,
+                skipMarket: true
+            ).map { HeartbeatMath.stampRoster($0, roster: roster) }
+        }
         return hits
     }
 

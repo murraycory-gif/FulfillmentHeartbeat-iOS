@@ -64,22 +64,34 @@ enum PulseFacts {
             || file.lostRevenue.filter { !$0.store.isEmpty }.count >= 200
     }
 
+    static func lostStoreCount(_ file: PulseFactsFile?) -> Int {
+        file?.lostRevenue.filter { !$0.store.isEmpty && (($0.numbers["lost_revenue"] ?? 0) != 0) }.count ?? 0
+    }
+
+    static func richer(_ a: PulseFactsFile?, _ b: PulseFactsFile?) -> PulseFactsFile? {
+        if lostStoreCount(a) >= lostStoreCount(b), lostStoreCount(a) > 0 { return a }
+        if lostStoreCount(b) > 0 { return b }
+        return a ?? b
+    }
+
     static func loadRows() async -> [MetricRow] {
         let bundledFile = decode(bundledData())
         let cloudFile = decode(try? await PulseCloud.downloadFacts())
-        let file: PulseFactsFile?
-        switch (bundledFile, cloudFile) {
-        case let (bundled?, cloud?):
-            file = isUsable(cloud) ? cloud : bundled
-        case let (bundled?, nil):
-            file = bundled
-        case let (nil, cloud?):
-            file = cloud
-        default:
-            file = nil
-        }
+        let file = richer(cloudFile, bundledFile)
         guard let file, isUsable(file) else { return [] }
-        return metricRows(from: file)
+        var rows = metricRows(from: file)
+        if let bundledFile, lostStoreCount(bundledFile) > lostStoreCount(file) || file.stamp != bundledFile.stamp {
+            rows = PulseDataPolicy.fillMissing(existing: rows, facts: metricRows(from: bundledFile))
+        }
+        return rows
+    }
+
+    static func bundledLostRevenue() -> [MetricRow] {
+        guard let file = decode(bundledData()) else { return [] }
+        return file.lostRevenue.map { fact in
+            let grain = fact.store.isEmpty || fact.text["lost_grain"] == "market" ? "market" : "store"
+            return metricRow(fact, section: .lostRevenue, extra: ["lost_grain": grain])
+        }
     }
 
     private static func decode(_ data: Data?) -> PulseFactsFile? {

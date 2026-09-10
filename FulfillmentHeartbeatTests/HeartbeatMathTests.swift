@@ -1142,5 +1142,19 @@ final class HeartbeatMathTests: XCTestCase {
         }
         XCTAssertEqual(store304?.number("lost_revenue") ?? 0, 2_510, accuracy: 0.5)
     }
+
+    func testBundledFactsJoinJewelOscoLostRevenue() throws {
+        let tests = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        let url = tests.deletingLastPathComponent().appendingPathComponent("FulfillmentHeartbeat/facts.json")
+        let file = try JSONDecoder().decode(PulseFactsFile.self, from: Data(contentsOf: url))
+        let rows = PulseFacts.metricRows(from: file)
+        var filters = DashboardFilters()
+        filters.division = "Jewel Osco"
+        let caches = PulseCaches.build(rows: rows, filters: filters, uploads: [], heavy: false, grain: .district)
+        let summary = caches.cachedSummaries.first { $0.section == .lostRevenue }
+        XCTAssertEqual(summary?.storeCount, 179)
+        XCTAssertEqual(summary?.headline ?? 0, 451_085, accuracy: 5)
+        XCTAssertNotEqual(summary?.health, .none)
+    }
 }
 
