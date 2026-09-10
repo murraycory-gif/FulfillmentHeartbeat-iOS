@@ -378,6 +378,15 @@ final class HeartbeatStore: ObservableObject {
                 )
             }
         }
+        if section == .scheduleQuality, filters.isActive {
+            out = PulseCaches.unionRegionBook(
+                out,
+                from: pool,
+                filters: filters,
+                roster: roster,
+                allowed: allowed
+            )
+        }
         return out
     }
 
@@ -388,7 +397,9 @@ final class HeartbeatStore: ObservableObject {
         return PulseQuery.sliceSection(
             section,
             rows: latestBySection[section] ?? [],
-            allowed: PulseCaches.allowedStores(roster: roster, filters: filters)
+            allowed: PulseCaches.allowedStores(roster: roster, filters: filters),
+            filters: filters,
+            roster: roster
         )
     }
 
@@ -1510,7 +1521,7 @@ final class HeartbeatStore: ObservableObject {
 
     func filterChoices(focus: FilterFocus, draft: DashboardFilters) -> [(id: String, label: String)] {
         func pairs(_ values: [String]) -> [(id: String, label: String)] {
-            values.map { (id: $0, label: $0) }
+            values.map { (id: $0, label: HeartbeatMath.displayGrainLabel($0)) }
         }
         switch focus {
         case .region:
@@ -2675,6 +2686,13 @@ final class HeartbeatStore: ObservableObject {
             )
             if !filled.isEmpty { warehouse[.pph] = filled }
         }
+        if (warehouse[.scheduleQuality] ?? []).filter({ $0.number("schedule_efficiency_pct") != nil }).count < 8 {
+            let filled = latestOrFacts(for: .scheduleQuality)
+            if filled.filter({ $0.number("schedule_efficiency_pct") != nil }).count
+                > (warehouse[.scheduleQuality] ?? []).filter({ $0.number("schedule_efficiency_pct") != nil }).count {
+                warehouse[.scheduleQuality] = filled
+            }
+        }
         warehouse = HeartbeatMath.overlayDynacapPPH(warehouse)
         if filters.isActive, let allowed = PulseCaches.allowedStores(roster: roster, filters: filters) {
             let lost = scopedLostRevenue(allowed)
@@ -2682,7 +2700,7 @@ final class HeartbeatStore: ObservableObject {
         } else {
             let facts = PulseFacts.bundledMetricRows()
             if !facts.isEmpty {
-                for section in [MetricSection.lostRevenue, .sales, .fiveStar] {
+                for section in [MetricSection.lostRevenue, .sales, .fiveStar, .scheduleQuality] {
                     let existing = warehouse[section] ?? []
                     let merged = PulseQuery.fillMissingRegions(
                         existing: existing,
@@ -2788,7 +2806,13 @@ final class HeartbeatStore: ObservableObject {
             )
             if !filled.isEmpty {
                 if filters.isActive, let allowed = PulseCaches.allowedStores(roster: roster, filters: filters) {
-                    rows = PulseQuery.sliceSection(.pph, rows: filled, allowed: allowed)
+                    rows = PulseQuery.sliceSection(
+                        .pph,
+                        rows: filled,
+                        allowed: allowed,
+                        filters: filters,
+                        roster: roster
+                    )
                 } else {
                     rows = filled
                 }
@@ -3514,7 +3538,9 @@ final class HeartbeatStore: ObservableObject {
         let sliced = PulseQuery.sliceSection(
             section,
             rows: latestBySection[section] ?? [],
-            allowed: allowed
+            allowed: allowed,
+            filters: filters,
+            roster: roster
         )
         filteredLatest[section] = sliced
         refreshSummary(for: section, rows: sliced)
@@ -3875,9 +3901,6 @@ final class HeartbeatStore: ObservableObject {
 
     func pulseMailSnapshot(_ pages: Set<PulseMail.SharePage> = Set(PulseMail.SharePage.allCases)) -> PulseMail.Snapshot {
         var needed: Set<MetricSection> = []
-        if pages.contains(.dashboard) {
-            needed.formUnion(MetricSection.dashboardCards)
-        }
         for page in pages {
             if let section = page.section { needed.insert(section) }
         }
@@ -3892,7 +3915,7 @@ final class HeartbeatStore: ObservableObject {
             let capped = PulseMail.cappedStoreRows(all, section: section)
             rows[section] = capped
             if section == .sales {
-                for row in capped where !row.storeNumber.isEmpty && row.textPayload["sales_grain"] != "company" {
+                for row in all where !row.storeNumber.isEmpty && row.textPayload["sales_grain"] != "company" {
                     sums.salesDollars += row.number("sales_dollars") ?? 0
                     sums.salesOrders += row.number("sales_orders") ?? 0
                     sums.hdOrders += row.number("sales_hd_orders") ?? 0
@@ -3900,7 +3923,7 @@ final class HeartbeatStore: ObservableObject {
                 }
             }
             if section == .lostRevenue {
-                for row in capped where !row.storeNumber.isEmpty {
+                for row in all where !row.storeNumber.isEmpty {
                     sums.ecommSales += row.number("ecomm_sales") ?? 0
                     sums.postSub += row.number("post_sub_oos_foregone") ?? 0
                 }
@@ -3912,9 +3935,13 @@ final class HeartbeatStore: ObservableObject {
                 pickerCounts[key] = pphPickerCount(forStore: key)
             }
         }
+        var chrome: Set<MetricSection> = needed
+        if pages.contains(.dashboard) {
+            chrome.formUnion(MetricSection.dashboardCards)
+        }
         var grainTables: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] = [:]
         var flags: [MetricSection: [HeartbeatMath.FiveStarFlag]] = [:]
-        for section in needed {
+        for section in chrome {
             if let table = cachedGrainTables[section], !table.isEmpty {
                 grainTables[section] = Array(table.prefix(PulseMail.grainRowCap))
             }

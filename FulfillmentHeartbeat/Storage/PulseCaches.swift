@@ -207,10 +207,17 @@ struct PulseCaches {
         nextLatest.reserveCapacity(latest.count)
         if let allowed {
             for (section, rows) in latest {
-                nextLatest[section] = rowsMatchingStores(
+                let matched = rowsMatchingStores(
                     rows,
                     stores: allowed,
                     skipMarket: section == .lostRevenue || section == .labor
+                )
+                nextLatest[section] = unionRegionBook(
+                    matched,
+                    from: rows,
+                    filters: filters,
+                    roster: roster,
+                    allowed: allowed
                 )
             }
         } else {
@@ -610,7 +617,7 @@ struct PulseCaches {
         skipMarket: Bool
     ) -> [MetricRow] {
         var index: [String: MetricRow] = [:]
-        var districtDynacap: [MetricRow] = []
+        var districtRates: [MetricRow] = []
         index.reserveCapacity(rows.count)
         for row in rows {
             if skipMarket, row.textPayload["lost_grain"] == "market", HeartbeatMath.canonicalStore(row.storeNumber).isEmpty { continue }
@@ -619,7 +626,9 @@ struct PulseCaches {
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
             if store.isEmpty {
                 if row.section == .dynacap, row.number("dynacap_rate", "pieces_per_hour") != nil {
-                    districtDynacap.append(row)
+                    districtRates.append(row)
+                } else if row.section == .scheduleQuality, row.number("schedule_efficiency_pct") != nil {
+                    districtRates.append(row)
                 }
                 continue
             }
@@ -639,11 +648,67 @@ struct PulseCaches {
                 out.append(row)
             }
         }
-        if !districtDynacap.isEmpty,
-           !out.contains(where: { $0.section == .dynacap && $0.number("dynacap_rate", "pieces_per_hour") != nil }) {
-            out.append(contentsOf: districtDynacap)
+        if !districtRates.isEmpty {
+            let haveDyn = out.contains { $0.section == .dynacap && $0.number("dynacap_rate", "pieces_per_hour") != nil }
+            let haveSch = out.contains { $0.section == .scheduleQuality && $0.number("schedule_efficiency_pct") != nil }
+            for extra in districtRates {
+                if extra.section == .dynacap, haveDyn { continue }
+                if extra.section == .scheduleQuality, haveSch { continue }
+                out.append(extra)
+            }
         }
         return out
+    }
+
+    /// Keep Excel rows that belong to the selected region/district book even when the
+    /// store number is missing or not on the roster (California Schedule Quality totals).
+    static func unionRegionBook(
+        _ matched: [MetricRow],
+        from rows: [MetricRow],
+        filters: DashboardFilters,
+        roster: [String: HeartbeatMath.StoreIdentity],
+        allowed: Set<String>
+    ) -> [MetricRow] {
+        guard filters.isActive, filters.stores.isEmpty else { return matched }
+        let wantedRegions = Set(filters.regions.compactMap { MarketRegion(rawValue: $0) ?? MarketRegion.named($0) })
+        let wantedDistricts = Set(filters.districts.map { HeartbeatMath.canonicalDistrict($0) }.filter { !$0.isEmpty })
+        guard !wantedRegions.isEmpty || !wantedDistricts.isEmpty || !filters.divisions.isEmpty else { return matched }
+        var seen: Set<String> = []
+        seen.reserveCapacity(matched.count + 64)
+        for row in matched {
+            seen.insert(row.id.uuidString)
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            if !store.isEmpty { seen.formUnion(HeartbeatMath.storeAliases(store)) }
+        }
+        var extra: [MetricRow] = []
+        for row in rows {
+            if seen.contains(row.id.uuidString) { continue }
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            if !store.isEmpty {
+                if allowed.contains(store) { continue }
+                if HeartbeatMath.storeAliases(store).contains(where: { allowed.contains($0) }) { continue }
+                let known = roster[store] != nil
+                    || HeartbeatMath.storeAliases(store).contains(where: { roster[$0] != nil })
+                if known { continue }
+            }
+            if !wantedRegions.isEmpty {
+                guard let region = MarketRegion.resolved(division: row.division, district: row.district),
+                      wantedRegions.contains(region) else { continue }
+            }
+            if !filters.divisions.isEmpty {
+                guard filters.includesDivision(row.division) else { continue }
+            }
+            if !wantedDistricts.isEmpty {
+                let district = HeartbeatMath.canonicalDistrict(row.district.isEmpty ? row.division : row.district)
+                let have = HeartbeatMath.districtMatchKeys(district)
+                let want = Set(wantedDistricts.flatMap { HeartbeatMath.districtMatchKeys($0) })
+                guard !have.isDisjoint(with: want) else { continue }
+            }
+            extra.append(row)
+            seen.insert(row.id.uuidString)
+            if !store.isEmpty { seen.formUnion(HeartbeatMath.storeAliases(store)) }
+        }
+        return extra.isEmpty ? matched : matched + extra
     }
 
     static func lostRevenueRows(

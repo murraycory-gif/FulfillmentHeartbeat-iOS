@@ -4,6 +4,7 @@ enum PulseMail {
     struct Packet: Sendable {
         let subject: String
         let html: String
+        let htmlFile: URL?
         let plain: String
         let brief: String
     }
@@ -124,18 +125,58 @@ enum PulseMail {
         return ranked.prefix(storeRowCap).map { rows[$0] }
     }
 
-    static func make(_ snap: Snapshot, pages: Set<SharePage> = Set(SharePage.allCases)) -> Packet {
+    static func make(
+        _ snap: Snapshot,
+        pages: Set<SharePage> = Set(SharePage.allCases),
+        persistHTML: Bool = true
+    ) -> Packet {
         let chosen = pages.isEmpty ? Set(SharePage.allCases) : pages
         let names = SharePage.allCases.filter { chosen.contains($0) }.map(\.title)
         let subject = "Fulfillment Heartbeat — \(snap.filterSummary) — \(HeartbeatFormat.stamp(snap.generatedAt))"
         return autoreleasepool {
+            let htmlString = html(snap, pages: chosen)
+            let file = writeHTMLStreaming(htmlString)
             Packet(
                 subject: subject,
-                html: html(snap, pages: chosen),
+                html: persistHTML ? htmlString : "",
+                htmlFile: file,
                 plain: plain(snap, pages: chosen),
                 brief: brief(snap, pages: chosen, names: names)
             )
         }
+    }
+
+    /// Stream HTML to a temp file in small UTF-8 chunks so Share never holds a second giant `Data`.
+    static func writeHTMLStreaming(_ html: String) -> URL? {
+        guard !html.isEmpty else { return nil }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Fulfillment-Heartbeat-\(UUID().uuidString).html")
+        FileManager.default.createFile(atPath: url.path, contents: nil)
+        guard let handle = try? FileHandle(forWritingTo: url) else {
+            guard let data = html.data(using: .utf8) else { return nil }
+            do {
+                try data.write(to: url, options: .atomic)
+                return url
+            } catch {
+                return nil
+            }
+        }
+        defer { try? handle.close() }
+        let chunk = 24_576
+        var start = html.startIndex
+        while start < html.endIndex {
+            let end = html.index(start, offsetBy: chunk, limitedBy: html.endIndex) ?? html.endIndex
+            if let data = html[start..<end].data(using: .utf8) {
+                try? handle.write(contentsOf: data)
+            }
+            start = end
+        }
+        return url
+    }
+
+    /// Activity-item payload: file URL or brief. Never the HTML string (Mail/Gmail attributed-string Jetsam).
+    static func shareActivityItem(_ packet: Packet) -> Any {
+        packet.htmlFile ?? packet.brief
     }
 
     private static func brief(_ snap: Snapshot, pages: Set<SharePage>, names: [String]) -> String {
@@ -332,7 +373,7 @@ enum PulseMail {
         var body = ""
         for line in shown {
             let health = line.health == .none && line.storeCount > 0 ? Health.good : line.health
-            var cells = "<td class=\"name\">\(esc(line.label))</td>"
+            var cells = "<td class=\"name\">\(esc(HeartbeatMath.displayGrainLabel(line.label)))</td>"
             if grain != .store {
                 cells += "<td class=\"num muted\">\(HeartbeatFormat.num(Double(line.storeCount)))</td>"
             }
@@ -371,7 +412,7 @@ enum PulseMail {
             shown += 1
             let pack = SalesPack(rows: group)
             let health = pack.health == .none && (pack.sales ?? 0) > 0 ? Health.good : pack.health
-            var cells = "<td class=\"name\">\(esc(label))</td>"
+            var cells = "<td class=\"name\">\(esc(HeartbeatMath.displayGrainLabel(label)))</td>"
             if grain != .store {
                 cells += "<td class=\"num muted\">\(HeartbeatFormat.num(Double(group.count)))</td>"
             }
@@ -1161,7 +1202,7 @@ enum PulseMail {
                 if !grainRows.isEmpty {
                     lines.append(HeartbeatMath.dashboardTableHeaders(card.section).joined(separator: " | "))
                     for line in grainRows {
-                        lines.append("\(line.label) | \(line.values.joined(separator: " | ")) | \(line.health.label)")
+                        lines.append("\(HeartbeatMath.displayGrainLabel(line.label)) | \(line.values.joined(separator: " | ")) | \(line.health.label)")
                     }
                 }
             }

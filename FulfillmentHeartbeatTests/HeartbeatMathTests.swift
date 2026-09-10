@@ -2388,5 +2388,182 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(wide.cellW, MILayout.minCell)
         XCTAssertEqual(wide.tableWidth, 2_400, accuracy: 1)
     }
+
+    func testShareEmailStreamsFileAndNeverVendsHTMLString() {
+        let rows = (1...40).map { n in
+            MetricRow(
+                section: .scheduleQuality,
+                division: "NorCal",
+                operationsOM: "A",
+                storeNumber: String(n),
+                payload: ["schedule_efficiency_pct": 91],
+                textPayload: ["district": "J3CHICAGO"]
+            )
+        }
+        let grain = HeartbeatMath.DashboardGrainTableRow(
+            label: "J3CHICAGO",
+            storeCount: 4,
+            values: ["91%"],
+            health: .good
+        )
+        let snap = PulseMail.Snapshot(
+            filterSummary: "California Region",
+            grain: "division",
+            summaries: [],
+            rows: [.scheduleQuality: rows],
+            pickerCounts: [:],
+            generatedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            grainTables: [.scheduleQuality: [grain]]
+        )
+        let packet = PulseMail.make(snap, pages: [.dashboard, .scheduleQuality], persistHTML: false)
+        XCTAssertTrue(packet.html.isEmpty, "Share path must not keep the HTML string in memory")
+        XCTAssertFalse(packet.brief.isEmpty)
+        let item = PulseMail.shareActivityItem(packet)
+        XCTAssertFalse(item is String && (item as? String)?.contains("<html") == true)
+        if let url = item as? URL {
+            XCTAssertEqual(url.pathExtension, "html")
+            let body = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+            XCTAssertTrue(body.contains("Schedule Quality") || body.contains("J3"), body)
+            XCTAssertFalse(body.contains("J3CHICAGO"), body)
+        } else {
+            XCTAssertNotNil(packet.htmlFile)
+            let body = (try? String(contentsOf: packet.htmlFile!, encoding: .utf8)) ?? ""
+            XCTAssertFalse(body.isEmpty)
+            XCTAssertFalse(body.contains("J3CHICAGO"), body)
+        }
+        let kept = PulseMail.make(snap, pages: [.scheduleQuality])
+        XCTAssertTrue(kept.html.contains("<td class=\"name\">J3</td>") || kept.html.contains(">J3<"), kept.html)
+        XCTAssertFalse(kept.html.contains("J3CHICAGO"), kept.html)
+    }
+
+    func testCaliforniaScheduleQualityKeepsRegionBook() {
+        XCTAssertTrue(PulseQuery.isStoreFact(
+            MetricRow(
+                section: .scheduleQuality,
+                division: "California",
+                operationsOM: "",
+                storeNumber: "",
+                payload: ["schedule_efficiency_pct": 88]
+            )
+        ))
+        let caStore = MetricRow(
+            section: .scheduleQuality,
+            division: "NorCal",
+            operationsOM: "A",
+            storeNumber: "304",
+            payload: ["schedule_efficiency_pct": 91],
+            textPayload: ["district": "03"]
+        )
+        let caTotal = MetricRow(
+            section: .scheduleQuality,
+            division: "California",
+            operationsOM: "",
+            storeNumber: "",
+            payload: ["schedule_efficiency_pct": 88],
+            textPayload: ["district": "J3CHICAGO"]
+        )
+        let caUnmatched = MetricRow(
+            section: .scheduleQuality,
+            division: "SoCal",
+            operationsOM: "B",
+            storeNumber: "9999",
+            payload: ["schedule_efficiency_pct": 85]
+        )
+        let jewel = MetricRow(
+            section: .scheduleQuality,
+            division: "Jewel Osco",
+            operationsOM: "C",
+            storeNumber: "100",
+            payload: ["schedule_efficiency_pct": 80]
+        )
+        let roster: [String: HeartbeatMath.StoreIdentity] = [
+            "304": .init(division: "NorCal", district: "03", om: "A", name: nil),
+            "100": .init(division: "Jewel Osco", district: "J3", om: "C", name: nil),
+        ]
+        var california = DashboardFilters()
+        california.region = "California Region"
+        let allowed = PulseCaches.allowedStores(roster: roster, filters: california)
+        XCTAssertEqual(allowed, ["304"])
+        let sliced = PulseQuery.slice(
+            [caStore, caTotal, caUnmatched, jewel],
+            allowed: allowed,
+            filters: california,
+            roster: roster
+        )
+        XCTAssertTrue(sliced.contains { $0.storeNumber == "304" })
+        XCTAssertTrue(sliced.contains { $0.division == "California" && $0.storeNumber.isEmpty })
+        XCTAssertTrue(sliced.contains { $0.storeNumber == "9999" })
+        XCTAssertFalse(sliced.contains { $0.storeNumber == "100" })
+        let painted = PulseQuery.paint(
+            warehouse: [.scheduleQuality: [caStore, caTotal, caUnmatched, jewel]],
+            roster: roster,
+            filters: california,
+            grain: .division,
+            uploads: [],
+            hidePicker: true,
+            light: false
+        )
+        let rows = painted.filtered[.scheduleQuality] ?? []
+        XCTAssertGreaterThanOrEqual(rows.filter { $0.number("schedule_efficiency_pct") != nil }.count, 2)
+        XCTAssertFalse(rows.contains { $0.storeNumber == "100" })
+        XCTAssertEqual(HeartbeatMath.displayGrainLabel("J3CHICAGO"), "J3")
+        XCTAssertEqual(
+            DashboardFilters.display("J3CHICAGO", empty: "All districts", prefix: "District "),
+            "District J3"
+        )
+    }
+
+    func testSupportedFloorIPhone13AndiPad13FlowEvenColumns() {
+        let phoneP = HubLayout.SupportedCanvas.phonePortrait
+        let phoneL = HubLayout.SupportedCanvas.phoneLandscape
+        let padP = HubLayout.SupportedCanvas.padPortrait
+        let padL = HubLayout.SupportedCanvas.padLandscape
+        XCTAssertEqual(phoneP, 390)
+        XCTAssertEqual(phoneL, 844)
+        XCTAssertEqual(padP, 1024)
+        XCTAssertEqual(padL, 1366)
+        for count in [4, 5, 7] {
+            XCTAssertTrue(HubLayout.calloutsFitCanvas(count: count, width: phoneP, phone: true), "phone portrait \(count)")
+            XCTAssertTrue(HubLayout.calloutsFitCanvas(count: count, width: phoneL, phone: true), "phone landscape \(count)")
+            XCTAssertTrue(HubLayout.calloutsFitCanvas(count: count, width: padP, phone: false), "pad portrait \(count)")
+            XCTAssertTrue(HubLayout.calloutsFitCanvas(count: count, width: padL, phone: false), "pad landscape \(count)")
+        }
+        XCTAssertLessThanOrEqual(HubLayout.calloutColumns(count: 4, width: phoneP), 2)
+        XCTAssertGreaterThanOrEqual(HubLayout.calloutColumns(count: 4, width: phoneL), 3)
+        XCTAssertEqual(HubLayout.calloutColumns(count: 4, width: padL), 4)
+        XCTAssertEqual(HubLayout.calloutColumns(count: 5, width: padL), 3)
+        for canvas in [phoneP, phoneL] {
+            XCTAssertTrue(
+                HubLayout.tableFlowsOnCanvas(available: canvas, phone: true, columns: 3, showCount: true),
+                "prep 3-col phone \(canvas)"
+            )
+            XCTAssertTrue(
+                HubLayout.tableFlowsOnCanvas(
+                    available: canvas,
+                    phone: true,
+                    columns: 4,
+                    showCount: true,
+                    district: true
+                ),
+                "district 4-col phone \(canvas)"
+            )
+        }
+        for canvas in [padP, padL] {
+            XCTAssertTrue(
+                HubLayout.tableFlowsOnCanvas(available: canvas, phone: false, columns: 3, showCount: true),
+                "prep 3-col pad \(canvas)"
+            )
+            XCTAssertTrue(
+                HubLayout.tableFlowsOnCanvas(available: canvas, phone: false, columns: 6, showCount: true),
+                "dashboard 6-col pad \(canvas)"
+            )
+        }
+        let phoneEven = HubLayout.evenValueWidth(available: phoneL, phone: true, columns: 3, showCount: true)
+        let padEven = HubLayout.evenValueWidth(available: padL, phone: false, columns: 3, showCount: true)
+        XCTAssertGreaterThanOrEqual(phoneEven, HubLayout.readableValueMin(phone: true))
+        XCTAssertGreaterThanOrEqual(padEven, HubLayout.readableValueMin(phone: false))
+        XCTAssertGreaterThan(padEven, phoneEven)
+        XCTAssertEqual(HeartbeatMath.displayGrainLabel("J3CHICAGO").count, 2)
+    }
 }
 

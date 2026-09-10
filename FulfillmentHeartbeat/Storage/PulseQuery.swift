@@ -25,8 +25,12 @@ enum PulseQuery {
         if row.textPayload["sales_grain"] == "day" { return false }
         if row.textPayload["labor_grain"] == "market" { return false }
         if HeartbeatMath.canonicalStore(row.storeNumber).isEmpty {
-            // District-level Dynacap still has a rate. Keep it so the section is not blank.
+            // District / region totals still have a rate. Keep them so California
+            // Schedule Quality (and Dynacap) are not blank when Excel omits store numbers.
             if row.section == .dynacap, row.number("dynacap_rate", "pieces_per_hour") != nil {
+                return !row.payload.isEmpty
+            }
+            if row.section == .scheduleQuality, row.number("schedule_efficiency_pct") != nil {
                 return !row.payload.isEmpty
             }
             return false
@@ -34,10 +38,16 @@ enum PulseQuery {
         return !row.payload.isEmpty
     }
 
-    static func slice(_ rows: [MetricRow], allowed: Set<String>?) -> [MetricRow] {
+    static func slice(
+        _ rows: [MetricRow],
+        allowed: Set<String>?,
+        filters: DashboardFilters = DashboardFilters(),
+        roster: [String: HeartbeatMath.StoreIdentity] = [:]
+    ) -> [MetricRow] {
         let facts = rows.filter(isStoreFact)
         guard let allowed else { return facts }
-        return PulseCaches.rowsMatchingStores(facts, stores: allowed, skipMarket: true)
+        let matched = PulseCaches.rowsMatchingStores(facts, stores: allowed, skipMarket: true)
+        return PulseCaches.unionRegionBook(matched, from: facts, filters: filters, roster: roster, allowed: allowed)
     }
 
     static func isShopperRow(_ row: MetricRow) -> Bool {
@@ -61,11 +71,17 @@ enum PulseQuery {
         }
     }
 
-    static func sliceSection(_ section: MetricSection, rows: [MetricRow], allowed: Set<String>?) -> [MetricRow] {
+    static func sliceSection(
+        _ section: MetricSection,
+        rows: [MetricRow],
+        allowed: Set<String>?,
+        filters: DashboardFilters = DashboardFilters(),
+        roster: [String: HeartbeatMath.StoreIdentity] = [:]
+    ) -> [MetricRow] {
         if section == .pickerScorecard || section == .pickPathPicker {
             return sliceShoppers(rows, allowed: allowed)
         }
-        return slice(rows, allowed: allowed)
+        return slice(rows, allowed: allowed, filters: filters, roster: roster)
     }
 
     static func scoredStoreFacts(_ rows: [MetricRow]) -> [MetricRow] {
@@ -105,7 +121,12 @@ enum PulseQuery {
             guard isStoreFact(row) else { continue }
             guard let region = region(of: row), missing.contains(region) else { continue }
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
-            if store.isEmpty { continue }
+            if store.isEmpty {
+                if section == .scheduleQuality {
+                    extra.append(row)
+                }
+                continue
+            }
             if seen.contains(store) { continue }
             extra.append(row)
             seen.formUnion(HeartbeatMath.storeAliases(store))
@@ -149,7 +170,7 @@ enum PulseQuery {
         filtered.reserveCapacity(warehouse.count)
         for (section, rows) in warehouse {
             if skipOnLight.contains(section), !includePageOnly { continue }
-            filtered[section] = sliceSection(section, rows: rows, allowed: allowed)
+            filtered[section] = sliceSection(section, rows: rows, allowed: allowed, filters: filters, roster: roster)
         }
         let summaries = MetricSection.dashboardCards.map { section in
             HeartbeatMath.summarize(

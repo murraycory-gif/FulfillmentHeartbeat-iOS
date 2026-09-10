@@ -684,7 +684,7 @@ enum HeartbeatMath {
         return buckets.map { key, group -> (DashScopeLine, Double) in
             let worst = worstHealth(section, rows: group)
             let line = DashScopeLine(
-                label: key,
+                label: displayGrainLabel(key),
                 value: scopeHeadline(section, rows: group),
                 health: worst,
                 count: group.count
@@ -957,7 +957,7 @@ enum HeartbeatMath {
         func makeRow(label: String, group: [MetricRow]) -> DashboardGrainTableRow {
             let built = dashboardTableValues(section, rows: group, goalFallback: goalFallback)
             return DashboardGrainTableRow(
-                label: grain == .district ? displayGrainLabel(label) : label,
+                label: displayGrainLabel(label),
                 storeCount: group.count,
                 values: built.values,
                 health: built.health
@@ -3915,7 +3915,7 @@ struct DashboardFilters: Equatable, Codable {
     }
 
     static func display(_ raw: String, empty: String, prefix: String = "") -> String {
-        let values = parts(raw)
+        let values = parts(raw).map { HeartbeatMath.displayGrainLabel($0) }.filter { !$0.isEmpty }
         if values.isEmpty { return empty }
         if values.count == 1 { return prefix + values[0] }
         if values.count == 2 { return prefix + values[0] + ", " + values[1] }

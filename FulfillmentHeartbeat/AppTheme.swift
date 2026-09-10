@@ -395,11 +395,58 @@ enum HubLayout {
         if count == 7 { return min(4, maxCols) }
         var cols = max(1, min(count, maxCols))
         let minTile = calloutMinWidth(phone: isPhone(sizeClass))
-        if width > 1, cols >= 4 {
-            let needed = CGFloat(cols) * minTile + CGFloat(cols - 1) * calloutGridSpacing
-            if width < needed { cols = min(cols, 2) }
+        if width > 1 {
+            while cols >= 3 {
+                let needed = CGFloat(cols) * minTile + CGFloat(max(cols - 1, 0)) * calloutGridSpacing
+                if width >= needed { break }
+                cols -= 1
+            }
         }
         return cols
+    }
+
+    /// Logical points for the supported floor: iPhone 13+ and 12.9"/13" iPad Pro.
+    enum SupportedCanvas {
+        static let phonePortrait: CGFloat = 390
+        static let phoneLandscape: CGFloat = 844
+        static let padPortrait: CGFloat = 1024
+        static let padLandscape: CGFloat = 1366
+    }
+
+    /// True when equal callout tiles fit the canvas without overflowing.
+    static func calloutsFitCanvas(count: Int, width: CGFloat, phone: Bool) -> Bool {
+        let cols = calloutColumns(count: count, width: width)
+        let tile = calloutTileMinWidth(columns: cols, width: width, phone: phone)
+        let needed = CGFloat(cols) * tile + CGFloat(max(cols - 1, 0)) * calloutGridSpacing
+        return needed <= width + 0.5 && tile >= 64
+    }
+
+    /// True when value columns stay at least the readable min, or the table
+    /// is allowed to scroll horizontally (never clips numbers off-screen).
+    static func tableFlowsOnCanvas(
+        available: CGFloat,
+        phone: Bool,
+        columns: Int,
+        showCount: Bool,
+        district: Bool = false
+    ) -> Bool {
+        let even = evenValueWidth(
+            available: available,
+            phone: phone,
+            columns: columns,
+            showCount: showCount,
+            district: district
+        )
+        let minVal = dashboardValueMin(phone: phone, columns: columns)
+        if even + 0.5 >= minVal { return true }
+        let floor = readableTableFloor(
+            phone: phone,
+            columns: columns,
+            showCount: showCount,
+            district: district,
+            valueMin: minVal
+        )
+        return available + 0.5 < floor
     }
 
     /// Grid columns must never demand more width than the card.
@@ -451,8 +498,8 @@ enum HubLayout {
             phoneChrome: kind == .phone,
             hydrateNeighbors: false,
             rasterizeSwipe: false,
-            grainCap: lightLaunch ? 12 : 24,
-            storeGrainCap: lightLaunch ? 16 : 50
+            grainCap: kind == .mac ? 24 : (kind == .pad ? 16 : 12),
+            storeGrainCap: kind == .mac ? 50 : (kind == .pad ? 24 : 16)
         )
     }
 

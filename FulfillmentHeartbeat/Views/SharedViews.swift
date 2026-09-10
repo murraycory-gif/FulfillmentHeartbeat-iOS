@@ -1040,16 +1040,16 @@ struct FilterBar: View {
     private func pillTitle(for focus: FilterFocus) -> String {
         let values = store.filters.values(for: focus)
         if values.isEmpty { return focus.chipTitle }
-        if values.count == 1 { return values[0] }
-        return "\(values[0]) +\(values.count - 1)"
+        if values.count == 1 { return HeartbeatMath.displayGrainLabel(values[0]) }
+        return "\(HeartbeatMath.displayGrainLabel(values[0])) +\(values.count - 1)"
     }
 
     private var compactFilterTitle: String {
         let active = FilterFocus.allCases.compactMap { focus -> String? in
             let values = store.filters.values(for: focus)
             if values.isEmpty { return nil }
-            if values.count == 1 { return values[0] }
-            return "\(values[0]) +\(values.count - 1)"
+            if values.count == 1 { return HeartbeatMath.displayGrainLabel(values[0]) }
+            return "\(HeartbeatMath.displayGrainLabel(values[0])) +\(values.count - 1)"
         }
         if active.isEmpty { return "Filters" }
         if active.count == 1 { return active[0] }
@@ -1171,7 +1171,7 @@ struct SharePulseSheet: View {
             await Task.yield()
             let snap = store.pulseMailSnapshot(pages)
             let built = await Task.detached(priority: .utility) {
-                PulseMail.make(snap, pages: pages)
+                PulseMail.make(snap, pages: pages, persistHTML: false)
             }.value
             building = false
             packet = built
@@ -1971,7 +1971,7 @@ private enum PickPathRollupBuilder {
             let label: String
             switch grain {
             case .region, .division, .district:
-                label = key
+                label = HeartbeatMath.displayGrainLabel(key)
             case .store:
                 let division = group.first?.division ?? ""
                 label = division.isEmpty ? key : "\(key)  |  \(division)"
@@ -3084,7 +3084,7 @@ private enum DynacapRollupBuilder {
             let label: String
             switch grain {
             case .region, .division, .district:
-                label = key
+                label = HeartbeatMath.displayGrainLabel(key)
             case .store:
                 let division = group.first?.division ?? ""
                 label = division.isEmpty ? key : "\(key)  |  \(division)"
@@ -3940,7 +3940,7 @@ private enum PrepRollupBuilder {
             let label: String
             switch grain {
             case .region, .division, .district:
-                label = key
+                label = HeartbeatMath.displayGrainLabel(key)
             case .store:
                 let division = group.first?.division ?? ""
                 label = division.isEmpty ? key : "\(key)  |  \(division)"
@@ -4656,7 +4656,7 @@ private enum FiveStarRollupBuilder {
             let label: String
             switch grain {
             case .region, .division, .district:
-                label = key
+                label = HeartbeatMath.displayGrainLabel(key)
             case .store:
                 let division = group.first?.division ?? ""
                 label = division.isEmpty ? key : "\(key)  |  \(division)"
@@ -5535,7 +5535,7 @@ private enum LaborRollupBuilder {
             let label: String
             switch grain {
             case .region, .division, .district:
-                label = key
+                label = HeartbeatMath.displayGrainLabel(key)
             case .store:
                 let division = group.first?.division ?? ""
                 label = division.isEmpty ? key : "\(key)  |  \(division)"
@@ -6699,7 +6699,7 @@ private enum LostRevenueRollupBuilder {
             let label: String
             switch grain {
             case .region, .division, .district:
-                label = key
+                label = HeartbeatMath.displayGrainLabel(key)
             case .store:
                 let division = group.first?.division ?? ""
                 label = division.isEmpty ? key : "\(key)  |  \(division)"
@@ -7692,7 +7692,10 @@ private enum ScheduleRollupBuilder {
     }
 
     static func source(from all: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
-        all.filter { !$0.storeNumber.isEmpty }
+        all.filter {
+            !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty
+                || $0.number("schedule_efficiency_pct") != nil
+        }
     }
 
     static func rows(from stores: [MetricRow], grain: LaborRollupGrain) -> [ScheduleRollupRow] {
@@ -7719,7 +7722,7 @@ private enum ScheduleRollupBuilder {
             let label: String
             switch grain {
             case .region, .division, .district:
-                label = key
+                label = HeartbeatMath.displayGrainLabel(key)
             case .store:
                 let division = group.first?.division ?? ""
                 label = division.isEmpty ? key : "\(key)  |  \(division)"
@@ -8519,7 +8522,7 @@ private enum PPHRollupBuilder {
             let label: String
             switch grain {
             case .region, .division, .district:
-                label = key
+                label = HeartbeatMath.displayGrainLabel(key)
             case .store:
                 let division = group.first?.division ?? ""
                 label = division.isEmpty ? key : "\(key)  |  \(division)"
@@ -10876,22 +10879,19 @@ struct FlexibleEmailChips: View {
 
 final class PulseShareSource: NSObject, UIActivityItemSource {
     let subject: String
-    let html: String
-    let plain: String
     let brief: String
-    let preview: UIImage?
+    let htmlFile: URL?
 
     init(packet: PulseMail.Packet, preview: UIImage? = nil) {
+        _ = preview
         subject = packet.subject
-        html = packet.html
-        plain = packet.plain
         brief = packet.brief
-        self.preview = preview
+        htmlFile = packet.htmlFile
         super.init()
     }
 
     func activityViewControllerPlaceholderItem(_ activityViewController: UIActivityViewController) -> Any {
-        preview ?? subject
+        htmlFile ?? brief
     }
 
     func activityViewController(
@@ -10908,16 +10908,7 @@ final class PulseShareSource: NSObject, UIActivityItemSource {
         {
             return nil
         }
-        if activityType == .mail
-            || raw.localizedCaseInsensitiveContains("gmail")
-            || raw.localizedCaseInsensitiveContains("googlemail")
-            || raw.localizedCaseInsensitiveContains("yahoo")
-            || raw.localizedCaseInsensitiveContains("spark")
-            || raw.localizedCaseInsensitiveContains("airmail")
-        {
-            return html
-        }
-        return html
+        return htmlFile ?? brief
     }
 
     func activityViewController(
@@ -10938,16 +10929,14 @@ final class PulseShareSource: NSObject, UIActivityItemSource {
         if raw.localizedCaseInsensitiveContains("outlook") || raw.localizedCaseInsensitiveContains("microsoft") {
             return UTType.png.identifier
         }
-        return UTType.html.identifier
+        if htmlFile != nil { return UTType.html.identifier }
+        return UTType.plainText.identifier
     }
 
     func activityViewControllerLinkMetadata(_ activityViewController: UIActivityViewController) -> LPLinkMetadata? {
         let meta = LPLinkMetadata()
         meta.title = "Fulfillment Heartbeat"
         meta.originalURL = URL(string: "heartbeat://pulse")
-        if let preview {
-            meta.imageProvider = NSItemProvider(object: preview)
-        }
         return meta
     }
 }
@@ -11225,7 +11214,7 @@ enum PulseShare {
     @MainActor
     static func present(_ packet: PulseMail.Packet) {
         jpegURLs = []
-        jpegHTML = packet.html
+        jpegHTML = packet.brief
         let source = PulseShareSource(packet: packet)
         let mail = MailShareActivity(packet: packet)
         let sheet = UIActivityViewController(
@@ -11294,13 +11283,10 @@ enum PulseShare {
     }
 
     static func writeHTMLFile(_ packet: PulseMail.Packet) -> URL? {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Fulfillment-Heartbeat.html")
-        do {
-            try packet.html.data(using: .utf8)?.write(to: url, options: .atomic)
-            return url
-        } catch {
-            return nil
+        if let existing = packet.htmlFile, FileManager.default.fileExists(atPath: existing.path) {
+            return existing
         }
+        return PulseMail.writeHTMLStreaming(packet.html)
     }
 
     static func topController() -> UIViewController? {
@@ -11334,7 +11320,7 @@ struct MailComposeView: UIViewControllerRepresentable {
             mail.mailComposeDelegate = context.coordinator
             mail.setToRecipients(recipients)
             mail.setSubject(subject)
-            mail.setMessageBody(html, isHTML: true)
+            mail.setMessageBody(plain, isHTML: false)
             return mail
         }
         let fallback = UIActivityViewController(activityItems: [plain], applicationActivities: nil)

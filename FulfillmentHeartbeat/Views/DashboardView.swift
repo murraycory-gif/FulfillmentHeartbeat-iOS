@@ -598,7 +598,7 @@ private struct OverviewMetricColumns: View {
         stripe: Bool = false
     ) -> some View {
         HStack(spacing: HubLayout.tableGutter) {
-            Text(header ? label.uppercased() : label)
+            Text(header ? label.uppercased() : HeartbeatMath.displayGrainLabel(label))
                 .font(AppTheme.rounded(header ? .caption2 : .subheadline, weight: header ? .bold : .semibold))
                 .foregroundStyle(header ? AppTheme.textSecondary : AppTheme.text)
                 .lineLimit(1)
@@ -700,6 +700,7 @@ struct DashScopeGrainCard: View {
     @State private var childFlags: [String: [HeartbeatMath.FiveStarFlag]] = [:]
 
     private var line: DashScopeLine { pack.line }
+    private var scopeLabel: String { HeartbeatMath.displayGrainLabel(line.label) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -743,7 +744,7 @@ struct DashScopeGrainCard: View {
     private var phoneHeader: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text(line.label)
+                Text(scopeLabel)
                     .font(AppTheme.rounded(.subheadline, weight: .bold))
                     .foregroundStyle(AppTheme.text)
                     .lineLimit(2)
@@ -766,7 +767,7 @@ struct DashScopeGrainCard: View {
 
     private var wideHeader: some View {
         HStack(spacing: 10) {
-            Text(line.label)
+            Text(scopeLabel)
                 .font(AppTheme.rounded(.subheadline, weight: .bold))
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
@@ -797,7 +798,7 @@ struct DashScopeGrainCard: View {
     private func childBlock(_ child: DashScopeLine) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Text(child.label)
+                Text(HeartbeatMath.displayGrainLabel(child.label))
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(AppTheme.text)
                     .lineLimit(1)

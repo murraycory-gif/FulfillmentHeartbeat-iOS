@@ -1046,7 +1046,7 @@ struct PickerFocusTile: View {
                     .foregroundStyle(ink)
                     .lineLimit(1)
                     .minimumScaleFactor(0.55)
-                    .fixedSize(horizontal: true, vertical: false)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 if let unit, !unit.isEmpty {
                     Text(unit)
                         .font(AppTheme.rounded(phone ? .caption : .subheadline, weight: .semibold))
