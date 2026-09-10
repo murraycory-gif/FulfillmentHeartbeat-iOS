@@ -10059,7 +10059,7 @@ struct HubStoreCard<Content: View>: View {
     let count: Int
     var expanded: Bool
     let toggle: () -> Void
-    @ViewBuilder var content: Content
+    @ViewBuilder var content: () -> Content
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -10074,7 +10074,7 @@ struct HubStoreCard<Content: View>: View {
             }
             .buttonStyle(.plain)
             if expanded {
-                content
+                content()
                     .padding(.horizontal, 12)
                     .padding(.top, 4)
                     .padding(.bottom, 12)

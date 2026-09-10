@@ -363,9 +363,11 @@ struct MainHubView: View {
                         )
                     }
                     .equatable()
-                } else {
+                } else if PulseLaunch.shouldRemountPageOnDestinationChange() {
                     page(for: router.current)
                         .id(router.current)
+                } else {
+                    page(for: router.current)
                 }
             }
             .clipped()

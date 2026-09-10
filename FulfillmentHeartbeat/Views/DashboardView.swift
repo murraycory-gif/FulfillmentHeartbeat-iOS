@@ -447,7 +447,6 @@ struct DashScopeStrip: View {
     var body: some View {
         VStack(alignment: .leading, spacing: expanded ? 10 : 8) {
             Button {
-                store.ensureDashboardExpandReady(section)
                 var txn = Transaction()
                 txn.animation = nil
                 withTransaction(txn) { expanded.toggle() }

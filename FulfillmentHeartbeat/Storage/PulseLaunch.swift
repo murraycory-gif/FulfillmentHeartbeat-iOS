@@ -228,6 +228,18 @@ enum PulseLaunch {
     /// drags (nested UIScrollView). Sidebar / page taps still switch via HubRouter.
     static func shouldUsePagingScroll() -> Bool { false }
 
+    /// Remounting every page with `.id` rebuilds the whole List on each sidebar tap.
+    static func shouldRemountPageOnDestinationChange() -> Bool { false }
+
+    /// Store row trees stay unbuilt until the chevron opens.
+    static func shouldDeferStoreRowBuildUntilExpanded() -> Bool { true }
+
+    /// Expand reads cache/packs only. Never walk the warehouse on the tap turn.
+    static func shouldBuildExpandTableOffMain() -> Bool { true }
+
+    /// Filling expand cache must not `filterStamp` the hub.
+    static func shouldStampHubWhenExpandCacheFills() -> Bool { false }
+
     /// Apply the seat filter while Who's looking is still up, then mount the hub
     /// so Continue does not land on a mid-paint dashboard.
     static func shouldRevealHubAfterSeatPaint() -> Bool { true }

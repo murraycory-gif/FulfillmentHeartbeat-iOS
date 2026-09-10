@@ -591,19 +591,19 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func dashboardGrainRows(for section: MetricSection) -> [HeartbeatMath.DashboardGrainTableRow] {
-        if let cached = cachedGrainTables[section] { return cached }
-        let table = buildGrainTableNow(for: section)
-        cachedGrainTables[section] = table
-        return table
+        if let cached = cachedGrainTables[section], !cached.isEmpty { return cached }
+        let packs = cachedGrainPacks[section] ?? []
+        let goal = section == .lostRevenue ? lostRevenueGoalFallbackValue() : nil
+        return HeartbeatMath.dashboardGrainRowsFromPacks(packs, section: section, goalFallback: goal)
     }
 
     func salesExpandRows() -> [SalesRollupRow] {
-        if cachedSalesScopeRows.isEmpty { refreshSalesExpandCache() }
-        return cachedSalesScopeRows
+        cachedSalesScopeRows
     }
 
-    /// Fill the expand table before the chevron opens so the first paint has rows.
+    /// Cache/packs only. Expand must not walk the warehouse on the tap turn.
     func ensureDashboardExpandReady(_ section: MetricSection) {
+        if PulseLaunch.shouldBuildExpandTableOffMain() { return }
         if section == .sales {
             if cachedSalesScopeRows.isEmpty { refreshSalesExpandCache() }
             return
@@ -736,7 +736,8 @@ final class HeartbeatStore: ObservableObject {
             )
             changed = true
         }
-        if changed, !needsRolePick, grainPaintSettled {
+        if changed, !needsRolePick, grainPaintSettled,
+           PulseLaunch.shouldStampHubWhenExpandCacheFills() {
             filterStamp += 1
         }
     }
