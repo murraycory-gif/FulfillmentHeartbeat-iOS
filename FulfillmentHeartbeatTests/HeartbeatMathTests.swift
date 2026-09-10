@@ -1264,6 +1264,29 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertGreaterThan(unfilteredFallback.count, 2_000)
     }
 
+    func testPickerSliceKeepsEveryShopperInTheFilter() {
+        func shopper(_ store: String, _ name: String, pph: Double) -> MetricRow {
+            MetricRow(
+                section: .pickerScorecard,
+                storeNumber: store,
+                payload: ["pph": pph],
+                textPayload: ["shopper_id": name, "shopper_name": name]
+            )
+        }
+        let rows = [
+            shopper("304", "Ann", pph: 60),
+            shopper("304", "Ben", pph: 82),
+            shopper("667", "Cara", pph: 70),
+        ]
+        let allowed: Set<String> = ["304"]
+        let shoppers = PulseQuery.sliceShoppers(rows, allowed: allowed)
+        XCTAssertEqual(shoppers.map { $0.textPayload["shopper_name"] ?? "" }.sorted(), ["Ann", "Ben"])
+        let collapsed = PulseQuery.slice(rows, allowed: allowed)
+        XCTAssertEqual(collapsed.count, 1)
+        XCTAssertEqual(PulseQuery.sliceSection(.pickerScorecard, rows: rows, allowed: allowed).count, 2)
+        XCTAssertEqual(PulseQuery.sliceSection(.lostRevenue, rows: rows, allowed: allowed).count, 1)
+    }
+
     func testWarehouseKeepsFullPackAndFillsThinPack() {
         func lost(_ store: String, dollars: Double) -> MetricRow {
             MetricRow(

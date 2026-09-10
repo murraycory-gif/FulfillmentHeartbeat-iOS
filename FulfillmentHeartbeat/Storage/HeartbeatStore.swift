@@ -137,6 +137,7 @@ final class HeartbeatStore: ObservableObject {
         if canLeaveSplash() {
             finishLocalLaunch()
             Task { await self.paintFromWarehouse(light: false) }
+            Task { await self.loadDeferredPicker() }
             if HubLayout.ingestsWorkbook {
                 Task { await self.ingestWorkbookOnMacIfNeeded() }
             }
@@ -154,6 +155,7 @@ final class HeartbeatStore: ObservableObject {
         if canLeaveSplash() {
             finishLocalLaunch()
             Task { await self.paintFromWarehouse(light: false) }
+            Task { await self.loadDeferredPicker() }
             return
         }
         isImporting = false
@@ -347,8 +349,9 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func displayRows(for section: MetricSection) -> [MetricRow] {
-        PulseQuery.slice(
-            latestBySection[section] ?? [],
+        PulseQuery.sliceSection(
+            section,
+            rows: latestBySection[section] ?? [],
             allowed: PulseCaches.allowedStores(roster: roster, filters: filters)
         )
     }
@@ -495,14 +498,12 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func pickerCount(for focus: PickerFocus) -> Int {
-        let pickers = filters.isActive
-            ? (filteredLatest[.pickerScorecard] ?? [])
-            : (latestBySection[.pickerScorecard] ?? [])
+        let pickers = visiblePickers()
         if focus == .all { return pickers.count }
-        if let indexed = pickerIndex[focus]?.count, indexed > 0 {
+        if pickerIndexMatches(pickers), let indexed = pickerIndex[focus]?.count {
             return indexed
         }
-        return 0
+        return pickers.filter { HeartbeatMath.pickerMatches($0, focus: focus) }.count
     }
 
     func pickerFocusHealth(for focus: PickerFocus) -> Health {
@@ -510,14 +511,16 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func pickerPage(focus: PickerFocus, sort: PickerSort, ascending: Bool, limit: Int) -> [MetricRow] {
-        let pickers = filteredLatest[.pickerScorecard] ?? []
+        let pickers = visiblePickers()
         guard !pickers.isEmpty else { return [] }
-        var idxs = (pickerIndex[focus] ?? []).filter { pickers.indices.contains($0) }
+        var idxs = pickerIndexMatches(pickers)
+            ? (pickerIndex[focus] ?? []).filter { pickers.indices.contains($0) }
+            : []
         if idxs.isEmpty {
             if focus == .all {
                 idxs = Array(pickers.indices)
             } else {
-                return []
+                idxs = pickers.indices.filter { HeartbeatMath.pickerMatches(pickers[$0], focus: focus) }
             }
         }
         let cap = min(max(limit, 1), idxs.count)
@@ -529,6 +532,17 @@ final class HeartbeatStore: ObservableObject {
             idxs = Array(idxs.prefix(cap))
         }
         return idxs.map { pickers[$0] }
+    }
+
+    private func visiblePickers() -> [MetricRow] {
+        if let painted = filteredLatest[.pickerScorecard], !painted.isEmpty {
+            return painted
+        }
+        return displayRows(for: .pickerScorecard)
+    }
+
+    private func pickerIndexMatches(_ pickers: [MetricRow]) -> Bool {
+        (pickerIndex[.all] ?? []).count == pickers.count && pickers.count > 0
     }
 
     private func comparePickers(_ lhs: MetricRow, _ rhs: MetricRow, sort: PickerSort) -> ComparisonResult {
@@ -2393,6 +2407,9 @@ final class HeartbeatStore: ObservableObject {
         }
         if !view.pickers.isEmpty {
             cachedPickerBoard = HeartbeatMath.pickerBoard(view.pickers)
+        } else if let pickers = filteredLatest[.pickerScorecard], !pickers.isEmpty {
+            cachedPickerBoard = HeartbeatMath.pickerBoard(pickers)
+            schedulePickerIndex(pickers)
         }
         usingPackChrome = false
         rebuildLostIndex()
@@ -2915,9 +2932,45 @@ final class HeartbeatStore: ObservableObject {
         Task { await paintFromWarehouse(light: true) }
     }
 
+    private func loadDeferredPicker() async {
+        await ensureSectionLoaded(.pickerScorecard)
+    }
+
+    private func refreshLoadedPickers() {
+        let pickers = displayRows(for: .pickerScorecard)
+        filteredLatest[.pickerScorecard] = pickers
+        if !pickers.isEmpty {
+            cachedPickerBoard = HeartbeatMath.pickerBoard(pickers)
+            refreshSummary(for: .pickerScorecard, rows: pickers)
+            schedulePickerIndex(pickers)
+        }
+        filterStamp += 1
+    }
+
+    private func schedulePickerIndex(_ pickers: [MetricRow]) {
+        let count = pickers.count
+        Task.detached(priority: .utility) {
+            let built = PulseCaches.pickerBuckets(pickers)
+            await MainActor.run {
+                guard (self.filteredLatest[.pickerScorecard] ?? []).count == count else { return }
+                self.pickerIndex = built.index
+                self.pickerFocusHealth = built.health
+                self.filterStamp += 1
+            }
+        }
+    }
+
     func ensureSectionLoaded(_ section: MetricSection) async {
-        if factsOwned.contains(section) { return }
-        if !(latestBySection[section] ?? []).isEmpty { return }
+        let deferred = PulseQuery.skipOnLight.contains(section)
+        if deferred {
+            if (latestBySection[section] ?? []).count >= 2 {
+                if section == .pickerScorecard { refreshLoadedPickers() }
+                return
+            }
+        } else {
+            if factsOwned.contains(section) { return }
+            if !(latestBySection[section] ?? []).isEmpty { return }
+        }
         guard PulseSQLite.exists(at: sqliteURL) else { return }
         let url = sqliteURL
         let rosterCopy = roster
@@ -2950,7 +3003,12 @@ final class HeartbeatStore: ObservableObject {
         if section == .labor {
             rebuildLaborWeekIndex()
         }
-        await paintFromWarehouse(light: false)
+        if section == .pickerScorecard {
+            refreshLoadedPickers()
+            await paintFromWarehouse(light: true)
+            return
+        }
+        await paintFromWarehouse(light: deferred)
     }
 
     private func hydrateFilteredHeavy() async {

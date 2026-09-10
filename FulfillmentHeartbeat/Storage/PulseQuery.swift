@@ -30,6 +30,29 @@ enum PulseQuery {
         return PulseCaches.rowsMatchingStores(facts, stores: allowed, skipMarket: true)
     }
 
+    static func isShopperRow(_ row: MetricRow) -> Bool {
+        HeartbeatMath.isRealPicker(row) || !(row.textPayload["shopper_id"] ?? "").isEmpty
+    }
+
+    /// Keep every shopper in the filter. Store-fact slice keeps one row per store.
+    static func sliceShoppers(_ rows: [MetricRow], allowed: Set<String>?) -> [MetricRow] {
+        let shoppers = rows.filter(isShopperRow)
+        guard let allowed else { return shoppers }
+        return shoppers.filter { row in
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            if store.isEmpty { return false }
+            if allowed.contains(store) { return true }
+            return HeartbeatMath.storeAliases(store).contains(where: { allowed.contains($0) })
+        }
+    }
+
+    static func sliceSection(_ section: MetricSection, rows: [MetricRow], allowed: Set<String>?) -> [MetricRow] {
+        if section == .pickerScorecard || section == .pickPathPicker {
+            return sliceShoppers(rows, allowed: allowed)
+        }
+        return slice(rows, allowed: allowed)
+    }
+
     static func scoredStoreFacts(_ rows: [MetricRow]) -> [MetricRow] {
         rows.filter(isStoreFact)
     }
@@ -75,8 +98,8 @@ enum PulseQuery {
         var filtered: [MetricSection: [MetricRow]] = [:]
         filtered.reserveCapacity(warehouse.count)
         for (section, rows) in warehouse {
-            if light, skipOnLight.contains(section) { continue }
-            filtered[section] = slice(rows, allowed: allowed)
+            if light, skipOnLight.contains(section), rows.count < 2 { continue }
+            filtered[section] = sliceSection(section, rows: rows, allowed: allowed)
         }
         let summaries = MetricSection.dashboardCards.map { section in
             HeartbeatMath.summarize(
