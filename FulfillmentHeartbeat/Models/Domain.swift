@@ -710,7 +710,7 @@ enum HeartbeatMath {
         .map(\.0)
     }
 
-    struct DashboardGrainTableRow: Identifiable, Equatable, Sendable {
+    struct DashboardGrainTableRow: Identifiable, Equatable, Sendable, Codable {
         let label: String
         let storeCount: Int
         let values: [String]

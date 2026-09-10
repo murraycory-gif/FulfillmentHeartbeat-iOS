@@ -51,6 +51,8 @@ enum HeartbeatIngest {
             print("  card \(summary.section.rawValue): stores=\(summary.storeCount) head=\(head) risk=\(summary.riskCount)")
         }
         print("  picker shoppers=\(chrome.pickerShoppers) opportunity=\(chrome.pickerOpportunity) strong=\(chrome.pickerStrong)")
+        let pickerTable = chrome.tables[MetricSection.pickerScorecard.rawValue] ?? []
+        print("  picker expand live=\(HeartbeatMath.grainRowsAreLive(pickerTable)) rows=\(pickerTable.count)")
         for section in [MetricSection.lostRevenue, .labor, .sales, .fiveStar] {
             let count = rows.filter {
                 $0.section == section && !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty

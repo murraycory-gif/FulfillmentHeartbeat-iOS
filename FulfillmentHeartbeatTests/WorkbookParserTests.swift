@@ -518,5 +518,88 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertEqual(store.payload["lost_revenue_goal"] ?? 0, 250, accuracy: 0.01)
         XCTAssertEqual(HeartbeatMath.lostRevenueGoalPct(store.asRow(section: .lostRevenue)) ?? 0, 3.0, accuracy: 0.01)
     }
+
+    func testLostRevenueColumnMapKeepsGoalAndTotalOpportunityOnDistinctKeys() {
+        let map: [(String, String)] = [
+            ("Total Lost Revenue (Total Opportunity)", "lost_revenue"),
+            ("Total Lost Revenue % (Total Opportunity)", "lost_revenue_pct"),
+            ("Total Lost Revenue (FY2026 Goal)", "lost_revenue_goal"),
+            ("Total Lost Revenue (FY2026 Goal) %", "lost_revenue_goal_pct"),
+            ("Goal %", "lost_revenue_goal_pct"),
+            ("FY2026 Goal", "lost_revenue_goal"),
+            ("Missed Sales (Total Opportunity)", "missed_sales"),
+            ("Missed Sales % (Total Opportunity)", "missed_sales_pct"),
+            ("Missed Sales (FY2026 Goal)", "missed_sales_goal"),
+            ("Missed Sales % (FY2026 Goal)", "missed_sales_goal_pct"),
+            ("Kill Switch Lost Sales (FY2026 Goal)", "kill_switch_lost_goal"),
+            ("Kill Switch Lost Sales (FY2026 Goal) %", "kill_switch_lost_goal_pct"),
+            ("Kill Switch Lost Sales (TO / $90)", "kill_switch_lost"),
+            ("Post Sub OOS Foregone (Total Opportunity)", "post_sub_oos_foregone"),
+            ("Post Sub OOS Foregone (FY2026 Goal)", "post_sub_oos_foregone_goal"),
+            ("Refund Lost Sales (Total Opportunity)", "refund_lost"),
+            ("Refund Lost Sales (FY2026 Goal)", "refund_lost_goal"),
+            ("Cancelled Lost Sales (Total Opportunity)", "cancelled_lost"),
+            ("Cancelled Lost Sales (FY2026 Goal)", "cancelled_lost_goal"),
+        ]
+        for (header, key) in map {
+            XCTAssertEqual(WorkbookParser.lostRevenueColumnKey(header), key, header)
+        }
+        XCTAssertNotEqual(
+            WorkbookParser.lostRevenueColumnKey("Missed Sales (FY2026 Goal)"),
+            "missed_sales",
+            "Goal Missed must not share the TO Missed key"
+        )
+        XCTAssertNotEqual(
+            WorkbookParser.lostRevenueColumnKey("Kill Switch Lost Sales (FY2026 Goal)"),
+            "lost_revenue_goal",
+            "Kill FY must not write lost_revenue_goal"
+        )
+        XCTAssertEqual(
+            WorkbookParser.lostRevenueColumnKey("Total Lost Revenue (FY2026 Goal)"),
+            "lost_revenue_goal"
+        )
+    }
+
+    func testLostRevenueGoalHeaderDoesNotOverwriteTOMissed() throws {
+        let csv = """
+        Store,eComm Sales,Total Lost Revenue (Total Opportunity),Missed Sales (Total Opportunity),Missed Sales (FY2026 Goal)
+        2218,10000,400,100,50
+        Total,46077144.47,1962441.23,800,400
+        """
+        let rows = try WorkbookParser.parse(data: Data(csv.utf8), filename: "Breakdown Week 25.xlsx")
+        let store = try XCTUnwrap(rows.first { $0.storeNumber == "2218" })
+        XCTAssertEqual(store.payload["missed_sales"] ?? 0, 100, accuracy: 0.01)
+        XCTAssertEqual(store.payload["missed_sales_goal"] ?? 0, 50, accuracy: 0.01)
+        XCTAssertNotEqual(store.payload["missed_sales"] ?? 0, 50, accuracy: 0.01)
+        let market = try XCTUnwrap(rows.first { $0.textPayload["lost_grain"] == "market" })
+        XCTAssertEqual(market.payload["lost_revenue"] ?? 0, 1_962_441.23, accuracy: 0.01)
+        XCTAssertEqual(market.payload["missed_sales"] ?? 0, 800, accuracy: 0.01)
+        XCTAssertEqual(market.payload["missed_sales_goal"] ?? 0, 400, accuracy: 0.01)
+    }
+
+    func testKillSwitchFYDoesNotOverwriteLostRevenueGoal() throws {
+        let csv = """
+        Store,eComm Sales,Total Lost Revenue (Total Opportunity),Total Lost Revenue (FY2026 Goal),Kill Switch Lost Sales (FY2026 Goal),Kill Switch Lost Sales (TO / $90)
+        2218,10000,400,200,10,25
+        Total,46077144.47,1962441.23,900000,80,120
+        """
+        let rows = try WorkbookParser.parse(data: Data(csv.utf8), filename: "Breakdown Week 25.xlsx")
+        let store = try XCTUnwrap(rows.first { $0.storeNumber == "2218" })
+        XCTAssertEqual(store.payload["lost_revenue"] ?? 0, 400, accuracy: 0.01)
+        XCTAssertEqual(store.payload["lost_revenue_goal"] ?? 0, 200, accuracy: 0.01)
+        XCTAssertEqual(store.payload["kill_switch_lost_goal"] ?? 0, 10, accuracy: 0.01)
+        XCTAssertEqual(store.payload["kill_switch_lost"] ?? 0, 25, accuracy: 0.01)
+        XCTAssertNotEqual(store.payload["lost_revenue_goal"] ?? 0, 10, accuracy: 0.01)
+        let market = try XCTUnwrap(rows.first { $0.textPayload["lost_grain"] == "market" })
+        XCTAssertEqual(market.payload["lost_revenue"] ?? 0, 1_962_441.23, accuracy: 0.01)
+        XCTAssertEqual(market.payload["lost_revenue_goal"] ?? 0, 900_000, accuracy: 0.01)
+        XCTAssertEqual(market.payload["kill_switch_lost_goal"] ?? 0, 80, accuracy: 0.01)
+        let company = HeartbeatMath.summarize(
+            .lostRevenue,
+            rows: rows.map { $0.asRow(section: .lostRevenue) },
+            upload: nil
+        )
+        XCTAssertEqual(company.headline ?? 0, 1_962_441.23, accuracy: 0.01)
+    }
 }
 

@@ -1373,6 +1373,121 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(PulseLaunch.shouldStampHubWhenExpandCacheFills())
     }
 
+    func testPickerExpandIsLiveWhenPackChromeHasShoppers() {
+        let chrome = PulseDashChrome(
+            summaries: [
+                SectionSummary(
+                    section: .pickerScorecard,
+                    storeCount: 40,
+                    headline: 1_200,
+                    headlineLabel: "Shoppers",
+                    secondary: "400 opportunity · 600 doing well",
+                    health: .watch,
+                    watchCount: 0,
+                    riskCount: 400,
+                    lastFilename: nil,
+                    lastUploadedAt: nil
+                )
+            ],
+            flags: [:],
+            packs: [:],
+            pickerShoppers: 1_200,
+            pickerOpportunity: 400,
+            pickerStrong: 600
+        )
+        XCTAssertTrue(chrome.pickerOK)
+        let rows = PulseLaunch.pickerExpandRows(from: chrome)
+        XCTAssertTrue(HeartbeatMath.grainRowsAreLive(rows), "pack picker data must prefill live grain")
+        XCTAssertTrue(
+            PulseLaunch.dashboardExpandIsLive(section: .pickerScorecard, salesRows: [], grainRows: rows),
+            "Picker chevron must not stay light-blue inert when chrome has shoppers"
+        )
+        XCTAssertFalse(
+            PulseLaunch.dashboardExpandIsLive(section: .pickerScorecard, salesRows: [], grainRows: []),
+            "empty picker grain must not open a header shell"
+        )
+        XCTAssertFalse(PulseLaunch.salesExpandIsLive([]))
+        XCTAssertFalse(
+            PulseLaunch.dashboardExpandIsLive(section: .sales, salesRows: [], grainRows: rows),
+            "Sales expand stays gated on live $"
+        )
+        let emptyPaint: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] = [
+            .lostRevenue: [],
+            .sales: [],
+        ]
+        let merged = PulseLaunch.mergeLiveGrainTables(
+            incoming: emptyPaint,
+            live: [.pickerScorecard: rows]
+        )
+        XCTAssertTrue(
+            HeartbeatMath.grainRowsAreLive(merged[.pickerScorecard] ?? []),
+            "dashboard paint must not drop a live picker expand table"
+        )
+        XCTAssertFalse(PulseLaunch.shouldStreamPickerOnDashboard())
+        XCTAssertFalse(PulseLaunch.shouldStampHubWhenExpandCacheFills())
+        XCTAssertFalse(PulseLaunch.shouldMountHubUnderRoleGate())
+        XCTAssertFalse(PulseLaunch.shouldUsePagingScroll())
+        XCTAssertFalse(PulseLaunch.shouldRemountPageOnDestinationChange())
+    }
+
+    func testPickerExpandPrefersChromeTableAndScopesToFilter() {
+        let jewel = HeartbeatMath.DashboardGrainTableRow(
+            label: "Jewel Osco",
+            storeCount: 80,
+            values: ["80", "50", "20", "10"],
+            health: .watch
+        )
+        let south = HeartbeatMath.DashboardGrainTableRow(
+            label: "Albertsons South",
+            storeCount: 40,
+            values: ["40", "20", "10", "10"],
+            health: .watch
+        )
+        let chrome = PulseDashChrome(
+            summaries: [],
+            flags: [:],
+            packs: [:],
+            tables: [MetricSection.pickerScorecard.rawValue: [jewel, south]],
+            pickerShoppers: 120
+        )
+        let all = PulseLaunch.pickerExpandRows(from: chrome)
+        XCTAssertEqual(all.map(\.label), ["Jewel Osco", "Albertsons South"])
+        XCTAssertTrue(PulseLaunch.dashboardExpandIsLive(section: .pickerScorecard, salesRows: [], grainRows: all))
+        var jewelFilter = DashboardFilters()
+        jewelFilter.division = "Jewel Osco"
+        let scoped = PulseLaunch.pickerExpandRows(from: chrome, filters: jewelFilter)
+        XCTAssertEqual(scoped.map(\.label), ["Jewel Osco"])
+        XCTAssertEqual(scoped.first?.storeCount, 80)
+        XCTAssertTrue(HeartbeatMath.grainRowsAreLive(scoped))
+    }
+
+    func testUnfilteredLostRevenueHeadlineUsesMarketTotal1962441() {
+        let market = MetricRow(
+            section: .lostRevenue,
+            storeNumber: "",
+            payload: ["lost_revenue": 1_962_441.23, "lost_revenue_pct": 4.53],
+            textPayload: ["lost_grain": "market"]
+        )
+        let stores = [
+            MetricRow(
+                section: .lostRevenue,
+                storeNumber: "1",
+                payload: ["lost_revenue": 1_200_000],
+                textPayload: ["lost_grain": "store"]
+            ),
+            MetricRow(
+                section: .lostRevenue,
+                storeNumber: "2",
+                payload: ["lost_revenue": 815_924],
+                textPayload: ["lost_grain": "store"]
+            ),
+        ]
+        let company = HeartbeatMath.summarize(.lostRevenue, rows: stores + [market], upload: nil)
+        XCTAssertEqual(company.headline ?? 0, 1_962_441.23, accuracy: 0.01)
+        XCTAssertNotEqual(company.headline ?? 0, 2_015_924, accuracy: 1)
+        XCTAssertEqual(HeartbeatMath.totalOpportunityDollars(market), 1_962_441.23, accuracy: 0.01)
+    }
+
     func testPowerBISalesTabSundayMondayTuesdayAndTotal() {
         let metric = ["Sales $", "Sales YoY %", "Orders", "Orders YoY %", "AOS", "AOS YoY %", "AIV", "AIV YoY", "Items P/TXN", "Item P/TXN YoY", "Total Items", "Total Items YoY"]
         let weekday = ["Weekday"]

@@ -4,18 +4,20 @@ struct PulseDashChrome: Codable {
     var summaries: [SectionSummary]
     var flags: [String: [HeartbeatMath.FiveStarFlag]]
     var packs: [String: [DashScopePack]]
+    var tables: [String: [HeartbeatMath.DashboardGrainTableRow]]
     var pickerShoppers: Int
     var pickerOpportunity: Int
     var pickerStrong: Int
 
     enum CodingKeys: String, CodingKey {
-        case summaries, flags, packs, pickerShoppers, pickerOpportunity, pickerStrong
+        case summaries, flags, packs, tables, pickerShoppers, pickerOpportunity, pickerStrong
     }
 
     init(
         summaries: [SectionSummary],
         flags: [String: [HeartbeatMath.FiveStarFlag]],
         packs: [String: [DashScopePack]],
+        tables: [String: [HeartbeatMath.DashboardGrainTableRow]] = [:],
         pickerShoppers: Int,
         pickerOpportunity: Int = 0,
         pickerStrong: Int = 0
@@ -23,6 +25,7 @@ struct PulseDashChrome: Codable {
         self.summaries = summaries
         self.flags = flags
         self.packs = packs
+        self.tables = tables
         self.pickerShoppers = pickerShoppers
         self.pickerOpportunity = pickerOpportunity
         self.pickerStrong = pickerStrong
@@ -33,16 +36,48 @@ struct PulseDashChrome: Codable {
         summaries = try container.decode([SectionSummary].self, forKey: .summaries)
         flags = try container.decodeIfPresent([String: [HeartbeatMath.FiveStarFlag]].self, forKey: .flags) ?? [:]
         packs = try container.decodeIfPresent([String: [DashScopePack]].self, forKey: .packs) ?? [:]
+        tables = try container.decodeIfPresent([String: [HeartbeatMath.DashboardGrainTableRow]].self, forKey: .tables) ?? [:]
         pickerShoppers = try container.decodeIfPresent(Int.self, forKey: .pickerShoppers) ?? 0
         pickerOpportunity = try container.decodeIfPresent(Int.self, forKey: .pickerOpportunity) ?? 0
         pickerStrong = try container.decodeIfPresent(Int.self, forKey: .pickerStrong) ?? 0
     }
 
     static func from(_ caches: PulseCaches) -> PulseDashChrome {
-        PulseDashChrome(
+        let latest = caches.filteredLatest.isEmpty ? caches.latestBySection : caches.filteredLatest
+        var packs = caches.cachedGrainPacks
+        if packs[.pickerScorecard] == nil {
+            let pickerOnly = grainPacks(
+                latest: latest,
+                grain: .region,
+                hidePicker: false,
+                roster: caches.roster
+            )
+            if let picker = pickerOnly[.pickerScorecard] {
+                packs[.pickerScorecard] = picker
+            }
+        }
+        var tables = PulseCaches.grainTables(
+            latest: latest,
+            grain: .region,
+            roster: caches.roster,
+            packs: packs
+        )
+        if !HeartbeatMath.grainRowsAreLive(tables[.pickerScorecard] ?? []) {
+            let pickerTable = HeartbeatMath.dashboardGrainTableFilled(
+                section: .pickerScorecard,
+                rows: latest[.pickerScorecard] ?? [],
+                grain: .region,
+                order: packs[.pickerScorecard]?.map(\.line.label) ?? []
+            )
+            if HeartbeatMath.grainRowsAreLive(pickerTable) {
+                tables[.pickerScorecard] = pickerTable
+            }
+        }
+        return PulseDashChrome(
             summaries: caches.cachedSummaries,
             flags: Dictionary(uniqueKeysWithValues: caches.cachedCardFlags.map { ($0.key.rawValue, $0.value) }),
-            packs: Dictionary(uniqueKeysWithValues: caches.cachedGrainPacks.map { ($0.key.rawValue, $0.value) }),
+            packs: Dictionary(uniqueKeysWithValues: packs.map { ($0.key.rawValue, $0.value) }),
+            tables: Dictionary(uniqueKeysWithValues: tables.map { ($0.key.rawValue, $0.value) }),
             pickerShoppers: caches.cachedPickerBoard.shopperCount,
             pickerOpportunity: caches.cachedPickerBoard.opportunityCount,
             pickerStrong: caches.cachedPickerBoard.strongCount

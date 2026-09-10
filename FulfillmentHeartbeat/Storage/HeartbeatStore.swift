@@ -631,6 +631,9 @@ final class HeartbeatStore: ObservableObject {
             adoptLiveSalesExpand(built.0, days: built.1)
             return
         }
+        if section == .pickerScorecard, let chrome = packChrome {
+            seedPickerGrainFromChrome(chrome)
+        }
         if let cached = cachedGrainTables[section], HeartbeatMath.grainRowsAreLive(cached) {
             return
         }
@@ -798,7 +801,8 @@ final class HeartbeatStore: ObservableObject {
 
     private func mergeGrainTables(_ tables: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]]) {
         var changed = false
-        for (section, rows) in tables where !rows.isEmpty {
+        let merged = PulseLaunch.mergeLiveGrainTables(incoming: tables, live: cachedGrainTables)
+        for (section, rows) in merged where !rows.isEmpty {
             if !HeartbeatMath.grainRowsAreLive(rows),
                let keep = cachedGrainTables[section],
                HeartbeatMath.grainRowsAreLive(keep) {
@@ -1922,6 +1926,10 @@ final class HeartbeatStore: ObservableObject {
         guard needsRolePick else { return }
         needsRolePick = false
         noteHubInteractive()
+        if let chrome = packChrome {
+            seedPickerGrainFromChrome(chrome)
+            pinUnfilteredLostRevenueHeadline()
+        }
         // Seat paint skipped grains while Who's looking was up. Start them now.
         scheduleGrainPaint(generation: paintGeneration)
         startCloudHydrateIfNeeded()
@@ -3042,7 +3050,7 @@ final class HeartbeatStore: ObservableObject {
             goalFallback: lostRevenueGoalFallbackValue()
         )
         cachedGrainPacks = packs
-        cachedGrainTables = tables
+        cachedGrainTables = PulseLaunch.mergeLiveGrainTables(incoming: tables, live: cachedGrainTables)
         refreshSalesExpandCache()
     }
 
@@ -3236,7 +3244,7 @@ final class HeartbeatStore: ObservableObject {
                 }
             }
             cachedGrainPacks = view.grains
-            cachedGrainTables = tables
+            cachedGrainTables = PulseLaunch.mergeLiveGrainTables(incoming: tables, live: cachedGrainTables)
             if let goal = lostRevenueGoalFallbackValue(),
                HeartbeatMath.grainTableNeedsGoalFill(cachedGrainTables[.lostRevenue] ?? []) {
                 cachedGrainTables[.lostRevenue] = HeartbeatMath.fillingLostRevenueGoal(
@@ -3446,7 +3454,10 @@ final class HeartbeatStore: ObservableObject {
                 guard self.effectiveDashboardGrain == grain else { return }
                 guard self.filterStamp >= token else { return }
                 self.cachedGrainPacks = packs
-                self.cachedGrainTables = tables
+                self.cachedGrainTables = PulseLaunch.mergeLiveGrainTables(
+                    incoming: tables,
+                    live: self.cachedGrainTables
+                )
                 var snap = self.snapshotPulse()
                 snap.grainPacks = packs
                 self.unfilteredPulse = snap
@@ -3546,7 +3557,13 @@ final class HeartbeatStore: ObservableObject {
         if pulse.grainTables.isEmpty {
             applyUnfilteredGrainFromWarehouse()
         } else {
-            cachedGrainTables = pulse.grainTables
+            cachedGrainTables = PulseLaunch.mergeLiveGrainTables(
+                incoming: pulse.grainTables,
+                live: cachedGrainTables
+            )
+        }
+        if let chrome = packChrome {
+            seedPickerGrainFromChrome(chrome)
         }
         refreshChecklistOpenCount()
     }
@@ -3867,6 +3884,7 @@ final class HeartbeatStore: ObservableObject {
         if !chrome.summaries.isEmpty {
             cachedSummaries = chrome.summaries
         }
+        pinUnfilteredLostRevenueHeadline()
         if !chrome.flags.isEmpty {
             var next: [MetricSection: [HeartbeatMath.FiveStarFlag]] = [:]
             for (key, value) in chrome.flags {
@@ -3885,6 +3903,8 @@ final class HeartbeatStore: ObservableObject {
             }
             cachedGrainPacks = next
         }
+        seedExpandTablesFromChrome(chrome)
+        seedPickerGrainFromChrome(chrome)
         if chrome.pickerShoppers > 0 {
             cachedPickerBoard = HeartbeatMath.PickerBoard(
                 shopperCount: chrome.pickerShoppers,
@@ -3898,6 +3918,42 @@ final class HeartbeatStore: ObservableObject {
             unfilteredPulse = snapshotPulse()
         }
         fillExpandTablesSoon()
+    }
+
+    /// Pack chrome already has live expand numbers. Seed them on the first
+    /// frame so gold / chevron do not wait for a second tap.
+    private func seedExpandTablesFromChrome(_ chrome: PulseDashChrome) {
+        guard !chrome.tables.isEmpty else { return }
+        var incoming: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] = [:]
+        for (key, rows) in chrome.tables {
+            guard let section = MetricSection(rawValue: key) else { continue }
+            let scoped = PulseLaunch.grainRowsScopedToFilter(rows, filters: filters)
+            if HeartbeatMath.grainRowsAreLive(scoped) {
+                incoming[section] = scoped
+            }
+        }
+        cachedGrainTables = PulseLaunch.mergeLiveGrainTables(incoming: incoming, live: cachedGrainTables)
+    }
+
+    /// Picker rows stay out of dashboard `displayRows` (Jetsam). Prefill expand
+    /// from chrome so the chevron is never permanently light-blue inert.
+    private func seedPickerGrainFromChrome(_ chrome: PulseDashChrome) {
+        if let cached = cachedGrainTables[.pickerScorecard],
+           HeartbeatMath.grainRowsAreLive(cached) {
+            if !filters.isActive { return }
+            let scoped = PulseLaunch.grainRowsScopedToFilter(cached, filters: filters)
+            if HeartbeatMath.grainRowsAreLive(scoped) {
+                cachedGrainTables[.pickerScorecard] = scoped
+                return
+            }
+        }
+        let table = PulseLaunch.pickerExpandRows(
+            from: chrome,
+            filters: filters,
+            grain: effectiveDashboardGrain
+        )
+        guard HeartbeatMath.grainRowsAreLive(table) else { return }
+        cachedGrainTables[.pickerScorecard] = table
     }
 
     @discardableResult
@@ -4285,7 +4341,10 @@ final class HeartbeatStore: ObservableObject {
                 if self.usingPackChrome, !self.filters.isActive { return }
                 self.cachedCardFlags = flags
                 self.cachedGrainPacks = packs
-                self.cachedGrainTables = tables
+                self.cachedGrainTables = PulseLaunch.mergeLiveGrainTables(
+                    incoming: tables,
+                    live: self.cachedGrainTables
+                )
                 self.patchPPHCallouts()
             }
         }
@@ -4469,8 +4528,23 @@ final class HeartbeatStore: ObservableObject {
         if diskPicker > 100, incomingPicker == 0 { packDirty = false; return }
         if diskLabor > 100, incomingLabor == 0 { packDirty = false; return }
         do {
+            let chrome = PulseDashChrome(
+                summaries: cachedSummaries,
+                flags: Dictionary(uniqueKeysWithValues: cachedCardFlags.map { ($0.key.rawValue, $0.value) }),
+                packs: Dictionary(uniqueKeysWithValues: cachedGrainPacks.map { ($0.key.rawValue, $0.value) }),
+                tables: Dictionary(uniqueKeysWithValues: cachedGrainTables.map { ($0.key.rawValue, $0.value) }),
+                pickerShoppers: cachedPickerBoard.shopperCount,
+                pickerOpportunity: cachedPickerBoard.opportunityCount,
+                pickerStrong: cachedPickerBoard.strongCount
+            )
             try await Task.detached(priority: .utility) {
-                try PulseSQLite.write(rows: packRows, uploads: packUploads, seeded: packSeeded, to: packURL)
+                try PulseSQLite.write(
+                    rows: packRows,
+                    uploads: packUploads,
+                    seeded: packSeeded,
+                    chrome: chrome,
+                    to: packURL
+                )
             }.value
             try? PulseCards.write(PulseCards.from(board: cachedPickerBoard), to: cardsURL)
             packDirty = false
