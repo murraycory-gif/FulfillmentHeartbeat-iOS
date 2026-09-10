@@ -601,5 +601,29 @@ final class WorkbookParserTests: XCTestCase {
         )
         XCTAssertEqual(company.headline ?? 0, 1_962_441.23, accuracy: 0.01)
     }
+
+    func testLostRevenueExcelLineCheckMissedTOAndKillFYDoNotCollide() throws {
+        // Column order matches the book: Goal Missed and Kill FY come after TO / Total FY Goal.
+        // Last-wins used to write Goal Missed → missed_sales (31,716) and Kill FY → lost_revenue_goal (16,574.80).
+        let csv = """
+        Store,eComm Sales,Total Lost Revenue (Total Opportunity),Total Lost Revenue % (Total Opportunity),Total Lost Revenue (FY2026 Goal),Total Lost Revenue (FY2026 Goal) %,Missed Sales (Total Opportunity),Missed Sales (FY2026 Goal),Kill Switch Lost Sales (FY2026 Goal),Kill Switch Lost Sales (TO / $90)
+        2218,10000,400,0.04,200,0.02,80,20,5,12
+        Total,46077144.47,1962441.23,0.0426,1147500.91,0.0249,126864.44,31716,16574.80,40000
+        """
+        let rows = try WorkbookParser.parse(data: Data(csv.utf8), filename: "Breakdown Week 25.xlsx")
+        let market = try XCTUnwrap(rows.first { $0.textPayload["lost_grain"] == "market" })
+        XCTAssertEqual(market.payload["lost_revenue"] ?? 0, 1_962_441.23, accuracy: 0.01)
+        XCTAssertEqual(market.payload["lost_revenue_goal"] ?? 0, 1_147_500.91, accuracy: 0.01)
+        XCTAssertEqual(market.payload["lost_revenue_goal_pct"] ?? 0, 2.49, accuracy: 0.01)
+        XCTAssertEqual(market.payload["missed_sales"] ?? 0, 126_864.44, accuracy: 0.01)
+        XCTAssertEqual(market.payload["missed_sales_goal"] ?? 0, 31_716, accuracy: 0.01)
+        XCTAssertEqual(market.payload["kill_switch_lost_goal"] ?? 0, 16_574.80, accuracy: 0.01)
+        XCTAssertNotEqual(market.payload["missed_sales"] ?? 0, 31_716, accuracy: 1)
+        XCTAssertNotEqual(market.payload["lost_revenue_goal"] ?? 0, 16_574.80, accuracy: 1)
+        XCTAssertEqual(WorkbookParser.lostRevenueColumnKey("Missed Sales (FY2026 Goal)"), "missed_sales_goal")
+        XCTAssertEqual(WorkbookParser.lostRevenueColumnKey("Missed Sales (Total Opportunity)"), "missed_sales")
+        XCTAssertEqual(WorkbookParser.lostRevenueColumnKey("Total Lost Revenue (FY2026 Goal)"), "lost_revenue_goal")
+        XCTAssertEqual(WorkbookParser.lostRevenueColumnKey("Kill Switch Lost Sales (FY2026 Goal)"), "kill_switch_lost_goal")
+    }
 }
 

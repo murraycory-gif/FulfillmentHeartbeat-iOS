@@ -675,15 +675,17 @@ struct SectionDetailView: View {
         let healthy = rows.filter { HeartbeatMath.lostRevenueHealth($0) == .good }.count
         let watch = rows.filter { HeartbeatMath.lostRevenueHealth($0) == .watch }.count
         let risk = rows.filter { HeartbeatMath.lostRevenueHealth($0) == .risk }.count
+        let pool: [MetricRow] = {
+            if store.filters.isActive { return rows }
+            if let market = store.lostRevenueMarketRow() { return rows + [market] }
+            return rows
+        }()
         let sales: Double? = {
-            if !store.filters.isActive, let market = store.lostRevenueMarketRow() {
-                return market.number("ecomm_sales")
-            }
-            let sum = rows.compactMap { $0.number("ecomm_sales") }.reduce(0, +)
-            return rows.isEmpty ? nil : sum
+            let value = HeartbeatMath.lostRevenueTODollars(pool, key: "ecomm_sales")
+            return rows.isEmpty && HeartbeatMath.lostRevenueMarketRow(in: pool) == nil ? nil : value
         }()
         let goalPct = HeartbeatMath.lostRevenueGoalPct(rows: rows, market: store.filters.isActive ? nil : store.lostRevenueMarketRow())
-        let post = rows.compactMap { $0.number("post_sub_oos_foregone") }.reduce(0, +)
+        let post = HeartbeatMath.lostRevenueTODollars(pool, key: "post_sub_oos_foregone")
         HubCalloutGrid(width: pageWidth, count: 8) {
             callout("Total lost revenue", HeartbeatFormat.money(dollars), "Total Opportunity", summary.health, selected: lostRevenueFocus == .all) {
                 lostRevenueFocus = .all

@@ -342,7 +342,11 @@ struct PulseCaches {
             pickPathPickersByStore: path.buckets,
             pickPathByShopper: path.byShopper,
             pphPickersByStore: pph,
-            cachedCardFlags: cardFlags(latest: nextLatest, laborMarket: laborMarket),
+            cachedCardFlags: cardFlags(
+                latest: nextLatest,
+                laborMarket: laborMarket,
+                lostRevenueMarket: filters.isActive ? nil : lostRevenueMarket
+            ),
             cachedGrainPacks: grainPacks(
                     latest: nextLatest,
                     grain: grain,
@@ -373,7 +377,8 @@ struct PulseCaches {
 
     static func cardFlags(
         latest: [MetricSection: [MetricRow]],
-        laborMarket: MetricRow? = nil
+        laborMarket: MetricRow? = nil,
+        lostRevenueMarket: MetricRow? = nil
     ) -> [MetricSection: [HeartbeatMath.FiveStarFlag]] {
         let pickers = latest[.pickerScorecard] ?? []
         let pathPickers = latest[.pickPathPicker] ?? []
@@ -384,6 +389,11 @@ struct PulseCaches {
             var rows = latest[section] ?? []
             if section == .labor, let laborMarket {
                 rows.append(laborMarket)
+            }
+            if section == .lostRevenue, let lostRevenueMarket {
+                if !rows.contains(where: { $0.textPayload["lost_grain"] == "market" }) {
+                    rows.append(lostRevenueMarket)
+                }
             }
             out[section] = HeartbeatMath.dashboardActionFlags(
                 section: section,

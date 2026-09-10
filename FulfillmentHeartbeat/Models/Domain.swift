@@ -767,9 +767,11 @@ enum HeartbeatMath {
         }
         switch section {
         case .lostRevenue:
-            let sales = rows.compactMap { $0.number("ecomm_sales") }.reduce(0, +)
-            let lost = rows.compactMap { $0.number("lost_revenue") }.reduce(0, +)
-            let pct = sales > 0 ? lost / sales * 100 : average(rows.compactMap { $0.number("lost_revenue_pct") })
+            let sales = lostRevenueTODollars(rows, key: "ecomm_sales")
+            let lost = lostRevenueTODollars(rows, key: "lost_revenue")
+            let market = lostRevenueMarketRow(in: rows)
+            let pct = market?.number("lost_revenue_pct")
+                ?? (sales > 0 ? lost / sales * 100 : average(lostRevenueStoreRows(rows).compactMap { $0.number("lost_revenue_pct") }))
             let goal = lostRevenueInheritedGoalPct(rows: rows, fallback: goalFallback)
             return (
                 [
@@ -777,11 +779,11 @@ enum HeartbeatMath {
                     HeartbeatFormat.pct(pct),
                     HeartbeatFormat.pct(goal),
                     HeartbeatFormat.money(sales),
-                    HeartbeatFormat.money(rows.compactMap { $0.number("post_sub_oos_foregone") }.reduce(0, +)),
-                    HeartbeatFormat.money(rows.compactMap { $0.number("refund_lost") }.reduce(0, +)),
-                    HeartbeatFormat.money(rows.compactMap { $0.number("missed_sales") }.reduce(0, +)),
-                    HeartbeatFormat.money(rows.compactMap { $0.number("cancelled_lost") }.reduce(0, +)),
-                    HeartbeatFormat.money(rows.compactMap { $0.number("kill_switch_lost") }.reduce(0, +)),
+                    HeartbeatFormat.money(lostRevenueTODollars(rows, key: "post_sub_oos_foregone")),
+                    HeartbeatFormat.money(lostRevenueTODollars(rows, key: "refund_lost")),
+                    HeartbeatFormat.money(lostRevenueTODollars(rows, key: "missed_sales")),
+                    HeartbeatFormat.money(lostRevenueTODollars(rows, key: "cancelled_lost")),
+                    HeartbeatFormat.money(lostRevenueTODollars(rows, key: "kill_switch_lost")),
                 ],
                 lostRevenueHealth(pct: pct)
             )
@@ -2669,11 +2671,7 @@ enum HeartbeatMath {
     }
 
     static func lostRevenueMetricFlags(_ rows: [MetricRow], includeAll: Bool = true) -> [FiveStarFlag] {
-        let stores = rows.filter {
-            $0.textPayload["lost_grain"] != "market"
-                && !isIgnoredStore($0.storeNumber)
-                && !$0.storeNumber.isEmpty
-        }
+        let stores = lostRevenueStoreRows(rows)
         let specs: [(name: String, dollar: String, pct: String)] = [
             ("Total Lost Revenue", "lost_revenue", "lost_revenue_pct"),
             ("Post Sub OOS Foregone", "post_sub_oos_foregone", "post_sub_oos_foregone_pct"),
@@ -2685,20 +2683,24 @@ enum HeartbeatMath {
         var flags: [FiveStarFlag] = []
         flags.reserveCapacity(specs.count)
         for spec in specs {
-            var dollars = 0.0
-            var sales = 0.0
+            var dollars = lostRevenueTODollars(rows, key: spec.dollar)
+            var sales = lostRevenueTODollars(rows, key: "ecomm_sales")
             var risk = 0
-            var seen = false
-            for row in stores {
-                if let value = row.number(spec.dollar) {
-                    dollars += value
-                    seen = true
-                    sales += row.number("ecomm_sales") ?? 0
-                } else if spec.dollar == "missed_sales", let cap = row.number("reduced_capacity") {
-                    dollars += cap
-                    seen = true
-                    sales += row.number("ecomm_sales") ?? 0
+            var seen = dollars != 0 || lostRevenueMarketRow(in: rows)?.number(spec.dollar) != nil
+            if !seen {
+                for row in stores {
+                    if let value = row.number(spec.dollar) {
+                        dollars += value
+                        seen = true
+                        sales += row.number("ecomm_sales") ?? 0
+                    } else if spec.dollar == "missed_sales", let cap = row.number("reduced_capacity") {
+                        dollars += cap
+                        seen = true
+                        sales += row.number("ecomm_sales") ?? 0
+                    }
                 }
+            }
+            for row in stores {
                 let pct = row.number(spec.pct)
                 if lostRevenueHealth(pct: pct) == .risk {
                     risk += 1
@@ -2706,7 +2708,8 @@ enum HeartbeatMath {
             }
             guard seen || includeAll else { continue }
             if !seen, !includeAll { continue }
-            let pct = sales > 0 ? dollars / sales * 100 : stores.compactMap { $0.number(spec.pct) }.first
+            let pct = lostRevenueMarketRow(in: rows)?.number(spec.pct)
+                ?? (sales > 0 ? dollars / sales * 100 : stores.compactMap { $0.number(spec.pct) }.first)
             let health: Health
             switch spec.dollar {
             case "refund_lost", "cancelled_lost":
@@ -3240,6 +3243,30 @@ enum HeartbeatMath {
     /// Excel **Total Lost Revenue (Total Opportunity)** — pack key `lost_revenue`.
     static func totalOpportunityDollars(_ row: MetricRow?) -> Double {
         row?.number("lost_revenue") ?? 0
+    }
+
+    static func lostRevenueMarketRow(in rows: [MetricRow]) -> MetricRow? {
+        rows.first {
+            $0.textPayload["lost_grain"] == "market"
+                && canonicalStore($0.storeNumber).isEmpty
+        }
+    }
+
+    static func lostRevenueStoreRows(_ rows: [MetricRow]) -> [MetricRow] {
+        rows.filter {
+            $0.textPayload["lost_grain"] != "market"
+                && !isIgnoredStore($0.storeNumber)
+                && !$0.storeNumber.isEmpty
+        }
+    }
+
+    /// Unfiltered: Excel Total / market-row TO key. Filtered seat: SUM of that TO key.
+    /// One path — market row present means company book; callers must not attach it on a seat.
+    static func lostRevenueTODollars(_ rows: [MetricRow], key: String) -> Double {
+        if let market = lostRevenueMarketRow(in: rows), let value = market.number(key) {
+            return value
+        }
+        return lostRevenueStoreRows(rows).compactMap { $0.number(key) }.reduce(0, +)
     }
 
     static func lostRevenueTotals(_ stores: [MetricRow]) -> (dollars: Double, sales: Double, pct: Double?) {

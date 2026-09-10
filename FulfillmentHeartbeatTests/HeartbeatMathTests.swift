@@ -1461,6 +1461,79 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(HeartbeatMath.grainRowsAreLive(scoped))
     }
 
+    func testUnfilteredLostRevenueSecondaryDollarsPreferMarketTOKeys() {
+        let market = MetricRow(
+            section: .lostRevenue,
+            storeNumber: "",
+            payload: [
+                "lost_revenue": 1_962_441.23,
+                "lost_revenue_pct": 4.26,
+                "lost_revenue_goal": 1_147_500.91,
+                "lost_revenue_goal_pct": 2.49,
+                "ecomm_sales": 46_077_144.47,
+                "missed_sales": 126_864.44,
+                "missed_sales_goal": 31_716,
+                "post_sub_oos_foregone": 500_000,
+                "refund_lost": 200_000,
+                "cancelled_lost": 90_000,
+                "kill_switch_lost": 40_000,
+                "kill_switch_lost_goal": 16_574.80,
+            ],
+            textPayload: ["lost_grain": "market"]
+        )
+        let stores = [
+            MetricRow(
+                section: .lostRevenue,
+                storeNumber: "1",
+                payload: [
+                    "lost_revenue": 1_200_000,
+                    "ecomm_sales": 20_000_000,
+                    "missed_sales": 20_000,
+                    "post_sub_oos_foregone": 10,
+                    "refund_lost": 10,
+                    "cancelled_lost": 10,
+                    "kill_switch_lost": 10,
+                ],
+                textPayload: ["lost_grain": "store"]
+            ),
+            MetricRow(
+                section: .lostRevenue,
+                storeNumber: "2",
+                payload: [
+                    "lost_revenue": 815_924,
+                    "ecomm_sales": 10_000_000,
+                    "missed_sales": 11_716,
+                    "post_sub_oos_foregone": 10,
+                    "refund_lost": 10,
+                    "cancelled_lost": 10,
+                    "kill_switch_lost": 10,
+                ],
+                textPayload: ["lost_grain": "store"]
+            ),
+        ]
+        let company = stores + [market]
+        XCTAssertEqual(HeartbeatMath.lostRevenueTODollars(company, key: "missed_sales"), 126_864.44, accuracy: 0.01)
+        XCTAssertEqual(HeartbeatMath.lostRevenueTODollars(company, key: "lost_revenue"), 1_962_441.23, accuracy: 0.01)
+        XCTAssertNotEqual(HeartbeatMath.lostRevenueTODollars(company, key: "missed_sales"), 31_716, accuracy: 1)
+        XCTAssertEqual(HeartbeatMath.lostRevenueTODollars(stores, key: "missed_sales"), 31_716, accuracy: 0.01)
+        XCTAssertEqual(HeartbeatMath.lostRevenueTODollars(stores, key: "lost_revenue"), 2_015_924, accuracy: 0.01)
+
+        let flags = HeartbeatMath.lostRevenueMetricFlags(company, includeAll: true)
+        let missed = flags.first { $0.name.contains("Missed") }
+        XCTAssertEqual(missed?.value, HeartbeatFormat.money(126_864.44))
+        let seatFlags = HeartbeatMath.lostRevenueMetricFlags(stores, includeAll: true)
+        let seatMissed = seatFlags.first { $0.name.contains("Missed") }
+        XCTAssertEqual(seatMissed?.value, HeartbeatFormat.money(31_716))
+
+        let values = HeartbeatMath.dashboardTableValues(.lostRevenue, rows: company).values
+        XCTAssertEqual(values[0], HeartbeatFormat.money(1_962_441.23))
+        XCTAssertEqual(values[6], HeartbeatFormat.money(126_864.44))
+        let seatValues = HeartbeatMath.dashboardTableValues(.lostRevenue, rows: stores).values
+        XCTAssertEqual(seatValues[6], HeartbeatFormat.money(31_716))
+        XCTAssertEqual(HeartbeatMath.lostRevenueMarketRow(in: company)?.number("lost_revenue_goal") ?? 0, 1_147_500.91, accuracy: 0.01)
+        XCTAssertNotEqual(HeartbeatMath.lostRevenueMarketRow(in: company)?.number("lost_revenue_goal") ?? 0, 16_574.80, accuracy: 1)
+    }
+
     func testUnfilteredLostRevenueHeadlineUsesMarketTotal1962441() {
         let market = MetricRow(
             section: .lostRevenue,

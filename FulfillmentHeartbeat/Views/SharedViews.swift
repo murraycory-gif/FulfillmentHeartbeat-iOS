@@ -6695,20 +6695,31 @@ private enum LostRevenueMath {
     }
 
     static func pack(_ rows: [MetricRow], fallbackGoal: Double? = nil) -> LostRevenueRollupRow {
-        let sales = sum(rows, "ecomm_sales")
-        let lost = sum(rows, "lost_revenue")
+        let stores = HeartbeatMath.lostRevenueStoreRows(rows)
+        let sales = optionalTO(rows, "ecomm_sales")
+        let lost = optionalTO(rows, "lost_revenue")
+        let market = HeartbeatMath.lostRevenueMarketRow(in: rows)
         return LostRevenueRollupRow(
             id: "tmp",
             label: "",
-            storeCount: rows.count,
+            storeCount: stores.count,
             lost: lost,
-            pct: ratio(lost, sales) ?? HeartbeatMath.average(rows.compactMap { $0.number("lost_revenue_pct") }),
+            pct: market?.number("lost_revenue_pct")
+                ?? ratio(lost, sales)
+                ?? HeartbeatMath.average(stores.compactMap { $0.number("lost_revenue_pct") }),
             goal: HeartbeatMath.lostRevenueInheritedGoalPct(rows: rows, fallback: fallbackGoal),
             sales: sales,
-            post: sum(rows, "post_sub_oos_foregone"),
-            refund: sum(rows, "refund_lost"),
-            missed: sum(rows, "missed_sales")
+            post: optionalTO(rows, "post_sub_oos_foregone"),
+            refund: optionalTO(rows, "refund_lost"),
+            missed: optionalTO(rows, "missed_sales")
         )
+    }
+
+    static func optionalTO(_ rows: [MetricRow], _ key: String) -> Double? {
+        if let market = HeartbeatMath.lostRevenueMarketRow(in: rows) {
+            return market.number(key)
+        }
+        return sum(HeartbeatMath.lostRevenueStoreRows(rows), key)
     }
 }
 
@@ -6718,9 +6729,12 @@ private enum LostRevenueRollupBuilder {
     }
 
     static func source(from all: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
-        all.filter {
-            $0.textPayload["lost_grain"] != "market" && !$0.storeNumber.isEmpty
+        if filters.isActive {
+            return all.filter {
+                $0.textPayload["lost_grain"] != "market" && !$0.storeNumber.isEmpty
+            }
         }
+        return all
     }
 
     static func rows(from stores: [MetricRow], grain: LaborRollupGrain, fallbackGoal: Double? = nil) -> [LostRevenueRollupRow] {
