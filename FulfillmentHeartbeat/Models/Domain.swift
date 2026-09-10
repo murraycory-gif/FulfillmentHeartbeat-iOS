@@ -718,6 +718,190 @@ enum HeartbeatMath {
         .map(\.0)
     }
 
+    struct DashboardGrainTableRow: Identifiable, Equatable {
+        let label: String
+        let storeCount: Int
+        let values: [String]
+        let health: Health
+        var id: String { label }
+    }
+
+    /// Column titles for the Sales-style grain table on every dashboard card.
+    static func dashboardTableHeaders(_ section: MetricSection) -> [String] {
+        switch section {
+        case .lostRevenue:
+            return ["Lost $", "Lost %", "eComm $", "Post Sub", "Refund", "Missed", "Cancel", "Kill"]
+        case .fiveStar:
+            return ["Rating", "Flash", "COE", "OTT", "Pre-Sub", "OTH"]
+        case .missingItems, .preSubOOS:
+            return ["Rate", "Healthy", "Watch", "At Risk"]
+        case .pickPath, .pickPathPicker:
+            return ["Path %", "AVG PPH"]
+        case .prepNotReady:
+            return ["PNR %"]
+        case .dynacap:
+            return ["Pcs/Hr", "PPH", "Util %"]
+        case .scheduleQuality:
+            return ["Sch Eff", "Staffing", "Under", "Over"]
+        case .pph:
+            return ["PPH", "At Goal", "Below 74"]
+        case .labor:
+            return ["TvA", "Act Cost", "Cost Tgt", "Sch Eff", "UPLH", "Wage", "AIV"]
+        case .pickerScorecard:
+            return ["Shoppers", "Healthy", "Watch", "At Risk"]
+        case .sales:
+            return ["Sales $", "YoY %", "Orders"]
+        default:
+            return ["Result"]
+        }
+    }
+
+    static func dashboardTableValues(_ section: MetricSection, rows: [MetricRow]) -> (values: [String], health: Health) {
+        let health = worstHealth(section, rows: rows)
+        let dash = Array(repeating: "—", count: dashboardTableHeaders(section).count)
+        guard !rows.isEmpty else { return (dash, .none) }
+        switch section {
+        case .lostRevenue:
+            let sales = rows.compactMap { $0.number("ecomm_sales") }.reduce(0, +)
+            let lost = rows.compactMap { $0.number("lost_revenue") }.reduce(0, +)
+            let pct = sales > 0 ? lost / sales * 100 : average(rows.compactMap { $0.number("lost_revenue_pct") })
+            return (
+                [
+                    HeartbeatFormat.money(lost),
+                    HeartbeatFormat.pct(pct),
+                    HeartbeatFormat.money(sales),
+                    HeartbeatFormat.money(rows.compactMap { $0.number("post_sub_oos_foregone") }.reduce(0, +)),
+                    HeartbeatFormat.money(rows.compactMap { $0.number("refund_lost") }.reduce(0, +)),
+                    HeartbeatFormat.money(rows.compactMap { $0.number("missed_sales") }.reduce(0, +)),
+                    HeartbeatFormat.money(rows.compactMap { $0.number("cancelled_lost") }.reduce(0, +)),
+                    HeartbeatFormat.money(rows.compactMap { $0.number("kill_switch_lost") }.reduce(0, +)),
+                ],
+                lostRevenueHealth(pct: pct)
+            )
+        case .fiveStar:
+            return (
+                [
+                    HeartbeatFormat.stars(average(rows.compactMap { $0.number("star_rating") })),
+                    HeartbeatFormat.pct(average(rows.compactMap { $0.number("flash_pct") })),
+                    HeartbeatFormat.pct(average(rows.compactMap { $0.number("coe_pct") })),
+                    HeartbeatFormat.pct(average(rows.compactMap { $0.number("ott_pct") })),
+                    HeartbeatFormat.pct(average(rows.compactMap { $0.number("presub_pct") })),
+                    HeartbeatFormat.pct(average(rows.compactMap { $0.number("oth5_pct") })),
+                ],
+                health
+            )
+        case .missingItems, .preSubOOS:
+            let stores = rows.filter { !isIgnoredStore($0.storeNumber) && !$0.storeNumber.isEmpty }
+            let scoped = stores.isEmpty ? rows : stores
+            return (
+                [
+                    HeartbeatFormat.pct(average(scoped.compactMap { $0.number(MissingItemDept.totalKey) })),
+                    HeartbeatFormat.num(Double(scoped.filter { missingItemsHealth($0) == .good }.count)),
+                    HeartbeatFormat.num(Double(scoped.filter { missingItemsHealth($0) == .watch }.count)),
+                    HeartbeatFormat.num(Double(scoped.filter { missingItemsHealth($0) == .risk }.count)),
+                ],
+                health
+            )
+        case .pickPath, .pickPathPicker:
+            return (
+                [
+                    HeartbeatFormat.pct(average(rows.compactMap { $0.number("compliance_pct") })),
+                    HeartbeatFormat.num(average(rows.compactMap { $0.number("pph") }), digits: 1),
+                ],
+                health
+            )
+        case .prepNotReady:
+            return (
+                [HeartbeatFormat.pct(average(rows.compactMap { $0.number("pnr_rate_pct", "pnr_hours", "prep_not_ready_pct") }))],
+                health
+            )
+        case .dynacap:
+            return (
+                [
+                    HeartbeatFormat.num(average(rows.compactMap { $0.number("dynacap_rate", "pieces_per_hour") }), digits: 1),
+                    HeartbeatFormat.num(average(rows.compactMap { $0.number("pph") }), digits: 1),
+                    HeartbeatFormat.pct(average(rows.compactMap { $0.number("utilization_pct", "pickup_util_pct") })),
+                ],
+                health
+            )
+        case .scheduleQuality:
+            return (
+                [
+                    HeartbeatFormat.pct(average(rows.compactMap { $0.number("schedule_efficiency_pct") })),
+                    HeartbeatFormat.pct(average(rows.compactMap { $0.number("staffing_efficiency_pct") })),
+                    HeartbeatFormat.pct(average(rows.compactMap { $0.number("under_schedule_pct", "under_scheduled", "under_staffing_pct") })),
+                    HeartbeatFormat.pct(average(rows.compactMap { $0.number("over_schedule_pct", "over_scheduled", "over_staffing_pct") })),
+                ],
+                health
+            )
+        case .pph:
+            let pph = average(rows.compactMap { $0.number("pph") ?? $0.number("pure_pph") })
+            return (
+                [
+                    HeartbeatFormat.num(pph, digits: 1),
+                    HeartbeatFormat.num(Double(rows.filter { ($0.number("pph") ?? $0.number("pure_pph") ?? 0) >= pphGoal }.count)),
+                    HeartbeatFormat.num(Double(rows.filter { ($0.number("pph") ?? $0.number("pure_pph") ?? .greatestFiniteMagnitude) < pphRisk }.count)),
+                ],
+                health
+            )
+        case .labor:
+            return (
+                [
+                    HeartbeatFormat.pct(laborRollup(rows, key: "target_vs_actual_pct")),
+                    HeartbeatFormat.pct(laborRollup(rows, key: "act_cost_pct")),
+                    HeartbeatFormat.pct(laborRollup(rows, key: "cost_trgt_pct")),
+                    HeartbeatFormat.pct(laborRollup(rows, key: "schedule_efficiency_pct")),
+                    HeartbeatFormat.pct(laborRollup(rows, key: "uplh_impact_pct")),
+                    HeartbeatFormat.pct(laborRollup(rows, key: "wage_impact_pct")),
+                    HeartbeatFormat.pct(laborRollup(rows, key: "aiv_impact_pct")),
+                ],
+                health
+            )
+        case .pickerScorecard:
+            let shoppers = rows.filter { isRealPicker($0) || pickerHasVolume($0) }
+            let pool = shoppers.isEmpty ? rows : shoppers
+            return (
+                [
+                    HeartbeatFormat.num(Double(pool.count)),
+                    HeartbeatFormat.num(Double(pool.filter { pickerHealth($0) == .good }.count)),
+                    HeartbeatFormat.num(Double(pool.filter { pickerHealth($0) == .watch }.count)),
+                    HeartbeatFormat.num(Double(pool.filter { pickerHealth($0) == .risk }.count)),
+                ],
+                health
+            )
+        default:
+            return ([scopeHeadline(section, rows: rows)], health)
+        }
+    }
+
+    static func dashboardGrainTable(
+        section: MetricSection,
+        rows: [MetricRow],
+        grain: DashScopeGrain,
+        order: [String]
+    ) -> [DashboardGrainTableRow] {
+        let source = section == .pickerScorecard ? latestPerShopper(rows) : rows
+        var buckets: [String: [MetricRow]] = [:]
+        for row in source {
+            if row.textPayload["lost_grain"] == "market" { continue }
+            if row.textPayload["labor_grain"] == "market" { continue }
+            if row.textPayload["sales_grain"] == "company" { continue }
+            guard let key = dashboardScopeKey(row, grain: grain) else { continue }
+            buckets[key, default: []].append(row)
+        }
+        let labels = order.isEmpty ? buckets.keys.sorted() : order
+        return labels.map { label in
+            let group = buckets[label] ?? []
+            let built = dashboardTableValues(section, rows: group)
+            return DashboardGrainTableRow(
+                label: label,
+                storeCount: group.count,
+                values: built.values,
+                health: built.health
+            )
+        }
+    }
+
     static func dashboardStoreLines(
         section: MetricSection,
         rows: [MetricRow],

@@ -278,6 +278,21 @@ enum HubLayout {
 
     static var grainCap: Int { profile.grainCap }
     static var storeGrainCap: Int { profile.storeGrainCap }
+
+    /// Floor width so currency and percents stay whole; narrower screens scroll.
+    static func readableTableFloor(phone: Bool, columns: Int, showCount: Bool) -> CGFloat {
+        let label: CGFloat = phone ? 122 : 148
+        let stores: CGFloat = showCount ? (phone ? 58 : 68) : 0
+        let value: CGFloat = phone ? 118 : 128
+        let status: CGFloat = 88
+        let pad: CGFloat = 28 + CGFloat(columns + (showCount ? 2 : 1)) * 6
+        return label + stores + CGFloat(max(columns, 1)) * value + status + pad
+    }
+
+    static func readableLabelWidth(phone: Bool) -> CGFloat { phone ? 122 : 148 }
+    static func readableStoreWidth(phone: Bool) -> CGFloat { phone ? 58 : 68 }
+    static func readableValueMin(phone: Bool) -> CGFloat { phone ? 118 : 128 }
+    static func readableStatusWidth(phone: Bool) -> CGFloat { 88 }
     static var pickerCap: Int { 50 }
     static var hydrateNeighbors: Bool { profile.hydrateNeighbors }
     static var rasterizeSwipe: Bool { profile.rasterizeSwipe }

@@ -1369,6 +1369,56 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseLaunch.reloadInSessionAfterFetch(constrained: false, localRowsLoaded: 400))
     }
 
+    func testDashboardGrainTableKeepsFullMoneyAndColumnCounts() {
+        for section in MetricSection.dashboardCards where section != .sales {
+            let headers = HeartbeatMath.dashboardTableHeaders(section)
+            XCTAssertFalse(headers.isEmpty, "\(section) needs Sales-style columns")
+        }
+        let rows = [
+            MetricRow(
+                section: .lostRevenue,
+                division: "Jewel Osco",
+                operationsOM: "A",
+                storeNumber: "304",
+                payload: [
+                    "lost_revenue": 1_234_567.89,
+                    "ecomm_sales": 10_000_000,
+                    "post_sub_oos_foregone": 100,
+                    "refund_lost": 50,
+                    "missed_sales": 25,
+                    "cancelled_lost": 10,
+                    "kill_switch_lost": 5,
+                ],
+                textPayload: ["lost_grain": "store"]
+            )
+        ]
+        let table = HeartbeatMath.dashboardGrainTable(
+            section: .lostRevenue,
+            rows: rows,
+            grain: .store,
+            order: []
+        )
+        XCTAssertEqual(table.count, 1)
+        XCTAssertEqual(table[0].values.count, HeartbeatMath.dashboardTableHeaders(.lostRevenue).count)
+        XCTAssertTrue(table[0].values[0].contains("1,234,567.89"), table[0].values[0])
+        XCTAssertFalse(table[0].values[0].contains("M"))
+        XCTAssertGreaterThan(HubLayout.readableTableFloor(phone: true, columns: 8, showCount: true), 700)
+        XCTAssertGreaterThan(
+            HubLayout.readableTableFloor(phone: false, columns: 8, showCount: true),
+            HubLayout.readableTableFloor(phone: true, columns: 8, showCount: true)
+        )
+    }
+
+    func testPostReadyWorkStaysOffSplashAndCoolsTheHub() {
+        XCTAssertGreaterThan(PulseLaunch.grainPaintDelayNanoseconds, 0)
+        XCTAssertGreaterThan(PulseLaunch.cloudHydrateDelayNanoseconds, PulseLaunch.grainPaintDelayNanoseconds)
+        XCTAssertFalse(PulseLaunch.shouldPullCloudOnForeground(secondsSinceReady: 12))
+        XCTAssertTrue(PulseLaunch.shouldPullCloudOnForeground(secondsSinceReady: 90))
+        XCTAssertFalse(PulseLaunch.shouldLoadPublishedFacts(lostStores: 400, salesStores: 400))
+        XCTAssertTrue(PulseLaunch.shouldLoadPublishedFacts(lostStores: 40, salesStores: 40))
+        XCTAssertFalse(PulseLaunch.shouldLoadPublishedFacts(lostStores: 40, salesStores: 400))
+    }
+
     func testMissingPackMessageIsActionable() {
         let message = PulseLaunch.missingPackMessage()
         XCTAssertTrue(message.contains("Try again"))

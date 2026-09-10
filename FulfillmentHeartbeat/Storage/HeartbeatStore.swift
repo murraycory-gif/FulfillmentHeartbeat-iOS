@@ -85,7 +85,9 @@ final class HeartbeatStore: ObservableObject {
     private var laborWeeksByStore: [String: [MetricRow]] = [:]
     private var unfilteredPulse: FilterPulse?
     private var refilterTask: Task<Void, Never>?
+    private var grainPaintTask: Task<Void, Never>?
     private var unfilteredWarmTask: Task<Void, Never>?
+    private var becameReadyAt: Date?
     private var pulseGeneration = 0
     private var masterBookmark: Data?
     private var lastCloudPullAt: Date?
@@ -177,13 +179,13 @@ final class HeartbeatStore: ObservableObject {
         importLabel = nil
         isReady = true
         needsRolePick = true
+        becameReadyAt = Date()
+        lastCloudPullAt = Date()
     }
 
-    /// Load shoppers after splash, then grain-paint with the warehouse that has them.
-    /// Parallel ready-paint used to overwrite a just-filled Picker ScoreCard.
+    /// Shoppers only after splash. Grain expand waits until Who's looking and the hub is quiet.
     private func fillAfterReady() async {
         await loadDeferredPicker()
-        await paintFromWarehouse(light: false)
     }
 
     func retryLaunch() {
@@ -199,6 +201,9 @@ final class HeartbeatStore: ObservableObject {
         let snap = await PulseCloud.snapshot()
         await syncCloudPackIfChanged(snap)
         applyLocalCards()
+        let lost = PulseQuery.scoredStoreFacts(latestBySection[.lostRevenue] ?? []).count
+        let sales = PulseQuery.scoredStoreFacts(latestBySection[.sales] ?? []).count
+        guard PulseLaunch.shouldLoadPublishedFacts(lostStores: lost, salesStores: sales) else { return }
         await loadPublishedFacts()
     }
 
@@ -1420,15 +1425,17 @@ final class HeartbeatStore: ObservableObject {
             next.om = om
         }
         next.sanitize()
-        if filters != next {
+        let filterChanged = filters != next
+        if filterChanged {
             filters = next
             persistFilters()
         }
         needsRolePick = false
-        Task {
-            await loadDeferredPicker()
-            await paintFromWarehouse(light: true)
-            await paintFromWarehouse(light: false)
+        if !filterChanged {
+            scheduleGrainPaint()
+        }
+        Task(priority: .utility) {
+            await self.loadDeferredPicker()
         }
         startCloudHydrateIfNeeded()
     }
@@ -1436,8 +1443,9 @@ final class HeartbeatStore: ObservableObject {
     private func startCloudHydrateIfNeeded() {
         guard !cloudHydrateStarted else { return }
         cloudHydrateStarted = true
-        Task {
-            try? await Task.sleep(nanoseconds: 350_000_000)
+        Task(priority: .background) {
+            try? await Task.sleep(nanoseconds: PulseLaunch.cloudHydrateDelayNanoseconds)
+            guard !Task.isCancelled else { return }
             await self.hydrateFromCloudInBackground()
         }
     }
@@ -1600,6 +1608,9 @@ final class HeartbeatStore: ObservableObject {
 
     func pullLatestWorkbookIfNeeded() {
         guard isReady, !needsRolePick, !isImporting else { return }
+        if let ready = becameReadyAt, !PulseLaunch.shouldPullCloudOnForeground(secondsSinceReady: Date().timeIntervalSince(ready)) {
+            return
+        }
         if let last = lastCloudPullAt, Date().timeIntervalSince(last) < 300 { return }
         lastCloudPullAt = Date()
         pullCloudPackIfNeeded()
@@ -1741,9 +1752,9 @@ final class HeartbeatStore: ObservableObject {
             }
             await paintFromWarehouse(light: true)
             if reason != .boot {
-                Task {
+                Task(priority: .utility) {
                     await self.loadDeferredPicker()
-                    await self.paintFromWarehouse(light: false)
+                    self.scheduleGrainPaint()
                 }
             }
         } catch {
@@ -2370,9 +2381,21 @@ final class HeartbeatStore: ObservableObject {
 
     private func applyFilters() {
         refilterTask?.cancel()
+        grainPaintTask?.cancel()
         refilterTask = Task {
             await self.paintFromWarehouse(light: true)
             guard !Task.isCancelled else { return }
+            self.scheduleGrainPaint()
+        }
+    }
+
+    /// Full grain expand after cards, at utility, and only once the hub is in use.
+    private func scheduleGrainPaint() {
+        grainPaintTask?.cancel()
+        grainPaintTask = Task(priority: .utility) {
+            try? await Task.sleep(nanoseconds: PulseLaunch.grainPaintDelayNanoseconds)
+            guard !Task.isCancelled else { return }
+            guard self.isReady, !self.needsRolePick else { return }
             await self.paintFromWarehouse(light: false)
         }
     }
@@ -2394,7 +2417,8 @@ final class HeartbeatStore: ObservableObject {
         let grain = effectiveDashboardGrain
         let uploadsCopy = uploads
         let hidePicker = true
-        let view = await Task.detached(priority: .userInitiated) {
+        let paintPriority: TaskPriority = light ? .userInitiated : .utility
+        let view = await Task.detached(priority: paintPriority) {
             PulseQuery.paint(
                 warehouse: warehouse,
                 roster: rosterCopy,
@@ -2428,7 +2452,9 @@ final class HeartbeatStore: ObservableObject {
             schedulePickerIndex(pickers)
         }
         usingPackChrome = false
-        rebuildLostIndex()
+        if lostByStore.isEmpty {
+            rebuildLostIndex()
+        }
         refreshFilterOptions()
         refreshSalesExpandCache()
         hydrating = false
@@ -2773,14 +2799,16 @@ final class HeartbeatStore: ObservableObject {
 
     private func loadPublishedFacts() async {
         importProgress.label = "Loading store facts"
-        let incoming: [MetricRow] = await Task.detached(priority: .userInitiated) {
+        let incoming: [MetricRow] = await Task.detached(priority: .background) {
             await PulseFacts.loadRows()
         }.value
         guard !incoming.isEmpty else { return }
         rows = PulseDataPolicy.applyIdentity(existing: rows, identity: incoming)
         rows = PulseDataPolicy.fillMissing(existing: rows, facts: incoming)
         seeded = true
-        adoptFactRows(incoming, mode: .takeIfRicher)
+        let changed = adoptFactRows(incoming, mode: .takeIfRicher)
+        guard changed else { return }
+        lostByStore = [:]
         rebuildLostIndex()
         applyFilters()
     }
@@ -2914,8 +2942,10 @@ final class HeartbeatStore: ObservableObject {
         didAdoptExcelFacts = true
     }
 
-    private func adoptFactRows(_ facts: [MetricRow], mode: FactAdoptMode) {
-        guard !facts.isEmpty else { return }
+    @discardableResult
+    private func adoptFactRows(_ facts: [MetricRow], mode: FactAdoptMode) -> Bool {
+        guard !facts.isEmpty else { return false }
+        var changed = false
         for row in facts where row.section == .storeRoster || row.textPayload["roster"] == "1" {
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
             guard !store.isEmpty else { continue }
@@ -2941,7 +2971,9 @@ final class HeartbeatStore: ObservableObject {
             guard let incoming else { continue }
             latestBySection[section] = incoming
             factsOwned.insert(section)
+            changed = true
         }
+        return changed
     }
 
     private func paintFactsScorecards() {
@@ -2997,7 +3029,6 @@ final class HeartbeatStore: ObservableObject {
                 guard (self.filteredLatest[.pickerScorecard] ?? []).count == count else { return }
                 self.pickerIndex = built.index
                 self.pickerFocusHealth = built.health
-                self.filterStamp += 1
             }
         }
     }
@@ -3006,7 +3037,9 @@ final class HeartbeatStore: ObservableObject {
         let deferred = PulseQuery.skipOnLight.contains(section)
         if deferred {
             if (latestBySection[section] ?? []).count >= 2 {
-                if section == .pickerScorecard { refreshLoadedPickers() }
+                if section == .pickerScorecard, (filteredLatest[.pickerScorecard] ?? []).isEmpty {
+                    refreshLoadedPickers()
+                }
                 return
             }
         } else {
@@ -3016,7 +3049,8 @@ final class HeartbeatStore: ObservableObject {
         guard PulseSQLite.exists(at: sqliteURL) else { return }
         let url = sqliteURL
         let rosterCopy = roster
-        let incoming = await Task.detached(priority: .userInitiated) { () -> [MetricRow] in
+        let readPriority: TaskPriority = isReady ? .utility : .userInitiated
+        let incoming = await Task.detached(priority: readPriority) { () -> [MetricRow] in
             guard let pack = try? PulseSQLite.read(from: url, only: [section]) else { return [] }
             let rows = pack.rows
             switch section {
@@ -3047,10 +3081,9 @@ final class HeartbeatStore: ObservableObject {
         }
         if section == .pickerScorecard {
             refreshLoadedPickers()
-            await paintFromWarehouse(light: true)
             return
         }
-        await paintFromWarehouse(light: deferred)
+        await paintFromWarehouse(light: true)
     }
 
     private func hydrateFilteredHeavy() async {

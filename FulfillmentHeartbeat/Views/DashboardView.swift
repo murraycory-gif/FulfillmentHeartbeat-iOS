@@ -467,31 +467,7 @@ struct DashScopeStrip: View {
             }
             .buttonStyle(.plain)
             if expanded {
-                if HubLayout.isPhone(sizeClass) {
-                    phoneExpandedList
-                } else {
-                    VStack(alignment: .leading, spacing: 10) {
-                        if section == .sales {
-                            OverviewSalesAlignedTable(title: grain.title, rows: Array(visibleSalesRows.prefix(20)), showCount: grain != .store)
-                            if !visibleDayRows.isEmpty {
-                                OverviewSalesAlignedTable(title: "By Day", rows: visibleDayRows, showCount: false)
-                                    .padding(.top, 8)
-                            }
-                        } else {
-                            VStack(spacing: 8) {
-                                ForEach(Array(packs.prefix(12))) { pack in
-                                    DashScopeGrainCard(
-                                        pack: pack,
-                                        grain: grain,
-                                        flags: pack.flags.isEmpty ? (flagMap[pack.id] ?? flagMap[pack.line.label] ?? []) : pack.flags,
-                                        width: width,
-                                        section: section
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
+                expandedTables
             }
         }
         .onAppear {
@@ -515,6 +491,15 @@ struct DashScopeStrip: View {
         dayRows.isEmpty ? store.cachedSalesDayRows : dayRows
     }
 
+    private var grainTableRows: [HeartbeatMath.DashboardGrainTableRow] {
+        HeartbeatMath.dashboardGrainTable(
+            section: section,
+            rows: store.rows(for: section),
+            grain: grain,
+            order: packs.map(\.line.label)
+        )
+    }
+
     private var canLoadGrainFlags: Bool { section != .sales }
 
     private var bannerCount: Int {
@@ -528,42 +513,118 @@ struct DashScopeStrip: View {
     }
 
     @ViewBuilder
-    private var phoneExpandedList: some View {
-        VStack(spacing: 6) {
+    private var expandedTables: some View {
+        VStack(alignment: .leading, spacing: 10) {
             if section == .sales {
-                ForEach(Array(visibleSalesRows.prefix(8))) { row in
-                    PhoneGrainRow(
-                        label: row.label,
-                        value: phoneMoney(row.pack.sales) ?? HeartbeatFormat.money(row.pack.sales ?? 0),
-                        count: row.storeCount,
-                        health: row.pack.health
-                    )
-                }
+                OverviewSalesAlignedTable(
+                    title: grain.title,
+                    rows: Array(visibleSalesRows.prefix(20)),
+                    showCount: grain != .store
+                )
                 if !visibleDayRows.isEmpty {
-                    Text("By Day")
-                        .font(AppTheme.rounded(.caption, weight: .bold))
-                        .foregroundStyle(AppTheme.textSecondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.top, 4)
-                    ForEach(visibleDayRows.prefix(7)) { row in
-                        PhoneGrainRow(
-                            label: row.label,
-                            value: phoneMoney(row.pack.sales) ?? HeartbeatFormat.money(row.pack.sales ?? 0),
-                            count: nil,
-                            health: row.pack.health
-                        )
-                    }
+                    OverviewSalesAlignedTable(title: "By Day", rows: visibleDayRows, showCount: false)
+                        .padding(.top, 8)
                 }
             } else {
-                ForEach(Array(packs.prefix(8))) { pack in
-                    PhoneGrainRow(
-                        label: pack.line.label,
-                        value: pack.line.value,
-                        count: grain == .store ? nil : pack.line.count,
-                        health: pack.line.health == .none ? .good : pack.line.health
+                OverviewMetricAlignedTable(
+                    title: grain.title,
+                    headers: HeartbeatMath.dashboardTableHeaders(section),
+                    rows: grainTableRows,
+                    showCount: grain != .store
+                )
+            }
+        }
+    }
+}
+
+struct OverviewMetricAlignedTable: View {
+    let title: String
+    let headers: [String]
+    let rows: [HeartbeatMath.DashboardGrainTableRow]
+    var showCount: Bool
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
+    private var phone: Bool { HubLayout.isPhone(sizeClass) }
+
+    var body: some View {
+        HubAdaptiveHScroll(minWidth: HubLayout.readableTableFloor(phone: phone, columns: headers.count, showCount: showCount)) {
+            VStack(alignment: .leading, spacing: 0) {
+                row(
+                    label: "Scope",
+                    stores: "Stores",
+                    values: headers,
+                    health: nil,
+                    header: true
+                )
+                ForEach(Array(rows.enumerated()), id: \.element.id) { index, item in
+                    row(
+                        label: item.label,
+                        stores: HeartbeatFormat.num(Double(item.storeCount)),
+                        values: item.values,
+                        health: item.health == .none && item.storeCount > 0 ? .good : item.health,
+                        header: false,
+                        stripe: index.isMultiple(of: 2)
                     )
                 }
             }
+        }
+        .accessibilityLabel("\(title) table")
+    }
+
+    private func row(
+        label: String,
+        stores: String,
+        values: [String],
+        health: Health?,
+        header: Bool,
+        stripe: Bool = false
+    ) -> some View {
+        HStack(spacing: 6) {
+            Text(header ? label.uppercased() : label)
+                .font(AppTheme.rounded(header ? .caption2 : .subheadline, weight: header ? .bold : .semibold))
+                .foregroundStyle(header ? AppTheme.textSecondary : AppTheme.text)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(width: HubLayout.readableLabelWidth(phone: phone), alignment: .leading)
+            if showCount {
+                cell(stores, header: header, secondary: true)
+            }
+            ForEach(Array(values.enumerated()), id: \.offset) { _, text in
+                cell(text, header: header, tone: header ? nil : health)
+            }
+            Group {
+                if header {
+                    Text("STATUS")
+                        .font(AppTheme.rounded(.caption2, weight: .bold))
+                        .foregroundStyle(AppTheme.textSecondary)
+                        .fixedSize(horizontal: true, vertical: false)
+                } else if let health {
+                    HealthBadge(health: health, prominent: true, compact: true)
+                }
+            }
+            .frame(width: HubLayout.readableStatusWidth(phone: phone), alignment: .trailing)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, header ? 6 : 9)
+        .background(stripe ? AppTheme.blueSoft.opacity(0.35) : Color.clear)
+    }
+
+    private func cell(_ text: String, header: Bool, secondary: Bool = false, tone: Health? = nil) -> some View {
+        Text(header ? text.uppercased() : text)
+            .font(AppTheme.rounded(header ? .caption2 : .subheadline, weight: header ? .bold : .bold).monospacedDigit())
+            .foregroundStyle(header ? AppTheme.textSecondary : ink(tone, secondary: secondary))
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+            .frame(minWidth: HubLayout.readableValueMin(phone: phone), alignment: .trailing)
+    }
+
+    private func ink(_ health: Health?, secondary: Bool) -> Color {
+        if secondary { return AppTheme.textSecondary }
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        default: return AppTheme.text
         }
     }
 }

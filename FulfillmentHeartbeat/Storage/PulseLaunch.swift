@@ -6,6 +6,20 @@ enum PulseLaunch {
     static let minimumPackBytes = 50_000
     static let stagingFileName = "heartbeat-cloud.sqlite"
     static let bootDownloadTimeout: TimeInterval = 25
+    /// Let the hub settle before expanding grains. Cards already painted.
+    static let grainPaintDelayNanoseconds: UInt64 = 700_000_000
+    /// Cloud facts/pack after Who's looking — not on splash, not in the first breath.
+    static let cloudHydrateDelayNanoseconds: UInt64 = 12_000_000_000
+    static let foregroundCloudQuietSeconds: TimeInterval = 90
+
+    static func shouldPullCloudOnForeground(secondsSinceReady: TimeInterval) -> Bool {
+        secondsSinceReady >= foregroundCloudQuietSeconds
+    }
+
+    /// Skip another facts.json parse when the warehouse already has the store tables.
+    static func shouldLoadPublishedFacts(lostStores: Int, salesStores: Int, minimum: Int = 200) -> Bool {
+        lostStores < minimum && salesStores < minimum
+    }
 
     static func fileBytes(at url: URL) -> Int {
         (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.intValue ?? 0

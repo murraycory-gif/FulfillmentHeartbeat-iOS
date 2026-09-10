@@ -9798,15 +9798,13 @@ private struct HubPhoneTableModifier: ViewModifier {
     var minWidth: CGFloat
 
     func body(content: Content) -> some View {
-        if HubLayout.isPhone(sizeClass) {
+        let floor = max(minWidth, HubLayout.isPhone(sizeClass) ? 920 : minWidth)
+        ViewThatFits(in: .horizontal) {
             content
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-        } else if sizeClass == .regular {
-            content
-        } else {
+                .frame(minWidth: floor, maxWidth: .infinity, alignment: .topLeading)
             ScrollView(.horizontal, showsIndicators: true) {
                 content
-                    .frame(minWidth: minWidth, alignment: .topLeading)
+                    .frame(minWidth: floor, alignment: .topLeading)
             }
         }
     }
@@ -9845,23 +9843,21 @@ struct HubStoreCard<Content: View>: View {
 
 struct HubAdaptiveHScroll<Content: View>: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
+    var minWidth: CGFloat? = nil
     @ViewBuilder var content: Content
 
+    private var floor: CGFloat {
+        minWidth ?? (HubLayout.isPhone(sizeClass) ? 920 : 1040)
+    }
+
     var body: some View {
-        Group {
-            if HubLayout.isPhone(sizeClass) {
+        ViewThatFits(in: .horizontal) {
+            content
+                .frame(minWidth: floor, maxWidth: .infinity, alignment: .leading)
+            ScrollView(.horizontal, showsIndicators: true) {
                 content
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                ViewThatFits(in: .horizontal) {
-                    content
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    ScrollView(.horizontal, showsIndicators: true) {
-                        content
-                            .padding(.horizontal, 10)
-                            .frame(minWidth: 1080, alignment: .leading)
-                    }
-                }
+                    .padding(.trailing, 12)
+                    .frame(minWidth: floor, alignment: .leading)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
