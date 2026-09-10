@@ -305,7 +305,7 @@ enum PulseLaunch {
     }
 
     static var pageOpenSections: [MetricSection] {
-        MetricSection.dashboardCards + [.pickPathPicker, .preSubOOSItem]
+        MetricSection.allCases
     }
 
     static func sectionPageFirstPaint(

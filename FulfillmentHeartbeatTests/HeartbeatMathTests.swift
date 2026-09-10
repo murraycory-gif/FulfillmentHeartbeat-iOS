@@ -2113,7 +2113,8 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testEverySectionPageOpenUsesSeatReadStoresUnderFilter() {
-        for section in PulseLaunch.pageOpenSections {
+        XCTAssertEqual(Set(PulseLaunch.pageOpenSections), Set(MetricSection.allCases))
+        for section in MetricSection.allCases {
             XCTAssertEqual(
                 PulseLaunch.sectionPageFirstPaint(section: section, filtersActive: true),
                 .seatReadStores,
@@ -2189,6 +2190,12 @@ final class HeartbeatMathTests: XCTestCase {
         }
         warehouse[.preSubOOSItem] = all.map {
             fact(.preSubOOSItem, $0, payload: ["item_count": 3], extra: ["item_desc": "milk"])
+        }
+        warehouse[.aisleMapper] = all.map {
+            fact(.aisleMapper, $0, payload: [:], extra: ["aisle_mapper_update": "2026-09-01", "aisle_sequence_update": "2026-09-01"])
+        }
+        warehouse[.storeRoster] = all.map {
+            fact(.storeRoster, $0, payload: [:], extra: ["roster": "1"])
         }
         var district = DashboardFilters()
         district.district = "03"
