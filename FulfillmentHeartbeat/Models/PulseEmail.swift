@@ -334,15 +334,15 @@ enum PulseMail {
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <style>
         body{margin:0;padding:24px 20px;background:#F5F7FC;color:#141A29;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:16px;line-height:1.45}
-        .wrap{width:100%;max-width:100%;margin:0 auto}
+        .wrap{width:100%;max-width:1100px;margin:0 auto}
         h1{font-size:28px;line-height:1.2;margin:0 0 8px;color:#003DA5}
         .sub{color:#3D4658;font-size:16px;margin:0 0 22px;line-height:1.5}
-        .block-title{font-size:18px;font-weight:700;color:#003DA5;margin:18px 0 8px}
-        .block-title span{display:block;font-size:14px;font-weight:600;color:#5C677A;margin-top:2px}
-        table.layout{width:100%;border-collapse:separate;border-spacing:12px 12px}
+        .block-title{font-size:18px;font-weight:700;color:#003DA5;margin:22px 0 12px}
+        .block-title span{display:block;font-size:14px;font-weight:600;color:#5C677A;margin-top:4px}
+        table.layout{width:100%;border-collapse:separate;border-spacing:0}
         table.layout td{vertical-align:top}
-        .table-wrap{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 0 18px;padding:0}
-        table.data{width:auto;min-width:100%;border-collapse:separate;border-spacing:0;font-size:15px;line-height:1.4}
+        .table-wrap{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 0 22px;padding:0}
+        table.data{width:auto;border-collapse:separate;border-spacing:0;font-size:15px;line-height:1.45}
         table.data th{text-align:left;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#003DA5;background:#EEF3FB;padding:10px 14px;border-bottom:2px solid #003DA5;border-right:1px solid #D6E2F5;white-space:nowrap;font-weight:700}
         table.data td{padding:10px 14px;border-bottom:1px solid #E4E9F4;border-right:1px solid #EEF1F6;vertical-align:middle}
         table.data td.name{font-weight:700;font-size:16px;white-space:nowrap;padding:10px 16px 10px 14px}
@@ -361,7 +361,7 @@ enum PulseMail {
         .cell-watch{background:#FEF3C7;color:#D97706}
         .cell-risk{background:#FEE2E2;color:#DC2626}
         .muted{color:#5C677A}
-        </style></head><body style="margin:0;padding:24px 20px;background:#F5F7FC;color:#141A29;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:16px;line-height:1.45"><div class="wrap" style="width:100%;max-width:100%;margin:0 auto">
+        </style></head><body style="margin:0;padding:24px 20px;background:#F5F7FC;color:#141A29;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:16px;line-height:1.45"><div class="wrap" style="width:100%;max-width:1100px;margin:0 auto">
         <h1 style="font-size:28px;line-height:1.2;margin:0 0 8px;color:#003DA5">Fulfillment Heartbeat</h1>
         <p class="sub" style="color:#3D4658;font-size:16px;margin:0 0 22px;line-height:1.5">\(esc(snap.filterSummary))<br>\(esc(HeartbeatFormat.stamp(snap.generatedAt))) · Same layout and columns as the in-app page · Upload is not included</p>
         """
@@ -408,47 +408,57 @@ enum PulseMail {
         return cards
     }
 
+    /// Mail/Outlook ignore CSS padding and crush 4-up grids. Two columns, nested cellpadding.
+    private static let mailGridColumns = 2
+
+    private static func mailGutter() -> String {
+        "<td width=\"12\" style=\"width:12px;font-size:0;line-height:0;padding:0\">&nbsp;</td>"
+    }
+
     private static func flagGridHTML(_ flags: [HeartbeatMath.FiveStarFlag]) -> String {
         guard !flags.isEmpty else { return "" }
-        let perRow = HubLayout.calloutColumns(count: flags.count, width: HubLayout.SupportedCanvas.padLandscape)
+        let perRow = mailGridColumns
         var rows = ""
         var index = 0
         while index < flags.count {
             let end = min(index + perRow, flags.count)
             var cells = ""
             let slice = Array(flags[index..<end])
-            for flag in slice {
+            for (offset, flag) in slice.enumerated() {
+                if offset > 0 { cells += mailGutter() }
                 let tone = flag.health == .none ? Health.good : flag.health
                 let accent = ink(tone)
                 let unit = flag.stores == 1 ? String(flag.unit.dropLast()) : flag.unit
                 let stores = "\(HeartbeatFormat.num(Double(flag.stores)))&nbsp;\(esc(unit))"
                 let valueLine = flag.value.isEmpty
                     ? ""
-                    : "<div class=\"nw\" style=\"font-size:20px;font-weight:700;margin-top:6px;color:\(accent);text-align:left\">\(esc(flag.value))</div>"
+                    : "<div class=\"nw\" style=\"font-size:20px;font-weight:700;margin:8px 0;color:\(accent);text-align:left;line-height:1.3\">\(esc(flag.value))</div>"
                 cells += """
-                <td width="\(100 / perRow)%" valign="top" style="padding:4px">
-                <table width="100%" cellspacing="0" cellpadding="0" bgcolor="#FFFFFF" style="background:#FFFFFF;border:1px solid #E4E9F4;border-radius:12px">
+                <td width="\(100 / perRow)%" valign="top" style="width:\(100 / perRow)%">
+                <table width="100%" cellspacing="0" cellpadding="14" bgcolor="#FFFFFF" style="width:100%;background:#FFFFFF;border:1px solid #E4E9F4;border-radius:12px">
                 <tr>
                 <td width="4" bgcolor="\(accent)" style="background:\(accent);width:4px;font-size:0;line-height:0">&nbsp;</td>
-                <td style="padding:10px 12px">
-                <div style="font-size:14px;color:#141A29;font-weight:700">\(esc(flag.name))</div>
+                <td style="padding:14px 16px">
+                <div style="font-size:15px;color:#141A29;font-weight:700;line-height:1.35">\(esc(flag.name))</div>
                 \(valueLine)
-                <div class="nw" style="font-size:14px;font-weight:600;margin-top:6px;color:#5C677A;text-align:left">\(stores)</div>
-                <div style="margin-top:8px">\(pill(tone))</div>
+                <div class="nw" style="font-size:14px;font-weight:600;margin-top:8px;color:#5C677A;text-align:left;line-height:1.4">\(stores)</div>
+                <div style="margin-top:10px">\(pill(tone))</div>
                 </td></tr>
                 </table>
                 </td>
                 """
             }
             if slice.count < perRow {
-                for _ in slice.count..<perRow {
-                    cells += "<td width=\"\(100 / perRow)%\"></td>"
-                }
+                cells += mailGutter()
+                cells += "<td width=\"\(100 / perRow)%\"></td>"
             }
             rows += "<tr>\(cells)</tr>"
+            if end < flags.count {
+                rows += "<tr><td colspan=\"3\" height=\"12\" style=\"height:12px;font-size:0;line-height:0\">&nbsp;</td></tr>"
+            }
             index = end
         }
-        return "<table class=\"layout\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin-top:12px\">\(rows)</table>"
+        return "<table class=\"layout\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin:16px 0 8px;border-collapse:separate\">\(rows)</table>"
     }
 
     private static func flagCaption(_ flag: HeartbeatMath.FiveStarFlag) -> String {
@@ -715,10 +725,14 @@ enum PulseMail {
         let fill = tileFill(health, brand: brand)
         let badge = health == .none ? "" : pill(health)
         return """
-        <td valign="top" style="width:\(colPct)%;background:\(fill.bg);border:1px solid \(fill.border);border-radius:14px;padding:12px 14px">
-        <div style="font-size:15px;font-weight:700;color:#141A29">\(esc(label)) \(badge)</div>
-        <div style="font-size:28px;font-weight:700;margin-top:8px;color:\(fill.ink)">\(esc(value))</div>
-        <div style="font-size:14px;color:#5C677A;margin-top:6px">\(esc(detail))</div>
+        <td valign="top" width="\(colPct)%" style="width:\(colPct)%">
+        <table width="100%" cellspacing="0" cellpadding="14" bgcolor="\(fill.bg)" style="width:100%;background:\(fill.bg);border:1px solid \(fill.border);border-radius:14px">
+        <tr><td style="padding:14px 16px">
+        <div style="font-size:15px;font-weight:700;color:#141A29;line-height:1.35">\(esc(label)) \(badge)</div>
+        <div style="font-size:26px;font-weight:700;margin:10px 0 8px;color:\(fill.ink);line-height:1.25">\(esc(value))</div>
+        <div style="font-size:14px;color:#5C677A;line-height:1.4">\(esc(detail))</div>
+        </td></tr>
+        </table>
         </td>
         """
     }
@@ -892,25 +906,29 @@ enum PulseMail {
             }
         }
         guard !items.isEmpty else { return "" }
-        let perRow = HubLayout.calloutColumns(count: items.count, width: HubLayout.SupportedCanvas.padLandscape)
-        let pct = max(100 / perRow, 1)
-        let sized = items.map { item in
-            item.replacingOccurrences(of: "width:50%;", with: "width:\(pct)%;")
-        }
+        let perRow = mailGridColumns
+        let pct = 50
         var rows = ""
         var index = 0
-        while index < sized.count {
-            let end = min(index + perRow, sized.count)
-            var row = sized[index..<end].joined()
-            if end - index < perRow {
-                for _ in (end - index)..<perRow {
-                    row += "<td width=\"\(pct)%\"></td>"
-                }
+        while index < items.count {
+            let end = min(index + perRow, items.count)
+            let slice = Array(items[index..<end])
+            var row = ""
+            for (offset, item) in slice.enumerated() {
+                if offset > 0 { row += mailGutter() }
+                row += item
+            }
+            if slice.count < perRow {
+                row += mailGutter()
+                row += "<td width=\"\(pct)%\"></td>"
             }
             rows += "<tr>" + row + "</tr>"
+            if end < items.count {
+                rows += "<tr><td colspan=\"3\" height=\"12\" style=\"height:12px;font-size:0;line-height:0\">&nbsp;</td></tr>"
+            }
             index = end
         }
-        return "<table class=\"layout\" width=\"100%\" cellspacing=\"8\" cellpadding=\"0\">\(rows)</table>"
+        return "<table class=\"layout\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin:0 0 22px;border-collapse:separate\">\(rows)</table>"
     }
 
     private static func groupKey(_ row: MetricRow, grain: String) -> String {
@@ -1387,7 +1405,7 @@ enum PulseMail {
     }
 
     private static func nameCell(_ text: String, extra: String = "") -> String {
-        "<td class=\"name\" style=\"font-weight:700;font-size:16px;white-space:nowrap;padding:10px 16px 10px 14px;border-bottom:1px solid #E4E9F4;border-right:1px solid #EEF1F6\">\(esc(text))\(extra)</td>"
+        "<td class=\"name\" width=\"168\" style=\"width:168px;font-weight:700;font-size:16px;white-space:nowrap;padding:12px 16px;border-bottom:1px solid #E4E9F4;border-right:1px solid #EEF1F6\">\(esc(text))\(extra)</td>"
     }
 
     private static func numCell(_ text: String, muted: Bool = false, health: Health? = nil) -> String {
@@ -1413,11 +1431,11 @@ enum PulseMail {
         default:
             color = "#141A29"
         }
-        return "<td class=\"\(cls)\" style=\"text-align:right;font-variant-numeric:tabular-nums;font-weight:700;font-size:16px;white-space:nowrap;padding:10px 14px;border-bottom:1px solid #E4E9F4;border-right:1px solid #EEF1F6;\(fill)color:\(color)\">\(esc(text))</td>"
+        return "<td class=\"\(cls)\" width=\"108\" style=\"width:108px;text-align:right;font-variant-numeric:tabular-nums;font-weight:700;font-size:16px;white-space:nowrap;padding:12px 14px;border-bottom:1px solid #E4E9F4;border-right:1px solid #EEF1F6;\(fill)color:\(color)\">\(esc(text))</td>"
     }
 
     private static func statusCell(_ health: Health) -> String {
-        "<td class=\"status\" style=\"text-align:right;white-space:nowrap;width:120px;padding:10px 14px;border-bottom:1px solid #E4E9F4\">\(pill(health))</td>"
+        "<td class=\"status\" width=\"120\" style=\"width:120px;text-align:right;white-space:nowrap;padding:12px 14px;border-bottom:1px solid #E4E9F4\">\(pill(health))</td>"
     }
 
     private static func pill(_ health: Health) -> String {
@@ -1445,15 +1463,15 @@ enum PulseMail {
                 cls = " class=\"num\""
                 align = "right"
             }
-            return "<th\(cls) bgcolor=\"#EEF3FB\" style=\"text-align:\(align);font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#003DA5;background:#EEF3FB;padding:10px 14px;border-bottom:2px solid #003DA5;border-right:1px solid #D6E2F5;white-space:nowrap;font-weight:700\">\(esc(name))</th>"
+            return "<th\(cls) bgcolor=\"#EEF3FB\" style=\"text-align:\(align);font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#003DA5;background:#EEF3FB;padding:12px 14px;border-bottom:2px solid #003DA5;border-right:1px solid #D6E2F5;white-space:nowrap;font-weight:700\">\(esc(name))</th>"
         }.joined()
         let heading = banner
             ? bar(title, detail)
-            : "<div class=\"block-title\" style=\"font-size:18px;font-weight:700;color:#003DA5;margin:22px 0 10px\">\(esc(title))<span style=\"display:block;font-size:14px;font-weight:600;color:#5C677A;margin-top:4px\">\(esc(detail))</span></div>"
+            : "<div class=\"block-title\" style=\"font-size:18px;font-weight:700;color:#003DA5;margin:22px 0 12px\">\(esc(title))<span style=\"display:block;font-size:14px;font-weight:600;color:#5C677A;margin-top:4px\">\(esc(detail))</span></div>"
         return """
         \(heading)
-        <div class="table-wrap" style="width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 0 18px">
-        <table class="data" cellspacing="0" cellpadding="10" bgcolor="#FFFFFF" style="width:auto;min-width:100%;border-collapse:separate;border-spacing:0;font-size:15px;line-height:1.4;background:#FFFFFF">
+        <div class="table-wrap" style="width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 0 22px">
+        <table class="data" cellspacing="0" cellpadding="12" bgcolor="#FFFFFF" style="width:auto;border-collapse:separate;border-spacing:0;font-size:15px;line-height:1.45;background:#FFFFFF">
         <thead><tr>\(heads)</tr></thead>
         <tbody>\(body)</tbody>
         </table>
