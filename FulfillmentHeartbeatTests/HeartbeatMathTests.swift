@@ -1247,6 +1247,82 @@ final class HeartbeatMathTests: XCTestCase {
         let joLost = jo.summaries.first { $0.section == .lostRevenue }
         XCTAssertEqual(joLost?.storeCount, 179)
         XCTAssertEqual(joLost?.headline ?? 0, 451_085, accuracy: 5)
+
+        let light = PulseQuery.paint(
+            warehouse: warehouse, roster: roster, filters: district,
+            grain: .store, uploads: [], hidePicker: true, light: true
+        )
+        let lightLost = light.summaries.first { $0.section == .lostRevenue }
+        XCTAssertEqual(lightLost?.storeCount, 20)
+        XCTAssertEqual(lightLost?.headline ?? 0, 36_193, accuracy: 1)
+    }
+
+    func testWarehouseKeepsFullPackAndFillsThinPack() {
+        func lost(_ store: String, dollars: Double) -> MetricRow {
+            MetricRow(
+                section: .lostRevenue,
+                storeNumber: store,
+                payload: ["lost_revenue": dollars],
+                textPayload: ["lost_grain": "store"]
+            )
+        }
+        let thin = (1...40).map { lost(String($0), dollars: 10) }
+        let full = (1...220).map { lost(String($0), dollars: 20) }
+        let newer = (1...220).map { lost(String($0), dollars: 40) }
+        XCTAssertNotNil(PulseQuery.fillIfThin(existing: thin, incoming: full))
+        XCTAssertNil(PulseQuery.fillIfThin(existing: full, incoming: thin))
+        XCTAssertNil(PulseQuery.fillIfThin(existing: full, incoming: newer))
+        XCTAssertNotNil(PulseQuery.takeIfRicher(existing: thin, incoming: full))
+        XCTAssertNotNil(PulseQuery.takeIfRicher(existing: full, incoming: newer))
+        XCTAssertNil(PulseQuery.takeIfRicher(existing: newer, incoming: full))
+        XCTAssertNil(PulseQuery.takeIfRicher(existing: full, incoming: thin))
+    }
+
+    func testLaunchLeavesSplashOnPackOrPaintedFacts() {
+        XCTAssertTrue(PulseLaunch.leaveSplash(localPackBytes: 80_000, loadedRows: 12))
+        XCTAssertFalse(PulseLaunch.leaveSplash(localPackBytes: 80_000, loadedRows: 0))
+        XCTAssertFalse(PulseLaunch.leaveSplash(localPackBytes: 1_200, loadedRows: 40))
+        XCTAssertTrue(PulseLaunch.leaveSplash(localPackBytes: 0, loadedRows: 0, paintedStoreCards: 3))
+        XCTAssertFalse(PulseLaunch.leaveSplash(localPackBytes: 0, loadedRows: 0, paintedStoreCards: 0))
+    }
+
+    func testLaunchDoesNotRefetchTheSameLocalPack() {
+        XCTAssertFalse(
+            PulseLaunch.shouldFetchRemotePack(remoteBytes: 2_000_000, localBytes: 2_000_000, localRowsLoaded: 400)
+        )
+        XCTAssertTrue(
+            PulseLaunch.shouldFetchRemotePack(remoteBytes: 2_100_000, localBytes: 2_000_000, localRowsLoaded: 400)
+        )
+        XCTAssertTrue(
+            PulseLaunch.shouldFetchRemotePack(remoteBytes: 2_000_000, localBytes: 0, localRowsLoaded: 0)
+        )
+        XCTAssertTrue(
+            PulseLaunch.shouldFetchRemotePack(remoteBytes: 2_000_000, localBytes: 2_000_000, localRowsLoaded: 0)
+        )
+        XCTAssertFalse(
+            PulseLaunch.shouldFetchRemotePack(remoteBytes: 12_000, localBytes: 0, localRowsLoaded: 0)
+        )
+    }
+
+    func testConstrainedRefreshDoesNotReloadPackInSession() {
+        XCTAssertFalse(PulseLaunch.reloadInSessionAfterFetch(constrained: true, localRowsLoaded: 400))
+        XCTAssertTrue(PulseLaunch.reloadInSessionAfterFetch(constrained: true, localRowsLoaded: 0))
+        XCTAssertTrue(PulseLaunch.reloadInSessionAfterFetch(constrained: false, localRowsLoaded: 400))
+    }
+
+    func testMissingPackMessageIsActionable() {
+        let message = PulseLaunch.missingPackMessage()
+        XCTAssertTrue(message.contains("Try again"))
+        XCTAssertFalse(message.isEmpty)
+    }
+
+    func testUsablePackFileRejectsTinyStubs() {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("hb-stub-\(UUID().uuidString).sqlite")
+        FileManager.default.createFile(atPath: url.path, contents: Data(repeating: 1, count: 1_200), attributes: nil)
+        XCTAssertFalse(PulseSQLite.isUsableFile(at: url))
+        XCTAssertFalse(PulseSQLite.exists(at: url))
+        try? FileManager.default.removeItem(at: url)
+        XCTAssertFalse(PulseSQLite.exists(at: url))
     }
 }
 

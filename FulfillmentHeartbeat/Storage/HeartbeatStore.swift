@@ -91,6 +91,7 @@ final class HeartbeatStore: ObservableObject {
     private var lastCloudPullAt: Date?
     private var lifetimeObservers: [NSObjectProtocol] = []
     private var cloudHydrateStarted = false
+    private var packFetchInFlight = false
     private var pendingHeavyExtras = false
     private var heavyLoadStarted = false
     private var usingPackChrome = false
@@ -129,42 +130,68 @@ final class HeartbeatStore: ObservableObject {
         loadMasterLink()
         isImporting = true
         isReady = false
+        errorMessage = nil
         importProgress.label = "Opening the floor"
         await loadPack()
-        if seeded, !cachedSummaries.isEmpty {
-            isImporting = false
-            importLabel = nil
-            isReady = true
-            needsRolePick = true
+        await paintFromWarehouse(light: true)
+        if canLeaveSplash() {
+            finishLocalLaunch()
+            Task { await self.paintFromWarehouse(light: false) }
+            if HubLayout.ingestsWorkbook {
+                Task { await self.ingestWorkbookOnMacIfNeeded() }
+            }
+            return
         }
         if HubLayout.ingestsWorkbook {
             importProgress.label = "Building today's pack"
             await ingestWorkbookOnMacIfNeeded()
-        } else {
-            await importCloudSQLiteIfPresent()
+            await paintFromWarehouse(light: true)
+        } else if !PulseSQLite.isUsableFile(at: sqliteURL) {
+            importProgress.label = "Looking for a cloud pack"
+            await importCloudSQLiteIfPresent(reason: .boot)
+            await paintFromWarehouse(light: true)
         }
-        await loadPublishedFacts()
-        await paintFromWarehouse(light: true)
-        Task { await self.paintFromWarehouse(light: false) }
-        if seeded, !cachedSummaries.isEmpty {
-            isImporting = false
-            importLabel = nil
-            isReady = true
-            needsRolePick = true
+        if canLeaveSplash() {
+            finishLocalLaunch()
+            Task { await self.paintFromWarehouse(light: false) }
             return
         }
         isImporting = false
         importLabel = nil
-        errorMessage = errorMessage ?? "Could not load Heartbeat pack from the cloud."
+        errorMessage = PulseLaunch.missingPackMessage()
+    }
+
+    private func canLeaveSplash() -> Bool {
+        PulseLaunch.leaveSplash(
+            localPackBytes: PulseSQLite.fileBytes(at: sqliteURL),
+            loadedRows: rows.count,
+            paintedStoreCards: PulseLaunch.usablePaintedCards(cachedSummaries)
+        )
+    }
+
+    private func finishLocalLaunch() {
+        if !cachedSummaries.isEmpty {
+            seeded = true
+        }
+        isImporting = false
+        importLabel = nil
+        isReady = true
+        needsRolePick = true
+    }
+
+    func retryLaunch() {
+        guard !isImporting else { return }
+        errorMessage = nil
+        isReady = false
+        isImporting = true
+        importProgress.label = "Loading the data"
+        Task { await boot() }
     }
 
     private func hydrateFromCloudInBackground() async {
         let snap = await PulseCloud.snapshot()
         await syncCloudPackIfChanged(snap)
-        if HubLayout.profile.skipExcel {
-            applyLocalCards()
-            return
-        }
+        applyLocalCards()
         await loadPublishedFacts()
     }
 
@@ -1397,7 +1424,10 @@ final class HeartbeatStore: ObservableObject {
             persistFilters()
         }
         needsRolePick = false
-        Task { await paintFromWarehouse(light: true) }
+        Task {
+            await paintFromWarehouse(light: true)
+            await paintFromWarehouse(light: false)
+        }
         startCloudHydrateIfNeeded()
     }
 
@@ -1432,7 +1462,7 @@ final class HeartbeatStore: ObservableObject {
         filters = DashboardFilters()
         hydrating = false
         persistFilters()
-        Task { await paintFromWarehouse(light: false) }
+        applyFilters()
     }
 
     func loadSampleMarket() {
@@ -1567,6 +1597,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func pullLatestWorkbookIfNeeded() {
+        guard isReady, !needsRolePick, !isImporting else { return }
         if let last = lastCloudPullAt, Date().timeIntervalSince(last) < 300 { return }
         lastCloudPullAt = Date()
         pullCloudPackIfNeeded()
@@ -1593,13 +1624,13 @@ final class HeartbeatStore: ObservableObject {
             let remote = await PulseCloud.objectInfo(PulseCloud.object)
             info = PulseCloud.ObjectStat(size: remote.size, updated: remote.updated)
         }
-        let known = UserDefaults.standard.integer(forKey: "hb.cloudPackBytes")
-        let knownUpdated = UserDefaults.standard.string(forKey: "hb.cloudPackUpdated") ?? ""
-        let same = info.size > 50_000
-            && info.size == known
-            && (info.updated.isEmpty || info.updated == knownUpdated)
-        if info.size > 50_000, !same {
-            await importCloudSQLiteIfPresent()
+        let localBytes = PulseSQLite.fileBytes(at: sqliteURL)
+        if PulseLaunch.shouldFetchRemotePack(
+            remoteBytes: info.size,
+            localBytes: localBytes,
+            localRowsLoaded: rows.count
+        ) {
+            await importCloudSQLiteIfPresent(reason: .refresh)
         }
         await importCloudCardsIfPresent()
     }
@@ -1661,31 +1692,65 @@ final class HeartbeatStore: ObservableObject {
         await importCloudWorkbook(blocking: true)
     }
 
-    private func importCloudSQLiteIfPresent() async {
+    private enum PackFetchReason {
+        case boot, refresh
+    }
+
+    private func importCloudSQLiteIfPresent(reason: PackFetchReason) async {
+        guard !packFetchInFlight else { return }
         let remote = await PulseCloud.objectSize(PulseCloud.object)
-        guard remote > 50_000 else { return }
-        let known = UserDefaults.standard.integer(forKey: "hb.cloudPackBytes")
-        let packReady = usingPackChrome || (Self.hasUsableSales(rows) && Self.hasUsableLostRevenue(rows))
-        let sameFile = known == remote && packReady
-        if sameFile { return }
+        let localBytes = PulseSQLite.fileBytes(at: sqliteURL)
+        let alreadyLoaded = rows.count
+        guard PulseLaunch.shouldFetchRemotePack(
+            remoteBytes: remote,
+            localBytes: localBytes,
+            localRowsLoaded: alreadyLoaded
+        ) else { return }
+        packFetchInFlight = true
+        defer { packFetchInFlight = false }
+        let staging = sqliteURL.deletingLastPathComponent().appendingPathComponent(PulseLaunch.stagingFileName)
+        let timeout = reason == .boot ? PulseLaunch.bootDownloadTimeout : 180
         do {
-            let dest = sqliteURL
-            let size = try await PulseCloud.downloadPack(to: dest)
-            await loadPack()
-            guard seeded, !rows.isEmpty else { return }
+            let size = try await PulseCloud.downloadPack(to: staging, timeout: timeout)
+            guard PulseSQLite.isUsableFile(at: staging) else {
+                try? fileManager.removeItem(at: staging)
+                return
+            }
+            let shouldReload = PulseLaunch.reloadInSessionAfterFetch(
+                constrained: HubLayout.constrained,
+                localRowsLoaded: alreadyLoaded
+            )
+            if shouldReload {
+                await loadPack(from: staging)
+                guard seeded, !rows.isEmpty else {
+                    try? fileManager.removeItem(at: staging)
+                    return
+                }
+            }
+            try promoteStagingPack(staging)
             UserDefaults.standard.set(size, forKey: "hb.cloudPackBytes")
-            UserDefaults.standard.set(BuildStamp.id, forKey: "hb.packBuild")
             let stamp = await PulseCloud.objectInfo(PulseCloud.object)
             if !stamp.updated.isEmpty {
                 UserDefaults.standard.set(stamp.updated, forKey: "hb.cloudPackUpdated")
             }
-            if HubLayout.constrained {
+            if !shouldReload {
                 applyLocalCards()
                 return
             }
-            await loadPublishedFacts()
+            await paintFromWarehouse(light: true)
+            if reason != .boot {
+                Task { await self.paintFromWarehouse(light: false) }
+            }
         } catch {
-            return
+            try? fileManager.removeItem(at: staging)
+        }
+    }
+
+    private func promoteStagingPack(_ staging: URL) throws {
+        if fileManager.fileExists(atPath: sqliteURL.path) {
+            _ = try fileManager.replaceItemAt(sqliteURL, withItemAt: staging)
+        } else {
+            try fileManager.moveItem(at: staging, to: sqliteURL)
         }
     }
 
@@ -2300,15 +2365,19 @@ final class HeartbeatStore: ObservableObject {
 
     private func applyFilters() {
         refilterTask?.cancel()
-        refilterTask = Task { await self.paintFromWarehouse(light: false) }
+        refilterTask = Task {
+            await self.paintFromWarehouse(light: true)
+            guard !Task.isCancelled else { return }
+            await self.paintFromWarehouse(light: false)
+        }
     }
 
     private func restoreCompanyWide() {
-        Task { await paintFromWarehouse(light: false) }
+        applyFilters()
     }
 
     private func applyVisibleFilter() {
-        Task { await paintFromWarehouse(light: false) }
+        applyFilters()
     }
 
     @MainActor
@@ -2696,29 +2765,9 @@ final class HeartbeatStore: ObservableObject {
         rows = PulseDataPolicy.applyIdentity(existing: rows, identity: incoming)
         rows = PulseDataPolicy.fillMissing(existing: rows, facts: incoming)
         seeded = true
-        let lost = incoming.filter { $0.section == .lostRevenue }
-        if !lost.isEmpty {
-            let stamped = HeartbeatMath.applyRoster(
-                HeartbeatMath.latestPerStore(lost.filter { $0.textPayload["lost_grain"] != "market" }),
-                roster: roster
-            )
-            var merged = latestBySection[.lostRevenue] ?? []
-            var have: Set<String> = []
-            for row in merged {
-                have.formUnion(HeartbeatMath.storeAliases(row.storeNumber))
-            }
-            for row in stamped where !have.contains(HeartbeatMath.canonicalStore(row.storeNumber)) {
-                merged.append(row)
-                have.formUnion(HeartbeatMath.storeAliases(row.storeNumber))
-            }
-            latestBySection[.lostRevenue] = merged
-        }
+        adoptFactRows(incoming, mode: .takeIfRicher)
         rebuildLostIndex()
-        if filters.isActive {
-            Task { await paintFromWarehouse(light: false) }
-        } else {
-            Task { await paintFromWarehouse(light: true) }
-        }
+        applyFilters()
     }
 
     private func publishFacts() {
@@ -2732,57 +2781,61 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func loadPack() async {
-        if PulseSQLite.exists(at: sqliteURL) {
-            let url = sqliteURL
-            let chromeFirst = await Task.detached(priority: .userInitiated) {
-                PulseSQLite.readChrome(from: url)
+        await loadPack(from: sqliteURL)
+    }
+
+    private func loadPack(from url: URL) async {
+        guard PulseSQLite.exists(at: url) else {
+            if seeded, !cachedSummaries.isEmpty { return }
+            rebuildIndex()
+            return
+        }
+        let chromeFirst = await Task.detached(priority: .userInitiated) {
+            PulseSQLite.readChrome(from: url)
+        }.value
+        if let chromeFirst {
+            applyDashChrome(chromeFirst)
+        }
+        let skipHeavy: Set<MetricSection> = HubLayout.lightLaunch || chromeFirst != nil ? Self.launchSkip : []
+        let pack = await Task.detached(priority: .userInitiated) {
+            try? PulseSQLite.read(from: url, skipping: skipHeavy)
+        }.value
+        if let pack, !pack.rows.isEmpty {
+            importProgress.label = "Setting the aisle"
+            let packRows = pack.rows
+            let packUploads = pack.uploads
+            let chrome = pack.chrome ?? chromeFirst
+            let caches = await Task.detached(priority: .userInitiated) {
+                PulseCaches.build(
+                    rows: packRows,
+                    filters: DashboardFilters(),
+                    uploads: packUploads,
+                    heavy: false,
+                    grain: chrome == nil ? .region : nil
+                )
             }.value
-            if let chromeFirst {
-                applyDashChrome(chromeFirst)
+            hydrating = true
+            rows = pack.rows
+            uploads = pack.uploads.sorted { $0.uploadedAt > $1.uploadedAt }
+            seeded = true
+            usingDatabasePack = true
+            if !isReady {
+                filters = DashboardFilters()
+                sessionRole = nil
+                needsRolePick = true
             }
-            let skipHeavy: Set<MetricSection> = HubLayout.lightLaunch || chromeFirst != nil ? Self.launchSkip : []
-            let pack = await Task.detached(priority: .userInitiated) {
-                try? PulseSQLite.read(from: url, skipping: skipHeavy)
-            }.value
-            if let pack, !pack.rows.isEmpty {
-                importProgress.label = "Setting the aisle"
-                let packRows = pack.rows
-                let packUploads = pack.uploads
-                let chrome = pack.chrome ?? chromeFirst
-                let caches = await Task.detached(priority: .userInitiated) {
-                    PulseCaches.build(
-                        rows: packRows,
-                        filters: DashboardFilters(),
-                        uploads: packUploads,
-                        heavy: false,
-                        grain: chrome == nil ? .region : nil
-                    )
-                }.value
-                hydrating = true
-                rows = pack.rows
-                uploads = pack.uploads.sorted { $0.uploadedAt > $1.uploadedAt }
-                seeded = true
-                usingDatabasePack = true
-                if !isReady {
-                    filters = DashboardFilters()
-                    sessionRole = nil
-                    needsRolePick = true
-                }
-                install(caches)
-                if let chrome {
-                    applyDashChrome(chrome)
-                }
-                hydrating = false
-                applyLocalCards()
-                importProgress.loaded = MetricSection.uploadOrder.count
-                pendingHeavyExtras = chrome == nil || !(chrome?.isComplete ?? false)
-                return
+            install(caches)
+            if let chrome {
+                applyDashChrome(chrome)
             }
+            hydrating = false
+            applyLocalCards()
+            importProgress.loaded = MetricSection.uploadOrder.count
+            pendingHeavyExtras = chrome == nil || !(chrome?.isComplete ?? false)
+            return
         }
         if seeded, !cachedSummaries.isEmpty { return }
-        isReady = false
         rebuildIndex()
-        applyFilters()
     }
 
     private func applyDashChrome(_ chrome: PulseDashChrome) {
@@ -2830,14 +2883,23 @@ final class HeartbeatStore: ObservableObject {
         return true
     }
 
+    private enum FactAdoptMode {
+        case fillIfThin
+        case takeIfRicher
+    }
+
     /// Put Excel store rows for Sales, 5 Star, and Loss Revenue into the warehouse.
+    /// A full live pack / cloud table is kept. Bundled facts only fill a thin pack.
     private func adoptExcelFactsIntoWarehouse() async {
-        if didAdoptExcelFacts, factsOwned.contains(.lostRevenue), factsOwned.contains(.sales) {
-            return
-        }
+        if didAdoptExcelFacts { return }
         let facts = await Task.detached(priority: .userInitiated) {
             PulseFacts.bundledMetricRows()
         }.value
+        adoptFactRows(facts, mode: .fillIfThin)
+        didAdoptExcelFacts = true
+    }
+
+    private func adoptFactRows(_ facts: [MetricRow], mode: FactAdoptMode) {
         guard !facts.isEmpty else { return }
         for row in facts where row.section == .storeRoster || row.textPayload["roster"] == "1" {
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
@@ -2854,12 +2916,17 @@ final class HeartbeatStore: ObservableObject {
         for section in owned {
             let factRows = facts.filter { PulseQuery.isStoreFact($0) && $0.section == section }
             let stamped = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(factRows), roster: roster)
-            let scoredFacts = stamped.filter { !$0.payload.isEmpty }.count
-            guard scoredFacts >= 200 else { continue }
-            latestBySection[section] = stamped
+            let incoming: [MetricRow]?
+            switch mode {
+            case .fillIfThin:
+                incoming = PulseQuery.fillIfThin(existing: latestBySection[section] ?? [], incoming: stamped)
+            case .takeIfRicher:
+                incoming = PulseQuery.takeIfRicher(existing: latestBySection[section] ?? [], incoming: stamped)
+            }
+            guard let incoming else { continue }
+            latestBySection[section] = incoming
             factsOwned.insert(section)
         }
-        didAdoptExcelFacts = true
     }
 
     private func paintFactsScorecards() {

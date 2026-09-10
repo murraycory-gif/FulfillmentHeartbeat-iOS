@@ -113,13 +113,14 @@ enum PulseCloud {
         return try Data(contentsOf: temp, options: [.mappedIfSafe])
     }
 
-    /// Stream the pack to disk. Do not hold the file in RAM (iPhone 13 jetsam).
-    static func downloadPack(to dest: URL) async throws -> Int {
+    /// Stream the pack to a staging file. Never pass the live `heartbeat.sqlite`
+    /// while it may still be memory-mapped.
+    static func downloadPack(to dest: URL, timeout: TimeInterval = 180) async throws -> Int {
         var last: Error = PulseCloudError.missing
         for url in [packURL, publicPackURL] {
             var request = URLRequest(url: url)
             request.httpMethod = "GET"
-            request.timeoutInterval = 180
+            request.timeoutInterval = timeout
             applyAuth(&request)
             do {
                 let (temp, response) = try await URLSession.shared.download(for: request)

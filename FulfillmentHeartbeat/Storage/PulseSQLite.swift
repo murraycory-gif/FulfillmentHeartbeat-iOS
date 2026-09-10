@@ -270,7 +270,16 @@ enum PulseSQLite {
     }
 
     static func exists(at url: URL) -> Bool {
+        isUsableFile(at: url)
+    }
+
+    static func fileBytes(at url: URL) -> Int {
+        PulseLaunch.fileBytes(at: url)
+    }
+
+    static func isUsableFile(at url: URL) -> Bool {
         FileManager.default.fileExists(atPath: url.path)
+            && PulseLaunch.isUsableFileSize(fileBytes(at: url))
     }
 
     static func sectionCount(from url: URL, section: MetricSection) -> Int {

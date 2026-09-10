@@ -30,6 +30,38 @@ enum PulseQuery {
         return PulseCaches.rowsMatchingStores(facts, stores: allowed, skipMarket: true)
     }
 
+    static func scoredStoreFacts(_ rows: [MetricRow]) -> [MetricRow] {
+        rows.filter(isStoreFact)
+    }
+
+    static func storeFactDollars(_ rows: [MetricRow]) -> Double {
+        rows.reduce(0) { sum, row in
+            sum
+                + (row.number("lost_revenue") ?? 0)
+                + HeartbeatMath.salesHeadlineDollars(row)
+        }
+    }
+
+    /// Fill a thin warehouse from Excel store facts. Never replace a full table.
+    static func fillIfThin(existing: [MetricRow], incoming: [MetricRow], minimum: Int = 200) -> [MetricRow]? {
+        let have = scoredStoreFacts(existing)
+        if have.count >= minimum { return nil }
+        let next = scoredStoreFacts(incoming)
+        guard next.count >= minimum else { return nil }
+        return next
+    }
+
+    /// Live Excel / cloud facts replace a thin pack, or the same stores when dollars moved.
+    static func takeIfRicher(existing: [MetricRow], incoming: [MetricRow], minimum: Int = 200) -> [MetricRow]? {
+        let next = scoredStoreFacts(incoming)
+        guard next.count >= minimum else { return nil }
+        let have = scoredStoreFacts(existing)
+        if have.count < minimum { return next }
+        if next.count > have.count { return next }
+        if abs(storeFactDollars(next) - storeFactDollars(have)) > 1 { return next }
+        return nil
+    }
+
     static func paint(
         warehouse: [MetricSection: [MetricRow]],
         roster: [String: HeartbeatMath.StoreIdentity],
@@ -63,12 +95,16 @@ enum PulseQuery {
             )
         }
         let flags = PulseCaches.cardFlags(latest: filtered)
+        let storeNumbers = (allowed ?? Set(roster.keys)).sorted(by: HeartbeatFormat.storeOrder)
+        let stores = storeNumbers.map { number -> (number: String, name: String?) in
+            (number, roster[HeartbeatMath.canonicalStore(number)]?.name)
+        }
         let grains = PulseCaches.grainPacks(
             latest: filtered,
             grain: grain,
             hidePicker: true,
-            stores: [],
-            roster: [:]
+            stores: stores,
+            roster: roster
         )
         return View(
             filtered: filtered,
