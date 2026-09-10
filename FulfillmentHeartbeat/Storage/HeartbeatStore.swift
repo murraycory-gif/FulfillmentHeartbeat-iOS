@@ -2839,7 +2839,7 @@ final class HeartbeatStore: ObservableObject {
         if filters.isActive {
             applyVisibleFilter()
         } else {
-            overlayFilledFactsOnChrome()
+            paintLostRevenueFromFacts()
             rebuildCompanyGrainPacks()
         }
     }
@@ -2895,6 +2895,7 @@ final class HeartbeatStore: ObservableObject {
                 if let chrome {
                     applyDashChrome(chrome)
                 }
+                paintLostRevenueFromFacts()
                 hydrating = false
                 applyLocalCards()
                 importProgress.loaded = MetricSection.uploadOrder.count
@@ -2952,30 +2953,52 @@ final class HeartbeatStore: ObservableObject {
         filteredLatest = latestBySection
         refreshFilterOptions()
         applyDashChrome(chrome)
-        overlayFilledFactsOnChrome()
-        cachedGrainPacks = PulseCaches.placeholderGrainPacks(grain: effectiveDashboardGrain)
+        paintLostRevenueFromFacts()
         rebuildCompanyGrainPacks()
         refreshSalesExpandCache()
         return true
     }
 
-    private func overlayFilledFactsOnChrome() {
-        let lost = (latestBySection[.lostRevenue] ?? []).filter {
+    /// Pack lost-revenue is a 147-store East slice. Bundled facts.json is 2,161 stores.
+    /// That file is the source for the card, region expand, and every filter.
+    private func paintLostRevenueFromFacts() {
+        let facts = PulseFacts.bundledLostRevenue().filter {
             $0.textPayload["lost_grain"] != "market"
                 && !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty
         }
-        guard lost.count >= 200 else { return }
+        guard facts.count >= 200 else { return }
+        let stamped = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(facts), roster: roster)
+        let current = (latestBySection[.lostRevenue] ?? []).filter {
+            $0.textPayload["lost_grain"] != "market"
+                && !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty
+        }
+        if stamped.count > current.count {
+            latestBySection[.lostRevenue] = stamped
+        } else {
+            var merged = current
+            var have: Set<String> = []
+            for row in current {
+                have.formUnion(HeartbeatMath.storeAliases(row.storeNumber))
+            }
+            for row in stamped where !have.contains(HeartbeatMath.canonicalStore(row.storeNumber)) {
+                merged.append(row)
+                have.formUnion(HeartbeatMath.storeAliases(row.storeNumber))
+            }
+            latestBySection[.lostRevenue] = merged
+        }
+        rebuildLostIndex()
+        let lost = (latestBySection[.lostRevenue] ?? []).filter { $0.textPayload["lost_grain"] != "market" }
+        filteredLatest[.lostRevenue] = latestBySection[.lostRevenue]
         let summary = HeartbeatMath.summarize(
             .lostRevenue,
             rows: lost,
             upload: uploads.first { $0.section == .lostRevenue }
         )
-        let current = cachedSummaries.first { $0.section == .lostRevenue }
-        let currentCount = current?.storeCount ?? 0
-        let currentDollars = current?.headline ?? 0
-        let nextDollars = summary.headline ?? 0
-        guard summary.storeCount > currentCount || nextDollars > currentDollars * 1.02 else { return }
-        cachedSummaries = cachedSummaries.map { $0.section == .lostRevenue ? summary : $0 }
+        if cachedSummaries.contains(where: { $0.section == .lostRevenue }) {
+            cachedSummaries = cachedSummaries.map { $0.section == .lostRevenue ? summary : $0 }
+        } else {
+            cachedSummaries.append(summary)
+        }
         if var chrome = packChrome {
             chrome.summaries = chrome.summaries.map { $0.section == .lostRevenue ? summary : $0 }
             packChrome = chrome
@@ -2983,7 +3006,21 @@ final class HeartbeatStore: ObservableObject {
         if let flags = PulseCaches.cardFlags(latest: [.lostRevenue: lost])[.lostRevenue] {
             cachedCardFlags[.lostRevenue] = flags
         }
-        filteredLatest[.lostRevenue] = latestBySection[.lostRevenue] ?? lost
+        let grain = filters.isActive ? effectiveDashboardGrain : .region
+        let packs = PulseCaches.grainPacks(
+            latest: [.lostRevenue: lost],
+            grain: grain,
+            hidePicker: true,
+            stores: cachedStores,
+            roster: roster
+        )
+        if let lostPacks = packs[.lostRevenue] {
+            cachedGrainPacks[.lostRevenue] = lostPacks
+            if var chrome = packChrome {
+                chrome.packs[MetricSection.lostRevenue.rawValue] = lostPacks
+                packChrome = chrome
+            }
+        }
     }
 
     func ensureSectionLoaded(_ section: MetricSection) async {
