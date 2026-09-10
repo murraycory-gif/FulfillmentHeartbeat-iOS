@@ -311,7 +311,6 @@ struct DashLostBanner: View {
     var width: CGFloat = 980
     let action: () -> Void
     @Environment(\.horizontalSizeClass) private var sizeClass
-    @State private var flagsOpen = false
 
     private var compact: Bool { HubLayout.isPhone(sizeClass) }
 
@@ -980,7 +979,6 @@ struct DashCallout: View, Equatable {
     let width: CGFloat
     let action: () -> Void
     @Environment(\.horizontalSizeClass) private var sizeClass
-    @State private var flagsOpen = false
 
     private var compact: Bool { HubLayout.isPhone(sizeClass) }
 
@@ -1049,80 +1047,6 @@ struct DashCallout: View, Equatable {
             Image(systemName: "chevron.right")
                 .font(.title3.weight(.semibold))
                 .foregroundStyle(AppTheme.textTertiary)
-        }
-    }
-
-    private var compactHeader: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 10) {
-                DashCardGlyph(symbol: card.section.symbol, health: card.health, compact: true)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(titleText)
-                        .font(.subheadline.weight(.bold))
-                        .foregroundStyle(AppTheme.text)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.8)
-                    Text(card.headlineLabel)
-                        .font(.caption)
-                        .foregroundStyle(AppTheme.textSecondary)
-                        .lineLimit(1)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                Image(systemName: "chevron.right")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(AppTheme.textTertiary)
-                    .padding(.top, 6)
-            }
-            HStack(alignment: .center, spacing: 10) {
-                Text(card.headlineText)
-                    .font(.system(size: 22, weight: .bold, design: .rounded).monospacedDigit())
-                    .foregroundStyle(dashInk(card.health))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-                Spacer(minLength: 8)
-                Text(riskLine(for: card))
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(dashInk(card.riskCount == 0 ? .good : .risk))
-                    .multilineTextAlignment(.trailing)
-                HealthBadge(health: card.health, prominent: true)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func compactFlagBlock(_ flags: [HeartbeatMath.FiveStarFlag]) -> some View {
-        if flags.isEmpty {
-            EmptyView()
-        } else {
-            Button {
-                flagsOpen.toggle()
-            } label: {
-                HStack(spacing: 8) {
-                    Text("\(flags.count) metrics")
-                        .font(.subheadline.weight(.bold))
-                        .foregroundStyle(AppTheme.blue)
-                    Text("tap to \(flagsOpen ? "collapse" : "expand")")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(AppTheme.textSecondary)
-                    Spacer(minLength: 4)
-                    Image(systemName: flagsOpen ? "chevron.up" : "chevron.down")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(AppTheme.blue)
-                }
-            }
-            .buttonStyle(.plain)
-            if flagsOpen {
-                DashFlagGrid(flags: flags, columns: 1)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func flagBlock(_ flags: [HeartbeatMath.FiveStarFlag]) -> some View {
-        if flags.isEmpty {
-            EmptyView()
-        } else {
-            DashFlagGrid(flags: flags, columns: flags.count)
         }
     }
 
