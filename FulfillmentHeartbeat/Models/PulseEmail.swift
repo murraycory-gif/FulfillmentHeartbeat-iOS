@@ -216,11 +216,21 @@ enum PulseMail {
 
     /// Short in-body note when the full recap is too large for Mail's message body.
     static func overflowMailBody(_ brief: String) -> String {
-        """
-        <html><body style="margin:0;padding:20px;background:#F5F7FC;color:#141A29;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:16px;line-height:1.45">
-        <p style="color:#003DA5;font-weight:700;font-size:18px;margin:0 0 12px">Fulfillment Heartbeat</p>
-        <p style="margin:0 0 16px">The full recap is attached as HTML — open it to see the same cards, callouts, and tables as the app.</p>
-        <pre style="white-space:pre-wrap;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:15px;color:#141A29">\(esc(brief))</pre>
+        let blocks = brief
+            .components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .map { "<p style=\"margin:0 0 10px;padding:0;font-size:16px;line-height:1.5;color:#141A29\">\(esc($0))</p>" }
+            .joined()
+        return """
+        <html><body style="margin:0;padding:24px 20px;background:#F5F7FC;color:#141A29;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:16px;line-height:1.5">
+        <table width="100%" cellspacing="0" cellpadding="0" style="max-width:720px;margin:0 auto;background:#FFFFFF;border:1px solid #E4E9F4;border-radius:16px">
+        <tr><td style="padding:22px 24px">
+        <p style="color:#003DA5;font-weight:700;font-size:20px;margin:0 0 12px;line-height:1.3">Fulfillment Heartbeat</p>
+        <p style="margin:0 0 18px;padding:0;font-size:16px;line-height:1.5">The full recap is attached as HTML — open it to see the same cards, callouts, and tables as the app.</p>
+        \(blocks)
+        </td></tr>
+        </table>
         </body></html>
         """
     }
@@ -278,6 +288,7 @@ enum PulseMail {
     private static func brief(_ snap: Snapshot, pages: Set<SharePage>, names: [String]) -> String {
         var lines = [
             "Fulfillment Heartbeat",
+            "",
             snap.filterSummary,
             HeartbeatFormat.stamp(snap.generatedAt),
             "Pages: \(names.joined(separator: ", "))",
@@ -285,11 +296,13 @@ enum PulseMail {
         ]
         if pages.contains(.dashboard) {
             lines.append("DASHBOARD")
+            lines.append("")
             for card in snap.summaries {
-                lines.append("\(card.section.title): \(card.headlineText) · \(card.health.label) · \(riskLine(card.section, card))")
+                lines.append(card.section.title)
+                lines.append("  \(card.headlineText)    \(card.health.label)    \(riskLine(card.section, card))")
+                lines.append("")
             }
         }
-        lines.append("")
         lines.append("Sent from Fulfillment Heartbeat")
         return lines.joined(separator: "\n")
     }
@@ -326,14 +339,14 @@ enum PulseMail {
         .sub{color:#3D4658;font-size:16px;margin:0 0 22px;line-height:1.5}
         .block-title{font-size:18px;font-weight:700;color:#003DA5;margin:18px 0 8px}
         .block-title span{display:block;font-size:14px;font-weight:600;color:#5C677A;margin-top:2px}
-        table.layout{width:100%;border-collapse:separate;border-spacing:10px 10px}
+        table.layout{width:100%;border-collapse:separate;border-spacing:12px 12px}
         table.layout td{vertical-align:top}
-        .table-wrap{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 0 8px}
-        table.data{width:100%;border-collapse:collapse;font-size:15px;min-width:680px}
-        table.data th{text-align:left;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#003DA5;background:#EEF3FB;padding:8px 8px;border-bottom:2px solid #003DA5;white-space:nowrap;font-weight:700}
-        table.data td{padding:8px;border-bottom:1px solid #E4E9F4;vertical-align:middle}
-        table.data td.name{font-weight:700;font-size:16px;white-space:nowrap}
-        table.data td.num,.num{text-align:right;font-variant-numeric:tabular-nums;font-weight:700;font-size:16px;white-space:nowrap}
+        .table-wrap{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 0 18px;padding:0}
+        table.data{width:auto;min-width:100%;border-collapse:separate;border-spacing:0;font-size:15px;line-height:1.4}
+        table.data th{text-align:left;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#003DA5;background:#EEF3FB;padding:10px 14px;border-bottom:2px solid #003DA5;border-right:1px solid #D6E2F5;white-space:nowrap;font-weight:700}
+        table.data td{padding:10px 14px;border-bottom:1px solid #E4E9F4;border-right:1px solid #EEF1F6;vertical-align:middle}
+        table.data td.name{font-weight:700;font-size:16px;white-space:nowrap;padding:10px 16px 10px 14px}
+        table.data td.num,.num{text-align:right;font-variant-numeric:tabular-nums;font-weight:700;font-size:16px;white-space:nowrap;padding:10px 14px}
         .dash-card{margin:0 0 14px;border-radius:16px;overflow:hidden}
         .page-banner{font-size:18px;font-weight:700;color:#003DA5;margin:0 0 12px}
         table.data td.status{text-align:right;white-space:nowrap;width:108px}
@@ -368,7 +381,7 @@ enum PulseMail {
             let title = card.section == .pickPath ? "Pick Path Compliance" : card.section.title
             let accent = ink(card.health)
             cards += """
-            <table class="dash-card" width="100%" cellspacing="0" cellpadding="0" bgcolor="#FFFFFF" style="background:#FFFFFF;border:1px solid #E4E9F4;border-radius:16px;margin:0 0 14px">
+            <table class="dash-card" width="100%" cellspacing="0" cellpadding="0" bgcolor="#FFFFFF" style="background:#FFFFFF;border:1px solid #E4E9F4;border-radius:16px;margin:0 0 22px">
             <tr>
             <td width="4" bgcolor="\(accent)" style="background:\(accent);width:4px;font-size:0;line-height:0">&nbsp;</td>
             <td style="padding:16px 18px">
@@ -511,8 +524,16 @@ enum PulseMail {
                 incoming: [],
                 headerCount: metrics.count
             )
-            for value in values {
-                cells += numCell(value)
+            for (header, value) in zip(metrics, values) {
+                let tone = HeartbeatMath.dashboardExpandCellHealth(
+                    section: section,
+                    header: header,
+                    text: value,
+                    rowHealth: health,
+                    values: values,
+                    headers: metrics
+                )
+                cells += numCell(value, health: tone)
             }
             cells += statusCell(health)
             body += "<tr>\(cells)</tr>"
@@ -537,7 +558,8 @@ enum PulseMail {
         let labels = order.isEmpty ? buckets.keys.sorted() : order
         var headers = ["Scope"]
         if grain != .store { headers.append("Stores") }
-        headers += ["Sales $", "YoY %", "Orders", "Ord YoY", "AOS", "AIV", "Items/Txn", "Items", "Status"]
+        let metrics = ["Sales $", "YoY %", "Orders", "Ord YoY", "AOS", "AIV", "Items/Txn", "Items"]
+        headers += metrics + ["Status"]
         var body = ""
         var shown = 0
         for label in labels {
@@ -551,7 +573,7 @@ enum PulseMail {
             if grain != .store {
                 cells += numCell(HeartbeatFormat.num(Double(group.count)), muted: true)
             }
-            for value in [
+            let values = [
                 HeartbeatFormat.money(pack.sales),
                 HeartbeatFormat.pct(pack.yoy),
                 HeartbeatFormat.num(pack.orders, digits: 0),
@@ -560,8 +582,17 @@ enum PulseMail {
                 HeartbeatFormat.num(pack.aiv, digits: 2),
                 HeartbeatFormat.num(pack.ipt, digits: 1),
                 HeartbeatFormat.num(pack.items, digits: 0),
-            ] {
-                cells += numCell(value)
+            ]
+            for (header, value) in zip(metrics, values) {
+                let tone = HeartbeatMath.dashboardExpandCellHealth(
+                    section: .sales,
+                    header: header,
+                    text: value,
+                    rowHealth: health,
+                    values: values,
+                    headers: metrics
+                )
+                cells += numCell(value, health: tone)
             }
             cells += statusCell(health)
             body += "<tr>\(cells)</tr>"
@@ -647,7 +678,7 @@ enum PulseMail {
         <td valign="middle" style="color:#fff">\(right)</td>
         </tr></table>
         </td></tr>
-        <tr><td style="padding:14px 16px">\(inner)</td></tr>
+        <tr><td style="padding:18px 20px">\(inner)</td></tr>
         </table>
         """
     }
@@ -1171,7 +1202,7 @@ enum PulseMail {
     private static func storeCells(_ section: MetricSection, row: MetricRow, pickerCount: Int, health: Health) -> String {
         func cell(_ text: String, _ metricHealth: Health? = nil) -> String {
             let cls = metricHealth.map { "num cell-\($0.rawValue)" } ?? "num"
-            var style = "text-align:right;font-variant-numeric:tabular-nums;font-weight:700;font-size:16px;white-space:nowrap;padding:8px;border-bottom:1px solid #E4E9F4"
+            var style = "text-align:right;font-variant-numeric:tabular-nums;font-weight:700;font-size:16px;white-space:nowrap;padding:10px 14px;border-bottom:1px solid #E4E9F4;border-right:1px solid #EEF1F6"
             if let metricHealth {
                 switch metricHealth {
                 case .good: style += ";background:#D1FAE5;color:#059669"
@@ -1183,71 +1214,137 @@ enum PulseMail {
             return "<td class=\"\(cls)\" style=\"\(style)\">\(esc(text))</td>"
         }
         var html = ""
+        func polarity(_ headers: [String], _ values: [String]) {
+            for (header, value) in zip(headers, values) {
+                html += cell(
+                    value,
+                    HeartbeatMath.dashboardExpandCellHealth(
+                        section: section,
+                        header: header,
+                        text: value,
+                        rowHealth: health,
+                        values: values,
+                        headers: headers
+                    )
+                )
+            }
+        }
         switch section {
         case .fiveStar:
-            html += cell(HeartbeatFormat.stars(row.number("star_rating")), HeartbeatMath.health(for: .fiveStar, row: row))
-            html += cell(HeartbeatFormat.pct(row.number("flash_pct")))
-            html += cell(HeartbeatFormat.pct(row.number("presub_pct")))
-            html += cell(HeartbeatFormat.pct(row.number("coe_pct")))
-            html += cell(HeartbeatFormat.pct(row.number("ott_pct")))
-            html += cell(HeartbeatFormat.pct(row.number("oth5_pct")))
+            polarity(
+                ["Rating", "Flash", "Pre-Sub", "COE", "OTT", "OTH"],
+                [
+                    HeartbeatFormat.stars(row.number("star_rating")),
+                    HeartbeatFormat.pct(row.number("flash_pct")),
+                    HeartbeatFormat.pct(row.number("presub_pct")),
+                    HeartbeatFormat.pct(row.number("coe_pct")),
+                    HeartbeatFormat.pct(row.number("ott_pct")),
+                    HeartbeatFormat.pct(row.number("oth5_pct")),
+                ]
+            )
         case .pickPath, .pickPathPicker:
-            html += cell(HeartbeatFormat.pct(row.number("compliance_pct")), HeartbeatMath.band(row.number("compliance_pct"), good: HeartbeatMath.pickPathGoal, watch: HeartbeatMath.pickPathRisk))
-            html += cell(HeartbeatFormat.num(row.number("pph"), digits: 1))
+            polarity(
+                ["Path %", "AVG PPH"],
+                [
+                    HeartbeatFormat.pct(row.number("compliance_pct")),
+                    HeartbeatFormat.num(row.number("pph"), digits: 1),
+                ]
+            )
             html += cell(HeartbeatFormat.num(row.number("orders") ?? row.number("picks_total")))
             html += cell(HeartbeatFormat.shortDate(AisleMapperMath.mapperISO(row)), AisleMapperMath.health(AisleMapperMath.mapperISO(row)))
             html += cell(HeartbeatFormat.shortDate(AisleMapperMath.sequenceISO(row)), AisleMapperMath.health(AisleMapperMath.sequenceISO(row)))
         case .prepNotReady:
-            html += cell(HeartbeatFormat.pct(row.number("pnr_rate_pct", "pnr_hours", "prep_not_ready_pct")), HeartbeatMath.health(for: .prepNotReady, row: row))
-            html += cell("\(HeartbeatFormat.num(HeartbeatMath.pnrGoal, digits: 1))%")
-            html += cell("\(HeartbeatFormat.num(HeartbeatMath.pnrWatch, digits: 1))%")
+            polarity(
+                ["PNR %", "Goal", "Watch"],
+                [
+                    HeartbeatFormat.pct(row.number("pnr_rate_pct", "pnr_hours", "prep_not_ready_pct")),
+                    "\(HeartbeatFormat.num(HeartbeatMath.pnrGoal, digits: 1))%",
+                    "\(HeartbeatFormat.num(HeartbeatMath.pnrWatch, digits: 1))%",
+                ]
+            )
         case .dynacap:
-            html += cell(HeartbeatFormat.num(row.number("dynacap_rate", "pieces_per_hour"), digits: 1))
-            html += cell(HeartbeatFormat.num(row.number("pph"), digits: 1))
-            html += cell(HeartbeatFormat.num(HeartbeatMath.dynacapGoal, digits: 0))
-            html += cell(HeartbeatFormat.pct(row.number("utilization_pct", "pickup_util_pct")))
+            polarity(
+                ["Pcs/Hr", "PPH", "Goal", "Util %"],
+                [
+                    HeartbeatFormat.num(row.number("dynacap_rate", "pieces_per_hour"), digits: 1),
+                    HeartbeatFormat.num(row.number("pph"), digits: 1),
+                    HeartbeatFormat.num(HeartbeatMath.dynacapGoal, digits: 0),
+                    HeartbeatFormat.pct(row.number("utilization_pct", "pickup_util_pct")),
+                ]
+            )
         case .scheduleQuality:
-            html += cell(HeartbeatFormat.pct(row.number("schedule_efficiency_pct")), HeartbeatMath.band(row.number("schedule_efficiency_pct"), good: HeartbeatMath.scheduleGoal, watch: HeartbeatMath.scheduleWatch))
-            html += cell(HeartbeatFormat.pct(row.number("staffing_efficiency_pct")), HeartbeatMath.band(row.number("staffing_efficiency_pct"), good: HeartbeatMath.scheduleGoal, watch: HeartbeatMath.scheduleWatch))
-            html += cell("90%")
-            html += cell(HeartbeatFormat.pct(row.number("under_schedule_pct", "under_scheduled", "under_staffing_pct")), HeartbeatMath.varianceHealth(row.number("under_schedule_pct", "under_scheduled", "under_staffing_pct")))
-            html += cell(HeartbeatFormat.pct(row.number("over_schedule_pct", "over_scheduled", "over_staffing_pct")), HeartbeatMath.varianceHealth(row.number("over_schedule_pct", "over_scheduled", "over_staffing_pct")))
+            polarity(
+                ["Sch Eff", "Staffing", "Goal", "Under", "Over"],
+                [
+                    HeartbeatFormat.pct(row.number("schedule_efficiency_pct")),
+                    HeartbeatFormat.pct(row.number("staffing_efficiency_pct")),
+                    "90%",
+                    HeartbeatFormat.pct(row.number("under_schedule_pct", "under_scheduled", "under_staffing_pct")),
+                    HeartbeatFormat.pct(row.number("over_schedule_pct", "over_scheduled", "over_staffing_pct")),
+                ]
+            )
         case .pph:
-            html += cell(HeartbeatFormat.num(row.number("pph", "pure_pph"), digits: 1), HeartbeatMath.pphHealth(row))
-            html += cell(HeartbeatFormat.num(Double(pickerCount)))
-            html += cell("80.0")
+            polarity(
+                ["PPH", "Pickers", "Goal"],
+                [
+                    HeartbeatFormat.num(row.number("pph", "pure_pph"), digits: 1),
+                    HeartbeatFormat.num(Double(pickerCount)),
+                    "80.0",
+                ]
+            )
         case .labor:
-            html += cell(HeartbeatFormat.pct(row.number("target_vs_actual_pct")))
-            html += cell(HeartbeatFormat.pct(row.number("cost_trgt_pct")))
-            html += cell(HeartbeatFormat.pct(row.number("act_cost_pct")))
-            html += cell(HeartbeatFormat.pct(row.number("schedule_efficiency_pct")))
-            html += cell(HeartbeatFormat.pct(row.number("uplh_impact_pct")))
-            html += cell(HeartbeatFormat.pct(row.number("wage_impact_pct")))
-            html += cell(HeartbeatFormat.pct(row.number("aiv_impact_pct")))
+            polarity(
+                ["Tgt vs Act", "CostTrgt%", "ActCost%", "Sch Effi%", "UPLH", "Wage", "AIV"],
+                [
+                    HeartbeatFormat.pct(row.number("target_vs_actual_pct")),
+                    HeartbeatFormat.pct(row.number("cost_trgt_pct")),
+                    HeartbeatFormat.pct(row.number("act_cost_pct")),
+                    HeartbeatFormat.pct(row.number("schedule_efficiency_pct")),
+                    HeartbeatFormat.pct(row.number("uplh_impact_pct")),
+                    HeartbeatFormat.pct(row.number("wage_impact_pct")),
+                    HeartbeatFormat.pct(row.number("aiv_impact_pct")),
+                ]
+            )
         case .lostRevenue:
-            html += cell(HeartbeatFormat.money(row.number("lost_revenue")), HeartbeatMath.health(for: .lostRevenue, row: row))
-            html += cell(HeartbeatFormat.pct(row.number("lost_revenue_pct")))
-            html += cell(HeartbeatFormat.pct(HeartbeatMath.lostRevenueGoalPct(row)))
-            html += cell(HeartbeatFormat.money(row.number("ecomm_sales")))
-            html += cell(HeartbeatFormat.money(row.number("post_sub_oos_foregone")))
-            html += cell(HeartbeatFormat.money(row.number("refund_lost", "refund_amt")))
-            html += cell(HeartbeatFormat.money(row.number("missed_sales")))
-            html += cell(HeartbeatFormat.money(row.number("cancelled_lost")))
-            html += cell(HeartbeatFormat.money(row.number("kill_switch_lost")))
+            polarity(
+                HeartbeatMath.dashboardTableHeaders(.lostRevenue),
+                [
+                    HeartbeatFormat.money(row.number("lost_revenue")),
+                    HeartbeatFormat.pct(row.number("lost_revenue_pct")),
+                    HeartbeatFormat.pct(HeartbeatMath.lostRevenueGoalPct(row)),
+                    HeartbeatFormat.money(row.number("ecomm_sales")),
+                    HeartbeatFormat.money(row.number("post_sub_oos_foregone")),
+                    HeartbeatFormat.money(row.number("refund_lost", "refund_amt")),
+                    HeartbeatFormat.money(row.number("missed_sales")),
+                    HeartbeatFormat.money(row.number("cancelled_lost")),
+                    HeartbeatFormat.money(row.number("kill_switch_lost")),
+                ]
+            )
         case .sales:
             let pack = SalesPack(row)
-            html += cell(HeartbeatFormat.money(pack.sales), pack.health)
-            html += cell(HeartbeatFormat.pct(pack.yoy), pack.health)
-            html += cell(HeartbeatFormat.num(pack.orders, digits: 0))
-            html += cell(HeartbeatFormat.pct(pack.ordersYoy))
-            html += cell(HeartbeatFormat.money(pack.aos))
-            html += cell(HeartbeatFormat.num(pack.aiv, digits: 2))
-            html += cell(HeartbeatFormat.num(pack.ipt, digits: 1))
-            html += cell(HeartbeatFormat.num(pack.items, digits: 0))
+            polarity(
+                ["Sales $", "YoY %", "Orders", "Ord YoY", "AOS", "AIV", "Items/Txn", "Items"],
+                [
+                    HeartbeatFormat.money(pack.sales),
+                    HeartbeatFormat.pct(pack.yoy),
+                    HeartbeatFormat.num(pack.orders, digits: 0),
+                    HeartbeatFormat.pct(pack.ordersYoy),
+                    HeartbeatFormat.money(pack.aos),
+                    HeartbeatFormat.num(pack.aiv, digits: 2),
+                    HeartbeatFormat.num(pack.ipt, digits: 1),
+                    HeartbeatFormat.num(pack.items, digits: 0),
+                ]
+            )
         case .missingItems, .preSubOOS:
-            html += cell(HeartbeatFormat.pct(row.number(MissingItemDept.totalKey)), HeartbeatMath.health(for: section, row: row))
+            html += cell(
+                HeartbeatFormat.pct(row.number(MissingItemDept.totalKey)),
+                HeartbeatMath.missingItemsHealth(pct: row.number(MissingItemDept.totalKey))
+            )
             for dept in MissingItemDept.allCases {
-                html += cell(HeartbeatFormat.pct(row.number(dept.rawValue)))
+                html += cell(
+                    HeartbeatFormat.pct(row.number(dept.rawValue)),
+                    HeartbeatMath.missingItemsHealth(pct: row.number(dept.rawValue))
+                )
             }
         case .aisleMapper:
             html += cell(HeartbeatFormat.shortDate(AisleMapperMath.mapperISO(row)), AisleMapperMath.health(AisleMapperMath.mapperISO(row)))
@@ -1290,17 +1387,37 @@ enum PulseMail {
     }
 
     private static func nameCell(_ text: String, extra: String = "") -> String {
-        "<td class=\"name\" style=\"font-weight:700;font-size:16px;white-space:nowrap;padding:8px;border-bottom:1px solid #E4E9F4\">\(esc(text))\(extra)</td>"
+        "<td class=\"name\" style=\"font-weight:700;font-size:16px;white-space:nowrap;padding:10px 16px 10px 14px;border-bottom:1px solid #E4E9F4;border-right:1px solid #EEF1F6\">\(esc(text))\(extra)</td>"
     }
 
-    private static func numCell(_ text: String, muted: Bool = false) -> String {
-        let color = muted ? "#5C677A" : "#141A29"
-        let cls = muted ? "num muted" : "num"
-        return "<td class=\"\(cls)\" style=\"text-align:right;font-variant-numeric:tabular-nums;font-weight:700;font-size:16px;white-space:nowrap;padding:8px;border-bottom:1px solid #E4E9F4;color:\(color)\">\(esc(text))</td>"
+    private static func numCell(_ text: String, muted: Bool = false, health: Health? = nil) -> String {
+        let tone = muted ? Health.none : (health ?? .none)
+        let color: String
+        var fill = ""
+        var cls = muted ? "num muted" : "num"
+        switch (muted, tone) {
+        case (true, _):
+            color = "#5C677A"
+        case (false, .good):
+            color = "#059669"
+            fill = "background:#D1FAE5;"
+            cls += " cell-good"
+        case (false, .watch):
+            color = "#D97706"
+            fill = "background:#FEF3C7;"
+            cls += " cell-watch"
+        case (false, .risk):
+            color = "#DC2626"
+            fill = "background:#FEE2E2;"
+            cls += " cell-risk"
+        default:
+            color = "#141A29"
+        }
+        return "<td class=\"\(cls)\" style=\"text-align:right;font-variant-numeric:tabular-nums;font-weight:700;font-size:16px;white-space:nowrap;padding:10px 14px;border-bottom:1px solid #E4E9F4;border-right:1px solid #EEF1F6;\(fill)color:\(color)\">\(esc(text))</td>"
     }
 
     private static func statusCell(_ health: Health) -> String {
-        "<td class=\"status\" style=\"text-align:right;white-space:nowrap;width:108px;padding:8px;border-bottom:1px solid #E4E9F4\">\(pill(health))</td>"
+        "<td class=\"status\" style=\"text-align:right;white-space:nowrap;width:120px;padding:10px 14px;border-bottom:1px solid #E4E9F4\">\(pill(health))</td>"
     }
 
     private static func pill(_ health: Health) -> String {
@@ -1328,15 +1445,15 @@ enum PulseMail {
                 cls = " class=\"num\""
                 align = "right"
             }
-            return "<th\(cls) bgcolor=\"#EEF3FB\" style=\"text-align:\(align);font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#003DA5;background:#EEF3FB;padding:8px;border-bottom:2px solid #003DA5;white-space:nowrap;font-weight:700\">\(esc(name))</th>"
+            return "<th\(cls) bgcolor=\"#EEF3FB\" style=\"text-align:\(align);font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#003DA5;background:#EEF3FB;padding:10px 14px;border-bottom:2px solid #003DA5;border-right:1px solid #D6E2F5;white-space:nowrap;font-weight:700\">\(esc(name))</th>"
         }.joined()
         let heading = banner
             ? bar(title, detail)
-            : "<div class=\"block-title\" style=\"font-size:18px;font-weight:700;color:#003DA5;margin:18px 0 8px\">\(esc(title))<span style=\"display:block;font-size:14px;font-weight:600;color:#5C677A;margin-top:2px\">\(esc(detail))</span></div>"
+            : "<div class=\"block-title\" style=\"font-size:18px;font-weight:700;color:#003DA5;margin:22px 0 10px\">\(esc(title))<span style=\"display:block;font-size:14px;font-weight:600;color:#5C677A;margin-top:4px\">\(esc(detail))</span></div>"
         return """
         \(heading)
-        <div class="table-wrap" style="width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 0 8px">
-        <table class="data" cellspacing="0" cellpadding="0" bgcolor="#FFFFFF" style="width:100%;border-collapse:collapse;font-size:15px;min-width:680px;background:#FFFFFF">
+        <div class="table-wrap" style="width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 0 18px">
+        <table class="data" cellspacing="0" cellpadding="10" bgcolor="#FFFFFF" style="width:auto;min-width:100%;border-collapse:separate;border-spacing:0;font-size:15px;line-height:1.4;background:#FFFFFF">
         <thead><tr>\(heads)</tr></thead>
         <tbody>\(body)</tbody>
         </table>
@@ -1355,9 +1472,38 @@ enum PulseMail {
         """
     }
 
+    private static func plainColumns(headers: [String], rows: [[String]]) -> String {
+        let cols = headers.count
+        guard cols > 0 else { return "" }
+        var widths = headers.map { max($0.count, 6) }
+        for row in rows {
+            for (index, cell) in row.enumerated() where index < cols {
+                widths[index] = max(widths[index], min(cell.count, 28))
+            }
+        }
+        func pad(_ cell: String, _ width: Int) -> String {
+            let clipped = cell.count > 28 ? String(cell.prefix(27)) + "…" : cell
+            return clipped + String(repeating: " ", count: max(0, width - clipped.count))
+        }
+        func line(_ cells: [String]) -> String {
+            zip(cells, widths).map { pad($0, $1) }.joined(separator: "  ")
+        }
+        var out = [line(headers)]
+        out.append(widths.map { String(repeating: "-", count: $0) }.joined(separator: "  "))
+        for row in rows {
+            var padded = row
+            if padded.count < cols {
+                padded.append(contentsOf: Array(repeating: "", count: cols - padded.count))
+            }
+            out.append(line(Array(padded.prefix(cols))))
+        }
+        return out.joined(separator: "\n")
+    }
+
     private static func plain(_ snap: Snapshot, pages: Set<SharePage>) -> String {
         var lines = [
             "Fulfillment Heartbeat",
+            "",
             snap.filterSummary,
             HeartbeatFormat.stamp(snap.generatedAt),
             "Same layout and columns as the in-app page. Upload is not included.",
@@ -1365,8 +1511,11 @@ enum PulseMail {
         ]
         if pages.contains(.dashboard) {
             lines.append("DASHBOARD")
+            lines.append("")
             for card in snap.summaries {
-                lines.append("\(card.section.title): \(card.headlineText) · \(card.health.label) · \(riskLine(card.section, card))")
+                lines.append(card.section.title)
+                lines.append("  \(card.headlineText)    \(card.health.label)    \(riskLine(card.section, card))")
+                lines.append("")
                 let grain = dashGrain(snap)
                 let cached = snap.grainTables[card.section] ?? []
                 let grainRows: [HeartbeatMath.DashboardGrainTableRow]
@@ -1386,36 +1535,169 @@ enum PulseMail {
                     )
                 }
                 if !grainRows.isEmpty {
-                    lines.append(HeartbeatMath.dashboardTableHeaders(card.section).joined(separator: " | "))
-                    for line in grainRows {
-                        lines.append("\(HeartbeatMath.displayGrainLabel(line.label)) | \(line.values.joined(separator: " | ")) | \(line.health.label)")
+                    var headers = ["Scope"]
+                    if grain != .store { headers.append("Stores") }
+                    headers += HeartbeatMath.dashboardTableHeaders(card.section)
+                    headers.append("Status")
+                    let table = grainRows.map { line -> [String] in
+                        var cells = [HeartbeatMath.displayGrainLabel(line.label)]
+                        if grain != .store {
+                            cells.append(HeartbeatFormat.num(Double(line.storeCount)))
+                        }
+                        cells += line.values
+                        cells.append(line.health.label)
+                        return cells
                     }
+                    lines.append(plainColumns(headers: headers, rows: table))
+                    lines.append("")
                 }
             }
         }
         for page in SharePage.allCases {
             guard page != .dashboard, pages.contains(page), let section = page.section else { continue }
             let rows = snap.rows[section] ?? []
-            lines.append("")
             lines.append(section.bannerTitle.uppercased())
-            lines.append(storeHeaders(section).joined(separator: " | "))
+            lines.append("")
+            lines.append(storeHeaders(section).joined(separator: "  "))
             lines.append("\(rows.count) rows")
+            lines.append("")
+            let headers = storeHeaders(section)
+            var table: [[String]] = []
             for row in rows {
                 let name = section == .pickerScorecard ? "\(row.shopperName) \(row.storeNumber)" : placeLabel(row)
-                lines.append("\(name) · \(metricLine(section, row: row, pickerCount: snap.pickerCounts[HeartbeatMath.canonicalStore(row.storeNumber)] ?? 0)) · \(HeartbeatMath.health(for: section, row: row).label)")
+                let metrics = metricCellsPlain(section, row: row, pickerCount: snap.pickerCounts[HeartbeatMath.canonicalStore(row.storeNumber)] ?? 0)
+                table.append([name] + metrics + [HeartbeatMath.health(for: section, row: row).label])
             }
+            if !table.isEmpty {
+                lines.append(plainColumns(headers: headers, rows: table))
+            }
+            lines.append("")
             if section == .preSubOOS, let items = snap.rows[.preSubOOSItem], !items.isEmpty {
-                lines.append("")
                 lines.append("PRE-SUB OOS ITEMS")
-                lines.append(storeHeaders(.preSubOOSItem).joined(separator: " | "))
+                lines.append("")
+                var itemRows: [[String]] = []
                 for row in items {
-                    lines.append("\(placeLabel(row)) · \(metricLine(.preSubOOSItem, row: row, pickerCount: 0))")
+                    let metrics = metricCellsPlain(.preSubOOSItem, row: row, pickerCount: 0)
+                    itemRows.append([placeLabel(row)] + metrics + [HeartbeatMath.health(for: .preSubOOSItem, row: row).label])
                 }
+                lines.append(plainColumns(headers: storeHeaders(.preSubOOSItem), rows: itemRows))
+                lines.append("")
             }
         }
-        lines.append("")
         lines.append("Sent from Fulfillment Heartbeat")
         return lines.joined(separator: "\n")
+    }
+
+    private static func metricCellsPlain(_ section: MetricSection, row: MetricRow, pickerCount: Int) -> [String] {
+        switch section {
+        case .sales:
+            let pack = SalesPack(row)
+            return [
+                HeartbeatFormat.money(pack.sales),
+                HeartbeatFormat.pct(pack.yoy),
+                HeartbeatFormat.num(pack.orders, digits: 0),
+                HeartbeatFormat.pct(pack.ordersYoy),
+                HeartbeatFormat.money(pack.aos),
+                HeartbeatFormat.num(pack.aiv, digits: 2),
+                HeartbeatFormat.num(pack.ipt, digits: 1),
+                HeartbeatFormat.num(pack.items, digits: 0),
+            ]
+        case .lostRevenue:
+            return [
+                HeartbeatFormat.money(row.number("lost_revenue")),
+                HeartbeatFormat.pct(row.number("lost_revenue_pct")),
+                HeartbeatFormat.pct(HeartbeatMath.lostRevenueGoalPct(row)),
+                HeartbeatFormat.money(row.number("ecomm_sales")),
+                HeartbeatFormat.money(row.number("post_sub_oos_foregone")),
+                HeartbeatFormat.money(row.number("refund_lost", "refund_amt")),
+                HeartbeatFormat.money(row.number("missed_sales")),
+                HeartbeatFormat.money(row.number("cancelled_lost")),
+                HeartbeatFormat.money(row.number("kill_switch_lost")),
+            ]
+        case .fiveStar:
+            return [
+                HeartbeatFormat.stars(row.number("star_rating")),
+                HeartbeatFormat.pct(row.number("flash_pct")),
+                HeartbeatFormat.pct(row.number("presub_pct")),
+                HeartbeatFormat.pct(row.number("coe_pct")),
+                HeartbeatFormat.pct(row.number("ott_pct")),
+                HeartbeatFormat.pct(row.number("oth5_pct")),
+            ]
+        case .pickPath, .pickPathPicker:
+            return [
+                HeartbeatFormat.pct(row.number("compliance_pct")),
+                HeartbeatFormat.num(row.number("pph"), digits: 1),
+                HeartbeatFormat.num(row.number("orders") ?? row.number("picks_total")),
+                HeartbeatFormat.shortDate(AisleMapperMath.mapperISO(row)),
+                HeartbeatFormat.shortDate(AisleMapperMath.sequenceISO(row)),
+            ]
+        case .prepNotReady:
+            return [
+                HeartbeatFormat.pct(row.number("pnr_rate_pct")),
+                "\(HeartbeatFormat.num(HeartbeatMath.pnrGoal, digits: 1))%",
+                "\(HeartbeatFormat.num(HeartbeatMath.pnrWatch, digits: 1))%",
+            ]
+        case .dynacap:
+            return [
+                HeartbeatFormat.num(row.number("dynacap_rate", "pieces_per_hour"), digits: 1),
+                HeartbeatFormat.num(row.number("pph"), digits: 1),
+                HeartbeatFormat.num(HeartbeatMath.dynacapGoal, digits: 0),
+                HeartbeatFormat.pct(row.number("utilization_pct")),
+            ]
+        case .scheduleQuality:
+            return [
+                HeartbeatFormat.pct(row.number("schedule_efficiency_pct")),
+                HeartbeatFormat.pct(row.number("staffing_efficiency_pct")),
+                "90%",
+                HeartbeatFormat.pct(row.number("under_schedule_pct", "under_scheduled")),
+                HeartbeatFormat.pct(row.number("over_schedule_pct", "over_scheduled")),
+            ]
+        case .pph:
+            return [
+                HeartbeatFormat.num(row.number("pph"), digits: 1),
+                HeartbeatFormat.num(Double(pickerCount)),
+                "80.0",
+            ]
+        case .labor:
+            return [
+                HeartbeatFormat.pct(row.number("target_vs_actual_pct")),
+                HeartbeatFormat.pct(row.number("cost_trgt_pct")),
+                HeartbeatFormat.pct(row.number("act_cost_pct")),
+                HeartbeatFormat.pct(row.number("schedule_efficiency_pct")),
+                HeartbeatFormat.pct(row.number("uplh_impact_pct")),
+                HeartbeatFormat.pct(row.number("wage_impact_pct")),
+                HeartbeatFormat.pct(row.number("aiv_impact_pct")),
+            ]
+        case .pickerScorecard:
+            return [
+                HeartbeatFormat.num(row.number("pick_hours"), digits: 1),
+                HeartbeatFormat.num(row.number("pph", "pure_pph"), digits: 1),
+                HeartbeatFormat.num(row.number("orders")),
+                HeartbeatFormat.pct(row.number("presub_pct", "presub_oos_pct")),
+                HeartbeatFormat.pct(row.number("ott_pct")),
+                HeartbeatFormat.pct(row.number("oth5_pct")),
+                HeartbeatFormat.pct(row.number("coe_pct")),
+            ]
+        case .missingItems, .preSubOOS:
+            return [HeartbeatFormat.pct(row.number(MissingItemDept.totalKey))]
+                + MissingItemDept.allCases.map { HeartbeatFormat.pct(row.number($0.rawValue)) }
+        case .preSubOOSItem:
+            return [
+                row.textPayload["bpn"] ?? row.textPayload["item"] ?? "",
+                HeartbeatFormat.pct(row.number("presub_pct")),
+                HeartbeatFormat.num(row.number("presub_count"), digits: 0),
+                HeartbeatFormat.money(row.number("presub_dollars")),
+                HeartbeatFormat.pct(row.number("oos_pct")),
+                HeartbeatFormat.money(row.number("oos_dollars")),
+            ]
+        case .aisleMapper:
+            return [
+                HeartbeatFormat.shortDate(AisleMapperMath.mapperISO(row)),
+                HeartbeatFormat.shortDate(AisleMapperMath.sequenceISO(row)),
+            ]
+        case .storeRoster:
+            return [row.division, row.district, row.operationsOM]
+        }
     }
 
     private static func esc(_ value: String) -> String {

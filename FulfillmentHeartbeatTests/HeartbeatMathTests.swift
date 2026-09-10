@@ -1642,6 +1642,224 @@ final class HeartbeatMathTests: XCTestCase {
         )
     }
 
+    func testExpandCellHealthMatchesCalloutPolarity() {
+        let lrHeaders = HeartbeatMath.dashboardTableHeaders(.lostRevenue)
+        XCTAssertEqual(
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: .lostRevenue, header: "Lost %", text: "6.00%", rowHealth: .good,
+                values: ["$10,000.00", "6.00%", "2.49%", "$200,000.00", "$1,000.00", "$100.00", "$50.00", "$20.00", "$5.00"],
+                headers: lrHeaders
+            ),
+            .risk
+        )
+        XCTAssertEqual(
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: .lostRevenue, header: "Lost %", text: "4.00%", rowHealth: .risk
+            ),
+            .watch
+        )
+        XCTAssertEqual(
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: .lostRevenue, header: "Lost %", text: "2.00%", rowHealth: .risk
+            ),
+            .good
+        )
+        XCTAssertEqual(
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: .lostRevenue, header: "Lost $", text: "$1,962,441.00", rowHealth: .none,
+                values: ["$1,962,441.00", "4.26%", "2.49%", "$46,077,144.00", "$500,000.00", "$200,000.00", "$126,864.00", "$90,000.00", "$10.00"],
+                headers: lrHeaders
+            ),
+            .watch
+        )
+        XCTAssertEqual(
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: .lostRevenue, header: "Goal %", text: "2.49%", rowHealth: .risk
+            ),
+            .none
+        )
+        XCTAssertEqual(
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: .lostRevenue, header: "eComm $", text: "$46,077,144.00", rowHealth: .risk
+            ),
+            .none
+        )
+        XCTAssertEqual(
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: .lostRevenue, header: "Kill", text: "$100.00", rowHealth: .good
+            ),
+            .risk
+        )
+        XCTAssertEqual(
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: .lostRevenue, header: "Refund", text: "$100.00", rowHealth: .good
+            ),
+            .watch
+        )
+        XCTAssertEqual(
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: .fiveStar, header: "Rating", text: "4.70", rowHealth: .risk
+            ),
+            .good
+        )
+        XCTAssertEqual(
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: .fiveStar, header: "Flash", text: "80.0%", rowHealth: .risk
+            ),
+            .good
+        )
+        XCTAssertEqual(
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: .fiveStar, header: "Flash", text: "50.0%", rowHealth: .good
+            ),
+            .risk
+        )
+        XCTAssertEqual(
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: .fiveStar, header: "Pre-Sub", text: "7.0%", rowHealth: .good
+            ),
+            .risk
+        )
+        XCTAssertEqual(
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: .missingItems, header: "Rate", text: "7.00%", rowHealth: .good
+            ),
+            .risk
+        )
+        XCTAssertEqual(
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: .pickPath, header: "Path %", text: "95.0%", rowHealth: .risk
+            ),
+            .good
+        )
+        XCTAssertEqual(
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: .pickPath, header: "Path %", text: "75.0%", rowHealth: .good
+            ),
+            .risk
+        )
+        XCTAssertEqual(
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: .pickPath, header: "AVG PPH", text: "70.0", rowHealth: .good
+            ),
+            .risk
+        )
+        XCTAssertEqual(
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: .prepNotReady, header: "PNR %", text: "3.0%", rowHealth: .good
+            ),
+            .risk
+        )
+        XCTAssertEqual(
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: .prepNotReady, header: "Goal", text: "1.9%", rowHealth: .risk
+            ),
+            .none
+        )
+        XCTAssertEqual(
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: .dynacap, header: "Pcs/Hr", text: "70.0", rowHealth: .risk
+            ),
+            .good
+        )
+        XCTAssertEqual(
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: .scheduleQuality, header: "Sch Eff", text: "92.0%", rowHealth: .risk
+            ),
+            .good
+        )
+        XCTAssertEqual(
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: .scheduleQuality, header: "Under", text: "8.00%", rowHealth: .good
+            ),
+            .risk
+        )
+        XCTAssertEqual(
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: .pph, header: "PPH", text: "81.0", rowHealth: .risk
+            ),
+            .good
+        )
+        XCTAssertEqual(
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: .sales, header: "YoY %", text: "-6.00%", rowHealth: .good
+            ),
+            .risk
+        )
+        XCTAssertEqual(
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: .sales, header: "YoY %", text: "1.20%", rowHealth: .risk
+            ),
+            .good
+        )
+        XCTAssertEqual(
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: .sales, header: "Sales $", text: "$49,026,551.00", rowHealth: .risk
+            ),
+            .none
+        )
+        XCTAssertEqual(
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: .sales, header: "Ord YoY", text: "-4.00%", rowHealth: .good
+            ),
+            .risk
+        )
+        XCTAssertEqual(
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: .pickerScorecard, header: "Shoppers", text: "26,349", rowHealth: .watch
+            ),
+            .none
+        )
+        XCTAssertEqual(
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: .labor, header: "Cost Tgt", text: "12.00%", rowHealth: .risk
+            ),
+            .none
+        )
+    }
+
+    func testShareBodyUsesReadableColumnsAndExpandCellColors() {
+        let grain = HeartbeatMath.DashboardGrainTableRow(
+            label: "East Region",
+            storeCount: 400,
+            values: ["$80,000.00", "6.00%", "2.49%", "$1,200,000.00", "$10,000.00", "$4,000.00", "$2,000.00", "$1,000.00", "$500.00"],
+            health: .risk
+        )
+        let snap = PulseMail.Snapshot(
+            filterSummary: "Company",
+            grain: "region",
+            summaries: [
+                SectionSummary(
+                    section: .lostRevenue,
+                    storeCount: 400,
+                    headline: 80_000,
+                    headlineLabel: "Total Opportunity",
+                    secondary: "",
+                    health: .risk,
+                    watchCount: 0,
+                    riskCount: 12,
+                    lostRevenuePct: 6
+                )
+            ],
+            rows: [:],
+            pickerCounts: [:],
+            generatedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            grainTables: [.lostRevenue: [grain]]
+        )
+        let packet = PulseMail.make(snap, pages: [.dashboard])
+        XCTAssertTrue(packet.html.contains("cell-risk") || packet.html.contains("#DC2626"), packet.html)
+        XCTAssertTrue(packet.html.contains("padding:10px 14px") || packet.html.contains("cellpadding=\"10\""), packet.html)
+        XCTAssertTrue(packet.html.contains("border-right:1px solid"), packet.html)
+        XCTAssertTrue(packet.plain.contains("Lost $"), packet.plain)
+        XCTAssertTrue(packet.plain.contains("East Region"), packet.plain)
+        XCTAssertTrue(packet.plain.contains("  "), packet.plain)
+        XCTAssertFalse(packet.plain.contains("East Region | $80,000.00 | 6.00%"), packet.plain)
+        let overflow = PulseMail.overflowMailBody(packet.brief)
+        XCTAssertTrue(overflow.contains("attached as HTML"))
+        XCTAssertTrue(overflow.contains("padding:22px 24px") || overflow.contains("padding:24px 20px"))
+        XCTAssertFalse(overflow.contains("<pre"))
+    }
+
     func testUnfilteredLostRevenueSecondaryDollarsPreferMarketTOKeys() {
         let market = MetricRow(
             section: .lostRevenue,

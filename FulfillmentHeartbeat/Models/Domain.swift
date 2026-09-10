@@ -3196,29 +3196,180 @@ enum HeartbeatMath {
         return Double(trimmed)
     }
 
-    /// Expand cell ink. Labor polarity: +red / −green. Cost Target stays black.
-    /// Healthy / Watch / At Risk columns match callout colors. Other cells use row health.
+    /// Header key that keeps $ / % so "Lost $" and "Lost %" stay distinct.
+    static func expandHeaderKey(_ header: String) -> String {
+        normalize(header)
+            .replacingOccurrences(of: "$", with: "usd")
+            .replacingOccurrences(of: "%", with: "pct")
+            .replacingOccurrences(of: "[^a-z0-9]", with: "", options: .regularExpression)
+    }
+
+    /// Expand cell ink. Same Healthy / Watch / At Risk polarity as that section’s card callouts.
+    /// Labor: +red / −green on TVA / UPLH / Wage / AIV. Cost Target stays black.
     static func dashboardExpandCellHealth(
         section: MetricSection,
         header: String,
         text: String,
-        rowHealth: Health
+        rowHealth: Health,
+        values: [String] = [],
+        headers: [String] = []
     ) -> Health {
-        let key = compactKey(header)
-        if key.contains("costtgt") || key.contains("costtarget") {
+        _ = rowHealth
+        let key = expandHeaderKey(header)
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || text == "—" {
             return .none
         }
-        if key.contains("targetvsactual") || key == "tva"
-            || key == "uplh" || key == "wage" || key == "aiv" {
-            return laborHealth(parsePctToken(text))
+        if section == .prepNotReady, key == "watch" || key == "goal" || key.contains("pnrgoal") {
+            return .none
         }
         if key == "healthy" || key == "atgoal" { return .good }
         if key == "watch" { return .watch }
         if key.contains("atrisk") || key == "below74" || key == "risk" { return .risk }
-        if section == .labor, key.contains("scheff") || key.contains("actcost") {
+
+        let number = parsePctToken(text)
+        var siblings: [String: Double] = [:]
+        if !headers.isEmpty, headers.count == values.count {
+            for (title, cell) in zip(headers, values) {
+                if let parsed = parsePctToken(cell) {
+                    siblings[expandHeaderKey(title)] = parsed
+                }
+            }
+        }
+
+        switch section {
+        case .labor:
+            if key.contains("costtgt") || key.contains("costtarget") || key.contains("costtrgt") {
+                return .none
+            }
+            if key.contains("targetvsactual") || key.contains("tgtvsact") || key == "tva"
+                || key == "uplh" || key.contains("uplh")
+                || key == "wage" || key.contains("wage")
+                || key == "aiv" || key.contains("aiv") {
+                return laborHealth(number)
+            }
+            if key.contains("scheff") || key.contains("actcost") {
+                return .none
+            }
+            return .none
+        case .lostRevenue:
+            return lostRevenueExpandCellHealth(key: key, number: number, siblings: siblings)
+        case .fiveStar:
+            return fiveStarExpandCellHealth(key: key, number: number)
+        case .missingItems, .preSubOOS, .preSubOOSItem:
+            if key == "rate" || key == "total" || key.contains("presub") || key.contains("oos") {
+                return missingItemsHealth(pct: number)
+            }
+            return .none
+        case .pickPath, .pickPathPicker:
+            if key.contains("path") || key.contains("compliance") {
+                return band(number, good: pickPathGoal, watch: pickPathRisk)
+            }
+            if key.contains("pph") {
+                return band(number, good: pphGoal, watch: pphRisk)
+            }
+            return .none
+        case .prepNotReady:
+            if key.contains("pnr") {
+                return band(number, good: pnrGoal, watch: pnrWatch, invert: true)
+            }
+            return .none
+        case .dynacap:
+            if key.contains("pcs") || key.contains("pieces") || key.contains("dynacap") {
+                return band(number, good: dynacapGoal, watch: dynacapRisk)
+            }
+            if key.contains("pph") {
+                return band(number, good: pphGoal, watch: pphRisk)
+            }
+            if key.contains("util") {
+                return band(number, good: dynacapGoal, watch: dynacapRisk)
+            }
+            return .none
+        case .scheduleQuality:
+            if key.contains("under") || key.contains("over") {
+                return varianceHealth(number)
+            }
+            if key.contains("scheff") || key.contains("efficiency") || key.contains("staffing") {
+                return band(number, good: scheduleGoal, watch: scheduleWatch)
+            }
+            return .none
+        case .pph:
+            if key.contains("pph") || key.contains("pure") {
+                return band(number, good: pphGoal, watch: pphRisk)
+            }
+            return .none
+        case .sales:
+            if key.contains("yoy") {
+                return salesHealth(planPct: nil, yoy: number)
+            }
+            return .none
+        case .pickerScorecard:
+            return .none
+        default:
             return .none
         }
-        return rowHealth
+    }
+
+    private static func lostRevenueExpandCellHealth(
+        key: String,
+        number: Double?,
+        siblings: [String: Double]
+    ) -> Health {
+        if key.contains("goal") || key.contains("ecomm") || key.contains("salesusd") {
+            return .none
+        }
+        let dollars: Double
+        let pct: Double?
+        if key.contains("pct") || key.hasSuffix("pct") || key == "lostpct" {
+            dollars = siblings["lostusd"] ?? siblings["lost"] ?? 0
+            pct = number
+        } else {
+            dollars = number ?? 0
+            pct = siblings["lostpct"]
+                ?? lostRevenueImpliedPct(dollars: dollars, sales: siblings["ecommusd"] ?? siblings["ecomm"])
+        }
+        if key.contains("refund") || key.contains("cancel") {
+            return lostSalesDollarHealth(dollars: dollars, pct: pct, anyDollarIsRisk: false)
+        }
+        if key.contains("kill") {
+            return lostSalesDollarHealth(dollars: dollars, pct: pct, anyDollarIsRisk: true)
+        }
+        let banded = lostRevenueHealth(pct: pct)
+        if key.contains("post") || key.contains("missed") {
+            let implied = pct ?? lostRevenueImpliedPct(
+                dollars: dollars,
+                sales: siblings["ecommusd"] ?? siblings["ecomm"]
+            )
+            let fromPct = lostRevenueHealth(pct: implied)
+            return fromPct == .none ? (dollars > 0 ? .watch : .good) : fromPct
+        }
+        return banded == .none ? (dollars > 0 ? .watch : .good) : banded
+    }
+
+    private static func lostRevenueImpliedPct(dollars: Double, sales: Double?) -> Double? {
+        guard let sales, sales > 0 else { return nil }
+        return dollars / sales * 100
+    }
+
+    private static func fiveStarExpandCellHealth(key: String, number: Double?) -> Health {
+        if key.contains("rating") || key.contains("star") {
+            return band(number, good: 4.5, watch: fiveStarPass)
+        }
+        if key.contains("flash") {
+            return starMark(value: number, full: 75, half: 55).health
+        }
+        if key.contains("coe") {
+            return starMark(value: number, full: 20, half: 0).health
+        }
+        if key.contains("ott") {
+            return starMark(value: number, full: 95, half: 90).health
+        }
+        if key.contains("presub") {
+            return starMark(value: number, full: 5, half: 6, invert: true).health
+        }
+        if key.contains("oth") {
+            return starMark(value: number, full: 92, half: 78).health
+        }
+        return .none
     }
 
     static func lostRevenueHealth(_ row: MetricRow) -> Health {

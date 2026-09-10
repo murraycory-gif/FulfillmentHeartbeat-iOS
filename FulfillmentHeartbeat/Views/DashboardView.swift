@@ -651,7 +651,9 @@ private struct OverviewMetricColumns: View {
                         section: section,
                         header: title,
                         text: text,
-                        rowHealth: health ?? .none
+                        rowHealth: health ?? .none,
+                        values: values,
+                        headers: headers
                     )
                 cell(text, header: header, width: valueWidth, tone: tone, wrapHeader: header && title.contains(" "))
             }

@@ -185,7 +185,6 @@ private struct OverviewSalesColumns: View {
                     status: nil,
                     health: item.pack.health == .none && (item.pack.sales ?? 0) > 0 ? .good : item.pack.health,
                     header: false,
-                    yoyRisk: (item.pack.yoy ?? 0) < 0,
                     stripe: index.isMultiple(of: 2)
                 )
             }
@@ -199,10 +198,10 @@ private struct OverviewSalesColumns: View {
         status: String?,
         health: Health?,
         header: Bool,
-        yoyRisk: Bool = false,
         stripe: Bool = false
     ) -> some View {
-        HStack(spacing: HubLayout.tableGutter) {
+        let metricHeaders = ["Sales $", "YoY %", "Orders", "Ord YoY", "AOS", "AIV", "Items/Txn", "Items"]
+        return HStack(spacing: HubLayout.tableGutter) {
             Text(header ? label.uppercased() : label)
                 .font(AppTheme.rounded(header ? .caption2 : .subheadline, weight: header ? .bold : .semibold))
                 .foregroundStyle(header ? AppTheme.textSecondary : AppTheme.text)
@@ -213,11 +212,19 @@ private struct OverviewSalesColumns: View {
                 cell(stores, header: header, width: storeWidth, secondary: true)
             }
             ForEach(Array(values.enumerated()), id: \.offset) { index, text in
+                let title = index < metricHeaders.count ? metricHeaders[index] : text
                 cell(
                     text,
                     header: header,
                     width: valueWidth,
-                    tone: header ? nil : tone(index: index, yoyRisk: yoyRisk, health: health)
+                    tone: header ? nil : HeartbeatMath.dashboardExpandCellHealth(
+                        section: .sales,
+                        header: title,
+                        text: text,
+                        rowHealth: health ?? .none,
+                        values: values,
+                        headers: metricHeaders
+                    )
                 )
             }
             Group {
@@ -246,11 +253,6 @@ private struct OverviewSalesColumns: View {
             .lineLimit(1)
             .minimumScaleFactor(0.55)
             .frame(width: width, alignment: .trailing)
-    }
-
-    private func tone(index: Int, yoyRisk: Bool, health: Health?) -> Health? {
-        if index == 0 || index == 1 { return yoyRisk ? .risk : health }
-        return nil
     }
 
     private func ink(_ health: Health?, secondary: Bool) -> Color {
