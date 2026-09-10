@@ -61,6 +61,7 @@ enum PulseSQLite {
             bind(insert, 7, row.recordedOn)
             bind(insert, 8, encodeMap(row.payload))
             bind(insert, 9, encodeText(row.textPayload))
+            bind(insert, 10, HeartbeatMath.health(for: row.section, row: row).needsAction ? 1 : 0)
             guard sqlite3_step(insert) == SQLITE_DONE else {
                 sqlite3_exec(db, "ROLLBACK;", nil, nil, nil)
                 throw PulseSQLError.insert
@@ -352,11 +353,16 @@ enum PulseSQLite {
         store_name TEXT,
         recorded_on TEXT,
         payload_json TEXT,
-        text_json TEXT
+        text_json TEXT,
+        needs_attention INTEGER NOT NULL DEFAULT 0
     );
     CREATE INDEX facts_section_store ON facts(section, store_number);
     CREATE INDEX facts_store ON facts(store_number);
     CREATE INDEX facts_section_div ON facts(section, division);
+    CREATE INDEX facts_attention ON facts(section, store_number) WHERE needs_attention = 1;
+    CREATE VIEW detail_facts AS
+        SELECT store_number AS store_id, section, needs_attention, payload_json, text_json
+        FROM facts;
     CREATE TABLE dash_chrome (
         id INTEGER PRIMARY KEY,
         json TEXT NOT NULL
@@ -370,8 +376,8 @@ enum PulseSQLite {
     """
 
     private static let insertSQL = """
-    INSERT INTO facts(id, section, store_number, division, operations_om, store_name, recorded_on, payload_json, text_json)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+    INSERT INTO facts(id, section, store_number, division, operations_om, store_name, recorded_on, payload_json, text_json, needs_attention)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
     """
 
     private static func writeChrome(_ chrome: PulseDashChrome, db: OpaquePointer) {
@@ -429,6 +435,130 @@ enum PulseSQLite {
         }
         defer { sqlite3_close(db) }
         sqlite3_exec(db, "VACUUM;", nil, nil, nil)
+    }
+
+    /// Uses the partial `facts_attention` index. Empty on market packs without the column.
+    static func needsAttentionStores(from url: URL, section: MetricSection? = nil) -> [String] {
+        guard exists(at: url) else { return [] }
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK, let db else {
+            return []
+        }
+        defer { sqlite3_close(db) }
+        let sql: String
+        if let section {
+            sql = "SELECT DISTINCT store_number FROM facts WHERE needs_attention = 1 AND section = ? ORDER BY store_number;"
+        } else {
+            sql = "SELECT DISTINCT store_number FROM facts WHERE needs_attention = 1 ORDER BY store_number;"
+        }
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { return [] }
+        if let section {
+            bind(stmt, 1, section.rawValue)
+        }
+        var out: [String] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            out.append(string(stmt, 0))
+        }
+        return out
+    }
+
+    static func hasAttentionIndex(at url: URL) -> Bool {
+        guard exists(at: url) else { return false }
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK, let db else {
+            return false
+        }
+        defer { sqlite3_close(db) }
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(
+            db,
+            "SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'facts_attention';",
+            -1, &stmt, nil
+        ) == SQLITE_OK else { return false }
+        return sqlite3_step(stmt) == SQLITE_ROW
+    }
+
+    static func hasDetailFactsView(at url: URL) -> Bool {
+        guard exists(at: url) else { return false }
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK, let db else {
+            return false
+        }
+        defer { sqlite3_close(db) }
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(
+            db,
+            "SELECT 1 FROM sqlite_master WHERE type = 'view' AND name = 'detail_facts';",
+            -1, &stmt, nil
+        ) == SQLITE_OK else { return false }
+        return sqlite3_step(stmt) == SQLITE_ROW
+    }
+
+    /// Partial-index DDL. Empty when the pack predates the addendum.
+    static func attentionIndexSQL(at url: URL) -> String {
+        objectSQL(at: url, type: "index", name: "facts_attention")
+    }
+
+    /// `detail_*` plane keyed `store_id`.
+    static func detailStoreIds(from url: URL) -> [String] {
+        guard exists(at: url), hasDetailFactsView(at: url) else { return [] }
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK, let db else {
+            return []
+        }
+        defer { sqlite3_close(db) }
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(
+            db,
+            "SELECT DISTINCT store_id FROM detail_facts ORDER BY store_id;",
+            -1, &stmt, nil
+        ) == SQLITE_OK, let stmt else { return [] }
+        var out: [String] = []
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            out.append(string(stmt, 0))
+        }
+        return out
+    }
+
+    static func summaryCardCount(from url: URL) -> Int {
+        guard exists(at: url) else { return 0 }
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK, let db else {
+            return 0
+        }
+        defer { sqlite3_close(db) }
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM summary_cards;", -1, &stmt, nil) == SQLITE_OK else {
+            return 0
+        }
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return 0 }
+        return Int(sqlite3_column_int(stmt, 0))
+    }
+
+    private static func objectSQL(at url: URL, type: String, name: String) -> String {
+        guard exists(at: url) else { return "" }
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK, let db else {
+            return ""
+        }
+        defer { sqlite3_close(db) }
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        guard sqlite3_prepare_v2(
+            db,
+            "SELECT sql FROM sqlite_master WHERE type = ? AND name = ?;",
+            -1, &stmt, nil
+        ) == SQLITE_OK else { return "" }
+        bind(stmt, 1, type)
+        bind(stmt, 2, name)
+        guard sqlite3_step(stmt) == SQLITE_ROW else { return "" }
+        return string(stmt, 0)
     }
 
     private static func readChrome(db: OpaquePointer) -> PulseDashChrome? {

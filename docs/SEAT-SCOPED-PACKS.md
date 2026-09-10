@@ -61,11 +61,19 @@ Tip 1 does not flip those gates. The seat sqlite **already contains** live grain
 
 ## Tip 1 addendum (indexed seat file)
 
-- `facts` is the **detail_*** plane, keyed `store_number` (indexes: `facts_section_store`, `facts_store`).
-- `summary_cards` + `dash_chrome` are the **summary_*** plane (card headlines, expand grain, flags).
-- Cook `VACUUM`s the seat sqlite. District target ≤ 10 MB; warn above that.
-- Device download is staging → **atomic replace**. Cache ceiling **250 MB**; oldest unused seat files evict.
+Cook writes a fully indexed seat sqlite, `VACUUM`s it, then the device **atomically swaps** that file onto `activePackURL`. No gzip download path — compress is VACUUM; swap is `replaceItemAt`.
+
+| Plane | Objects |
+|---|---|
+| **summary_*** | `summary_cards` (one row per dashboard section: store_count, headline, json) + `dash_chrome` |
+| **detail_*** | `facts` keyed `store_number`; view `detail_facts` exposes `store_id` |
+| **needs-attention** | `facts.needs_attention` + **partial** index `facts_attention ON facts(section, store_number) WHERE needs_attention = 1` |
+| Other indexes | `facts_section_store`, `facts_store`, `facts_section_div` |
+
+- District pack **target ≪ 5–10 MB** (`districtTargetBytes` = 10 MB is the warn line, not a goal).
+- Device `packs/seat/**` hard ceiling **~250 MB**; `evictSeatCache` drops oldest unused seat files (keeps the active key + company thin).
 - Continue still installs grain tables for **every** dashboard section so Loss / 5 Star / Labor / etc. get the same live Stores N footer as Sales. `.380` only prefetched Sales.
+- Halloween stays **off**. Clear / new seat still **swaps** the file. District 03 Stores N = Heartbeat seat N on every section.
 
 ## Later tips
 

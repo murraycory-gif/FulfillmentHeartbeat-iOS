@@ -2285,6 +2285,83 @@ final class HeartbeatMathTests: XCTestCase {
         )
         XCTAssertEqual(PulseSeatPack.deviceCacheCeilingBytes, 250_000_000)
         XCTAssertEqual(PulseSeatPack.districtTargetBytes, 10_000_000)
+        XCTAssertTrue(PulseSQLite.hasAttentionIndex(at: dest))
+        XCTAssertTrue(PulseSQLite.hasDetailFactsView(at: dest))
+        XCTAssertTrue(PulseSQLite.attentionIndexSQL(at: dest).contains("needs_attention = 1"))
+        XCTAssertEqual(Set(PulseSQLite.detailStoreIds(from: dest)), Set(districtStores))
+        XCTAssertEqual(PulseSQLite.summaryCardCount(from: dest), MetricSection.dashboardCards.count)
+        XCTAssertTrue(PulseSQLite.needsAttentionStores(from: dest).allSatisfy { districtStores.contains($0) })
+    }
+
+    func testSeatPackIndexedSchemaAtomicSwapAndCacheCeiling() throws {
+        let risk = MetricRow(
+            section: .fiveStar,
+            division: "NorCal",
+            operationsOM: "Jino Arvin",
+            storeNumber: "12",
+            storeName: "12",
+            payload: ["star_rating": 2.0],
+            textPayload: ["district": "03"]
+        )
+        let good = MetricRow(
+            section: .fiveStar,
+            division: "NorCal",
+            operationsOM: "Jino Arvin",
+            storeNumber: "13",
+            storeName: "13",
+            payload: ["star_rating": 5.0],
+            textPayload: ["district": "03"]
+        )
+        XCTAssertTrue(HeartbeatMath.health(for: .fiveStar, row: risk).needsAction)
+        XCTAssertFalse(HeartbeatMath.health(for: .fiveStar, row: good).needsAction)
+
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("seat-pack-381-schema-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+
+        let dest = tmp.appendingPathComponent("seat.sqlite")
+        try PulseSQLite.write(rows: [risk, good], uploads: [], seeded: true, chrome: nil, to: dest)
+        PulseSQLite.compact(at: dest)
+
+        XCTAssertTrue(PulseSQLite.hasAttentionIndex(at: dest))
+        XCTAssertTrue(PulseSQLite.hasDetailFactsView(at: dest))
+        XCTAssertTrue(PulseSQLite.attentionIndexSQL(at: dest).localizedCaseInsensitiveContains("WHERE"))
+        XCTAssertTrue(PulseSQLite.attentionIndexSQL(at: dest).contains("needs_attention"))
+        XCTAssertEqual(PulseSQLite.detailStoreIds(from: dest), ["12", "13"])
+        XCTAssertEqual(PulseSQLite.needsAttentionStores(from: dest, section: .fiveStar), ["12"])
+        XCTAssertEqual(PulseSQLite.needsAttentionStores(from: dest), ["12"])
+        XCTAssertEqual(PulseSQLite.summaryCardCount(from: dest), 0)
+
+        let staging = tmp.appendingPathComponent("staging.sqlite")
+        let replacement = MetricRow(
+            section: .fiveStar,
+            division: "NorCal",
+            operationsOM: "Jino Arvin",
+            storeNumber: "14",
+            storeName: "14",
+            payload: ["star_rating": 3.0],
+            textPayload: ["district": "03"]
+        )
+        try PulseSQLite.write(rows: [replacement], uploads: [], seeded: true, chrome: nil, to: staging)
+        try PulseSeatPack.atomicReplace(from: staging, to: dest)
+        XCTAssertEqual(PulseSQLite.detailStoreIds(from: dest), ["14"])
+        XCTAssertEqual(PulseSQLite.needsAttentionStores(from: dest), ["14"])
+        XCTAssertFalse(FileManager.default.fileExists(atPath: staging.path))
+
+        let keepKey = PulseSeatPack.Key(grain: .district, id: "03")
+        let keep = PulseSeatPack.localURL(root: tmp, key: keepKey)
+        let drop = PulseSeatPack.localURL(root: tmp, key: PulseSeatPack.Key(grain: .district, id: "99"))
+        try FileManager.default.createDirectory(at: keep.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: drop.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(repeating: 1, count: 4_000).write(to: keep)
+        try Data(repeating: 2, count: 4_000).write(to: drop)
+        PulseSeatPack.evictSeatCache(root: tmp, keeping: keepKey, ceiling: 1_000)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: keep.path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: drop.path))
+        XCTAssertEqual(PulseSeatPack.deviceCacheCeilingBytes, 250_000_000)
+        XCTAssertEqual(PulseSeatPack.districtTargetBytes, 10_000_000)
+        XCTAssertLessThan(PulseSeatPack.districtTargetBytes, PulseSeatPack.deviceCacheCeilingBytes)
     }
 
     func testSeatWarehouseAlwaysClearsHydrating() async {
