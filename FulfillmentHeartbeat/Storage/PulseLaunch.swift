@@ -380,6 +380,31 @@ enum PulseLaunch {
         !shouldPublishPickerSeatFirstPaint() && needsShopperJoin(dest)
     }
 
+    /// First District scroll after Continue. Fills stay chrome-only.
+    static func shouldAllowHubInvalidateDuringQuietScroll() -> Bool { false }
+
+    static func hubQuietScrollNanoseconds() -> UInt64 { hubFirstInteractionNanoseconds }
+
+    static func hubScrollSettled(interactiveAt: Date?, now: Date = Date()) -> Bool {
+        guard let start = interactiveAt else { return false }
+        return now.timeIntervalSince(start) >= Double(hubQuietScrollNanoseconds()) / 1_000_000_000
+    }
+
+    /// Publish seat shoppers only after the first scroll window — never during
+    /// hub-quiet + active scroll. Chrome-only until then.
+    static func shouldPublishSeatFill(
+        dest: HubDestination,
+        interactiveAt: Date?,
+        now: Date = Date()
+    ) -> Bool {
+        if shouldPublishPickerSeatFirstPaint() { return false }
+        guard shouldPublishPickerSeatOnVisiblePage(dest: dest) else { return false }
+        if shouldAllowHubInvalidateDuringQuietScroll() { return true }
+        return hubScrollSettled(interactiveAt: interactiveAt, now: now)
+    }
+
+    static func shouldStampFilterDuringQuietScroll() -> Bool { false }
+
     /// `pickerLoading` is `@Published`. Toggling it on Dashboard remounts the hub.
     static func shouldShowPickerLoadingOnSeatFill(dest: HubDestination) -> Bool {
         needsShopperJoin(dest)

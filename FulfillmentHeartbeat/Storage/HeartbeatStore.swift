@@ -4495,8 +4495,10 @@ final class HeartbeatStore: ObservableObject {
             incoming: rows
         )
         lockPickerDashboard()
-        if PulseLaunch.shouldPublishPickerSeatFirstPaint()
-            || PulseLaunch.shouldPublishPickerSeatOnVisiblePage(dest: visibleDestination) {
+        if PulseLaunch.shouldPublishSeatFill(
+            dest: visibleDestination,
+            interactiveAt: hubBecameInteractiveAt
+        ) {
             objectWillChange.send()
         }
     }
@@ -4847,8 +4849,10 @@ final class HeartbeatStore: ObservableObject {
         }.value
         guard !incoming.isEmpty else { return }
         adoptSectionWarehouse(section, incoming)
-        if PulseLaunch.shouldPublishPickerSeatFirstPaint()
-            || PulseLaunch.shouldPublishPickerSeatOnVisiblePage(dest: visibleDestination) {
+        if PulseLaunch.shouldPublishSeatFill(
+            dest: visibleDestination,
+            interactiveAt: hubBecameInteractiveAt
+        ) {
             objectWillChange.send()
         }
     }
