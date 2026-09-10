@@ -1110,7 +1110,7 @@ struct SharePulseSheet: View {
                 }
                 .disabled(selected.isEmpty)
             } footer: {
-                Text("The email matches the dashboard or scorecard you picked — same callouts, columns, and filter. A short note goes in the message; the full page is the HTML attachment so Mail stays light.")
+                Text("The email opens as the page you picked — same cards, callouts, and tables. Share sheet stays snappy; the recap builds after you tap Send.")
             }
 
             Section("Pages") {
@@ -1228,13 +1228,22 @@ struct ShareRecapCompose: View {
             .padding(.vertical, 12)
             .background(AppTheme.card)
 
-            ScrollView {
-                Text(packet.brief)
-                    .font(.body)
-                    .foregroundStyle(AppTheme.text)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(16)
+            Group {
+                if let url = packet.htmlFile {
+                    RecapWebView(fileURL: url)
+                } else if !packet.html.isEmpty {
+                    RecapWebView(html: packet.html)
+                } else {
+                    ScrollView {
+                        Text(packet.brief)
+                            .font(.body)
+                            .foregroundStyle(AppTheme.text)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(16)
+                    }
+                }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Color(red: 0.96, green: 0.97, blue: 0.99))
 
             Button(action: sendMail) {
@@ -1276,7 +1285,14 @@ struct ShareRecapCompose: View {
 }
 
 struct RecapWebView: UIViewRepresentable {
-    let html: String
+    var html: String = ""
+    var fileURL: URL? = nil
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    final class Coordinator {
+        var loaded = ""
+    }
 
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
@@ -1291,6 +1307,15 @@ struct RecapWebView: UIViewRepresentable {
     }
 
     func updateUIView(_ web: WKWebView, context: Context) {
+        if let fileURL {
+            let key = fileURL.path
+            guard context.coordinator.loaded != key else { return }
+            context.coordinator.loaded = key
+            web.loadFileURL(fileURL, allowingReadAccessTo: fileURL.deletingLastPathComponent())
+            return
+        }
+        guard !html.isEmpty, context.coordinator.loaded != html else { return }
+        context.coordinator.loaded = html
         web.loadHTMLString(html, baseURL: nil)
     }
 }
@@ -11034,11 +11059,7 @@ final class MailShareActivity: UIActivity {
             return
         }
         let mail = MFMailComposeViewController()
-        mail.setSubject(packet.subject)
-        mail.setMessageBody(packet.brief, isHTML: false)
-        if let url = PulseShare.writeHTMLFile(packet), let data = try? Data(contentsOf: url) {
-            mail.addAttachmentData(data, mimeType: "text/html", fileName: "heartbeat-recap.html")
-        }
+        PulseShare.configureMail(mail, packet: packet)
         let closer = MailShareCloser(owner: self)
         self.closer = closer
         mail.mailComposeDelegate = closer
@@ -11184,16 +11205,39 @@ enum PulseShare {
             return
         }
         let mail = MFMailComposeViewController()
-        mail.setSubject(packet.subject)
-        mail.setMessageBody(packet.brief, isHTML: false)
-        if let url = writeHTMLFile(packet), let data = try? Data(contentsOf: url) {
-            mail.addAttachmentData(data, mimeType: "text/html", fileName: "heartbeat-recap.html")
-        }
+        configureMail(mail, packet: packet)
         if !to.isEmpty {
             mail.setToRecipients(to)
         }
         mail.mailComposeDelegate = mailCloser
         presenter.present(mail, animated: true)
+    }
+
+    /// Inline Mail-safe HTML in the message body when it fits. Never a duplicate giant attachment.
+    static func configureMail(_ mail: MFMailComposeViewController, packet: PulseMail.Packet) {
+        mail.setSubject(packet.subject)
+        let fileURL = writeHTMLFile(packet)
+        let bytes: Int
+        if let fileURL {
+            bytes = PulseLaunch.fileBytes(at: fileURL)
+        } else {
+            bytes = packet.html.utf8.count
+        }
+        if PulseLaunch.shouldSetHTMLMessageBody(utf8Count: bytes) {
+            let html = PulseMail.html(from: packet)
+            if html.isEmpty {
+                mail.setMessageBody(packet.brief, isHTML: false)
+            } else {
+                mail.setMessageBody(html, isHTML: true)
+            }
+            return
+        }
+        if PulseLaunch.shouldAttachHTMLFile(utf8Count: bytes), let fileURL, let data = try? Data(contentsOf: fileURL) {
+            mail.setMessageBody(PulseMail.overflowMailBody(packet.brief), isHTML: true)
+            mail.addAttachmentData(data, mimeType: "text/html", fileName: "heartbeat-recap.html")
+            return
+        }
+        mail.setMessageBody(packet.brief, isHTML: false)
     }
 
     @MainActor

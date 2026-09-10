@@ -199,6 +199,32 @@ enum PulseMail {
         packet.htmlFile ?? packet.brief
     }
 
+    /// HTML Mail can put in the message body. Reads the file when it fits the cap; never a giant string.
+    static func html(from packet: Packet) -> String {
+        if let url = packet.htmlFile {
+            let bytes = PulseLaunch.fileBytes(at: url)
+            if PulseLaunch.shouldSetHTMLMessageBody(utf8Count: bytes),
+               let text = try? String(contentsOf: url, encoding: .utf8), !text.isEmpty {
+                return text
+            }
+        }
+        if PulseLaunch.shouldSetHTMLMessageBody(utf8Count: packet.html.utf8.count) {
+            return packet.html
+        }
+        return ""
+    }
+
+    /// Short in-body note when the full recap is too large for Mail's message body.
+    static func overflowMailBody(_ brief: String) -> String {
+        """
+        <html><body style="margin:0;padding:20px;background:#F5F7FC;color:#141A29;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:16px;line-height:1.45">
+        <p style="color:#003DA5;font-weight:700;font-size:18px;margin:0 0 12px">Fulfillment Heartbeat</p>
+        <p style="margin:0 0 16px">The full recap is attached as HTML — open it to see the same cards, callouts, and tables as the app.</p>
+        <pre style="white-space:pre-wrap;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:15px;color:#141A29">\(esc(brief))</pre>
+        </body></html>
+        """
+    }
+
     static func briefPacket(_ snap: Snapshot, pages: Set<SharePage>) -> Packet {
         let chosen = pages.isEmpty ? Set(SharePage.allCases) : pages
         let names = SharePage.allCases.filter { chosen.contains($0) }.map(\.title)
@@ -278,7 +304,7 @@ enum PulseMail {
             guard page != .dashboard, pages.contains(page), let section = page.section else { continue }
             sink.append(sectionHTML(section, snap: snap))
         }
-        sink.append("<p class=\"sub\">Sent from Fulfillment Heartbeat</p></div></body></html>")
+        sink.append("<p class=\"sub\" style=\"color:#3D4658;font-size:16px;margin:18px 0 0\">Sent from Fulfillment Heartbeat</p></div></body></html>")
     }
 
     private static func html(_ snap: Snapshot, pages: Set<SharePage>) -> String {
@@ -322,28 +348,29 @@ enum PulseMail {
         .cell-watch{background:#FEF3C7;color:#D97706}
         .cell-risk{background:#FEE2E2;color:#DC2626}
         .muted{color:#5C677A}
-        </style></head><body><div class="wrap">
-        <h1>Fulfillment Heartbeat</h1>
-        <p class="sub">\(esc(snap.filterSummary))<br>\(esc(HeartbeatFormat.stamp(snap.generatedAt))) · Same layout and columns as the in-app page · Upload is not included</p>
+        </style></head><body style="margin:0;padding:24px 20px;background:#F5F7FC;color:#141A29;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:16px;line-height:1.45"><div class="wrap" style="width:100%;max-width:100%;margin:0 auto">
+        <h1 style="font-size:28px;line-height:1.2;margin:0 0 8px;color:#003DA5">Fulfillment Heartbeat</h1>
+        <p class="sub" style="color:#3D4658;font-size:16px;margin:0 0 22px;line-height:1.5">\(esc(snap.filterSummary))<br>\(esc(HeartbeatFormat.stamp(snap.generatedAt))) · Same layout and columns as the in-app page · Upload is not included</p>
         """
     }
 
     private static func dashboardHTML(_ snap: Snapshot) -> String {
         var cards = """
-        <div class="page-banner">Operational Heartbeat · \(esc(snap.filterSummary))</div>
+        <div class="page-banner" style="font-size:18px;font-weight:700;color:#003DA5;margin:0 0 12px">Operational Heartbeat · \(esc(snap.filterSummary))</div>
         """
         let grain = dashGrain(snap)
         for card in snap.summaries {
             let flags = dashboardFlagModels(card.section, snap: snap)
-            let fill = cardFill(card.health)
             var flagHTML = ""
             if !flags.isEmpty {
                 flagHTML = flagGridHTML(flags)
             }
             let title = card.section == .pickPath ? "Pick Path Compliance" : card.section.title
+            let accent = ink(card.health)
             cards += """
-            <table class="dash-card" width="100%" cellspacing="0" cellpadding="0" style="background:\(fill.bg);border:1px solid \(fill.border);border-radius:16px">
+            <table class="dash-card" width="100%" cellspacing="0" cellpadding="0" bgcolor="#FFFFFF" style="background:#FFFFFF;border:1px solid #E4E9F4;border-radius:16px;margin:0 0 14px">
             <tr>
+            <td width="4" bgcolor="\(accent)" style="background:\(accent);width:4px;font-size:0;line-height:0">&nbsp;</td>
             <td style="padding:16px 18px">
             <table width="100%" cellspacing="0" cellpadding="0">
             <tr>
@@ -353,7 +380,7 @@ enum PulseMail {
             <div style="font-weight:700;margin-top:6px;font-size:16px;color:\(card.riskCount == 0 ? ink(.good) : ink(.risk))">\(esc(riskLine(card.section, card)))</div>
             </td>
             <td valign="top" align="right" style="width:190px;white-space:nowrap">
-            <div class="nw" style="font-size:32px;font-weight:700;color:\(ink(card.health));text-align:right">\(esc(card.headlineText))</div>
+            <div class="nw" style="font-size:32px;font-weight:700;color:\(accent);text-align:right">\(esc(card.headlineText))</div>
             <div style="margin-top:8px">\(pill(card.health))</div>
             </td>
             </tr>
@@ -378,19 +405,23 @@ enum PulseMail {
             var cells = ""
             let slice = Array(flags[index..<end])
             for flag in slice {
+                let tone = flag.health == .none ? Health.good : flag.health
+                let accent = ink(tone)
                 let unit = flag.stores == 1 ? String(flag.unit.dropLast()) : flag.unit
                 let stores = "\(HeartbeatFormat.num(Double(flag.stores)))&nbsp;\(esc(unit))"
                 let valueLine = flag.value.isEmpty
                     ? ""
-                    : "<div class=\"nw\" style=\"font-size:20px;font-weight:700;margin-top:6px;color:\(ink(flag.health));text-align:left\">\(esc(flag.value))</div>"
+                    : "<div class=\"nw\" style=\"font-size:20px;font-weight:700;margin-top:6px;color:\(accent);text-align:left\">\(esc(flag.value))</div>"
                 cells += """
                 <td width="\(100 / perRow)%" valign="top" style="padding:4px">
-                <table width="100%" cellspacing="0" cellpadding="0" style="background:#fff;border:1px solid #E4E9F4;border-radius:12px">
-                <tr><td style="padding:10px 12px">
+                <table width="100%" cellspacing="0" cellpadding="0" bgcolor="#FFFFFF" style="background:#FFFFFF;border:1px solid #E4E9F4;border-radius:12px">
+                <tr>
+                <td width="4" bgcolor="\(accent)" style="background:\(accent);width:4px;font-size:0;line-height:0">&nbsp;</td>
+                <td style="padding:10px 12px">
                 <div style="font-size:14px;color:#141A29;font-weight:700">\(esc(flag.name))</div>
                 \(valueLine)
                 <div class="nw" style="font-size:14px;font-weight:600;margin-top:6px;color:#5C677A;text-align:left">\(stores)</div>
-                <div style="margin-top:8px">\(pill(flag.health))</div>
+                <div style="margin-top:8px">\(pill(tone))</div>
                 </td></tr>
                 </table>
                 </td>
@@ -452,7 +483,9 @@ enum PulseMail {
         section: MetricSection,
         grain: DashScopeGrain
     ) -> String {
-        let shown = table.filter { $0.label != "Unassigned" && !$0.label.isEmpty }
+        let filtered = table.filter { $0.label != "Unassigned" && !$0.label.isEmpty }
+        // Match DashScopeStrip: store expand paints 40 rows; region/district stay full.
+        let shown = grain == .store ? Array(filtered.prefix(40)) : filtered
         guard !shown.isEmpty else { return "" }
         var headers = ["Scope"]
         if grain != .store { headers.append("Stores") }
@@ -461,14 +494,14 @@ enum PulseMail {
         var body = ""
         for line in shown {
             let health = line.health == .none && line.storeCount > 0 ? Health.good : line.health
-            var cells = "<td class=\"name\">\(esc(HeartbeatMath.displayGrainLabel(line.label)))</td>"
+            var cells = nameCell(HeartbeatMath.displayGrainLabel(line.label))
             if grain != .store {
-                cells += "<td class=\"num muted\">\(HeartbeatFormat.num(Double(line.storeCount)))</td>"
+                cells += numCell(HeartbeatFormat.num(Double(line.storeCount)), muted: true)
             }
             for value in line.values {
-                cells += "<td class=\"num\">\(esc(value))</td>"
+                cells += numCell(value)
             }
-            cells += "<td class=\"status\">\(pill(health))</td>"
+            cells += statusCell(health)
             body += "<tr>\(cells)</tr>"
         }
         let unit = shown.count == 1 ? String(grain.unit.dropLast()) : grain.unit
@@ -476,7 +509,8 @@ enum PulseMail {
             title: "\(grain.title) · \(shown.count) \(unit)",
             detail: "Same columns as the dashboard expand",
             headers: headers,
-            body: body
+            body: body,
+            banner: true
         )
     }
 
@@ -496,12 +530,13 @@ enum PulseMail {
         for label in labels {
             let group = buckets[label] ?? []
             if group.isEmpty { continue }
+            if grain == .store, shown >= 40 { break }
             shown += 1
             let pack = SalesPack(rows: group)
             let health = pack.health == .none && (pack.sales ?? 0) > 0 ? Health.good : pack.health
-            var cells = "<td class=\"name\">\(esc(HeartbeatMath.displayGrainLabel(label)))</td>"
+            var cells = nameCell(HeartbeatMath.displayGrainLabel(label))
             if grain != .store {
-                cells += "<td class=\"num muted\">\(HeartbeatFormat.num(Double(group.count)))</td>"
+                cells += numCell(HeartbeatFormat.num(Double(group.count)), muted: true)
             }
             for value in [
                 HeartbeatFormat.money(pack.sales),
@@ -513,9 +548,9 @@ enum PulseMail {
                 HeartbeatFormat.num(pack.ipt, digits: 1),
                 HeartbeatFormat.num(pack.items, digits: 0),
             ] {
-                cells += "<td class=\"num\">\(esc(value))</td>"
+                cells += numCell(value)
             }
-            cells += "<td class=\"status\">\(pill(health))</td>"
+            cells += statusCell(health)
             body += "<tr>\(cells)</tr>"
         }
         guard shown > 0 else { return "" }
@@ -524,7 +559,8 @@ enum PulseMail {
             title: "\(grain.title) · \(shown) \(unit)",
             detail: "Same columns as the dashboard Sales expand",
             headers: headers,
-            body: body
+            body: body,
+            banner: true
         )
     }
 
@@ -605,15 +641,6 @@ enum PulseMail {
         let unique = Array(Set(labels))
         if unique.count == 1 { return unique[0] }
         return labels.first
-    }
-
-    private static func cardFill(_ health: Health) -> (bg: String, border: String) {
-        switch health {
-        case .good: return ("#ECFDF5", "#A7F3D0")
-        case .watch: return ("#FFFBEB", "#FDE68A")
-        case .risk: return ("#FEF2F2", "#FECACA")
-        case .none: return ("#FFFFFF", "#E4E9F4")
-        }
     }
 
     private static func ink(_ health: Health) -> String {
@@ -870,7 +897,7 @@ enum PulseMail {
             fake.payload = averagedPayload(group)
             let health = worst(group, section: section)
             let count = group.count == 1 ? "1 store" : "\(group.count) stores"
-            body += "<tr><td class=\"name\">\(esc(key))<div class=\"muted\" style=\"font-size:13px;font-weight:600\">\(esc(count))</div></td>\(storeCells(section, row: fake, pickerCount: group.count, health: health))</tr>"
+            body += "<tr>\(nameCell(key, extra: "<div class=\"muted\" style=\"font-size:13px;font-weight:600;color:#5C677A\">\(esc(count))</div>"))\(storeCells(section, row: fake, pickerCount: group.count, health: health))</tr>"
         }
         guard !body.isEmpty else { return "" }
         return dataTable(
@@ -940,7 +967,7 @@ enum PulseMail {
             default:
                 label = placeLabel(row)
             }
-            body += "<tr><td class=\"name\">\(esc(label))</td>\(storeCells(section, row: row, pickerCount: pickerCounts[HeartbeatMath.canonicalStore(row.storeNumber)] ?? 0, health: health))</tr>"
+            body += "<tr>\(nameCell(label))\(storeCells(section, row: row, pickerCount: pickerCounts[HeartbeatMath.canonicalStore(row.storeNumber)] ?? 0, health: health))</tr>"
         }
         let reported = max(total ?? 0, ordered.count)
         let unit: String
@@ -1126,7 +1153,16 @@ enum PulseMail {
     private static func storeCells(_ section: MetricSection, row: MetricRow, pickerCount: Int, health: Health) -> String {
         func cell(_ text: String, _ metricHealth: Health? = nil) -> String {
             let cls = metricHealth.map { "num cell-\($0.rawValue)" } ?? "num"
-            return "<td class=\"\(cls)\">\(esc(text))</td>"
+            var style = "text-align:right;font-variant-numeric:tabular-nums;font-weight:700;font-size:16px;white-space:nowrap;padding:8px;border-bottom:1px solid #E4E9F4"
+            if let metricHealth {
+                switch metricHealth {
+                case .good: style += ";background:#D1FAE5;color:#059669"
+                case .watch: style += ";background:#FEF3C7;color:#D97706"
+                case .risk: style += ";background:#FEE2E2;color:#DC2626"
+                case .none: break
+                }
+            }
+            return "<td class=\"\(cls)\" style=\"\(style)\">\(esc(text))</td>"
         }
         var html = ""
         switch section {
@@ -1218,7 +1254,7 @@ enum PulseMail {
             html += cell(row.district)
             html += cell(row.operationsOM)
         }
-        html += "<td>\(pill(health))</td>"
+        html += statusCell(health)
         return html
     }
 
@@ -1235,6 +1271,20 @@ enum PulseMail {
         return n == 0 ? "0 stores at risk" : "\(HeartbeatFormat.num(Double(n))) stores at risk"
     }
 
+    private static func nameCell(_ text: String, extra: String = "") -> String {
+        "<td class=\"name\" style=\"font-weight:700;font-size:16px;white-space:nowrap;padding:8px;border-bottom:1px solid #E4E9F4\">\(esc(text))\(extra)</td>"
+    }
+
+    private static func numCell(_ text: String, muted: Bool = false) -> String {
+        let color = muted ? "#5C677A" : "#141A29"
+        let cls = muted ? "num muted" : "num"
+        return "<td class=\"\(cls)\" style=\"text-align:right;font-variant-numeric:tabular-nums;font-weight:700;font-size:16px;white-space:nowrap;padding:8px;border-bottom:1px solid #E4E9F4;color:\(color)\">\(esc(text))</td>"
+    }
+
+    private static func statusCell(_ health: Health) -> String {
+        "<td class=\"status\" style=\"text-align:right;white-space:nowrap;width:108px;padding:8px;border-bottom:1px solid #E4E9F4\">\(pill(health))</td>"
+    }
+
     private static func pill(_ health: Health) -> String {
         let bg: String
         switch health {
@@ -1243,25 +1293,32 @@ enum PulseMail {
         case .risk: bg = "#DC2626"
         case .none: bg = "#8A93A3"
         }
-        return "<span class=\"pill\" style=\"background:\(bg)\">\(esc(health.label.uppercased()))</span>"
+        return "<span class=\"pill\" style=\"display:inline-block;padding:5px 12px;border-radius:999px;font-size:12px;line-height:1.2;font-weight:700;color:#fff;letter-spacing:.02em;background:\(bg)\">\(esc(health.label.uppercased()))</span>"
     }
 
-    private static func dataTable(title: String, detail: String, headers: [String], body: String) -> String {
+    private static func dataTable(title: String, detail: String, headers: [String], body: String, banner: Bool = false) -> String {
         let heads = headers.enumerated().map { index, name -> String in
             let cls: String
+            let align: String
             if index == 0 {
                 cls = ""
+                align = "left"
             } else if name == "Status" {
                 cls = " class=\"status\""
+                align = "right"
             } else {
                 cls = " class=\"num\""
+                align = "right"
             }
-            return "<th\(cls)>\(esc(name))</th>"
+            return "<th\(cls) bgcolor=\"#EEF3FB\" style=\"text-align:\(align);font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#003DA5;background:#EEF3FB;padding:8px;border-bottom:2px solid #003DA5;white-space:nowrap;font-weight:700\">\(esc(name))</th>"
         }.joined()
+        let heading = banner
+            ? bar(title, detail)
+            : "<div class=\"block-title\" style=\"font-size:18px;font-weight:700;color:#003DA5;margin:18px 0 8px\">\(esc(title))<span style=\"display:block;font-size:14px;font-weight:600;color:#5C677A;margin-top:2px\">\(esc(detail))</span></div>"
         return """
-        <div class="block-title">\(esc(title))<span>\(esc(detail))</span></div>
-        <div class="table-wrap">
-        <table class="data" cellspacing="0" cellpadding="0">
+        \(heading)
+        <div class="table-wrap" style="width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 0 8px">
+        <table class="data" cellspacing="0" cellpadding="0" bgcolor="#FFFFFF" style="width:100%;border-collapse:collapse;font-size:15px;min-width:680px;background:#FFFFFF">
         <thead><tr>\(heads)</tr></thead>
         <tbody>\(body)</tbody>
         </table>
@@ -1271,10 +1328,10 @@ enum PulseMail {
 
     private static func bar(_ title: String, _ detail: String) -> String {
         """
-        <table width="100%" cellspacing="0" cellpadding="0" style="background:#003DA5;color:#fff;border-radius:14px;margin:8px 0">
-        <tr><td style="padding:10px 14px;font-weight:700">
+        <table width="100%" cellspacing="0" cellpadding="0" bgcolor="#003DA5" style="background:#003DA5;color:#fff;border-radius:14px;margin:8px 0">
+        <tr><td style="padding:10px 14px;font-weight:700;color:#fff">
         \(esc(title))
-        <div style="font-weight:600;opacity:.9;font-size:12px;margin-top:2px">\(esc(detail))</div>
+        <div style="font-weight:600;opacity:.9;font-size:12px;margin-top:2px;color:#fff">\(esc(detail))</div>
         </td></tr>
         </table>
         """

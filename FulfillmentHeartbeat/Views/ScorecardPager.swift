@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 
 /// Native paging between Dashboard and scorecards. Sidebar taps jump; swipes page.
+/// Same pager on iPhone 13+ (CompactNavSheet) and iPad 13+ (overlay drawer).
 struct ScorecardPager: UIViewControllerRepresentable, Equatable {
     @ObservedObject var router: HubRouter
     var page: (HubDestination) -> AnyView
@@ -139,21 +140,19 @@ struct ScorecardPager: UIViewControllerRepresentable, Equatable {
             guard let pager else { return }
             let host = host(for: dest)
             displayed = dest
+            if !host.hydrated, PulseLaunch.shouldPaintDestinationChromeImmediately() {
+                hydrate(dest)
+            }
             pager.dataSource = nil
             pager.setViewControllers([host], direction: .forward, animated: false)
             pager.dataSource = self
             resetScroll(pager)
-            if host.hydrated { return }
-            if PulseLaunch.shouldHydrateSelectedPageAfterChrome() {
-                DispatchQueue.main.async { [weak self] in
-                    guard let self, self.displayed == dest else { return }
-                    self.hydrate(dest)
-                    self.dehydrate(keeping: dest)
-                    self.warmSides(of: dest)
-                }
-                return
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.displayed == dest else { return }
+                if !host.hydrated { self.hydrate(dest) }
+                self.dehydrate(keeping: dest)
+                self.warmSides(of: dest)
             }
-            hydrate(dest)
         }
 
         private func warmSides(of dest: HubDestination) {

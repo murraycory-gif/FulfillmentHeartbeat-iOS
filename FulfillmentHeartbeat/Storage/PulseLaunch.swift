@@ -109,14 +109,29 @@ enum PulseLaunch {
     /// Keep the dashboard at full width while the pages drawer is open.
     static func shouldKeepDetailWidthWhenSidebarOpens() -> Bool { true }
 
-    /// Highlight the selected page before hydrating that scorecard.
-    static func shouldHydrateSelectedPageAfterChrome() -> Bool { true }
+    /// Paint cached banner + callouts on the tap. Do not leave a blank host.
+    static func shouldPaintDestinationChromeImmediately() -> Bool { true }
 
-    /// Grain paint / picker stream wait until the nav chrome has committed.
+    /// Scorecard store tables wait one turn so the new page's chrome can paint first.
+    static func shouldPaintScorecardTablesAfterChrome() -> Bool { true }
+
+    /// Grain paint / picker stream wait until the destination's first paint has committed.
     static func shouldDeferDestinationWorkOnNav() -> Bool { true }
 
     /// Share picker appears before any HTML is built.
     static func shouldPresentShareSheetWithoutBuildingHTML() -> Bool { true }
+
+    /// iOS Mail shows this HTML in the message body. Over this, attach the file instead.
+    static let mailBodyMaxBytes = 400_000
+
+    static func shouldSetHTMLMessageBody(utf8Count: Int) -> Bool {
+        utf8Count > 80 && utf8Count <= mailBodyMaxBytes
+    }
+
+    /// Over the body cap, Mail gets a short HTML note plus the full HTML file.
+    static func shouldAttachHTMLFile(utf8Count: Int) -> Bool {
+        utf8Count > mailBodyMaxBytes
+    }
 
     /// Cloud facts/pack after Who's looking — not on splash, not in the first breath.
     static let cloudHydrateDelayNanoseconds: UInt64 = 12_000_000_000
