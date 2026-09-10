@@ -11,7 +11,7 @@ enum MissingItemsMath {
 
 private enum MILayout {
     static let gutter: CGFloat = 6
-    static let storeW: CGFloat = 156
+    static var storeW: CGFloat { HubLayout.pageLabelWidth }
     static let countW: CGFloat = 52
     static let statusW: CGFloat = 88
     static let minCell: CGFloat = 78
@@ -982,6 +982,20 @@ struct MissingItemsRollupTable: View {
         guard let next else { summary = []; return }
         let source = MissingItemsRollupBuilder.source(from: store.rollupStores(for: section), filters: store.filters)
         var rows = MissingItemsRollupBuilder.rows(from: source, grain: next, depts: depts)
+        if next == .region {
+            for name in RollupMarketFill.missingRegions(present: rows.map(\.label)) {
+                rows.append(
+                    MissingItemsRollupRow(
+                        id: name,
+                        label: name,
+                        storeCount: 0,
+                        total: nil,
+                        values: [:],
+                        health: .none
+                    )
+                )
+            }
+        }
         if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
                 rows.append(

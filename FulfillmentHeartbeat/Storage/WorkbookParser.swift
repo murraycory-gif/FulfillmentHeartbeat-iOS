@@ -1026,8 +1026,12 @@ enum WorkbookParser {
         if (lower.contains("ecomm") || lower.contains("e-comm") || lower.contains("ecommerce")) && lower.contains("sales") {
             return "ecomm_sales"
         }
-        if lower.contains("total lost revenue") && lower.contains("fy") && hasPct { return "lost_revenue_goal_pct" }
-        if lower.contains("total lost revenue") && lower.contains("fy") { return "lost_revenue_goal" }
+        if hasPct && (lower.contains("goal") || lower.contains("fy")) && (lower.contains("lost") || lower.contains("goal")) {
+            return "lost_revenue_goal_pct"
+        }
+        if (lower.contains("goal") || lower.contains("fy")) && lower.contains("lost") {
+            return "lost_revenue_goal"
+        }
         if lower.contains("total lost revenue") && lower.contains("total opportunity") && hasPct { return "lost_revenue_pct" }
         if lower.contains("total lost revenue") && lower.contains("total opportunity") { return "lost_revenue" }
         if lower.contains("lost revenue") && hasPct { return "lost_revenue_pct" }

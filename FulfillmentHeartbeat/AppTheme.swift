@@ -281,11 +281,11 @@ enum HubLayout {
 
     /// Floor width so currency and percents stay whole; narrower screens scroll.
     static func readableTableFloor(phone: Bool, columns: Int, showCount: Bool) -> CGFloat {
-        let label: CGFloat = phone ? 122 : 148
-        let stores: CGFloat = showCount ? (phone ? 58 : 68) : 0
-        let value: CGFloat = phone ? 118 : 128
-        let status: CGFloat = 88
-        let pad: CGFloat = 28 + CGFloat(columns + (showCount ? 2 : 1)) * 6
+        let label = readableLabelWidth(phone: phone)
+        let stores: CGFloat = showCount ? readableStoreWidth(phone: phone) : 0
+        let value = readableValueMin(phone: phone)
+        let status = readableStatusWidth(phone: phone)
+        let pad: CGFloat = 28 + CGFloat(columns + (showCount ? 2 : 1)) * tableGutter
         return label + stores + CGFloat(max(columns, 1)) * value + status + pad
     }
 
@@ -296,10 +296,11 @@ enum HubLayout {
 
     /// Extra width is split evenly across value columns. Never thinner than the readable min.
     static func evenValueWidth(available: CGFloat, phone: Bool, columns: Int, showCount: Bool) -> CGFloat {
+        let label = readableLabelWidth(phone: phone, available: available)
         let floor = readableTableFloor(phone: phone, columns: columns, showCount: showCount)
         let span = tableSpan(available: available, floor: floor)
-        let gutters = 6 * CGFloat(max(columns, 1) + (showCount ? 2 : 1))
-        let reserved = readableLabelWidth(phone: phone)
+        let gutters = tableGutter * CGFloat(max(columns, 1) + (showCount ? 2 : 1))
+        let reserved = label
             + (showCount ? readableStoreWidth(phone: phone) : 0)
             + readableStatusWidth(phone: phone)
             + gutters
@@ -308,10 +309,19 @@ enum HubLayout {
         return max(readableValueMin(phone: phone), leftover / CGFloat(max(columns, 1)))
     }
 
-    static func readableLabelWidth(phone: Bool) -> CGFloat { phone ? 122 : 148 }
+    /// Wide enough for "California Region" and "24500 | A2 | Mid-Atlantic".
+    static func readableLabelWidth(phone: Bool, available: CGFloat = 0) -> CGFloat {
+        let minW: CGFloat = phone ? 156 : 228
+        let maxW: CGFloat = phone ? 188 : 268
+        guard available > 0 else { return minW }
+        return min(maxW, max(minW, available * (phone ? 0.30 : 0.18)))
+    }
+
+    static var pageLabelWidth: CGFloat { readableLabelWidth(phone: isPhoneDevice) }
     static func readableStoreWidth(phone: Bool) -> CGFloat { phone ? 58 : 68 }
     static func readableValueMin(phone: Bool) -> CGFloat { phone ? 118 : 128 }
     static func readableStatusWidth(phone: Bool) -> CGFloat { 88 }
+    static var tableGutter: CGFloat { 6 }
     static var pickerCap: Int { 50 }
     static var hydrateNeighbors: Bool { profile.hydrateNeighbors }
     static var rasterizeSwipe: Bool { profile.rasterizeSwipe }

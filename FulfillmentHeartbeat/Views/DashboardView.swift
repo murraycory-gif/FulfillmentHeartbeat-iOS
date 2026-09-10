@@ -428,18 +428,13 @@ struct DashScopeStrip: View {
     let packs: [DashScopePack]
     var width: CGFloat
     @State private var expanded = false
-    @State private var salesRows: [SalesRollupRow] = []
-    @State private var dayRows: [SalesRollupRow] = []
-    @State private var flagMap: [String: [HeartbeatMath.FiveStarFlag]] = [:]
 
     var body: some View {
         VStack(alignment: .leading, spacing: expanded ? 10 : 8) {
             Button {
-                expanded.toggle()
-                if expanded, section == .sales {
-                    salesRows = store.cachedSalesScopeRows
-                    dayRows = store.cachedSalesDayRows
-                }
+                var txn = Transaction()
+                txn.animation = nil
+                withTransaction(txn) { expanded.toggle() }
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: grain.symbol)
@@ -466,42 +461,13 @@ struct DashScopeStrip: View {
                 expandedTables
             }
         }
-        .onAppear {
-            if section == .sales {
-                salesRows = store.cachedSalesScopeRows
-                dayRows = store.cachedSalesDayRows
-            }
-        }
-        .onChange(of: store.filterStamp) { _, _ in
-            salesRows = store.cachedSalesScopeRows
-            dayRows = store.cachedSalesDayRows
-            flagMap = [:]
-        }
+        .transaction { $0.animation = nil }
     }
-
-    private var visibleSalesRows: [SalesRollupRow] {
-        salesRows.isEmpty ? store.cachedSalesScopeRows : salesRows
-    }
-
-    private var visibleDayRows: [SalesRollupRow] {
-        dayRows.isEmpty ? store.cachedSalesDayRows : dayRows
-    }
-
-    private var grainTableRows: [HeartbeatMath.DashboardGrainTableRow] {
-        HeartbeatMath.dashboardGrainTable(
-            section: section,
-            rows: store.rows(for: section),
-            grain: grain,
-            order: packs.map(\.line.label)
-        )
-    }
-
-    private var canLoadGrainFlags: Bool { section != .sales }
 
     private var bannerCount: Int {
         let scoped = store.dashboardScopeCount(grain)
         if scoped > 0 { return scoped }
-        if section == .sales { return visibleSalesRows.count }
+        if section == .sales { return store.cachedSalesScopeRows.count }
         let live = packs.filter {
             $0.line.count > 0 || (!$0.line.value.isEmpty && $0.line.value != "—")
         }
@@ -514,18 +480,18 @@ struct DashScopeStrip: View {
             if section == .sales {
                 OverviewSalesAlignedTable(
                     title: grain.title,
-                    rows: Array(visibleSalesRows.prefix(20)),
+                    rows: Array(store.cachedSalesScopeRows.prefix(20)),
                     showCount: grain != .store
                 )
-                if !visibleDayRows.isEmpty {
-                    OverviewSalesAlignedTable(title: "By Day", rows: visibleDayRows, showCount: false)
+                if !store.cachedSalesDayRows.isEmpty {
+                    OverviewSalesAlignedTable(title: "By Day", rows: store.cachedSalesDayRows, showCount: false)
                         .padding(.top, 8)
                 }
             } else {
                 OverviewMetricAlignedTable(
                     title: grain.title,
                     headers: HeartbeatMath.dashboardTableHeaders(section),
-                    rows: grainTableRows,
+                    rows: store.dashboardGrainRows(for: section),
                     showCount: grain != .store
                 )
             }
@@ -590,7 +556,7 @@ struct OverviewMetricAlignedTable: View {
                 .foregroundStyle(header ? AppTheme.textSecondary : AppTheme.text)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
-                .frame(width: HubLayout.readableLabelWidth(phone: phone), alignment: .leading)
+                .frame(width: HubLayout.readableLabelWidth(phone: phone, available: tableWidth), alignment: .leading)
             if showCount {
                 cell(stores, header: header, secondary: true)
             }

@@ -8,6 +8,7 @@ enum PulseQuery {
         var summaries: [SectionSummary]
         var flags: [MetricSection: [HeartbeatMath.FiveStarFlag]]
         var grains: [MetricSection: [DashScopePack]]
+        var tables: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]]
         var pickers: [MetricRow]
     }
 
@@ -123,6 +124,7 @@ enum PulseQuery {
                 summaries: summaries,
                 flags: [:],
                 grains: PulseCaches.placeholderGrainPacks(grain: grain),
+                tables: [:],
                 pickers: []
             )
         }
@@ -143,6 +145,7 @@ enum PulseQuery {
             summaries: summaries,
             flags: flags,
             grains: grains,
+            tables: PulseCaches.grainTables(latest: filtered, grain: grain, roster: roster, packs: grains),
             pickers: hidePicker ? [] : (filtered[.pickerScorecard] ?? [])
         )
     }

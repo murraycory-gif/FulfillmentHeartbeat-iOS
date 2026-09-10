@@ -640,7 +640,10 @@ enum HeartbeatMath {
         }
         guard let identity else { return row }
         var next = row
-        if next.division.isEmpty, !identity.division.isEmpty { next.division = identity.division }
+        let incomingCanon = MarketRegion.canonicalName(next.division)
+        if incomingCanon.isEmpty, !identity.division.isEmpty {
+            next.division = identity.division
+        }
         if (next.textPayload["district"] ?? "").isEmpty, !identity.district.isEmpty {
             next.textPayload["district"] = identity.district
         }
@@ -715,7 +718,7 @@ enum HeartbeatMath {
         .map(\.0)
     }
 
-    struct DashboardGrainTableRow: Identifiable, Equatable {
+    struct DashboardGrainTableRow: Identifiable, Equatable, Sendable {
         let label: String
         let storeCount: Int
         let values: [String]
@@ -2672,6 +2675,23 @@ enum HeartbeatMath {
         lostRevenueHealth(pct: row.number("lost_revenue_pct"))
     }
 
+    /// FY goal % from the pack, or goal $ / eComm sales when the sheet only shipped dollars.
+    static func lostRevenueGoalPct(_ row: MetricRow) -> Double? {
+        if let pct = row.number("lost_revenue_goal_pct") { return pct }
+        guard let dollars = row.number("lost_revenue_goal"), let sales = row.number("ecomm_sales"), sales > 0 else {
+            return nil
+        }
+        return dollars / sales * 100
+    }
+
+    static func lostRevenueGoalPct(rows: [MetricRow], market: MetricRow? = nil) -> Double? {
+        if let market, let pct = lostRevenueGoalPct(market) { return pct }
+        let dollars = rows.compactMap { $0.number("lost_revenue_goal") }.reduce(0, +)
+        let sales = rows.compactMap { $0.number("ecomm_sales") }.reduce(0, +)
+        if sales > 0, dollars > 0 { return dollars / sales * 100 }
+        return average(rows.compactMap { lostRevenueGoalPct($0) })
+    }
+
     static func lostRevenueTotals(_ stores: [MetricRow]) -> (dollars: Double, sales: Double, pct: Double?) {
         var dollars = 0.0
         var sales = 0.0
@@ -3606,8 +3626,38 @@ enum MarketRegion: String, CaseIterable, Identifiable, Sendable {
             || divisions.contains { Self.matchesDivision(Self.canonicalName(division), $0) }
     }
 
+    /// Region title ("California", "California Region") or a market inside it (NorCal / SoCal).
+    static func named(_ raw: String) -> MarketRegion? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        var compact = HeartbeatMath.normalize(
+            trimmed.replacingOccurrences(of: "[-'’./]", with: " ", options: .regularExpression)
+        )
+        compact = compact.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        if compact.hasSuffix(" region") {
+            compact = String(compact.dropLast(" region".count)).trimmingCharacters(in: .whitespaces)
+        }
+        var key = HeartbeatMath.compactKey(compact)
+        if key.hasSuffix("region"), key.count > 6 {
+            key.removeLast(6)
+        }
+        switch key {
+        case "california", "calif", "ca":
+            return .california
+        case "east":
+            return .east
+        case "south":
+            return .south
+        case "west":
+            return .west
+        default:
+            return nil
+        }
+    }
+
     static func containing(_ division: String) -> MarketRegion? {
-        allCases.first { $0.contains(division) }
+        if let named = named(division) { return named }
+        return allCases.first { $0.contains(division) }
     }
 
     static func matchesDivision(_ lhs: String, _ rhs: String) -> Bool {

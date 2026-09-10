@@ -94,6 +94,10 @@ enum PulseMail {
         .scheduleQuality, .pickerScorecard, .pph, .labor,
     ]
 
+    /// Keep mail HTML off the Jetsam cliff. Same columns as the page; first page of rows.
+    static let storeRowCap = 80
+    static let grainRowCap = 40
+
     static func make(_ snap: Snapshot, pages: Set<SharePage> = Set(SharePage.allCases)) -> Packet {
         let chosen = pages.isEmpty ? Set(SharePage.allCases) : pages
         let names = SharePage.allCases.filter { chosen.contains($0) }.map(\.title)
@@ -270,12 +274,16 @@ enum PulseMail {
         if section == .sales {
             return salesGrainTable(rows: rows, grain: grain, order: lines.map(\.label))
         }
-        let table = HeartbeatMath.dashboardGrainTable(
-            section: section,
-            rows: rows,
-            grain: grain,
-            order: lines.map(\.label)
-        ).filter { $0.label != "Unassigned" && !$0.label.isEmpty }
+        let table = Array(
+            HeartbeatMath.dashboardGrainTable(
+                section: section,
+                rows: rows,
+                grain: grain,
+                order: lines.map(\.label)
+            )
+            .filter { $0.label != "Unassigned" && !$0.label.isEmpty }
+            .prefix(grainRowCap)
+        )
         guard !table.isEmpty else { return "" }
         var headers = ["Scope"]
         if grain != .store { headers.append("Stores") }
@@ -317,6 +325,7 @@ enum PulseMail {
         var body = ""
         var shown = 0
         for label in labels {
+            if shown >= grainRowCap { break }
             let group = buckets[label] ?? []
             if group.isEmpty { continue }
             shown += 1
@@ -714,8 +723,9 @@ enum PulseMail {
         } else {
             ordered = usable.sorted { HeartbeatFormat.storeOrder($0.storeNumber, $1.storeNumber) }
         }
+        let shown = Array(ordered.prefix(storeRowCap))
         var body = ""
-        for row in ordered {
+        for row in shown {
             let health = HeartbeatMath.health(for: section, row: row)
             let label: String
             switch section {
@@ -734,9 +744,15 @@ enum PulseMail {
         case .preSubOOSItem: unit = ordered.count == 1 ? "item" : "items"
         default: unit = ordered.count == 1 ? "store" : "stores"
         }
+        let detail: String
+        if shown.count < ordered.count {
+            detail = "\(HeartbeatFormat.num(Double(shown.count))) of \(HeartbeatFormat.num(Double(ordered.count))) \(unit) · same columns as the page"
+        } else {
+            detail = "\(HeartbeatFormat.num(Double(ordered.count))) \(unit) · every column from the page"
+        }
         return dataTable(
             title: title,
-            detail: "\(HeartbeatFormat.num(Double(ordered.count))) \(unit) · every column from the page",
+            detail: detail,
             headers: storeHeaders(section),
             body: body
         )
@@ -952,7 +968,7 @@ enum PulseMail {
         case .lostRevenue:
             html += cell(HeartbeatFormat.money(row.number("lost_revenue")), HeartbeatMath.health(for: .lostRevenue, row: row))
             html += cell(HeartbeatFormat.pct(row.number("lost_revenue_pct")))
-            html += cell("3.00%")
+            html += cell(HeartbeatFormat.pct(HeartbeatMath.lostRevenueGoalPct(row)))
             html += cell(HeartbeatFormat.money(row.number("ecomm_sales")))
             html += cell(HeartbeatFormat.money(row.number("post_sub_oos_foregone")))
             html += cell(HeartbeatFormat.money(row.number("refund_lost", "refund_amt")))

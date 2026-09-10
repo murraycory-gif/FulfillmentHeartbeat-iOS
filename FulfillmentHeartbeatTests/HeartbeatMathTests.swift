@@ -1747,6 +1747,82 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(packet.html.contains("WATCH") || packet.html.contains("HEALTHY") || packet.html.contains("AT RISK") || packet.html.contains("NO DATA"))
         XCTAssertTrue(packet.plain.contains("Sales $"))
         XCTAssertTrue(packet.plain.contains("Lost $"))
+        XCTAssertEqual(PulseMail.storeRowCap, 80)
+        XCTAssertLessThan(PulseMail.storeRowCap, 200)
+    }
+
+    func testCaliforniaRegionResolvesFromTitleAndRoster() {
+        XCTAssertEqual(MarketRegion.named("California"), .california)
+        XCTAssertEqual(MarketRegion.named("California Region"), .california)
+        XCTAssertEqual(MarketRegion.containing("California"), .california)
+        XCTAssertEqual(MarketRegion.containing("NorCal"), .california)
+        XCTAssertEqual(MarketRegion.containing("SoCal"), .california)
+        XCTAssertEqual(RollupMarketFill.bucketKey(
+            MetricRow(section: .scheduleQuality, division: "California", operationsOM: "", storeNumber: "304", payload: [:]),
+            grain: .region
+        ), "California Region")
+        let stamped = HeartbeatMath.stampRoster(
+            MetricRow(section: .missingItems, division: "California", operationsOM: "", storeNumber: "304", payload: ["mi_pct": 4]),
+            roster: ["304": .init(division: "NorCal", district: "03", om: "Jino", name: nil)]
+        )
+        XCTAssertEqual(stamped.division, "NorCal")
+        XCTAssertEqual(RollupMarketFill.missingRegions(present: ["East Region", "South Region", "West Region"]), ["California Region"])
+    }
+
+    func testLostRevenueGoalPctUsesDollarsWhenPctMissing() {
+        let row = MetricRow(
+            section: .lostRevenue,
+            division: "NorCal",
+            operationsOM: "A",
+            storeNumber: "304",
+            payload: ["ecomm_sales": 10_000, "lost_revenue": 400, "lost_revenue_goal": 250],
+            textPayload: ["lost_grain": "store"]
+        )
+        XCTAssertEqual(HeartbeatMath.lostRevenueGoalPct(row) ?? 0, 2.5, accuracy: 0.01)
+        let withPct = MetricRow(
+            section: .lostRevenue,
+            division: "NorCal",
+            operationsOM: "A",
+            storeNumber: "304",
+            payload: ["lost_revenue_goal_pct": 3.1, "ecomm_sales": 10_000, "lost_revenue_goal": 250]
+        )
+        XCTAssertEqual(HeartbeatMath.lostRevenueGoalPct(withPct) ?? 0, 3.1, accuracy: 0.01)
+    }
+
+    func testTableLabelWidthFitsRegionNamesAndEvenValues() {
+        XCTAssertGreaterThanOrEqual(HubLayout.readableLabelWidth(phone: false), 220)
+        XCTAssertGreaterThanOrEqual(HubLayout.pageLabelWidth, 156)
+        let wide = HubLayout.evenValueWidth(available: 1400, phone: false, columns: 6, showCount: true)
+        let narrow = HubLayout.evenValueWidth(available: 900, phone: false, columns: 6, showCount: true)
+        XCTAssertGreaterThan(wide, narrow)
+        XCTAssertEqual(
+            HubLayout.evenValueWidth(available: 400, phone: true, columns: 8, showCount: true),
+            HubLayout.readableValueMin(phone: true)
+        )
+    }
+
+    func testShareEmailCapsStoreRowsSoMailDoesNotJetsam() {
+        let rows = (1...120).map { n in
+            MetricRow(
+                section: .pickPath,
+                division: "NorCal",
+                operationsOM: "A",
+                storeNumber: String(n),
+                payload: ["compliance_pct": 90]
+            )
+        }
+        let snap = PulseMail.Snapshot(
+            filterSummary: "Company",
+            grain: "region",
+            summaries: [],
+            rows: [.pickPath: rows],
+            pickerCounts: [:],
+            generatedAt: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+        let packet = PulseMail.make(snap, pages: [.pickPath])
+        XCTAssertTrue(packet.html.contains("80 of 120"), packet.html)
+        XCTAssertTrue(packet.html.contains("Pick Path"))
+        XCTAssertFalse(packet.html.contains("120 |"))
     }
 
     func testUsablePackFileRejectsTinyStubs() {

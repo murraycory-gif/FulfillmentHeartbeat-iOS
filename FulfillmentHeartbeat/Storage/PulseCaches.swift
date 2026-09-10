@@ -404,6 +404,26 @@ struct PulseCaches {
         return out
     }
 
+    static func grainTables(
+        latest: [MetricSection: [MetricRow]],
+        grain: DashScopeGrain?,
+        roster: [String: HeartbeatMath.StoreIdentity],
+        packs: [MetricSection: [DashScopePack]]
+    ) -> [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] {
+        guard let grain else { return [:] }
+        var out: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] = [:]
+        for (section, sectionPacks) in packs {
+            let rows = HeartbeatMath.rowsFillingRoster(latest[section] ?? [], roster: roster)
+            out[section] = HeartbeatMath.dashboardGrainTable(
+                section: section,
+                rows: rows,
+                grain: grain,
+                order: sectionPacks.map(\.line.label)
+            )
+        }
+        return out
+    }
+
     static func placeholderGrainPacks(grain: DashScopeGrain) -> [MetricSection: [DashScopePack]] {
         let lines = placeholderLines(grain)
         let packs = lines.map { DashScopePack(line: $0, flags: [], children: []) }

@@ -1167,9 +1167,9 @@ struct SharePulseSheet: View {
         guard !building, !selected.isEmpty else { return }
         building = true
         let pages = selected
-        let snap = store.pulseMailSnapshot()
+        let snap = store.pulseMailSnapshot(pages)
         Task { @MainActor in
-            let built = await Task.detached(priority: .userInitiated) {
+            let built = await Task.detached(priority: .utility) {
                 PulseMail.make(snap, pages: pages)
             }.value
             building = false
@@ -1769,35 +1769,39 @@ struct PickPathTable: View {
                     if !next { headerPin.pinned = false }
                     if next { rebuildOrder(sort: sort, ascending: ascending) }
                 } content: {
-                    PickPathMetricHeader(
-                        label: "Store",
-                        showCount: false,
-                        showDates: true,
-                        active: sort.key,
-                        ascending: ascending,
-                        onSelect: applyHeaderSort
-                    )
-                    ForEach(Array(snaps.prefix(limit))) { snap in
-                        PickPathStoreRow(
-                            snap: snap,
-                            expanded: openStore == snap.storeNumber,
-                            onToggle: {
-                                openStore = openStore == snap.storeNumber ? nil : snap.storeNumber
+                    HubAdaptiveHScroll {
+                        VStack(spacing: 0) {
+                            PickPathMetricHeader(
+                                label: "Store",
+                                showCount: false,
+                                showDates: true,
+                                active: sort.key,
+                                ascending: ascending,
+                                onSelect: applyHeaderSort
+                            )
+                            ForEach(Array(snaps.prefix(limit))) { snap in
+                                PickPathStoreRow(
+                                    snap: snap,
+                                    expanded: openStore == snap.storeNumber,
+                                    onToggle: {
+                                        openStore = openStore == snap.storeNumber ? nil : snap.storeNumber
+                                    }
+                                )
                             }
-                        )
-                    }
-                    if orderedCount > snaps.count {
-                        Button {
-                            limit += 50
-                            rebuildOrder(sort: sort, ascending: ascending)
-                        } label: {
-                            Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(AppTheme.blue)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
+                            if orderedCount > snaps.count {
+                                Button {
+                                    limit += 50
+                                    rebuildOrder(sort: sort, ascending: ascending)
+                                } label: {
+                                    Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(AppTheme.blue)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 12)
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
-                        .buttonStyle(.plain)
                     }
                 }
                 .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 20, trailing: 20))
@@ -1897,14 +1901,10 @@ struct PickPathTable: View {
 }
 
 private enum PickPathMath {
-    static let gutter: CGFloat = 8
-    static let labelMin: CGFloat = 148
-    static let labelMax: CGFloat = 180
-    static let countW: CGFloat = 58
-    static let pphW: CGFloat = 84
-    static let ordersW: CGFloat = 72
-    static let dateW: CGFloat = 100
-    static let statusW: CGFloat = 88
+    static let gutter: CGFloat = HubLayout.tableGutter
+    static var labelW: CGFloat { HubLayout.pageLabelWidth }
+    static var countW: CGFloat { HubLayout.readableStoreWidth(phone: HubLayout.isPhoneDevice) }
+    static var statusW: CGFloat { HubLayout.readableStatusWidth(phone: HubLayout.isPhoneDevice) }
 
     static func orders(_ row: MetricRow) -> Double? {
         row.number("orders") ?? row.number("picks_total")
@@ -2049,12 +2049,12 @@ private struct PickPathCheapLine: View, Equatable {
                     .font(.caption.weight(.bold))
                     .foregroundStyle(AppTheme.blue)
             }
-            .frame(minWidth: PickPathMath.labelMin, maxWidth: PickPathMath.labelMax, alignment: .leading)
+            .frame(width: PickPathMath.labelW, alignment: .leading)
             cell(snap.path, snap.pathHealth)
-            cell(snap.pph, snap.pphHealth, width: PickPathMath.pphW)
-            cell(snap.orders, .none, width: PickPathMath.ordersW)
-            cell(snap.mapper, snap.mapperHealth, width: PickPathMath.dateW, alignment: .center)
-            cell(snap.sequence, snap.sequenceHealth, width: PickPathMath.dateW, alignment: .center)
+            cell(snap.pph, snap.pphHealth)
+            cell(snap.orders, .none)
+            cell(snap.mapper, snap.mapperHealth, alignment: .center)
+            cell(snap.sequence, snap.sequenceHealth, alignment: .center)
             Text(snap.health.label.uppercased())
                 .font(.caption.weight(.heavy))
                 .lineLimit(1)
@@ -2068,15 +2068,14 @@ private struct PickPathCheapLine: View, Equatable {
         .padding(.vertical, 4)
     }
 
-    private func cell(_ value: String, _ health: Health, width: CGFloat? = nil, alignment: Alignment = .trailing) -> some View {
+    private func cell(_ value: String, _ health: Health, alignment: Alignment = .trailing) -> some View {
         Text(value.isEmpty ? "—" : value)
             .font(.subheadline.weight(.bold).monospacedDigit())
             .foregroundStyle(ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.7)
             .padding(.horizontal, 6)
-            .frame(maxWidth: width == nil ? .infinity : nil, alignment: alignment)
-            .frame(width: width, alignment: alignment)
+            .frame(maxWidth: .infinity, alignment: alignment)
             .padding(.vertical, 6)
             .background(wash(health), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
@@ -2124,7 +2123,7 @@ private struct PickPathMetricLine: View, Equatable {
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .frame(minWidth: PickPathMath.labelMin, maxWidth: PickPathMath.labelMax, alignment: .leading)
+                .frame(width: PickPathMath.labelW, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
                     .font(.subheadline.weight(.semibold).monospacedDigit())
@@ -2185,7 +2184,7 @@ struct PickPathMetricHeader: View {
     var body: some View {
         HStack(spacing: showDates ? PickPathMath.gutter : 6) {
             head(label, key: "label", alignment: .leading)
-                .frame(minWidth: PickPathMath.labelMin, maxWidth: PickPathMath.labelMax, alignment: .leading)
+                .frame(width: PickPathMath.labelW, alignment: .leading)
             if showCount {
                 head("Stores", key: "count", alignment: .trailing)
                     .frame(width: PickPathMath.countW, alignment: .trailing)
@@ -2193,13 +2192,9 @@ struct PickPathMetricHeader: View {
             head("Pick Path", key: "path")
             if showDates {
                 head("Avg PPH", key: "pph")
-                    .frame(width: PickPathMath.pphW, alignment: .trailing)
                 head("Orders", key: "orders")
-                    .frame(width: PickPathMath.ordersW, alignment: .trailing)
                 head("Mapper", key: "mapper", alignment: .center)
-                    .frame(width: PickPathMath.dateW)
                 head("Sequence", key: "sequence", alignment: .center)
-                    .frame(width: PickPathMath.dateW)
             } else {
                 head("Avg PPH", key: "pph")
                 head("Orders", key: "orders")
@@ -3108,7 +3103,7 @@ private struct DynacapCheapLine: View, Equatable {
                     .font(.caption.weight(.bold))
                     .foregroundStyle(AppTheme.blue)
             }
-            .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             cell(snap.rate, snap.health)
             cell(snap.pph, snap.pphHealth)
             cell(DynacapMath.goalText, .none, brand: true)
@@ -3181,7 +3176,7 @@ private struct DynacapMetricLine: View, Equatable {
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
                     .font(.subheadline.weight(.semibold).monospacedDigit())
@@ -3254,7 +3249,7 @@ struct DynacapMetricHeader: View {
     var body: some View {
         HStack(spacing: 6) {
             head(label, key: "label", alignment: .leading)
-                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             if showCount {
                 head("Stores", key: "count", alignment: .trailing)
                     .frame(width: 58, alignment: .trailing)
@@ -3512,7 +3507,7 @@ private struct DynacapStoreExpand: View {
             } else {
                 HStack(spacing: 6) {
                     Text("SHOPPER")
-                        .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                        .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
                     Text("SHOPPER PPH")
                         .frame(maxWidth: .infinity, alignment: .trailing)
                     Text("ORDERS")
@@ -3540,7 +3535,7 @@ private struct DynacapStoreExpand: View {
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             cell(HeartbeatFormat.num(picker.number("pph"), digits: 1), health)
             cell(HeartbeatFormat.num(picker.number("orders")), .none)
             cell(HeartbeatFormat.num(picker.number("pick_hours"), digits: 1), .none)
@@ -3924,7 +3919,7 @@ private struct PrepCheapLine: View, Equatable {
                     .font(.caption.weight(.bold))
                     .foregroundStyle(AppTheme.blue)
             }
-            .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             cell(snap.pnr, snap.health)
             cell(PrepMath.goalText, .none, brand: true)
             cell(PrepMath.watchText, .watch)
@@ -3994,7 +3989,7 @@ private struct PrepMetricLine: View, Equatable {
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
                     .font(.subheadline.weight(.semibold).monospacedDigit())
@@ -4054,7 +4049,7 @@ struct PrepMetricHeader: View {
     var body: some View {
         HStack(spacing: 6) {
             head(label, key: "label", alignment: .leading)
-                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             if showCount {
                 head("Stores", key: "count", alignment: .trailing)
                     .frame(width: 58, alignment: .trailing)
@@ -4649,7 +4644,7 @@ private struct FiveStarCheapLine: View, Equatable {
                     .font(.caption.weight(.bold))
                     .foregroundStyle(AppTheme.blue)
             }
-            .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             cell(snap.rating, snap.ratingHealth)
             cell(snap.flash, snap.flashHealth)
             cell(snap.presub, snap.presubHealth)
@@ -4727,7 +4722,7 @@ private struct FiveStarMetricLine: View, Equatable {
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
                     .font(.subheadline.weight(.semibold).monospacedDigit())
@@ -4790,7 +4785,7 @@ struct FiveStarMetricHeader: View {
     var body: some View {
         HStack(spacing: 6) {
             head(label, key: "label", alignment: .leading)
-                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             if showCount {
                 head("Stores", key: "count", alignment: .trailing)
                     .frame(width: 58, alignment: .trailing)
@@ -5261,10 +5256,17 @@ enum RollupMarketFill {
         return .region
     }
 
+    static func missingRegions(present: [String]) -> [String] {
+        let seen = Set(present.map { HeartbeatMath.normalize($0) })
+        return MarketRegion.allCases.map(\.rawValue).filter { !seen.contains(HeartbeatMath.normalize($0)) }
+    }
+
     static func bucketKey(_ row: MetricRow, grain: LaborRollupGrain) -> String {
         switch grain {
         case .region:
-            return MarketRegion.containing(row.division)?.rawValue ?? "Unassigned"
+            if let region = MarketRegion.containing(row.division) { return region.rawValue }
+            if let region = MarketRegion.containing(row.district) { return region.rawValue }
+            return "Unassigned"
         case .division:
             return divisionKey(row.division)
         case .district:
@@ -5520,7 +5522,7 @@ private struct LaborCheapLine: View, Equatable {
                     .font(.caption.weight(.bold))
                     .foregroundStyle(AppTheme.blue)
             }
-            .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             cell(snap.tva, snap.tvaHealth)
             cell(snap.cost, .none, brand: true)
             cell(snap.act, snap.actHealth)
@@ -5608,7 +5610,7 @@ private struct LaborMetricLine: View, Equatable {
                         .foregroundStyle(AppTheme.blue)
                 }
             }
-            .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
                     .font(.subheadline.weight(.semibold).monospacedDigit())
@@ -5772,7 +5774,7 @@ struct LaborMetricHeader: View {
     var body: some View {
         HStack(spacing: 6) {
             head(label, key: "label", alignment: .leading)
-                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             if showCount {
                 head("Stores", key: "count", alignment: .trailing)
                     .frame(width: 58, alignment: .trailing)
@@ -6639,7 +6641,7 @@ private struct LostRevenueLineSnap: Identifiable, Equatable {
         om = row.operationsOM
         let lostNum = row.number("lost_revenue")
         let pctNum = row.number("lost_revenue_pct")
-        let goalNum = row.number("lost_revenue_goal_pct")
+        let goalNum = HeartbeatMath.lostRevenueGoalPct(row)
         let salesNum = row.number("ecomm_sales")
         let postNum = row.number("post_sub_oos_foregone")
         let refundNum = row.number("refund_lost")
@@ -6678,7 +6680,7 @@ private struct LostRevenueCheapLine: View, Equatable {
                     .font(.caption.weight(.bold))
                     .foregroundStyle(AppTheme.blue)
             }
-            .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             cell(snap.lost, snap.health)
             cell(snap.pct, snap.health)
             cell(snap.goal, .none, brand: true)
@@ -6758,7 +6760,7 @@ private struct LostRevenueMetricLine: View, Equatable {
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
                     .font(.subheadline.weight(.semibold).monospacedDigit())
@@ -6822,7 +6824,7 @@ struct LostRevenueMetricHeader: View {
     var body: some View {
         HStack(spacing: 6) {
             head(label, key: "label", alignment: .leading)
-                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             if showCount {
                 head("Stores", key: "count", alignment: .trailing)
                     .frame(width: 58, alignment: .trailing)
@@ -7173,7 +7175,7 @@ struct LostRevenueTable: View {
         case .pct:
             return numberOrder(lhs.number("lost_revenue_pct"), rhs.number("lost_revenue_pct"))
         case .goal:
-            return numberOrder(lhs.number("lost_revenue_goal_pct"), rhs.number("lost_revenue_goal_pct"))
+            return numberOrder(HeartbeatMath.lostRevenueGoalPct(lhs), HeartbeatMath.lostRevenueGoalPct(rhs))
         case .sales:
             return numberOrder(lhs.number("ecomm_sales"), rhs.number("ecomm_sales"))
         case .post:
@@ -7684,7 +7686,7 @@ private struct ScheduleCheapLine: View, Equatable {
                     .font(.caption.weight(.bold))
                     .foregroundStyle(AppTheme.blue)
             }
-            .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             cell(snap.efficiency, snap.efficiencyHealth)
             cell(snap.staffing, snap.staffingHealth)
             cell(ScheduleMath.goalText, .none, brand: true)
@@ -7759,7 +7761,7 @@ private struct ScheduleMetricLine: View, Equatable {
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
                     .font(.subheadline.weight(.semibold).monospacedDigit())
@@ -7821,7 +7823,7 @@ struct ScheduleMetricHeader: View {
     var body: some View {
         HStack(spacing: 6) {
             head(label, key: "label", alignment: .leading)
-                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             if showCount {
                 head("Stores", key: "count", alignment: .trailing)
                     .frame(width: 58, alignment: .trailing)
@@ -7966,6 +7968,11 @@ struct ScheduleRollupTable: View {
         guard let next else { summary = []; return }
         let source = ScheduleRollupBuilder.source(from: store.rollupStores(for: .scheduleQuality), filters: store.filters)
         var rows = ScheduleRollupBuilder.rows(from: source, grain: next)
+        if next == .region {
+            for name in RollupMarketFill.missingRegions(present: rows.map(\.label)) {
+                rows.append(ScheduleRollupRow(id: name, label: name, storeCount: 0, efficiency: nil, staffing: nil, under: nil, over: nil))
+            }
+        }
         if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
                 rows.append(ScheduleRollupRow(id: extra.name, label: extra.name, storeCount: extra.storeCount, efficiency: nil, staffing: nil, under: nil, over: nil))
@@ -8418,7 +8425,7 @@ private struct PPHCheapLine: View, Equatable {
                     .font(.caption.weight(.bold))
                     .foregroundStyle(AppTheme.blue)
             }
-            .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+            .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             cell(snap.pph, snap.health)
             cell(snap.pickers, .none)
             cell(PPHMath.goalText, .none, brand: true)
@@ -8489,7 +8496,7 @@ private struct PPHMetricLine: View, Equatable {
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
                     .font(.subheadline.weight(.semibold).monospacedDigit())
@@ -8549,7 +8556,7 @@ struct PPHMetricHeader: View {
     var body: some View {
         HStack(spacing: 6) {
             head(label, key: "label", alignment: .leading)
-                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             if showCount {
                 head("Stores", key: "count", alignment: .trailing)
                     .frame(width: 58, alignment: .trailing)
@@ -8801,7 +8808,7 @@ private struct PPHStoreExpand: View {
             } else {
                 HStack(spacing: 6) {
                     Text("PICKER")
-                        .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                        .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
                     Text("PURE PPH")
                         .frame(maxWidth: .infinity, alignment: .trailing)
                     Text("ORDERS")
@@ -8829,7 +8836,7 @@ private struct PPHStoreExpand: View {
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .frame(minWidth: 132, maxWidth: 190, alignment: .leading)
+                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             cell(HeartbeatFormat.num(picker.number("pph"), digits: 1), health)
             cell(HeartbeatFormat.num(picker.number("orders")), .none)
             cell(HeartbeatFormat.num(picker.number("pick_hours"), digits: 1), .none)

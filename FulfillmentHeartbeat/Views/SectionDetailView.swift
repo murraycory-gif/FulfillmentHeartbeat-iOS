@@ -677,14 +677,7 @@ struct SectionDetailView: View {
             let sum = rows.compactMap { $0.number("ecomm_sales") }.reduce(0, +)
             return rows.isEmpty ? nil : sum
         }()
-        let goalPct: Double? = {
-            if !store.filters.isActive, let market = store.lostRevenueMarketRow() {
-                return market.number("lost_revenue_goal_pct")
-            }
-            let goal = rows.compactMap { $0.number("lost_revenue_goal") }.reduce(0, +)
-            let sumSales = rows.compactMap { $0.number("ecomm_sales") }.reduce(0, +)
-            return sumSales > 0 ? goal / sumSales * 100 : nil
-        }()
+        let goalPct = HeartbeatMath.lostRevenueGoalPct(rows: rows, market: store.filters.isActive ? nil : store.lostRevenueMarketRow())
         let post = rows.compactMap { $0.number("post_sub_oos_foregone") }.reduce(0, +)
         HubCalloutGrid(width: pageWidth, count: 8) {
             callout("Total lost revenue", HeartbeatFormat.money(dollars), "Total Opportunity", summary.health, selected: lostRevenueFocus == .all) {

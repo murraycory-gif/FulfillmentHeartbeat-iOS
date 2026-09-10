@@ -81,6 +81,7 @@ final class HeartbeatStore: ObservableObject {
     private var pphPickersByStore: [String: [MetricRow]] = [:]
     private var cachedCardFlags: [MetricSection: [HeartbeatMath.FiveStarFlag]] = [:]
     private var cachedGrainPacks: [MetricSection: [DashScopePack]] = [:]
+    private var cachedGrainTables: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] = [:]
     private(set) var cachedSalesScopeRows: [SalesRollupRow] = []
     private(set) var cachedSalesDayRows: [SalesRollupRow] = []
     private var laborWeeksByStore: [String: [MetricRow]] = [:]
@@ -408,6 +409,10 @@ final class HeartbeatStore: ObservableObject {
 
     func dashboardGrains(for section: MetricSection) -> [DashScopePack] {
         cachedGrainPacks[section] ?? []
+    }
+
+    func dashboardGrainRows(for section: MetricSection) -> [HeartbeatMath.DashboardGrainTableRow] {
+        cachedGrainTables[section] ?? []
     }
 
     func dashboardGrainChildren(section: MetricSection, label: String) -> [DashScopeLine] {
@@ -2571,6 +2576,7 @@ final class HeartbeatStore: ObservableObject {
         }
         if !light || cachedGrainPacks.isEmpty {
             cachedGrainPacks = view.grains
+            cachedGrainTables = view.tables
         }
         if !light {
             grainPaintSettled = true
@@ -2687,11 +2693,13 @@ final class HeartbeatStore: ObservableObject {
                 stores: stores,
                 roster: rosterCopy
             )
+            let tables = PulseCaches.grainTables(latest: latest, grain: grain, roster: rosterCopy, packs: packs)
             await MainActor.run {
                 guard !self.filters.isActive else { return }
                 guard self.effectiveDashboardGrain == grain else { return }
                 guard self.filterStamp >= token else { return }
                 self.cachedGrainPacks = packs
+                self.cachedGrainTables = tables
                 var snap = self.snapshotPulse()
                 snap.grainPacks = packs
                 self.unfilteredPulse = snap
@@ -3389,10 +3397,12 @@ final class HeartbeatStore: ObservableObject {
                 stores: stores,
                 roster: rosterCopy
             )
+            let tables = PulseCaches.grainTables(latest: latest, grain: grain, roster: rosterCopy, packs: packs)
             await MainActor.run {
                 if self.usingPackChrome, !self.filters.isActive { return }
                 self.cachedCardFlags = flags
                 self.cachedGrainPacks = packs
+                self.cachedGrainTables = tables
             }
         }
         if let labor = filteredLatest[.labor] {
@@ -3612,23 +3622,31 @@ final class HeartbeatStore: ObservableObject {
         }
     }
 
-    func pulseMailSnapshot() -> PulseMail.Snapshot {
+    func pulseMailSnapshot(_ pages: Set<PulseMail.SharePage> = Set(PulseMail.SharePage.allCases)) -> PulseMail.Snapshot {
+        var needed: Set<MetricSection> = []
+        if pages.contains(.dashboard) {
+            needed.formUnion(MetricSection.dashboardCards)
+        }
+        for page in pages {
+            if let section = page.section { needed.insert(section) }
+        }
+        if pages.contains(.preSubOOS) { needed.insert(.preSubOOSItem) }
+        if pages.contains(.pickPath) || pages.contains(.dashboard) { needed.insert(.pickPathPicker) }
         var pickerCounts: [String: Int] = [:]
-        for row in displayRows(for: .pph) {
-            let key = HeartbeatMath.canonicalStore(row.storeNumber)
-            pickerCounts[key] = pphPickerCount(forStore: key)
+        if needed.contains(.pph) {
+            for row in displayRows(for: .pph) {
+                let key = HeartbeatMath.canonicalStore(row.storeNumber)
+                pickerCounts[key] = pphPickerCount(forStore: key)
+            }
         }
         var rows: [MetricSection: [MetricRow]] = [:]
-        for section in PulseMail.pageOrder {
+        for section in needed {
             rows[section] = displayRows(for: section)
         }
-        rows[.pickPathPicker] = displayRows(for: .pickPathPicker)
-        rows[.preSubOOSItem] = displayRows(for: .preSubOOSItem)
-        let grain = effectiveDashboardGrain.rawValue
         return PulseMail.Snapshot(
             filterSummary: filters.summary,
-            grain: grain,
-            summaries: summaries,
+            grain: effectiveDashboardGrain.rawValue,
+            summaries: pages.contains(.dashboard) ? summaries : summaries.filter { needed.contains($0.section) },
             rows: rows,
             pickerCounts: pickerCounts,
             generatedAt: Date()

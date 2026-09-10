@@ -167,7 +167,7 @@ struct OverviewSalesAlignedTable: View {
                 .foregroundStyle(header ? AppTheme.textSecondary : AppTheme.text)
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
-                .frame(width: HubLayout.readableLabelWidth(phone: phone), alignment: .leading)
+                .frame(width: HubLayout.readableLabelWidth(phone: phone, available: tableWidth), alignment: .leading)
             if showCount {
                 cell(stores, header: header, secondary: true)
             }

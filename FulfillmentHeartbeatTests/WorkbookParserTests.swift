@@ -468,6 +468,7 @@ final class WorkbookParserTests: XCTestCase {
         let store = try XCTUnwrap(rows.first { $0.storeNumber == "2218" })
         XCTAssertEqual(store.payload["lost_revenue"] ?? 0, 2538.573, accuracy: 0.001)
         XCTAssertEqual(store.payload["lost_revenue_pct"] ?? 0, 115.744807933432, accuracy: 0.001)
+        XCTAssertEqual(store.payload["lost_revenue_goal_pct"] ?? 0, 54.6313005813291, accuracy: 0.001)
         XCTAssertEqual(store.payload["ecomm_sales"] ?? 0, 2193.25, accuracy: 0.001)
         XCTAssertEqual(store.textPayload["lost_grain"], "store")
         let company = try XCTUnwrap(rows.first { $0.storeNumber == "1" })
