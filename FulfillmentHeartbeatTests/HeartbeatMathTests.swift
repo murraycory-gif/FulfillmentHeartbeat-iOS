@@ -1305,7 +1305,18 @@ final class HeartbeatMathTests: XCTestCase {
             hidePicker: true,
             light: true
         )
-        XCTAssertEqual(light.filtered[.pickerScorecard]?.count, 3)
+        XCTAssertNil(light.filtered[.pickerScorecard])
+        let pageOpen = PulseQuery.paint(
+            warehouse: warehouse,
+            roster: [:],
+            filters: DashboardFilters(),
+            grain: .region,
+            uploads: [],
+            hidePicker: true,
+            light: true,
+            includePageOnly: true
+        )
+        XCTAssertEqual(pageOpen.filtered[.pickerScorecard]?.count, 3)
         warehouse[.pickerScorecard] = [rows[0]]
         let splash = PulseQuery.paint(
             warehouse: warehouse,
@@ -1415,6 +1426,10 @@ final class HeartbeatMathTests: XCTestCase {
     func testPostReadyWorkStaysOffSplashAndCoolsTheHub() {
         XCTAssertGreaterThan(PulseLaunch.grainPaintDelayNanoseconds, 0)
         XCTAssertGreaterThan(PulseLaunch.cloudHydrateDelayNanoseconds, PulseLaunch.grainPaintDelayNanoseconds)
+        XCTAssertFalse(PulseLaunch.loadPageOnlyOnReady)
+        XCTAssertTrue(PulseLaunch.acceptPaint(generation: 3, current: 3, cancelled: false))
+        XCTAssertFalse(PulseLaunch.acceptPaint(generation: 3, current: 4, cancelled: false))
+        XCTAssertFalse(PulseLaunch.acceptPaint(generation: 3, current: 3, cancelled: true))
         XCTAssertFalse(PulseLaunch.shouldPullCloudOnForeground(secondsSinceReady: 12))
         XCTAssertTrue(PulseLaunch.shouldPullCloudOnForeground(secondsSinceReady: 90))
         XCTAssertFalse(PulseLaunch.shouldLoadPublishedFacts(lostStores: 400, salesStores: 400))

@@ -15,6 +15,9 @@ enum PulseQuery {
         .pickerScorecard, .pickPathPicker, .preSubOOSItem
     ]
 
+    /// Shopper / item grains stay out of filter and grain paints until that page opens.
+    static var pageOnlySections: Set<MetricSection> { skipOnLight }
+
     static func isStoreFact(_ row: MetricRow) -> Bool {
         if HeartbeatMath.canonicalStore(row.storeNumber).isEmpty { return false }
         if row.textPayload["lost_grain"] == "market" { return false }
@@ -97,13 +100,14 @@ enum PulseQuery {
         grain: DashScopeGrain,
         uploads: [UploadRecord],
         hidePicker: Bool,
-        light: Bool
+        light: Bool,
+        includePageOnly: Bool = false
     ) -> View {
         let allowed = PulseCaches.allowedStores(roster: roster, filters: filters)
         var filtered: [MetricSection: [MetricRow]] = [:]
         filtered.reserveCapacity(warehouse.count)
         for (section, rows) in warehouse {
-            if light, skipOnLight.contains(section), rows.count < 2 { continue }
+            if skipOnLight.contains(section), !includePageOnly { continue }
             filtered[section] = sliceSection(section, rows: rows, allowed: allowed)
         }
         let summaries = MetricSection.dashboardCards.map { section in

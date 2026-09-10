@@ -86,7 +86,10 @@ final class HeartbeatStore: ObservableObject {
     private var unfilteredPulse: FilterPulse?
     private var refilterTask: Task<Void, Never>?
     private var grainPaintTask: Task<Void, Never>?
+    private var pageOnlyTask: Task<Void, Never>?
     private var unfilteredWarmTask: Task<Void, Never>?
+    private var paintGeneration = 0
+    private var pageOnlyGeneration = -1
     private var becameReadyAt: Date?
     private var pulseGeneration = 0
     private var masterBookmark: Data?
@@ -135,7 +138,7 @@ final class HeartbeatStore: ObservableObject {
         errorMessage = nil
         importProgress.label = "Opening the floor"
         await loadPack()
-        await paintFromWarehouse(light: true)
+        await paintFromWarehouse(light: true, adoptFacts: true)
         if canLeaveSplash() {
             finishLocalLaunch()
             Task { await self.fillAfterReady() }
@@ -147,11 +150,11 @@ final class HeartbeatStore: ObservableObject {
         if HubLayout.ingestsWorkbook {
             importProgress.label = "Building today's pack"
             await ingestWorkbookOnMacIfNeeded()
-            await paintFromWarehouse(light: true)
+            await paintFromWarehouse(light: true, adoptFacts: true)
         } else if !PulseSQLite.isUsableFile(at: sqliteURL) {
             importProgress.label = "Looking for a cloud pack"
             await importCloudSQLiteIfPresent(reason: .boot)
-            await paintFromWarehouse(light: true)
+            await paintFromWarehouse(light: true, adoptFacts: true)
         }
         if canLeaveSplash() {
             finishLocalLaunch()
@@ -183,8 +186,9 @@ final class HeartbeatStore: ObservableObject {
         lastCloudPullAt = Date()
     }
 
-    /// Shoppers only after splash. Grain expand waits until Who's looking and the hub is quiet.
+    /// Splash stays local-first. Picker / item grains wait until that page opens.
     private func fillAfterReady() async {
+        guard PulseLaunch.loadPageOnlyOnReady else { return }
         await loadDeferredPicker()
     }
 
@@ -359,7 +363,10 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func displayRows(for section: MetricSection) -> [MetricRow] {
-        PulseQuery.sliceSection(
+        if let cached = filteredLatest[section], !cached.isEmpty {
+            return cached
+        }
+        return PulseQuery.sliceSection(
             section,
             rows: latestBySection[section] ?? [],
             allowed: PulseCaches.allowedStores(roster: roster, filters: filters)
@@ -1432,10 +1439,7 @@ final class HeartbeatStore: ObservableObject {
         }
         needsRolePick = false
         if !filterChanged {
-            scheduleGrainPaint()
-        }
-        Task(priority: .utility) {
-            await self.loadDeferredPicker()
+            scheduleGrainPaint(generation: paintGeneration)
         }
         startCloudHydrateIfNeeded()
     }
@@ -1466,6 +1470,8 @@ final class HeartbeatStore: ObservableObject {
 
     func clearFilters() {
         refilterTask?.cancel()
+        grainPaintTask?.cancel()
+        pageOnlyTask?.cancel()
         unfilteredWarmTask?.cancel()
         sessionRole = .backstage
         hydrating = true
@@ -1752,10 +1758,7 @@ final class HeartbeatStore: ObservableObject {
             }
             await paintFromWarehouse(light: true)
             if reason != .boot {
-                Task(priority: .utility) {
-                    await self.loadDeferredPicker()
-                    self.scheduleGrainPaint()
-                }
+                scheduleGrainPaint(generation: paintGeneration)
             }
         } catch {
             try? fileManager.removeItem(at: staging)
@@ -2382,21 +2385,76 @@ final class HeartbeatStore: ObservableObject {
     private func applyFilters() {
         refilterTask?.cancel()
         grainPaintTask?.cancel()
+        pageOnlyTask?.cancel()
+        paintGeneration += 1
+        pageOnlyGeneration = -1
+        let generation = paintGeneration
         refilterTask = Task {
-            await self.paintFromWarehouse(light: true)
-            guard !Task.isCancelled else { return }
-            self.scheduleGrainPaint()
+            await self.paintFromWarehouse(light: true, generation: generation)
+            guard self.acceptPaint(generation) else { return }
+            self.schedulePageOnlyRefresh(generation: generation)
+            self.scheduleGrainPaint(generation: generation)
         }
     }
 
+    private func acceptPaint(_ generation: Int) -> Bool {
+        PulseLaunch.acceptPaint(
+            generation: generation,
+            current: paintGeneration,
+            cancelled: Task.isCancelled
+        )
+    }
+
+    /// Slice picker / item grains only after cards, and only if already in memory.
+    private func schedulePageOnlyRefresh(generation: Int) {
+        pageOnlyTask?.cancel()
+        let warehouse = latestBySection
+        let hasPageOnly = PulseQuery.pageOnlySections.contains { section in
+            (warehouse[section] ?? []).count >= 2
+        }
+        guard hasPageOnly else { return }
+        let rosterCopy = roster
+        let current = filters
+        pageOnlyTask = Task(priority: .utility) {
+            guard self.acceptPaint(generation) else { return }
+            let allowed = PulseCaches.allowedStores(roster: rosterCopy, filters: current)
+            let slices = await Task.detached(priority: .utility) { () -> [MetricSection: [MetricRow]] in
+                var out: [MetricSection: [MetricRow]] = [:]
+                for section in PulseQuery.pageOnlySections {
+                    guard let rows = warehouse[section], rows.count >= 2 else { continue }
+                    out[section] = PulseQuery.sliceSection(section, rows: rows, allowed: allowed)
+                }
+                return out
+            }.value
+            guard self.acceptPaint(generation) else { return }
+            guard self.filters == current else { return }
+            self.mergePageOnlySlices(slices, generation: generation)
+        }
+    }
+
+    private func mergePageOnlySlices(_ slices: [MetricSection: [MetricRow]], generation: Int) {
+        guard !slices.isEmpty else { return }
+        for (section, rows) in slices {
+            filteredLatest[section] = rows
+            refreshSummary(for: section, rows: rows)
+            if section == .pickerScorecard, !rows.isEmpty {
+                cachedPickerBoard = HeartbeatMath.pickerBoard(rows)
+                schedulePickerIndex(rows)
+            }
+        }
+        pageOnlyGeneration = generation
+        filterStamp += 1
+    }
+
     /// Full grain expand after cards, at utility, and only once the hub is in use.
-    private func scheduleGrainPaint() {
+    private func scheduleGrainPaint(generation: Int? = nil) {
         grainPaintTask?.cancel()
+        let token = generation ?? paintGeneration
         grainPaintTask = Task(priority: .utility) {
             try? await Task.sleep(nanoseconds: PulseLaunch.grainPaintDelayNanoseconds)
-            guard !Task.isCancelled else { return }
+            guard self.acceptPaint(token) else { return }
             guard self.isReady, !self.needsRolePick else { return }
-            await self.paintFromWarehouse(light: false)
+            await self.paintFromWarehouse(light: false, generation: token)
         }
     }
 
@@ -2409,8 +2467,10 @@ final class HeartbeatStore: ObservableObject {
     }
 
     @MainActor
-    private func paintFromWarehouse(light: Bool) async {
-        await adoptExcelFactsIntoWarehouse()
+    private func paintFromWarehouse(light: Bool, generation: Int? = nil, adoptFacts: Bool = false) async {
+        if adoptFacts {
+            await adoptExcelFactsIntoWarehouse()
+        }
         let warehouse = latestBySection
         let rosterCopy = roster
         let current = filters
@@ -2426,30 +2486,29 @@ final class HeartbeatStore: ObservableObject {
                 grain: grain,
                 uploads: uploadsCopy,
                 hidePicker: hidePicker,
-                light: light
+                light: light,
+                includePageOnly: false
             )
         }.value
+        if let generation {
+            guard acceptPaint(generation) else { return }
+        }
         guard filters == current else { return }
-        let priorPickers = filteredLatest[.pickerScorecard] ?? []
-        filteredLatest = view.filtered
+        var next = view.filtered
+        if pageOnlyGeneration == (generation ?? paintGeneration) {
+            for section in PulseQuery.pageOnlySections {
+                if let keep = filteredLatest[section] {
+                    next[section] = keep
+                }
+            }
+        }
+        filteredLatest = next
         cachedSummaries = view.summaries
-        keepDeferredPickers(
-            painted: view.filtered[.pickerScorecard] ?? [],
-            warehouse: warehouse[.pickerScorecard] ?? [],
-            prior: priorPickers,
-            filters: current
-        )
         if !view.flags.isEmpty {
             cachedCardFlags = view.flags
         }
         if !light || cachedGrainPacks.isEmpty {
             cachedGrainPacks = view.grains
-        }
-        if !view.pickers.isEmpty {
-            cachedPickerBoard = HeartbeatMath.pickerBoard(view.pickers)
-        } else if let pickers = filteredLatest[.pickerScorecard], !pickers.isEmpty {
-            cachedPickerBoard = HeartbeatMath.pickerBoard(pickers)
-            schedulePickerIndex(pickers)
         }
         usingPackChrome = false
         if lostByStore.isEmpty {
@@ -2984,39 +3043,25 @@ final class HeartbeatStore: ObservableObject {
         await ensureSectionLoaded(.pickerScorecard)
     }
 
-    /// A ready-time grain paint can snapshot the warehouse before shoppers land.
-    /// Keep the deferred fill unless this filter truly has no shoppers.
-    private func keepDeferredPickers(
-        painted: [MetricRow],
-        warehouse: [MetricRow],
-        prior: [MetricRow],
-        filters: DashboardFilters
-    ) {
-        if painted.count >= 2 { return }
-        let allowed = PulseCaches.allowedStores(roster: roster, filters: filters)
-        if warehouse.count >= 2 {
-            let sliced = PulseQuery.sliceSection(.pickerScorecard, rows: warehouse, allowed: allowed)
-            if !sliced.isEmpty {
-                filteredLatest[.pickerScorecard] = sliced
-                cachedPickerBoard = HeartbeatMath.pickerBoard(sliced)
-                refreshSummary(for: .pickerScorecard, rows: sliced)
-                schedulePickerIndex(sliced)
-            }
-            return
-        }
-        if prior.count >= 2 {
-            filteredLatest[.pickerScorecard] = prior
-            cachedPickerBoard = HeartbeatMath.pickerBoard(prior)
-        }
+    private func refreshLoadedPickers() {
+        installSectionSlice(.pickerScorecard)
     }
 
-    private func refreshLoadedPickers() {
-        let pickers = displayRows(for: .pickerScorecard)
-        filteredLatest[.pickerScorecard] = pickers
-        if !pickers.isEmpty {
-            cachedPickerBoard = HeartbeatMath.pickerBoard(pickers)
-            refreshSummary(for: .pickerScorecard, rows: pickers)
-            schedulePickerIndex(pickers)
+    private func installSectionSlice(_ section: MetricSection) {
+        let allowed = PulseCaches.allowedStores(roster: roster, filters: filters)
+        let sliced = PulseQuery.sliceSection(
+            section,
+            rows: latestBySection[section] ?? [],
+            allowed: allowed
+        )
+        filteredLatest[section] = sliced
+        refreshSummary(for: section, rows: sliced)
+        if section == .pickerScorecard, !sliced.isEmpty {
+            cachedPickerBoard = HeartbeatMath.pickerBoard(sliced)
+            schedulePickerIndex(sliced)
+        }
+        if PulseQuery.pageOnlySections.contains(section) {
+            pageOnlyGeneration = paintGeneration
         }
         filterStamp += 1
     }
@@ -3037,8 +3082,8 @@ final class HeartbeatStore: ObservableObject {
         let deferred = PulseQuery.skipOnLight.contains(section)
         if deferred {
             if (latestBySection[section] ?? []).count >= 2 {
-                if section == .pickerScorecard, (filteredLatest[.pickerScorecard] ?? []).isEmpty {
-                    refreshLoadedPickers()
+                if filteredLatest[section]?.isEmpty != false {
+                    installSectionSlice(section)
                 }
                 return
             }
@@ -3079,24 +3124,12 @@ final class HeartbeatStore: ObservableObject {
         if section == .labor {
             rebuildLaborWeekIndex()
         }
-        if section == .pickerScorecard {
-            refreshLoadedPickers()
-            return
-        }
-        await paintFromWarehouse(light: true)
+        installSectionSlice(section)
     }
 
     private func hydrateFilteredHeavy() async {
         guard filters.isActive else { return }
-        let laborWasEmpty = (latestBySection[.labor] ?? []).isEmpty
-        let pickerWasEmpty = (latestBySection[.pickerScorecard] ?? []).isEmpty
-        if laborWasEmpty { await ensureSectionLoaded(.labor) }
-        if pickerWasEmpty { await ensureSectionLoaded(.pickerScorecard) }
-        let loaded = (laborWasEmpty && !(latestBySection[.labor] ?? []).isEmpty)
-            || (pickerWasEmpty && !(latestBySection[.pickerScorecard] ?? []).isEmpty)
-        if loaded, filters.isActive {
-            applyVisibleFilter()
-        }
+        applyVisibleFilter()
     }
 
     private func loadHeavySections() async {

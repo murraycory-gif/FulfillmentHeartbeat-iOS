@@ -4,15 +4,14 @@ import UIKit
 /// Native paging between Dashboard and scorecards. Sidebar taps jump; swipes page.
 struct ScorecardPager: UIViewControllerRepresentable, Equatable {
     @ObservedObject var router: HubRouter
-    var filterStamp: Int
     var page: (HubDestination) -> AnyView
 
     static func == (lhs: ScorecardPager, rhs: ScorecardPager) -> Bool {
-        lhs.filterStamp == rhs.filterStamp && lhs.router.destination == rhs.router.destination
+        lhs.router.destination == rhs.router.destination
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(page: page, router: router, filterStamp: filterStamp)
+        Coordinator(page: page, router: router)
     }
 
     func makeUIViewController(context: Context) -> UIPageViewController {
@@ -41,11 +40,6 @@ struct ScorecardPager: UIViewControllerRepresentable, Equatable {
         if coordinator.isSwiping { return }
 
         let dest = router.current
-        if coordinator.filterStamp != filterStamp {
-            coordinator.filterStamp = filterStamp
-            coordinator.reloadHydrated()
-        }
-
         guard dest != .upload else { return }
         if dest != coordinator.displayed {
             coordinator.snap(to: dest, animated: false)
@@ -84,16 +78,14 @@ struct ScorecardPager: UIViewControllerRepresentable, Equatable {
     final class Coordinator: NSObject, UIPageViewControllerDataSource, UIPageViewControllerDelegate {
         var page: (HubDestination) -> AnyView
         var router: HubRouter
-        var filterStamp: Int
         var cache: [HubDestination: PageHost] = [:]
         var displayed: HubDestination = .dashboard
         var isSwiping = false
         private weak var pager: UIPageViewController?
 
-        init(page: @escaping (HubDestination) -> AnyView, router: HubRouter, filterStamp: Int) {
+        init(page: @escaping (HubDestination) -> AnyView, router: HubRouter) {
             self.page = page
             self.router = router
-            self.filterStamp = filterStamp
         }
 
         func attach(_ pager: UIPageViewController) {

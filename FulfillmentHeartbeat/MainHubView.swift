@@ -294,10 +294,10 @@ struct MainHubView: View {
         NavigationStack {
             if router.current == .upload {
                 UploadView()
-                    .id("upload-\(store.filterStamp)")
+                    .id("upload")
                     .hubPageCanvas()
             } else {
-                ScorecardPager(router: router, filterStamp: store.filterStamp) { dest in
+                ScorecardPager(router: router) { dest in
                     AnyView(
                         page(for: dest)
                             .environmentObject(store)

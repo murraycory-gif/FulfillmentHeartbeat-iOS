@@ -207,6 +207,12 @@ struct SectionDetailView: View {
         }
         .task {
             await store.ensureSectionLoaded(section)
+            if section == .preSubOOS {
+                await store.ensureSectionLoaded(.preSubOOSItem)
+            }
+            if section == .pickPath {
+                await store.ensureSectionLoaded(.pickPathPicker)
+            }
         }
         .onChange(of: router.current) { _, _ in
             armPage()

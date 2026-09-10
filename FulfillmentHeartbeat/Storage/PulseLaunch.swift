@@ -8,6 +8,13 @@ enum PulseLaunch {
     static let bootDownloadTimeout: TimeInterval = 25
     /// Let the hub settle before expanding grains. Cards already painted.
     static let grainPaintDelayNanoseconds: UInt64 = 700_000_000
+    /// Picker / item grains stay on disk until that page opens.
+    static let loadPageOnlyOnReady = false
+
+    /// Drop a paint or grain job when the user picked another filter.
+    static func acceptPaint(generation: Int, current: Int, cancelled: Bool) -> Bool {
+        !cancelled && generation == current
+    }
     /// Cloud facts/pack after Who's looking — not on splash, not in the first breath.
     static let cloudHydrateDelayNanoseconds: UInt64 = 12_000_000_000
     static let foregroundCloudQuietSeconds: TimeInterval = 90
