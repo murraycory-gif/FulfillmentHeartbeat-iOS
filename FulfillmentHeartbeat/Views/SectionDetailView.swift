@@ -205,7 +205,8 @@ struct SectionDetailView: View {
         .onAppear {
             armPage()
         }
-        .task {
+        .task(id: router.current) {
+            guard PulseLaunch.shouldLoadSection(visible: router.current, section: section) else { return }
             await store.ensureSectionLoaded(section)
             if section == .preSubOOS {
                 await store.ensureSectionLoaded(.preSubOOSItem)

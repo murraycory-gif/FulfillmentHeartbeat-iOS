@@ -63,12 +63,7 @@ enum PulseQuery {
             }
         }
         guard let allowed else { return shoppers }
-        return shoppers.filter { row in
-            let store = HeartbeatMath.canonicalStore(row.storeNumber)
-            if store.isEmpty { return false }
-            if allowed.contains(store) { return true }
-            return HeartbeatMath.storeAliases(store).contains(where: { allowed.contains($0) })
-        }
+        return shoppers.filter { PulseLaunch.storeInScope($0.storeNumber, allowed: allowed) }
     }
 
     static func sliceSection(
@@ -113,7 +108,7 @@ enum PulseQuery {
         seen.reserveCapacity(existing.count + 2_200)
         for row in existing {
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
-            if !store.isEmpty { seen.formUnion(HeartbeatMath.storeAliases(store)) }
+            if !store.isEmpty { seen.insert(store) }
         }
         var extra: [MetricRow] = []
         extra.reserveCapacity(1_200)
@@ -129,7 +124,11 @@ enum PulseQuery {
             }
             if seen.contains(store) { continue }
             extra.append(row)
-            seen.formUnion(HeartbeatMath.storeAliases(store))
+            seen.insert(store)
+            if let value = Int(store) {
+                seen.insert(String(format: "%04d", value))
+                seen.insert(String(format: "%05d", value))
+            }
         }
         guard !extra.isEmpty else { return existing }
         return existing + extra
@@ -218,6 +217,80 @@ enum PulseQuery {
             ),
             pickers: hidePicker ? [] : (filtered[.pickerScorecard] ?? [])
         )
+    }
+
+    /// Materialize / overlay / region-fill off the main thread. Callers pass CoW snapshots.
+    static func prepareWarehouse(
+        warehouse: [MetricSection: [MetricRow]],
+        roster: [String: HeartbeatMath.StoreIdentity],
+        filters: DashboardFilters,
+        rawRows: [MetricRow],
+        pickers: [MetricRow],
+        bundledFacts: [MetricRow],
+        scopedLost: [MetricRow]?
+    ) -> [MetricSection: [MetricRow]] {
+        var next = warehouse
+        if scoredStoreFacts(next[.lostRevenue] ?? []).count < 8 {
+            let filled = snapshotOrRaw(section: .lostRevenue, snapshot: next[.lostRevenue] ?? [], rawRows: rawRows, roster: roster)
+            if scoredStoreFacts(filled).count > scoredStoreFacts(next[.lostRevenue] ?? []).count {
+                next[.lostRevenue] = filled
+            }
+        }
+        if (next[.dynacap] ?? []).filter({ $0.number("dynacap_rate", "pieces_per_hour") != nil }).isEmpty {
+            let raw = (next[.dynacap] ?? []) + rawRows.filter { $0.section == .dynacap }
+            let expanded = HeartbeatMath.materializeDynacap(raw, roster: roster)
+            if !expanded.isEmpty { next[.dynacap] = expanded }
+        }
+        if (next[.pph] ?? []).filter({ HeartbeatMath.pphNumber($0) != nil }).isEmpty {
+            let raw = (next[.pph] ?? []) + rawRows.filter { $0.section == .pph }
+            let filled = HeartbeatMath.materializePPH(raw, roster: roster, pickers: pickers)
+            if !filled.isEmpty { next[.pph] = filled }
+        }
+        if (next[.scheduleQuality] ?? []).filter({ $0.number("schedule_efficiency_pct") != nil }).count < 8 {
+            let filled = snapshotOrRaw(section: .scheduleQuality, snapshot: next[.scheduleQuality] ?? [], rawRows: rawRows, roster: roster)
+            if filled.filter({ $0.number("schedule_efficiency_pct") != nil }).count
+                > (next[.scheduleQuality] ?? []).filter({ $0.number("schedule_efficiency_pct") != nil }).count {
+                next[.scheduleQuality] = filled
+            }
+        }
+        next = HeartbeatMath.overlayDynacapPPH(next)
+        if filters.isActive, let scopedLost, !scopedLost.isEmpty {
+            next[.lostRevenue] = scopedLost
+        } else if !filters.isActive, !bundledFacts.isEmpty {
+            for section in [MetricSection.lostRevenue, .sales, .fiveStar, .scheduleQuality] {
+                let existing = next[section] ?? []
+                let merged = fillMissingRegions(
+                    existing: existing,
+                    facts: bundledFacts,
+                    section: section
+                )
+                if merged.count > existing.count {
+                    next[section] = HeartbeatMath.applyRoster(merged, roster: roster)
+                }
+            }
+        }
+        return next
+    }
+
+    static func snapshotOrRaw(
+        section: MetricSection,
+        snapshot: [MetricRow],
+        rawRows: [MetricRow],
+        roster: [String: HeartbeatMath.StoreIdentity]
+    ) -> [MetricRow] {
+        let snapshotStores = snapshot.filter {
+            !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty
+                && $0.textPayload["lost_grain"] != "market"
+                && $0.textPayload["sales_grain"] != "company"
+        }
+        if snapshotStores.count >= 8 { return snapshot }
+        let raw = rawRows.filter { $0.section == section }
+        if raw.isEmpty { return snapshot }
+        if section == .lostRevenue {
+            let stores = raw.filter { $0.textPayload["lost_grain"] != "market" }
+            return HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(stores), roster: roster)
+        }
+        return HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(raw), roster: roster)
     }
 
     /// Light / grain paints skip shopper tables. Keep the live slice so the dashboard card and PPH counts stay filled.

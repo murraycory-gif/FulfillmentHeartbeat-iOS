@@ -1798,6 +1798,18 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseLaunch.shouldPaintDestinationChromeImmediately())
         XCTAssertTrue(PulseLaunch.shouldPaintScorecardTablesAfterChrome())
         XCTAssertTrue(PulseLaunch.shouldDeferDestinationWorkOnNav())
+        XCTAssertFalse(PulseLaunch.shouldKeepNeighborPagesHydrated())
+        XCTAssertFalse(PulseLaunch.shouldLoadSection(visible: .dashboard, section: .pph))
+        XCTAssertTrue(PulseLaunch.shouldLoadSection(visible: .pph, section: .pph))
+        XCTAssertTrue(PulseLaunch.shouldLoadSection(visible: .pickPath, section: .pickPathPicker))
+        XCTAssertFalse(PulseLaunch.shouldRefreshPickersAfterFilter(dest: .dashboard))
+        XCTAssertTrue(PulseLaunch.shouldRefreshPickersAfterFilter(dest: .pph))
+        XCTAssertFalse(PulseLaunch.shouldRebuildPPHIndexDuringPaint(dest: .dashboard))
+        XCTAssertTrue(PulseLaunch.shouldRebuildPPHIndexDuringPaint(dest: .pickerScorecard))
+        XCTAssertTrue(PulseLaunch.shouldSkipWarehousePaintOnClear(restoredCompanyWide: true))
+        XCTAssertFalse(PulseLaunch.shouldSkipWarehousePaintOnClear(restoredCompanyWide: false))
+        XCTAssertEqual(PulseLaunch.warehousePaintPriority(light: true, hubReady: true), .utility)
+        XCTAssertEqual(PulseLaunch.warehousePaintPriority(light: true, hubReady: false), .userInitiated)
         XCTAssertTrue(PulseLaunch.shouldPresentShareSheetWithoutBuildingHTML())
         XCTAssertEqual(PulseLaunch.mailBodyMaxBytes, 400_000)
         XCTAssertTrue(PulseLaunch.shouldSetHTMLMessageBody(utf8Count: 12_000))
@@ -1892,6 +1904,69 @@ final class HeartbeatMathTests: XCTestCase {
         let storeKeys = (1...200).map { String($0) }
         XCTAssertEqual(PulseLaunch.pphPickerTotal(storeNumbers: storeKeys, counts: packed.counts), 2_000)
         XCTAssertEqual(PulseLaunch.pphPickerTotal(storeNumbers: storeKeys, counts: [:]), 0)
+    }
+
+    func testStoreScopeAndShopperSliceStayO1() {
+        let allowed: Set<String> = ["304", "108"]
+        XCTAssertTrue(HeartbeatMath.storeInAllowed("0304", allowed: allowed))
+        XCTAssertTrue(HeartbeatMath.storeInAllowed("00304", allowed: allowed))
+        XCTAssertTrue(HeartbeatMath.storeInAllowed("304", allowed: allowed))
+        XCTAssertFalse(HeartbeatMath.storeInAllowed("999", allowed: allowed))
+        XCTAssertTrue(PulseLaunch.storeInScope("0304", allowed: allowed))
+        XCTAssertFalse(PulseLaunch.storeInScope("999", allowed: allowed))
+        XCTAssertTrue(PulseLaunch.storeInScope("304", allowed: nil))
+
+        let keep = MetricRow(
+            section: .pickerScorecard,
+            division: "NorCal",
+            operationsOM: "A",
+            storeNumber: "0304",
+            payload: ["pph": 40],
+            textPayload: ["shopper_id": "A", "shopper_name": "A"]
+        )
+        let drop = MetricRow(
+            section: .pickerScorecard,
+            division: "NorCal",
+            operationsOM: "A",
+            storeNumber: "999",
+            payload: ["pph": 40],
+            textPayload: ["shopper_id": "B", "shopper_name": "B"]
+        )
+        let sliced = PulseQuery.sliceShoppers([keep, drop], allowed: allowed)
+        XCTAssertEqual(sliced.map(\.shopperName), ["A"])
+        XCTAssertEqual(
+            PulseCaches.scopedRows([keep, drop], allowed: allowed, roster: [:], filters: DashboardFilters()).map(\.shopperName),
+            ["A"]
+        )
+        let paddedAllowed: Set<String> = ["0304"]
+        XCTAssertTrue(HeartbeatMath.storeInAllowed("304", allowed: paddedAllowed))
+        XCTAssertTrue(
+            PulseCaches.rowMatchesFilter(
+                keep,
+                allowed: allowed,
+                roster: [:],
+                filters: DashboardFilters()
+            )
+        )
+        XCTAssertFalse(
+            PulseCaches.rowMatchesFilter(
+                drop,
+                allowed: allowed,
+                roster: ["999": .init(division: "NorCal", district: "N1", om: "A", name: nil)],
+                filters: DashboardFilters()
+            )
+        )
+        let prepared = PulseQuery.prepareWarehouse(
+            warehouse: [:],
+            roster: ["304": .init(division: "NorCal", district: "N1", om: "A", name: nil)],
+            filters: DashboardFilters(),
+            rawRows: [],
+            pickers: [keep],
+            bundledFacts: [],
+            scopedLost: nil
+        )
+        XCTAssertEqual(prepared[.pph]?.first?.storeNumber, "304")
+        XCTAssertEqual(HeartbeatMath.pphNumber(prepared[.pph]?.first ?? keep) ?? 0, 40, accuracy: 0.01)
     }
 
     func testMissingPackMessageIsActionable() {

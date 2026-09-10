@@ -683,18 +683,19 @@ struct PulseCaches {
         for row in matched {
             seen.insert(row.id.uuidString)
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
-            if !store.isEmpty { seen.formUnion(HeartbeatMath.storeAliases(store)) }
+            if !store.isEmpty { seen.insert(store) }
         }
         var extra: [MetricRow] = []
         for row in rows {
             if seen.contains(row.id.uuidString) { continue }
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
             if !store.isEmpty {
-                if allowed.contains(store) { continue }
-                if HeartbeatMath.storeAliases(store).contains(where: { allowed.contains($0) }) { continue }
-                let known = roster[store] != nil
-                    || HeartbeatMath.storeAliases(store).contains(where: { roster[$0] != nil })
-                if known { continue }
+                if HeartbeatMath.storeInAllowed(store, allowed: allowed) { continue }
+                if roster[store] != nil { continue }
+                if let value = Int(store) {
+                    if roster[String(format: "%04d", value)] != nil { continue }
+                    if roster[String(format: "%05d", value)] != nil { continue }
+                }
             }
             if !wantedRegions.isEmpty {
                 guard let region = MarketRegion.resolved(division: row.division, district: row.district),
@@ -711,7 +712,7 @@ struct PulseCaches {
             }
             extra.append(row)
             seen.insert(row.id.uuidString)
-            if !store.isEmpty { seen.formUnion(HeartbeatMath.storeAliases(store)) }
+            if !store.isEmpty { seen.insert(store) }
         }
         return extra.isEmpty ? matched : matched + extra
     }
@@ -736,11 +737,6 @@ struct PulseCaches {
         filters: DashboardFilters,
         skipMarket: Bool = false
     ) -> [MetricRow] {
-        var aliases: Set<String> = []
-        aliases.reserveCapacity(allowed.count * 3)
-        for store in allowed {
-            aliases.formUnion(HeartbeatMath.storeAliases(store))
-        }
         var seen: Set<String> = []
         var out: [MetricRow] = []
         out.reserveCapacity(min(rows.count, max(allowed.count, 8)))
@@ -749,7 +745,7 @@ struct PulseCaches {
             if HeartbeatMath.isIgnoredStore(row.storeNumber), row.section != .sales { continue }
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
             if store.isEmpty { continue }
-            guard !aliases.isEmpty, !HeartbeatMath.storeAliases(store).isDisjoint(with: aliases) else { continue }
+            guard HeartbeatMath.storeInAllowed(store, allowed: allowed) else { continue }
             if seen.insert(store).inserted { out.append(row) }
         }
         return out
@@ -763,8 +759,7 @@ struct PulseCaches {
     ) -> Bool {
         let store = HeartbeatMath.canonicalStore(row.storeNumber)
         let identity = store.isEmpty ? nil : roster[store]
-        if !store.isEmpty, allowed.contains(store) { return true }
-        if allowed.contains(where: { HeartbeatMath.sameStore($0, store) }) { return true }
+        if !store.isEmpty, HeartbeatMath.storeInAllowed(store, allowed: allowed) { return true }
         let district = {
             if let value = identity?.district, !value.isEmpty { return value }
             return row.district

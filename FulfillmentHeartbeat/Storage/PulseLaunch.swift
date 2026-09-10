@@ -175,6 +175,45 @@ enum PulseLaunch {
     /// Grain paint / picker stream wait until the destination's first paint has committed.
     static func shouldDeferDestinationWorkOnNav() -> Bool { true }
 
+    /// Neighbor scorecards stay blank. Hydrating them makes filterStamp rebuild two extra full tables.
+    static func shouldKeepNeighborPagesHydrated() -> Bool { false }
+
+    /// SQLite / picker stream only for the page the user actually landed on — never mid-swipe.
+    static func shouldLoadSection(visible: HubDestination, section: MetricSection) -> Bool {
+        if visible == .dashboard { return false }
+        if visible.section == section { return true }
+        if visible == .preSubOOS, section == .preSubOOSItem { return true }
+        if visible == .pickPath, section == .pickPathPicker { return true }
+        return false
+    }
+
+    /// Picker filterStamp / board rebuild is join-page work. Dashboard already has cards.
+    static func shouldRefreshPickersAfterFilter(dest: HubDestination) -> Bool {
+        needsShopperJoin(dest)
+    }
+
+    /// Do not rebuild the PPH picker index during Dashboard paint — that re-walks shoppers on main.
+    static func shouldRebuildPPHIndexDuringPaint(dest: HubDestination) -> Bool {
+        needsShopperJoin(dest)
+    }
+
+    /// Clear-all already restored company-wide chrome. Do not re-paint the warehouse on that tap.
+    static func shouldSkipWarehousePaintOnClear(restoredCompanyWide: Bool) -> Bool {
+        restoredCompanyWide
+    }
+
+    /// After the hub is up, warehouse paint is utility. userInitiated fights scroll / nav.
+    static func warehousePaintPriority(light: Bool, hubReady: Bool) -> TaskPriority {
+        if hubReady { return .utility }
+        return light ? .userInitiated : .utility
+    }
+
+    /// O(1) store membership. Never `allowed.contains { sameStore }`.
+    static func storeInScope(_ raw: String, allowed: Set<String>?) -> Bool {
+        guard let allowed else { return true }
+        return HeartbeatMath.storeInAllowed(raw, allowed: allowed)
+    }
+
     /// Share picker appears before any HTML is built.
     static func shouldPresentShareSheetWithoutBuildingHTML() -> Bool { true }
 

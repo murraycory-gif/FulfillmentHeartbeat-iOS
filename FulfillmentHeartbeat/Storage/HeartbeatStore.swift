@@ -349,7 +349,7 @@ final class HeartbeatStore: ObservableObject {
                 ?? Set(roster.keys.map { HeartbeatMath.canonicalStore($0) })
             return (allLatest(for: section)).compactMap { row in
                 let store = HeartbeatMath.canonicalStore(row.storeNumber)
-                guard !store.isEmpty, allowed.contains(store) else { return nil }
+                guard !store.isEmpty, HeartbeatMath.storeInAllowed(store, allowed: allowed) else { return nil }
                 return HeartbeatMath.stampRoster(row, roster: roster)
             }
         default:
@@ -377,9 +377,8 @@ final class HeartbeatStore: ObservableObject {
             if section == .labor, row.textPayload["labor_grain"] == "market" { continue }
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
             guard !store.isEmpty else { continue }
-            let keys = [store] + HeartbeatMath.storeAliases(store)
-            guard keys.contains(where: { allowed.contains($0) }) else { continue }
-            let key = keys.first(where: { allowed.contains($0) }) ?? store
+            guard HeartbeatMath.storeInAllowed(store, allowed: allowed) else { continue }
+            let key = store
             if byStore[key] == nil { byStore[key] = row }
         }
         var out: [MetricRow] = []
@@ -2613,39 +2612,51 @@ final class HeartbeatStore: ObservableObject {
         refilterTask?.cancel()
         grainPaintTask?.cancel()
         pageOnlyTask?.cancel()
-        grainPaintSettled = false
+        let clearing = !filters.isActive
+        var restoredChrome = false
+        if clearing {
+            restoredChrome = restoreUnfilteredChrome()
+            if restoredChrome {
+                grainPaintSettled = true
+            } else {
+                grainPaintSettled = false
+            }
+        } else {
+            grainPaintSettled = false
+        }
         paintGeneration += 1
         pageOnlyGeneration = -1
-        let clearing = !filters.isActive
-        if clearing {
-            restoreUnfilteredChrome()
-        }
         if !clearing || PulseLaunch.shouldAcknowledgeFilterClearImmediately(previousActive: true, nextActive: false) {
             filterStamp += 1
         }
         let generation = paintGeneration
         let delay = PulseLaunch.filterPaintDelayNanoseconds(clearingAll: clearing)
+        let skipPaint = PulseLaunch.shouldSkipWarehousePaintOnClear(restoredCompanyWide: restoredChrome)
         refilterTask = Task(priority: .utility) {
             await Task.yield()
             if delay > 0 {
                 try? await Task.sleep(nanoseconds: delay)
                 guard self.acceptPaint(generation) else { return }
             }
-            await self.paintFromWarehouse(light: true, generation: generation)
-            guard self.acceptPaint(generation) else { return }
-            if PulseLaunch.shouldRefreshPageOnly(pageVisible: self.visibleDestination == .pickerScorecard) {
-                self.schedulePageOnlyRefresh(generation: generation)
-            } else if let pickers = self.latestBySection[.pickerScorecard], pickers.count >= 2 {
-                self.refreshPickerDashboard(
-                    PulseQuery.sliceSection(
-                        .pickerScorecard,
-                        rows: pickers,
-                        allowed: PulseCaches.allowedStores(roster: self.roster, filters: self.filters)
-                    ),
-                    stamp: true
-                )
+            if !skipPaint {
+                await self.paintFromWarehouse(light: true, generation: generation)
             }
-            if PulseLaunch.shouldPaintGrains(
+            guard self.acceptPaint(generation) else { return }
+            if PulseLaunch.shouldRefreshPickersAfterFilter(dest: self.visibleDestination) {
+                if PulseLaunch.shouldRefreshPageOnly(pageVisible: self.visibleDestination == .pickerScorecard) {
+                    self.schedulePageOnlyRefresh(generation: generation)
+                } else if let pickers = self.latestBySection[.pickerScorecard], pickers.count >= 2 {
+                    self.refreshPickerDashboard(
+                        PulseQuery.sliceSection(
+                            .pickerScorecard,
+                            rows: pickers,
+                            allowed: PulseCaches.allowedStores(roster: self.roster, filters: self.filters)
+                        ),
+                        stamp: true
+                    )
+                }
+            }
+            if !skipPaint, PulseLaunch.shouldPaintGrains(
                 dashboardVisible: self.visibleDestination == .dashboard,
                 ready: self.isReady,
                 rolePicked: !self.needsRolePick
@@ -2658,17 +2669,19 @@ final class HeartbeatStore: ObservableObject {
         }
     }
 
-    private func restoreUnfilteredChrome() {
+    @discardableResult
+    private func restoreUnfilteredChrome() -> Bool {
         if PulseLaunch.shouldRestoreUnfilteredPulseOnClear(hasCompanyWideCache: isCompanyWide(unfilteredPulse)),
            let pulse = unfilteredPulse {
             install(pulse)
-            return
+            return true
         }
-        guard !latestBySection.isEmpty else { return }
+        guard !latestBySection.isEmpty else { return false }
         filteredLatest = latestBySection
         cachedGrainTables = [:]
         refreshFilterOptions()
         fillExpandTablesSoon()
+        return false
     }
 
     private func acceptPaint(_ generation: Int) -> Bool {
@@ -2749,69 +2762,44 @@ final class HeartbeatStore: ObservableObject {
         if adoptFacts {
             await adoptExcelFactsIntoWarehouse()
         }
-        var warehouse = latestBySection
-        if (warehouse[.lostRevenue] ?? []).filter(PulseQuery.isStoreFact).count < 8 {
-            let filled = latestOrFacts(for: .lostRevenue)
-            if filled.filter(PulseQuery.isStoreFact).count > (warehouse[.lostRevenue] ?? []).filter(PulseQuery.isStoreFact).count {
-                warehouse[.lostRevenue] = filled
-            }
-        }
-        if (warehouse[.dynacap] ?? []).filter({ $0.number("dynacap_rate", "pieces_per_hour") != nil }).isEmpty {
-            let raw = (latestBySection[.dynacap] ?? []) + rows.filter { $0.section == .dynacap }
-            let expanded = HeartbeatMath.materializeDynacap(raw, roster: roster)
-            if !expanded.isEmpty { warehouse[.dynacap] = expanded }
-        }
-        if (warehouse[.pph] ?? []).filter({ HeartbeatMath.pphNumber($0) != nil }).isEmpty {
-            let raw = (latestBySection[.pph] ?? []) + rows.filter { $0.section == .pph }
-            let filled = HeartbeatMath.materializePPH(
-                raw,
-                roster: roster,
-                pickers: latestBySection[.pickerScorecard] ?? []
-            )
-            if !filled.isEmpty { warehouse[.pph] = filled }
-        }
-        if (warehouse[.scheduleQuality] ?? []).filter({ $0.number("schedule_efficiency_pct") != nil }).count < 8 {
-            let filled = latestOrFacts(for: .scheduleQuality)
-            if filled.filter({ $0.number("schedule_efficiency_pct") != nil }).count
-                > (warehouse[.scheduleQuality] ?? []).filter({ $0.number("schedule_efficiency_pct") != nil }).count {
-                warehouse[.scheduleQuality] = filled
-            }
-        }
-        warehouse = HeartbeatMath.overlayDynacapPPH(warehouse)
-        if filters.isActive, let allowed = PulseCaches.allowedStores(roster: roster, filters: filters) {
-            let lost = scopedLostRevenue(allowed)
-            if !lost.isEmpty { warehouse[.lostRevenue] = lost }
-        } else {
-            let facts = PulseFacts.bundledMetricRows()
-            if !facts.isEmpty {
-                for section in [MetricSection.lostRevenue, .sales, .fiveStar, .scheduleQuality] {
-                    let existing = warehouse[section] ?? []
-                    let merged = PulseQuery.fillMissingRegions(
-                        existing: existing,
-                        facts: facts,
-                        section: section
-                    )
-                    if merged.count > existing.count {
-                        warehouse[section] = HeartbeatMath.applyRoster(merged, roster: roster)
-                    }
-                }
-            }
-        }
-        let paintedWarehouse = warehouse
+        let warehouse = latestBySection
         let rosterCopy = roster
         let current = filters
         let grain = effectiveDashboardGrain
         let uploadsCopy = uploads
-        let hidePicker = true
-        let paintPriority: TaskPriority = light ? .userInitiated : .utility
+        let rawRows = rows
+        let pickers = warehouse[.pickerScorecard] ?? []
+        let scopedLost: [MetricRow]? = {
+            guard current.isActive, let allowed = PulseCaches.allowedStores(roster: rosterCopy, filters: current) else {
+                return nil
+            }
+            let lost = scopedLostRevenue(allowed)
+            return lost.isEmpty ? nil : lost
+        }()
+        let needFacts = !current.isActive
+        let dest = visibleDestination
+        let paintPriority = PulseLaunch.warehousePaintPriority(
+            light: light,
+            hubReady: isReady && !needsRolePick
+        )
         let view = await Task.detached(priority: paintPriority) {
-            PulseQuery.paint(
-                warehouse: paintedWarehouse,
+            let facts = needFacts ? PulseFacts.bundledMetricRows() : []
+            let prepared = PulseQuery.prepareWarehouse(
+                warehouse: warehouse,
+                roster: rosterCopy,
+                filters: current,
+                rawRows: rawRows,
+                pickers: pickers,
+                bundledFacts: facts,
+                scopedLost: scopedLost
+            )
+            return PulseQuery.paint(
+                warehouse: prepared,
                 roster: rosterCopy,
                 filters: current,
                 grain: grain,
                 uploads: uploadsCopy,
-                hidePicker: hidePicker,
+                hidePicker: true,
                 light: light,
                 includePageOnly: false
             )
@@ -2838,14 +2826,15 @@ final class HeartbeatStore: ObservableObject {
             }
             cachedCardFlags = flags
         }
-        if let pickers = filteredLatest[.pickerScorecard], !pickers.isEmpty {
-            refreshSummary(for: .pickerScorecard, rows: pickers)
+        if PulseLaunch.shouldRebuildPPHIndexDuringPaint(dest: dest),
+           let livePickers = filteredLatest[.pickerScorecard], !livePickers.isEmpty {
+            refreshSummary(for: .pickerScorecard, rows: livePickers)
             cachedCardFlags[.pickerScorecard] = HeartbeatMath.dashboardActionFlags(
                 section: .pickerScorecard,
-                rows: pickers,
+                rows: livePickers,
                 includeAll: true
             )
-            rebuildPPHPickerIndex(scorecard: pickers)
+            rebuildPPHPickerIndex(scorecard: livePickers)
         }
         if !light {
             var tables = view.tables
@@ -2874,7 +2863,9 @@ final class HeartbeatStore: ObservableObject {
             rebuildLostIndex()
         }
         refreshFilterOptions()
-        refreshSalesExpandCache()
+        if !light {
+            refreshSalesExpandCache()
+        }
         if cachedGrainTables.values.allSatisfy(\.isEmpty) {
             fillExpandTablesSoon()
         }
@@ -4020,32 +4011,13 @@ final class HeartbeatStore: ObservableObject {
         var pickerCounts: [String: Int] = [:]
         var rows: [MetricSection: [MetricRow]] = [:]
         var rowTotals: [MetricSection: Int] = [:]
-        var sums = PulseMail.MailSums()
         for section in needed {
             let all = displayRows(for: section)
             rowTotals[section] = all.count
             rows[section] = PulseMail.pageRows(all, section: section)
-            if section == .sales {
-                for row in all where !row.storeNumber.isEmpty && row.textPayload["sales_grain"] != "company" {
-                    sums.salesDollars += row.number("sales_dollars") ?? 0
-                    sums.salesOrders += row.number("sales_orders") ?? 0
-                    sums.hdOrders += row.number("sales_hd_orders") ?? 0
-                    sums.dugOrders += row.number("sales_dug_orders") ?? 0
-                }
-            }
-            if section == .lostRevenue {
-                for row in all where !row.storeNumber.isEmpty {
-                    sums.ecommSales += row.number("ecomm_sales") ?? 0
-                    sums.postSub += row.number("post_sub_oos_foregone") ?? 0
-                }
-            }
         }
         if needed.contains(.pph) || needed.contains(.pickPath) || needed.contains(.pickerScorecard) {
-            for row in rows[.pph] ?? [] {
-                let key = HeartbeatMath.canonicalStore(row.storeNumber)
-                if key.isEmpty { continue }
-                pickerCounts[key] = pphPickerCount(forStore: key)
-            }
+            pickerCounts = pphPickerCounts()
         }
         var chrome: Set<MetricSection> = needed
         if pages.contains(.dashboard) {
@@ -4070,8 +4042,7 @@ final class HeartbeatStore: ObservableObject {
             generatedAt: Date(),
             rowTotals: rowTotals,
             grainTables: grainTables,
-            flags: flags,
-            sums: sums
+            flags: flags
         )
     }
 

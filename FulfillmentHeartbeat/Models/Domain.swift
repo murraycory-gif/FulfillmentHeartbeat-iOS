@@ -1422,7 +1422,7 @@ enum HeartbeatMath {
         if !storeNumber.isEmpty {
             let store = canonicalStore(storeNumber)
             if stores.contains(store) { return true }
-            return stores.contains { sameStore($0, store) }
+            return storeInAllowed(store, allowed: stores)
         }
         return values.contains { MarketRegion.matchesDivision(identity, $0) }
     }
@@ -1677,6 +1677,18 @@ enum HeartbeatMath {
 
     static func sameStore(_ lhs: String, _ rhs: String) -> Bool {
         !storeAliases(lhs).isDisjoint(with: storeAliases(rhs))
+    }
+
+    /// O(1). Canonical + zero-padded aliases. Does not allocate a Set or scan `allowed`.
+    static func storeInAllowed(_ raw: String, allowed: Set<String>) -> Bool {
+        let store = canonicalStore(raw)
+        if store.isEmpty { return false }
+        if allowed.contains(store) || allowed.contains(raw) { return true }
+        if let value = Int(store) {
+            if allowed.contains(String(format: "%04d", value)) { return true }
+            if allowed.contains(String(format: "%05d", value)) { return true }
+        }
+        return false
     }
 
     static let ignoredStores: Set<String> = ["210", "239"]

@@ -128,7 +128,12 @@ struct ScorecardPager: UIViewControllerRepresentable, Equatable {
         }
 
         func dehydrate(keeping dest: HubDestination) {
-            let keep = Set(neighbors(of: dest) + [dest])
+            let keep: Set<HubDestination>
+            if HubLayout.hydrateNeighbors || PulseLaunch.shouldKeepNeighborPagesHydrated() {
+                keep = Set(neighbors(of: dest) + [dest])
+            } else {
+                keep = [dest]
+            }
             for (key, host) in cache where host.hydrated && !keep.contains(key) {
                 host.rootView = Self.blank
                 host.hydrated = false
