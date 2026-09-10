@@ -1167,8 +1167,9 @@ struct SharePulseSheet: View {
         guard !building, !selected.isEmpty else { return }
         building = true
         let pages = selected
-        let snap = store.pulseMailSnapshot(pages)
         Task { @MainActor in
+            await Task.yield()
+            let snap = store.pulseMailSnapshot(pages)
             let built = await Task.detached(priority: .utility) {
                 PulseMail.make(snap, pages: pages)
             }.value

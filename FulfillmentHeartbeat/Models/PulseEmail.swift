@@ -8,6 +8,15 @@ enum PulseMail {
         let brief: String
     }
 
+    struct MailSums {
+        var salesDollars: Double = 0
+        var salesOrders: Double = 0
+        var hdOrders: Double = 0
+        var dugOrders: Double = 0
+        var ecommSales: Double = 0
+        var postSub: Double = 0
+    }
+
     struct Snapshot {
         var filterSummary: String
         var grain: String?
@@ -15,6 +24,10 @@ enum PulseMail {
         var rows: [MetricSection: [MetricRow]]
         var pickerCounts: [String: Int]
         var generatedAt: Date
+        var rowTotals: [MetricSection: Int] = [:]
+        var grainTables: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] = [:]
+        var flags: [MetricSection: [HeartbeatMath.FiveStarFlag]] = [:]
+        var sums = MailSums()
     }
 
     enum SharePage: String, CaseIterable, Identifiable, Hashable, Sendable {
@@ -94,9 +107,22 @@ enum PulseMail {
         .scheduleQuality, .pickerScorecard, .pph, .labor,
     ]
 
-    /// Keep mail HTML off the Jetsam cliff. Same columns as the page; first page of rows.
+    /// Keep mail HTML and the MainActor snapshot off the Jetsam cliff.
+    /// Same columns as the page; first page of rows.
     static let storeRowCap = 80
     static let grainRowCap = 40
+
+    /// Copy at most `storeRowCap` rows so Share never duplicates the warehouse.
+    static func cappedStoreRows(_ rows: [MetricRow], section: MetricSection) -> [MetricRow] {
+        if rows.count <= storeRowCap { return rows }
+        if section == .pickerScorecard || section == .preSubOOSItem || section == .pickPathPicker {
+            return Array(rows.prefix(storeRowCap))
+        }
+        let ranked = rows.indices.sorted {
+            HeartbeatFormat.storeOrder(rows[$0].storeNumber, rows[$1].storeNumber)
+        }
+        return ranked.prefix(storeRowCap).map { rows[$0] }
+    }
 
     static func make(_ snap: Snapshot, pages: Set<SharePage> = Set(SharePage.allCases)) -> Packet {
         let chosen = pages.isEmpty ? Set(SharePage.allCases) : pages
@@ -267,6 +293,9 @@ enum PulseMail {
     }
 
     private static func grainHTML(_ section: MetricSection, snap: Snapshot, grain: DashScopeGrain) -> String {
+        if let cached = snap.grainTables[section], !cached.isEmpty {
+            return grainTableHTML(cached, section: section, grain: grain)
+        }
         let rows = (snap.rows[section] ?? []).filter { $0.textPayload["sales_grain"] != "company" }
         let lines = HeartbeatMath.dashboardScopeLines(section: section, rows: rows, grain: grain)
             .filter { $0.label != "Unassigned" && !$0.label.isEmpty }
@@ -284,13 +313,22 @@ enum PulseMail {
             .filter { $0.label != "Unassigned" && !$0.label.isEmpty }
             .prefix(grainRowCap)
         )
-        guard !table.isEmpty else { return "" }
+        return grainTableHTML(table, section: section, grain: grain)
+    }
+
+    private static func grainTableHTML(
+        _ table: [HeartbeatMath.DashboardGrainTableRow],
+        section: MetricSection,
+        grain: DashScopeGrain
+    ) -> String {
+        let shown = Array(table.filter { $0.label != "Unassigned" && !$0.label.isEmpty }.prefix(grainRowCap))
+        guard !shown.isEmpty else { return "" }
         var headers = ["Scope"]
         if grain != .store { headers.append("Stores") }
         headers += HeartbeatMath.dashboardTableHeaders(section)
         headers.append("Status")
         var body = ""
-        for line in table {
+        for line in shown {
             let health = line.health == .none && line.storeCount > 0 ? Health.good : line.health
             var cells = "<td class=\"name\">\(esc(line.label))</td>"
             if grain != .store {
@@ -302,9 +340,9 @@ enum PulseMail {
             cells += "<td class=\"status\">\(pill(health))</td>"
             body += "<tr>\(cells)</tr>"
         }
-        let unit = table.count == 1 ? String(grain.unit.dropLast()) : grain.unit
+        let unit = shown.count == 1 ? String(grain.unit.dropLast()) : grain.unit
         return dataTable(
-            title: "\(grain.title) · \(table.count) \(unit)",
+            title: "\(grain.title) · \(shown.count) \(unit)",
             detail: "Same columns as the dashboard expand",
             headers: headers,
             body: body
@@ -361,6 +399,7 @@ enum PulseMail {
     }
 
     private static func dashboardFlagModels(_ section: MetricSection, snap: Snapshot) -> [HeartbeatMath.FiveStarFlag] {
+        if let cached = snap.flags[section], !cached.isEmpty { return cached }
         let rows = snap.rows[section] ?? []
         switch section {
         case .fiveStar: return HeartbeatMath.fiveStarActionFlags(rows)
@@ -388,9 +427,14 @@ enum PulseMail {
         let stores = snap.rows[section] ?? []
         let kpis = kpiTiles(section, summary: summary, rows: stores, snap: snap)
         let rollup = rollupTable(section, rows: stores, grain: snap.grain)
-        let table = storeTable(section, rows: stores, pickerCounts: snap.pickerCounts)
+        let table = storeTable(section, rows: stores, pickerCounts: snap.pickerCounts, total: snap.rowTotals[section])
         let items = section == .preSubOOS
-            ? storeTable(.preSubOOSItem, rows: snap.rows[.preSubOOSItem] ?? [], pickerCounts: [:])
+            ? storeTable(
+                .preSubOOSItem,
+                rows: snap.rows[.preSubOOSItem] ?? [],
+                pickerCounts: [:],
+                total: snap.rowTotals[.preSubOOSItem]
+            )
             : ""
         let window = stores.first { !($0.textPayload["data_window"] ?? "").isEmpty }?.textPayload["data_window"]
         return pageWrap(
@@ -473,41 +517,53 @@ enum PulseMail {
         """
     }
 
+    private static func flagStores(_ flags: [HeartbeatMath.FiveStarFlag], _ names: String...) -> Int? {
+        for name in names {
+            if let flag = flags.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) {
+                return flag.stores
+            }
+        }
+        return nil
+    }
+
     private static func kpiTiles(_ section: MetricSection, summary: SectionSummary?, rows: [MetricRow], snap: Snapshot) -> String {
         let scored = rows.filter { !$0.storeNumber.isEmpty }
+        let flags = snap.flags[section] ?? []
         var items: [String] = []
         switch section {
         case .sales:
-            let sales = scored.compactMap { $0.number("sales_dollars") }.reduce(0, +)
-            let orders = scored.compactMap { $0.number("sales_orders") }.reduce(0, +)
-            let hd = scored.compactMap { $0.number("sales_hd_orders") }.reduce(0, +)
-            let dug = scored.compactMap { $0.number("sales_dug_orders") }.reduce(0, +)
+            let useSums = (snap.rowTotals[.sales] ?? 0) > scored.count || snap.sums.salesDollars > 0
+            let sales = useSums ? snap.sums.salesDollars : scored.compactMap { $0.number("sales_dollars") }.reduce(0, +)
+            let orders = useSums ? snap.sums.salesOrders : scored.compactMap { $0.number("sales_orders") }.reduce(0, +)
+            let hd = useSums ? snap.sums.hdOrders : scored.compactMap { $0.number("sales_hd_orders") }.reduce(0, +)
+            let dug = useSums ? snap.sums.dugOrders : scored.compactMap { $0.number("sales_dug_orders") }.reduce(0, +)
             items = [
-                tile("eComm sales", HeartbeatFormat.money(scored.isEmpty ? nil : sales), "In this filter", summary?.health ?? .none),
+                tile("eComm sales", HeartbeatFormat.money(scored.isEmpty && !useSums ? nil : sales), "In this filter", summary?.health ?? .none),
                 tile("Orders", HeartbeatFormat.num(orders, digits: 0), "DUG + Home Delivery", .none, brand: true),
                 tile("AOV", HeartbeatFormat.money(orders > 0 ? sales / orders : nil), "Sales / orders", .none, brand: true),
                 tile("HD orders", HeartbeatFormat.num(hd, digits: 0), "Home Delivery", .none),
                 tile("DUG orders", HeartbeatFormat.num(dug, digits: 0), "Drive Up & Go", .none),
             ]
         case .lostRevenue:
-            let healthy = scored.filter { HeartbeatMath.lostRevenueHealth($0) == .good }.count
-            let watch = scored.filter { HeartbeatMath.lostRevenueHealth($0) == .watch }.count
-            let risk = scored.filter { HeartbeatMath.lostRevenueHealth($0) == .risk }.count
-            let sales = scored.compactMap { $0.number("ecomm_sales") }.reduce(0, +)
-            let post = scored.compactMap { $0.number("post_sub_oos_foregone") }.reduce(0, +)
+            let healthy = flagStores(flags, "Healthy") ?? scored.filter { HeartbeatMath.lostRevenueHealth($0) == .good }.count
+            let watch = flagStores(flags, "Watch") ?? scored.filter { HeartbeatMath.lostRevenueHealth($0) == .watch }.count
+            let risk = flagStores(flags, "At Risk") ?? scored.filter { HeartbeatMath.lostRevenueHealth($0) == .risk }.count
+            let useSums = (snap.rowTotals[.lostRevenue] ?? 0) > scored.count || snap.sums.ecommSales > 0
+            let sales = useSums ? snap.sums.ecommSales : scored.compactMap { $0.number("ecomm_sales") }.reduce(0, +)
+            let post = useSums ? snap.sums.postSub : scored.compactMap { $0.number("post_sub_oos_foregone") }.reduce(0, +)
             items = [
                 tile("Total lost revenue", summary?.headlineText ?? "—", "Total Opportunity", summary?.health ?? .none),
                 tile("Healthy", HeartbeatFormat.num(Double(healthy)), "3% or better", .good),
                 tile("Watch", HeartbeatFormat.num(Double(watch)), "3.01% to 5%", watch == 0 ? .good : .watch),
                 tile("At Risk", HeartbeatFormat.num(Double(risk)), "Stores over 5%", risk == 0 ? .good : .risk),
                 tile("Lost revenue %", HeartbeatFormat.pct(summary?.lostRevenuePct), "Total Opportunity", summary?.health ?? .none),
-                tile("eComm sales", HeartbeatFormat.money(scored.isEmpty ? nil : sales), "In this filter", .none, brand: true),
-                tile("Post Sub OOS", HeartbeatFormat.money(scored.isEmpty ? nil : post), "Foregone revenue", .none),
+                tile("eComm sales", HeartbeatFormat.money(scored.isEmpty && !useSums ? nil : sales), "In this filter", .none, brand: true),
+                tile("Post Sub OOS", HeartbeatFormat.money(scored.isEmpty && !useSums ? nil : post), "Foregone revenue", .none),
             ]
         case .missingItems:
-            let healthy = scored.filter { HeartbeatMath.missingItemsHealth($0) == .good }.count
-            let watch = scored.filter { HeartbeatMath.missingItemsHealth($0) == .watch }.count
-            let risk = scored.filter { HeartbeatMath.missingItemsHealth($0) == .risk }.count
+            let healthy = flagStores(flags, "Healthy") ?? scored.filter { HeartbeatMath.missingItemsHealth($0) == .good }.count
+            let watch = flagStores(flags, "Watch") ?? scored.filter { HeartbeatMath.missingItemsHealth($0) == .watch }.count
+            let risk = flagStores(flags, "At Risk") ?? scored.filter { HeartbeatMath.missingItemsHealth($0) == .risk }.count
             items = [
                 tile("Avg missing items", summary?.headlineText ?? "—", "5% healthy · 5.01–6.50% watch · over 6.50% at risk", summary?.health ?? .none),
                 tile("Healthy", HeartbeatFormat.num(Double(healthy)), "5% or less", .good),
@@ -518,9 +574,9 @@ enum PulseMail {
                 tile("At risk band", "> 6.50%", "Items without an aisle tag", .risk),
             ]
         case .preSubOOS:
-            let healthy = scored.filter { HeartbeatMath.missingItemsHealth($0) == .good }.count
-            let watch = scored.filter { HeartbeatMath.missingItemsHealth($0) == .watch }.count
-            let risk = scored.filter { HeartbeatMath.missingItemsHealth($0) == .risk }.count
+            let healthy = flagStores(flags, "Healthy") ?? scored.filter { HeartbeatMath.missingItemsHealth($0) == .good }.count
+            let watch = flagStores(flags, "Watch") ?? scored.filter { HeartbeatMath.missingItemsHealth($0) == .watch }.count
+            let risk = flagStores(flags, "At Risk") ?? scored.filter { HeartbeatMath.missingItemsHealth($0) == .risk }.count
             items = [
                 tile("Avg Pre-Sub OOS", summary?.headlineText ?? "—", "5% healthy · 5.01–6.50% watch · over 6.50% at risk", summary?.health ?? .none),
                 tile("Healthy", HeartbeatFormat.num(Double(healthy)), "5% or less", .good),
@@ -704,7 +760,12 @@ enum PulseMail {
         return out
     }
 
-    private static func storeTable(_ section: MetricSection, rows: [MetricRow], pickerCounts: [String: Int]) -> String {
+    private static func storeTable(
+        _ section: MetricSection,
+        rows: [MetricRow],
+        pickerCounts: [String: Int],
+        total: Int? = nil
+    ) -> String {
         let title: String
         switch section {
         case .pickerScorecard: title = "Shopper"
@@ -738,17 +799,18 @@ enum PulseMail {
             }
             body += "<tr><td class=\"name\">\(esc(label))</td>\(storeCells(section, row: row, pickerCount: pickerCounts[HeartbeatMath.canonicalStore(row.storeNumber)] ?? 0, health: health))</tr>"
         }
+        let reported = max(total ?? 0, ordered.count)
         let unit: String
         switch section {
-        case .pickerScorecard: unit = ordered.count == 1 ? "shopper" : "shoppers"
-        case .preSubOOSItem: unit = ordered.count == 1 ? "item" : "items"
-        default: unit = ordered.count == 1 ? "store" : "stores"
+        case .pickerScorecard: unit = reported == 1 ? "shopper" : "shoppers"
+        case .preSubOOSItem: unit = reported == 1 ? "item" : "items"
+        default: unit = reported == 1 ? "store" : "stores"
         }
         let detail: String
-        if shown.count < ordered.count {
-            detail = "\(HeartbeatFormat.num(Double(shown.count))) of \(HeartbeatFormat.num(Double(ordered.count))) \(unit) · same columns as the page"
+        if shown.count < reported {
+            detail = "\(HeartbeatFormat.num(Double(shown.count))) of \(HeartbeatFormat.num(Double(reported))) \(unit) · same columns as the page"
         } else {
-            detail = "\(HeartbeatFormat.num(Double(ordered.count))) \(unit) · every column from the page"
+            detail = "\(HeartbeatFormat.num(Double(reported))) \(unit) · every column from the page"
         }
         return dataTable(
             title: title,
@@ -1088,12 +1150,12 @@ enum PulseMail {
             for card in snap.summaries {
                 lines.append("\(card.section.title): \(card.headlineText) · \(card.health.label) · \(riskLine(card.section, card))")
                 let grain = dashGrain(snap)
-                let grainRows = HeartbeatMath.dashboardGrainTable(
+                let grainRows = Array((snap.grainTables[card.section] ?? HeartbeatMath.dashboardGrainTable(
                     section: card.section,
                     rows: snap.rows[card.section] ?? [],
                     grain: grain,
                     order: []
-                )
+                )).prefix(grainRowCap))
                 if !grainRows.isEmpty {
                     lines.append(HeartbeatMath.dashboardTableHeaders(card.section).joined(separator: " | "))
                     for line in grainRows {

@@ -1787,6 +1787,14 @@ final class HeartbeatMathTests: XCTestCase {
             payload: ["lost_revenue_goal_pct": 3.1, "ecomm_sales": 10_000, "lost_revenue_goal": 250]
         )
         XCTAssertEqual(HeartbeatMath.lostRevenueGoalPct(withPct) ?? 0, 3.1, accuracy: 0.01)
+        let alias = MetricRow(
+            section: .lostRevenue,
+            division: "NorCal",
+            operationsOM: "A",
+            storeNumber: "304",
+            payload: ["goal_pct": 2.8, "ecomm_sales": 10_000]
+        )
+        XCTAssertEqual(HeartbeatMath.lostRevenueGoalPct(alias) ?? 0, 2.8, accuracy: 0.01)
     }
 
     func testTableLabelWidthFitsRegionNamesAndEvenValues() {
@@ -1799,6 +1807,32 @@ final class HeartbeatMathTests: XCTestCase {
             HubLayout.evenValueWidth(available: 400, phone: true, columns: 8, showCount: true),
             HubLayout.readableValueMin(phone: true)
         )
+    }
+
+    func testShareCapsWarehouseRowsBeforeHTML() {
+        let rows = (1...200).map { n in
+            MetricRow(
+                section: .pickPath,
+                division: "NorCal",
+                operationsOM: "A",
+                storeNumber: String(n),
+                payload: ["compliance_pct": 90]
+            )
+        }
+        let capped = PulseMail.cappedStoreRows(rows, section: .pickPath)
+        XCTAssertEqual(capped.count, PulseMail.storeRowCap)
+        XCTAssertEqual(capped.first?.storeNumber, "1")
+        let shoppers = (1...200).map { n in
+            MetricRow(
+                section: .pickerScorecard,
+                division: "NorCal",
+                operationsOM: "A",
+                storeNumber: "304",
+                payload: ["pph": 80],
+                textPayload: ["shopper_name": "Shopper \(n)"]
+            )
+        }
+        XCTAssertEqual(PulseMail.cappedStoreRows(shoppers, section: .pickerScorecard).count, 80)
     }
 
     func testShareEmailCapsStoreRowsSoMailDoesNotJetsam() {
@@ -1823,6 +1857,19 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(packet.html.contains("80 of 120"), packet.html)
         XCTAssertTrue(packet.html.contains("Pick Path"))
         XCTAssertFalse(packet.html.contains("120 |"))
+        let alreadyCapped = PulseMail.cappedStoreRows(rows, section: .pickPath)
+        let cappedSnap = PulseMail.Snapshot(
+            filterSummary: "Company",
+            grain: "region",
+            summaries: [],
+            rows: [.pickPath: alreadyCapped],
+            pickerCounts: [:],
+            generatedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            rowTotals: [.pickPath: 120]
+        )
+        let cappedPacket = PulseMail.make(cappedSnap, pages: [.pickPath])
+        XCTAssertTrue(cappedPacket.html.contains("80 of 120"), cappedPacket.html)
+        XCTAssertEqual(alreadyCapped.count, 80)
     }
 
     func testUsablePackFileRejectsTinyStubs() {

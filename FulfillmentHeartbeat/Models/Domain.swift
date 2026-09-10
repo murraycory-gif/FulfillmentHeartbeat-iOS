@@ -2677,10 +2677,24 @@ enum HeartbeatMath {
 
     /// FY goal % from the pack, or goal $ / eComm sales when the sheet only shipped dollars.
     static func lostRevenueGoalPct(_ row: MetricRow) -> Double? {
-        if let pct = row.number("lost_revenue_goal_pct") { return pct }
-        guard let dollars = row.number("lost_revenue_goal"), let sales = row.number("ecomm_sales"), sales > 0 else {
-            return nil
+        if let pct = row.number(
+            "lost_revenue_goal_pct",
+            "goal_pct",
+            "fy2026_goal_pct",
+            "fy_goal_pct",
+            "lost_revenue_fy_goal_pct"
+        ) {
+            return pct
         }
+        let dollars = row.number(
+            "lost_revenue_goal",
+            "goal",
+            "fy2026_goal",
+            "fy_goal",
+            "lost_revenue_fy_goal"
+        )
+        let sales = row.number("ecomm_sales", "sales_dollars")
+        guard let dollars, let sales, sales > 0 else { return nil }
         return dollars / sales * 100
     }
 

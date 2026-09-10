@@ -479,5 +479,17 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertEqual(market.payload["ecomm_sales"] ?? 0, 46077144.47, accuracy: 0.01)
         XCTAssertFalse(rows.contains { $0.storeNumber == "378" })
     }
+
+    func testLostRevenueGoalMapsBareGoalHeaders() throws {
+        let csv = """
+        Store,eComm Sales,Total Lost Revenue (Total Opportunity),Goal %,FY2026 Goal
+        2218,10000,400,0.03,250
+        """
+        let rows = try WorkbookParser.parse(data: Data(csv.utf8), filename: "Breakdown Week 25.xlsx")
+        let store = try XCTUnwrap(rows.first { $0.storeNumber == "2218" })
+        XCTAssertEqual(store.payload["lost_revenue_goal_pct"] ?? 0, 3.0, accuracy: 0.01)
+        XCTAssertEqual(store.payload["lost_revenue_goal"] ?? 0, 250, accuracy: 0.01)
+        XCTAssertEqual(HeartbeatMath.lostRevenueGoalPct(store.asRow(section: .lostRevenue)) ?? 0, 3.0, accuracy: 0.01)
+    }
 }
 

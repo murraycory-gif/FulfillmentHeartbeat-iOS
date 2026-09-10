@@ -3631,17 +3631,44 @@ final class HeartbeatStore: ObservableObject {
             if let section = page.section { needed.insert(section) }
         }
         if pages.contains(.preSubOOS) { needed.insert(.preSubOOSItem) }
-        if pages.contains(.pickPath) || pages.contains(.dashboard) { needed.insert(.pickPathPicker) }
         var pickerCounts: [String: Int] = [:]
+        var rows: [MetricSection: [MetricRow]] = [:]
+        var rowTotals: [MetricSection: Int] = [:]
+        var sums = PulseMail.MailSums()
+        for section in needed {
+            let all = displayRows(for: section)
+            rowTotals[section] = all.count
+            rows[section] = PulseMail.cappedStoreRows(all, section: section)
+            if section == .sales {
+                for row in all where !row.storeNumber.isEmpty && row.textPayload["sales_grain"] != "company" {
+                    sums.salesDollars += row.number("sales_dollars") ?? 0
+                    sums.salesOrders += row.number("sales_orders") ?? 0
+                    sums.hdOrders += row.number("sales_hd_orders") ?? 0
+                    sums.dugOrders += row.number("sales_dug_orders") ?? 0
+                }
+            }
+            if section == .lostRevenue {
+                for row in all where !row.storeNumber.isEmpty {
+                    sums.ecommSales += row.number("ecomm_sales") ?? 0
+                    sums.postSub += row.number("post_sub_oos_foregone") ?? 0
+                }
+            }
+        }
         if needed.contains(.pph) {
-            for row in displayRows(for: .pph) {
+            for row in rows[.pph] ?? [] {
                 let key = HeartbeatMath.canonicalStore(row.storeNumber)
                 pickerCounts[key] = pphPickerCount(forStore: key)
             }
         }
-        var rows: [MetricSection: [MetricRow]] = [:]
+        var grainTables: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] = [:]
+        var flags: [MetricSection: [HeartbeatMath.FiveStarFlag]] = [:]
         for section in needed {
-            rows[section] = displayRows(for: section)
+            if let table = cachedGrainTables[section], !table.isEmpty {
+                grainTables[section] = Array(table.prefix(PulseMail.grainRowCap))
+            }
+            if let card = cachedCardFlags[section], !card.isEmpty {
+                flags[section] = card
+            }
         }
         return PulseMail.Snapshot(
             filterSummary: filters.summary,
@@ -3649,7 +3676,11 @@ final class HeartbeatStore: ObservableObject {
             summaries: pages.contains(.dashboard) ? summaries : summaries.filter { needed.contains($0.section) },
             rows: rows,
             pickerCounts: pickerCounts,
-            generatedAt: Date()
+            generatedAt: Date(),
+            rowTotals: rowTotals,
+            grainTables: grainTables,
+            flags: flags,
+            sums: sums
         )
     }
 

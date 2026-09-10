@@ -491,7 +491,7 @@ struct DashScopeStrip: View {
                 OverviewMetricAlignedTable(
                     title: grain.title,
                     headers: HeartbeatMath.dashboardTableHeaders(section),
-                    rows: store.dashboardGrainRows(for: section),
+                    rows: Array(store.dashboardGrainRows(for: section).prefix(40)),
                     showCount: grain != .store
                 )
             }

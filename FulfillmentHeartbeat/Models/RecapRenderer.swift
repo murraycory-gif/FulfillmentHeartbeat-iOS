@@ -36,6 +36,9 @@ enum RecapRenderer {
             if images.isEmpty, let fallback = await snapshot(web) {
                 images = [fallback]
             }
+            if images.count > 8 {
+                images = Array(images.prefix(8))
+            }
             return RecapMedia(images: images)
         } catch {
             if let fallback = await snapshot(web) {
@@ -54,7 +57,7 @@ enum RecapRenderer {
         var images: [UIImage] = []
         images.reserveCapacity(rects.count)
         for rect in rects {
-            let height = min(max(rect.height + 8, 240), 8_000)
+            let height = min(max(rect.height + 8, 240), 2_400)
             web.frame = CGRect(x: 0, y: 0, width: width, height: height)
             host.frame.size = CGSize(width: width, height: height)
             web.scrollView.contentOffset = CGPoint(x: 0, y: max(rect.y - 4, 0))
@@ -75,7 +78,8 @@ enum RecapRenderer {
         host.frame.size = CGSize(width: width, height: slice)
         var images: [UIImage] = []
         var offset: CGFloat = 0
-        while offset < height - 8 {
+        let cappedHeight = min(height, 7_200)
+        while offset < cappedHeight - 8 && images.count < 8 {
             web.scrollView.contentOffset = CGPoint(x: 0, y: offset)
             try? await Task.sleep(nanoseconds: 30_000_000)
             let config = WKSnapshotConfiguration()

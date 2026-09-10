@@ -96,7 +96,7 @@ Install TestFlight from the App Store on your iPad.
 Open the invite email (or tap the TestFlight link I sent).
 Accept, then Install Heartbeat.
 The Heartbeat pack on the device fills Dashboard. There is no Upload page.
-Top-right stamp should read HB-0828.330  1.0 (652) after this build.
+Top-right stamp should read HB-0828.331  1.0 (653) after this build.
 Tell me that stamp if something looks old.
 ```
 
