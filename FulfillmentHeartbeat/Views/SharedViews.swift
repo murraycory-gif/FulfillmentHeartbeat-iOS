@@ -9336,8 +9336,8 @@ struct PickerScoreTable: View {
     }
 
     private func rebuildPage() {
-        guard !PulseLaunch.shouldSkipCollapsedStoreRebuild(expanded: headerPin.storesExpanded) else { return }
         headerPin.storeCount = total
+        guard !PulseLaunch.shouldSkipCollapsedStoreRebuild(expanded: headerPin.storesExpanded) else { return }
         snaps = store.pickerPage(focus: focus, sort: sort.sort, ascending: ascending, limit: limit).map {
             PickerLineSnap($0, division: place(for: $0))
         }

@@ -15,17 +15,7 @@ struct RoleGateView: View {
         ZStack {
             AppTheme.bg.ignoresSafeArea()
             if store.warehouseHydrating, PulseLaunch.shouldHoldSeatPickerUntilWarehouseReady() {
-                VStack(spacing: 0) {
-                    seatHeader
-                        .padding(.horizontal, phone ? 20 : 36)
-                        .padding(.top, phone ? 20 : 36)
-                        .frame(maxWidth: 760, alignment: .leading)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    Spacer(minLength: 12)
-                    SeatLoadPanel(progress: store.importProgress)
-                    Spacer(minLength: 24)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                SeatLoadStage(progress: store.importProgress)
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: phone ? 22 : 28) {
@@ -58,18 +48,7 @@ struct RoleGateView: View {
 
     private var seatHeader: some View {
         VStack(alignment: .leading, spacing: 12) {
-            let halloween = PulseLaunch.shouldMountSeatLoadHalloween(
-                warehouseHydrating: store.warehouseHydrating
-            )
-            ZStack(alignment: .leading) {
-                BeatingHeartbeatMark(height: phone ? 40 : 56, showsTrace: true, forceTrace: true)
-                    .padding(.vertical, halloween ? 18 : 0)
-                if halloween {
-                    HalloweenSeatParade()
-                        .frame(height: phone ? 76 : 92)
-                        .accessibilityHidden(true)
-                }
-            }
+            BeatingHeartbeatMark(height: phone ? 40 : 56, showsTrace: true, forceTrace: true)
             Text("Who’s looking?")
                 .font(phone ? .largeTitle.weight(.bold) : .largeTitle.weight(.bold))
                 .foregroundStyle(AppTheme.text)
@@ -514,54 +493,59 @@ private struct FlexibleChipWrap: View {
     }
 }
 
-private struct SeatLoadPanel: View {
+/// Centered Fulfillment mark. Parade jumps the progress line. Copy sits under that.
+/// Hydrating-only — unmounts when seats unlock. No Lottie / video / GIF.
+private struct SeatLoadStage: View {
     @ObservedObject var progress: ImportProgress
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var quipIndex = 0
 
     var body: some View {
         let phone = HubLayout.isPhone(sizeClass)
-        VStack(spacing: phone ? 16 : 20) {
-            ProgressView()
-                .controlSize(.regular)
-                .tint(AppTheme.blue)
-            Text(PulseLaunch.seatLoadTitle)
-                .font((phone ? Font.title3 : Font.title2).weight(.bold))
-                .foregroundStyle(AppTheme.text)
-                .multilineTextAlignment(.center)
-            Text(PulseLaunch.seatLoadQuip(at: quipIndex))
-                .font(phone ? .body : .title3)
-                .foregroundStyle(AppTheme.textSecondary)
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .minimumScaleFactor(0.8)
-            ProgressView(value: progress.fraction, total: 1)
-                .tint(AppTheme.blue)
-                .frame(maxWidth: phone ? 240 : 320)
-            Text(PulseLaunch.seatLoadDirective)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(AppTheme.blue)
-                .multilineTextAlignment(.center)
-                .fixedSize(horizontal: false, vertical: true)
+        let halloween = PulseLaunch.shouldMountSeatLoadHalloween(warehouseHydrating: true)
+        VStack(spacing: 0) {
+            Spacer(minLength: 16)
+            BeatingHeartbeatMark(height: phone ? 56 : 72, showsTrace: true, forceTrace: true)
+                .frame(maxWidth: .infinity)
+            VStack(spacing: phone ? 14 : 18) {
+                ZStack {
+                    ProgressView(value: progress.fraction, total: 1)
+                        .tint(AppTheme.blue)
+                        .frame(maxWidth: phone ? 260 : 340)
+                    if halloween {
+                        HalloweenSeatParade(jumpAnchor: 0.50)
+                            .frame(height: phone ? 76 : 88)
+                            .accessibilityHidden(true)
+                    }
+                }
+                .frame(height: halloween ? (phone ? 80 : 92) : 16)
+                Text(PulseLaunch.seatLoadTitle)
+                    .font((phone ? Font.title3 : Font.title2).weight(.bold))
+                    .foregroundStyle(AppTheme.text)
+                    .multilineTextAlignment(.center)
+                Text(PulseLaunch.seatLoadQuip(at: quipIndex))
+                    .font(phone ? .body : .title3)
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
+                Text(PulseLaunch.seatLoadDirective)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(AppTheme.blue)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(.top, phone ? 18 : 24)
+            .padding(.horizontal, phone ? 24 : 36)
+            Spacer(minLength: 24)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             quipIndex = Int.random(in: 0..<max(PulseLaunch.aisleQuips.count, 1))
         }
         .onReceive(Timer.publish(every: 2.2, on: .main, in: .common).autoconnect()) { _ in
             quipIndex += 1
         }
-        .padding(.horizontal, phone ? 24 : 36)
-        .padding(.vertical, phone ? 28 : 36)
-        .frame(maxWidth: 420)
-        .background(
-            RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                .fill(AppTheme.card)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
-                .stroke(AppTheme.blue.opacity(0.18), lineWidth: 1.5)
-        )
-        .frame(maxWidth: .infinity)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(PulseLaunch.seatLoadTitle). \(PulseLaunch.seatLoadQuip(at: quipIndex)). \(PulseLaunch.seatLoadDirective)")
     }
@@ -570,8 +554,8 @@ private struct SeatLoadPanel: View {
 /// Seat-load only. Canvas shapes + emoji offsets — no Lottie, video, or GIF.
 /// Runners chase across the Fulfillment mark and jump at the heart. Unmount stops it.
 private struct HalloweenSeatParade: View {
-    /// Heart sits on the right of the wordmark + heart row.
-    private let heartAnchor: CGFloat = 0.72
+    /// Jump when a runner crosses this fraction of the track (progress line / heart).
+    var jumpAnchor: CGFloat = 0.50
 
     private enum Kind {
         case pumpkin
@@ -605,7 +589,7 @@ private struct HalloweenSeatParade: View {
             let t = timeline.date.timeIntervalSinceReferenceDate
             Canvas { context, size in
                 let width = max(size.width, 1)
-                let heartX = width * heartAnchor
+                let heartX = width * jumpAnchor
                 let track = width + 72
                 let ground = size.height * 0.62
                 for runner in pack {

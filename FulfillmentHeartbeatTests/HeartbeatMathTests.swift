@@ -1968,6 +1968,12 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseLaunch.shouldSkipCollapsedStoreRebuild(expanded: false))
         XCTAssertFalse(PulseLaunch.shouldSkipCollapsedStoreRebuild(expanded: true))
         XCTAssertFalse(PulseLaunch.shouldStartPickerStreamOnDestinationSwitch())
+        XCTAssertFalse(PulseLaunch.shouldStreamCompanyPickerForSeatFirstPaint())
+        XCTAssertTrue(PulseLaunch.shouldLoadSeatPickerOnPageOpen(filtersActive: true))
+        XCTAssertFalse(PulseLaunch.shouldLoadSeatPickerOnPageOpen(filtersActive: false))
+        XCTAssertEqual(PulseLaunch.pickerPageFirstPaint(filtersActive: true), .seatReadStores)
+        XCTAssertEqual(PulseLaunch.pickerPageFirstPaint(filtersActive: false), .companyStream)
+        XCTAssertTrue(PulseLaunch.shouldPublishPickerSeatFirstPaint())
         XCTAssertTrue(PulseLaunch.shouldPlaySeatLoadHalloween())
         XCTAssertTrue(PulseLaunch.shouldHoldSeatPickerUntilWarehouseReady())
         XCTAssertTrue(PulseLaunch.shouldMountSeatLoadHalloween(warehouseHydrating: true))
@@ -2006,6 +2012,99 @@ final class HeartbeatMathTests: XCTestCase {
             try? await Task.sleep(nanoseconds: 1_000_000)
         }
         XCTAssertFalse(completed, "finished warehouse must not report timeout")
+    }
+
+    func testDistrict03PickerSeatFirstPaintBeatsCompanyChunk() {
+        XCTAssertEqual(PulseLaunch.pickerPageFirstPaint(filtersActive: true), .seatReadStores)
+        XCTAssertFalse(PulseLaunch.shouldStreamCompanyPickerForSeatFirstPaint())
+        XCTAssertFalse(PulseLaunch.shouldStartPickerStreamOnDestinationSwitch())
+        XCTAssertFalse(PulseLaunch.shouldStreamPickerOnDashboard())
+        XCTAssertFalse(PulseLaunch.shouldInvalidateHubOnBackgroundFill())
+        XCTAssertTrue(PulseLaunch.shouldKeepDashboardHostWarm())
+        XCTAssertTrue(PulseLaunch.shouldKeepVisitedScorecardHostsWarm())
+
+        let districtStores = (1...20).map { String($0) }
+        var roster: [String: HeartbeatMath.StoreIdentity] = [:]
+        for store in districtStores {
+            roster[store] = HeartbeatMath.StoreIdentity(
+                division: "NorCal", district: "03", om: "Jino Arvin", name: store
+            )
+        }
+        roster["9001"] = HeartbeatMath.StoreIdentity(
+            division: "Jewel Osco", district: "J1", om: "Shelly Selof", name: "9001"
+        )
+        func shopper(_ store: String, _ id: String) -> MetricRow {
+            MetricRow(
+                section: .pickerScorecard,
+                division: roster[store]?.division ?? "",
+                operationsOM: roster[store]?.om ?? "",
+                storeNumber: store,
+                storeName: roster[store]?.name,
+                payload: ["pph": 82, "orders": 24],
+                textPayload: [
+                    "shopper_id": id,
+                    "shopper_name": id,
+                    "district": roster[store]?.district ?? "",
+                ]
+            )
+        }
+        let companyFirstChunk = (1...80).map { shopper("9001", "OUT-\($0)") }
+        let seatShoppers = districtStores.flatMap { store in
+            [shopper(store, "\(store)-A"), shopper(store, "\(store)-B")]
+        }
+        var district = DashboardFilters()
+        district.district = "03"
+        let allowed = PulseCaches.allowedStores(roster: roster, filters: district)
+        XCTAssertEqual(allowed?.count, 20)
+
+        let fromCompanyChunk = PulseLaunch.pickerSeatRows(
+            filtered: [],
+            warehouse: companyFirstChunk,
+            allowed: allowed,
+            filters: district,
+            roster: roster
+        )
+        XCTAssertTrue(fromCompanyChunk.isEmpty, "company first chunk misses District 03")
+        XCTAssertTrue(
+            PulseLaunch.pickerExpandTable(
+                seatRows: fromCompanyChunk,
+                chrome: nil,
+                filters: district,
+                grain: .store
+            ).isEmpty
+        )
+
+        let fromSeatStores = PulseLaunch.pickerSeatRows(
+            filtered: [],
+            warehouse: seatShoppers,
+            allowed: allowed,
+            filters: district,
+            roster: roster
+        )
+        XCTAssertEqual(fromSeatStores.count, 40)
+        let card = HeartbeatMath.summarize(.pickerScorecard, rows: fromSeatStores, upload: nil)
+        XCTAssertGreaterThan(card.headline ?? 0, 0, "District 03 Picker headline must not stay 0")
+        let pinned = PulseLaunch.pinSeatStoreCount(card, seatStores: 20)
+        XCTAssertEqual(pinned.storeCount, 20)
+        let table = PulseLaunch.pickerExpandTable(
+            seatRows: fromSeatStores,
+            chrome: nil,
+            filters: district,
+            grain: .store
+        )
+        XCTAssertTrue(HeartbeatMath.grainRowsAreLive(table), "Stores footer must be live")
+        XCTAssertEqual(table.count, 20)
+        XCTAssertTrue(
+            PulseLaunch.dashboardExpandIsLive(
+                section: .pickerScorecard,
+                salesRows: [],
+                grainRows: table,
+                pickerFacts: fromSeatStores.count
+            )
+        )
+        XCTAssertFalse(
+            table.contains { MarketRegion.allCases.map(\.rawValue).contains($0.label) }
+        )
     }
 
     @MainActor

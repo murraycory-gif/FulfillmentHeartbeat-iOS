@@ -3062,6 +3062,9 @@ final class HeartbeatStore: ObservableObject {
             }
             await self.paintFromWarehouse(light: true, generation: generation, filterPaint: true)
             guard self.acceptPaint(generation) else { return }
+            if self.filters.isActive {
+                await self.loadFilteredPickerExpandIfNeeded()
+            }
             self.refreshFilterOptions()
             if PulseLaunch.shouldRefreshPickersAfterFilter(dest: self.visibleDestination) {
                 if PulseLaunch.shouldRefreshPageOnly(pageVisible: self.visibleDestination == .pickerScorecard) {
@@ -4257,13 +4260,15 @@ final class HeartbeatStore: ObservableObject {
         if filters.isActive {
             if !latest.isEmpty {
                 filteredLatest[.pickerScorecard] = latest
-                upsertPickerSummary(
-                    HeartbeatMath.summarize(
-                        .pickerScorecard,
-                        rows: latest,
-                        upload: upload(for: .pickerScorecard)
-                    )
+                var painted = HeartbeatMath.summarize(
+                    .pickerScorecard,
+                    rows: latest,
+                    upload: upload(for: .pickerScorecard)
                 )
+                if let seat = allowed?.count, seat > 0 {
+                    painted = PulseLaunch.pinSeatStoreCount(painted, seatStores: seat)
+                }
+                upsertPickerSummary(painted)
                 cachedCardFlags[.pickerScorecard] = HeartbeatMath.dashboardActionFlags(
                     section: .pickerScorecard,
                     rows: latest,
@@ -4400,6 +4405,8 @@ final class HeartbeatStore: ObservableObject {
         }
         let allowed = pickerStoreSet() ?? []
         guard filters.isActive, !allowed.isEmpty, PulseSQLite.exists(at: sqliteURL) else { return }
+        let wasEmpty = (filteredLatest[.pickerScorecard] ?? []).isEmpty
+        if wasEmpty { pickerLoading = true }
         let url = sqliteURL
         let stores = allowed
         let rosterCopy = roster
@@ -4407,6 +4414,7 @@ final class HeartbeatStore: ObservableObject {
             let raw = PulseSQLite.readStores(from: url, sections: [.pickerScorecard], stores: stores)
             return HeartbeatMath.applyRoster(HeartbeatMath.latestPerShopper(raw), roster: rosterCopy)
         }.value
+        if wasEmpty { pickerLoading = false }
         guard !rows.isEmpty else { return }
         filteredLatest[.pickerScorecard] = rows
         latestBySection[.pickerScorecard] = PulseLaunch.mergePickerRows(
@@ -4414,8 +4422,8 @@ final class HeartbeatStore: ObservableObject {
             incoming: rows
         )
         lockPickerDashboard()
-        if HeartbeatMath.grainRowsAreLive(cachedGrainTables[.pickerScorecard] ?? []) {
-            acknowledgeBackgroundFill(stampIfAllowed: PulseLaunch.shouldStampHubWhenExpandCacheFills())
+        if PulseLaunch.shouldPublishPickerSeatFirstPaint() {
+            objectWillChange.send()
         }
     }
 
@@ -4689,6 +4697,13 @@ final class HeartbeatStore: ObservableObject {
 
     func ensureSectionLoaded(_ section: MetricSection) async {
         if section == .pickerScorecard {
+            if PulseLaunch.pickerPageFirstPaint(filtersActive: filters.isActive) == .seatReadStores {
+                await loadFilteredPickerExpandIfNeeded()
+                if PulseLaunch.shouldStreamCompanyPickerForSeatFirstPaint() {
+                    await streamPicker(preferSnappy: isReady)
+                }
+                return
+            }
             await streamPicker(preferSnappy: isReady)
             return
         }

@@ -290,6 +290,28 @@ enum PulseLaunch {
     /// Picker SQL must not start on the sidebar tap turn.
     static func shouldStartPickerStreamOnDestinationSwitch() -> Bool { false }
 
+    /// Seat page-open first paint is `readStores(allowed)`, not company `streamPicker`.
+    static func shouldLoadSeatPickerOnPageOpen(filtersActive: Bool) -> Bool { filtersActive }
+
+    /// Company chunk stream must not be the District first paint (often 0 shoppers).
+    static func shouldStreamCompanyPickerForSeatFirstPaint() -> Bool { false }
+
+    enum PickerPageFirstPaint: Equatable {
+        case seatReadStores
+        case companyStream
+    }
+
+    static func pickerPageFirstPaint(filtersActive: Bool) -> PickerPageFirstPaint {
+        if shouldLoadSeatPickerOnPageOpen(filtersActive: filtersActive),
+           !shouldStreamCompanyPickerForSeatFirstPaint() {
+            return .seatReadStores
+        }
+        return .companyStream
+    }
+
+    /// One EnvironmentObject ping when seat shoppers land. Not `filterStamp`.
+    static func shouldPublishPickerSeatFirstPaint() -> Bool { true }
+
     /// Lightweight Halloween parade on Who's looking load only. Flip off after the season.
     static func shouldPlaySeatLoadHalloween() -> Bool { true }
 
@@ -595,24 +617,24 @@ enum PulseLaunch {
     static func shouldLockPagerScrollDirection() -> Bool { true }
 
     static let aisleQuips: [String] = [
-        "Counting the bananas…",
-        "Herding the avocados…",
-        "Checking the ice cream aisle…",
-        "Weighing the grapes…",
-        "Finding the last rotisserie chicken…",
-        "Scanning the frozen pizza…",
-        "Bagging the kale — carefully…",
-        "Chasing a runaway lime…",
-        "Restocking the oat milk…",
-        "Asking produce for a second opinion…",
-        "Warming up the baguettes…",
-        "Corralling the rotisserie tickets…",
-        "Putting the pickles back in the jar…",
-        "Slicing the deli line a little thinner…",
-        "Making sure the blueberries stay in the box…"
+        "The ice cream just made a run for it…",
+        "A pumpkin cut the banana line…",
+        "Herding avocados. They formed a union…",
+        "The rotisserie chicken clocked out early…",
+        "Chasing a lime that knows parkour…",
+        "The grapes rolled under the heart…",
+        "Asking the frozen pizza for a pep talk…",
+        "The oat milk is hiding behind the kale…",
+        "A witch took the last rotisserie ticket…",
+        "The blueberries staged a jailbreak…",
+        "Bagging kale like it owes us rent…",
+        "The pickles filed a formal complaint…",
+        "A ghost is sampling the samples…",
+        "Corralling cartwheels in produce…",
+        "The baguettes are warming up. Literally…"
     ]
 
-    static var seatLoadTitle: String { "Checking the ice cream aisle…" }
+    static var seatLoadTitle: String { "The ice cream just made a run for it…" }
 
     static func seatLoadQuip(at index: Int) -> String {
         guard !aisleQuips.isEmpty else { return seatLoadTitle }
