@@ -1194,5 +1194,59 @@ final class HeartbeatMathTests: XCTestCase {
             }
         }
     }
+
+    func testPulseQueryFilterMatchesPowerBI() throws {
+        let tests = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        let url = tests.deletingLastPathComponent().appendingPathComponent("FulfillmentHeartbeat/facts.json")
+        let file = try JSONDecoder().decode(PulseFactsFile.self, from: Data(contentsOf: url))
+        let rows = PulseFacts.metricRows(from: file)
+        var warehouse: [MetricSection: [MetricRow]] = [:]
+        var roster: [String: HeartbeatMath.StoreIdentity] = [:]
+        for row in rows where row.section == .storeRoster || row.textPayload["roster"] == "1" {
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            guard !store.isEmpty else { continue }
+            roster[store] = HeartbeatMath.StoreIdentity(
+                division: row.division, district: row.district, om: row.operationsOM, name: row.storeName
+            )
+        }
+        for section in [MetricSection.lostRevenue, .sales, .fiveStar] {
+            let facts = rows.filter { PulseQuery.isStoreFact($0) && $0.section == section }
+            warehouse[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(facts), roster: roster)
+        }
+
+        let company = PulseQuery.paint(
+            warehouse: warehouse, roster: roster, filters: DashboardFilters(),
+            grain: .region, uploads: [], hidePicker: true
+        )
+        let sales = company.summaries.first { $0.section == .sales }
+        XCTAssertEqual(sales?.headline ?? 0, 132_830_509, accuracy: 50)
+        let lost = company.summaries.first { $0.section == .lostRevenue }
+        XCTAssertEqual(lost?.storeCount, 2161)
+        XCTAssertEqual(lost?.headline ?? 0, 3_456_041, accuracy: 50)
+        XCTAssertEqual((company.grains[.lostRevenue] ?? []).count, 4)
+
+        var district = DashboardFilters()
+        district.district = "03"
+        let d3 = PulseQuery.paint(
+            warehouse: warehouse, roster: roster, filters: district,
+            grain: .store, uploads: [], hidePicker: true
+        )
+        let d3Lost = d3.summaries.first { $0.section == .lostRevenue }
+        XCTAssertEqual(d3Lost?.storeCount, 20)
+        XCTAssertEqual(d3Lost?.headline ?? 0, 36_193, accuracy: 1)
+        XCTAssertNotNil((d3.filtered[.lostRevenue] ?? []).first {
+            HeartbeatMath.canonicalStore($0.storeNumber) == "304"
+        })
+
+        var jewel = DashboardFilters()
+        jewel.division = "Jewel Osco"
+        let jo = PulseQuery.paint(
+            warehouse: warehouse, roster: roster, filters: jewel,
+            grain: .district, uploads: [], hidePicker: true
+        )
+        let joLost = jo.summaries.first { $0.section == .lostRevenue }
+        XCTAssertEqual(joLost?.storeCount, 179)
+        XCTAssertEqual(joLost?.headline ?? 0, 451_085, accuracy: 5)
+    }
 }
 
