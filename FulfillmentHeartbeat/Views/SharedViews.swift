@@ -974,7 +974,7 @@ struct FilterBar: View {
     @State private var sheetFocus: FilterFocus?
 
     var body: some View {
-        let stamp = store.filterStamp
+        let chromeKey = store.filters.summary
         HStack(spacing: 8) {
             if !compactPills, store.filters.isActive {
                 Button("Clear") { clearNow() }
@@ -988,7 +988,7 @@ struct FilterBar: View {
                     pills
                 }
             }
-            .id(stamp)
+            .id(chromeKey)
         }
         .fullScreenCover(item: $sheetFocus) { focus in
             FilterSheet(initialFocus: focus)

@@ -162,7 +162,8 @@ enum PulseQuery {
         uploads: [UploadRecord],
         hidePicker: Bool,
         light: Bool,
-        includePageOnly: Bool = false
+        includePageOnly: Bool = false,
+        includeFlags: Bool = false
     ) -> View {
         let allowed = PulseCaches.allowedStores(roster: roster, filters: filters)
         var filtered: [MetricSection: [MetricRow]] = [:]
@@ -182,7 +183,7 @@ enum PulseQuery {
             return View(
                 filtered: filtered,
                 summaries: summaries,
-                flags: [:],
+                flags: includeFlags ? PulseCaches.cardFlags(latest: filtered) : [:],
                 grains: PulseCaches.placeholderGrainPacks(grain: grain),
                 tables: [:],
                 pickers: []

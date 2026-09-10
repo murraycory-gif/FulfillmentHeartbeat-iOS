@@ -257,13 +257,53 @@ enum PulseLaunch {
         return biggest <= max(scopedStores * 3, scopedStores + 24)
     }
 
-    /// After the hub is up, warehouse paint is utility. userInitiated fights scroll / nav.
-    /// First dashboard wave stays userInitiated so cards land before the rest of the pack.
-    static func warehousePaintPriority(light: Bool, hubReady: Bool, firstSectionWave: Bool = false) -> TaskPriority {
-        if firstSectionWave { return .userInitiated }
+    /// After the hub can scroll, pack I/O and section fill stay utility.
+    /// userInitiated is only for a filter the user just saved — not wave 2, not hydrate.
+    static func warehousePaintPriority(
+        light: Bool,
+        hubReady: Bool,
+        firstSectionWave: Bool = false,
+        filterPaint: Bool = false
+    ) -> TaskPriority {
+        if filterPaint { return .userInitiated }
         if hubReady { return .utility }
+        if firstSectionWave { return .userInitiated }
         return light ? .userInitiated : .utility
     }
+
+    /// SQLite / PulseCaches.build must not steal the first scroll after Who's looking.
+    static func warehouseReadPriority(hubInteractive: Bool) -> TaskPriority {
+        hubInteractive ? .utility : .userInitiated
+    }
+
+    /// Keep scorecard headers on screen while the new filter paint is in flight.
+    static func shouldKeepLiveCalloutsUntilFilterPaint() -> Bool { true }
+
+    /// Stamping before paint blanks every onChange(filterStamp) rebuild and remounts pills.
+    static func shouldStampFilterBeforePaint() -> Bool { false }
+
+    /// Roster option lists are filter-commit work, not every warehouse paint.
+    static func shouldRefreshFilterOptionsOnEveryPaint() -> Bool { false }
+
+    /// Facts / raw tape only when the warehouse is still thin. Never copy the full pack on filter.
+    static func shouldPassRawRowsToPaint(needFacts: Bool, warehouseHasScoredStores: Bool) -> Bool {
+        needFacts || !warehouseHasScoredStores
+    }
+
+    /// Filter slice already has latestBySection. prepareWarehouse overlays fight the Save tap.
+    static func shouldPrepareWarehouseOnFilterPaint() -> Bool { false }
+
+    /// Publishing the raw row tape during hydrate invalidates the whole hub on every wave.
+    static func shouldPublishWarehouseRowsDuringHydrate() -> Bool { false }
+
+    /// Excel facts adopt after the aisle can scroll — not on the wave-2 paint the user is dragging through.
+    static func shouldAdoptFactsDuringInteractivePaint() -> Bool { false }
+
+    /// Light filter paint still needs flag tiles so callout boxes are not empty headers.
+    static func shouldIncludeFlagsOnFilterPaint() -> Bool { true }
+
+    /// PPH patch walks shoppers. Skip when the filtered week already has a Pure PPH.
+    static func shouldPatchPPHOnPaint(hasFilteredPPH: Bool) -> Bool { !hasFilteredPPH }
 
     /// Do not wait for the full pack before the first scorecards paint.
     static func shouldPaintDashboardSectionsProgressively() -> Bool { true }

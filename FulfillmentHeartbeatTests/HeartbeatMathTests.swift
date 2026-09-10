@@ -1939,7 +1939,22 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseLaunch.flagsMatchFilter(flagStores: [18, 2], scopedStores: 20))
         XCTAssertEqual(PulseLaunch.warehousePaintPriority(light: true, hubReady: true), .utility)
         XCTAssertEqual(PulseLaunch.warehousePaintPriority(light: true, hubReady: false), .userInitiated)
-        XCTAssertEqual(PulseLaunch.warehousePaintPriority(light: true, hubReady: true, firstSectionWave: true), .userInitiated)
+        XCTAssertEqual(PulseLaunch.warehousePaintPriority(light: true, hubReady: true, firstSectionWave: true), .utility)
+        XCTAssertEqual(PulseLaunch.warehousePaintPriority(light: true, hubReady: false, firstSectionWave: true), .userInitiated)
+        XCTAssertEqual(PulseLaunch.warehousePaintPriority(light: true, hubReady: true, filterPaint: true), .userInitiated)
+        XCTAssertEqual(PulseLaunch.warehouseReadPriority(hubInteractive: true), .utility)
+        XCTAssertEqual(PulseLaunch.warehouseReadPriority(hubInteractive: false), .userInitiated)
+        XCTAssertTrue(PulseLaunch.shouldKeepLiveCalloutsUntilFilterPaint())
+        XCTAssertFalse(PulseLaunch.shouldStampFilterBeforePaint())
+        XCTAssertFalse(PulseLaunch.shouldRefreshFilterOptionsOnEveryPaint())
+        XCTAssertFalse(PulseLaunch.shouldPassRawRowsToPaint(needFacts: false, warehouseHasScoredStores: true))
+        XCTAssertTrue(PulseLaunch.shouldPassRawRowsToPaint(needFacts: true, warehouseHasScoredStores: true))
+        XCTAssertFalse(PulseLaunch.shouldPrepareWarehouseOnFilterPaint())
+        XCTAssertFalse(PulseLaunch.shouldPublishWarehouseRowsDuringHydrate())
+        XCTAssertFalse(PulseLaunch.shouldAdoptFactsDuringInteractivePaint())
+        XCTAssertTrue(PulseLaunch.shouldIncludeFlagsOnFilterPaint())
+        XCTAssertFalse(PulseLaunch.shouldPatchPPHOnPaint(hasFilteredPPH: true))
+        XCTAssertTrue(PulseLaunch.shouldPatchPPHOnPaint(hasFilteredPPH: false))
         XCTAssertTrue(PulseLaunch.shouldPaintDashboardSectionsProgressively())
         XCTAssertEqual(PulseLaunch.dashboardFirstWave.first, .storeRoster)
         XCTAssertTrue(PulseLaunch.dashboardFirstWave.contains(.sales))
@@ -3003,6 +3018,49 @@ final class HeartbeatMathTests: XCTestCase {
         let labels = (painted.tables[.scheduleQuality] ?? []).map(\.label)
         XCTAssertFalse(labels.isEmpty)
         XCTAssertTrue(labels.contains(MarketRegion.california.rawValue), "\(labels)")
+    }
+
+    func testFilterCalloutPaintKeepsHeadersAndFlagsWithoutPrepare() {
+        var district = DashboardFilters()
+        district.district = "03"
+        let jewel = MetricRow(
+            section: .lostRevenue,
+            division: "Jewel Osco",
+            operationsOM: "A",
+            storeNumber: "308",
+            payload: ["lost_revenue": 100, "lost_revenue_pct": 4, "ecomm_sales": 2_000],
+            textPayload: ["district": "J3"]
+        )
+        let chicago = MetricRow(
+            section: .lostRevenue,
+            division: "Jewel Osco",
+            operationsOM: "A",
+            storeNumber: "304",
+            payload: ["lost_revenue": 40, "lost_revenue_pct": 2, "ecomm_sales": 1_000],
+            textPayload: ["district": "03"]
+        )
+        let roster: [String: HeartbeatMath.StoreIdentity] = [
+            "308": .init(division: "Jewel Osco", district: "J3", om: "A", name: nil),
+            "304": .init(division: "Jewel Osco", district: "03", om: "A", name: nil),
+        ]
+        let painted = PulseQuery.paint(
+            warehouse: [.lostRevenue: [jewel, chicago]],
+            roster: roster,
+            filters: district,
+            grain: .store,
+            uploads: [],
+            hidePicker: true,
+            light: true,
+            includeFlags: true
+        )
+        let rows = painted.filtered[.lostRevenue] ?? []
+        XCTAssertTrue(rows.contains { $0.storeNumber == "304" })
+        XCTAssertFalse(rows.contains { $0.storeNumber == "308" })
+        XCTAssertEqual(painted.summaries.first { $0.section == .lostRevenue }?.storeCount, 1)
+        XCTAssertFalse(painted.flags.isEmpty)
+        XCTAssertTrue(painted.tables.isEmpty)
+        XCTAssertFalse(PulseLaunch.shouldPrepareWarehouseOnFilterPaint())
+        XCTAssertFalse(PulseLaunch.shouldStampFilterBeforePaint())
     }
 
     func testShareDashboardMatchesOnScreenCalloutsAndOpensWithoutHTML() {

@@ -12,8 +12,9 @@ final class ImportProgress: ObservableObject {
 
 @MainActor
 final class HeartbeatStore: ObservableObject {
-    @Published private(set) var rows: [MetricRow]
-    @Published private(set) var uploads: [UploadRecord]
+    /// Not @Published — wave merges must not invalidate the hub while the user scrolls.
+    private(set) var rows: [MetricRow]
+    private(set) var uploads: [UploadRecord]
     @Published private(set) var seeded: Bool
     @Published var filters: DashboardFilters {
         didSet {
@@ -242,10 +243,11 @@ final class HeartbeatStore: ObservableObject {
             await paintFromWarehouse(light: true, adoptFacts: false, urgent: true)
             setBootPhase(.paintingAisle)
             await loadWarehouseWave(PulseLaunch.dashboardSecondWave)
-            await paintFromWarehouse(light: true, adoptFacts: true)
+            await paintFromWarehouse(light: true, adoptFacts: false)
+            syncWarehouseTape()
             warehouseHydrating = false
             setBootPhase(.ready)
-            Task { await self.fillAfterReady() }
+            Task { await self.adoptFactsThenFill() }
             if HubLayout.ingestsWorkbook {
                 Task { await self.ingestWorkbookOnMacIfNeeded() }
             }
@@ -255,10 +257,11 @@ final class HeartbeatStore: ObservableObject {
         await loadWarehousePack(chromeFirst: chrome)
         applyRestoredLaunchFiltersIfNeeded()
         setBootPhase(.paintingAisle)
-        await paintFromWarehouse(light: true, adoptFacts: true)
+        await paintFromWarehouse(light: true, adoptFacts: false)
+        syncWarehouseTape()
         warehouseHydrating = false
         setBootPhase(.ready)
-        Task { await self.fillAfterReady() }
+        Task { await self.adoptFactsThenFill() }
         if HubLayout.ingestsWorkbook {
             Task { await self.ingestWorkbookOnMacIfNeeded() }
         }
@@ -275,7 +278,12 @@ final class HeartbeatStore: ObservableObject {
         hydrating = true
         filters = pending
         hydrating = false
-        invalidateFilteredGrainChrome()
+        if PulseLaunch.shouldKeepLiveCalloutsUntilFilterPaint() {
+            invalidateShareGrainTables()
+            cachedGrainPacks = PulseCaches.placeholderGrainPacks(grain: effectiveDashboardGrain)
+        } else {
+            invalidateFilteredGrainChrome()
+        }
     }
 
     private func restoreSessionRoleName() {
@@ -305,6 +313,17 @@ final class HeartbeatStore: ObservableObject {
         presentSeatUI()
         warehouseHydrating = false
         setBootPhase(.ready)
+    }
+
+    /// Facts + picker stream after the hub can scroll. Never on the wave-2 paint.
+    private func adoptFactsThenFill() async {
+        if !PulseLaunch.shouldAdoptFactsDuringInteractivePaint() {
+            let changed = await adoptExcelFactsIntoWarehouse()
+            if changed {
+                await paintFromWarehouse(light: true)
+            }
+        }
+        await fillAfterReady()
     }
 
     /// Splash stays local-first. Shopper streaming is join-page only — never on Dashboard.
@@ -1980,7 +1999,7 @@ final class HeartbeatStore: ObservableObject {
         if PulseLaunch.shouldFetchRemotePack(
             remoteBytes: info.size,
             localBytes: localBytes,
-            localRowsLoaded: rows.count
+            localRowsLoaded: warehouseRowCount
         ) {
             await importCloudSQLiteIfPresent(reason: .refresh)
         }
@@ -2052,7 +2071,7 @@ final class HeartbeatStore: ObservableObject {
         guard !packFetchInFlight else { return }
         let remote = await PulseCloud.objectSize(PulseCloud.object)
         let localBytes = PulseSQLite.fileBytes(at: sqliteURL)
-        let alreadyLoaded = rows.count
+        let alreadyLoaded = warehouseRowCount
         guard PulseLaunch.shouldFetchRemotePack(
             remoteBytes: remote,
             localBytes: localBytes,
@@ -2117,7 +2136,7 @@ final class HeartbeatStore: ObservableObject {
                 break
             }
         }
-        let hasPack = seeded && !rows.isEmpty
+        let hasPack = seeded && warehouseRowCount > 0
         guard remoteXlsx > 1_000 else { return }
         isImporting = true
         isReady = false
@@ -2735,21 +2754,29 @@ final class HeartbeatStore: ObservableObject {
             }
             return
         }
-        invalidateFilteredGrainChrome()
+        if PulseLaunch.shouldKeepLiveCalloutsUntilFilterPaint() {
+            invalidateShareGrainTables()
+            cachedGrainPacks = PulseCaches.placeholderGrainPacks(grain: effectiveDashboardGrain)
+        } else {
+            invalidateFilteredGrainChrome()
+        }
         grainPaintSettled = false
         paintGeneration += 1
         pageOnlyGeneration = -1
-        filterStamp += 1
+        if PulseLaunch.shouldStampFilterBeforePaint() {
+            filterStamp += 1
+        }
         let generation = paintGeneration
         let delay = PulseLaunch.filterPaintDelayNanoseconds(clearingAll: false)
-        refilterTask = Task(priority: .utility) {
+        refilterTask = Task(priority: .userInitiated) {
             await Task.yield()
             if delay > 0 {
                 try? await Task.sleep(nanoseconds: delay)
                 guard self.acceptPaint(generation) else { return }
             }
-            await self.paintFromWarehouse(light: true, generation: generation)
+            await self.paintFromWarehouse(light: true, generation: generation, filterPaint: true)
             guard self.acceptPaint(generation) else { return }
+            self.refreshFilterOptions()
             if PulseLaunch.shouldRefreshPickersAfterFilter(dest: self.visibleDestination) {
                 if PulseLaunch.shouldRefreshPageOnly(pageVisible: self.visibleDestination == .pickerScorecard) {
                     self.schedulePageOnlyRefresh(generation: generation)
@@ -2777,11 +2804,16 @@ final class HeartbeatStore: ObservableObject {
 
     /// Drop company-wide region tables so Share / expand cannot emit East/South/CA/West under a district filter.
     private func invalidateFilteredGrainChrome() {
-        cachedGrainTables = [:]
+        invalidateShareGrainTables()
         cachedGrainPacks = [:]
+        cachedCardFlags = [:]
+    }
+
+    /// Share-unsafe tables only. Live callout headers stay until the filter paint lands.
+    private func invalidateShareGrainTables() {
+        cachedGrainTables = [:]
         cachedSalesScopeRows = []
         cachedSalesDayRows = []
-        cachedCardFlags = [:]
     }
 
     @discardableResult
@@ -2930,9 +2962,10 @@ final class HeartbeatStore: ObservableObject {
         light: Bool,
         generation: Int? = nil,
         adoptFacts: Bool = false,
-        urgent: Bool = false
+        urgent: Bool = false,
+        filterPaint: Bool = false
     ) async {
-        if adoptFacts {
+        if adoptFacts, PulseLaunch.shouldAdoptFactsDuringInteractivePaint() || !isReady {
             await adoptExcelFactsIntoWarehouse()
         }
         let warehouse = latestBySection
@@ -2940,33 +2973,48 @@ final class HeartbeatStore: ObservableObject {
         let current = filters
         let grain = effectiveDashboardGrain
         let uploadsCopy = uploads
-        let rawRows = rows
+        let scoredStores = PulseQuery.scoredStoreFacts(warehouse[.lostRevenue] ?? []).count
+            + PulseQuery.scoredStoreFacts(warehouse[.sales] ?? []).count
+        let needFacts = !current.isActive && !filterPaint
+        let passRaw = PulseLaunch.shouldPassRawRowsToPaint(
+            needFacts: needFacts,
+            warehouseHasScoredStores: scoredStores >= 8
+        )
+        let rawRows = passRaw ? rows : []
         let pickers = warehouse[.pickerScorecard] ?? []
+        let skipPrepare = filterPaint && !PulseLaunch.shouldPrepareWarehouseOnFilterPaint()
         let scopedLost: [MetricRow]? = {
-            guard current.isActive, let allowed = PulseCaches.allowedStores(roster: rosterCopy, filters: current) else {
+            guard !skipPrepare, current.isActive,
+                  let allowed = PulseCaches.allowedStores(roster: rosterCopy, filters: current) else {
                 return nil
             }
             let lost = scopedLostRevenue(allowed)
             return lost.isEmpty ? nil : lost
         }()
-        let needFacts = !current.isActive
         let dest = visibleDestination
+        let includeFlags = filterPaint && PulseLaunch.shouldIncludeFlagsOnFilterPaint()
         let paintPriority = PulseLaunch.warehousePaintPriority(
             light: light,
             hubReady: isReady && !needsRolePick,
-            firstSectionWave: urgent
+            firstSectionWave: urgent,
+            filterPaint: filterPaint
         )
         let view = await Task.detached(priority: paintPriority) {
-            let facts = needFacts ? PulseFacts.bundledMetricRows() : []
-            let prepared = PulseQuery.prepareWarehouse(
-                warehouse: warehouse,
-                roster: rosterCopy,
-                filters: current,
-                rawRows: rawRows,
-                pickers: pickers,
-                bundledFacts: facts,
-                scopedLost: scopedLost
-            )
+            let prepared: [MetricSection: [MetricRow]]
+            if skipPrepare {
+                prepared = warehouse
+            } else {
+                let facts = needFacts ? PulseFacts.bundledMetricRows() : []
+                prepared = PulseQuery.prepareWarehouse(
+                    warehouse: warehouse,
+                    roster: rosterCopy,
+                    filters: current,
+                    rawRows: rawRows,
+                    pickers: pickers,
+                    bundledFacts: facts,
+                    scopedLost: scopedLost
+                )
+            }
             return PulseQuery.paint(
                 warehouse: prepared,
                 roster: rosterCopy,
@@ -2975,7 +3023,8 @@ final class HeartbeatStore: ObservableObject {
                 uploads: uploadsCopy,
                 hidePicker: true,
                 light: light,
-                includePageOnly: false
+                includePageOnly: false,
+                includeFlags: includeFlags
             )
         }.value
         if let generation {
@@ -3033,21 +3082,26 @@ final class HeartbeatStore: ObservableObject {
                 )
             }
             grainPaintSettled = true
-        } else if cachedGrainPacks.isEmpty {
+        } else if cachedGrainPacks.isEmpty || filterPaint {
             cachedGrainPacks = view.grains
         }
         usingPackChrome = false
         if lostByStore.isEmpty {
             rebuildLostIndex()
         }
-        refreshFilterOptions()
+        if PulseLaunch.shouldRefreshFilterOptionsOnEveryPaint() {
+            refreshFilterOptions()
+        }
         if !light {
             refreshSalesExpandCache()
         }
         if cachedGrainTables.values.allSatisfy(\.isEmpty) {
             fillExpandTablesSoon()
         }
-        patchPPHCallouts()
+        let hasFilteredPPH = (filteredLatest[.pph] ?? []).contains { HeartbeatMath.pphNumber($0) != nil }
+        if PulseLaunch.shouldPatchPPHOnPaint(hasFilteredPPH: hasFilteredPPH) {
+            patchPPHCallouts()
+        }
         hydrating = false
         if !filters.isActive {
             unfilteredPulse = snapshotPulse()
@@ -3498,6 +3552,12 @@ final class HeartbeatStore: ObservableObject {
 
     private func loadPack() async {
         let chrome = await loadChromeIfPresent()
+        if isReady, PulseLaunch.shouldPaintDashboardSectionsProgressively() {
+            await loadWarehouseWave(PulseLaunch.dashboardFirstWave)
+            await loadWarehouseWave(PulseLaunch.dashboardSecondWave)
+            syncWarehouseTape()
+            return
+        }
         await loadWarehousePack(chromeFirst: chrome)
     }
 
@@ -3505,7 +3565,8 @@ final class HeartbeatStore: ObservableObject {
         guard PulseSQLite.exists(at: sqliteURL) else { return nil }
         setBootPhase(.readingChrome)
         let url = sqliteURL
-        let chrome = await Task.detached(priority: .userInitiated) {
+        let priority = PulseLaunch.warehouseReadPriority(hubInteractive: isReady && !needsRolePick)
+        let chrome = await Task.detached(priority: priority) {
             PulseSQLite.readChrome(from: url)
         }.value
         if let chrome {
@@ -3518,13 +3579,14 @@ final class HeartbeatStore: ObservableObject {
         let url = sqliteURL
         guard PulseSQLite.exists(at: url), !sections.isEmpty else { return }
         let only = Set(sections)
-        let pack = await Task.detached(priority: .userInitiated) {
+        let priority = PulseLaunch.warehouseReadPriority(hubInteractive: isReady && !needsRolePick)
+        let pack = await Task.detached(priority: priority) {
             try? PulseSQLite.read(from: url, only: only)
         }.value
         guard let pack, !pack.rows.isEmpty else { return }
         let packRows = pack.rows
         let packUploads = pack.uploads
-        let caches = await Task.detached(priority: .userInitiated) {
+        let caches = await Task.detached(priority: priority) {
             PulseCaches.build(
                 rows: packRows,
                 filters: DashboardFilters(),
@@ -3538,8 +3600,10 @@ final class HeartbeatStore: ObservableObject {
 
     private func mergeWarehouse(_ caches: PulseCaches, pack: PulseSQLite.Pack) {
         let incoming = Set(pack.rows.map(\.section))
-        rows.removeAll { incoming.contains($0.section) }
-        rows.append(contentsOf: pack.rows)
+        if PulseLaunch.shouldPublishWarehouseRowsDuringHydrate() || !warehouseHydrating {
+            rows.removeAll { incoming.contains($0.section) }
+            rows.append(contentsOf: pack.rows)
+        }
         if !pack.uploads.isEmpty {
             uploads = pack.uploads.sorted { $0.uploadedAt > $1.uploadedAt }
         }
@@ -3552,11 +3616,28 @@ final class HeartbeatStore: ObservableObject {
             }
             roster[store] = identity
         }
-        seeded = true
-        usingDatabasePack = true
-        if latestBySection[.lostRevenue] != nil {
+        if !seeded { seeded = true }
+        if !usingDatabasePack { usingDatabasePack = true }
+        if incoming.contains(.lostRevenue), latestBySection[.lostRevenue] != nil {
             rebuildLostIndex()
         }
+    }
+
+    /// One publish of the row tape after both waves. During hydrate the hub reads latestBySection.
+    private func syncWarehouseTape() {
+        var tape: [MetricRow] = []
+        tape.reserveCapacity(latestBySection.values.reduce(0) { $0 + $1.count })
+        for section in MetricSection.allCases {
+            tape.append(contentsOf: latestBySection[section] ?? [])
+        }
+        if !tape.isEmpty {
+            rows = tape
+        }
+    }
+
+    private var warehouseRowCount: Int {
+        if !rows.isEmpty { return rows.count }
+        return latestBySection.values.reduce(0) { $0 + $1.count }
     }
 
     private func loadWarehousePack(chromeFirst: PulseDashChrome?) async {
@@ -3568,7 +3649,8 @@ final class HeartbeatStore: ObservableObject {
         }
         setBootPhase(.readingPack)
         let skipHeavy: Set<MetricSection> = HubLayout.lightLaunch || chromeFirst != nil ? Self.launchSkip : []
-        let pack = await Task.detached(priority: .userInitiated) {
+        let priority = PulseLaunch.warehouseReadPriority(hubInteractive: isReady && !needsRolePick)
+        let pack = await Task.detached(priority: priority) {
             try? PulseSQLite.read(from: url, skipping: skipHeavy)
         }.value
         if let pack, !pack.rows.isEmpty {
@@ -3576,7 +3658,7 @@ final class HeartbeatStore: ObservableObject {
             let packRows = pack.rows
             let packUploads = pack.uploads
             let chrome = pack.chrome ?? chromeFirst
-            let caches = await Task.detached(priority: .userInitiated) {
+            let caches = await Task.detached(priority: priority) {
                 PulseCaches.build(
                     rows: packRows,
                     filters: DashboardFilters(),
@@ -3662,13 +3744,16 @@ final class HeartbeatStore: ObservableObject {
 
     /// Put Excel store rows for Sales, 5 Star, and Loss Revenue into the warehouse.
     /// A full live pack / cloud table is kept. Bundled facts only fill a thin pack.
-    private func adoptExcelFactsIntoWarehouse() async {
-        if didAdoptExcelFacts { return }
-        let facts = await Task.detached(priority: .userInitiated) {
+    @discardableResult
+    private func adoptExcelFactsIntoWarehouse() async -> Bool {
+        if didAdoptExcelFacts { return false }
+        let priority = PulseLaunch.warehouseReadPriority(hubInteractive: isReady && !needsRolePick)
+        let facts = await Task.detached(priority: priority) {
             PulseFacts.bundledMetricRows()
         }.value
-        adoptFactRows(facts, mode: .fillIfThin)
+        let changed = adoptFactRows(facts, mode: .fillIfThin)
         didAdoptExcelFacts = true
+        return changed
     }
 
     @discardableResult
