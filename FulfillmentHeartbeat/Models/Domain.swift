@@ -3780,16 +3780,22 @@ enum MarketRegion: String, CaseIterable, Identifiable, Sendable {
     }
 
     static func containing(_ division: String) -> MarketRegion? {
-        if let named = named(division) { return named }
-        return allCases.first { $0.contains(division) }
+        let trimmed = division.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if let named = named(trimmed) { return named }
+        return allCases.first { $0.contains(trimmed) }
     }
 
     static func matchesDivision(_ lhs: String, _ rhs: String) -> Bool {
         let a = canonicalName(lhs)
         let b = canonicalName(rhs)
         if !a.isEmpty, !b.isEmpty { return HeartbeatMath.compactKey(a) == HeartbeatMath.compactKey(b) }
-        if let left = containing(lhs), let right = containing(rhs), left == right,
-           named(lhs) != nil || named(rhs) != nil {
+        // Region title vs market inside it (California ↔ NorCal). Do not call
+        // containing() here — that walks contains() → matchesDivision again.
+        if let region = named(lhs), region.divisions.contains(where: { canonicalName($0) == b && !b.isEmpty }) {
+            return true
+        }
+        if let region = named(rhs), region.divisions.contains(where: { canonicalName($0) == a && !a.isEmpty }) {
             return true
         }
         return HeartbeatMath.compactKey(lhs) == HeartbeatMath.compactKey(rhs) && !HeartbeatMath.compactKey(lhs).isEmpty

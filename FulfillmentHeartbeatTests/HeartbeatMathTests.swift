@@ -1823,6 +1823,14 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(california.includesDivision("California Region"))
         XCTAssertFalse(california.includesDivision("Jewel Osco"))
         XCTAssertTrue(MarketRegion.matchesDivision("California", "NorCal"))
+        XCTAssertTrue(MarketRegion.matchesDivision("NorCal", "California"))
+        XCTAssertFalse(MarketRegion.matchesDivision("California", "Jewel Osco"))
+        XCTAssertNil(MarketRegion.containing(""))
+        XCTAssertNil(MarketRegion.containing("J3"))
+        XCTAssertFalse(MarketRegion.matchesDivision("", "NorCal"))
+        XCTAssertFalse(MarketRegion.matchesDivision("J3CHICAGO", "NorCal"))
+        XCTAssertFalse(california.includesDivision(""))
+        XCTAssertFalse(california.includesDivision("J3"))
         let schedule = [
             MetricRow(section: .scheduleQuality, division: "California", operationsOM: "", storeNumber: "304", payload: ["schedule_efficiency_pct": 92], textPayload: ["district": "J3CHICAGO"]),
             MetricRow(section: .scheduleQuality, division: "Jewel Osco", operationsOM: "", storeNumber: "100", payload: ["schedule_efficiency_pct": 80]),
