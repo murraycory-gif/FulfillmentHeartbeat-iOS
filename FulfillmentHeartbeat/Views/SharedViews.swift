@@ -969,9 +969,9 @@ struct HubChromePill: View {
 
 struct FilterBar: View {
     @EnvironmentObject private var store: HeartbeatStore
+    @EnvironmentObject private var router: HubRouter
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var sheetFocus: FilterFocus?
-    @State private var showShare = false
 
     var body: some View {
         HStack(spacing: 8) {
@@ -990,10 +990,6 @@ struct FilterBar: View {
         }
         .fullScreenCover(item: $sheetFocus) { focus in
             FilterSheet(initialFocus: focus)
-                .environmentObject(store)
-        }
-        .fullScreenCover(isPresented: $showShare) {
-            SharePulseSheet()
                 .environmentObject(store)
         }
     }
@@ -1032,7 +1028,11 @@ struct FilterBar: View {
                 symbol: "square.and.arrow.up",
                 showsChevron: false
             ) {
-                showShare = true
+                var transaction = Transaction()
+                transaction.animation = nil
+                withTransaction(transaction) {
+                    router.showShare = true
+                }
             }
         }
     }
@@ -1071,19 +1071,25 @@ struct FilterBar: View {
 
 struct SharePulseSheet: View {
     @EnvironmentObject private var store: HeartbeatStore
+    @EnvironmentObject private var router: HubRouter
     @Environment(\.dismiss) private var dismiss
-    @State private var selected: Set<PulseMail.SharePage> = [.dashboard]
+    @State private var selected: Set<PulseMail.SharePage> = []
     @State private var building = false
     @State private var packet: PulseMail.Packet?
 
     var body: some View {
         NavigationStack {
             if let packet {
-                ShareRecapCompose(packet: packet) {
+                ShareRecapCompose(packet: packet, htmlReady: packet.htmlFile != nil) {
                     self.packet = nil
                 }
             } else {
                 picker
+            }
+        }
+        .onAppear {
+            if selected.isEmpty {
+                selected = [PulseMail.SharePage.from(destination: router.current)]
             }
         }
     }
@@ -1104,7 +1110,7 @@ struct SharePulseSheet: View {
                 }
                 .disabled(selected.isEmpty)
             } footer: {
-                Text("The email uses the same tables, columns, and filter as the page on screen — larger type, visible headers, full numbers, and readable status pills. Upload is never included.")
+                Text("The email matches the dashboard or scorecard you picked — same callouts, columns, and filter. A short note goes in the message; the full page is the HTML attachment so Mail stays light.")
             }
 
             Section("Pages") {
@@ -1177,18 +1183,23 @@ struct SharePulseSheet: View {
         let pages = selected
         Task { @MainActor in
             await Task.yield()
+            let starter = PulseMail.briefPacket(store.pulseMailBriefSnapshot(pages), pages: pages)
+            packet = starter
+            building = false
             let snap = store.pulseMailSnapshot(pages)
             let built = await Task.detached(priority: .utility) {
                 PulseMail.make(snap, pages: pages, persistHTML: false)
             }.value
-            building = false
-            packet = built
+            if packet?.subject == starter.subject {
+                packet = built
+            }
         }
     }
 }
 
 struct ShareRecapCompose: View {
     let packet: PulseMail.Packet
+    var htmlReady: Bool = true
     var onBack: () -> Void
     @State private var to = ""
 
@@ -1227,12 +1238,19 @@ struct ShareRecapCompose: View {
             .background(Color(red: 0.96, green: 0.97, blue: 0.99))
 
             Button(action: sendMail) {
-                Text("Send")
-                    .font(.headline.weight(.bold))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
+                HStack(spacing: 10) {
+                    if !htmlReady {
+                        ProgressView()
+                            .tint(.white)
+                    }
+                    Text(htmlReady ? "Send" : "Building recap…")
+                        .font(.headline.weight(.bold))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
             }
             .buttonStyle(PrimaryButtonStyle())
+            .disabled(!htmlReady)
             .padding(.horizontal, 20)
             .padding(.vertical, 12)
             .background(AppTheme.bg)
@@ -9868,7 +9886,11 @@ struct HubBrandBar: View {
         ZStack {
             HStack(spacing: 4) {
                 HubNavControl(symbol: "line.3.horizontal", title: "Pages") {
-                    router.toggleSidebar()
+                    var transaction = Transaction()
+                    transaction.animation = nil
+                    withTransaction(transaction) {
+                        router.toggleSidebar()
+                    }
                 }
                 if showBack {
                     HubNavControl(symbol: "chevron.left", title: "Dashboard") {

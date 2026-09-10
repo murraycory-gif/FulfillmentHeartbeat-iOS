@@ -101,6 +101,24 @@ enum PulseMail {
             case .labor: return .labor
             }
         }
+
+        static func from(destination: HubDestination) -> SharePage {
+            switch destination {
+            case .dashboard: return .dashboard
+            case .sales: return .sales
+            case .lostRevenue: return .lostRevenue
+            case .missingItems: return .missingItems
+            case .fiveStar: return .fiveStar
+            case .preSubOOS: return .preSubOOS
+            case .pickPath: return .pickPath
+            case .prepNotReady: return .prepNotReady
+            case .dynacap: return .dynacap
+            case .scheduleQuality: return .scheduleQuality
+            case .pickerScorecard: return .pickerScorecard
+            case .pph: return .pph
+            case .labor: return .labor
+            }
+        }
     }
 
     static let pageOrder: [MetricSection] = [
@@ -179,6 +197,19 @@ enum PulseMail {
     /// Activity-item payload: file URL or brief. Never the HTML string (Mail/Gmail attributed-string Jetsam).
     static func shareActivityItem(_ packet: Packet) -> Any {
         packet.htmlFile ?? packet.brief
+    }
+
+    static func briefPacket(_ snap: Snapshot, pages: Set<SharePage>) -> Packet {
+        let chosen = pages.isEmpty ? Set(SharePage.allCases) : pages
+        let names = SharePage.allCases.filter { chosen.contains($0) }.map(\.title)
+        let subject = "Fulfillment Heartbeat — \(snap.filterSummary) — \(HeartbeatFormat.stamp(snap.generatedAt))"
+        return Packet(
+            subject: subject,
+            html: "",
+            htmlFile: nil,
+            plain: "",
+            brief: brief(snap, pages: chosen, names: names)
+        )
     }
 
     /// Writes one section at a time so the full filtered page can land in a file
@@ -270,13 +301,15 @@ enum PulseMail {
         .block-title{font-size:18px;font-weight:700;color:#003DA5;margin:18px 0 8px}
         .block-title span{display:block;font-size:14px;font-weight:600;color:#5C677A;margin-top:2px}
         table.layout{width:100%;border-collapse:separate;border-spacing:10px 10px}
-        table.layout td{vertical-align:top;width:50%}
+        table.layout td{vertical-align:top}
         .table-wrap{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 0 8px}
         table.data{width:100%;border-collapse:collapse;font-size:15px;min-width:680px}
-        table.data th{text-align:left;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#003DA5;background:#EEF3FB;padding:12px 10px;border-bottom:2px solid #003DA5;white-space:nowrap;font-weight:700}
-        table.data td{padding:12px 10px;border-bottom:1px solid #E4E9F4;vertical-align:middle}
+        table.data th{text-align:left;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#003DA5;background:#EEF3FB;padding:8px 8px;border-bottom:2px solid #003DA5;white-space:nowrap;font-weight:700}
+        table.data td{padding:8px;border-bottom:1px solid #E4E9F4;vertical-align:middle}
         table.data td.name{font-weight:700;font-size:16px;white-space:nowrap}
         table.data td.num,.num{text-align:right;font-variant-numeric:tabular-nums;font-weight:700;font-size:16px;white-space:nowrap}
+        .dash-card{margin:0 0 14px;border-radius:16px;overflow:hidden}
+        .page-banner{font-size:18px;font-weight:700;color:#003DA5;margin:0 0 12px}
         table.data td.status{text-align:right;white-space:nowrap;width:108px}
         table.data th.num,table.data th.status{text-align:right}
         .nw{text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
@@ -296,7 +329,9 @@ enum PulseMail {
     }
 
     private static func dashboardHTML(_ snap: Snapshot) -> String {
-        var cards = ""
+        var cards = """
+        <div class="page-banner">Operational Heartbeat · \(esc(snap.filterSummary))</div>
+        """
         let grain = dashGrain(snap)
         for card in snap.summaries {
             let flags = dashboardFlagModels(card.section, snap: snap)
@@ -307,9 +342,9 @@ enum PulseMail {
             }
             let title = card.section == .pickPath ? "Pick Path Compliance" : card.section.title
             cards += """
-            <table width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 18px;background:\(fill.bg);border:1px solid \(fill.border);border-radius:16px">
+            <table class="dash-card" width="100%" cellspacing="0" cellpadding="0" style="background:\(fill.bg);border:1px solid \(fill.border);border-radius:16px">
             <tr>
-            <td style="padding:18px 20px">
+            <td style="padding:16px 18px">
             <table width="100%" cellspacing="0" cellpadding="0">
             <tr>
             <td valign="top">
@@ -318,7 +353,7 @@ enum PulseMail {
             <div style="font-weight:700;margin-top:6px;font-size:16px;color:\(card.riskCount == 0 ? ink(.good) : ink(.risk))">\(esc(riskLine(card.section, card)))</div>
             </td>
             <td valign="top" align="right" style="width:190px;white-space:nowrap">
-            <div class="nw" style="font-size:28px;font-weight:700;color:\(ink(card.health));text-align:right">\(esc(card.headlineText))</div>
+            <div class="nw" style="font-size:32px;font-weight:700;color:\(ink(card.health));text-align:right">\(esc(card.headlineText))</div>
             <div style="margin-top:8px">\(pill(card.health))</div>
             </td>
             </tr>
@@ -330,27 +365,28 @@ enum PulseMail {
             </table>
             """
         }
-        return pageWrap(title: "Operational Heartbeat", filter: snap.filterSummary, trailing: sharedWindow(snap), inner: cards)
+        return cards
     }
 
     private static func flagGridHTML(_ flags: [HeartbeatMath.FiveStarFlag]) -> String {
         guard !flags.isEmpty else { return "" }
-        let perRow = min(4, max(flags.count, 1))
+        let perRow = HubLayout.calloutColumns(count: flags.count, width: HubLayout.SupportedCanvas.padLandscape)
         var rows = ""
         var index = 0
         while index < flags.count {
             let end = min(index + perRow, flags.count)
             var cells = ""
-            for flag in flags[index..<end] {
+            let slice = Array(flags[index..<end])
+            for flag in slice {
                 let unit = flag.stores == 1 ? String(flag.unit.dropLast()) : flag.unit
                 let stores = "\(HeartbeatFormat.num(Double(flag.stores)))&nbsp;\(esc(unit))"
                 let valueLine = flag.value.isEmpty
                     ? ""
                     : "<div class=\"nw\" style=\"font-size:20px;font-weight:700;margin-top:6px;color:\(ink(flag.health));text-align:left\">\(esc(flag.value))</div>"
                 cells += """
-                <td width="\(100 / perRow)%" valign="top" style="padding:6px">
+                <td width="\(100 / perRow)%" valign="top" style="padding:4px">
                 <table width="100%" cellspacing="0" cellpadding="0" style="background:#fff;border:1px solid #E4E9F4;border-radius:12px">
-                <tr><td style="padding:12px 12px">
+                <tr><td style="padding:10px 12px">
                 <div style="font-size:14px;color:#141A29;font-weight:700">\(esc(flag.name))</div>
                 \(valueLine)
                 <div class="nw" style="font-size:14px;font-weight:600;margin-top:6px;color:#5C677A;text-align:left">\(stores)</div>
@@ -360,10 +396,15 @@ enum PulseMail {
                 </td>
                 """
             }
+            if slice.count < perRow {
+                for _ in slice.count..<perRow {
+                    cells += "<td width=\"\(100 / perRow)%\"></td>"
+                }
+            }
             rows += "<tr>\(cells)</tr>"
             index = end
         }
-        return "<table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin-top:12px\">\(rows)</table>"
+        return "<table class=\"layout\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin-top:12px\">\(rows)</table>"
     }
 
     private static func flagCaption(_ flag: HeartbeatMath.FiveStarFlag) -> String {
@@ -594,11 +635,11 @@ enum PulseMail {
         }
     }
 
-    private static func tile(_ label: String, _ value: String, _ detail: String, _ health: Health, brand: Bool = false) -> String {
+    private static func tile(_ label: String, _ value: String, _ detail: String, _ health: Health, brand: Bool = false, colPct: Int = 50) -> String {
         let fill = tileFill(health, brand: brand)
         let badge = health == .none ? "" : pill(health)
         return """
-        <td valign="top" style="width:50%;background:\(fill.bg);border:1px solid \(fill.border);border-radius:14px;padding:14px 16px">
+        <td valign="top" style="width:\(colPct)%;background:\(fill.bg);border:1px solid \(fill.border);border-radius:14px;padding:12px 14px">
         <div style="font-size:15px;font-weight:700;color:#141A29">\(esc(label)) \(badge)</div>
         <div style="font-size:28px;font-weight:700;margin-top:8px;color:\(fill.ink)">\(esc(value))</div>
         <div style="font-size:14px;color:#5C677A;margin-top:6px">\(esc(detail))</div>
@@ -775,12 +816,22 @@ enum PulseMail {
             }
         }
         guard !items.isEmpty else { return "" }
+        let perRow = HubLayout.calloutColumns(count: items.count, width: HubLayout.SupportedCanvas.padLandscape)
+        let pct = max(100 / perRow, 1)
+        let sized = items.map { item in
+            item.replacingOccurrences(of: "width:50%;", with: "width:\(pct)%;")
+        }
         var rows = ""
         var index = 0
-        let perRow = 2
-        while index < items.count {
-            let end = min(index + perRow, items.count)
-            rows += "<tr>" + items[index..<end].joined() + "</tr>"
+        while index < sized.count {
+            let end = min(index + perRow, sized.count)
+            var row = sized[index..<end].joined()
+            if end - index < perRow {
+                for _ in (end - index)..<perRow {
+                    row += "<td width=\"\(pct)%\"></td>"
+                }
+            }
+            rows += "<tr>" + row + "</tr>"
             index = end
         }
         return "<table class=\"layout\" width=\"100%\" cellspacing=\"8\" cellpadding=\"0\">\(rows)</table>"

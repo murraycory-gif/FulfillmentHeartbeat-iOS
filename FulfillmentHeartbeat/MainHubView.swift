@@ -110,8 +110,9 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
 
 final class HubRouter: ObservableObject {
     @Published var destination: HubDestination
-    @Published private(set) var sidebarNonce = 0
+    @Published var sidebarOpen = false
     @Published var showCompactMenu = false
+    @Published var showShare = false
 
     var current: HubDestination { destination }
 
@@ -120,15 +121,31 @@ final class HubRouter: ObservableObject {
     }
 
     func open(_ dest: HubDestination) {
-        destination = dest
+        var transaction = Transaction()
+        transaction.animation = nil
+        withTransaction(transaction) {
+            destination = dest
+        }
     }
 
     func open(section: MetricSection) {
-        destination = .from(section: section)
+        open(.from(section: section))
     }
 
     func toggleSidebar() {
-        sidebarNonce += 1
+        var transaction = Transaction()
+        transaction.animation = nil
+        withTransaction(transaction) {
+            sidebarOpen.toggle()
+        }
+    }
+
+    func closeSidebar() {
+        var transaction = Transaction()
+        transaction.animation = nil
+        withTransaction(transaction) {
+            sidebarOpen = false
+        }
     }
 }
 
@@ -137,20 +154,11 @@ struct MainHubView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @StateObject private var router = HubRouter()
     @StateObject private var coach = CoachGuide()
-    @State private var columnVisibility: NavigationSplitViewVisibility = .detailOnly
 
     var body: some View {
         Group {
             if sizeClass == .regular, !HubLayout.isPhoneDevice {
-                NavigationSplitView(columnVisibility: $columnVisibility) {
-                    sidebar
-                        .navigationSplitViewColumnWidth(min: 240, ideal: 272, max: 320)
-                } detail: {
-                    detail
-                }
-                .navigationSplitViewStyle(.balanced)
-                .tint(AppTheme.blue)
-                .toolbar(removing: .sidebarToggle)
+                padHub
             } else {
                 detail
             }
@@ -159,6 +167,11 @@ struct MainHubView: View {
         .environmentObject(coach)
         .sheet(isPresented: $router.showCompactMenu) {
             CompactNavSheet()
+                .environmentObject(store)
+                .environmentObject(router)
+        }
+        .sheet(isPresented: $router.showShare) {
+            SharePulseSheet()
                 .environmentObject(store)
                 .environmentObject(router)
         }
@@ -181,10 +194,6 @@ struct MainHubView: View {
                 coach.presentIfNeeded(for: dest)
             }
         }
-
-        .onChange(of: router.sidebarNonce) { _, _ in
-            columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
-        }
         .background(AppTheme.bg.ignoresSafeArea())
         .overlay {
             if coach.active != nil, !store.isImporting, !store.needsRolePick {
@@ -193,6 +202,44 @@ struct MainHubView: View {
         }
         .overlay {
             ImportProgressOverlay()
+        }
+    }
+
+    /// Pages drawer overlays the hub so opening it does not reflow dashboard tables.
+    private var padHub: some View {
+        ZStack(alignment: .leading) {
+            detail
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .toolbar(removing: .sidebarToggle)
+            Color.black.opacity(router.sidebarOpen ? 0.2 : 0)
+                .ignoresSafeArea()
+                .allowsHitTesting(router.sidebarOpen)
+                .onTapGesture { closeSidebarNow() }
+                .accessibilityHidden(!router.sidebarOpen)
+            sidebar
+                .frame(width: 272)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .background(AppTheme.bg.ignoresSafeArea())
+                .overlay(alignment: .trailing) {
+                    Rectangle()
+                        .fill(AppTheme.cardBorder)
+                        .frame(width: 1)
+                }
+                .compositingGroup()
+                .shadow(color: .black.opacity(router.sidebarOpen ? 0.18 : 0), radius: 18, x: 6, y: 0)
+                .offset(x: router.sidebarOpen ? 0 : -280)
+                .allowsHitTesting(router.sidebarOpen)
+                .accessibilityHidden(!router.sidebarOpen)
+                .zIndex(2)
+        }
+        .tint(AppTheme.blue)
+    }
+
+    private func closeSidebarNow() {
+        var transaction = Transaction()
+        transaction.animation = nil
+        withTransaction(transaction) {
+            router.closeSidebar()
         }
     }
 
@@ -248,7 +295,11 @@ struct MainHubView: View {
         let iconInk = HubNavSelection.iconInk(selected: selected, health: health)
         let iconWash = HubNavSelection.iconWash(selected: selected, health: health)
         return Button {
-            router.open(item)
+            var transaction = Transaction()
+            transaction.animation = nil
+            withTransaction(transaction) {
+                router.open(item)
+            }
         } label: {
             HStack(spacing: 10) {
                 ZStack {
@@ -446,8 +497,12 @@ struct CompactNavSheet: View {
 
     private func navRow(_ item: HubDestination) -> some View {
         Button {
-            router.open(item)
-            router.showCompactMenu = false
+            var transaction = Transaction()
+            transaction.animation = nil
+            withTransaction(transaction) {
+                router.open(item)
+                router.showCompactMenu = false
+            }
         } label: {
             Label(item.title, systemImage: item.symbol)
                 .symbolRenderingMode(.monochrome)

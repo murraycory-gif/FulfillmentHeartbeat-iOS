@@ -201,6 +201,18 @@ final class HeartbeatStore: ObservableObject {
 
     func setVisibleDestination(_ dest: HubDestination) {
         visibleDestination = dest
+        if PulseLaunch.shouldDeferDestinationWorkOnNav() {
+            Task { @MainActor in
+                await Task.yield()
+                guard self.visibleDestination == dest else { return }
+                self.applyDestinationSideEffects(dest)
+            }
+            return
+        }
+        applyDestinationSideEffects(dest)
+    }
+
+    private func applyDestinationSideEffects(_ dest: HubDestination) {
         if dest != .dashboard {
             grainPaintTask?.cancel()
         } else if isReady, !needsRolePick, PulseLaunch.shouldRestartGrainPaint(alreadySettled: grainPaintSettled, dest: dest) {
@@ -3959,16 +3971,7 @@ final class HeartbeatStore: ObservableObject {
                 }
             }
         }
-        if pages.contains(.dashboard) {
-            for section in MetricSection.dashboardCards {
-                if rows[section] == nil {
-                    let all = displayRows(for: section)
-                    rows[section] = PulseMail.pageRows(all, section: section)
-                    rowTotals[section] = all.count
-                }
-            }
-        }
-        if needed.contains(.pph) || pages.contains(.dashboard) {
+        if needed.contains(.pph) || needed.contains(.pickPath) || needed.contains(.pickerScorecard) {
             for row in rows[.pph] ?? [] {
                 let key = HeartbeatMath.canonicalStore(row.storeNumber)
                 if key.isEmpty { continue }
@@ -4000,6 +4003,22 @@ final class HeartbeatStore: ObservableObject {
             grainTables: grainTables,
             flags: flags,
             sums: sums
+        )
+    }
+
+    /// Headlines only so the Share sheet can appear before HTML is streamed.
+    func pulseMailBriefSnapshot(_ pages: Set<PulseMail.SharePage>) -> PulseMail.Snapshot {
+        var needed: Set<MetricSection> = []
+        for page in pages {
+            if let section = page.section { needed.insert(section) }
+        }
+        return PulseMail.Snapshot(
+            filterSummary: filters.summary,
+            grain: effectiveDashboardGrain.rawValue,
+            summaries: pages.contains(.dashboard) ? summaries : summaries.filter { needed.contains($0.section) },
+            rows: [:],
+            pickerCounts: [:],
+            generatedAt: Date()
         )
     }
 

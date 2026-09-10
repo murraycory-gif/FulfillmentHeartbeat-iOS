@@ -137,12 +137,23 @@ struct ScorecardPager: UIViewControllerRepresentable, Equatable {
 
         func snap(to dest: HubDestination, animated: Bool) {
             guard let pager else { return }
-            hydrate(dest)
+            let host = host(for: dest)
             displayed = dest
             pager.dataSource = nil
-            pager.setViewControllers([host(for: dest)], direction: .forward, animated: false)
+            pager.setViewControllers([host], direction: .forward, animated: false)
             pager.dataSource = self
             resetScroll(pager)
+            if host.hydrated { return }
+            if PulseLaunch.shouldHydrateSelectedPageAfterChrome() {
+                DispatchQueue.main.async { [weak self] in
+                    guard let self, self.displayed == dest else { return }
+                    self.hydrate(dest)
+                    self.dehydrate(keeping: dest)
+                    self.warmSides(of: dest)
+                }
+                return
+            }
+            hydrate(dest)
         }
 
         private func warmSides(of dest: HubDestination) {

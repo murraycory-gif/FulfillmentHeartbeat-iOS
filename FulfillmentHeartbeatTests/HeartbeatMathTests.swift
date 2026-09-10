@@ -1785,6 +1785,14 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertLessThan(PulseLaunch.filterPaintDelayNanoseconds(clearingAll: false), PulseLaunch.grainPaintDelayNanoseconds)
         XCTAssertTrue(PulseLaunch.shouldRestoreUnfilteredPulseOnClear(hasCompanyWideCache: true))
         XCTAssertFalse(PulseLaunch.shouldRestoreUnfilteredPulseOnClear(hasCompanyWideCache: false))
+        XCTAssertTrue(PulseLaunch.shouldAcknowledgeSidebarToggleImmediately())
+        XCTAssertTrue(PulseLaunch.shouldKeepDetailWidthWhenSidebarOpens())
+        XCTAssertTrue(PulseLaunch.shouldHydrateSelectedPageAfterChrome())
+        XCTAssertTrue(PulseLaunch.shouldDeferDestinationWorkOnNav())
+        XCTAssertTrue(PulseLaunch.shouldPresentShareSheetWithoutBuildingHTML())
+        XCTAssertEqual(PulseMail.SharePage.from(destination: .dashboard), .dashboard)
+        XCTAssertEqual(PulseMail.SharePage.from(destination: .lostRevenue), .lostRevenue)
+        XCTAssertEqual(PulseMail.SharePage.from(destination: .pickerScorecard), .pickerScorecard)
         XCTAssertFalse(HubLayout.rasterizeSwipe)
         XCTAssertEqual(PulseLaunch.streamPickerSnappyAfterReady, true)
         XCTAssertEqual(PulseLaunch.pickerChunkPauseNanoseconds, 120_000_000)
@@ -2557,6 +2565,48 @@ final class HeartbeatMathTests: XCTestCase {
             DashboardFilters.display("J3CHICAGO", empty: "All districts", prefix: "District "),
             "District J3"
         )
+    }
+
+    func testShareDashboardMatchesOnScreenCalloutsAndOpensWithoutHTML() {
+        let flags = (1...5).map { n in
+            HeartbeatMath.FiveStarFlag(name: "Flag \(n)", value: "\(n).0", health: .watch, stores: n)
+        }
+        let snap = PulseMail.Snapshot(
+            filterSummary: "California Region",
+            grain: "region",
+            summaries: [
+                SectionSummary(
+                    section: .sales,
+                    storeCount: 12,
+                    headline: 1_000,
+                    headlineLabel: "eComm sales",
+                    secondary: "",
+                    health: .watch,
+                    watchCount: 2,
+                    riskCount: 1
+                )
+            ],
+            rows: [:],
+            pickerCounts: [:],
+            generatedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            flags: [.sales: flags]
+        )
+        XCTAssertEqual(HubLayout.calloutColumns(count: 5, width: HubLayout.SupportedCanvas.padLandscape), 3)
+        let packet = PulseMail.make(snap, pages: [.dashboard])
+        XCTAssertTrue(packet.html.contains("dash-card"), packet.html)
+        XCTAssertTrue(packet.html.contains("Operational Heartbeat"), packet.html)
+        XCTAssertTrue(packet.html.contains("width=\"33%\""), packet.html)
+        XCTAssertTrue(packet.html.contains("Flag 5"), packet.html)
+        let brief = PulseMail.briefPacket(snap, pages: [.dashboard])
+        XCTAssertTrue(brief.html.isEmpty)
+        XCTAssertNil(brief.htmlFile)
+        XCTAssertFalse(brief.brief.isEmpty)
+        XCTAssertTrue(PulseLaunch.shouldPresentShareSheetWithoutBuildingHTML())
+        let streamed = PulseMail.make(snap, pages: [.dashboard], persistHTML: false)
+        XCTAssertTrue(streamed.html.isEmpty)
+        XCTAssertNotNil(streamed.htmlFile)
+        let item = PulseMail.shareActivityItem(streamed)
+        XCTAssertFalse(item is String && (item as? String)?.contains("<html") == true)
     }
 
     func testSupportedFloorIPhone13AndiPad13FlowEvenColumns() {

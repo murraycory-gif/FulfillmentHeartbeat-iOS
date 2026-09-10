@@ -103,6 +103,21 @@ enum PulseLaunch {
         hasCompanyWideCache
     }
 
+    /// Sidebar open/close must flip on the tap. Detail width stays put (no dashboard reflow).
+    static func shouldAcknowledgeSidebarToggleImmediately() -> Bool { true }
+
+    /// Keep the dashboard at full width while the pages drawer is open.
+    static func shouldKeepDetailWidthWhenSidebarOpens() -> Bool { true }
+
+    /// Highlight the selected page before hydrating that scorecard.
+    static func shouldHydrateSelectedPageAfterChrome() -> Bool { true }
+
+    /// Grain paint / picker stream wait until the nav chrome has committed.
+    static func shouldDeferDestinationWorkOnNav() -> Bool { true }
+
+    /// Share picker appears before any HTML is built.
+    static func shouldPresentShareSheetWithoutBuildingHTML() -> Bool { true }
+
     /// Cloud facts/pack after Who's looking — not on splash, not in the first breath.
     static let cloudHydrateDelayNanoseconds: UInt64 = 12_000_000_000
     static let foregroundCloudQuietSeconds: TimeInterval = 90
