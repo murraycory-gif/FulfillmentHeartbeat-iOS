@@ -1987,6 +1987,8 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(PulseLaunch.aisleQuips.contains(where: { $0.localizedCaseInsensitiveContains("runaway lime") }))
         XCTAssertFalse(PulseLaunch.aisleQuips.contains(where: { $0.localizedCaseInsensitiveContains("ice cream aisle") }))
         XCTAssertFalse(PulseLaunch.seatLoadDirective.localizedCaseInsensitiveContains("choosing a seat"))
+        XCTAssertTrue(PulseLaunch.shouldLoadSeatSectionOnPageOpen(filtersActive: true))
+        XCTAssertFalse(PulseLaunch.shouldStartCompanyPickerStreamOnJoinPage(filtersActive: true))
     }
 
     func testSeatWarehouseAlwaysClearsHydrating() async {
@@ -2108,6 +2110,130 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(
             table.contains { MarketRegion.allCases.map(\.rawValue).contains($0.label) }
         )
+    }
+
+    func testEverySectionPageOpenUsesSeatReadStoresUnderFilter() {
+        for section in PulseLaunch.pageOpenSections {
+            XCTAssertEqual(
+                PulseLaunch.sectionPageFirstPaint(section: section, filtersActive: true),
+                .seatReadStores,
+                "\(section.rawValue) page-open under seat must be readStores, not company stream"
+            )
+            XCTAssertEqual(
+                PulseLaunch.sectionPageFirstPaint(section: section, filtersActive: false),
+                .companyStream,
+                "\(section.rawValue) unfiltered may use the company pack"
+            )
+        }
+        XCTAssertFalse(PulseLaunch.shouldStartCompanyPickerStreamOnJoinPage(filtersActive: true))
+        XCTAssertTrue(PulseLaunch.shouldStartCompanyPickerStreamOnJoinPage(filtersActive: false))
+        XCTAssertTrue(PulseLaunch.sectionNeedsShopperJoin(.pph))
+        XCTAssertTrue(PulseLaunch.sectionNeedsShopperJoin(.dynacap))
+        XCTAssertTrue(PulseLaunch.sectionNeedsShopperJoin(.pickPath))
+        XCTAssertFalse(PulseLaunch.sectionNeedsShopperJoin(.sales))
+        XCTAssertFalse(PulseLaunch.shouldStartPickerStreamOnDestinationSwitch())
+        XCTAssertFalse(PulseLaunch.shouldStreamPickerOnDashboard())
+        XCTAssertFalse(PulseLaunch.shouldStreamCompanyPickerForSeatFirstPaint())
+        XCTAssertTrue(PulseLaunch.shouldLoadSeatSectionOnPageOpen(filtersActive: true))
+        XCTAssertFalse(PulseLaunch.shouldLoadSeatSectionOnPageOpen(filtersActive: false))
+    }
+
+    func testDistrictAndStoreSeatNeverEmptyWhenPackHasFacts() {
+        let districtStores = (1...20).map { String($0) }
+        var roster: [String: HeartbeatMath.StoreIdentity] = [:]
+        for store in districtStores {
+            roster[store] = HeartbeatMath.StoreIdentity(
+                division: "NorCal", district: "03", om: "Jino Arvin", name: store
+            )
+        }
+        roster["9001"] = HeartbeatMath.StoreIdentity(
+            division: "Jewel Osco", district: "J1", om: "Shelly Selof", name: "9001"
+        )
+        func fact(
+            _ section: MetricSection,
+            _ store: String,
+            payload: [String: Double],
+            extra: [String: String] = [:]
+        ) -> MetricRow {
+            let identity = roster[store]!
+            var text = extra
+            if text["district"] == nil { text["district"] = identity.district }
+            return MetricRow(
+                section: section,
+                division: identity.division,
+                operationsOM: identity.om,
+                storeNumber: store,
+                storeName: identity.name,
+                payload: payload,
+                textPayload: text
+            )
+        }
+        let all = districtStores + ["9001"]
+        var warehouse: [MetricSection: [MetricRow]] = [:]
+        warehouse[.sales] = all.map { fact(.sales, $0, payload: ["sales_dollars": 100, "sales_orders": 4], extra: ["sales_grain": "store"]) }
+        warehouse[.lostRevenue] = all.map { fact(.lostRevenue, $0, payload: ["lost_revenue": 10, "lost_revenue_pct": 2], extra: ["lost_grain": "store"]) }
+        warehouse[.labor] = all.map { fact(.labor, $0, payload: ["target_vs_actual_pct": -1], extra: ["labor_grain": "store"]) }
+        warehouse[.pickPath] = all.map { fact(.pickPath, $0, payload: ["compliance_pct": 92]) }
+        warehouse[.scheduleQuality] = all.map { fact(.scheduleQuality, $0, payload: ["schedule_efficiency_pct": 91]) }
+        warehouse[.missingItems] = all.map { fact(.missingItems, $0, payload: [MissingItemDept.totalKey: 4]) }
+        warehouse[.fiveStar] = all.map { fact(.fiveStar, $0, payload: ["star_rating": 4.8]) }
+        warehouse[.preSubOOS] = all.map { fact(.preSubOOS, $0, payload: [MissingItemDept.totalKey: 3]) }
+        warehouse[.prepNotReady] = all.map { fact(.prepNotReady, $0, payload: ["pnr_rate_pct": 1.5]) }
+        warehouse[.dynacap] = all.map { fact(.dynacap, $0, payload: ["dynacap_rate": 70]) }
+        warehouse[.pph] = all.map { fact(.pph, $0, payload: ["pph": 82]) }
+        warehouse[.pickerScorecard] = all.map {
+            fact(.pickerScorecard, $0, payload: ["pph": 82, "orders": 24], extra: ["shopper_id": "\($0)-A", "shopper_name": "\($0)-A"])
+        }
+        warehouse[.pickPathPicker] = all.map {
+            fact(.pickPathPicker, $0, payload: ["compliance_pct": 88], extra: ["shopper_id": "\($0)-P", "shopper_name": "\($0)-P"])
+        }
+        warehouse[.preSubOOSItem] = all.map {
+            fact(.preSubOOSItem, $0, payload: ["item_count": 3], extra: ["item_desc": "milk"])
+        }
+        var district = DashboardFilters()
+        district.district = "03"
+        var storeFilter = DashboardFilters()
+        storeFilter.store = "12"
+        for (name, filters) in [("District 03", district), ("Store 12", storeFilter)] {
+            let view = PulseLaunch.seatSlice(warehouse: warehouse, roster: roster, filters: filters)
+            let allowed = PulseCaches.allowedStores(roster: roster, filters: filters) ?? []
+            XCTAssertFalse(allowed.isEmpty, "\(name) roster must resolve stores")
+            for section in PulseLaunch.pageOpenSections {
+                let rows = view.filtered[section] ?? PulseQuery.sliceSection(
+                    section,
+                    rows: warehouse[section] ?? [],
+                    allowed: allowed,
+                    filters: filters,
+                    roster: roster
+                )
+                XCTAssertFalse(rows.isEmpty, "\(name) \(section.rawValue) rows empty despite pack facts")
+                let card = HeartbeatMath.summarize(section, rows: rows, upload: nil)
+                let pinned = PulseLaunch.pinSeatStoreCount(card, seatStores: allowed.count)
+                XCTAssertGreaterThan(pinned.storeCount, 0, "\(name) \(section.rawValue) storeCount")
+                if section == .pickerScorecard {
+                    XCTAssertGreaterThan(card.headline ?? 0, 0, "\(name) Picker headline must not stay 0")
+                    XCTAssertFalse(
+                        card.secondary.localizedCaseInsensitiveContains("no shoppers"),
+                        "\(name) Picker must not stay NO DATA when pack has shoppers"
+                    )
+                    let table = PulseLaunch.pickerExpandTable(
+                        seatRows: rows,
+                        chrome: nil,
+                        filters: filters,
+                        grain: PulseLaunch.dashboardGrain(filters: filters, sessionRole: .districtManager)
+                    )
+                    XCTAssertTrue(
+                        HeartbeatMath.grainRowsAreLive(table),
+                        "\(name) Picker Stores footer must be live"
+                    )
+                } else {
+                    XCTAssertTrue(
+                        (card.headline ?? 0) != 0 || pinned.storeCount > 0,
+                        "\(name) \(section.rawValue) headline/storeCount empty despite pack facts"
+                    )
+                }
+            }
+        }
     }
 
     @MainActor

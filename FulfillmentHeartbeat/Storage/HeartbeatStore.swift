@@ -4696,20 +4696,34 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func ensureSectionLoaded(_ section: MetricSection) async {
+        let seatFirst = PulseLaunch.sectionPageFirstPaint(
+            section: section,
+            filtersActive: filters.isActive
+        ) == .seatReadStores
+
         if section == .pickerScorecard {
-            if PulseLaunch.pickerPageFirstPaint(filtersActive: filters.isActive) == .seatReadStores {
+            if seatFirst {
                 await loadFilteredPickerExpandIfNeeded()
-                if PulseLaunch.shouldStreamCompanyPickerForSeatFirstPaint() {
-                    await streamPicker(preferSnappy: isReady)
-                }
                 return
             }
             await streamPicker(preferSnappy: isReady)
             return
         }
-        if section == .pph || section == .dynacap || section == .pickPath, !pickerStreamDone {
-            Task { await self.streamPicker(preferSnappy: false) }
+
+        if PulseLaunch.sectionNeedsShopperJoin(section) {
+            if seatFirst {
+                Task { await self.loadFilteredPickerExpandIfNeeded() }
+            } else if !pickerStreamDone,
+                      PulseLaunch.shouldStartCompanyPickerStreamOnJoinPage(filtersActive: false) {
+                Task { await self.streamPicker(preferSnappy: false) }
+            }
         }
+
+        if seatFirst {
+            await loadFilteredSectionIfNeeded(section)
+            return
+        }
+
         let deferred = PulseQuery.skipOnLight.contains(section)
         if deferred {
             if (latestBySection[section] ?? []).count >= 2 {
@@ -4728,36 +4742,43 @@ final class HeartbeatStore: ObservableObject {
         let readPriority: TaskPriority = isReady ? .utility : .userInitiated
         let incoming = await Task.detached(priority: readPriority) { () -> [MetricRow] in
             guard let pack = try? PulseSQLite.read(from: url, only: [section]) else { return [] }
-            let rows = pack.rows
-            switch section {
-            case .labor:
-                let stores = rows.filter {
-                    $0.textPayload["labor_grain"] == "store" && !$0.storeNumber.isEmpty
-                }
-                let fallback = rows.filter {
-                    $0.textPayload["labor_grain"] != "market" && !$0.storeNumber.isEmpty
-                }
-                return HeartbeatMath.applyRoster(
-                    HeartbeatMath.latestPerStore(stores.isEmpty ? fallback : stores),
-                    roster: rosterCopy
-                )
-            case .pickerScorecard, .pickPathPicker:
-                return HeartbeatMath.applyRoster(HeartbeatMath.latestPerShopper(rows), roster: rosterCopy)
-            case .lostRevenue:
-                let source = rows.filter { $0.textPayload["lost_grain"] != "market" }
-                var collapsed = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(source), roster: rosterCopy)
-                if let market = rows.first(where: { $0.textPayload["lost_grain"] == "market" }) {
-                    collapsed.append(market)
-                }
-                return collapsed
-            case .dynacap:
-                return HeartbeatMath.materializeDynacap(rows, roster: rosterCopy)
-            case .pph:
-                return HeartbeatMath.materializePPH(rows, roster: rosterCopy)
-            default:
-                return HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(rows), roster: rosterCopy)
-            }
+            return Self.materializeSectionRows(pack.rows, section: section, roster: rosterCopy)
         }.value
+        adoptSectionWarehouse(section, incoming)
+    }
+
+    /// Seat page-open: `readStores(allowed)` when the warehouse is empty. Never company LIMIT/OFFSET.
+    private func loadFilteredSectionIfNeeded(_ section: MetricSection) async {
+        if section == .pickerScorecard {
+            await loadFilteredPickerExpandIfNeeded()
+            return
+        }
+        if let have = latestBySection[section], !have.isEmpty {
+            installSectionSlice(section)
+            return
+        }
+        let allowed = pickerStoreSet() ?? []
+        guard filters.isActive, !allowed.isEmpty, PulseSQLite.exists(at: sqliteURL) else {
+            if !(latestBySection[section] ?? []).isEmpty {
+                installSectionSlice(section)
+            }
+            return
+        }
+        let url = sqliteURL
+        let stores = allowed
+        let rosterCopy = roster
+        let incoming = await Task.detached(priority: .userInitiated) { () -> [MetricRow] in
+            let raw = PulseSQLite.readStores(from: url, sections: [section], stores: stores)
+            return Self.materializeSectionRows(raw, section: section, roster: rosterCopy)
+        }.value
+        guard !incoming.isEmpty else { return }
+        adoptSectionWarehouse(section, incoming)
+        if PulseLaunch.shouldPublishPickerSeatFirstPaint() {
+            objectWillChange.send()
+        }
+    }
+
+    private func adoptSectionWarehouse(_ section: MetricSection, _ incoming: [MetricRow]) {
         guard !incoming.isEmpty else { return }
         latestBySection[section] = incoming
         if section == .dynacap || section == .pph || section == .pickerScorecard {
@@ -4767,6 +4788,41 @@ final class HeartbeatStore: ObservableObject {
             rebuildLaborWeekIndex()
         }
         installSectionSlice(section)
+    }
+
+    private static func materializeSectionRows(
+        _ rows: [MetricRow],
+        section: MetricSection,
+        roster: [String: HeartbeatMath.StoreIdentity]
+    ) -> [MetricRow] {
+        switch section {
+        case .labor:
+            let stores = rows.filter {
+                $0.textPayload["labor_grain"] == "store" && !$0.storeNumber.isEmpty
+            }
+            let fallback = rows.filter {
+                $0.textPayload["labor_grain"] != "market" && !$0.storeNumber.isEmpty
+            }
+            return HeartbeatMath.applyRoster(
+                HeartbeatMath.latestPerStore(stores.isEmpty ? fallback : stores),
+                roster: roster
+            )
+        case .pickerScorecard, .pickPathPicker:
+            return HeartbeatMath.applyRoster(HeartbeatMath.latestPerShopper(rows), roster: roster)
+        case .lostRevenue:
+            let source = rows.filter { $0.textPayload["lost_grain"] != "market" }
+            var collapsed = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(source), roster: roster)
+            if let market = rows.first(where: { $0.textPayload["lost_grain"] == "market" }) {
+                collapsed.append(market)
+            }
+            return collapsed
+        case .dynacap:
+            return HeartbeatMath.materializeDynacap(rows, roster: roster)
+        case .pph:
+            return HeartbeatMath.materializePPH(rows, roster: roster)
+        default:
+            return HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(rows), roster: roster)
+        }
     }
 
     private func hydrateFilteredHeavy() async {

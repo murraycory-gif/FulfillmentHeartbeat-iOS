@@ -293,6 +293,9 @@ enum PulseLaunch {
     /// Seat page-open first paint is `readStores(allowed)`, not company `streamPicker`.
     static func shouldLoadSeatPickerOnPageOpen(filtersActive: Bool) -> Bool { filtersActive }
 
+    /// Every dashboard / join page uses the same seat pack path under a filter.
+    static func shouldLoadSeatSectionOnPageOpen(filtersActive: Bool) -> Bool { filtersActive }
+
     /// Company chunk stream must not be the District first paint (often 0 shoppers).
     static func shouldStreamCompanyPickerForSeatFirstPaint() -> Bool { false }
 
@@ -301,12 +304,32 @@ enum PulseLaunch {
         case companyStream
     }
 
-    static func pickerPageFirstPaint(filtersActive: Bool) -> PickerPageFirstPaint {
-        if shouldLoadSeatPickerOnPageOpen(filtersActive: filtersActive),
+    static var pageOpenSections: [MetricSection] {
+        MetricSection.dashboardCards + [.pickPathPicker, .preSubOOSItem]
+    }
+
+    static func sectionPageFirstPaint(
+        section: MetricSection,
+        filtersActive: Bool
+    ) -> PickerPageFirstPaint {
+        if shouldLoadSeatSectionOnPageOpen(filtersActive: filtersActive),
            !shouldStreamCompanyPickerForSeatFirstPaint() {
             return .seatReadStores
         }
         return .companyStream
+    }
+
+    static func pickerPageFirstPaint(filtersActive: Bool) -> PickerPageFirstPaint {
+        sectionPageFirstPaint(section: .pickerScorecard, filtersActive: filtersActive)
+    }
+
+    static func sectionNeedsShopperJoin(_ section: MetricSection) -> Bool {
+        section == .pph || section == .dynacap || section == .pickPath
+    }
+
+    /// Join pages may stream company shoppers only when no seat filter is on.
+    static func shouldStartCompanyPickerStreamOnJoinPage(filtersActive: Bool) -> Bool {
+        !filtersActive && !shouldStreamCompanyPickerForSeatFirstPaint()
     }
 
     /// One EnvironmentObject ping when seat shoppers land. Not `filterStamp`.
