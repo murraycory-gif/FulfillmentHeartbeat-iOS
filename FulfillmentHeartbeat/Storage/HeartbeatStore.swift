@@ -2040,13 +2040,6 @@ final class HeartbeatStore: ObservableObject {
                 constrained: HubLayout.constrained,
                 localRowsLoaded: alreadyLoaded
             )
-            if shouldReload {
-                await loadPack(from: staging)
-                guard seeded, !rows.isEmpty else {
-                    try? fileManager.removeItem(at: staging)
-                    return
-                }
-            }
             try promoteStagingPack(staging)
             UserDefaults.standard.set(size, forKey: "hb.cloudPackBytes")
             let stamp = await PulseCloud.objectInfo(PulseCloud.object)
@@ -2057,6 +2050,8 @@ final class HeartbeatStore: ObservableObject {
                 applyLocalCards()
                 return
             }
+            await loadPack()
+            guard seeded, !rows.isEmpty else { return }
             await paintFromWarehouse(light: true)
             if reason != .boot {
                 scheduleGrainPaint(generation: paintGeneration)
