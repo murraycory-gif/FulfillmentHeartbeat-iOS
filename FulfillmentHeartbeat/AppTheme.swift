@@ -316,6 +316,12 @@ enum HubLayout {
     static var hydrateNeighbors: Bool { profile.hydrateNeighbors }
     static var rasterizeSwipe: Bool { profile.rasterizeSwipe }
 
+    /// Sales-style callouts: readable, but tighter than the oversized 324 tiles.
+    static func calloutMinHeight(phone: Bool) -> CGFloat { phone ? 88 : 98 }
+    static func calloutValueSize(phone: Bool) -> CGFloat { phone ? 20 : 22 }
+    static func calloutMinWidth(phone: Bool) -> CGFloat { phone ? 136 : 152 }
+    static var calloutGridSpacing: CGFloat { 8 }
+
     static func phoneBannerTitleFont() -> Font { AppTheme.rounded(.footnote, weight: .bold) }
     static func phoneBannerIconFont() -> Font { AppTheme.rounded(.footnote, weight: .semibold) }
     static var phoneControlHeight: CGFloat { 30 }
@@ -380,7 +386,7 @@ enum HubLayout {
             lightLaunch: lightLaunch,
             phoneChrome: kind == .phone,
             hydrateNeighbors: false,
-            rasterizeSwipe: kind == .pad && !fourGig,
+            rasterizeSwipe: false,
             grainCap: lightLaunch ? 12 : 24,
             storeGrainCap: lightLaunch ? 16 : 50
         )

@@ -1515,7 +1515,16 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(PulseLaunch.needsShopperJoin(.sales))
         XCTAssertTrue(PulseLaunch.shouldStampPicker(replace: true, dest: .dashboard, count: 80, lastStampCount: 0))
         XCTAssertFalse(PulseLaunch.shouldStampPicker(replace: false, dest: .dashboard, count: 200, lastStampCount: 80))
-        XCTAssertTrue(PulseLaunch.shouldStampPicker(replace: false, dest: .pph, count: 500, lastStampCount: 80))
+        XCTAssertFalse(PulseLaunch.shouldStampPicker(replace: false, dest: .pph, count: 500, lastStampCount: 80))
+        XCTAssertTrue(PulseLaunch.shouldStampPicker(replace: false, dest: .pph, count: 880, lastStampCount: 80))
+        XCTAssertTrue(PulseLaunch.shouldRefreshPickerChrome(replace: true, dest: .dashboard, stamp: true))
+        XCTAssertFalse(PulseLaunch.shouldRefreshPickerChrome(replace: false, dest: .dashboard, stamp: false))
+        XCTAssertTrue(PulseLaunch.shouldRefreshPickerChrome(replace: false, dest: .pph, stamp: true))
+        XCTAssertFalse(PulseLaunch.shouldTouchPickerUI(stamp: false, chrome: false))
+        XCTAssertTrue(PulseLaunch.shouldTouchPickerUI(stamp: true, chrome: false))
+        XCTAssertFalse(PulseLaunch.shouldRestartGrainPaint(alreadySettled: true, dest: .dashboard))
+        XCTAssertTrue(PulseLaunch.shouldRestartGrainPaint(alreadySettled: false, dest: .dashboard))
+        XCTAssertFalse(PulseLaunch.shouldRestartGrainPaint(alreadySettled: false, dest: .pph))
         XCTAssertEqual(HubLayout.calloutColumns(count: 7, width: 1100), 4)
         XCTAssertEqual(HubLayout.calloutColumns(count: 5, width: 1100), 3)
     }
@@ -1524,6 +1533,9 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertGreaterThan(PulseLaunch.grainPaintDelayNanoseconds, 0)
         XCTAssertGreaterThan(PulseLaunch.cloudHydrateDelayNanoseconds, PulseLaunch.grainPaintDelayNanoseconds)
         XCTAssertTrue(PulseLaunch.streamPickerAfterReady)
+        XCTAssertTrue(PulseLaunch.streamPickerSnappyAfterReady)
+        XCTAssertEqual(PulseLaunch.pickerUIStampStride, 800)
+        XCTAssertGreaterThan(PulseLaunch.pickerChunkPauseNanoseconds, 0)
         XCTAssertFalse(PulseLaunch.loadPageOnlyOnReady)
         XCTAssertGreaterThan(PulseLaunch.pickerFirstPaintCount, 0)
         XCTAssertTrue(PulseLaunch.shouldPaintGrains(dashboardVisible: true, ready: true, rolePicked: true))
@@ -1536,6 +1548,31 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(PulseLaunch.shouldLoadPublishedFacts(lostStores: 400, salesStores: 400))
         XCTAssertTrue(PulseLaunch.shouldLoadPublishedFacts(lostStores: 40, salesStores: 40))
         XCTAssertFalse(PulseLaunch.shouldLoadPublishedFacts(lostStores: 40, salesStores: 400))
+        XCTAssertFalse(HubLayout.rasterizeSwipe)
+        XCTAssertLessThan(HubLayout.calloutMinHeight(phone: false), 104)
+        XCTAssertGreaterThanOrEqual(HubLayout.calloutMinHeight(phone: false), 90)
+        XCTAssertLessThan(HubLayout.calloutValueSize(phone: false), 26)
+        XCTAssertGreaterThanOrEqual(HubLayout.calloutValueSize(phone: false), 20)
+        XCTAssertGreaterThanOrEqual(HubLayout.calloutMinWidth(phone: false), 148)
+        let first = MetricRow(
+            section: .pickerScorecard,
+            division: "10",
+            operationsOM: "A",
+            storeNumber: "12",
+            payload: ["pph": 40],
+            textPayload: ["shopper_id": "A", "shopper_name": "A"]
+        )
+        let second = MetricRow(
+            section: .pickerScorecard,
+            division: "10",
+            operationsOM: "A",
+            storeNumber: "13",
+            payload: ["pph": 22],
+            textPayload: ["shopper_id": "B", "shopper_name": "B"]
+        )
+        let merged = PulseLaunch.mergePickerRows(existing: [first], incoming: [second])
+        XCTAssertEqual(merged.count, 2)
+        XCTAssertEqual(PulseLaunch.mergePickerRows(existing: [first], incoming: [first]).count, 1)
     }
 
     func testMissingPackMessageIsActionable() {

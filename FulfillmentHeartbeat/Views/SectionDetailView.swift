@@ -996,9 +996,10 @@ struct HubCalloutGrid<Content: View>: View {
 
     var body: some View {
         let columns = HubLayout.calloutColumns(count: count, width: width, sizeClass: sizeClass)
+        let phone = HubLayout.isPhone(sizeClass)
         LazyVGrid(
-            columns: HubLayout.grid(columns, spacing: 10, minWidth: HubLayout.isPhone(sizeClass) ? 148 : 168),
-            spacing: 10
+            columns: HubLayout.grid(columns, spacing: HubLayout.calloutGridSpacing, minWidth: HubLayout.calloutMinWidth(phone: phone)),
+            spacing: HubLayout.calloutGridSpacing
         ) {
             content
         }
@@ -1028,71 +1029,71 @@ struct PickerFocusTile: View {
                 tile
             }
         }
-        .frame(maxWidth: .infinity, minHeight: phone ? 104 : 118)
+        .frame(maxWidth: .infinity, minHeight: HubLayout.calloutMinHeight(phone: phone))
     }
 
     private var tile: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .center, spacing: 8) {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .center, spacing: 6) {
                 Text(title)
-                    .font(AppTheme.rounded(phone ? .subheadline : .title3, weight: .bold))
+                    .font(AppTheme.rounded(phone ? .subheadline : .headline, weight: .bold))
                     .foregroundStyle(AppTheme.text)
                     .lineLimit(2)
                     .minimumScaleFactor(0.75)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if health != .none {
-                    HealthBadge(health: health, prominent: true, compact: phone)
+                    HealthBadge(health: health, prominent: true, compact: true)
                 }
             }
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
                 Text(value)
-                    .font(.system(size: phone ? 22 : 26, weight: .bold, design: .rounded).monospacedDigit())
+                    .font(.system(size: HubLayout.calloutValueSize(phone: phone), weight: .bold, design: .rounded).monospacedDigit())
                     .foregroundStyle(ink)
                     .lineLimit(1)
                     .minimumScaleFactor(0.55)
                     .fixedSize(horizontal: true, vertical: false)
                 if let unit, !unit.isEmpty {
                     Text(unit)
-                        .font(AppTheme.rounded(phone ? .subheadline : .title3, weight: .semibold))
+                        .font(AppTheme.rounded(phone ? .caption : .subheadline, weight: .semibold))
                         .foregroundStyle(ink.opacity(0.85))
                         .lineLimit(1)
                 }
                 Spacer(minLength: 0)
             }
-            .frame(minHeight: phone ? 24 : 30, alignment: .bottomLeading)
+            .frame(minHeight: phone ? 22 : 26, alignment: .bottomLeading)
             Text(detail)
-                .font(AppTheme.rounded(phone ? .caption : .subheadline, weight: .medium))
+                .font(AppTheme.rounded(.caption, weight: .medium))
                 .foregroundStyle(AppTheme.textSecondary)
                 .lineLimit(2)
                 .minimumScaleFactor(0.8)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .padding(phone ? 12 : 14)
+        .padding(phone ? 10 : 11)
         .padding(.leading, 4)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color.white)
                 .overlay {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .fill(wash.opacity(0.42))
                 }
         }
         .overlay(alignment: .leading) {
             Capsule()
                 .fill(stripe)
-                .frame(width: 5)
-                .padding(.vertical, 12)
+                .frame(width: 4)
+                .padding(.vertical, 10)
         }
         .overlay {
             if shouldPulse && !selected {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(Color(red: 220 / 255, green: 38 / 255, blue: 38 / 255), lineWidth: 2.5)
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(Color(red: 220 / 255, green: 38 / 255, blue: 38 / 255), lineWidth: 2)
             } else {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(stroke, lineWidth: selected ? 2.5 : 1)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(stroke, lineWidth: selected ? 2 : 1)
             }
         }
         .shadow(color: Color.black.opacity(0.06), radius: 3, y: 1)

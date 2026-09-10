@@ -7,14 +7,18 @@ enum PulseLaunch {
     static let stagingFileName = "heartbeat-cloud.sqlite"
     static let bootDownloadTimeout: TimeInterval = 25
     /// Let the hub settle before expanding grains. Cards already painted.
-    static let grainPaintDelayNanoseconds: UInt64 = 1_200_000_000
+    static let grainPaintDelayNanoseconds: UInt64 = 2_000_000_000
     /// Stream shoppers after splash so the dashboard card fills. Never on splash.
     static let streamPickerAfterReady = true
+    /// After ready, first chunk only — do not await the rest of the pack.
+    static let streamPickerSnappyAfterReady = true
     static let loadPageOnlyOnReady = false
     /// First shoppers so Picker / dashboard paint before the rest of the pack.
     static let pickerFirstPaintCount = 80
     static let pickerChunkCount = 250
-    static let pickerUIStampStride = 400
+    static let pickerUIStampStride = 800
+    /// Yield so post-ready streaming cannot peg the CPU.
+    static let pickerChunkPauseNanoseconds: UInt64 = 120_000_000
 
     /// Pages that join shopper rows into store tables after the pack is ready.
     static func needsShopperJoin(_ dest: HubDestination) -> Bool {
@@ -30,6 +34,39 @@ enum PulseLaunch {
         if replace { return true }
         guard needsShopperJoin(dest) else { return false }
         return count - lastStampCount >= pickerUIStampStride
+    }
+
+    /// Heavy picker chrome (board, flags, PPH index) only on first paint or a join-page stamp.
+    static func shouldRefreshPickerChrome(replace: Bool, dest: HubDestination, stamp: Bool) -> Bool {
+        replace || (stamp && needsShopperJoin(dest))
+    }
+
+    /// Skip SwiftUI / filterStamp work when a background chunk has nothing new to show.
+    static func shouldTouchPickerUI(stamp: Bool, chrome: Bool) -> Bool {
+        stamp || chrome
+    }
+
+    static func pickerRowKey(_ row: MetricRow) -> String {
+        "\(row.storeNumber)|\(HeartbeatMath.canonicalShopper(row.shopperKey))"
+    }
+
+    static func mergePickerRows(existing: [MetricRow], incoming: [MetricRow]) -> [MetricRow] {
+        guard !existing.isEmpty else { return incoming }
+        guard !incoming.isEmpty else { return existing }
+        var map: [String: MetricRow] = [:]
+        map.reserveCapacity(existing.count + incoming.count)
+        for row in existing {
+            map[pickerRowKey(row)] = row
+        }
+        for row in incoming {
+            map[pickerRowKey(row)] = row
+        }
+        return Array(map.values)
+    }
+
+    /// Do not restart grain expand just because the user swiped back to Dashboard.
+    static func shouldRestartGrainPaint(alreadySettled: Bool, dest: HubDestination) -> Bool {
+        dest == .dashboard && !alreadySettled
     }
 
     static func shopperEmptyDetail(loading: Bool) -> String {

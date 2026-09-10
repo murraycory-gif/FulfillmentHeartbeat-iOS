@@ -92,6 +92,7 @@ final class HeartbeatStore: ObservableObject {
     private var unfilteredWarmTask: Task<Void, Never>?
     private var visibleDestination: HubDestination = .dashboard
     private var pickerStreamDone = false
+    private var grainPaintSettled = false
     private var lastPickerStampCount = 0
     private var paintGeneration = 0
     private var pageOnlyGeneration = -1
@@ -191,17 +192,17 @@ final class HeartbeatStore: ObservableObject {
         lastCloudPullAt = Date()
     }
 
-    /// Splash stays local-first. Shoppers stream after ready so the dashboard card fills.
+    /// Splash stays local-first. First shoppers fill the dashboard card; the rest yields.
     private func fillAfterReady() async {
         guard PulseLaunch.streamPickerAfterReady else { return }
-        await streamPicker(preferSnappy: false)
+        await streamPicker(preferSnappy: PulseLaunch.streamPickerSnappyAfterReady)
     }
 
     func setVisibleDestination(_ dest: HubDestination) {
         visibleDestination = dest
         if dest != .dashboard {
             grainPaintTask?.cancel()
-        } else if isReady, !needsRolePick {
+        } else if isReady, !needsRolePick, PulseLaunch.shouldRestartGrainPaint(alreadySettled: grainPaintSettled, dest: dest) {
             scheduleGrainPaint(generation: paintGeneration)
         }
         if PulseLaunch.needsShopperJoin(dest), !pickerStreamDone {
@@ -2420,6 +2421,7 @@ final class HeartbeatStore: ObservableObject {
         refilterTask?.cancel()
         grainPaintTask?.cancel()
         pageOnlyTask?.cancel()
+        grainPaintSettled = false
         paintGeneration += 1
         pageOnlyGeneration = -1
         let generation = paintGeneration
@@ -2569,6 +2571,9 @@ final class HeartbeatStore: ObservableObject {
         }
         if !light || cachedGrainPacks.isEmpty {
             cachedGrainPacks = view.grains
+        }
+        if !light {
+            grainPaintSettled = true
         }
         usingPackChrome = false
         if lostByStore.isEmpty {
@@ -3105,21 +3110,23 @@ final class HeartbeatStore: ObservableObject {
 
     private func streamPicker(preferSnappy: Bool) async {
         if pickerStreamDone, (latestBySection[.pickerScorecard] ?? []).count >= 2 {
-            refreshPickerDashboard(
-                visiblePickers(),
-                stamp: PulseLaunch.needsShopperJoin(visibleDestination)
-            )
+            let join = PulseLaunch.needsShopperJoin(visibleDestination)
+            if join {
+                refreshPickerDashboard(visiblePickers(), stamp: true, chrome: true)
+            }
             return
         }
         if pickerLoadTask != nil {
-            if let first = latestBySection[.pickerScorecard], first.count >= 2 {
+            let join = PulseLaunch.needsShopperJoin(visibleDestination)
+            if join, let first = latestBySection[.pickerScorecard], first.count >= 2 {
                 refreshPickerDashboard(
                     PulseQuery.sliceSection(
                         .pickerScorecard,
                         rows: first,
                         allowed: PulseCaches.allowedStores(roster: roster, filters: filters)
                     ),
-                    stamp: preferSnappy || PulseLaunch.needsShopperJoin(visibleDestination)
+                    stamp: true,
+                    chrome: true
                 )
             }
             if preferSnappy { return }
@@ -3132,7 +3139,9 @@ final class HeartbeatStore: ObservableObject {
         let firstLimit = PulseLaunch.pickerFirstPaintCount
         let chunk = PulseLaunch.pickerChunkCount
         let firstPriority: TaskPriority = preferSnappy ? .userInitiated : .utility
-        pickerLoading = true
+        if (latestBySection[.pickerScorecard] ?? []).isEmpty {
+            pickerLoading = true
+        }
         let firstRows = await Task.detached(priority: firstPriority) { () -> [MetricRow] in
             let raw = PulseSQLite.readSection(from: url, section: .pickerScorecard, limit: firstLimit, offset: 0)
             return HeartbeatMath.applyRoster(HeartbeatMath.latestPerShopper(raw), roster: rosterCopy)
@@ -3140,7 +3149,10 @@ final class HeartbeatStore: ObservableObject {
         applyPickerChunk(firstRows, replace: true)
         pickerLoadTask = Task {
             var offset = firstRows.count
+            var warehouse = firstRows
             while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: PulseLaunch.pickerChunkPauseNanoseconds)
+                guard !Task.isCancelled else { return }
                 let more = await Task.detached(priority: .background) { () -> [MetricRow] in
                     let raw = PulseSQLite.readSection(from: url, section: .pickerScorecard, limit: chunk, offset: offset)
                     return HeartbeatMath.applyRoster(HeartbeatMath.latestPerShopper(raw), roster: rosterCopy)
@@ -3148,16 +3160,19 @@ final class HeartbeatStore: ObservableObject {
                 if more.isEmpty { break }
                 offset += more.count
                 guard !Task.isCancelled else { return }
+                warehouse = PulseLaunch.mergePickerRows(existing: warehouse, incoming: more)
+                let snapshot = warehouse
                 await MainActor.run {
-                    self.applyPickerChunk(more, replace: false)
+                    self.parkPickerWarehouse(snapshot)
                 }
                 if more.count < chunk { break }
             }
             await MainActor.run {
                 self.pickerStreamDone = (self.latestBySection[.pickerScorecard] ?? []).count >= 2
                 self.pickerLoading = false
-                self.refreshPickerDashboard(self.visiblePickers(), stamp: true)
-                if PulseLaunch.needsShopperJoin(self.visibleDestination) {
+                let join = PulseLaunch.needsShopperJoin(self.visibleDestination)
+                if join {
+                    self.refreshPickerDashboard(self.visiblePickers(), stamp: true, chrome: true)
                     self.schedulePickerIndex(self.visiblePickers())
                 }
                 self.pickerLoadTask = nil
@@ -3168,19 +3183,41 @@ final class HeartbeatStore: ObservableObject {
         }
     }
 
+    /// Grow the in-memory shopper pack without waking SwiftUI unless a join page needs it.
+    private func parkPickerWarehouse(_ rows: [MetricRow]) {
+        latestBySection[.pickerScorecard] = rows
+        guard PulseLaunch.needsShopperJoin(visibleDestination) else { return }
+        let sliced = PulseQuery.sliceSection(
+            .pickerScorecard,
+            rows: rows,
+            allowed: PulseCaches.allowedStores(roster: roster, filters: filters)
+        )
+        let count = sliced.count
+        let stamp = PulseLaunch.shouldStampPicker(
+            replace: false,
+            dest: visibleDestination,
+            count: count,
+            lastStampCount: lastPickerStampCount
+        )
+        if stamp { lastPickerStampCount = count }
+        let chrome = PulseLaunch.shouldRefreshPickerChrome(
+            replace: false,
+            dest: visibleDestination,
+            stamp: stamp
+        )
+        guard PulseLaunch.shouldTouchPickerUI(stamp: stamp, chrome: chrome) else { return }
+        refreshPickerDashboard(sliced, stamp: stamp, chrome: chrome)
+    }
+
     private func applyPickerChunk(_ rows: [MetricRow], replace: Bool) {
         guard !rows.isEmpty else { return }
         if replace {
             latestBySection[.pickerScorecard] = rows
         } else {
-            var map: [String: MetricRow] = [:]
-            for row in latestBySection[.pickerScorecard] ?? [] {
-                map["\(row.storeNumber)|\(HeartbeatMath.canonicalShopper(row.shopperKey))"] = row
-            }
-            for row in rows {
-                map["\(row.storeNumber)|\(HeartbeatMath.canonicalShopper(row.shopperKey))"] = row
-            }
-            latestBySection[.pickerScorecard] = Array(map.values)
+            latestBySection[.pickerScorecard] = PulseLaunch.mergePickerRows(
+                existing: latestBySection[.pickerScorecard] ?? [],
+                incoming: rows
+            )
         }
         let sliced = PulseQuery.sliceSection(
             .pickerScorecard,
@@ -3195,13 +3232,19 @@ final class HeartbeatStore: ObservableObject {
             lastStampCount: lastPickerStampCount
         )
         if stamp { lastPickerStampCount = count }
-        refreshPickerDashboard(sliced, stamp: stamp)
+        let chrome = PulseLaunch.shouldRefreshPickerChrome(
+            replace: replace,
+            dest: visibleDestination,
+            stamp: stamp
+        )
+        guard PulseLaunch.shouldTouchPickerUI(stamp: stamp, chrome: chrome) else { return }
+        refreshPickerDashboard(sliced, stamp: stamp, chrome: chrome)
     }
 
-    private func refreshPickerDashboard(_ sliced: [MetricRow], stamp: Bool) {
+    private func refreshPickerDashboard(_ sliced: [MetricRow], stamp: Bool, chrome: Bool = true) {
         filteredLatest[.pickerScorecard] = sliced
         refreshSummary(for: .pickerScorecard, rows: sliced)
-        if !sliced.isEmpty {
+        if chrome, !sliced.isEmpty {
             cachedPickerBoard = HeartbeatMath.pickerBoard(sliced)
             cachedCardFlags[.pickerScorecard] = HeartbeatMath.dashboardActionFlags(
                 section: .pickerScorecard,

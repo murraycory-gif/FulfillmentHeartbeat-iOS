@@ -10225,24 +10225,24 @@ struct FulfillmentChecklistCard: View {
     }
 
     private func calloutCard(title: String, value: String, detail: String, health: Health) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .center, spacing: 8) {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .center, spacing: 6) {
                 Text(title)
-                    .font(.title3.weight(.bold))
+                    .font(.headline.weight(.bold))
                     .foregroundStyle(AppTheme.text)
                     .lineLimit(1)
                 Spacer(minLength: 4)
                 HealthBadge(health: health, prominent: true, compact: true)
             }
             Text(value)
-                .font(.system(size: 36, weight: .semibold, design: .rounded).monospacedDigit())
+                .font(.system(size: HubLayout.calloutValueSize(phone: false), weight: .semibold, design: .rounded).monospacedDigit())
                 .foregroundStyle(AppTheme.healthInk(health))
             Text(detail)
-                .font(.subheadline.weight(.medium))
+                .font(.caption.weight(.medium))
                 .foregroundStyle(AppTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(maxWidth: .infinity, minHeight: 124, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: HubLayout.calloutMinHeight(phone: false), alignment: .topLeading)
         .tableRowCard(health: health)
     }
 

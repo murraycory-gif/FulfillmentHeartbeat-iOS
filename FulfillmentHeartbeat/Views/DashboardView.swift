@@ -848,9 +848,10 @@ struct DashFlagGrid: View {
             EmptyView()
         } else {
             let cols = HubLayout.calloutColumns(count: flags.count, width: width, sizeClass: sizeClass)
+            let phone = HubLayout.isPhone(sizeClass)
             LazyVGrid(
-                columns: HubLayout.grid(cols, spacing: 10, minWidth: HubLayout.isPhone(sizeClass) ? 148 : 168),
-                spacing: 10
+                columns: HubLayout.grid(cols, spacing: HubLayout.calloutGridSpacing, minWidth: HubLayout.calloutMinWidth(phone: phone)),
+                spacing: HubLayout.calloutGridSpacing
             ) {
                 ForEach(flags) { flag in
                     DashFlagChip(flag: flag)
@@ -869,50 +870,50 @@ private struct DashFlagChip: View {
     private var tone: Health { flag.health == .none ? .good : flag.health }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .center, spacing: 8) {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .center, spacing: 6) {
                 Text(flag.name)
-                    .font(AppTheme.rounded(compact ? .subheadline : .title3, weight: .bold))
+                    .font(AppTheme.rounded(compact ? .subheadline : .headline, weight: .bold))
                     .foregroundStyle(AppTheme.text)
                     .lineLimit(2)
                     .minimumScaleFactor(0.75)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 if tone != .none {
-                    HealthBadge(health: tone, prominent: true, compact: compact)
+                    HealthBadge(health: tone, prominent: true, compact: true)
                 }
             }
             Text(flag.value.isEmpty ? countLine : flag.value)
-                .font(.system(size: compact ? 22 : 26, weight: .bold, design: .rounded).monospacedDigit())
+                .font(.system(size: HubLayout.calloutValueSize(phone: compact), weight: .bold, design: .rounded).monospacedDigit())
                 .foregroundStyle(dashInk(tone))
                 .lineLimit(1)
                 .minimumScaleFactor(0.55)
                 .fixedSize(horizontal: true, vertical: false)
             Text(flag.value.isEmpty ? (tone.label) : countLine)
-                .font(AppTheme.rounded(compact ? .caption : .subheadline, weight: .medium))
+                .font(AppTheme.rounded(.caption, weight: .medium))
                 .foregroundStyle(AppTheme.textSecondary)
                 .lineLimit(2)
                 .minimumScaleFactor(0.8)
         }
-        .padding(compact ? 12 : 14)
+        .padding(compact ? 10 : 11)
         .padding(.leading, 4)
-        .frame(maxWidth: .infinity, minHeight: compact ? 104 : 118, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: HubLayout.calloutMinHeight(phone: compact), alignment: .topLeading)
         .background {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color.white)
                 .overlay {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .fill(AppTheme.healthWash(tone).opacity(0.42))
                 }
         }
         .overlay(alignment: .leading) {
             Capsule()
                 .fill(AppTheme.healthInk(tone))
-                .frame(width: 5)
-                .padding(.vertical, 12)
+                .frame(width: 4)
+                .padding(.vertical, 10)
         }
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(AppTheme.healthInk(tone).opacity(tone == .risk ? 0.9 : 0.22), lineWidth: tone == .risk ? 2 : 1)
         )
         .shadow(color: Color.black.opacity(0.06), radius: 3, y: 1)
