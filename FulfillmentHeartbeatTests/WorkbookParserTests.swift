@@ -487,6 +487,26 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertFalse(rows.contains { $0.storeNumber == "378" })
     }
 
+    func testLostRevenuePrefersTotalOpportunityColumnOverGenericLostRevenue() throws {
+        let csv = """
+        Store,eComm Sales,Lost Revenue,Total Lost Revenue (Total Opportunity),Total Lost Revenue % (Total Opportunity)
+        1,10000,99999,760872.84,0.05
+        2,8000,88888,277531.39,0.05
+        Total,46077144.47,2015923.72,1962441.23,0.0453
+        """
+        let rows = try WorkbookParser.parse(data: Data(csv.utf8), filename: "Breakdown Week 25.xlsx")
+        let one = try XCTUnwrap(rows.first { $0.storeNumber == "1" })
+        XCTAssertEqual(one.payload["lost_revenue"] ?? 0, 760_872.84, accuracy: 0.01)
+        XCTAssertNotEqual(one.payload["lost_revenue"] ?? 0, 99_999, accuracy: 1)
+        let market = try XCTUnwrap(rows.first { $0.textPayload["lost_grain"] == "market" })
+        XCTAssertEqual(market.payload["lost_revenue"] ?? 0, 1_962_441.23, accuracy: 0.01)
+        XCTAssertNotEqual(market.payload["lost_revenue"] ?? 0, 2_015_923.72, accuracy: 1)
+        let asRows = rows.map { $0.asRow(section: .lostRevenue) }
+        let company = HeartbeatMath.summarize(.lostRevenue, rows: asRows, upload: nil)
+        XCTAssertEqual(company.headline ?? 0, 1_962_441.23, accuracy: 0.01)
+        XCTAssertEqual(HeartbeatMath.totalOpportunityDollars(market.asRow(section: .lostRevenue)), 1_962_441.23, accuracy: 0.01)
+    }
+
     func testLostRevenueGoalMapsBareGoalHeaders() throws {
         let csv = """
         Store,eComm Sales,Total Lost Revenue (Total Opportunity),Goal %,FY2026 Goal

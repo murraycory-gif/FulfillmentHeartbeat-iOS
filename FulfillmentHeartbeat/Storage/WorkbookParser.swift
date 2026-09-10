@@ -1040,10 +1040,15 @@ enum WorkbookParser {
         if (lower.contains("goal") || lower.contains("fy")) && lower.contains("lost") {
             return "lost_revenue_goal"
         }
-        if lower.contains("total lost revenue") && lower.contains("total opportunity") && hasPct { return "lost_revenue_pct" }
-        if lower.contains("total lost revenue") && lower.contains("total opportunity") { return "lost_revenue" }
-        if lower.contains("lost revenue") && hasPct { return "lost_revenue_pct" }
-        if lower.contains("lost revenue") { return "lost_revenue" }
+        // Gold column only. A shorter "Lost Revenue" header must not overwrite
+        // Total Lost Revenue (Total Opportunity) — that is how store SUM
+        // (~2,015,924) diverges from the Excel Total row (1,962,441).
+        if lower.contains("total lost revenue") && lower.contains("total opportunity") && hasPct {
+            return "lost_revenue_pct"
+        }
+        if lower.contains("total lost revenue") && lower.contains("total opportunity") {
+            return "lost_revenue"
+        }
         if lower.contains("post sub oos") && hasPct && !lower.contains("foregone") { return "post_sub_oos_pct" }
         if lower.contains("post sub oos") && lower.contains("foregone") && hasPct { return "post_sub_oos_foregone_pct" }
         if lower.contains("post sub oos") && lower.contains("foregone") { return "post_sub_oos_foregone" }
