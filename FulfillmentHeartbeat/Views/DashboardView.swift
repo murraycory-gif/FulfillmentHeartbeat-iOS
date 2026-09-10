@@ -55,16 +55,11 @@ struct DashboardView: View {
                     if !store.seeded {
                         HubCard {
                             VStack(alignment: .leading, spacing: 8) {
-                                Text("No files yet")
+                                Text("Waiting for the pack")
                                     .font(.headline)
-                                Text("Open Upload to drop in the section workbooks, including the picker score card — or load the sample market to see the pulse.")
+                                Text("Dashboard fills from the Heartbeat pack on this device. Stay here — shopper cards land after ready.")
                                     .font(.subheadline)
                                     .foregroundStyle(AppTheme.textSecondary)
-                                Button("Load sample market") {
-                                    store.loadSampleMarket()
-                                }
-                                .buttonStyle(SecondaryButtonStyle())
-                                .padding(.top, 4)
                             }
                         }
                         .padding(.horizontal, 20)
@@ -232,7 +227,7 @@ struct PhoneFlagStrip: View {
     let flags: [HeartbeatMath.FiveStarFlag]
 
     private var shown: [HeartbeatMath.FiveStarFlag] {
-        Array(flags.prefix(4))
+        flags
     }
 
     var body: some View {
@@ -245,12 +240,13 @@ struct PhoneFlagStrip: View {
                     let tone = flag.health == .none ? Health.good : flag.health
                     VStack(spacing: 2) {
                         Text(phoneFlagValue(flag))
-                            .font(AppTheme.rounded(.subheadline, weight: .bold).monospacedDigit())
+                            .font(AppTheme.rounded(.title3, weight: .bold).monospacedDigit())
                             .foregroundStyle(dashInk(tone))
                             .lineLimit(1)
-                            .minimumScaleFactor(0.6)
+                            .minimumScaleFactor(0.55)
+                            .fixedSize(horizontal: true, vertical: false)
                         Text(phoneFlagName(flag.name))
-                            .font(AppTheme.rounded(.caption2, weight: .semibold))
+                            .font(AppTheme.rounded(.caption, weight: .semibold))
                             .foregroundStyle(AppTheme.textSecondary)
                             .lineLimit(2)
                             .multilineTextAlignment(.center)
@@ -315,7 +311,7 @@ struct DashLostBanner: View {
             if !compact {
                 DashFlagGrid(
                     flags: statusFlags(flags),
-                    columns: HubLayout.flagColumns(count: statusFlags(flags).count, width: width)
+                    width: width
                 )
             }
             if let grain {
@@ -543,8 +539,17 @@ struct OverviewMetricAlignedTable: View {
     let rows: [HeartbeatMath.DashboardGrainTableRow]
     var showCount: Bool
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.hubTableWidth) private var tableWidth
 
     private var phone: Bool { HubLayout.isPhone(sizeClass) }
+    private var valueWidth: CGFloat {
+        HubLayout.evenValueWidth(
+            available: tableWidth,
+            phone: phone,
+            columns: headers.count,
+            showCount: showCount
+        )
+    }
 
     var body: some View {
         HubAdaptiveHScroll(minWidth: HubLayout.readableTableFloor(phone: phone, columns: headers.count, showCount: showCount)) {
@@ -606,6 +611,7 @@ struct OverviewMetricAlignedTable: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, header ? 6 : 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(stripe ? AppTheme.blueSoft.opacity(0.35) : Color.clear)
     }
 
@@ -615,7 +621,7 @@ struct OverviewMetricAlignedTable: View {
             .foregroundStyle(header ? AppTheme.textSecondary : ink(tone, secondary: secondary))
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
-            .frame(minWidth: HubLayout.readableValueMin(phone: phone), alignment: .trailing)
+            .frame(minWidth: valueWidth, maxWidth: .infinity, alignment: .trailing)
     }
 
     private func ink(_ health: Health?, secondary: Bool) -> Color {
@@ -690,7 +696,7 @@ struct DashScopeGrainCard: View {
             if !flags.isEmpty {
                 DashFlagGrid(
                     flags: flags,
-                    columns: HubLayout.flagColumns(count: flags.count, width: max(width - 24, 200))
+                    width: max(width - 24, 200)
                 )
             }
             if open {
@@ -795,7 +801,7 @@ struct DashScopeGrainCard: View {
             if section != .sales, let metrics = childFlags[child.label], !metrics.isEmpty {
                 DashFlagGrid(
                     flags: metrics,
-                    columns: HubLayout.flagColumns(count: metrics.count, width: max(width - 36, 200))
+                    width: max(width - 36, 200)
                 )
             }
         }
@@ -833,25 +839,21 @@ struct DashScopeGrainCard: View {
 
 struct DashFlagGrid: View {
     let flags: [HeartbeatMath.FiveStarFlag]
-    var columns: Int
+    var columns: Int = 0
+    var width: CGFloat = 980
     @Environment(\.horizontalSizeClass) private var sizeClass
-
-    private var stacked: Bool { HubLayout.isPhone(sizeClass) }
 
     var body: some View {
         if flags.isEmpty {
             EmptyView()
-        } else if stacked {
-            VStack(spacing: 8) {
-                ForEach(flags) { flag in
-                    DashFlagChip(flag: flag, stacked: true)
-                }
-            }
         } else {
-            HStack(alignment: .top, spacing: 6) {
+            let cols = HubLayout.calloutColumns(count: flags.count, width: width, sizeClass: sizeClass)
+            LazyVGrid(
+                columns: HubLayout.grid(cols, spacing: 10, minWidth: HubLayout.isPhone(sizeClass) ? 148 : 168),
+                spacing: 10
+            ) {
                 ForEach(flags) { flag in
                     DashFlagChip(flag: flag)
-                        .frame(maxWidth: .infinity, minHeight: 92, maxHeight: 92, alignment: .top)
                 }
             }
         }
@@ -867,62 +869,53 @@ private struct DashFlagChip: View {
     private var tone: Health { flag.health == .none ? .good : flag.health }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: stacked ? 8 : 5) {
-            Text(flag.name)
-                .font(AppTheme.rounded(stacked ? .subheadline : (compact ? .caption2 : .caption), weight: .bold))
-                .foregroundStyle(Color.white)
-                .lineLimit(stacked ? 2 : 1)
-                .minimumScaleFactor(stacked ? 0.85 : 0.7)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, stacked ? 10 : (compact ? 6 : 8))
-                .padding(.vertical, stacked ? 7 : (compact ? 4 : 5))
-                .background(AppTheme.blue)
-            if stacked {
-                HStack(alignment: .center, spacing: 10) {
-                    Text(flag.value.isEmpty ? "—" : flag.value)
-                        .font(AppTheme.rounded(.title3, weight: .bold))
-                        .foregroundStyle(dashInk(tone))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                    Spacer(minLength: 8)
-                    VStack(alignment: .trailing, spacing: 4) {
-                        Text(countLine)
-                            .font(AppTheme.rounded(.caption, weight: .semibold))
-                            .foregroundStyle(dashInk(tone))
-                            .lineLimit(1)
-                        HealthBadge(health: tone, prominent: true, compact: true)
-                    }
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .center, spacing: 8) {
+                Text(flag.name)
+                    .font(AppTheme.rounded(compact ? .subheadline : .title3, weight: .bold))
+                    .foregroundStyle(AppTheme.text)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.75)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if tone != .none {
+                    HealthBadge(health: tone, prominent: true, compact: compact)
                 }
-                .padding(.horizontal, 10)
-                .padding(.bottom, 10)
-            } else {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(flag.value.isEmpty ? " " : flag.value)
-                        .font(AppTheme.rounded(compact ? .caption : .subheadline, weight: .bold))
-                        .foregroundStyle(dashInk(tone))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.65)
-                    HStack(spacing: 4) {
-                        Text(countLine)
-                            .font(AppTheme.rounded(.caption2, weight: .semibold))
-                            .foregroundStyle(dashInk(tone))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                        HealthBadge(health: tone, prominent: true, compact: true)
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .padding(.horizontal, compact ? 6 : 8)
-                .padding(.bottom, compact ? 6 : 8)
             }
+            Text(flag.value.isEmpty ? countLine : flag.value)
+                .font(.system(size: compact ? 22 : 26, weight: .bold, design: .rounded).monospacedDigit())
+                .foregroundStyle(dashInk(tone))
+                .lineLimit(1)
+                .minimumScaleFactor(0.55)
+                .fixedSize(horizontal: true, vertical: false)
+            Text(flag.value.isEmpty ? (tone.label) : countLine)
+                .font(AppTheme.rounded(compact ? .caption : .subheadline, weight: .medium))
+                .foregroundStyle(AppTheme.textSecondary)
+                .lineLimit(2)
+                .minimumScaleFactor(0.8)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppTheme.healthWash(tone))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .padding(compact ? 12 : 14)
+        .padding(.leading, 4)
+        .frame(maxWidth: .infinity, minHeight: compact ? 104 : 118, alignment: .topLeading)
+        .background {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.white)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(AppTheme.healthWash(tone).opacity(0.42))
+                }
+        }
+        .overlay(alignment: .leading) {
+            Capsule()
+                .fill(AppTheme.healthInk(tone))
+                .frame(width: 5)
+                .padding(.vertical, 12)
+        }
         .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(AppTheme.healthInk(tone).opacity(0.28), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(AppTheme.healthInk(tone).opacity(tone == .risk ? 0.9 : 0.22), lineWidth: tone == .risk ? 2 : 1)
         )
+        .shadow(color: Color.black.opacity(0.06), radius: 3, y: 1)
     }
 
     private var countLine: String {
@@ -969,7 +962,7 @@ struct DashCallout: View, Equatable {
                     .buttonStyle(DashLiftStyle())
                     DashFlagGrid(
                         flags: statusFlags(flags),
-                        columns: HubLayout.flagColumns(count: statusFlags(flags).count, width: width)
+                        width: width
                     )
                     if let grain {
                         DashScopeStrip(section: card.section, grain: grain, packs: grains, width: width)
@@ -978,6 +971,7 @@ struct DashCallout: View, Equatable {
                 .modifier(DashCardChrome(health: card.health))
             }
         }
+        .readWidth($width)
     }
 
     private var titleText: String {
@@ -1181,7 +1175,7 @@ struct PickerHighlightsPanel: View {
             if expanded {
                 Group {
                     if board.shopperCount == 0 {
-                        Text("Upload a picker score card workbook to rank opportunity and strong shoppers.")
+                        Text(store.pickerLoading ? "Loading shoppers…" : "Shoppers fill from the Heartbeat pack after ready.")
                             .font(.subheadline)
                             .foregroundStyle(AppTheme.textSecondary)
                     } else {

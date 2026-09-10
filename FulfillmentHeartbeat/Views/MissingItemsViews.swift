@@ -805,9 +805,10 @@ struct MissingItemsMetricHeader: View {
             head("Status", key: "status", alignment: .trailing)
                 .frame(width: MILayout.statusW, alignment: .trailing)
         }
-        .font(.caption2.weight(.semibold))
-        .lineLimit(1)
-        .minimumScaleFactor(0.65)
+        .font(.caption.weight(.bold))
+        .lineLimit(2)
+        .minimumScaleFactor(0.7)
+        .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 4)
         .padding(.top, 6)
@@ -931,7 +932,7 @@ struct MissingItemsRollupTable: View {
                 }
                 .buttonStyle(.plain)
                 if expanded {
-                    ScrollView(.horizontal, showsIndicators: true) {
+                    HubAdaptiveHScroll(minWidth: metrics.tableWidth) {
                         VStack(alignment: .leading, spacing: 8) {
                             MissingItemsMetricHeader(
                                 label: grain.columnTitle,
@@ -942,6 +943,7 @@ struct MissingItemsRollupTable: View {
                                 ascending: sortAscending,
                                 onSelect: applySort
                             )
+                            .frame(width: metrics.tableWidth, alignment: .leading)
                             ForEach(summary) { row in
                                 MissingItemsMetricLine(
                                     label: row.label,
@@ -954,6 +956,7 @@ struct MissingItemsRollupTable: View {
                                 .frame(width: metrics.tableWidth, alignment: .leading)
                             }
                         }
+                        .frame(minWidth: metrics.tableWidth, alignment: .leading)
                     }
                     .padding(.horizontal, 12)
                     .padding(.bottom, 12)
@@ -1045,7 +1048,7 @@ struct PreSubItemTable: View {
         }
     }
 
-    @State private var expanded = true
+    @State private var expanded = false
     @State private var sort = Column.units
     @State private var ascending = false
     @State private var limit = 80
@@ -1062,7 +1065,7 @@ struct PreSubItemTable: View {
                     icon: "barcode",
                     title: "Pre-Sub OOS Items",
                     accessory: rows.isEmpty
-                        ? "Upload Pre-Sub OOS Item  ·  tap when loaded"
+                        ? "Item rows fill from the Heartbeat pack after ready  ·  tap to expand"
                         : "\(HeartbeatFormat.num(Double(rows.count))) items  ·  tap to \(expanded ? "collapse" : "expand")",
                     expanded: expanded
                 )
@@ -1084,7 +1087,7 @@ struct PreSubItemTable: View {
                     EmptyHint(
                         symbol: "barcode",
                         title: "No item rows in this view",
-                        detail: "Add a master tab named Pre-Sub OOS Item or upload that export on the Pre-Sub OOS Item card. Header filters still apply."
+                        detail: "Item rows fill from the Heartbeat pack after ready. Header filters still apply."
                     )
                     .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 20, trailing: 20))
                     .listRowSeparator(.hidden)

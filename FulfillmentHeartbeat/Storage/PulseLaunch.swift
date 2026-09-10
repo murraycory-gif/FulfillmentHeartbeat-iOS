@@ -7,13 +7,48 @@ enum PulseLaunch {
     static let stagingFileName = "heartbeat-cloud.sqlite"
     static let bootDownloadTimeout: TimeInterval = 25
     /// Let the hub settle before expanding grains. Cards already painted.
-    static let grainPaintDelayNanoseconds: UInt64 = 700_000_000
-    /// Picker / item grains stay on disk until that page opens.
+    static let grainPaintDelayNanoseconds: UInt64 = 1_200_000_000
+    /// Stream shoppers after splash so the dashboard card fills. Never on splash.
+    static let streamPickerAfterReady = true
     static let loadPageOnlyOnReady = false
+    /// First shoppers so Picker / dashboard paint before the rest of the pack.
+    static let pickerFirstPaintCount = 80
+    static let pickerChunkCount = 250
+    static let pickerUIStampStride = 400
+
+    /// Pages that join shopper rows into store tables after the pack is ready.
+    static func needsShopperJoin(_ dest: HubDestination) -> Bool {
+        dest == .pickerScorecard || dest == .pph || dest == .dynacap || dest == .pickPath
+    }
+
+    static func shouldStampPicker(
+        replace: Bool,
+        dest: HubDestination,
+        count: Int,
+        lastStampCount: Int
+    ) -> Bool {
+        if replace { return true }
+        guard needsShopperJoin(dest) else { return false }
+        return count - lastStampCount >= pickerUIStampStride
+    }
+
+    static func shopperEmptyDetail(loading: Bool) -> String {
+        loading
+            ? "Loading shoppers…"
+            : "Shoppers fill from the Heartbeat pack after ready."
+    }
 
     /// Drop a paint or grain job when the user picked another filter.
     static func acceptPaint(generation: Int, current: Int, cancelled: Bool) -> Bool {
         !cancelled && generation == current
+    }
+
+    static func shouldPaintGrains(dashboardVisible: Bool, ready: Bool, rolePicked: Bool) -> Bool {
+        dashboardVisible && ready && rolePicked
+    }
+
+    static func shouldRefreshPageOnly(pageVisible: Bool) -> Bool {
+        pageVisible
     }
     /// Cloud facts/pack after Who's looking — not on splash, not in the first breath.
     static let cloudHydrateDelayNanoseconds: UInt64 = 12_000_000_000

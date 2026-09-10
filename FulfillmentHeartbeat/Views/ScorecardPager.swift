@@ -26,7 +26,7 @@ struct ScorecardPager: UIViewControllerRepresentable, Equatable {
         pager.view.clipsToBounds = true
         pager.view.layer.masksToBounds = true
         context.coordinator.attach(pager)
-        let dest = router.current == .upload ? .dashboard : router.current
+        let dest = router.current
         context.coordinator.snap(to: dest, animated: false)
         return pager
     }
@@ -40,7 +40,6 @@ struct ScorecardPager: UIViewControllerRepresentable, Equatable {
         if coordinator.isSwiping { return }
 
         let dest = router.current
-        guard dest != .upload else { return }
         if dest != coordinator.displayed {
             coordinator.snap(to: dest, animated: false)
         }

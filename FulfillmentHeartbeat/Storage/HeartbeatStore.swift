@@ -40,6 +40,7 @@ final class HeartbeatStore: ObservableObject {
     @Published private(set) var usingDatabasePack = false
     @Published private(set) var sessionRole: HeartbeatRole?
     @Published var laborWeekFilter = ""
+    @Published private(set) var pickerLoading = false
 
     private let fileManager: FileManager
     private let snapshotURL: URL
@@ -87,7 +88,11 @@ final class HeartbeatStore: ObservableObject {
     private var refilterTask: Task<Void, Never>?
     private var grainPaintTask: Task<Void, Never>?
     private var pageOnlyTask: Task<Void, Never>?
+    private var pickerLoadTask: Task<Void, Never>?
     private var unfilteredWarmTask: Task<Void, Never>?
+    private var visibleDestination: HubDestination = .dashboard
+    private var pickerStreamDone = false
+    private var lastPickerStampCount = 0
     private var paintGeneration = 0
     private var pageOnlyGeneration = -1
     private var becameReadyAt: Date?
@@ -186,10 +191,22 @@ final class HeartbeatStore: ObservableObject {
         lastCloudPullAt = Date()
     }
 
-    /// Splash stays local-first. Picker / item grains wait until that page opens.
+    /// Splash stays local-first. Shoppers stream after ready so the dashboard card fills.
     private func fillAfterReady() async {
-        guard PulseLaunch.loadPageOnlyOnReady else { return }
-        await loadDeferredPicker()
+        guard PulseLaunch.streamPickerAfterReady else { return }
+        await streamPicker(preferSnappy: false)
+    }
+
+    func setVisibleDestination(_ dest: HubDestination) {
+        visibleDestination = dest
+        if dest != .dashboard {
+            grainPaintTask?.cancel()
+        } else if isReady, !needsRolePick {
+            scheduleGrainPaint(generation: paintGeneration)
+        }
+        if PulseLaunch.needsShopperJoin(dest), !pickerStreamDone {
+            Task { await self.streamPicker(preferSnappy: dest == .pickerScorecard) }
+        }
     }
 
     func retryLaunch() {
@@ -483,11 +500,18 @@ final class HeartbeatStore: ObservableObject {
     var pickerBoard: HeartbeatMath.PickerBoard { cachedPickerBoard }
 
     func pphPickers(forStore store: String) -> [MetricRow] {
-        pphPickersByStore[HeartbeatMath.canonicalStore(store)] ?? []
+        let want = HeartbeatMath.canonicalStore(store)
+        if let exact = pphPickersByStore[want], !exact.isEmpty {
+            return exact
+        }
+        let source = filteredLatest[.pickerScorecard] ?? latestBySection[.pickerScorecard] ?? []
+        return source.filter {
+            HeartbeatMath.sameStore($0.storeNumber, want) && $0.number("pph") != nil
+        }
     }
 
     func pphPickerCount(forStore store: String) -> Int {
-        pphPickersByStore[HeartbeatMath.canonicalStore(store)]?.count ?? 0
+        pphPickers(forStore: store).count
     }
 
     func pickPathPickers(forStore store: String) -> [MetricRow] {
@@ -2392,8 +2416,25 @@ final class HeartbeatStore: ObservableObject {
         refilterTask = Task {
             await self.paintFromWarehouse(light: true, generation: generation)
             guard self.acceptPaint(generation) else { return }
-            self.schedulePageOnlyRefresh(generation: generation)
-            self.scheduleGrainPaint(generation: generation)
+            if PulseLaunch.shouldRefreshPageOnly(pageVisible: self.visibleDestination == .pickerScorecard) {
+                self.schedulePageOnlyRefresh(generation: generation)
+            } else if let pickers = self.latestBySection[.pickerScorecard], pickers.count >= 2 {
+                self.refreshPickerDashboard(
+                    PulseQuery.sliceSection(
+                        .pickerScorecard,
+                        rows: pickers,
+                        allowed: PulseCaches.allowedStores(roster: self.roster, filters: self.filters)
+                    ),
+                    stamp: true
+                )
+            }
+            if PulseLaunch.shouldPaintGrains(
+                dashboardVisible: self.visibleDestination == .dashboard,
+                ready: self.isReady,
+                rolePicked: !self.needsRolePick
+            ) {
+                self.scheduleGrainPaint(generation: generation)
+            }
         }
     }
 
@@ -2450,10 +2491,14 @@ final class HeartbeatStore: ObservableObject {
     private func scheduleGrainPaint(generation: Int? = nil) {
         grainPaintTask?.cancel()
         let token = generation ?? paintGeneration
-        grainPaintTask = Task(priority: .utility) {
+        grainPaintTask = Task(priority: .background) {
             try? await Task.sleep(nanoseconds: PulseLaunch.grainPaintDelayNanoseconds)
             guard self.acceptPaint(token) else { return }
-            guard self.isReady, !self.needsRolePick else { return }
+            guard PulseLaunch.shouldPaintGrains(
+                dashboardVisible: self.visibleDestination == .dashboard,
+                ready: self.isReady,
+                rolePicked: !self.needsRolePick
+            ) else { return }
             await self.paintFromWarehouse(light: false, generation: token)
         }
     }
@@ -2494,18 +2539,23 @@ final class HeartbeatStore: ObservableObject {
             guard acceptPaint(generation) else { return }
         }
         guard filters == current else { return }
+        let liveSummaries = cachedSummaries
+        let liveFiltered = filteredLatest
         var next = view.filtered
-        if pageOnlyGeneration == (generation ?? paintGeneration) {
-            for section in PulseQuery.pageOnlySections {
-                if let keep = filteredLatest[section] {
-                    next[section] = keep
-                }
-            }
-        }
+        next = PulseQuery.keepPageOnlyRows(painted: next, live: liveFiltered)
         filteredLatest = next
-        cachedSummaries = view.summaries
+        cachedSummaries = PulseQuery.overlayPageOnlySummaries(painted: view.summaries, live: liveSummaries)
         if !view.flags.isEmpty {
             cachedCardFlags = view.flags
+        }
+        if let pickers = filteredLatest[.pickerScorecard], !pickers.isEmpty {
+            refreshSummary(for: .pickerScorecard, rows: pickers)
+            cachedCardFlags[.pickerScorecard] = HeartbeatMath.dashboardActionFlags(
+                section: .pickerScorecard,
+                rows: pickers,
+                includeAll: true
+            )
+            rebuildPPHPickerIndex(scorecard: pickers)
         }
         if !light || cachedGrainPacks.isEmpty {
             cachedGrainPacks = view.grains
@@ -3040,7 +3090,120 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func loadDeferredPicker() async {
-        await ensureSectionLoaded(.pickerScorecard)
+        await streamPicker(preferSnappy: false)
+    }
+
+    private func streamPicker(preferSnappy: Bool) async {
+        if pickerStreamDone, (latestBySection[.pickerScorecard] ?? []).count >= 2 {
+            refreshPickerDashboard(
+                visiblePickers(),
+                stamp: PulseLaunch.needsShopperJoin(visibleDestination)
+            )
+            return
+        }
+        if pickerLoadTask != nil {
+            if let first = latestBySection[.pickerScorecard], first.count >= 2 {
+                refreshPickerDashboard(
+                    PulseQuery.sliceSection(
+                        .pickerScorecard,
+                        rows: first,
+                        allowed: PulseCaches.allowedStores(roster: roster, filters: filters)
+                    ),
+                    stamp: preferSnappy || PulseLaunch.needsShopperJoin(visibleDestination)
+                )
+            }
+            if preferSnappy { return }
+            await pickerLoadTask?.value
+            return
+        }
+        guard PulseSQLite.exists(at: sqliteURL) else { return }
+        let url = sqliteURL
+        let rosterCopy = roster
+        let firstLimit = PulseLaunch.pickerFirstPaintCount
+        let chunk = PulseLaunch.pickerChunkCount
+        let firstPriority: TaskPriority = preferSnappy ? .userInitiated : .utility
+        pickerLoading = true
+        let firstRows = await Task.detached(priority: firstPriority) { () -> [MetricRow] in
+            let raw = PulseSQLite.readSection(from: url, section: .pickerScorecard, limit: firstLimit, offset: 0)
+            return HeartbeatMath.applyRoster(HeartbeatMath.latestPerShopper(raw), roster: rosterCopy)
+        }.value
+        applyPickerChunk(firstRows, replace: true)
+        pickerLoadTask = Task {
+            var offset = firstRows.count
+            while !Task.isCancelled {
+                let more = await Task.detached(priority: .background) { () -> [MetricRow] in
+                    let raw = PulseSQLite.readSection(from: url, section: .pickerScorecard, limit: chunk, offset: offset)
+                    return HeartbeatMath.applyRoster(HeartbeatMath.latestPerShopper(raw), roster: rosterCopy)
+                }.value
+                if more.isEmpty { break }
+                offset += more.count
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    self.applyPickerChunk(more, replace: false)
+                }
+                if more.count < chunk { break }
+            }
+            await MainActor.run {
+                self.pickerStreamDone = (self.latestBySection[.pickerScorecard] ?? []).count >= 2
+                self.pickerLoading = false
+                self.refreshPickerDashboard(self.visiblePickers(), stamp: true)
+                if PulseLaunch.needsShopperJoin(self.visibleDestination) {
+                    self.schedulePickerIndex(self.visiblePickers())
+                }
+                self.pickerLoadTask = nil
+            }
+        }
+        if !preferSnappy {
+            await pickerLoadTask?.value
+        }
+    }
+
+    private func applyPickerChunk(_ rows: [MetricRow], replace: Bool) {
+        guard !rows.isEmpty else { return }
+        if replace {
+            latestBySection[.pickerScorecard] = rows
+        } else {
+            var map: [String: MetricRow] = [:]
+            for row in latestBySection[.pickerScorecard] ?? [] {
+                map["\(row.storeNumber)|\(HeartbeatMath.canonicalShopper(row.shopperKey))"] = row
+            }
+            for row in rows {
+                map["\(row.storeNumber)|\(HeartbeatMath.canonicalShopper(row.shopperKey))"] = row
+            }
+            latestBySection[.pickerScorecard] = Array(map.values)
+        }
+        let sliced = PulseQuery.sliceSection(
+            .pickerScorecard,
+            rows: latestBySection[.pickerScorecard] ?? [],
+            allowed: PulseCaches.allowedStores(roster: roster, filters: filters)
+        )
+        let count = sliced.count
+        let stamp = PulseLaunch.shouldStampPicker(
+            replace: replace,
+            dest: visibleDestination,
+            count: count,
+            lastStampCount: lastPickerStampCount
+        )
+        if stamp { lastPickerStampCount = count }
+        refreshPickerDashboard(sliced, stamp: stamp)
+    }
+
+    private func refreshPickerDashboard(_ sliced: [MetricRow], stamp: Bool) {
+        filteredLatest[.pickerScorecard] = sliced
+        refreshSummary(for: .pickerScorecard, rows: sliced)
+        if !sliced.isEmpty {
+            cachedPickerBoard = HeartbeatMath.pickerBoard(sliced)
+            cachedCardFlags[.pickerScorecard] = HeartbeatMath.dashboardActionFlags(
+                section: .pickerScorecard,
+                rows: sliced,
+                includeAll: true
+            )
+            rebuildPPHPickerIndex(scorecard: sliced)
+        }
+        pageOnlyGeneration = paintGeneration
+        if stamp {
+            filterStamp += 1
+        }
     }
 
     private func refreshLoadedPickers() {
@@ -3068,7 +3231,7 @@ final class HeartbeatStore: ObservableObject {
 
     private func schedulePickerIndex(_ pickers: [MetricRow]) {
         let count = pickers.count
-        Task.detached(priority: .utility) {
+        Task.detached(priority: .background) {
             let built = PulseCaches.pickerBuckets(pickers)
             await MainActor.run {
                 guard (self.filteredLatest[.pickerScorecard] ?? []).count == count else { return }
@@ -3079,6 +3242,13 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func ensureSectionLoaded(_ section: MetricSection) async {
+        if section == .pickerScorecard {
+            await streamPicker(preferSnappy: isReady)
+            return
+        }
+        if section == .pph || section == .dynacap || section == .pickPath, !pickerStreamDone {
+            Task { await self.streamPicker(preferSnappy: false) }
+        }
         let deferred = PulseQuery.skipOnLight.contains(section)
         if deferred {
             if (latestBySection[section] ?? []).count >= 2 {

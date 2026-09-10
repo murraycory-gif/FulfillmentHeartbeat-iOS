@@ -146,4 +146,31 @@ enum PulseQuery {
             pickers: hidePicker ? [] : (filtered[.pickerScorecard] ?? [])
         )
     }
+
+    /// Light / grain paints skip shopper tables. Keep the live slice so the dashboard card and PPH counts stay filled.
+    static func keepPageOnlyRows(
+        painted: [MetricSection: [MetricRow]],
+        live: [MetricSection: [MetricRow]]
+    ) -> [MetricSection: [MetricRow]] {
+        var next = painted
+        for section in pageOnlySections {
+            if let keep = live[section], !keep.isEmpty {
+                next[section] = keep
+            }
+        }
+        return next
+    }
+
+    static func overlayPageOnlySummaries(
+        painted: [SectionSummary],
+        live: [SectionSummary]
+    ) -> [SectionSummary] {
+        painted.map { card in
+            guard pageOnlySections.contains(card.section) else { return card }
+            guard let kept = live.first(where: { $0.section == card.section }) else { return card }
+            if kept.storeCount > card.storeCount { return kept }
+            if card.storeCount == 0, kept.storeCount > 0 { return kept }
+            return card
+        }
+    }
 }

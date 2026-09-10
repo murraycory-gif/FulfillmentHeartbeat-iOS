@@ -38,6 +38,10 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(HubDestination.allCases.contains { $0.rawValue == "checklist" })
         XCTAssertFalse(HubDestination.metricItems.contains { $0.rawValue == "checklist" })
         XCTAssertFalse(HubDestination.settingsItems.contains { $0.rawValue == "checklist" })
+        XCTAssertFalse(HubDestination.allCases.contains { $0.rawValue == "upload" })
+        XCTAssertTrue(HubDestination.settingsItems.isEmpty)
+        XCTAssertTrue(HubNavSelection.lightsIcon(selected: true))
+        XCTAssertFalse(HubNavSelection.lightsIcon(selected: false))
     }
 
     func testDashboardCalloutsSortRiskThenWatchThenHealthy() {
@@ -124,7 +128,7 @@ final class HeartbeatMathTests: XCTestCase {
             card(.pph, .watch, watch: 2),
             card(.labor, .good),
         ], role: .evp)
-        XCTAssertEqual(ordered.map(\.section), [.lostRevenue, .fiveStar, .missingItems, .pph])
+        XCTAssertEqual(ordered.map(\.section), [.lostRevenue, .fiveStar, .labor, .pickerScorecard, .missingItems, .pph])
     }
 
     func testDistrictDashboardPutsLostFiveStarThenLabor() {
@@ -1421,12 +1425,109 @@ final class HeartbeatMathTests: XCTestCase {
             HubLayout.readableTableFloor(phone: false, columns: 8, showCount: true),
             HubLayout.readableTableFloor(phone: true, columns: 8, showCount: true)
         )
+        XCTAssertEqual(HubLayout.tableSpan(available: 1400, floor: 900), 1400)
+        XCTAssertEqual(HubLayout.tableSpan(available: 700, floor: 900), 900)
+        XCTAssertGreaterThan(
+            HubLayout.evenValueWidth(available: 1400, phone: false, columns: 8, showCount: true),
+            HubLayout.readableValueMin(phone: false)
+        )
+        XCTAssertEqual(
+            HubLayout.evenValueWidth(available: 400, phone: true, columns: 8, showCount: true),
+            HubLayout.readableValueMin(phone: true)
+        )
+    }
+
+    func testLostSalesDollarBucketsAreNeverHealthyWhenDollarsRemain() {
+        XCTAssertEqual(HeartbeatMath.lostSalesDollarHealth(dollars: 0, pct: 0, anyDollarIsRisk: false), .good)
+        XCTAssertEqual(HeartbeatMath.lostSalesDollarHealth(dollars: 25, pct: 1.0, anyDollarIsRisk: false), .watch)
+        XCTAssertEqual(HeartbeatMath.lostSalesDollarHealth(dollars: 25, pct: 6.0, anyDollarIsRisk: false), .risk)
+        XCTAssertEqual(HeartbeatMath.lostSalesDollarHealth(dollars: 10, pct: 0.2, anyDollarIsRisk: true), .risk)
+        let rows = [
+            MetricRow(
+                section: .lostRevenue,
+                division: "Jewel Osco",
+                operationsOM: "A",
+                storeNumber: "1",
+                payload: [
+                    "ecomm_sales": 100_000,
+                    "refund_lost": 40,
+                    "refund_lost_pct": 0.04,
+                    "cancelled_lost": 80,
+                    "cancelled_lost_pct": 0.08,
+                    "kill_switch_lost": 90,
+                    "kill_switch_pct": 0.09,
+                    "lost_revenue": 200,
+                    "lost_revenue_pct": 0.2,
+                ],
+                textPayload: ["lost_grain": "store"]
+            )
+        ]
+        let flags = HeartbeatMath.lostRevenueMetricFlags(rows, includeAll: true)
+        let refund = flags.first { $0.name.contains("Refund") }
+        let cancel = flags.first { $0.name.contains("Cancelled") }
+        let kill = flags.first { $0.name.contains("Kill") }
+        XCTAssertEqual(refund?.health, .watch)
+        XCTAssertEqual(cancel?.health, .watch)
+        XCTAssertEqual(kill?.health, .risk)
+    }
+
+    func testPageOnlyPaintKeepsLivePickerSummary() {
+        let empty = SectionSummary(
+            section: .pickerScorecard,
+            storeCount: 0,
+            headline: 0,
+            headlineLabel: "Shoppers",
+            secondary: "No shoppers in view",
+            health: .none,
+            watchCount: 0,
+            riskCount: 0
+        )
+        let live = SectionSummary(
+            section: .pickerScorecard,
+            storeCount: 12,
+            headline: 80,
+            headlineLabel: "Shoppers",
+            secondary: "4 opportunity · 3 doing well",
+            health: .watch,
+            watchCount: 2,
+            riskCount: 4
+        )
+        let sales = SectionSummary(
+            section: .sales,
+            storeCount: 10,
+            headline: 1,
+            headlineLabel: "Sales",
+            secondary: "",
+            health: .good,
+            watchCount: 0,
+            riskCount: 0
+        )
+        let merged = PulseQuery.overlayPageOnlySummaries(painted: [sales, empty], live: [live])
+        XCTAssertEqual(merged.first { $0.section == .pickerScorecard }?.storeCount, 12)
+        XCTAssertEqual(merged.first { $0.section == .sales }?.storeCount, 10)
+        let kept = PulseQuery.keepPageOnlyRows(
+            painted: [.sales: []],
+            live: [.pickerScorecard: [MetricRow(section: .pickerScorecard, division: "10", operationsOM: "A", storeNumber: "12", payload: ["pph": 40], textPayload: ["shopper_id": "A", "shopper_name": "A"])]]
+        )
+        XCTAssertEqual(kept[.pickerScorecard]?.count, 1)
+        XCTAssertTrue(PulseLaunch.needsShopperJoin(.pph))
+        XCTAssertTrue(PulseLaunch.needsShopperJoin(.pickerScorecard))
+        XCTAssertFalse(PulseLaunch.needsShopperJoin(.sales))
+        XCTAssertTrue(PulseLaunch.shouldStampPicker(replace: true, dest: .dashboard, count: 80, lastStampCount: 0))
+        XCTAssertFalse(PulseLaunch.shouldStampPicker(replace: false, dest: .dashboard, count: 200, lastStampCount: 80))
+        XCTAssertTrue(PulseLaunch.shouldStampPicker(replace: false, dest: .pph, count: 500, lastStampCount: 80))
+        XCTAssertEqual(HubLayout.calloutColumns(count: 7, width: 1100), 4)
+        XCTAssertEqual(HubLayout.calloutColumns(count: 5, width: 1100), 3)
     }
 
     func testPostReadyWorkStaysOffSplashAndCoolsTheHub() {
         XCTAssertGreaterThan(PulseLaunch.grainPaintDelayNanoseconds, 0)
         XCTAssertGreaterThan(PulseLaunch.cloudHydrateDelayNanoseconds, PulseLaunch.grainPaintDelayNanoseconds)
+        XCTAssertTrue(PulseLaunch.streamPickerAfterReady)
         XCTAssertFalse(PulseLaunch.loadPageOnlyOnReady)
+        XCTAssertGreaterThan(PulseLaunch.pickerFirstPaintCount, 0)
+        XCTAssertTrue(PulseLaunch.shouldPaintGrains(dashboardVisible: true, ready: true, rolePicked: true))
+        XCTAssertFalse(PulseLaunch.shouldPaintGrains(dashboardVisible: false, ready: true, rolePicked: true))
         XCTAssertTrue(PulseLaunch.acceptPaint(generation: 3, current: 3, cancelled: false))
         XCTAssertFalse(PulseLaunch.acceptPaint(generation: 3, current: 4, cancelled: false))
         XCTAssertFalse(PulseLaunch.acceptPaint(generation: 3, current: 3, cancelled: true))

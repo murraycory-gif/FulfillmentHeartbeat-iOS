@@ -585,9 +585,6 @@ enum HeartbeatMath {
 
     static func dashboardCallouts(_ summaries: [SectionSummary], role: HeartbeatRole?, storeScoped: Bool = false) -> [SectionSummary] {
         var cards = dashboardCallouts(summaries)
-        if role == .evp {
-            cards.removeAll { $0.section == .pickerScorecard }
-        }
         var pin: [MetricSection] = [.sales, .lostRevenue, .fiveStar, .labor, .pickerScorecard]
         if role == .evp {
             pin.append(contentsOf: [.fiveStar, .dynacap])
@@ -2227,13 +2224,22 @@ enum HeartbeatMath {
             guard seen || includeAll else { continue }
             if !seen, !includeAll { continue }
             let pct = sales > 0 ? dollars / sales * 100 : stores.compactMap { $0.number(spec.pct) }.first
-            let health = lostRevenueHealth(pct: pct)
+            let health: Health
+            switch spec.dollar {
+            case "refund_lost", "cancelled_lost":
+                health = lostSalesDollarHealth(dollars: dollars, pct: pct, anyDollarIsRisk: false)
+            case "kill_switch_lost":
+                health = lostSalesDollarHealth(dollars: dollars, pct: pct, anyDollarIsRisk: true)
+            default:
+                let banded = lostRevenueHealth(pct: pct)
+                health = banded == .none ? (dollars > 0 ? .watch : .good) : banded
+            }
             if !includeAll, dollars == 0, health == .good { continue }
             flags.append(
                 FiveStarFlag(
                     name: spec.name,
                     value: HeartbeatFormat.money(dollars),
-                    health: health == .none ? .watch : health,
+                    health: health,
                     stores: risk
                 )
             )
@@ -2682,6 +2688,15 @@ enum HeartbeatMath {
 
     static func lostRevenueHealth(pct: Double?) -> Health {
         band(pct, good: lostRevenueGood, watch: lostRevenueWatch, invert: true)
+    }
+
+    /// Refund / cancel / kill-switch dollars are lost sales. $0 is healthy; any loss is at least watch.
+    static func lostSalesDollarHealth(dollars: Double, pct: Double?, anyDollarIsRisk: Bool) -> Health {
+        if dollars <= 0 { return .good }
+        if anyDollarIsRisk { return .risk }
+        let fromPct = lostRevenueHealth(pct: pct)
+        if fromPct == .risk { return .risk }
+        return .watch
     }
 
     static func salesHeadlineDollars(_ row: MetricRow) -> Double {

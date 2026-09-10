@@ -108,8 +108,12 @@ struct OverviewSalesAlignedTable: View {
     let rows: [SalesRollupRow]
     var showCount: Bool
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @Environment(\.hubTableWidth) private var tableWidth
 
     private var phone: Bool { HubLayout.isPhone(sizeClass) }
+    private var valueWidth: CGFloat {
+        HubLayout.evenValueWidth(available: tableWidth, phone: phone, columns: 8, showCount: showCount)
+    }
 
     var body: some View {
         HubAdaptiveHScroll(minWidth: HubLayout.readableTableFloor(phone: phone, columns: 8, showCount: showCount)) {
@@ -188,6 +192,7 @@ struct OverviewSalesAlignedTable: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, header ? 6 : 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(stripe ? AppTheme.blueSoft.opacity(0.35) : Color.clear)
     }
 
@@ -197,7 +202,7 @@ struct OverviewSalesAlignedTable: View {
             .foregroundStyle(header ? AppTheme.textSecondary : ink(tone, secondary: secondary))
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
-            .frame(minWidth: HubLayout.readableValueMin(phone: phone), alignment: .trailing)
+            .frame(minWidth: valueWidth, maxWidth: .infinity, alignment: .trailing)
     }
 
     private func tone(index: Int, yoyRisk: Bool, health: Health?) -> Health? {
@@ -805,7 +810,7 @@ struct SalesTable: View {
                 EmptyHint(
                     symbol: "cart.fill",
                     title: "No stores in this view",
-                    detail: "Upload the Sales ScoreCard export or pick another filter."
+                    detail: "Sales fill from the Heartbeat pack after ready. Pick another filter if this slice is empty."
                 )
                 .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 20, trailing: 20))
                 .listRowSeparator(.hidden)

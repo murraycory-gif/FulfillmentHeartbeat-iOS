@@ -28,45 +28,22 @@ enum CoachTour: Equatable {
         CoachStep(
             icon: "heart.fill",
             heading: "Fulfillment Heartbeat",
-            body: "This is the operational pulse for every eCommerce store. Dashboard cards and scorecard tables all read from the workbooks you load — nothing is hardcoded."
-        ),
-        CoachStep(
-            icon: "square.and.arrow.up",
-            heading: "Data comes first",
-            body: "We start on Upload because the files feed every page. Use Master load for the full weekly .xlsx, or drop one KPI at a time. Until a workbook is in, the rest of the app has nothing to show."
+            body: "This is the operational pulse for every eCommerce store. Dashboard cards and scorecard tables read from the Heartbeat pack on this device — nothing is hardcoded."
         ),
         CoachStep(
             icon: "square.grid.2x2.fill",
             heading: "How the app is laid out",
-            body: "Dashboard is the heartbeat. Swipe between scorecards (Loss Revenue → Missing Items → 5 Star → Pre-Sub OOS → Pick Path → Prep → Dynacap → Schedule → Picker → PPH → Labor). Filters in the header apply everywhere. Share sends the recap. Upload lives in Settings — it is not in the swipe path."
+            body: "Dashboard is the heartbeat. Swipe between scorecards (Loss Revenue → Missing Items → 5 Star → Pre-Sub OOS → Pick Path → Prep → Dynacap → Schedule → Picker → PPH → Labor). Filters in the header apply everywhere. Share sends the recap."
         ),
         CoachStep(
             icon: "hand.tap.fill",
             heading: "Page walkthroughs",
-            body: "Each page explains itself the first time you open it. You can skip a tour or skip all of them. Let’s walk Upload now so you can load the pulse."
+            body: "Each page explains itself the first time you open it. You can skip a tour or skip all of them."
         ),
     ]
 
     private static func steps(for dest: HubDestination) -> [CoachStep] {
         switch dest {
-        case .upload:
-            return [
-                CoachStep(
-                    icon: "doc.badge.plus",
-                    heading: "Master load",
-                    body: "Pick one .xlsx that has a tab per KPI. Name the sheets Sales, Lost Revenue, MI, 5 Star, Pre-Sub OOS, Pre-Sub OOS Item, Pick Path, Path Picker, Aisle Mapper, Prep, Dynacap, Schedule, PPH, Labor, and Picker ScoreCard — or leave the Power BI headers and we map them. Link the file so next week you can reload from the same place."
-                ),
-                CoachStep(
-                    icon: "square.grid.2x2",
-                    heading: "One KPI at a time",
-                    body: "The cards below replace a single scorecard if you only have one export. That KPI updates; the others stay as they are."
-                ),
-                CoachStep(
-                    icon: "waveform.path.ecg",
-                    heading: "Then the pulse fills",
-                    body: "Once a file lands, Dashboard and every scorecard populate. Open Dashboard or swipe from there. Filters and Share work after data is in."
-                ),
-            ]
         case .dashboard:
             return [
                 CoachStep(
@@ -82,7 +59,7 @@ enum CoachTour: Equatable {
                 CoachStep(
                     icon: "arrow.left.arrow.right",
                     heading: "Swipe the scorecards",
-                    body: "Swipe left or right to the next page. Upload / Settings is not in the swipe path — use the sidebar for that."
+                    body: "Swipe left or right to the next page. Pages in the header jumps to a scorecard."
                 ),
             ]
         case .sales:
@@ -288,7 +265,7 @@ final class CoachGuide: ObservableObject {
         switch active {
         case .welcome:
             defaults.set(true, forKey: welcomeKey)
-            active = .page(.upload)
+            active = .page(.dashboard)
             stepIndex = 0
         case .page(let dest):
             defaults.set(true, forKey: pageKey(dest))

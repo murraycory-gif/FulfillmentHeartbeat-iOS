@@ -289,6 +289,25 @@ enum HubLayout {
         return label + stores + CGFloat(max(columns, 1)) * value + status + pad
     }
 
+    /// Use the window when it is wider than the readable floor (iPad, iPhone, Mac).
+    static func tableSpan(available: CGFloat, floor: CGFloat) -> CGFloat {
+        max(available, floor)
+    }
+
+    /// Extra width is split evenly across value columns. Never thinner than the readable min.
+    static func evenValueWidth(available: CGFloat, phone: Bool, columns: Int, showCount: Bool) -> CGFloat {
+        let floor = readableTableFloor(phone: phone, columns: columns, showCount: showCount)
+        let span = tableSpan(available: available, floor: floor)
+        let gutters = 6 * CGFloat(max(columns, 1) + (showCount ? 2 : 1))
+        let reserved = readableLabelWidth(phone: phone)
+            + (showCount ? readableStoreWidth(phone: phone) : 0)
+            + readableStatusWidth(phone: phone)
+            + gutters
+            + 16
+        let leftover = max(span - reserved, 0)
+        return max(readableValueMin(phone: phone), leftover / CGFloat(max(columns, 1)))
+    }
+
     static func readableLabelWidth(phone: Bool) -> CGFloat { phone ? 122 : 148 }
     static func readableStoreWidth(phone: Bool) -> CGFloat { phone ? 58 : 68 }
     static func readableValueMin(phone: Bool) -> CGFloat { phone ? 118 : 128 }
@@ -303,23 +322,31 @@ enum HubLayout {
     static var phoneInset: CGFloat { 12 }
 
     static func flagColumns(count: Int, width: CGFloat) -> Int {
+        calloutColumns(count: count, width: width)
+    }
+
+    /// Even KPI tiles: 2 on phone portrait, 3–4 on iPad / landscape / Mac.
+    static func calloutColumns(count: Int, width: CGFloat, sizeClass: UserInterfaceSizeClass? = .regular) -> Int {
         guard count > 0 else { return 1 }
-        if profile.phoneChrome { return 1 }
-        if width < 500 { return 1 }
-        let chip: CGFloat
-        if width < 700 { chip = 164 }
-        else if width >= 1100 { chip = 196 }
-        else { chip = 176 }
-        return max(1, min(count, Int(max(width, chip) / chip)))
+        let maxCols: Int
+        if isPhone(sizeClass) {
+            if width >= 700 { maxCols = 4 }
+            else if width >= 520 { maxCols = 3 }
+            else { maxCols = 2 }
+        } else if width >= 1100 {
+            maxCols = 4
+        } else if width >= 760 {
+            maxCols = 4
+        } else {
+            maxCols = 3
+        }
+        if count == 5 { return min(3, maxCols) }
+        if count == 7 { return min(4, maxCols) }
+        return max(1, min(count, maxCols))
     }
 
     static func kpiColumns(width: CGFloat, sizeClass: UserInterfaceSizeClass? = .regular) -> Int {
-        if isPhone(sizeClass) {
-            return width >= 640 ? 3 : 2
-        }
-        if width >= 1100 { return 5 }
-        if width >= 860 { return 4 }
-        return 4
+        calloutColumns(count: 8, width: width, sizeClass: sizeClass)
     }
 
     static func uploadColumns(width: CGFloat, sizeClass: UserInterfaceSizeClass? = .regular) -> Int {
@@ -416,11 +443,22 @@ enum HubLayout {
     }
 }
 
-private struct HubWidthKey: PreferenceKey {
+struct HubWidthKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         let next = nextValue()
         if next > 0 { value = next }
+    }
+}
+
+private struct HubTableWidthKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 0
+}
+
+extension EnvironmentValues {
+    var hubTableWidth: CGFloat {
+        get { self[HubTableWidthKey.self] }
+        set { self[HubTableWidthKey.self] = newValue }
     }
 }
 

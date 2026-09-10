@@ -44,12 +44,6 @@ enum HeartbeatAssist {
 
     static func pagePrompts(_ dest: HubDestination) -> [String] {
         switch dest {
-        case .upload:
-            return [
-                "What files are missing?",
-                "How do I load the master workbook?",
-                "What does each KPI file drive?",
-            ]
         case .dashboard:
             return [
                 "What's at risk across the heartbeat?",
@@ -148,7 +142,6 @@ enum HeartbeatAssist {
 
     static func intent(for question: String, dest: HubDestination) -> Intent {
         let q = normalize(question)
-        if dest == .upload { return .upload }
         if let mapped = promptIntents(dest)[q] { return mapped }
         return keywordIntent(q, dest: dest)
     }
@@ -222,11 +215,8 @@ enum HeartbeatAssist {
         guard !q.isEmpty else {
             return "Ask about \(dest.title) in \(store.filters.summary). Tap a prompt or type a store, district, or LDAP."
         }
-        if dest == .upload {
-            return uploadAnswer(q, store: store)
-        }
         guard store.seeded else {
-            return "No workbooks are loaded yet. Open Upload, load the master file or each KPI, then come back."
+            return "The Heartbeat pack is not on this device yet. Stay on Dashboard — the server pack fills the cards when it lands."
         }
         var intent = intent(for: q, dest: dest)
         let brain = Brain(dest: dest, store: store)
@@ -236,7 +226,7 @@ enum HeartbeatAssist {
             intent = .shopper(person)
         } else if case .overview = intent, let district = brain.namedDistrict(in: q) {
             intent = .district(district)
-        } else if dest != .upload {
+        } else {
             if let storeHit = brain.namedStore(in: q), has(normalize(q), ["store"]) || q.split(whereSeparator: { !$0.isNumber }).contains(where: { $0.count >= 3 }) {
                 if !pagePrompts(dest).map(normalize).contains(normalize(q)) {
                     intent = .store(storeHit)
@@ -315,7 +305,7 @@ enum HeartbeatAssist {
             case .healthy: return healthyBrief()
             case .watch: return watchBrief()
             case .fix: return fixBrief()
-            case .upload: return "Open Upload to load files."
+            case .upload: return "The Heartbeat pack comes from the server. Dashboard fills when it is on the device."
             case .store(let number): return storeBrief(number)
             case .district(let name): return districtBrief(name)
             case .shopper(let name): return shopperBrief(name)

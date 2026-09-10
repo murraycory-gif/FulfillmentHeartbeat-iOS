@@ -2555,10 +2555,7 @@ private struct PathShopperTable: View {
     }
 
     private var emptyDetail: String {
-        if section == .pickPath || section == .pickPathPicker {
-            return "Upload Pick Path Compliance Picker and Picker ScoreCard to see shoppers for this store."
-        }
-        return "Upload Picker ScoreCard to see shoppers for this store."
+        PulseLaunch.shopperEmptyDetail(loading: store.pickerLoading)
     }
 
     private func pickerLine(_ picker: PathShopperSnap) -> some View {
@@ -3477,7 +3474,7 @@ private struct DynacapStoreExpand: View {
             ("Pieces / hr", snap.rate, snap.health, false),
             ("Store PPH", snap.pph, snap.pphHealth, false),
             ("Goal", DynacapMath.goalText, .none, true),
-            ("Utilization", snap.util, .none, false),
+            ("Utilization", snap.util, snap.util == "—" || snap.util.isEmpty ? .none : .good, false),
         ]
     }
 
@@ -3508,7 +3505,7 @@ private struct DynacapStoreExpand: View {
                 .font(.subheadline.weight(.bold))
                 .foregroundStyle(AppTheme.text)
             if pickers.isEmpty {
-                Text("Upload Picker ScoreCard so shoppers for this store show here with their Pure PPH.")
+                Text(PulseLaunch.shopperEmptyDetail(loading: store.pickerLoading))
                     .font(.subheadline)
                     .foregroundStyle(AppTheme.textSecondary)
                     .padding(.vertical, 6)
@@ -8797,7 +8794,7 @@ private struct PPHStoreExpand: View {
                 .font(.subheadline.weight(.bold))
                 .foregroundStyle(AppTheme.text)
             if pickers.isEmpty {
-                Text("Upload Picker ScoreCard so shoppers for this store can expand here with their Pure PPH.")
+                Text(PulseLaunch.shopperEmptyDetail(loading: store.pickerLoading))
                     .font(.subheadline)
                     .foregroundStyle(AppTheme.textSecondary)
                     .padding(.vertical, 6)
@@ -8948,11 +8945,23 @@ struct PickerScoreTable: View {
     var body: some View {
         if total == 0 {
             Section {
-                EmptyHint(
-                    symbol: "person.2",
-                    title: "No shoppers in \(focus.title.lowercased())",
-                    detail: "Tap another callout above, or upload the weekly Picker Scorecard."
-                )
+                if store.pickerLoading {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                            .tint(AppTheme.blue)
+                        Text("Loading shoppers…")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(AppTheme.textSecondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, 12)
+                } else {
+                    EmptyHint(
+                        symbol: "person.2",
+                        title: "No shoppers in \(focus.title.lowercased())",
+                        detail: "Shoppers fill from the Heartbeat pack after ready. Tap another callout, or wait for the stream."
+                    )
+                }
                 .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 20, trailing: 20))
                 .listRowSeparator(.hidden)
                 .listRowBackground(AppTheme.bg)
@@ -9666,7 +9675,6 @@ struct HubBrandBar: View {
     private var compactBannerTitle: String {
         switch router.current {
         case .dashboard: return "Operational Heartbeat"
-        case .upload: return "Upload"
         default: return router.current.title
         }
     }
@@ -9793,17 +9801,35 @@ extension View {
 private struct HubPhoneTableModifier: ViewModifier {
     @Environment(\.horizontalSizeClass) private var sizeClass
     var minWidth: CGFloat
+    @State private var available: CGFloat = 0
 
     func body(content: Content) -> some View {
         let floor = max(minWidth, HubLayout.isPhone(sizeClass) ? 920 : minWidth)
-        ViewThatFits(in: .horizontal) {
-            content
-                .frame(minWidth: floor, maxWidth: .infinity, alignment: .topLeading)
-            ScrollView(.horizontal, showsIndicators: true) {
+        let span = HubLayout.tableSpan(available: available, floor: floor)
+        Group {
+            if available > 1, available + 0.5 >= floor {
                 content
-                    .frame(minWidth: floor, alignment: .topLeading)
+                    .frame(minWidth: available, maxWidth: .infinity, alignment: .topLeading)
+            } else if available > 1 {
+                ScrollView(.horizontal, showsIndicators: true) {
+                    content
+                        .frame(minWidth: floor, alignment: .topLeading)
+                }
+            } else {
+                content
+                    .frame(minWidth: floor, maxWidth: .infinity, alignment: .topLeading)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            GeometryReader { geo in
+                Color.clear.preference(key: HubWidthKey.self, value: geo.size.width)
+            }
+        )
+        .onPreferenceChange(HubWidthKey.self) { value in
+            if value > 0 { available = value }
+        }
+        .environment(\.hubTableWidth, span)
     }
 }
 
@@ -9842,22 +9868,42 @@ struct HubAdaptiveHScroll<Content: View>: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     var minWidth: CGFloat? = nil
     @ViewBuilder var content: Content
+    @State private var available: CGFloat = 0
 
     private var floor: CGFloat {
         minWidth ?? (HubLayout.isPhone(sizeClass) ? 920 : 1040)
     }
 
+    private var span: CGFloat {
+        HubLayout.tableSpan(available: available, floor: floor)
+    }
+
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            content
-                .frame(minWidth: floor, maxWidth: .infinity, alignment: .leading)
-            ScrollView(.horizontal, showsIndicators: true) {
+        Group {
+            if available > 1, available + 0.5 >= floor {
                 content
-                    .padding(.trailing, 12)
-                    .frame(minWidth: floor, alignment: .leading)
+                    .frame(width: span, alignment: .topLeading)
+            } else if available > 1 {
+                ScrollView(.horizontal, showsIndicators: true) {
+                    content
+                        .padding(.trailing, 12)
+                        .frame(minWidth: floor, alignment: .topLeading)
+                }
+            } else {
+                content
+                    .frame(minWidth: floor, maxWidth: .infinity, alignment: .topLeading)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            GeometryReader { geo in
+                Color.clear.preference(key: HubWidthKey.self, value: geo.size.width)
+            }
+        )
+        .onPreferenceChange(HubWidthKey.self) { value in
+            if value > 0 { available = value }
+        }
+        .environment(\.hubTableWidth, span)
     }
 }
 

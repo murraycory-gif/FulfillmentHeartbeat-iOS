@@ -1,8 +1,19 @@
 import SwiftUI
 
+enum HubNavSelection {
+    static func lightsIcon(selected: Bool) -> Bool { selected }
+
+    static func iconInk(selected: Bool, health: Health) -> Color {
+        selected ? AppTheme.blue : AppTheme.healthInk(health)
+    }
+
+    static func iconWash(selected: Bool, health: Health) -> Color {
+        selected ? AppTheme.blue.opacity(0.16) : AppTheme.healthWash(health)
+    }
+}
+
 enum HubDestination: String, CaseIterable, Identifiable, Hashable {
     case dashboard
-    case upload
     case fiveStar
     case pickPath
     case prepNotReady
@@ -21,7 +32,6 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
     var title: String {
         switch self {
         case .dashboard: return "Dashboard"
-        case .upload: return "Upload"
         case .fiveStar: return MetricSection.fiveStar.title
         case .pickPath: return MetricSection.pickPath.title
         case .prepNotReady: return MetricSection.prepNotReady.title
@@ -40,7 +50,6 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
     var symbol: String {
         switch self {
         case .dashboard: return "square.grid.2x2.fill"
-        case .upload: return "square.and.arrow.up"
         case .fiveStar: return MetricSection.fiveStar.symbol
         case .pickPath: return MetricSection.pickPath.symbol
         case .prepNotReady: return MetricSection.prepNotReady.symbol
@@ -70,7 +79,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         case .lostRevenue: return .lostRevenue
         case .missingItems: return .missingItems
         case .preSubOOS: return .preSubOOS
-        case .dashboard, .upload: return nil
+        case .dashboard: return nil
         }
     }
 
@@ -94,8 +103,8 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
     }
 
     static var sectionItems: [HubDestination] { [.dashboard, .sales, .lostRevenue, .missingItems, .fiveStar, .preSubOOS, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pickerScorecard, .pph, .labor] }
-    static var settingsItems: [HubDestination] { [.upload] }
-    static var primaryTabs: [HubDestination] { [.dashboard, .upload] }
+    static var settingsItems: [HubDestination] { [] }
+    static var primaryTabs: [HubDestination] { [.dashboard] }
     static var metricItems: [HubDestination] { [.sales, .lostRevenue, .missingItems, .fiveStar, .preSubOOS, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pickerScorecard, .pph, .labor] }
 }
 
@@ -154,9 +163,7 @@ struct MainHubView: View {
                 .environmentObject(router)
         }
         .onAppear {
-            if store.seeded, router.destination == .upload {
-                router.open(.dashboard)
-            }
+            store.setVisibleDestination(router.current)
             guard !store.needsRolePick else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
                 coach.presentIfNeeded(for: router.current)
@@ -168,6 +175,7 @@ struct MainHubView: View {
             }
         }
         .onChange(of: router.destination) { _, dest in
+            store.setVisibleDestination(dest)
             guard !store.needsRolePick else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
                 coach.presentIfNeeded(for: dest)
@@ -195,9 +203,11 @@ struct MainHubView: View {
                     sidebarRow(item)
                 }
             }
-            Section("Settings") {
-                ForEach(HubDestination.settingsItems) { item in
-                    sidebarRow(item)
+            if !HubDestination.settingsItems.isEmpty {
+                Section("Settings") {
+                    ForEach(HubDestination.settingsItems) { item in
+                        sidebarRow(item)
+                    }
                 }
             }
         }
@@ -235,18 +245,20 @@ struct MainHubView: View {
     private func sidebarRow(_ item: HubDestination) -> some View {
         let health = navHealth(for: item)
         let selected = router.destination == item
+        let iconInk = HubNavSelection.iconInk(selected: selected, health: health)
+        let iconWash = HubNavSelection.iconWash(selected: selected, health: health)
         return Button {
             router.open(item)
         } label: {
             HStack(spacing: 10) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(AppTheme.healthWash(health))
+                        .fill(iconWash)
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .stroke(AppTheme.healthInk(health).opacity(0.18), lineWidth: 1)
+                        .stroke(iconInk.opacity(selected ? 0.45 : 0.18), lineWidth: selected ? 1.5 : 1)
                     Image(systemName: item.symbol)
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(AppTheme.healthInk(health))
+                        .foregroundStyle(iconInk)
                 }
                 .frame(width: 28, height: 28)
                 Text(item.title)
@@ -262,15 +274,13 @@ struct MainHubView: View {
         .buttonStyle(.plain)
         .listRowBackground(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(selected ? AppTheme.healthWash(health).opacity(0.85) : Color.clear)
+                .fill(selected ? AppTheme.blue.opacity(0.12) : Color.clear)
         )
         .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
     }
 
     private func navHealth(for dest: HubDestination) -> Health {
         switch dest {
-        case .upload:
-            return .none
         case .dashboard:
             return store.summaries.map(\.health).max(by: { healthRank($0) < healthRank($1) }) ?? .none
         default:
@@ -292,27 +302,21 @@ struct MainHubView: View {
     @ViewBuilder
     private var detail: some View {
         NavigationStack {
-            if router.current == .upload {
-                UploadView()
-                    .id("upload")
-                    .hubPageCanvas()
-            } else {
-                ScorecardPager(router: router) { dest in
-                    AnyView(
-                        page(for: dest)
-                            .environmentObject(store)
-                            .environmentObject(router)
-                    )
-                }
-                .equatable()
-                .clipped()
-                .ignoresSafeArea(edges: .bottom)
+            ScorecardPager(router: router) { dest in
+                AnyView(
+                    page(for: dest)
+                        .environmentObject(store)
+                        .environmentObject(router)
+                )
             }
+            .equatable()
+            .clipped()
+            .ignoresSafeArea(edges: .bottom)
         }
         .background(AppTheme.bg.ignoresSafeArea())
         .hubChrome(
             showBack: router.current != .dashboard,
-            showsFilters: router.current != .upload
+            showsFilters: true
         )
     }
 
@@ -321,8 +325,6 @@ struct MainHubView: View {
         switch dest {
         case .dashboard:
             DashboardView().hubPageCanvas()
-        case .upload:
-            UploadView().hubPageCanvas()
         case .fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pph, .labor, .pickerScorecard, .sales, .lostRevenue, .missingItems, .preSubOOS:
             if let section = dest.section {
                 SectionDetailView(section: section).hubPageCanvas()
@@ -422,9 +424,11 @@ struct CompactNavSheet: View {
                         navRow(item)
                     }
                 }
-                Section("Settings") {
-                    ForEach(HubDestination.settingsItems) { item in
-                        navRow(item)
+                if !HubDestination.settingsItems.isEmpty {
+                    Section("Settings") {
+                        ForEach(HubDestination.settingsItems) { item in
+                            navRow(item)
+                        }
                     }
                 }
             }
@@ -446,7 +450,9 @@ struct CompactNavSheet: View {
             router.showCompactMenu = false
         } label: {
             Label(item.title, systemImage: item.symbol)
+                .symbolRenderingMode(.monochrome)
                 .foregroundStyle(router.destination == item ? AppTheme.blue : AppTheme.text)
+                .fontWeight(router.destination == item ? .semibold : .regular)
         }
     }
 }

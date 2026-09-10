@@ -166,7 +166,7 @@ struct RoleGateView: View {
             TextField("Search districts", text: $query)
                 .textFieldStyle(.roundedBorder)
             if filteredDistricts.isEmpty {
-                Text("No districts in the loaded files yet. Upload the workbooks, then reopen the app.")
+                Text("No districts in the Heartbeat pack yet. Stay here — the pack fills after ready.")
                     .font(.subheadline)
                     .foregroundStyle(AppTheme.textSecondary)
                     .padding(.top, 8)
@@ -187,7 +187,7 @@ struct RoleGateView: View {
             TextField("Search operations managers", text: $query)
                 .textFieldStyle(.roundedBorder)
             if filteredOMs.isEmpty {
-                Text("No operations managers in the loaded files yet. Upload the workbooks, then reopen the app.")
+                Text("No operations managers in the Heartbeat pack yet. Stay here — the pack fills after ready.")
                     .font(.subheadline)
                     .foregroundStyle(AppTheme.textSecondary)
                     .padding(.top, 8)
