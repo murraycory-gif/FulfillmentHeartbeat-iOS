@@ -136,7 +136,7 @@ enum PulseMail {
         return autoreleasepool {
             let htmlString = html(snap, pages: chosen)
             let file = writeHTMLStreaming(htmlString)
-            Packet(
+            return Packet(
                 subject: subject,
                 html: persistHTML ? htmlString : "",
                 htmlFile: file,
