@@ -873,14 +873,13 @@ enum HeartbeatMath {
                 laborHealth(tva)
             )
         case .pickerScorecard:
-            let shoppers = rows.filter { isRealPicker($0) || pickerHasVolume($0) }
-            let pool = shoppers.isEmpty ? rows : shoppers
+            let status = pickerStatusCounts(rows)
             return (
                 [
-                    HeartbeatFormat.num(Double(pool.count)),
-                    HeartbeatFormat.num(Double(pool.filter { pickerHealth($0) == .good }.count)),
-                    HeartbeatFormat.num(Double(pool.filter { pickerHealth($0) == .watch }.count)),
-                    HeartbeatFormat.num(Double(pool.filter { pickerHealth($0) == .risk }.count)),
+                    HeartbeatFormat.num(Double(status.shoppers)),
+                    HeartbeatFormat.num(Double(status.healthy)),
+                    HeartbeatFormat.num(Double(status.watch)),
+                    HeartbeatFormat.num(Double(status.risk)),
                 ],
                 health
             )
@@ -1178,8 +1177,15 @@ enum HeartbeatMath {
             for (index, header) in headers.enumerated() {
                 if header == "Goal %", let goal = goalFallback {
                     values.append(HeartbeatFormat.pct(goal))
-                } else if let flag = pack.flags.first(where: { flagName($0.name, matches: header) }), !flag.value.isEmpty {
-                    values.append(flag.value)
+                } else if let flag = pack.flags.first(where: { flagName($0.name, matches: header) }) {
+                    if !flag.value.isEmpty {
+                        values.append(flag.value)
+                    } else if section == .pickerScorecard
+                        || header == "Healthy" || header == "Watch" || header == "At Risk" {
+                        values.append(HeartbeatFormat.num(Double(flag.stores)))
+                    } else {
+                        values.append("—")
+                    }
                 } else if index == 0 {
                     values.append(line.value.isEmpty ? "—" : line.value)
                 } else {
@@ -1324,22 +1330,8 @@ enum HeartbeatMath {
         }
         if section == .preSubOOS { return preSubActionFlags(rows, items: items) }
         if section == .pickerScorecard {
-            let shoppers = rows.filter { isRealPicker($0) || pickerHasVolume($0) }
-            func tone(_ row: MetricRow) -> Health {
-                var health = pickerHealth(row)
-                if health == .none, pickerHasVolume(row) { health = .watch }
-                return health
-            }
-            var healthy = shoppers.filter { tone($0) == .good }.count
-            var watch = shoppers.filter { tone($0) == .watch }.count
-            var risk = shoppers.filter { tone($0) == .risk }.count
-            if healthy + watch + risk == 0, !shoppers.isEmpty {
-                let board = pickerBoard(shoppers)
-                healthy = board.strongCount
-                risk = board.opportunityCount
-                watch = max(0, shoppers.count - healthy - risk)
-            }
-            return bandFlags(healthy: healthy, watch: watch, risk: risk, unit: "shoppers")
+            let status = pickerStatusCounts(rows)
+            return bandFlags(healthy: status.healthy, watch: status.watch, risk: status.risk, unit: "shoppers")
         }
         let stores = rows.filter { !isIgnoredStore($0.storeNumber) && !$0.storeNumber.isEmpty }
         let healthy = stores.filter { health(for: section, row: $0) == .good }.count
@@ -3711,6 +3703,30 @@ enum HeartbeatMath {
         }
         guard !parts.isEmpty else { return 0 }
         return parts.reduce(0, +) / Double(parts.count)
+    }
+
+    /// Card tiles and expand Healthy / Watch / At Risk must use this count.
+    /// Raw `pickerHealth` leaves volume shoppers at `.none` — tiles already
+    /// promote those to Watch and fall back to the opportunity board.
+    static func pickerStatusTone(_ row: MetricRow) -> Health {
+        var health = pickerHealth(row)
+        if health == .none, pickerHasVolume(row) { health = .watch }
+        return health
+    }
+
+    static func pickerStatusCounts(_ rows: [MetricRow]) -> (shoppers: Int, healthy: Int, watch: Int, risk: Int) {
+        let shoppers = rows.filter { isRealPicker($0) || pickerHasVolume($0) }
+        let pool = shoppers.isEmpty ? rows : shoppers
+        var healthy = pool.filter { pickerStatusTone($0) == .good }.count
+        var watch = pool.filter { pickerStatusTone($0) == .watch }.count
+        var risk = pool.filter { pickerStatusTone($0) == .risk }.count
+        if healthy + watch + risk == 0, !pool.isEmpty {
+            let board = pickerBoard(pool)
+            healthy = board.strongCount
+            risk = board.opportunityCount
+            watch = max(0, pool.count - healthy - risk)
+        }
+        return (pool.count, healthy, watch, risk)
     }
 
     static func pickerHealth(_ row: MetricRow) -> Health {

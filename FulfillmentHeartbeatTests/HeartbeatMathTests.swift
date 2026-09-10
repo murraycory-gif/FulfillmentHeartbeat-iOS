@@ -2177,6 +2177,15 @@ final class HeartbeatMathTests: XCTestCase {
         let healthyIdx = headers.firstIndex(of: "Healthy")!
         let healthyTotal = table.reduce(0.0) { $0 + (HeartbeatMath.parsePctToken($1.values[healthyIdx]) ?? 0) }
         XCTAssertGreaterThan(healthyTotal, 0, "Picker dropdown Healthy must count seat shoppers")
+        XCTAssertTrue(PulseLaunch.pickerExpandHasStatusBuckets(table))
+        let tileFlags = HeartbeatMath.dashboardActionFlags(
+            section: .pickerScorecard,
+            rows: fromSeatStores,
+            includeAll: true
+        )
+        let tileHealthy = tileFlags.first { $0.name == "Healthy" }?.stores ?? -1
+        let expandTotals = PulseLaunch.pickerExpandStatusTotals(table)
+        XCTAssertEqual(Int(expandTotals.healthy), tileHealthy, "dropdown Healthy must match card tiles")
         XCTAssertTrue(PulseLaunch.shouldRebuildPickerIndexOnSeatPaint(filtersActive: true, seatRowCount: fromSeatStores.count))
         XCTAssertFalse(PulseLaunch.shouldRebuildPickerIndexOnSeatPaint(filtersActive: false, seatRowCount: 80))
         let buckets = PulseCaches.pickerBuckets(fromSeatStores)
@@ -2193,6 +2202,81 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(
             table.contains { MarketRegion.allCases.map(\.rawValue).contains($0.label) }
         )
+    }
+
+    func testPickerExpandStatusBucketsMatchSeatTilesUnderRegion() {
+        var roster: [String: HeartbeatMath.StoreIdentity] = [:]
+        roster["101"] = HeartbeatMath.StoreIdentity(
+            division: "Jewel Osco", district: "03", om: "Jino Arvin", name: "101"
+        )
+        roster["202"] = HeartbeatMath.StoreIdentity(
+            division: "Shaws", district: "12", om: "Pat", name: "202"
+        )
+        roster["9001"] = HeartbeatMath.StoreIdentity(
+            division: "NorCal", district: "J1", om: "Shelly Selof", name: "9001"
+        )
+        func shopper(_ store: String, _ id: String, pph: Double) -> MetricRow {
+            let raw = MetricRow(
+                section: .pickerScorecard,
+                division: roster[store]?.division ?? "",
+                operationsOM: roster[store]?.om ?? "",
+                storeNumber: store,
+                storeName: roster[store]?.name,
+                payload: ["pph": pph, "orders": 24],
+                textPayload: [
+                    "shopper_id": id,
+                    "shopper_name": id,
+                    "district": roster[store]?.district ?? "",
+                ]
+            )
+            return HeartbeatMath.stampRoster(raw, roster: roster)
+        }
+        let warehouse = [
+            shopper("101", "JO-A", 90),
+            shopper("101", "JO-B", 70),
+            shopper("202", "SH-A", 40),
+            shopper("9001", "NC-A", 95),
+        ]
+        var east = DashboardFilters()
+        east.region = MarketRegion.east.rawValue
+        let allowed = PulseCaches.allowedStores(roster: roster, filters: east)
+        XCTAssertEqual(allowed?.count, 2)
+        let seat = PulseLaunch.pickerSeatRows(
+            filtered: [],
+            warehouse: warehouse,
+            allowed: allowed,
+            filters: east,
+            roster: roster
+        )
+        XCTAssertEqual(seat.count, 3)
+        XCTAssertFalse(seat.contains { HeartbeatMath.canonicalStore($0.storeNumber) == "9001" })
+        let grain = PulseLaunch.dashboardGrain(filters: east, sessionRole: .evp)
+        XCTAssertEqual(grain, .division)
+        let table = PulseLaunch.pickerExpandTable(
+            seatRows: seat,
+            chrome: nil,
+            filters: east,
+            grain: grain
+        )
+        XCTAssertTrue(PulseLaunch.pickerExpandHasStatusBuckets(table), "Region expand must show status buckets")
+        XCTAssertFalse(
+            table.contains { MarketRegion.allCases.map(\.rawValue).contains($0.label) },
+            "Region expand must be seat grain, not company regions"
+        )
+        let status = HeartbeatMath.pickerStatusCounts(seat)
+        let flags = HeartbeatMath.dashboardActionFlags(
+            section: .pickerScorecard,
+            rows: seat,
+            includeAll: true
+        )
+        let totals = PulseLaunch.pickerExpandStatusTotals(table)
+        XCTAssertEqual(Int(totals.healthy), status.healthy)
+        XCTAssertEqual(Int(totals.watch), status.watch)
+        XCTAssertEqual(Int(totals.risk), status.risk)
+        XCTAssertEqual(flags.first { $0.name == "Healthy" }?.stores, status.healthy)
+        XCTAssertEqual(flags.first { $0.name == "Watch" }?.stores, status.watch)
+        XCTAssertEqual(flags.first { $0.name == "At Risk" }?.stores, status.risk)
+        XCTAssertGreaterThan(status.shoppers, 0)
     }
 
     func testEverySectionPageOpenUsesSeatReadStoresUnderFilter() {

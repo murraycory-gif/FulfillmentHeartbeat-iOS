@@ -670,6 +670,7 @@ enum PulseLaunch {
                 grain: grain,
                 order: packOrder
             )
+            if pickerExpandHasStatusBuckets(table) { return table }
             if HeartbeatMath.grainRowsAreLive(table) { return table }
         }
         if let chrome {
@@ -677,6 +678,37 @@ enum PulseLaunch {
             if HeartbeatMath.grainRowsAreLive(chromeTable) { return chromeTable }
         }
         return []
+    }
+
+    /// Expand must show Shoppers + Healthy / Watch / At Risk, not a dash-only thin list.
+    static func pickerExpandHasStatusBuckets(_ rows: [HeartbeatMath.DashboardGrainTableRow]) -> Bool {
+        let headers = HeartbeatMath.dashboardTableHeaders(.pickerScorecard)
+        guard headers == ["Shoppers", "Healthy", "Watch", "At Risk"] else { return false }
+        guard HeartbeatMath.grainRowsAreLive(rows) else { return false }
+        guard let healthy = headers.firstIndex(of: "Healthy"),
+              let watch = headers.firstIndex(of: "Watch"),
+              let risk = headers.firstIndex(of: "At Risk") else { return false }
+        return rows.contains { row in
+            row.values.count == headers.count
+                && [healthy, watch, risk].allSatisfy { index in
+                    let text = row.values[index]
+                    return !text.isEmpty && text != "—"
+                }
+        }
+    }
+
+    static func pickerExpandStatusTotals(_ rows: [HeartbeatMath.DashboardGrainTableRow]) -> (healthy: Double, watch: Double, risk: Double) {
+        let headers = HeartbeatMath.dashboardTableHeaders(.pickerScorecard)
+        let healthy = headers.firstIndex(of: "Healthy") ?? 1
+        let watch = headers.firstIndex(of: "Watch") ?? 2
+        let risk = headers.firstIndex(of: "At Risk") ?? 3
+        func sum(_ index: Int) -> Double {
+            rows.reduce(0) { partial, row in
+                guard index < row.values.count else { return partial }
+                return partial + (HeartbeatMath.parsePctToken(row.values[index]) ?? 0)
+            }
+        }
+        return (sum(healthy), sum(watch), sum(risk))
     }
 
     /// Cached company/region grain must not stay under a store/district seat.

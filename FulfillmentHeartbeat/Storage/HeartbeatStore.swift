@@ -658,12 +658,37 @@ final class HeartbeatStore: ObservableObject {
 
     func dashboardGrainRows(for section: MetricSection) -> [HeartbeatMath.DashboardGrainTableRow] {
         let grain = effectiveDashboardGrain
-        if let cached = cachedGrainTables[section], HeartbeatMath.grainRowsAreLive(cached) {
-            if !filters.isActive || PulseLaunch.grainTableMatchesCurrent(labels: cached.map(\.label), grain: grain) {
+        if section == .pickerScorecard, filters.isActive {
+            if let cached = cachedGrainTables[.pickerScorecard],
+               PulseLaunch.pickerExpandHasStatusBuckets(cached),
+               PulseLaunch.grainMatchesSeat(cached, filters: filters, grain: grain) {
                 return cached
             }
+            let seat = PulseLaunch.pickerSeatRows(
+                filtered: filteredLatest[.pickerScorecard] ?? [],
+                warehouse: latestBySection[.pickerScorecard] ?? [],
+                allowed: pickerStoreSet(),
+                filters: filters,
+                roster: roster
+            )
+            let table = PulseLaunch.pickerExpandTable(
+                seatRows: seat,
+                chrome: nil,
+                filters: filters,
+                grain: grain
+            )
+            if PulseLaunch.pickerExpandHasStatusBuckets(table) {
+                return table
+            }
         }
-        if filters.isActive {
+        if let cached = cachedGrainTables[section], HeartbeatMath.grainRowsAreLive(cached) {
+            if !filters.isActive || PulseLaunch.grainTableMatchesCurrent(labels: cached.map(\.label), grain: grain) {
+                if section != .pickerScorecard || PulseLaunch.pickerExpandHasStatusBuckets(cached) {
+                    return cached
+                }
+            }
+        }
+        if filters.isActive, section != .pickerScorecard {
             return PulseLaunch.grainRowsFromSeatPacks(
                 cachedGrainPacks[section] ?? [],
                 section: section,
