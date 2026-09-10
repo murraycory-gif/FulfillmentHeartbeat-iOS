@@ -5,14 +5,75 @@ struct PulseDashChrome: Codable {
     var flags: [String: [HeartbeatMath.FiveStarFlag]]
     var packs: [String: [DashScopePack]]
     var pickerShoppers: Int
+    var pickerOpportunity: Int
+    var pickerStrong: Int
+
+    enum CodingKeys: String, CodingKey {
+        case summaries, flags, packs, pickerShoppers, pickerOpportunity, pickerStrong
+    }
+
+    init(
+        summaries: [SectionSummary],
+        flags: [String: [HeartbeatMath.FiveStarFlag]],
+        packs: [String: [DashScopePack]],
+        pickerShoppers: Int,
+        pickerOpportunity: Int = 0,
+        pickerStrong: Int = 0
+    ) {
+        self.summaries = summaries
+        self.flags = flags
+        self.packs = packs
+        self.pickerShoppers = pickerShoppers
+        self.pickerOpportunity = pickerOpportunity
+        self.pickerStrong = pickerStrong
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        summaries = try container.decode([SectionSummary].self, forKey: .summaries)
+        flags = try container.decodeIfPresent([String: [HeartbeatMath.FiveStarFlag]].self, forKey: .flags) ?? [:]
+        packs = try container.decodeIfPresent([String: [DashScopePack]].self, forKey: .packs) ?? [:]
+        pickerShoppers = try container.decodeIfPresent(Int.self, forKey: .pickerShoppers) ?? 0
+        pickerOpportunity = try container.decodeIfPresent(Int.self, forKey: .pickerOpportunity) ?? 0
+        pickerStrong = try container.decodeIfPresent(Int.self, forKey: .pickerStrong) ?? 0
+    }
 
     static func from(_ caches: PulseCaches) -> PulseDashChrome {
         PulseDashChrome(
             summaries: caches.cachedSummaries,
             flags: Dictionary(uniqueKeysWithValues: caches.cachedCardFlags.map { ($0.key.rawValue, $0.value) }),
             packs: Dictionary(uniqueKeysWithValues: caches.cachedGrainPacks.map { ($0.key.rawValue, $0.value) }),
-            pickerShoppers: caches.cachedPickerBoard.shopperCount
+            pickerShoppers: caches.cachedPickerBoard.shopperCount,
+            pickerOpportunity: caches.cachedPickerBoard.opportunityCount,
+            pickerStrong: caches.cachedPickerBoard.strongCount
         )
+    }
+
+    func card(_ section: MetricSection) -> SectionSummary? {
+        summaries.first { $0.section == section }
+    }
+
+    var salesOK: Bool { (card(.sales)?.headline ?? 0) > 0 }
+    var lostOK: Bool { card(.lostRevenue)?.headline != nil }
+    var laborOK: Bool {
+        guard let card = card(.labor) else { return false }
+        return card.storeCount > 0 && card.headline != nil
+    }
+    var pickerOK: Bool {
+        pickerShoppers > 0 || (card(.pickerScorecard)?.headline ?? 0) > 0
+    }
+
+    var isPaintReady: Bool { !summaries.isEmpty && salesOK && lostOK }
+
+    var isComplete: Bool { isPaintReady && laborOK && pickerOK }
+
+    var missingTitles: [String] {
+        var missing: [String] = []
+        if !salesOK { missing.append("Sales") }
+        if !lostOK { missing.append("Loss Revenue") }
+        if !laborOK { missing.append("Labor") }
+        if !pickerOK { missing.append("Picker ScoreCard") }
+        return missing
     }
 }
 

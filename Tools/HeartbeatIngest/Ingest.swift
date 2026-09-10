@@ -50,10 +50,25 @@ enum HeartbeatIngest {
             let head = summary.headline.map { String(format: "%.2f", $0) } ?? "—"
             print("  card \(summary.section.rawValue): stores=\(summary.storeCount) head=\(head) risk=\(summary.riskCount)")
         }
-        let loaded = Set(uploads.map(\.section))
-        let missing = MetricSection.uploadOrder.filter { !loaded.contains($0) }
-        if !missing.isEmpty {
-            print("Missing: \(missing.map(\.title).joined(separator: ", "))")
+        print("  picker shoppers=\(chrome.pickerShoppers) opportunity=\(chrome.pickerOpportunity) strong=\(chrome.pickerStrong)")
+        for section in [MetricSection.lostRevenue, .labor, .sales, .fiveStar, .pickerScorecard] {
+            let packs = chrome.packs[section.rawValue] ?? []
+            guard !packs.isEmpty else { continue }
+            print("  \(section.rawValue) regions:")
+            for pack in packs {
+                print("    \(pack.line.label): \(pack.line.value) stores=\(pack.line.count) kids=\(pack.children.count)")
+            }
         }
+        let loaded = Set(uploads.map(\.section))
+        let missingSheets = MetricSection.uploadOrder.filter { !loaded.contains($0) }
+        if !missingSheets.isEmpty {
+            print("Missing sheets: \(missingSheets.map(\.title).joined(separator: ", "))")
+        }
+        if !chrome.isComplete {
+            let missing = chrome.missingTitles.joined(separator: ", ")
+            fputs("Kitchen refused to publish: dashboard tiles missing \(missing).\n", stderr)
+            exit(1)
+        }
+        print("Dashboard tiles complete.")
     }
 }

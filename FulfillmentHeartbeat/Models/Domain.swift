@@ -493,6 +493,59 @@ struct SectionSummary: Identifiable, Equatable, Codable {
 
     var id: MetricSection { section }
 
+    enum CodingKeys: String, CodingKey {
+        case section, storeCount, headline, headlineLabel, secondary, health
+        case watchCount, riskCount, lastFilename, lastUploadedAt
+        case underScheduledCount, overScheduledCount, lostRevenuePct
+    }
+
+    init(
+        section: MetricSection,
+        storeCount: Int,
+        headline: Double?,
+        headlineLabel: String,
+        secondary: String,
+        health: Health,
+        watchCount: Int,
+        riskCount: Int,
+        lastFilename: String?,
+        lastUploadedAt: Date?,
+        underScheduledCount: Int = 0,
+        overScheduledCount: Int = 0,
+        lostRevenuePct: Double? = nil
+    ) {
+        self.section = section
+        self.storeCount = storeCount
+        self.headline = headline
+        self.headlineLabel = headlineLabel
+        self.secondary = secondary
+        self.health = health
+        self.watchCount = watchCount
+        self.riskCount = riskCount
+        self.lastFilename = lastFilename
+        self.lastUploadedAt = lastUploadedAt
+        self.underScheduledCount = underScheduledCount
+        self.overScheduledCount = overScheduledCount
+        self.lostRevenuePct = lostRevenuePct
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        section = try container.decode(MetricSection.self, forKey: .section)
+        storeCount = try container.decode(Int.self, forKey: .storeCount)
+        headline = try container.decodeIfPresent(Double.self, forKey: .headline)
+        headlineLabel = try container.decode(String.self, forKey: .headlineLabel)
+        secondary = try container.decode(String.self, forKey: .secondary)
+        health = try container.decode(Health.self, forKey: .health)
+        watchCount = try container.decode(Int.self, forKey: .watchCount)
+        riskCount = try container.decode(Int.self, forKey: .riskCount)
+        lastFilename = try container.decodeIfPresent(String.self, forKey: .lastFilename)
+        lastUploadedAt = try container.decodeIfPresent(Date.self, forKey: .lastUploadedAt)
+        underScheduledCount = try container.decodeIfPresent(Int.self, forKey: .underScheduledCount) ?? 0
+        overScheduledCount = try container.decodeIfPresent(Int.self, forKey: .overScheduledCount) ?? 0
+        lostRevenuePct = try container.decodeIfPresent(Double.self, forKey: .lostRevenuePct)
+    }
+
     var headlineText: String {
         guard let headline else { return "—" }
         if section == .fiveStar {
@@ -1887,6 +1940,27 @@ enum HeartbeatMath {
         let health: Health
         let stores: Int
         var unit: String = "stores"
+
+        enum CodingKeys: String, CodingKey {
+            case name, value, health, stores, unit
+        }
+
+        init(name: String, value: String, health: Health, stores: Int, unit: String = "stores") {
+            self.name = name
+            self.value = value
+            self.health = health
+            self.stores = stores
+            self.unit = unit
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            name = try container.decode(String.self, forKey: .name)
+            value = try container.decode(String.self, forKey: .value)
+            health = try container.decode(Health.self, forKey: .health)
+            stores = try container.decode(Int.self, forKey: .stores)
+            unit = try container.decodeIfPresent(String.self, forKey: .unit) ?? "stores"
+        }
     }
 
     static func fiveStarActionFlags(_ rows: [MetricRow], includeAll: Bool = false) -> [FiveStarFlag] {
@@ -3112,6 +3186,23 @@ struct DashScopePack: Identifiable, Equatable, Sendable, Codable {
     var flags: [HeartbeatMath.FiveStarFlag]
     var children: [DashScopeLine] = []
     var id: String { line.label }
+
+    enum CodingKeys: String, CodingKey {
+        case line, flags, children
+    }
+
+    init(line: DashScopeLine, flags: [HeartbeatMath.FiveStarFlag], children: [DashScopeLine] = []) {
+        self.line = line
+        self.flags = flags
+        self.children = children
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        line = try container.decode(DashScopeLine.self, forKey: .line)
+        flags = try container.decodeIfPresent([HeartbeatMath.FiveStarFlag].self, forKey: .flags) ?? []
+        children = try container.decodeIfPresent([DashScopeLine].self, forKey: .children) ?? []
+    }
 }
 
 struct DashboardFilters: Equatable, Codable {

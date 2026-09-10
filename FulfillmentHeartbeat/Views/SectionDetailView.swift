@@ -205,6 +205,9 @@ struct SectionDetailView: View {
         .onAppear {
             armPage()
         }
+        .task {
+            await store.ensureSectionLoaded(section)
+        }
         .onChange(of: router.current) { _, _ in
             armPage()
         }
