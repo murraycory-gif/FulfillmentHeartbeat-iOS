@@ -683,7 +683,7 @@ struct BeatingHeartbeatMark: View {
                 .shadow(color: AppTheme.heart.opacity(0.40), radius: 8, y: 3)
                 .frame(width: height, height: height)
         }
-        .frame(width: showsTrace ? height * 2.32 : height, height: height, alignment: .leading)
+        .frame(width: (showsTrace || forceTrace) ? height * 2.32 : height, height: height, alignment: .leading)
     }
 }
 
