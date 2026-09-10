@@ -2345,6 +2345,29 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertGreaterThan(status.shoppers, 0)
     }
 
+    func testSeatPickerIndexMustNotKeepCompanyBuckets() {
+        XCTAssertTrue(PulseLaunch.shouldRejectCompanyPickerIndexUnderSeat())
+        XCTAssertTrue(PulseLaunch.shouldWipePickerIndexOnSeatApply())
+        XCTAssertTrue(PulseLaunch.shouldWipePickerIndexOnSeatClear())
+        XCTAssertTrue(PulseLaunch.shouldRebuildPickerIndexOnSeatPaint(filtersActive: true, seatRowCount: 3))
+        XCTAssertFalse(PulseLaunch.shouldRebuildPickerIndexOnSeatPaint(filtersActive: false, seatRowCount: 80))
+        XCTAssertFalse(PulseLaunch.pickerIndexMatchesSeat(visibleCount: 3, indexedAll: 80))
+        XCTAssertFalse(PulseLaunch.pickerIndexMatchesSeat(visibleCount: 20, indexedAll: 26_349))
+        XCTAssertTrue(PulseLaunch.pickerIndexMatchesSeat(visibleCount: 20, indexedAll: 20))
+        let seat = PulseCaches.pickerBuckets([
+            MetricRow(
+                section: .pickerScorecard,
+                division: "Jewel Osco",
+                operationsOM: "A",
+                storeNumber: "101",
+                payload: ["pph": 90, "orders": 12],
+                textPayload: ["shopper_id": "A", "shopper_name": "A"]
+            )
+        ])
+        XCTAssertEqual(seat.index[.all]?.count, 1)
+        XCTAssertFalse(PulseLaunch.pickerIndexMatchesSeat(visibleCount: 1, indexedAll: 80))
+    }
+
     func testEverySectionPageOpenUsesSeatReadStoresUnderFilter() {
         XCTAssertEqual(Set(PulseLaunch.pageOpenSections), Set(MetricSection.allCases))
         for section in MetricSection.allCases {
