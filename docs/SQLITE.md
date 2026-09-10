@@ -22,6 +22,10 @@ rebuild company math.
 Labor loads on open. Picker shoppers load for the stores in the current
 filter, then the full list when that page opens.
 
+If a store is on the roster but the pack has no Loss Revenue row, the app
+fills that store from `facts.json` (2,162 scored stores). Pack dollars always
+win. District 03 is 20 NorCal stores totaling $36,193.
+
 ## Stamp
 
-HB-0828.306 / 1.0 (628)
+HB-0828.308 / 1.0 (630)

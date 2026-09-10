@@ -1117,5 +1117,30 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(summary.headline ?? 0, 1_832, accuracy: 0.01)
         XCTAssertEqual(summary.storeCount, 1)
     }
+
+    func testFactsFillMissingLostRevenueForDistrict03() throws {
+        let tests = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        let url = tests.deletingLastPathComponent().appendingPathComponent("FulfillmentHeartbeat/facts.json")
+        let file = try JSONDecoder().decode(PulseFactsFile.self, from: Data(contentsOf: url))
+        let facts = PulseFacts.metricRows(from: file)
+        let shawsOnly = facts.filter {
+            $0.section == .lostRevenue && $0.division == "Shaws"
+        }
+        XCTAssertGreaterThan(shawsOnly.count, 50)
+        XCTAssertFalse(shawsOnly.contains { HeartbeatMath.canonicalStore($0.storeNumber) == "304" })
+        let filled = PulseDataPolicy.fillMissing(existing: shawsOnly, facts: facts)
+        let lost = filled.filter { $0.section == .lostRevenue }
+        XCTAssertGreaterThan(lost.count, 1_500)
+        var filters = DashboardFilters()
+        filters.district = "03"
+        let caches = PulseCaches.build(rows: facts.filter { $0.section == .storeRoster } + lost, filters: filters, uploads: [], heavy: false, grain: .store)
+        let summary = caches.cachedSummaries.first { $0.section == .lostRevenue }
+        XCTAssertEqual(summary?.storeCount, 20)
+        XCTAssertEqual(summary?.headline ?? 0, 36_193, accuracy: 1)
+        let store304 = (caches.filteredLatest[.lostRevenue] ?? []).first {
+            HeartbeatMath.canonicalStore($0.storeNumber) == "304"
+        }
+        XCTAssertEqual(store304?.number("lost_revenue") ?? 0, 2_510, accuracy: 0.5)
+    }
 }
 

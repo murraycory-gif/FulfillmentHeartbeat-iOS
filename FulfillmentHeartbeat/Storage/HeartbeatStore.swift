@@ -135,9 +135,7 @@ final class HeartbeatStore: ObservableObject {
         } else {
             await importCloudSQLiteIfPresent()
         }
-        if !usingPackChrome, HubLayout.ingestsWorkbook || !Self.hasUsableLostRevenue(rows) {
-            await loadPublishedFacts()
-        }
+        await loadPublishedFacts()
         if cachedSummaries.isEmpty, !rows.isEmpty {
             rebuildIndex()
             installCompanyWideFast()
@@ -161,9 +159,7 @@ final class HeartbeatStore: ObservableObject {
             applyLocalCards()
             return
         }
-        if !usingPackChrome, !Self.hasUsableLostRevenue(rows) {
-            await loadPublishedFacts()
-        }
+        await loadPublishedFacts()
     }
 
     private func applyLocalCards() {
@@ -1675,9 +1671,7 @@ final class HeartbeatStore: ObservableObject {
                 applyLocalCards()
                 return
             }
-            if !usingPackChrome, !Self.hasUsableLostRevenue(rows) {
-                await loadPublishedFacts()
-            }
+            await loadPublishedFacts()
         } catch {
             return
         }
@@ -2834,17 +2828,33 @@ final class HeartbeatStore: ObservableObject {
             await PulseFacts.loadRows()
         }.value
         guard !incoming.isEmpty else { return }
-        let identity = PulseDataPolicy.identityOnly(incoming)
-        guard !identity.isEmpty else { return }
-        rows = PulseDataPolicy.applyIdentity(existing: rows, identity: identity)
-        // Never copy sales / lost revenue / 5-star dollars from facts.json.
+        rows = PulseDataPolicy.applyIdentity(existing: rows, identity: incoming)
+        let before = rows.count
+        rows = PulseDataPolicy.fillMissing(existing: rows, facts: incoming)
         seeded = true
+        let filledLost = rows.count > before
+        if filledLost {
+            let lost = incoming.filter { $0.section == .lostRevenue }
+            if !lost.isEmpty {
+                let stamped = HeartbeatMath.applyRoster(
+                    HeartbeatMath.latestPerStore(lost.filter { $0.textPayload["lost_grain"] != "market" }),
+                    roster: roster
+                )
+                var merged = latestBySection[.lostRevenue] ?? []
+                var have: Set<String> = []
+                for row in merged {
+                    have.formUnion(HeartbeatMath.storeAliases(row.storeNumber))
+                }
+                for row in stamped where !have.contains(HeartbeatMath.canonicalStore(row.storeNumber)) {
+                    merged.append(row)
+                    have.formUnion(HeartbeatMath.storeAliases(row.storeNumber))
+                }
+                latestBySection[.lostRevenue] = merged
+            }
+        }
         rebuildLostIndex()
-        rebuildIndex()
         if filters.isActive {
             applyVisibleFilter()
-        } else {
-            installCompanyWideFast()
         }
     }
 

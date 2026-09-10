@@ -79,7 +79,7 @@ enum PulseFacts {
             file = nil
         }
         guard let file, isUsable(file) else { return [] }
-        return identityRows(from: file)
+        return metricRows(from: file)
     }
 
     private static func decode(_ data: Data?) -> PulseFactsFile? {
@@ -151,7 +151,7 @@ enum PulseFacts {
     }
 }
 
-/// Live workbook is the only source for dollars. Facts.json is roster identity.
+/// Pack dollars win. Facts.json fills stores the pack never wrote.
 enum PulseDataPolicy {
     static func weekKey(from rows: [MetricRow]) -> String {
         for row in rows where row.section == .sales {
@@ -171,6 +171,47 @@ enum PulseDataPolicy {
         var next = existing.filter { $0.section != .storeRoster && $0.textPayload["roster"] != "1" }
         next.append(contentsOf: roster)
         return next
+    }
+
+    /// Add fact rows for stores the pack does not already score. Never overwrite pack dollars.
+    static func fillMissing(existing: [MetricRow], facts: [MetricRow]) -> [MetricRow] {
+        let sections: [MetricSection] = [.lostRevenue, .sales, .fiveStar]
+        var extra: [MetricRow] = []
+        extra.reserveCapacity(2_200)
+        for section in sections {
+            extra.append(contentsOf: fillMissingStores(existing: existing, facts: facts, section: section))
+        }
+        guard !extra.isEmpty else { return existing }
+        return existing + extra
+    }
+
+    static func fillMissingStores(
+        existing: [MetricRow],
+        facts: [MetricRow],
+        section: MetricSection
+    ) -> [MetricRow] {
+        var have: Set<String> = []
+        have.reserveCapacity(2_200)
+        for row in existing where row.section == section {
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            if store.isEmpty { continue }
+            if section == .lostRevenue, row.number("lost_revenue") == nil, row.number("ecomm_sales") == nil {
+                continue
+            }
+            have.formUnion(HeartbeatMath.storeAliases(store))
+        }
+        var out: [MetricRow] = []
+        var seen: Set<String> = []
+        for row in facts where row.section == section {
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            if store.isEmpty { continue }
+            if have.contains(store) { continue }
+            if !seen.insert(store).inserted { continue }
+            if section == .lostRevenue, row.number("lost_revenue") == nil { continue }
+            out.append(row)
+            have.formUnion(HeartbeatMath.storeAliases(store))
+        }
+        return out
     }
 
     /// Incoming workbook sections replace the same sections. Never keep a larger stale total.
