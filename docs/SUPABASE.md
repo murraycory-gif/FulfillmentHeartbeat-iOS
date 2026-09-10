@@ -3,8 +3,9 @@
 Project: `https://pcnjujfmlsklhrosxzlt.supabase.co`  
 Bucket: `heartbeat-packs`
 
-Testers download **`current.sqlite`** and **`pulse-cards.json`**.  
-They never download or parse Excel.
+Testers download **`current.sqlite`** (Who’s looking / Clear) and, after
+Continue, **`packs/seat/{grain}/{id}/current.sqlite`**.  
+They never download or parse Excel. See [SEAT-SCOPED-PACKS.md](SEAT-SCOPED-PACKS.md).
 
 ## Daily
 

@@ -280,6 +280,13 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertEqual(store1.payload["pph"] ?? 0, 67.3344365031863, accuracy: 0.001)
         XCTAssertFalse(rows.contains { $0.storeNumber.lowercased() == "total" })
         XCTAssertEqual(rows.filter { $0.storeNumber == "4262" }.count, 1)
+        let metric = rows.map { $0.asRow(section: .pph) }
+        XCTAssertNotNil(HeartbeatMath.weekPurePPH(metric))
+        XCTAssertNotEqual(HeartbeatMath.summarize(.pph, rows: metric, upload: nil).headlineText, "—")
+        let jewel = metric.filter { $0.division == "Jewel Osco" }
+        XCTAssertEqual(HeartbeatMath.weekPurePPH(jewel), 67.3344365031863, accuracy: 0.001)
+        XCTAssertEqual(HeartbeatMath.pphDashboardFlags(jewel).first?.value, "67.3")
+        XCTAssertEqual(HeartbeatMath.pphDashboardFlags(jewel).first?.name, "PPH")
     }
 
     func testPickerScorecardUsesTotalColumnsAndSkipsStoreTotals() throws {
@@ -468,6 +475,7 @@ final class WorkbookParserTests: XCTestCase {
         let store = try XCTUnwrap(rows.first { $0.storeNumber == "2218" })
         XCTAssertEqual(store.payload["lost_revenue"] ?? 0, 2538.573, accuracy: 0.001)
         XCTAssertEqual(store.payload["lost_revenue_pct"] ?? 0, 115.744807933432, accuracy: 0.001)
+        XCTAssertEqual(store.payload["lost_revenue_goal_pct"] ?? 0, 54.6313005813291, accuracy: 0.001)
         XCTAssertEqual(store.payload["ecomm_sales"] ?? 0, 2193.25, accuracy: 0.001)
         XCTAssertEqual(store.textPayload["lost_grain"], "store")
         let company = try XCTUnwrap(rows.first { $0.storeNumber == "1" })
@@ -477,6 +485,145 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertEqual(market.payload["lost_revenue_pct"] ?? 0, 4.53078021185763, accuracy: 0.0001)
         XCTAssertEqual(market.payload["ecomm_sales"] ?? 0, 46077144.47, accuracy: 0.01)
         XCTAssertFalse(rows.contains { $0.storeNumber == "378" })
+    }
+
+    func testLostRevenuePrefersTotalOpportunityColumnOverGenericLostRevenue() throws {
+        let csv = """
+        Store,eComm Sales,Lost Revenue,Total Lost Revenue (Total Opportunity),Total Lost Revenue % (Total Opportunity)
+        1,10000,99999,760872.84,0.05
+        2,8000,88888,277531.39,0.05
+        Total,46077144.47,2015923.72,1962441.23,0.0453
+        """
+        let rows = try WorkbookParser.parse(data: Data(csv.utf8), filename: "Breakdown Week 25.xlsx")
+        let one = try XCTUnwrap(rows.first { $0.storeNumber == "1" })
+        XCTAssertEqual(one.payload["lost_revenue"] ?? 0, 760_872.84, accuracy: 0.01)
+        XCTAssertNotEqual(one.payload["lost_revenue"] ?? 0, 99_999, accuracy: 1)
+        let market = try XCTUnwrap(rows.first { $0.textPayload["lost_grain"] == "market" })
+        XCTAssertEqual(market.payload["lost_revenue"] ?? 0, 1_962_441.23, accuracy: 0.01)
+        XCTAssertNotEqual(market.payload["lost_revenue"] ?? 0, 2_015_923.72, accuracy: 1)
+        let asRows = rows.map { $0.asRow(section: .lostRevenue) }
+        let company = HeartbeatMath.summarize(.lostRevenue, rows: asRows, upload: nil)
+        XCTAssertEqual(company.headline ?? 0, 1_962_441.23, accuracy: 0.01)
+        XCTAssertEqual(HeartbeatMath.totalOpportunityDollars(market.asRow(section: .lostRevenue)), 1_962_441.23, accuracy: 0.01)
+    }
+
+    func testLostRevenueGoalMapsBareGoalHeaders() throws {
+        let csv = """
+        Store,eComm Sales,Total Lost Revenue (Total Opportunity),Goal %,FY2026 Goal
+        2218,10000,400,0.03,250
+        """
+        let rows = try WorkbookParser.parse(data: Data(csv.utf8), filename: "Breakdown Week 25.xlsx")
+        let store = try XCTUnwrap(rows.first { $0.storeNumber == "2218" })
+        XCTAssertEqual(store.payload["lost_revenue_goal_pct"] ?? 0, 3.0, accuracy: 0.01)
+        XCTAssertEqual(store.payload["lost_revenue_goal"] ?? 0, 250, accuracy: 0.01)
+        XCTAssertEqual(HeartbeatMath.lostRevenueGoalPct(store.asRow(section: .lostRevenue)) ?? 0, 3.0, accuracy: 0.01)
+    }
+
+    func testLostRevenueColumnMapKeepsGoalAndTotalOpportunityOnDistinctKeys() {
+        let map: [(String, String)] = [
+            ("Total Lost Revenue (Total Opportunity)", "lost_revenue"),
+            ("Total Lost Revenue % (Total Opportunity)", "lost_revenue_pct"),
+            ("Total Lost Revenue (FY2026 Goal)", "lost_revenue_goal"),
+            ("Total Lost Revenue (FY2026 Goal) %", "lost_revenue_goal_pct"),
+            ("Goal %", "lost_revenue_goal_pct"),
+            ("FY2026 Goal", "lost_revenue_goal"),
+            ("Missed Sales (Total Opportunity)", "missed_sales"),
+            ("Missed Sales % (Total Opportunity)", "missed_sales_pct"),
+            ("Missed Sales (FY2026 Goal)", "missed_sales_goal"),
+            ("Missed Sales % (FY2026 Goal)", "missed_sales_goal_pct"),
+            ("Kill Switch Lost Sales (FY2026 Goal)", "kill_switch_lost_goal"),
+            ("Kill Switch Lost Sales (FY2026 Goal) %", "kill_switch_lost_goal_pct"),
+            ("Kill Switch Lost Sales (TO / $90)", "kill_switch_lost"),
+            ("Post Sub OOS Foregone (Total Opportunity)", "post_sub_oos_foregone"),
+            ("Post Sub OOS Foregone (FY2026 Goal)", "post_sub_oos_foregone_goal"),
+            ("Refund Lost Sales (Total Opportunity)", "refund_lost"),
+            ("Refund Lost Sales (FY2026 Goal)", "refund_lost_goal"),
+            ("Cancelled Lost Sales (Total Opportunity)", "cancelled_lost"),
+            ("Cancelled Lost Sales (FY2026 Goal)", "cancelled_lost_goal"),
+        ]
+        for (header, key) in map {
+            XCTAssertEqual(WorkbookParser.lostRevenueColumnKey(header), key, header)
+        }
+        XCTAssertNotEqual(
+            WorkbookParser.lostRevenueColumnKey("Missed Sales (FY2026 Goal)"),
+            "missed_sales",
+            "Goal Missed must not share the TO Missed key"
+        )
+        XCTAssertNotEqual(
+            WorkbookParser.lostRevenueColumnKey("Kill Switch Lost Sales (FY2026 Goal)"),
+            "lost_revenue_goal",
+            "Kill FY must not write lost_revenue_goal"
+        )
+        XCTAssertEqual(
+            WorkbookParser.lostRevenueColumnKey("Total Lost Revenue (FY2026 Goal)"),
+            "lost_revenue_goal"
+        )
+    }
+
+    func testLostRevenueGoalHeaderDoesNotOverwriteTOMissed() throws {
+        let csv = """
+        Store,eComm Sales,Total Lost Revenue (Total Opportunity),Missed Sales (Total Opportunity),Missed Sales (FY2026 Goal)
+        2218,10000,400,100,50
+        Total,46077144.47,1962441.23,800,400
+        """
+        let rows = try WorkbookParser.parse(data: Data(csv.utf8), filename: "Breakdown Week 25.xlsx")
+        let store = try XCTUnwrap(rows.first { $0.storeNumber == "2218" })
+        XCTAssertEqual(store.payload["missed_sales"] ?? 0, 100, accuracy: 0.01)
+        XCTAssertEqual(store.payload["missed_sales_goal"] ?? 0, 50, accuracy: 0.01)
+        XCTAssertNotEqual(store.payload["missed_sales"] ?? 0, 50, accuracy: 0.01)
+        let market = try XCTUnwrap(rows.first { $0.textPayload["lost_grain"] == "market" })
+        XCTAssertEqual(market.payload["lost_revenue"] ?? 0, 1_962_441.23, accuracy: 0.01)
+        XCTAssertEqual(market.payload["missed_sales"] ?? 0, 800, accuracy: 0.01)
+        XCTAssertEqual(market.payload["missed_sales_goal"] ?? 0, 400, accuracy: 0.01)
+    }
+
+    func testKillSwitchFYDoesNotOverwriteLostRevenueGoal() throws {
+        let csv = """
+        Store,eComm Sales,Total Lost Revenue (Total Opportunity),Total Lost Revenue (FY2026 Goal),Kill Switch Lost Sales (FY2026 Goal),Kill Switch Lost Sales (TO / $90)
+        2218,10000,400,200,10,25
+        Total,46077144.47,1962441.23,900000,80,120
+        """
+        let rows = try WorkbookParser.parse(data: Data(csv.utf8), filename: "Breakdown Week 25.xlsx")
+        let store = try XCTUnwrap(rows.first { $0.storeNumber == "2218" })
+        XCTAssertEqual(store.payload["lost_revenue"] ?? 0, 400, accuracy: 0.01)
+        XCTAssertEqual(store.payload["lost_revenue_goal"] ?? 0, 200, accuracy: 0.01)
+        XCTAssertEqual(store.payload["kill_switch_lost_goal"] ?? 0, 10, accuracy: 0.01)
+        XCTAssertEqual(store.payload["kill_switch_lost"] ?? 0, 25, accuracy: 0.01)
+        XCTAssertNotEqual(store.payload["lost_revenue_goal"] ?? 0, 10, accuracy: 0.01)
+        let market = try XCTUnwrap(rows.first { $0.textPayload["lost_grain"] == "market" })
+        XCTAssertEqual(market.payload["lost_revenue"] ?? 0, 1_962_441.23, accuracy: 0.01)
+        XCTAssertEqual(market.payload["lost_revenue_goal"] ?? 0, 900_000, accuracy: 0.01)
+        XCTAssertEqual(market.payload["kill_switch_lost_goal"] ?? 0, 80, accuracy: 0.01)
+        let company = HeartbeatMath.summarize(
+            .lostRevenue,
+            rows: rows.map { $0.asRow(section: .lostRevenue) },
+            upload: nil
+        )
+        XCTAssertEqual(company.headline ?? 0, 1_962_441.23, accuracy: 0.01)
+    }
+
+    func testLostRevenueExcelLineCheckMissedTOAndKillFYDoNotCollide() throws {
+        // Column order matches the book: Goal Missed and Kill FY come after TO / Total FY Goal.
+        // Last-wins used to write Goal Missed → missed_sales (31,716) and Kill FY → lost_revenue_goal (16,574.80).
+        let csv = """
+        Store,eComm Sales,Total Lost Revenue (Total Opportunity),Total Lost Revenue % (Total Opportunity),Total Lost Revenue (FY2026 Goal),Total Lost Revenue (FY2026 Goal) %,Missed Sales (Total Opportunity),Missed Sales (FY2026 Goal),Kill Switch Lost Sales (FY2026 Goal),Kill Switch Lost Sales (TO / $90)
+        2218,10000,400,0.04,200,0.02,80,20,5,12
+        Total,46077144.47,1962441.23,0.0426,1147500.91,0.0249,126864.44,31716,16574.80,40000
+        """
+        let rows = try WorkbookParser.parse(data: Data(csv.utf8), filename: "Breakdown Week 25.xlsx")
+        let market = try XCTUnwrap(rows.first { $0.textPayload["lost_grain"] == "market" })
+        XCTAssertEqual(market.payload["lost_revenue"] ?? 0, 1_962_441.23, accuracy: 0.01)
+        XCTAssertEqual(market.payload["lost_revenue_goal"] ?? 0, 1_147_500.91, accuracy: 0.01)
+        XCTAssertEqual(market.payload["lost_revenue_goal_pct"] ?? 0, 2.49, accuracy: 0.01)
+        XCTAssertEqual(market.payload["missed_sales"] ?? 0, 126_864.44, accuracy: 0.01)
+        XCTAssertEqual(market.payload["missed_sales_goal"] ?? 0, 31_716, accuracy: 0.01)
+        XCTAssertEqual(market.payload["kill_switch_lost_goal"] ?? 0, 16_574.80, accuracy: 0.01)
+        XCTAssertNotEqual(market.payload["missed_sales"] ?? 0, 31_716, accuracy: 1)
+        XCTAssertNotEqual(market.payload["lost_revenue_goal"] ?? 0, 16_574.80, accuracy: 1)
+        XCTAssertEqual(WorkbookParser.lostRevenueColumnKey("Missed Sales (FY2026 Goal)"), "missed_sales_goal")
+        XCTAssertEqual(WorkbookParser.lostRevenueColumnKey("Missed Sales (Total Opportunity)"), "missed_sales")
+        XCTAssertEqual(WorkbookParser.lostRevenueColumnKey("Total Lost Revenue (FY2026 Goal)"), "lost_revenue_goal")
+        XCTAssertEqual(WorkbookParser.lostRevenueColumnKey("Kill Switch Lost Sales (FY2026 Goal)"), "kill_switch_lost_goal")
     }
 }
 

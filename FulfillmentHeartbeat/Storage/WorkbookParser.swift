@@ -681,8 +681,10 @@ enum WorkbookParser {
         case .pickerScorecard: return parsePickerWide(matrix) ?? parseEmployeeWeek(matrix)
         case .pickPathPicker: return parseEmployeeWeek(matrix) ?? parsePickerWide(matrix)
         case .pickPath: return parseStoreWeek(matrix) ?? parseOutline(matrix)
-        case .fiveStar, .pph, .dynacap, .scheduleQuality:
+        case .fiveStar, .dynacap, .scheduleQuality:
             return parseStoreWeek(matrix) ?? parseOutline(matrix) ?? parseFlat(matrix)
+        case .pph:
+            return parseOutline(matrix) ?? parseStoreWeek(matrix) ?? parseFlat(matrix)
         default:
             return nil
         }
@@ -973,6 +975,8 @@ enum WorkbookParser {
                     continue
                 }
                 if let number = cellNumber(raw) {
+                    // First header wins. Goal / FY must never overwrite a TO key.
+                    if payload[key] != nil { continue }
                     var value = number
                     if key.hasSuffix("_pct"), value <= 2 { value *= 100 }
                     payload[key] = value
@@ -1012,9 +1016,23 @@ enum WorkbookParser {
         return out.isEmpty ? nil : out
     }
 
+    /// Public so tests fail if a Goal / FY header steals a Total Opportunity key.
+    static func lostRevenueColumnKey(_ header: String) -> String {
+        lostRevenueColumn(header)
+    }
+
     private static func lostRevenueColumn(_ raw: String) -> String {
         let lower = raw.lowercased()
         let hasPct = raw.contains("%") || lower.contains("percent")
+        let isGoal = lower.contains("goal") || lower.contains("fy20")
+        let isComponent = lower.contains("missed")
+            || lower.contains("kill")
+            || lower.contains("post sub")
+            || lower.contains("refund")
+            || lower.contains("cancel")
+            || lower.contains("reduced capacity")
+        func key(_ base: String) -> String { hasPct ? "\(base)_pct" : base }
+
         if lower.trimmingCharacters(in: .whitespacesAndNewlines) == "store" { return "store" }
         if lower == "store_id" || lower == "storeid" || lower == "store number" || lower == "store #"
             || lower == "store no" || lower.contains("store id") || lower.contains("store number")
@@ -1026,27 +1044,48 @@ enum WorkbookParser {
         if (lower.contains("ecomm") || lower.contains("e-comm") || lower.contains("ecommerce")) && lower.contains("sales") {
             return "ecomm_sales"
         }
-        if lower.contains("total lost revenue") && lower.contains("fy") && hasPct { return "lost_revenue_goal_pct" }
-        if lower.contains("total lost revenue") && lower.contains("fy") { return "lost_revenue_goal" }
-        if lower.contains("total lost revenue") && lower.contains("total opportunity") && hasPct { return "lost_revenue_pct" }
-        if lower.contains("total lost revenue") && lower.contains("total opportunity") { return "lost_revenue" }
-        if lower.contains("lost revenue") && hasPct { return "lost_revenue_pct" }
-        if lower.contains("lost revenue") { return "lost_revenue" }
-        if lower.contains("post sub oos") && hasPct && !lower.contains("foregone") { return "post_sub_oos_pct" }
-        if lower.contains("post sub oos") && lower.contains("foregone") && hasPct { return "post_sub_oos_foregone_pct" }
-        if lower.contains("post sub oos") && lower.contains("foregone") { return "post_sub_oos_foregone" }
-        if lower.contains("refund") && hasPct { return "refund_lost_pct" }
-        if lower.contains("refund") { return "refund_lost" }
-        if lower.contains("capacity utilization") { return "capacity_util_pct" }
-        if lower.contains("missed sales") && hasPct { return "missed_sales_pct" }
-        if lower.contains("missed sales") { return "missed_sales" }
-        if lower.contains("cancelled") && hasPct { return "cancelled_lost_pct" }
-        if lower.contains("cancelled") { return "cancelled_lost" }
-        if lower.contains("kill switch") && hasPct { return "kill_switch_pct" }
-        if lower.contains("kill switch") && lower.contains("lost order") { return "kill_switch_orders" }
-        if lower.contains("kill switch") && (lower.contains("lost sales") || lower.contains("$90")) { return "kill_switch_lost" }
-        if lower.contains("kill switch") { return "kill_switch_lost" }
-        if lower.contains("reduced capacity") { return "reduced_capacity" }
+
+        // Total Lost Revenue (Total Opportunity) — never a Goal/FY column.
+        if lower.contains("total lost revenue"), lower.contains("total opportunity"), !isGoal {
+            return key("lost_revenue")
+        }
+        // Only this header family writes lost_revenue_goal*.
+        if lower.contains("total lost revenue"), isGoal, !isComponent {
+            return key("lost_revenue_goal")
+        }
+
+        if lower.contains("post sub oos") {
+            if isGoal { return key("post_sub_oos_foregone_goal") }
+            if lower.contains("foregone") { return key("post_sub_oos_foregone") }
+            return key("post_sub_oos")
+        }
+        if lower.contains("refund") {
+            return isGoal ? key("refund_lost_goal") : key("refund_lost")
+        }
+        if lower.contains("missed sales") {
+            return isGoal ? key("missed_sales_goal") : key("missed_sales")
+        }
+        if lower.contains("cancelled") {
+            return isGoal ? key("cancelled_lost_goal") : key("cancelled_lost")
+        }
+        if lower.contains("kill switch") {
+            if lower.contains("lost order") {
+                return isGoal ? "kill_switch_orders_goal" : "kill_switch_orders"
+            }
+            if isGoal { return key("kill_switch_lost_goal") }
+            if hasPct { return "kill_switch_pct" }
+            if lower.contains("lost sales") || lower.contains("$90") { return "kill_switch_lost" }
+            return "kill_switch_lost"
+        }
+        if lower.contains("capacity utilization") { return key("capacity_util") }
+        if lower.contains("reduced capacity") {
+            return isGoal ? key("reduced_capacity_goal") : "reduced_capacity"
+        }
+
+        // Bare "Goal %" / "FY2026 Goal" on the Total Lost Revenue block only.
+        if isGoal, !isComponent {
+            return key("lost_revenue_goal")
+        }
         return ""
     }
 

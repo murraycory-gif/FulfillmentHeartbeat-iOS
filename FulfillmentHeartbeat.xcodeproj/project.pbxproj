@@ -21,14 +21,15 @@
 		AA0100000000000000000A27 /* PulseFacts.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B27 /* PulseFacts.swift */; };
 		AA0100000000000000000A28 /* PulseCaches.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B28 /* PulseCaches.swift */; };
 		AA0100000000000000000A29 /* PulseQuery.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B29 /* PulseQuery.swift */; };
+		AA0100000000000000000A2A /* PulseLaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B2A /* PulseLaunch.swift */; };
+		AA0100000000000000000A2C /* PulseSeatPack.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B2C /* PulseSeatPack.swift */; };
+		AA0100000000000000000A2B /* HeartbeatFilePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B2B /* HeartbeatFilePicker.swift */; };
 		AA0100000000000000000A09 /* SampleMarket.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B09 /* SampleMarket.swift */; };
 		AA0100000000000000000A10 /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B10 /* DashboardView.swift */; };
-		AA0100000000000000000A11 /* UploadView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B11 /* UploadView.swift */; };
 		AA0100000000000000000A12 /* SectionDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B12 /* SectionDetailView.swift */; };
 		AA0100000000000000000A13 /* SharedViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B13 /* SharedViews.swift */; };
 		AA0100000000000000000A15 /* BrandMarkData.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B15 /* BrandMarkData.swift */; };
 		AA0100000000000000000A17 /* ScorecardPager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B17 /* ScorecardPager.swift */; };
-		AA0100000000000000000A1A /* ChecklistView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B1A /* ChecklistView.swift */; };
 		AA0100000000000000000A1B /* ChecklistDiagnosis.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B1B /* ChecklistDiagnosis.swift */; };
 		AA0100000000000000000A1C /* PulseEmail.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B1C /* PulseEmail.swift */; };
 		AA0100000000000000000A21 /* RecapRenderer.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B21 /* RecapRenderer.swift */; };
@@ -71,14 +72,15 @@
 		AA0100000000000000000B27 /* PulseFacts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseFacts.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B28 /* PulseCaches.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseCaches.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B29 /* PulseQuery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseQuery.swift; sourceTree = "<group>"; };
+		AA0100000000000000000B2A /* PulseLaunch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseLaunch.swift; sourceTree = "<group>"; };
+		AA0100000000000000000B2C /* PulseSeatPack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseSeatPack.swift; sourceTree = "<group>"; };
+		AA0100000000000000000B2B /* HeartbeatFilePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartbeatFilePicker.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B09 /* SampleMarket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleMarket.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B10 /* DashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardView.swift; sourceTree = "<group>"; };
-		AA0100000000000000000B11 /* UploadView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UploadView.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B12 /* SectionDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SectionDetailView.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B13 /* SharedViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedViews.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B15 /* BrandMarkData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrandMarkData.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B17 /* ScorecardPager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScorecardPager.swift; sourceTree = "<group>"; };
-		AA0100000000000000000B1A /* ChecklistView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChecklistView.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B1B /* ChecklistDiagnosis.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChecklistDiagnosis.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B1C /* PulseEmail.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseEmail.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B21 /* RecapRenderer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecapRenderer.swift; sourceTree = "<group>"; };
@@ -164,8 +166,6 @@
 				AA0100000000000000000B10 /* DashboardView.swift */,
 				AA0100000000000000000B22 /* RoleGateView.swift */,
 				AA0100000000000000000B17 /* ScorecardPager.swift */,
-				AA0100000000000000000B1A /* ChecklistView.swift */,
-				AA0100000000000000000B11 /* UploadView.swift */,
 				AA0100000000000000000B12 /* SectionDetailView.swift */,
 				AA0100000000000000000B13 /* SharedViews.swift */,
 				AA0100000000000000000B20 /* MissingItemsViews.swift */,
@@ -199,6 +199,9 @@
 				AA0100000000000000000B27 /* PulseFacts.swift */,
 				AA0100000000000000000B28 /* PulseCaches.swift */,
 				AA0100000000000000000B29 /* PulseQuery.swift */,
+				AA0100000000000000000B2A /* PulseLaunch.swift */,
+				AA0100000000000000000B2C /* PulseSeatPack.swift */,
+				AA0100000000000000000B2B /* HeartbeatFilePicker.swift */,
 				AA0100000000000000000B09 /* SampleMarket.swift */,
 			);
 			path = Storage;
@@ -324,14 +327,15 @@
 				AA0100000000000000000A27 /* PulseFacts.swift in Sources */,
 				AA0100000000000000000A28 /* PulseCaches.swift in Sources */,
 				AA0100000000000000000A29 /* PulseQuery.swift in Sources */,
+				AA0100000000000000000A2A /* PulseLaunch.swift in Sources */,
+				AA0100000000000000000A2C /* PulseSeatPack.swift in Sources */,
+				AA0100000000000000000A2B /* HeartbeatFilePicker.swift in Sources */,
 				AA0100000000000000000A09 /* SampleMarket.swift in Sources */,
 				AA0100000000000000000A10 /* DashboardView.swift in Sources */,
-				AA0100000000000000000A11 /* UploadView.swift in Sources */,
 				AA0100000000000000000A12 /* SectionDetailView.swift in Sources */,
 				AA0100000000000000000A13 /* SharedViews.swift in Sources */,
 				AA0100000000000000000A15 /* BrandMarkData.swift in Sources */,
 				AA0100000000000000000A17 /* ScorecardPager.swift in Sources */,
-				AA0100000000000000000A1A /* ChecklistView.swift in Sources */,
 				AA0100000000000000000A1B /* ChecklistDiagnosis.swift in Sources */,
 				AA0100000000000000000A1C /* PulseEmail.swift in Sources */,
 				AA0100000000000000000A21 /* RecapRenderer.swift in Sources */,
@@ -483,7 +487,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = M7FL68Q43A;
-				CURRENT_PROJECT_VERSION = 637;
+				CURRENT_PROJECT_VERSION = 706;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = FulfillmentHeartbeat/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -517,7 +521,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = M7FL68Q43A;
-				CURRENT_PROJECT_VERSION = 637;
+				CURRENT_PROJECT_VERSION = 706;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = FulfillmentHeartbeat/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -548,7 +552,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = M7FL68Q43A;
-				CURRENT_PROJECT_VERSION = 637;
+				CURRENT_PROJECT_VERSION = 706;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MARKETING_VERSION = 1.0;
@@ -566,7 +570,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = M7FL68Q43A;
-				CURRENT_PROJECT_VERSION = 637;
+				CURRENT_PROJECT_VERSION = 706;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MARKETING_VERSION = 1.0;
