@@ -6,6 +6,7 @@ on:
   workflow_dispatch:
   schedule:
     - cron: "*/15 * * * *"
+    - cron: "0 6 * * *"
 
 jobs:
   cook:
@@ -59,6 +60,9 @@ jobs:
           cp FulfillmentHeartbeat/Storage/WorkbookParser.swift "$INGEST/Sources/"
           cp FulfillmentHeartbeat/Storage/PulseSQLite.swift "$INGEST/Sources/"
           cp FulfillmentHeartbeat/Storage/PulseCaches.swift "$INGEST/Sources/"
+          cp FulfillmentHeartbeat/Storage/PulseQuery.swift "$INGEST/Sources/"
+          cp FulfillmentHeartbeat/Storage/PulseLaunch.swift "$INGEST/Sources/"
+          cp FulfillmentHeartbeat/Storage/PulseSeatPack.swift "$INGEST/Sources/"
           cp FulfillmentHeartbeat/BuildStamp.swift "$INGEST/Sources/"
           cp Tools/HeartbeatIngest/Ingest.swift "$INGEST/Sources/"
           cp Tools/HeartbeatIngest/RollupMarketFill.swift "$INGEST/Sources/"
@@ -67,42 +71,64 @@ jobs:
 
       - name: Cook sqlite pack
         if: env.skip != '1'
+        env:
+          COOK_SEAT_STORES: ${{ github.event.schedule == '0 6 * * *' && '1' || github.event_name == 'workflow_dispatch' && '1' || '0' }}
         run: |
           set -euo pipefail
+          echo "COOK_SEAT_STORES=$COOK_SEAT_STORES"
           Tools/HeartbeatIngest/.build/release/HeartbeatIngest /tmp/daily.xlsx /tmp/current.sqlite
           ls -l /tmp/current.sqlite
+          ls -l /tmp/packs/manifest.json || true
+          find /tmp/packs/seat -name current.sqlite | wc -l
 
-      - name: Publish current.sqlite
+      - name: Publish current.sqlite and seat packs
         if: env.skip != '1'
         env:
           PROJECT: https://pcnjujfmlsklhrosxzlt.supabase.co
           KEY: sb_publishable_T3Pzm01sMXCv2rQaCeP_Kg_4ao2M5zd
         run: |
           set -euo pipefail
+          upload() {
+            local object="$1"
+            local file="$2"
+            local type="$3"
+            local encoded
+            encoded=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe='/'))" "$object")
+            CODE=$(curl -sS -o /tmp/up.txt -w "%{http_code}" \
+              -X POST \
+              -H "Authorization: Bearer $KEY" -H "apikey: $KEY" \
+              -H "Content-Type: $type" \
+              -H "x-upsert: true" \
+              --data-binary @"$file" \
+              "$PROJECT/storage/v1/object/heartbeat-packs/$encoded")
+            if [ "$CODE" != "200" ] && [ "$CODE" != "201" ]; then
+              CODE=$(curl -sS -o /tmp/up.txt -w "%{http_code}" \
+                -X PUT \
+                -H "Authorization: Bearer $KEY" -H "apikey: $KEY" \
+                -H "Content-Type: $type" \
+                -H "x-upsert: true" \
+                --data-binary @"$file" \
+                "$PROJECT/storage/v1/object/heartbeat-packs/$encoded")
+            fi
+            echo "upload $object $CODE"
+            if [ "$CODE" != "200" ] && [ "$CODE" != "201" ]; then
+              cat /tmp/up.txt
+              return 1
+            fi
+          }
           BYTES=$(wc -c < /tmp/current.sqlite | tr -d ' ')
           if [ "$BYTES" -lt 50000 ]; then
             echo "Pack too small ($BYTES)"
             exit 1
           fi
-          CODE=$(curl -sS -o /tmp/up.txt -w "%{http_code}" \
-            -X POST \
-            -H "Authorization: Bearer $KEY" -H "apikey: $KEY" \
-            -H "Content-Type: application/octet-stream" \
-            -H "x-upsert: true" \
-            --data-binary @/tmp/current.sqlite \
-            "$PROJECT/storage/v1/object/heartbeat-packs/current.sqlite")
-          if [ "$CODE" != "200" ] && [ "$CODE" != "201" ]; then
-            CODE=$(curl -sS -o /tmp/up.txt -w "%{http_code}" \
-              -X PUT \
-              -H "Authorization: Bearer $KEY" -H "apikey: $KEY" \
-              -H "Content-Type: application/octet-stream" \
-              -H "x-upsert: true" \
-              --data-binary @/tmp/current.sqlite \
-              "$PROJECT/storage/v1/object/heartbeat-packs/current.sqlite")
+          upload "current.sqlite" /tmp/current.sqlite application/octet-stream
+          if [ -f /tmp/packs/manifest.json ]; then
+            upload "packs/manifest.json" /tmp/packs/manifest.json application/json
           fi
-          echo "upload $CODE"
-          cat /tmp/up.txt
-          if [ "$CODE" != "200" ] && [ "$CODE" != "201" ]; then
-            exit 1
+          if [ -d /tmp/packs/seat ]; then
+            while IFS= read -r file; do
+              rel=${file#/tmp/}
+              upload "$rel" "$file" application/octet-stream
+            done < <(find /tmp/packs/seat -name current.sqlite | sort)
           fi
-          echo "Published current.sqlite ($BYTES bytes)."
+          echo "Published current.sqlite ($BYTES bytes) and seat packs."

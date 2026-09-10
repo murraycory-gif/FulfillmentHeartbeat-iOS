@@ -42,13 +42,13 @@ struct PulseDashChrome: Codable {
         pickerStrong = try container.decodeIfPresent(Int.self, forKey: .pickerStrong) ?? 0
     }
 
-    static func from(_ caches: PulseCaches) -> PulseDashChrome {
+    static func from(_ caches: PulseCaches, grain: DashScopeGrain = .region) -> PulseDashChrome {
         let latest = caches.filteredLatest.isEmpty ? caches.latestBySection : caches.filteredLatest
         var packs = caches.cachedGrainPacks
         if packs[MetricSection.pickerScorecard] == nil {
             let pickerOnly = PulseCaches.grainPacks(
                 latest: latest,
-                grain: DashScopeGrain.region,
+                grain: grain,
                 hidePicker: false,
                 roster: caches.roster
             )
@@ -58,7 +58,7 @@ struct PulseDashChrome: Codable {
         }
         var tables = PulseCaches.grainTables(
             latest: latest,
-            grain: DashScopeGrain.region,
+            grain: grain,
             roster: caches.roster,
             packs: packs
         )
@@ -66,7 +66,7 @@ struct PulseDashChrome: Codable {
             let pickerTable = HeartbeatMath.dashboardGrainTableFilled(
                 section: .pickerScorecard,
                 rows: latest[MetricSection.pickerScorecard] ?? [],
-                grain: DashScopeGrain.region,
+                grain: grain,
                 order: packs[MetricSection.pickerScorecard]?.map(\.line.label) ?? []
             )
             if HeartbeatMath.grainRowsAreLive(pickerTable) {

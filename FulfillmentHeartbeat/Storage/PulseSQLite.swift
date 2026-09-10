@@ -305,7 +305,7 @@ enum PulseSQLite {
     }
 
     static func exists(at url: URL) -> Bool {
-        isUsableFile(at: url)
+        FileManager.default.fileExists(atPath: url.path) && fileBytes(at: url) > 500
     }
 
     static func fileBytes(at url: URL) -> Int {

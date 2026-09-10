@@ -42,7 +42,7 @@ enum HeartbeatIngest {
             heavy: true,
             grain: .region
         )
-        let chrome = PulseDashChrome.from(caches)
+        let chrome = PulseDashChrome.from(caches, grain: .region)
         try PulseSQLite.write(rows: rows, uploads: uploads, seeded: true, chrome: chrome, to: sqlite)
         let size = (try FileManager.default.attributesOfItem(atPath: sqlite.path)[.size] as? NSNumber)?.intValue ?? 0
         print("Wrote \(rows.count) rows + \(chrome.summaries.count) dashboard cards → \(sqlite.lastPathComponent) (\(size) bytes)")
@@ -78,5 +78,18 @@ enum HeartbeatIngest {
             exit(1)
         }
         print("Dashboard tiles complete.")
+        let includeStores = ProcessInfo.processInfo.environment["COOK_SEAT_STORES"] == "1"
+        print(includeStores ? "Cooking district + store seat packs…" : "Cooking district + company-thin seat packs…")
+        let packRoot = sqlite.deletingLastPathComponent().appendingPathComponent("packs", isDirectory: true)
+        let manifest = try PulseSeatPack.cookPublished(
+            rows: rows,
+            uploads: uploads,
+            packRoot: packRoot,
+            includeStores: includeStores
+        )
+        print("Seat packs districts=\(manifest.districts.count) stores=\(manifest.stores.count) company=\(manifest.company.storeCount)")
+        for entry in manifest.districts.prefix(8) {
+            print("  district \(entry.id): stores=\(entry.storeCount) bytes=\(entry.bytes)")
+        }
     }
 }

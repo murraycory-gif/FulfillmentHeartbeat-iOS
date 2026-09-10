@@ -46,9 +46,13 @@ final class HeartbeatStore: ObservableObject {
     @Published private(set) var pickerLoading = false
 
     private let fileManager: FileManager
+    private let rootURL: URL
+    private let companySQLiteURL: URL
+    private var activePackURL: URL
+    private var activeSeatKey: PulseSeatPack.Key?
+    private var sqliteURL: URL { activePackURL }
     private let snapshotURL: URL
     private let heavyURL: URL
-    private let sqliteURL: URL
     private let cardsURL: URL
     private let checklistURL: URL
     private let masterLinkURL: URL
@@ -126,9 +130,11 @@ final class HeartbeatStore: ObservableObject {
         if !fileManager.fileExists(atPath: root.path) {
             try? fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         }
+        self.rootURL = root
+        companySQLiteURL = root.appendingPathComponent(PulseSQLite.fileName)
+        activePackURL = companySQLiteURL
         snapshotURL = root.appendingPathComponent("heartbeat.json")
         heavyURL = root.appendingPathComponent("heartbeat-heavy.json")
-        sqliteURL = root.appendingPathComponent(PulseSQLite.fileName)
         cardsURL = root.appendingPathComponent(PulseCards.fileName)
         checklistURL = root.appendingPathComponent("checklist.json")
         masterLinkURL = root.appendingPathComponent("master-link.json")
@@ -2061,21 +2067,11 @@ final class HeartbeatStore: ObservableObject {
         if PulseLaunch.shouldDiscardPendingLaunchFiltersOnRolePick() {
             pendingLaunchFilters = nil
         }
-        let filterChanged = filters != next
-        if filterChanged {
-            filters = next
-            persistFilters()
+        let key = PulseSeatPack.Key.forSeat(filters: next, role: role)
+        Task { @MainActor in
+            await self.activateSeatPack(key, filters: next)
+            self.revealHubAfterSeat()
         }
-        if PulseLaunch.shouldRevealHubAfterSeatPaint() {
-            Task { @MainActor in
-                if filterChanged, let job = self.refilterTask {
-                    await job.value
-                }
-                self.revealHubAfterSeat()
-            }
-            return
-        }
-        revealHubAfterSeat()
     }
 
     private func revealHubAfterSeat() {
@@ -2133,13 +2129,15 @@ final class HeartbeatStore: ObservableObject {
         if PulseLaunch.shouldDiscardPendingLaunchFiltersOnClear() {
             pendingLaunchFilters = nil
         }
-        hydrating = true
-        wipeSeatDashboardState()
-        filters = DashboardFilters()
-        hydrating = false
-        persistFilters()
-        applyFilters()
-        refreshFilterOptions()
+        Task { @MainActor in
+            self.hydrating = true
+            self.wipeSeatDashboardState()
+            self.filters = DashboardFilters()
+            self.hydrating = false
+            self.persistFilters()
+            await self.restoreCompanyPack()
+            self.refreshFilterOptions()
+        }
     }
 
     /// Seat grain/packs must not ride into company restore (merge kept District rows).
@@ -2159,6 +2157,172 @@ final class HeartbeatStore: ObservableObject {
     private func wipePickerIndex() {
         pickerIndex = [:]
         pickerFocusHealth = [:]
+    }
+
+    private func activateSeatPack(_ key: PulseSeatPack.Key, filters next: DashboardFilters) async {
+        beginSeatWarehouseHydrating()
+        hydrating = true
+        filters = next
+        persistFilters()
+        hydrating = false
+        await swapToSeatPack(key)
+        if PulseLaunch.shouldUnlockWarehouseHydratingAfterSeat(completed: true) {
+            unlockWarehouseAfterSeat(outcome: .completed)
+        }
+    }
+
+    private func swapToSeatPack(_ key: PulseSeatPack.Key) async {
+        if key == .company {
+            await restoreCompanyPack()
+            return
+        }
+        if !PulseSeatPack.shouldPaintHubFromActiveSeatSQLite() {
+            return
+        }
+        if activeSeatKey == key,
+           PulseSeatPack.isUsable(at: activePackURL),
+           !latestBySection.isEmpty {
+            if let chrome = packChrome {
+                applyPreRolledSeatChrome(chrome)
+            }
+            filterStamp += 1
+            return
+        }
+        let dest = PulseSeatPack.localURL(root: rootURL, key: key)
+        try? fileManager.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if !PulseSeatPack.isUsable(at: dest) {
+            _ = await downloadSeatPack(key, to: dest)
+        }
+        if !PulseSeatPack.isUsable(at: dest) {
+            _ = materializeSeatFromCompany(key, to: dest)
+        }
+        guard PulseSeatPack.isUsable(at: dest) else {
+            errorMessage = "Could not open the \(key.grain.rawValue) pack."
+            return
+        }
+        if !PulseSeatPack.shouldMergeSeatWithCompanyOnSwap() {
+            wipeWarehouseForPackSwap()
+        }
+        activeSeatKey = key
+        activePackURL = dest
+        guard let pack = try? PulseSQLite.read(from: dest) else { return }
+        let grain = key.dashboardGrain
+        let caches = PulseCaches.build(
+            rows: pack.rows,
+            filters: key.filters,
+            uploads: pack.uploads,
+            heavy: true,
+            grain: grain
+        )
+        hydrating = true
+        install(caches)
+        if let chrome = pack.chrome {
+            applyPreRolledSeatChrome(chrome)
+        }
+        hydrating = false
+        usingPackChrome = pack.chrome != nil
+        seeded = true
+        lockPickerDashboard()
+        refreshSalesExpandCache()
+        filterStamp += 1
+        objectWillChange.send()
+    }
+
+    private func restoreCompanyPack() async {
+        if !PulseSeatPack.shouldMergeSeatWithCompanyOnSwap() {
+            wipeWarehouseForPackSwap()
+        }
+        activeSeatKey = nil
+        activePackURL = companySQLiteURL
+        let chrome = await loadChromeIfPresent()
+        if PulseSQLite.exists(at: companySQLiteURL) {
+            await loadWarehouseWave(PulseLaunch.dashboardFirstWave)
+            await loadWarehouseWave(PulseLaunch.dashboardSecondWave)
+        }
+        if let chrome {
+            applyDashChrome(chrome)
+        }
+        await paintFromWarehouse(light: true)
+        filterStamp += 1
+    }
+
+    private func wipeWarehouseForPackSwap() {
+        rows = []
+        latestBySection = [:]
+        filteredLatest = [:]
+        wipeSeatDashboardState()
+        packChrome = nil
+        usingPackChrome = false
+        packPickerFactCount = 0
+    }
+
+    private func applyPreRolledSeatChrome(_ chrome: PulseDashChrome) {
+        packChrome = chrome
+        usingPackChrome = true
+        if !chrome.summaries.isEmpty {
+            cachedSummaries = chrome.summaries
+        }
+        if !chrome.flags.isEmpty {
+            var next: [MetricSection: [HeartbeatMath.FiveStarFlag]] = [:]
+            for (key, value) in chrome.flags {
+                if let section = MetricSection(rawValue: key) {
+                    next[section] = value
+                }
+            }
+            cachedCardFlags = next
+        }
+        if !chrome.packs.isEmpty {
+            var next: [MetricSection: [DashScopePack]] = [:]
+            for (key, value) in chrome.packs {
+                if let section = MetricSection(rawValue: key) {
+                    next[section] = value
+                }
+            }
+            cachedGrainPacks = next
+        }
+        for (key, rows) in chrome.tables {
+            guard let section = MetricSection(rawValue: key) else { continue }
+            if HeartbeatMath.grainRowsAreLive(rows) {
+                cachedGrainTables[section] = rows
+            }
+        }
+        if chrome.pickerShoppers > 0 {
+            cachedPickerBoard = HeartbeatMath.PickerBoard(
+                shopperCount: chrome.pickerShoppers,
+                opportunityCount: max(chrome.pickerOpportunity, cachedPickerBoard.opportunityCount),
+                strongCount: max(chrome.pickerStrong, cachedPickerBoard.strongCount),
+                opportunity: cachedPickerBoard.opportunity,
+                strong: cachedPickerBoard.strong
+            )
+        }
+        lockPickerDashboard()
+    }
+
+    @discardableResult
+    private func downloadSeatPack(_ key: PulseSeatPack.Key, to dest: URL) async -> Bool {
+        do {
+            let size = try await PulseCloud.downloadObject(key.objectPath, to: dest)
+            return size > 1_000 && PulseSeatPack.isUsable(at: dest)
+        } catch {
+            return false
+        }
+    }
+
+    @discardableResult
+    private func materializeSeatFromCompany(_ key: PulseSeatPack.Key, to dest: URL) -> Bool {
+        guard PulseSQLite.exists(at: companySQLiteURL) else { return false }
+        do {
+            _ = try PulseSeatPack.materialize(
+                from: companySQLiteURL,
+                key: key,
+                roster: roster,
+                uploads: uploads,
+                to: dest
+            )
+            return PulseSeatPack.isUsable(at: dest)
+        } catch {
+            return false
+        }
     }
 
     func loadSampleMarket() {
@@ -2323,7 +2487,7 @@ final class HeartbeatStore: ObservableObject {
             let remote = await PulseCloud.objectInfo(PulseCloud.object)
             info = PulseCloud.ObjectStat(size: remote.size, updated: remote.updated)
         }
-        let localBytes = PulseSQLite.fileBytes(at: sqliteURL)
+        let localBytes = PulseSQLite.fileBytes(at: companySQLiteURL)
         let knownUpdated = UserDefaults.standard.string(forKey: "hb.cloudPackUpdated") ?? ""
         if PulseLaunch.shouldFetchRemotePack(
             remoteBytes: info.size,
@@ -2402,7 +2566,7 @@ final class HeartbeatStore: ObservableObject {
     private func importCloudSQLiteIfPresent(reason: PackFetchReason) async -> Bool {
         guard !packFetchInFlight else { return false }
         let remote = await PulseCloud.objectInfo(PulseCloud.object)
-        let localBytes = PulseSQLite.fileBytes(at: sqliteURL)
+        let localBytes = PulseSQLite.fileBytes(at: companySQLiteURL)
         let alreadyLoaded = warehouseRowCount
         let knownUpdated = UserDefaults.standard.string(forKey: "hb.cloudPackUpdated") ?? ""
         guard PulseLaunch.shouldFetchRemotePack(
@@ -2414,7 +2578,7 @@ final class HeartbeatStore: ObservableObject {
         ) else { return false }
         packFetchInFlight = true
         defer { packFetchInFlight = false }
-        let staging = sqliteURL.deletingLastPathComponent().appendingPathComponent(PulseLaunch.stagingFileName)
+        let staging = companySQLiteURL.deletingLastPathComponent().appendingPathComponent(PulseLaunch.stagingFileName)
         let timeout = reason == .boot ? PulseLaunch.bootDownloadTimeout : 180
         do {
             let size = try await PulseCloud.downloadPack(to: staging, timeout: timeout)
@@ -2422,7 +2586,7 @@ final class HeartbeatStore: ObservableObject {
                 try? fileManager.removeItem(at: staging)
                 return false
             }
-            try promoteStagingPack(staging)
+            try promoteCompanyStagingPack(staging)
             UserDefaults.standard.set(size, forKey: "hb.cloudPackBytes")
             if !remote.updated.isEmpty {
                 UserDefaults.standard.set(remote.updated, forKey: "hb.cloudPackUpdated")
@@ -2456,11 +2620,14 @@ final class HeartbeatStore: ObservableObject {
         }
     }
 
-    private func promoteStagingPack(_ staging: URL) throws {
-        if fileManager.fileExists(atPath: sqliteURL.path) {
-            _ = try fileManager.replaceItemAt(sqliteURL, withItemAt: staging)
+    private func promoteCompanyStagingPack(_ staging: URL) throws {
+        if fileManager.fileExists(atPath: companySQLiteURL.path) {
+            _ = try fileManager.replaceItemAt(companySQLiteURL, withItemAt: staging)
         } else {
-            try fileManager.moveItem(at: staging, to: sqliteURL)
+            try fileManager.moveItem(at: staging, to: companySQLiteURL)
+        }
+        if activeSeatKey == nil {
+            activePackURL = companySQLiteURL
         }
     }
 
@@ -3112,6 +3279,16 @@ final class HeartbeatStore: ObservableObject {
             cachedGrainPacks = PulseCaches.placeholderGrainPacks(grain: effectiveDashboardGrain)
         } else {
             invalidateFilteredGrainChrome()
+        }
+        if !PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse() {
+            let key = PulseSeatPack.Key.forSeat(filters: filters, role: sessionRole)
+            grainPaintSettled = false
+            paintGeneration += 1
+            pageOnlyGeneration = -1
+            refilterTask = Task { @MainActor in
+                await self.swapToSeatPack(key)
+            }
+            return
         }
         applySeatSliceNow()
         grainPaintSettled = false
@@ -4261,8 +4438,10 @@ final class HeartbeatStore: ObservableObject {
             }
             cachedGrainPacks = next
         }
-        if filters.isActive {
+        if filters.isActive, PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse() {
             applySeatSliceNow()
+        } else if filters.isActive {
+            applyPreRolledSeatChrome(chrome)
         } else {
             seedExpandTablesFromChrome(chrome)
             seedPickerGrainFromChrome(chrome)

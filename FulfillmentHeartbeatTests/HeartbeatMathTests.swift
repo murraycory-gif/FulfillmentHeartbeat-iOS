@@ -1992,9 +1992,9 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(PulseLaunch.shouldPublishPickerSeatOnVisiblePage(dest: .dashboard))
         XCTAssertTrue(PulseLaunch.shouldLeaveSplashForSeatLoad())
         XCTAssertTrue(PulseLaunch.shouldKeepHydratingThroughFinishLocalLaunch())
-        XCTAssertTrue(PulseLaunch.shouldPlaySeatLoadHalloween())
+        XCTAssertFalse(PulseLaunch.shouldPlaySeatLoadHalloween())
         XCTAssertTrue(PulseLaunch.shouldHoldSeatPickerUntilWarehouseReady())
-        XCTAssertTrue(PulseLaunch.shouldMountSeatLoadHalloween(warehouseHydrating: true))
+        XCTAssertFalse(PulseLaunch.shouldMountSeatLoadHalloween(warehouseHydrating: true))
         XCTAssertFalse(PulseLaunch.shouldMountSeatLoadHalloween(warehouseHydrating: false))
         XCTAssertLessThanOrEqual(PulseLaunch.halloweenParadeFPS, 15)
         XCTAssertGreaterThanOrEqual(PulseLaunch.halloweenParadeFPS, 8)
@@ -2013,7 +2013,7 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseLaunch.shouldPresentSeatBeforeWarehouse())
         XCTAssertTrue(PulseLaunch.shouldLeaveSplashForSeatLoad())
         XCTAssertTrue(PulseLaunch.shouldKeepHydratingThroughFinishLocalLaunch())
-        XCTAssertTrue(PulseLaunch.shouldHoldSeatLoadHalloweenMinDwell())
+        XCTAssertFalse(PulseLaunch.shouldHoldSeatLoadHalloweenMinDwell())
         XCTAssertGreaterThan(PulseLaunch.seatLoadHalloweenMinDwellNanoseconds(), 0)
         XCTAssertEqual(
             PulseLaunch.halloweenDwellRemainingNanoseconds(elapsedNanoseconds: 0),
@@ -2021,8 +2021,8 @@ final class HeartbeatMathTests: XCTestCase {
         )
         XCTAssertEqual(PulseLaunch.halloweenDwellRemainingNanoseconds(elapsedNanoseconds: 2_000_000_000), 0)
         XCTAssertTrue(PulseLaunch.shouldHoldSeatPickerUntilWarehouseReady())
-        XCTAssertTrue(PulseLaunch.shouldPlaySeatLoadHalloween())
-        XCTAssertTrue(PulseLaunch.shouldMountSeatLoadHalloween(warehouseHydrating: true))
+        XCTAssertFalse(PulseLaunch.shouldPlaySeatLoadHalloween())
+        XCTAssertFalse(PulseLaunch.shouldMountSeatLoadHalloween(warehouseHydrating: true))
         XCTAssertFalse(PulseLaunch.shouldMountSeatLoadHalloween(warehouseHydrating: false))
         XCTAssertFalse(PulseLaunch.shouldPublishPickerSeatFirstPaint())
         XCTAssertFalse(PulseLaunch.shouldPrefetchExpandOnFilterStamp())
@@ -2091,10 +2091,10 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseLaunch.shouldPresentSeatBeforeWarehouse())
         XCTAssertTrue(PulseLaunch.shouldLeaveSplashForSeatLoad())
         XCTAssertTrue(PulseLaunch.shouldHoldSeatPickerUntilWarehouseReady())
-        XCTAssertTrue(PulseLaunch.shouldPlaySeatLoadHalloween())
-        XCTAssertTrue(PulseLaunch.shouldMountSeatLoadHalloween(warehouseHydrating: true))
+        XCTAssertFalse(PulseLaunch.shouldPlaySeatLoadHalloween())
+        XCTAssertFalse(PulseLaunch.shouldMountSeatLoadHalloween(warehouseHydrating: true))
         XCTAssertFalse(PulseLaunch.shouldMountSeatLoadHalloween(warehouseHydrating: false))
-        XCTAssertTrue(PulseLaunch.shouldHoldSeatLoadHalloweenMinDwell())
+        XCTAssertFalse(PulseLaunch.shouldHoldSeatLoadHalloweenMinDwell())
         XCTAssertGreaterThan(PulseLaunch.seatLoadHalloweenMinDwellNanoseconds(), 1_000_000_000)
         XCTAssertTrue(PulseLaunch.shouldKeepHydratingThroughFinishLocalLaunch())
         XCTAssertEqual(HeartbeatMath.dashboardTableHeaders(.pickerScorecard), ["Shoppers", "Healthy", "Watch", "At Risk"])
@@ -2126,6 +2126,139 @@ final class HeartbeatMathTests: XCTestCase {
                 .seatReadStores
             )
         }
+    }
+
+    func testArchitecture381SeatPackContract() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.381")
+        XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
+        XCTAssertFalse(PulseSeatPack.shouldMergeSeatWithCompanyOnSwap())
+        XCTAssertTrue(PulseSeatPack.shouldPaintHubFromActiveSeatSQLite())
+        XCTAssertFalse(PulseSeatPack.shouldUseMarketPackAsPrimary(seatActive: true))
+        XCTAssertTrue(PulseSeatPack.shouldUseMarketPackAsPrimary(seatActive: false))
+        XCTAssertFalse(PulseLaunch.shouldPlaySeatLoadHalloween())
+        XCTAssertFalse(PulseLaunch.shouldMountSeatLoadHalloween(warehouseHydrating: true))
+        XCTAssertFalse(PulseLaunch.shouldHoldSeatLoadHalloweenMinDwell())
+        var district = DashboardFilters()
+        district.district = "03"
+        XCTAssertEqual(
+            PulseSeatPack.Key.forSeat(filters: district, role: .districtManager),
+            PulseSeatPack.Key(grain: .district, id: "03")
+        )
+        XCTAssertEqual(
+            PulseSeatPack.Key(grain: .district, id: "03").objectPath,
+            "packs/seat/district/03/current.sqlite"
+        )
+        var store = DashboardFilters()
+        store.store = "12"
+        XCTAssertEqual(
+            PulseSeatPack.Key.forSeat(filters: store, role: .store).objectPath,
+            "packs/seat/store/12/current.sqlite"
+        )
+        XCTAssertEqual(PulseSeatPack.Key.company.objectPath, "packs/seat/company/all/current.sqlite")
+        XCTAssertEqual(PulseSeatPack.manifestObject, "packs/manifest.json")
+        XCTAssertEqual(PulseSeatPack.Key(grain: .district, id: "03").dashboardGrain, .store)
+    }
+
+    func testSeatPackDistrict03EverySectionStoresEqualsHeartbeatN() throws {
+        let districtStores = (1...20).map { String($0) }
+        var roster: [String: HeartbeatMath.StoreIdentity] = [:]
+        for store in districtStores {
+            roster[store] = HeartbeatMath.StoreIdentity(
+                division: "NorCal", district: "03", om: "Jino Arvin", name: store
+            )
+        }
+        roster["9001"] = HeartbeatMath.StoreIdentity(
+            division: "Jewel Osco", district: "J1", om: "Shelly Selof", name: "9001"
+        )
+        func fact(
+            _ section: MetricSection,
+            _ store: String,
+            payload: [String: Double],
+            extra: [String: String] = [:]
+        ) -> MetricRow {
+            let identity = roster[store]!
+            var text = extra
+            if text["district"] == nil { text["district"] = identity.district }
+            return MetricRow(
+                section: section,
+                division: identity.division,
+                operationsOM: identity.om,
+                storeNumber: store,
+                storeName: identity.name,
+                payload: payload,
+                textPayload: text
+            )
+        }
+        let all = districtStores + ["9001"]
+        var rows: [MetricRow] = []
+        rows.append(contentsOf: all.map { fact(.storeRoster, $0, payload: ["roster": 1], extra: ["roster": "1"]) })
+        rows.append(contentsOf: all.map { fact(.sales, $0, payload: ["sales_dollars": 100, "sales_orders": 4], extra: ["sales_grain": "store"]) })
+        rows.append(contentsOf: all.map { fact(.lostRevenue, $0, payload: ["lost_revenue": 10], extra: ["lost_grain": "store"]) })
+        rows.append(contentsOf: all.map { fact(.labor, $0, payload: ["target_vs_actual_pct": -1], extra: ["labor_grain": "store"]) })
+        rows.append(contentsOf: all.map { fact(.fiveStar, $0, payload: ["star_rating": 4.8]) })
+        rows.append(contentsOf: all.map { fact(.missingItems, $0, payload: [MissingItemDept.totalKey: 4]) })
+        rows.append(contentsOf: all.map { fact(.preSubOOS, $0, payload: [MissingItemDept.totalKey: 3]) })
+        rows.append(contentsOf: all.map { fact(.pickPath, $0, payload: ["compliance_pct": 92]) })
+        rows.append(contentsOf: all.map { fact(.prepNotReady, $0, payload: ["pnr_rate_pct": 1.5]) })
+        rows.append(contentsOf: all.map { fact(.dynacap, $0, payload: ["dynacap_rate": 70]) })
+        rows.append(contentsOf: all.map { fact(.scheduleQuality, $0, payload: ["schedule_efficiency_pct": 91]) })
+        rows.append(contentsOf: all.map { fact(.pph, $0, payload: ["pph": 82]) })
+        rows.append(contentsOf: all.map {
+            fact(.pickerScorecard, $0, payload: ["pph": 82, "orders": 24], extra: ["shopper_id": "\($0)-A", "shopper_name": "\($0)-A"])
+        })
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("seat-pack-381-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let company = tmp.appendingPathComponent("company.sqlite")
+        try PulseSQLite.write(rows: rows, uploads: [], seeded: true, chrome: nil, to: company)
+        let dest = PulseSeatPack.localURL(root: tmp, key: PulseSeatPack.Key(grain: .district, id: "03"))
+        try FileManager.default.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let entry = try PulseSeatPack.materialize(
+            from: company,
+            key: PulseSeatPack.Key(grain: .district, id: "03"),
+            roster: roster,
+            uploads: [],
+            to: dest
+        )
+        XCTAssertEqual(entry.storeCount, 20)
+        XCTAssertEqual(entry.path, "packs/seat/district/03/current.sqlite")
+        let pack = try PulseSQLite.read(from: dest)
+        let seatStores = Set(pack.rows.map { HeartbeatMath.canonicalStore($0.storeNumber) }.filter { !$0.isEmpty })
+        XCTAssertEqual(seatStores, Set(districtStores))
+        XCTAssertFalse(seatStores.contains("9001"))
+        let shoppers = pack.rows.filter { $0.section == .pickerScorecard }
+        XCTAssertFalse(shoppers.isEmpty)
+        XCTAssertTrue(shoppers.allSatisfy { districtStores.contains(HeartbeatMath.canonicalStore($0.storeNumber)) })
+        XCTAssertFalse(pack.rows.contains { PulseSeatPack.shopperSections().contains($0.section) && $0.storeNumber == "9001" })
+        let chrome = pack.chrome ?? PulseDashChrome.from(
+            PulseCaches.build(
+                rows: pack.rows,
+                filters: PulseSeatPack.Key(grain: .district, id: "03").filters,
+                uploads: [],
+                heavy: true,
+                grain: .store
+            ),
+            grain: .store
+        )
+        XCTAssertEqual(chrome.summaries.count, MetricSection.dashboardCards.count)
+        for section in MetricSection.dashboardCards {
+            let card = chrome.card(section)
+            XCTAssertEqual(card?.storeCount, 20, "\(section.rawValue) Stores N must equal Heartbeat seat N")
+            let table = chrome.tables[section.rawValue] ?? []
+            XCTAssertTrue(
+                HeartbeatMath.grainRowsAreLive(table),
+                "\(section.rawValue) expand grain must be live"
+            )
+            let covered = max(table.count, table.reduce(0) { $0 + $1.storeCount })
+            XCTAssertGreaterThanOrEqual(
+                covered,
+                20,
+                "\(section.rawValue) expand must cover Heartbeat 20 stores"
+            )
+        }
+        XCTAssertGreaterThan(chrome.pickerShoppers, 0)
+        XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
     }
 
     func testSeatWarehouseAlwaysClearsHydrating() async {
@@ -4778,8 +4911,9 @@ final class HeartbeatMathTests: XCTestCase {
     func testUsablePackFileRejectsTinyStubs() {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("hb-stub-\(UUID().uuidString).sqlite")
         FileManager.default.createFile(atPath: url.path, contents: Data(repeating: 1, count: 1_200), attributes: nil)
-        XCTAssertFalse(PulseSQLite.isUsableFile(at: url))
-        XCTAssertFalse(PulseSQLite.exists(at: url))
+        XCTAssertFalse(PulseSQLite.isUsableFile(at: url), "market pack still requires 50 KB")
+        XCTAssertTrue(PulseSQLite.exists(at: url), "tiny seat files exist on disk")
+        XCTAssertFalse(PulseSeatPack.isUsable(at: url), "seat floor is 2 KB")
         try? FileManager.default.removeItem(at: url)
         XCTAssertFalse(PulseSQLite.exists(at: url))
     }

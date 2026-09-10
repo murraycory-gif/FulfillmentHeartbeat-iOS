@@ -5,6 +5,7 @@ enum PulseCloud {
     static let publishableKey = "sb_publishable_T3Pzm01sMXCv2rQaCeP_Kg_4ao2M5zd"
     static let bucket = "heartbeat-packs"
     static let object = "current.sqlite"
+    static let seatManifestObject = PulseSeatPack.manifestObject
     static let cardsObject = "pulse-cards.json"
     static let factsObject = PulseFacts.object
     static let workbookNames = [
@@ -78,7 +79,7 @@ enum PulseCloud {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         applyAuth(&request)
-        request.httpBody = try? JSONSerialization.data(withJSONObject: ["prefix": "", "limit": 50])
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["prefix": "", "limit": 200])
         request.timeoutInterval = 20
         guard let (data, response) = try? await URLSession.shared.data(for: request),
               let http = response as? HTTPURLResponse, http.statusCode == 200,
@@ -114,6 +115,45 @@ enum PulseCloud {
                     continue
                 }
                 return data
+            } catch {
+                last = error
+            }
+        }
+        throw last
+    }
+
+    /// Seat object path, e.g. `packs/seat/district/03/current.sqlite`.
+    static func downloadObject(_ name: String, to dest: URL, timeout: TimeInterval = 180) async throws -> Int {
+        let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
+        let urls = [
+            URL(string: "https://pcnjujfmlsklhrosxzlt.supabase.co/storage/v1/object/public/\(bucket)/\(encoded)"),
+            URL(string: "https://pcnjujfmlsklhrosxzlt.supabase.co/storage/v1/object/\(bucket)/\(encoded)"),
+        ].compactMap { $0 }
+        var last: Error = PulseCloudError.missing
+        for url in urls {
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            request.timeoutInterval = timeout
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            applyAuth(&request)
+            do {
+                let (temp, response) = try await URLSession.shared.download(for: request)
+                guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                    last = PulseCloudError.http((response as? HTTPURLResponse)?.statusCode ?? 0)
+                    continue
+                }
+                let size = (try FileManager.default.attributesOfItem(atPath: temp.path)[.size] as? NSNumber)?.intValue ?? 0
+                guard size > 1_000 else {
+                    last = PulseCloudError.missing
+                    continue
+                }
+                let folder = dest.deletingLastPathComponent()
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                if FileManager.default.fileExists(atPath: dest.path) {
+                    try FileManager.default.removeItem(at: dest)
+                }
+                try FileManager.default.moveItem(at: temp, to: dest)
+                return size
             } catch {
                 last = error
             }

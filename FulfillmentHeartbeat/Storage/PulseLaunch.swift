@@ -427,10 +427,11 @@ enum PulseLaunch {
 
     /// Cold open must leave splash for Who's looking load even when chrome
     /// cards are 0. Waiting on chrome left RoleGate opening after
-    /// `finishLocalLaunch` had already cleared hydrating — Halloween never mounted.
+    /// `finishLocalLaunch` had already cleared hydrating.
     static func shouldLeaveSplashForSeatLoad() -> Bool { true }
 
-    /// `finishLocalLaunch` must keep hydrating so RoleGate can mount Halloween.
+    /// `finishLocalLaunch` must keep hydrating so RoleGate can hold seats
+    /// until the warehouse / seat pack is ready.
     static func shouldKeepHydratingThroughFinishLocalLaunch() -> Bool {
         shouldPresentSeatBeforeWarehouse() && shouldHoldSeatPickerUntilWarehouseReady()
     }
@@ -471,18 +472,14 @@ enum PulseLaunch {
         }
     }
 
-    /// Lightweight Halloween parade on Who's looking load only. Flip off after the season.
-    static func shouldPlaySeatLoadHalloween() -> Bool { true }
+    /// Halloween parade removed from Who's looking. Comedy copy + readiness stay.
+    static func shouldPlaySeatLoadHalloween() -> Bool { false }
 
-    /// Parade mounts only while the warehouse is hydrating and the readiness gate holds seats.
-    /// Unlocks unmount the view, so the TimelineView / Canvas stops. No Lottie, video, or GIF.
     static func shouldMountSeatLoadHalloween(warehouseHydrating: Bool) -> Bool {
         warehouseHydrating && shouldHoldSeatPickerUntilWarehouseReady() && shouldPlaySeatLoadHalloween()
     }
 
-    /// One hop cycle must paint before seats unlock. Warehouse-already-cached
-    /// cold opens were clearing hydrating in hundreds of ms — copy only.
-    static func shouldHoldSeatLoadHalloweenMinDwell() -> Bool { true }
+    static func shouldHoldSeatLoadHalloweenMinDwell() -> Bool { false }
 
     static func seatLoadHalloweenMinDwellNanoseconds() -> UInt64 { 1_400_000_000 }
 

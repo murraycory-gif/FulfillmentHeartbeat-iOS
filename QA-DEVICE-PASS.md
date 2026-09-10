@@ -1,9 +1,12 @@
 # CoS device PASS before TestFlight
 
-Stamp **HB-0828.380  1.0 (704)**. UDID `676FA816-88AE-59D9-A89D-5C17BFC2DA96`. Force-quit first. No TF until every line is PASS.
+Stamp **HB-0828.381  1.0 (705)**. UDID `676FA816-88AE-59D9-A89D-5C17BFC2DA96`. Force-quit first. No TF until every line is PASS.
 
-1. Cold launch: **Fulfillment + heart + pulse centered**; Halloween hops **over** the progress line; funny copy visible (no “Building store tables”); seats locked until the hop paints; no crash.
-2. District 03 Continue: Heartbeat / Dynacap Stores **20**. iPad stays cool; dashboard scroll snappy.
-3. **Picker ScoreCard: headline > 0**. Expand/dropdown shows **Healthy / Watch / At Risk** for the seat grain (districts under Region, stores under District) matching the card tiles — not a thin list. Stores footer live.
-4. Open every sidebar page — none empty. Scroll + page switch snappy.
-5. One-store filter still live. Clear → no crash, Regions **4**.
+Tip 1 — seat-pack plane. Not a grain-gate patch.
+
+1. Cold launch: **Fulfillment + heart + pulse centered**; **no Halloween** (no pumpkin / ghost / cat / witch). Funny copy OK. Seats locked until warehouse / seat pack ready. No crash.
+2. District 03 Continue: hub paints from **`packs/seat/district/03/current.sqlite`** (download or on-device materialize). Market `current.sqlite` is **not** the hub primary.
+3. **Every MetricSection** card + expand: Stores **N = Heartbeat 20**. Loss / 5 Star / Labor / Dynacap / PPH / Missing / Schedule / Pick Path / Sales / Picker — none grey-empty.
+4. Picker Healthy / Watch / At Risk tiles match the seat dropdown. Shoppers are District 03 only.
+5. Clear → company pack swap, no crash, Regions **4**. New seat = swap again, no merge.
+6. iPad stays cool; dashboard scroll snappy. Stamp **HB-0828.381  1.0 (705)**.
