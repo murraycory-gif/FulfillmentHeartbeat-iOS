@@ -747,6 +747,42 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(HeartbeatMath.districtMatchKeys("03").contains("3"))
         XCTAssertFalse(HeartbeatMath.districtMatchKeys("B3").contains("3"))
         XCTAssertFalse(HeartbeatMath.districtMatchKeys("J3").contains("3"))
+        XCTAssertEqual(HeartbeatMath.canonicalDistrict("J3CHICAGO"), "J3")
+        XCTAssertEqual(HeartbeatMath.canonicalDistrict("J1NORTHSHORE"), "J1")
+        XCTAssertEqual(HeartbeatMath.canonicalDistrict("03"), "03")
+        XCTAssertEqual(HeartbeatMath.canonicalDistrict("J3"), "J3")
+        XCTAssertEqual(HeartbeatMath.shortDistrictName("J3CHICAGO"), "J3")
+        XCTAssertTrue(HeartbeatMath.districtMatchKeys("J3CHICAGO").contains("j3"))
+        XCTAssertTrue(HeartbeatMath.districtMatchKeys("J3").contains("j3"))
+        XCTAssertEqual(RollupMarketFill.districtKey("J3CHICAGO"), "J3")
+        XCTAssertEqual(
+            HeartbeatMath.dashboardGrainTable(
+                section: .scheduleQuality,
+                rows: [
+                    MetricRow(
+                        section: .scheduleQuality,
+                        division: "Jewel Osco",
+                        operationsOM: "",
+                        storeNumber: "100",
+                        textPayload: ["district": "J3CHICAGO"]
+                    )
+                ],
+                grain: .district,
+                order: []
+            ).first?.label,
+            "J3"
+        )
+        XCTAssertEqual(HubLayout.scopeLabelWidth(district: true, phone: false), 88)
+        XCTAssertLessThan(
+            HubLayout.readableTableFloor(
+                phone: false,
+                columns: 9,
+                showCount: true,
+                district: true,
+                valueMin: HubLayout.dashboardValueMin(phone: false, columns: 9)
+            ),
+            HubLayout.readableTableFloor(phone: false, columns: 9, showCount: true)
+        )
         var filters = DashboardFilters()
         filters.district = "D3"
         XCTAssertTrue(filters.includesDistrict("D3"))
@@ -786,6 +822,10 @@ final class HeartbeatMathTests: XCTestCase {
         let summary = caches.cachedSummaries.first { $0.section == .lostRevenue }
         XCTAssertEqual(summary?.headline ?? 0, 2_510, accuracy: 0.01)
         XCTAssertEqual(summary?.storeCount, 1)
+        var short = DashboardFilters()
+        short.district = "J3"
+        XCTAssertTrue(short.includesDistrict("J3CHICAGO"))
+        XCTAssertTrue(short.includesDistrict("J3"))
     }
 
     func testPublishedFactsKeepsDistrict03SeparateFromD3() throws {

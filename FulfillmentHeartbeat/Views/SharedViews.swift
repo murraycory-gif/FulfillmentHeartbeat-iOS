@@ -1695,7 +1695,7 @@ struct StoreTable: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            Text(row.district.isEmpty ? "—" : row.district)
+            Text(row.district.isEmpty ? "—" : HeartbeatMath.canonicalDistrict(row.district))
                 .font(.subheadline.monospacedDigit())
                 .foregroundStyle(AppTheme.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -2011,7 +2011,7 @@ private struct PickPathLineSnap: Identifiable, Equatable {
         id = row.id
         storeNumber = row.storeNumber
         label = HeartbeatMath.storeDisplayLabel(row)
-        district = row.district
+        district = HeartbeatMath.canonicalDistrict(row.district)
         om = row.operationsOM
         let pathNum = row.number("compliance_pct")
         let pphNum = row.number("pph")
@@ -3073,7 +3073,7 @@ private struct DynacapLineSnap: Identifiable, Equatable {
         id = row.id
         storeNumber = row.storeNumber
         label = HeartbeatMath.storeDisplayLabel(row)
-        district = row.district
+        district = HeartbeatMath.canonicalDistrict(row.district)
         om = row.operationsOM
         let rateNum = DynacapMath.rate(row)
         let utilNum = row.number("utilization_pct")
@@ -3895,7 +3895,7 @@ private struct PrepLineSnap: Identifiable, Equatable {
         id = row.id
         storeNumber = row.storeNumber
         label = HeartbeatMath.storeDisplayLabel(row)
-        district = row.district
+        district = HeartbeatMath.canonicalDistrict(row.district)
         om = row.operationsOM
         let pnrNum = row.number("pnr_rate_pct", "pnr_hours", "prep_not_ready_pct")
         pnr = HeartbeatFormat.pct(pnrNum)
@@ -4599,7 +4599,7 @@ private struct FiveStarLineSnap: Identifiable, Equatable {
         id = row.id
         storeNumber = row.storeNumber
         label = HeartbeatMath.storeDisplayLabel(row)
-        district = row.district
+        district = HeartbeatMath.canonicalDistrict(row.district)
         om = row.operationsOM
         let ratingNum = row.number("star_rating")
         let flashNum = row.number("flash_pct")
@@ -5156,7 +5156,7 @@ struct FiveStarStoreCard: View {
     }
 
     private var metaLine: String {
-        let district = row.district.isEmpty ? "—" : row.district
+        let district = row.district.isEmpty ? "—" : HeartbeatMath.canonicalDistrict(row.district)
         let om = row.operationsOM.isEmpty ? "—" : row.operationsOM
         return "District \(district)  ·  \(om)"
     }
@@ -5229,6 +5229,10 @@ enum LaborRollupGrain {
         case .district: return "District"
         case .store: return "Store"
         }
+    }
+
+    var labelWidth: CGFloat {
+        HubLayout.scopeLabelWidth(district: self == .district)
     }
 }
 
@@ -5472,7 +5476,7 @@ private struct LaborLineSnap: Identifiable, Equatable {
         id = row.id
         storeNumber = row.storeNumber
         label = HeartbeatMath.storeDisplayLabel(row)
-        district = row.district
+        district = HeartbeatMath.canonicalDistrict(row.district)
         om = row.operationsOM
         week = row.textPayload["week"].flatMap { $0.isEmpty ? nil : $0 } ?? "store totals"
         let tvaValue = row.number("target_vs_actual_pct")
@@ -6637,7 +6641,7 @@ private struct LostRevenueLineSnap: Identifiable, Equatable {
         id = row.id
         storeNumber = row.storeNumber
         label = HeartbeatMath.storeDisplayLabel(row)
-        district = row.district
+        district = HeartbeatMath.canonicalDistrict(row.district)
         om = row.operationsOM
         let lostNum = row.number("lost_revenue")
         let pctNum = row.number("lost_revenue_pct")
@@ -7652,7 +7656,7 @@ private struct ScheduleLineSnap: Identifiable, Equatable {
         id = row.id
         storeNumber = row.storeNumber
         label = HeartbeatMath.storeDisplayLabel(row)
-        district = row.district
+        district = HeartbeatMath.canonicalDistrict(row.district)
         om = row.operationsOM
         let efficiencyNum = ScheduleMath.efficiency(row)
         let staffingNum = ScheduleMath.staffing(row)
@@ -7752,6 +7756,7 @@ private struct ScheduleCheapLine: View, Equatable {
 private struct ScheduleMetricLine: View, Equatable {
     let label: String
     var count: Int? = nil
+    var labelWidth: CGFloat = HubLayout.pageLabelWidth
     let efficiency: Double?
     let staffing: Double?
     let under: Double?
@@ -7765,7 +7770,7 @@ private struct ScheduleMetricLine: View, Equatable {
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
+                .frame(width: labelWidth, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
                     .font(.subheadline.weight(.semibold).monospacedDigit())
@@ -7820,6 +7825,7 @@ private struct ScheduleMetricLine: View, Equatable {
 struct ScheduleMetricHeader: View {
     let label: String
     var showCount: Bool = false
+    var labelWidth: CGFloat = HubLayout.pageLabelWidth
     var active: String? = nil
     var ascending: Bool = false
     var onSelect: ((String) -> Void)? = nil
@@ -7827,7 +7833,7 @@ struct ScheduleMetricHeader: View {
     var body: some View {
         HStack(spacing: 6) {
             head(label, key: "label", alignment: .leading)
-                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
+                .frame(width: labelWidth, alignment: .leading)
             if showCount {
                 head("Stores", key: "count", alignment: .trailing)
                     .frame(width: 58, alignment: .trailing)
@@ -7934,6 +7940,7 @@ struct ScheduleRollupTable: View {
                     ScheduleMetricHeader(
                         label: grain.columnTitle,
                         showCount: grain != .store,
+                        labelWidth: grain.labelWidth,
                         active: sortKey,
                         ascending: sortAscending,
                         onSelect: applySort
@@ -7942,6 +7949,7 @@ struct ScheduleRollupTable: View {
                         ScheduleMetricLine(
                             label: row.label,
                             count: grain == .store ? nil : row.storeCount,
+                            labelWidth: grain.labelWidth,
                             efficiency: row.efficiency,
                             staffing: row.staffing,
                             under: row.under,
@@ -8402,7 +8410,7 @@ private struct PPHLineSnap: Identifiable, Equatable {
         id = row.id
         storeNumber = row.storeNumber
         label = HeartbeatMath.storeDisplayLabel(row)
-        district = row.district
+        district = HeartbeatMath.canonicalDistrict(row.district)
         om = row.operationsOM
         let pphNum = row.number("pph")
         pph = HeartbeatFormat.num(pphNum, digits: 1)
@@ -9869,6 +9877,7 @@ struct HubStoreCard<Content: View>: View {
                     .padding(.horizontal, 12)
                     .padding(.top, 4)
                     .padding(.bottom, 12)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -9892,21 +9901,15 @@ struct HubAdaptiveHScroll<Content: View>: View {
     }
 
     var body: some View {
-        Group {
-            if available > 1, available + 0.5 >= floor {
-                content
-                    .frame(width: span, alignment: .topLeading)
-            } else if available > 1 {
-                ScrollView(.horizontal, showsIndicators: true) {
-                    content
-                        .padding(.trailing, 12)
-                        .frame(minWidth: floor, alignment: .topLeading)
-                }
-            } else {
-                content
-                    .frame(minWidth: floor, maxWidth: .infinity, alignment: .topLeading)
-            }
+        // Always a horizontal scroller with an intrinsic height. Switching
+        // in/out of ScrollView after GeometryReader fires collapses List rows
+        // to 0 (Missing Items / Pre-Sub expand paint blank).
+        ScrollView(.horizontal, showsIndicators: true) {
+            content
+                .padding(.trailing, 12)
+                .frame(minWidth: max(span, floor), alignment: .topLeading)
         }
+        .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             GeometryReader { geo in
@@ -9916,7 +9919,7 @@ struct HubAdaptiveHScroll<Content: View>: View {
         .onPreferenceChange(HubWidthKey.self) { value in
             if value > 0 { available = value }
         }
-        .environment(\.hubTableWidth, span)
+        .environment(\.hubTableWidth, max(span, floor))
     }
 }
 

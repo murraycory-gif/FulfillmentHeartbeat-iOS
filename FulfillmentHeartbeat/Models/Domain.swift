@@ -1299,9 +1299,14 @@ enum HeartbeatMath {
     /// Numbered codes (03, 3) match each other. Letter codes (D3, B3) match
     /// only themselves. Do not map 03→D3 or B3→3 — the roster has both.
     static func districtMatchKeys(_ raw: String) -> Set<String> {
-        let compact = compactKey(canonicalDistrict(raw))
+        let canon = canonicalDistrict(raw)
+        let compact = compactKey(canon)
         guard !compact.isEmpty else { return [] }
         var keys: Set<String> = [compact]
+        let rawCompact = compactKey(raw)
+        if !rawCompact.isEmpty { keys.insert(rawCompact) }
+        let short = compactKey(shortDistrictName(raw.replacingOccurrences(of: "\\s+", with: "", options: .regularExpression)))
+        if !short.isEmpty { keys.insert(short) }
         if compact.allSatisfy(\.isNumber), let value = Int(compact) {
             keys.insert(String(value))
             keys.insert(String(format: "%02d", value))
@@ -1325,9 +1330,23 @@ enum HeartbeatMath {
         value = value.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
         guard !value.isEmpty else { return "" }
         if value.rangeOfCharacter(from: .decimalDigits) != nil {
-            return value.replacingOccurrences(of: "\\s+", with: "", options: .regularExpression).uppercased()
+            value = value.replacingOccurrences(of: "\\s+", with: "", options: .regularExpression).uppercased()
+            return shortDistrictName(value)
         }
         return value
+    }
+
+    /// Filter-true short name: J3CHICAGO → J3, J1NORTHSHORE → J1. Leaves 03 / D3 / J3 alone.
+    static func shortDistrictName(_ raw: String) -> String {
+        let canon = raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard !canon.isEmpty else { return "" }
+        guard let match = canon.range(of: #"^[A-Z]{1,3}\d{1,2}"#, options: .regularExpression) else {
+            return canon
+        }
+        let prefix = String(canon[match])
+        let rest = canon[match.upperBound...]
+        if rest.contains(where: \.isLetter) { return prefix }
+        return canon
     }
 
     static func storeDisplayLabel(

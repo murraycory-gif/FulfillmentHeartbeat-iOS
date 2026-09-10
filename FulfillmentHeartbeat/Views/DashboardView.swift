@@ -180,7 +180,7 @@ struct PhonePulseCard: View {
             }
             PhoneFlagStrip(flags: statusFlags(flags))
             if let grain {
-                DashScopeStrip(section: card.section, grain: grain, packs: grains, width: 390)
+                DashScopeStrip(section: card.section, grain: grain, packs: grains)
             }
         }
         .modifier(DashCardChrome(health: card.health))
@@ -315,7 +315,7 @@ struct DashLostBanner: View {
                 )
             }
             if let grain {
-                DashScopeStrip(section: summary.section, grain: grain, packs: grains, width: width)
+                DashScopeStrip(section: summary.section, grain: grain, packs: grains)
             }
         }
         .modifier(DashCardChrome(health: summary.health))
@@ -426,7 +426,6 @@ struct DashScopeStrip: View {
     let section: MetricSection
     let grain: DashScopeGrain
     let packs: [DashScopePack]
-    var width: CGFloat
     @State private var expanded = false
 
     var body: some View {
@@ -486,7 +485,8 @@ struct DashScopeStrip: View {
                 OverviewSalesAlignedTable(
                     title: grain.title,
                     rows: shownSales,
-                    showCount: grain != .store
+                    showCount: grain != .store,
+                    district: grain == .district
                 )
                 if !store.cachedSalesDayRows.isEmpty {
                     OverviewSalesAlignedTable(title: "By Day", rows: store.cachedSalesDayRows, showCount: false)
@@ -497,11 +497,11 @@ struct DashScopeStrip: View {
                     title: grain.title,
                     headers: HeartbeatMath.dashboardTableHeaders(section),
                     rows: shownGrain,
-                    showCount: grain != .store
+                    showCount: grain != .store,
+                    district: grain == .district
                 )
             }
         }
-        .environment(\.hubTableWidth, max(width, 1))
     }
 }
 
@@ -510,42 +510,78 @@ struct OverviewMetricAlignedTable: View {
     let headers: [String]
     let rows: [HeartbeatMath.DashboardGrainTableRow]
     var showCount: Bool
+    var district: Bool = false
     @Environment(\.horizontalSizeClass) private var sizeClass
-    @Environment(\.hubTableWidth) private var tableWidth
 
     private var phone: Bool { HubLayout.isPhone(sizeClass) }
+    private var valueMin: CGFloat { HubLayout.dashboardValueMin(phone: phone, columns: headers.count) }
+    private var floor: CGFloat {
+        HubLayout.readableTableFloor(
+            phone: phone,
+            columns: headers.count,
+            showCount: showCount,
+            district: district,
+            valueMin: valueMin
+        )
+    }
+
+    var body: some View {
+        HubAdaptiveHScroll(minWidth: floor) {
+            OverviewMetricColumns(
+                headers: headers,
+                rows: rows,
+                showCount: showCount,
+                district: district,
+                phone: phone,
+                valueMin: valueMin
+            )
+        }
+        .accessibilityLabel("\(title) table")
+    }
+}
+
+private struct OverviewMetricColumns: View {
+    let headers: [String]
+    let rows: [HeartbeatMath.DashboardGrainTableRow]
+    var showCount: Bool
+    var district: Bool
+    var phone: Bool
+    var valueMin: CGFloat
+    @Environment(\.hubTableWidth) private var tableWidth
+
+    private var labelWidth: CGFloat { HubLayout.scopeLabelWidth(district: district, phone: phone) }
+    private var storeWidth: CGFloat { HubLayout.readableStoreWidth(phone: phone) }
     private var valueWidth: CGFloat {
         HubLayout.evenValueWidth(
             available: tableWidth,
             phone: phone,
             columns: headers.count,
-            showCount: showCount
+            showCount: showCount,
+            district: district,
+            valueMin: valueMin
         )
     }
 
     var body: some View {
-        HubAdaptiveHScroll(minWidth: HubLayout.readableTableFloor(phone: phone, columns: headers.count, showCount: showCount)) {
-            VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 0) {
+            row(
+                label: "Scope",
+                stores: "Stores",
+                values: headers,
+                health: nil,
+                header: true
+            )
+            ForEach(Array(rows.enumerated()), id: \.element.id) { index, item in
                 row(
-                    label: "Scope",
-                    stores: "Stores",
-                    values: headers,
-                    health: nil,
-                    header: true
+                    label: item.label,
+                    stores: HeartbeatFormat.num(Double(item.storeCount)),
+                    values: item.values,
+                    health: item.health == .none && item.storeCount > 0 ? .good : item.health,
+                    header: false,
+                    stripe: index.isMultiple(of: 2)
                 )
-                ForEach(Array(rows.enumerated()), id: \.element.id) { index, item in
-                    row(
-                        label: item.label,
-                        stores: HeartbeatFormat.num(Double(item.storeCount)),
-                        values: item.values,
-                        health: item.health == .none && item.storeCount > 0 ? .good : item.health,
-                        header: false,
-                        stripe: index.isMultiple(of: 2)
-                    )
-                }
             }
         }
-        .accessibilityLabel("\(title) table")
     }
 
     private func row(
@@ -556,25 +592,26 @@ struct OverviewMetricAlignedTable: View {
         header: Bool,
         stripe: Bool = false
     ) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: HubLayout.tableGutter) {
             Text(header ? label.uppercased() : label)
                 .font(AppTheme.rounded(header ? .caption2 : .subheadline, weight: header ? .bold : .semibold))
                 .foregroundStyle(header ? AppTheme.textSecondary : AppTheme.text)
                 .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-                .frame(width: HubLayout.readableLabelWidth(phone: phone, available: tableWidth), alignment: .leading)
+                .minimumScaleFactor(0.62)
+                .frame(width: labelWidth, alignment: .leading)
             if showCount {
-                cell(stores, header: header, secondary: true)
+                cell(stores, header: header, width: storeWidth, secondary: true)
             }
             ForEach(Array(values.enumerated()), id: \.offset) { _, text in
-                cell(text, header: header, tone: header ? nil : health)
+                cell(text, header: header, width: valueWidth, tone: header ? nil : health)
             }
             Group {
                 if header {
                     Text("STATUS")
                         .font(AppTheme.rounded(.caption2, weight: .bold))
                         .foregroundStyle(AppTheme.textSecondary)
-                        .fixedSize(horizontal: true, vertical: false)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
                 } else if let health {
                     HealthBadge(health: health, prominent: true, compact: true)
                 }
@@ -587,13 +624,13 @@ struct OverviewMetricAlignedTable: View {
         .background(stripe ? AppTheme.blueSoft.opacity(0.35) : Color.clear)
     }
 
-    private func cell(_ text: String, header: Bool, secondary: Bool = false, tone: Health? = nil) -> some View {
+    private func cell(_ text: String, header: Bool, width: CGFloat, secondary: Bool = false, tone: Health? = nil) -> some View {
         Text(header ? text.uppercased() : text)
             .font(AppTheme.rounded(header ? .caption2 : .subheadline, weight: header ? .bold : .bold).monospacedDigit())
             .foregroundStyle(header ? AppTheme.textSecondary : ink(tone, secondary: secondary))
             .lineLimit(1)
-            .fixedSize(horizontal: true, vertical: false)
-            .frame(minWidth: valueWidth, maxWidth: .infinity, alignment: .trailing)
+            .minimumScaleFactor(0.55)
+            .frame(width: width, alignment: .trailing)
     }
 
     private func ink(_ health: Health?, secondary: Bool) -> Color {
@@ -938,7 +975,7 @@ struct DashCallout: View, Equatable {
                         width: width
                     )
                     if let grain {
-                        DashScopeStrip(section: card.section, grain: grain, packs: grains, width: width)
+                        DashScopeStrip(section: card.section, grain: grain, packs: grains)
                     }
                 }
                 .modifier(DashCardChrome(health: card.health))

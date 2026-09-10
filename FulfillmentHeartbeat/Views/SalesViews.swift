@@ -107,46 +107,87 @@ struct OverviewSalesAlignedTable: View {
     let title: String
     let rows: [SalesRollupRow]
     var showCount: Bool
+    var district: Bool = false
     @Environment(\.horizontalSizeClass) private var sizeClass
-    @Environment(\.hubTableWidth) private var tableWidth
 
     private var phone: Bool { HubLayout.isPhone(sizeClass) }
-    private var valueWidth: CGFloat {
-        HubLayout.evenValueWidth(available: tableWidth, phone: phone, columns: 8, showCount: showCount)
+    private var valueMin: CGFloat { HubLayout.dashboardValueMin(phone: phone, columns: 8) }
+    private var floor: CGFloat {
+        HubLayout.readableTableFloor(
+            phone: phone,
+            columns: 8,
+            showCount: showCount,
+            district: district,
+            valueMin: valueMin
+        )
     }
 
     var body: some View {
-        HubAdaptiveHScroll(minWidth: HubLayout.readableTableFloor(phone: phone, columns: 8, showCount: showCount)) {
-            VStack(alignment: .leading, spacing: 0) {
+        HubAdaptiveHScroll(minWidth: floor) {
+            OverviewSalesColumns(
+                title: title,
+                rows: rows,
+                showCount: showCount,
+                district: district,
+                phone: phone,
+                valueMin: valueMin
+            )
+        }
+    }
+}
+
+private struct OverviewSalesColumns: View {
+    let title: String
+    let rows: [SalesRollupRow]
+    var showCount: Bool
+    var district: Bool
+    var phone: Bool
+    var valueMin: CGFloat
+    @Environment(\.hubTableWidth) private var tableWidth
+
+    private var labelWidth: CGFloat { HubLayout.scopeLabelWidth(district: district, phone: phone) }
+    private var storeWidth: CGFloat { HubLayout.readableStoreWidth(phone: phone) }
+    private var valueWidth: CGFloat {
+        HubLayout.evenValueWidth(
+            available: tableWidth,
+            phone: phone,
+            columns: 8,
+            showCount: showCount,
+            district: district,
+            valueMin: valueMin
+        )
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            row(
+                label: title == "By Day" ? "Day" : "Scope",
+                stores: "Stores",
+                values: ["Sales $", "YoY %", "Orders", "Ord YoY", "AOS", "AIV", "Items/Txn", "Items"],
+                status: "Status",
+                health: nil,
+                header: true
+            )
+            ForEach(Array(rows.enumerated()), id: \.element.id) { index, item in
                 row(
-                    label: title == "By Day" ? "Day" : "Scope",
-                    stores: "Stores",
-                    values: ["Sales $", "YoY %", "Orders", "Ord YoY", "AOS", "AIV", "Items/Txn", "Items"],
-                    status: "Status",
-                    health: nil,
-                    header: true
+                    label: item.label,
+                    stores: HeartbeatFormat.num(Double(item.storeCount)),
+                    values: [
+                        HeartbeatFormat.money(item.pack.sales),
+                        HeartbeatFormat.pct(item.pack.yoy),
+                        HeartbeatFormat.num(item.pack.orders, digits: 0),
+                        HeartbeatFormat.pct(item.pack.ordersYoy),
+                        HeartbeatFormat.money(item.pack.aos),
+                        HeartbeatFormat.num(item.pack.aiv, digits: 2),
+                        HeartbeatFormat.num(item.pack.ipt, digits: 1),
+                        HeartbeatFormat.num(item.pack.items, digits: 0)
+                    ],
+                    status: nil,
+                    health: item.pack.health == .none && (item.pack.sales ?? 0) > 0 ? .good : item.pack.health,
+                    header: false,
+                    yoyRisk: (item.pack.yoy ?? 0) < 0,
+                    stripe: index.isMultiple(of: 2)
                 )
-                ForEach(Array(rows.enumerated()), id: \.element.id) { index, item in
-                    row(
-                        label: item.label,
-                        stores: HeartbeatFormat.num(Double(item.storeCount)),
-                        values: [
-                            HeartbeatFormat.money(item.pack.sales),
-                            HeartbeatFormat.pct(item.pack.yoy),
-                            HeartbeatFormat.num(item.pack.orders, digits: 0),
-                            HeartbeatFormat.pct(item.pack.ordersYoy),
-                            HeartbeatFormat.money(item.pack.aos),
-                            HeartbeatFormat.num(item.pack.aiv, digits: 2),
-                            HeartbeatFormat.num(item.pack.ipt, digits: 1),
-                            HeartbeatFormat.num(item.pack.items, digits: 0)
-                        ],
-                        status: nil,
-                        health: item.pack.health == .none && (item.pack.sales ?? 0) > 0 ? .good : item.pack.health,
-                        header: false,
-                        yoyRisk: (item.pack.yoy ?? 0) < 0,
-                        stripe: index.isMultiple(of: 2)
-                    )
-                }
             }
         }
     }
@@ -161,20 +202,21 @@ struct OverviewSalesAlignedTable: View {
         yoyRisk: Bool = false,
         stripe: Bool = false
     ) -> some View {
-        HStack(spacing: 6) {
+        HStack(spacing: HubLayout.tableGutter) {
             Text(header ? label.uppercased() : label)
                 .font(AppTheme.rounded(header ? .caption2 : .subheadline, weight: header ? .bold : .semibold))
                 .foregroundStyle(header ? AppTheme.textSecondary : AppTheme.text)
                 .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-                .frame(width: HubLayout.readableLabelWidth(phone: phone, available: tableWidth), alignment: .leading)
+                .minimumScaleFactor(0.62)
+                .frame(width: labelWidth, alignment: .leading)
             if showCount {
-                cell(stores, header: header, secondary: true)
+                cell(stores, header: header, width: storeWidth, secondary: true)
             }
             ForEach(Array(values.enumerated()), id: \.offset) { index, text in
                 cell(
                     text,
                     header: header,
+                    width: valueWidth,
                     tone: header ? nil : tone(index: index, yoyRisk: yoyRisk, health: health)
                 )
             }
@@ -183,7 +225,8 @@ struct OverviewSalesAlignedTable: View {
                     Text(status ?? "STATUS")
                         .font(AppTheme.rounded(.caption2, weight: .bold))
                         .foregroundStyle(AppTheme.textSecondary)
-                        .fixedSize(horizontal: true, vertical: false)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
                 } else if let health {
                     HealthBadge(health: health, prominent: true, compact: true)
                 }
@@ -196,13 +239,13 @@ struct OverviewSalesAlignedTable: View {
         .background(stripe ? AppTheme.blueSoft.opacity(0.35) : Color.clear)
     }
 
-    private func cell(_ text: String, header: Bool, secondary: Bool = false, tone: Health? = nil) -> some View {
+    private func cell(_ text: String, header: Bool, width: CGFloat, secondary: Bool = false, tone: Health? = nil) -> some View {
         Text(header ? text.uppercased() : text)
             .font(AppTheme.rounded(header ? .caption2 : .subheadline, weight: header ? .bold : .bold).monospacedDigit())
             .foregroundStyle(header ? AppTheme.textSecondary : ink(tone, secondary: secondary))
             .lineLimit(1)
-            .fixedSize(horizontal: true, vertical: false)
-            .frame(minWidth: valueWidth, maxWidth: .infinity, alignment: .trailing)
+            .minimumScaleFactor(0.55)
+            .frame(width: width, alignment: .trailing)
     }
 
     private func tone(index: Int, yoyRisk: Bool, health: Health?) -> Health? {

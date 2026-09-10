@@ -280,10 +280,16 @@ enum HubLayout {
     static var storeGrainCap: Int { profile.storeGrainCap }
 
     /// Floor width so currency and percents stay whole; narrower screens scroll.
-    static func readableTableFloor(phone: Bool, columns: Int, showCount: Bool) -> CGFloat {
-        let label = readableLabelWidth(phone: phone)
+    static func readableTableFloor(
+        phone: Bool,
+        columns: Int,
+        showCount: Bool,
+        district: Bool = false,
+        valueMin: CGFloat? = nil
+    ) -> CGFloat {
+        let label = scopeLabelWidth(district: district, phone: phone)
         let stores: CGFloat = showCount ? readableStoreWidth(phone: phone) : 0
-        let value = readableValueMin(phone: phone)
+        let value = valueMin ?? readableValueMin(phone: phone)
         let status = readableStatusWidth(phone: phone)
         let pad: CGFloat = 28 + CGFloat(columns + (showCount ? 2 : 1)) * tableGutter
         return label + stores + CGFloat(max(columns, 1)) * value + status + pad
@@ -294,10 +300,33 @@ enum HubLayout {
         max(available, floor)
     }
 
+    /// Many-column dashboard grains use a tighter min so the table fits/scrolls instead of exploding.
+    static func dashboardValueMin(phone: Bool, columns: Int) -> CGFloat {
+        if columns >= 8 { return phone ? 72 : 88 }
+        if columns >= 6 { return phone ? 84 : 96 }
+        return readableValueMin(phone: phone)
+    }
+
     /// Extra width is split evenly across value columns. Never thinner than the readable min.
-    static func evenValueWidth(available: CGFloat, phone: Bool, columns: Int, showCount: Bool) -> CGFloat {
-        let label = readableLabelWidth(phone: phone, available: available)
-        let floor = readableTableFloor(phone: phone, columns: columns, showCount: showCount)
+    static func evenValueWidth(
+        available: CGFloat,
+        phone: Bool,
+        columns: Int,
+        showCount: Bool,
+        district: Bool = false,
+        valueMin: CGFloat? = nil
+    ) -> CGFloat {
+        let label = district
+            ? scopeLabelWidth(district: true, phone: phone)
+            : readableLabelWidth(phone: phone, available: available)
+        let minVal = valueMin ?? readableValueMin(phone: phone)
+        let floor = readableTableFloor(
+            phone: phone,
+            columns: columns,
+            showCount: showCount,
+            district: district,
+            valueMin: minVal
+        )
         let span = tableSpan(available: available, floor: floor)
         let gutters = tableGutter * CGFloat(max(columns, 1) + (showCount ? 2 : 1))
         let reserved = label
@@ -306,7 +335,7 @@ enum HubLayout {
             + gutters
             + 16
         let leftover = max(span - reserved, 0)
-        return max(readableValueMin(phone: phone), leftover / CGFloat(max(columns, 1)))
+        return max(minVal, leftover / CGFloat(max(columns, 1)))
     }
 
     /// Wide enough for "California Region" and "24500 | A2 | Mid-Atlantic".
@@ -318,6 +347,12 @@ enum HubLayout {
     }
 
     static var pageLabelWidth: CGFloat { readableLabelWidth(phone: isPhoneDevice) }
+
+    /// District codes are short (J3, 03). Do not reserve the store-label column.
+    static func scopeLabelWidth(district: Bool, phone: Bool = isPhoneDevice) -> CGFloat {
+        if district { return phone ? 72 : 88 }
+        return readableLabelWidth(phone: phone)
+    }
     static func readableStoreWidth(phone: Bool) -> CGFloat { phone ? 58 : 68 }
     static func readableValueMin(phone: Bool) -> CGFloat { phone ? 118 : 128 }
     static func readableStatusWidth(phone: Bool) -> CGFloat { 88 }
