@@ -292,6 +292,8 @@ enum PulseLaunch {
 
     /// Picker expand from pack chrome. Never stay inert when the pack has shoppers.
     /// Prefers the ingest grain table, then live packs, then the chrome board.
+    /// A filtered miss on a market/region table must not return that empty scope
+    /// (or the company book) — callers then build from seat shoppers.
     static func pickerExpandRows(
         from chrome: PulseDashChrome,
         filters: DashboardFilters = DashboardFilters(),
@@ -299,34 +301,27 @@ enum PulseLaunch {
     ) -> [HeartbeatMath.DashboardGrainTableRow] {
         if let encoded = chrome.tables[MetricSection.pickerScorecard.rawValue],
            HeartbeatMath.grainRowsAreLive(encoded) {
-            return grainRowsScopedToFilter(encoded, filters: filters)
+            let scoped = grainRowsScopedToFilter(encoded, filters: filters)
+            if HeartbeatMath.grainRowsAreLive(scoped) { return scoped }
+            if filters.isActive { return [] }
         }
         let packs = chrome.packs[MetricSection.pickerScorecard.rawValue] ?? []
         if !packs.isEmpty {
             let fromPacks = HeartbeatMath.dashboardGrainRowsFromPacks(packs, section: .pickerScorecard)
             if HeartbeatMath.grainRowsAreLive(fromPacks) {
-                return grainRowsScopedToFilter(fromPacks, filters: filters)
+                let scoped = grainRowsScopedToFilter(fromPacks, filters: filters)
+                if HeartbeatMath.grainRowsAreLive(scoped) { return scoped }
+                if filters.isActive { return [] }
             }
         }
+        if filters.isActive { return [] }
         guard chrome.pickerOK else { return [] }
         let shoppers = max(chrome.pickerShoppers, Int(chrome.card(.pickerScorecard)?.headline ?? 0))
         let healthy = max(chrome.pickerStrong, 0)
         let risk = max(chrome.pickerOpportunity, 0)
         let watch = max(shoppers - healthy - risk, 0)
-        let label: String
-        if !filters.store.isEmpty {
-            label = filters.store
-        } else if !filters.district.isEmpty {
-            label = filters.district
-        } else if !filters.division.isEmpty {
-            label = filters.division
-        } else if !filters.region.isEmpty {
-            label = filters.region
-        } else {
-            label = "Company"
-        }
         let row = HeartbeatMath.DashboardGrainTableRow(
-            label: label,
+            label: "Company",
             storeCount: shoppers,
             values: [
                 HeartbeatFormat.num(Double(shoppers)),
@@ -339,57 +334,109 @@ enum PulseLaunch {
         return [row]
     }
 
-    /// Keep rows that match the seat. Empty scope falls back to the incoming table
-    /// only when unfiltered — a filtered miss must not show the company book.
+    /// Seat shoppers first. Unfiltered market packs are a fallback only.
+    static func pickerSeatRows(
+        filtered: [MetricRow],
+        warehouse: [MetricRow],
+        allowed: Set<String>?,
+        filters: DashboardFilters,
+        roster: [String: HeartbeatMath.StoreIdentity] = [:]
+    ) -> [MetricRow] {
+        if !filtered.isEmpty { return filtered }
+        return PulseQuery.sliceSection(
+            .pickerScorecard,
+            rows: warehouse,
+            allowed: allowed,
+            filters: filters,
+            roster: roster
+        )
+    }
+
+    /// Filtered expandLive must not use the company chrome head (26,349) as a
+    /// fake live signal over an empty district body.
+    static func pickerExpandFactCount(
+        filteredCount: Int,
+        warehouseSlicedCount: Int,
+        chromeCount: Int,
+        filtersActive: Bool
+    ) -> Int {
+        if filtersActive {
+            return max(filteredCount, warehouseSlicedCount)
+        }
+        return max(filteredCount, warehouseSlicedCount, chromeCount)
+    }
+
+    /// Live expand table for the current seat. Shopper facts win over chrome.
+    static func pickerExpandTable(
+        seatRows: [MetricRow],
+        chrome: PulseDashChrome?,
+        filters: DashboardFilters,
+        grain: DashScopeGrain,
+        packOrder: [String] = []
+    ) -> [HeartbeatMath.DashboardGrainTableRow] {
+        if !seatRows.isEmpty {
+            let table = HeartbeatMath.dashboardGrainTableFilled(
+                section: .pickerScorecard,
+                rows: seatRows,
+                grain: grain,
+                order: packOrder
+            )
+            if HeartbeatMath.grainRowsAreLive(table) { return table }
+        }
+        if let chrome {
+            let chromeTable = pickerExpandRows(from: chrome, filters: filters, grain: grain)
+            if HeartbeatMath.grainRowsAreLive(chromeTable) { return chromeTable }
+        }
+        return []
+    }
+
+    /// Cached company/region grain must not stay under a store/district seat.
+    static func grainMatchesSeat(
+        _ rows: [HeartbeatMath.DashboardGrainTableRow],
+        filters: DashboardFilters,
+        grain: DashScopeGrain
+    ) -> Bool {
+        guard HeartbeatMath.grainRowsAreLive(rows) else { return false }
+        guard grainTableMatchesCurrent(labels: rows.map(\.label), grain: grain) else { return false }
+        return !filters.isActive || grain != .region
+    }
+
+    static func pickerGrainMatchesSeat(
+        _ rows: [HeartbeatMath.DashboardGrainTableRow],
+        filters: DashboardFilters,
+        grain: DashScopeGrain
+    ) -> Bool {
+        grainMatchesSeat(rows, filters: filters, grain: grain)
+    }
+
+    /// Seat filters cannot be applied by matching grain labels
+    /// (`East Region` vs District 3). Rebuild from `PulseQuery.slice`.
     static func grainRowsScopedToFilter(
         _ rows: [HeartbeatMath.DashboardGrainTableRow],
         filters: DashboardFilters,
         grain _: DashScopeGrain = .region
     ) -> [HeartbeatMath.DashboardGrainTableRow] {
         guard filters.isActive else { return rows }
-        let scoped = rows.filter { grainRowMatchesFilter($0, filters: filters) }
-        return scoped
-    }
-
-    static func grainRowMatchesFilter(
-        _ row: HeartbeatMath.DashboardGrainTableRow,
-        filters: DashboardFilters
-    ) -> Bool {
-        if !filters.store.isEmpty {
-            return HeartbeatMath.canonicalStore(row.label) == HeartbeatMath.canonicalStore(filters.store)
-                || row.label.caseInsensitiveCompare(filters.store) == .orderedSame
-        }
-        if !filters.om.isEmpty {
-            return HeartbeatMath.canonicalOM(row.label).caseInsensitiveCompare(
-                HeartbeatMath.canonicalOM(filters.om)
-            ) == .orderedSame
-        }
-        if !filters.district.isEmpty {
-            return filters.includesDistrict(row.label)
-        }
-        if !filters.division.isEmpty {
-            return filters.includesDivision(row.label)
-                || row.label.caseInsensitiveCompare(filters.division) == .orderedSame
-        }
-        if !filters.region.isEmpty {
-            return row.label.caseInsensitiveCompare(filters.region) == .orderedSame
-                || filters.includesDivision(row.label)
-        }
-        return true
+        return []
     }
 
     /// Incoming paint must not drop a live picker (or any) expand table.
+    /// Under a seat filter, company region tables must not ride along.
     static func mergeLiveGrainTables(
         incoming: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]],
-        live: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]]
+        live: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]],
+        grain: DashScopeGrain = .region,
+        filtersActive: Bool = false
     ) -> [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] {
         var next = incoming
         for (section, rows) in live {
             let incomingLive = HeartbeatMath.grainRowsAreLive(next[section] ?? [])
             if incomingLive { continue }
-            if HeartbeatMath.grainRowsAreLive(rows) {
-                next[section] = rows
+            guard HeartbeatMath.grainRowsAreLive(rows) else { continue }
+            if filtersActive, !grainTableMatchesCurrent(labels: rows.map(\.label), grain: grain) {
+                continue
             }
+            next[section] = rows
         }
         return next
     }
@@ -520,7 +567,12 @@ enum PulseLaunch {
 
     /// Keep a live chrome/filter card when this paint has not loaded that section yet.
     /// Picker / Sales / Loss Revenue golds must not be replaced by an empty paint.
-    static func mergeDashboardSummaries(painted: [SectionSummary], live: [SectionSummary]) -> [SectionSummary] {
+    static func mergeDashboardSummaries(
+        painted: [SectionSummary],
+        live: [SectionSummary],
+        filtersActive: Bool = false
+    ) -> [SectionSummary] {
+        if filtersActive { return painted }
         let kept = Dictionary(uniqueKeysWithValues: live.map { ($0.section, $0) })
         return painted.map { card in
             guard let liveCard = kept[card.section] else { return card }
@@ -559,16 +611,66 @@ enum PulseLaunch {
         packs.contains { $0.line.count > 0 || (!$0.line.value.isEmpty && $0.line.value != "—") }
     }
 
+    static func grainPacksArePlaceholders(_ packs: [MetricSection: [DashScopePack]]) -> Bool {
+        let lines = packs.values.flatMap { $0 }
+        guard !lines.isEmpty else { return true }
+        return lines.allSatisfy { $0.line.value == "—" || $0.line.value.isEmpty }
+    }
+
     static func mergeDashboardPacks(
         incoming: [MetricSection: [DashScopePack]],
-        live: [MetricSection: [DashScopePack]]
+        live: [MetricSection: [DashScopePack]],
+        filtersActive: Bool = false
     ) -> [MetricSection: [DashScopePack]] {
+        if filtersActive {
+            if incoming.isEmpty || grainPacksArePlaceholders(incoming) {
+                return live.isEmpty ? incoming : live
+            }
+            return incoming
+        }
         var next = incoming
         if !pickerPacksAreLive(next[.pickerScorecard] ?? []),
            pickerPacksAreLive(live[.pickerScorecard] ?? []) {
             next[.pickerScorecard] = live[.pickerScorecard]
         }
         return next
+    }
+
+    /// One seat slice feeds every dashboard card, pack, grain table, and expand.
+    static func seatSlice(
+        warehouse: [MetricSection: [MetricRow]],
+        roster: [String: HeartbeatMath.StoreIdentity],
+        filters: DashboardFilters,
+        uploads: [UploadRecord] = [],
+        sessionRole: HeartbeatRole? = nil
+    ) -> PulseQuery.View {
+        PulseQuery.paint(
+            warehouse: warehouse,
+            roster: roster,
+            filters: filters,
+            grain: dashboardGrain(filters: filters, sessionRole: sessionRole),
+            uploads: uploads,
+            hidePicker: false,
+            light: false,
+            includePageOnly: true,
+            includeFlags: true
+        )
+    }
+
+    static func uniqueStores(in rows: [MetricRow]) -> Set<String> {
+        Set(rows.compactMap { row in
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            return store.isEmpty ? nil : store
+        })
+    }
+
+    static func summaryStoreCounts(
+        _ summaries: [SectionSummary],
+        sections: [MetricSection] = MetricSection.dashboardCards
+    ) -> [MetricSection: Int] {
+        Dictionary(uniqueKeysWithValues: sections.compactMap { section in
+            summaries.first { $0.section == section }.map { (section, $0.storeCount) }
+        })
     }
 
     /// O(1) store membership. Never `allowed.contains { sameStore }`.

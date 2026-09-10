@@ -1455,10 +1455,256 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseLaunch.dashboardExpandIsLive(section: .pickerScorecard, salesRows: [], grainRows: all))
         var jewelFilter = DashboardFilters()
         jewelFilter.division = "Jewel Osco"
-        let scoped = PulseLaunch.pickerExpandRows(from: chrome, filters: jewelFilter)
-        XCTAssertEqual(scoped.map(\.label), ["Jewel Osco"])
-        XCTAssertEqual(scoped.first?.storeCount, 80)
-        XCTAssertTrue(HeartbeatMath.grainRowsAreLive(scoped))
+        XCTAssertTrue(PulseLaunch.grainRowsScopedToFilter([jewel, south], filters: jewelFilter).isEmpty)
+        XCTAssertTrue(PulseLaunch.pickerExpandRows(from: chrome, filters: jewelFilter).isEmpty)
+        var districtFilter = DashboardFilters()
+        districtFilter.district = "03"
+        XCTAssertTrue(PulseLaunch.pickerExpandRows(from: chrome, filters: districtFilter).isEmpty)
+    }
+
+    func testSeatFilterKeepsStoreCountsAcrossEverySection() {
+        let districtStores = (1...20).map { String($0) }
+        let otherStores = ["9001", "9002"]
+        var roster: [String: HeartbeatMath.StoreIdentity] = [:]
+        for store in districtStores {
+            roster[store] = HeartbeatMath.StoreIdentity(
+                division: "NorCal", district: "03", om: "Jino Arvin", name: store
+            )
+        }
+        for store in otherStores {
+            roster[store] = HeartbeatMath.StoreIdentity(
+                division: "Jewel Osco", district: "J1", om: "Shelly Selof", name: store
+            )
+        }
+        func row(
+            _ section: MetricSection,
+            _ store: String,
+            payload: [String: Double],
+            extra: [String: String] = [:]
+        ) -> MetricRow {
+            let identity = roster[store]!
+            var text = extra
+            if text["district"] == nil { text["district"] = identity.district }
+            return MetricRow(
+                section: section,
+                division: identity.division,
+                operationsOM: identity.om,
+                storeNumber: store,
+                storeName: identity.name,
+                payload: payload,
+                textPayload: text
+            )
+        }
+        let allStores = districtStores + otherStores
+        var warehouse: [MetricSection: [MetricRow]] = [:]
+        warehouse[.sales] = allStores.map {
+            row(.sales, $0, payload: ["sales_dollars": 100, "sales_orders": 4], extra: ["sales_grain": "store"])
+        }
+        warehouse[.lostRevenue] = allStores.map {
+            row(.lostRevenue, $0, payload: ["lost_revenue": 10, "lost_revenue_pct": 2], extra: ["lost_grain": "store"])
+        }
+        warehouse[.labor] = allStores.map {
+            row(.labor, $0, payload: ["target_vs_actual_pct": -1], extra: ["labor_grain": "store"])
+        }
+        warehouse[.pickPath] = allStores.map {
+            row(.pickPath, $0, payload: ["compliance_pct": 92])
+        }
+        warehouse[.scheduleQuality] = allStores.map {
+            row(.scheduleQuality, $0, payload: ["schedule_efficiency_pct": 91])
+        }
+        warehouse[.missingItems] = allStores.map {
+            row(.missingItems, $0, payload: [MissingItemDept.totalKey: 4])
+        }
+        warehouse[.fiveStar] = allStores.map {
+            row(.fiveStar, $0, payload: ["star_rating": 4.8])
+        }
+        warehouse[.preSubOOS] = allStores.map {
+            row(.preSubOOS, $0, payload: [MissingItemDept.totalKey: 3])
+        }
+        warehouse[.prepNotReady] = allStores.map {
+            row(.prepNotReady, $0, payload: ["pnr_rate_pct": 1.5])
+        }
+        warehouse[.dynacap] = allStores.map {
+            row(.dynacap, $0, payload: ["dynacap_rate": 70])
+        }
+        warehouse[.pph] = allStores.map {
+            row(.pph, $0, payload: ["pph": 82])
+        }
+        warehouse[.pickerScorecard] = allStores.map {
+            row(
+                .pickerScorecard,
+                $0,
+                payload: ["pph": 80, "orders": 10],
+                extra: ["shopper_id": "\($0)-A", "shopper_name": "\($0)-A"]
+            )
+        }
+        let regionChrome = MarketRegion.allCases.map {
+            HeartbeatMath.DashboardGrainTableRow(
+                label: $0.rawValue,
+                storeCount: 400,
+                values: ["400", "200", "100", "100"],
+                health: .watch
+            )
+        }
+        var district = DashboardFilters()
+        district.district = "03"
+        let view = PulseLaunch.seatSlice(warehouse: warehouse, roster: roster, filters: district)
+        let counts = PulseLaunch.summaryStoreCounts(view.summaries)
+        let expected = Set(districtStores)
+        XCTAssertEqual(PulseCaches.allowedStores(roster: roster, filters: district), expected)
+        for section in MetricSection.dashboardCards {
+            XCTAssertEqual(counts[section], 20, "\(section.rawValue) card must keep all 20 District 03 stores")
+            XCTAssertEqual(
+                PulseLaunch.uniqueStores(in: view.filtered[section] ?? []),
+                expected,
+                "\(section.rawValue) slice dropped a District 03 store"
+            )
+            let table = view.tables[section] ?? []
+            XCTAssertTrue(HeartbeatMath.grainRowsAreLive(table), "\(section.rawValue) expand must be live")
+            XCTAssertEqual(table.count, 20, "\(section.rawValue) grain must list 20 stores, not company regions")
+            XCTAssertFalse(
+                table.contains { MarketRegion.allCases.map(\.rawValue).contains($0.label) },
+                "\(section.rawValue) must not keep East/South/CA/West chrome"
+            )
+            if section == .sales {
+                let salesRows = SalesRollupBuilder.dashboardRows(
+                    from: view.filtered[.sales] ?? [],
+                    grain: .store
+                )
+                XCTAssertTrue(PulseLaunch.salesExpandIsLive(salesRows))
+                XCTAssertEqual(salesRows.count, 20)
+            } else {
+                XCTAssertTrue(
+                    PulseLaunch.dashboardExpandIsLive(
+                        section: section,
+                        salesRows: [],
+                        grainRows: table,
+                        pickerFacts: section == .pickerScorecard ? 20 : 0
+                    ),
+                    "\(section.rawValue) chevron must open on the seat grain"
+                )
+            }
+        }
+        XCTAssertTrue(PulseLaunch.grainRowsScopedToFilter(regionChrome, filters: district).isEmpty)
+        let chrome = PulseDashChrome(
+            summaries: [
+                SectionSummary(
+                    section: .pickerScorecard,
+                    storeCount: 26_349,
+                    headline: 26_349,
+                    headlineLabel: "Shoppers",
+                    secondary: "",
+                    health: .watch,
+                    watchCount: 0,
+                    riskCount: 4_000,
+                    lastFilename: nil,
+                    lastUploadedAt: nil
+                )
+            ],
+            flags: [:],
+            packs: [:],
+            tables: [MetricSection.pickerScorecard.rawValue: regionChrome],
+            pickerShoppers: 26_349
+        )
+        XCTAssertTrue(PulseLaunch.pickerExpandRows(from: chrome, filters: district).isEmpty)
+        XCTAssertEqual(
+            PulseLaunch.pickerExpandFactCount(
+                filteredCount: 20,
+                warehouseSlicedCount: 20,
+                chromeCount: 26_349,
+                filtersActive: true
+            ),
+            20
+        )
+        let pickerTable = PulseLaunch.pickerExpandTable(
+            seatRows: view.filtered[.pickerScorecard] ?? [],
+            chrome: chrome,
+            filters: district,
+            grain: .store
+        )
+        XCTAssertTrue(HeartbeatMath.grainRowsAreLive(pickerTable))
+        XCTAssertEqual(pickerTable.count, 20)
+        XCTAssertTrue(
+            PulseLaunch.grainMatchesSeat(pickerTable, filters: district, grain: .store)
+        )
+        XCTAssertFalse(
+            PulseLaunch.grainMatchesSeat(regionChrome, filters: district, grain: .store)
+        )
+        let merged = PulseLaunch.mergeLiveGrainTables(
+            incoming: [.sales: view.tables[.sales] ?? []],
+            live: [.sales: regionChrome, .pickPath: regionChrome, .labor: regionChrome],
+            grain: .store,
+            filtersActive: true
+        )
+        XCTAssertFalse((merged[.sales] ?? []).contains { $0.label == "East Region" })
+        XCTAssertNil(merged[.pickPath])
+        XCTAssertNil(merged[.labor])
+        let companyPaint = PulseLaunch.mergeDashboardSummaries(
+            painted: view.summaries.filter { $0.section == .pickerScorecard },
+            live: [chrome.card(.pickerScorecard)!],
+            filtersActive: true
+        )
+        XCTAssertEqual(companyPaint.first?.storeCount, 20)
+        XCTAssertEqual(companyPaint.first?.headline ?? 0, 20, accuracy: 0.5)
+        let keptPlaceholders = PulseLaunch.mergeDashboardPacks(
+            incoming: PulseCaches.placeholderGrainPacks(grain: .store),
+            live: view.grains,
+            filtersActive: true
+        )
+        XCTAssertFalse(PulseLaunch.grainPacksArePlaceholders(keptPlaceholders))
+        var storeFilter = DashboardFilters()
+        storeFilter.store = districtStores[0]
+        let one = PulseLaunch.seatSlice(warehouse: warehouse, roster: roster, filters: storeFilter)
+        let oneCounts = PulseLaunch.summaryStoreCounts(one.summaries)
+        for section in MetricSection.dashboardCards {
+            XCTAssertEqual(oneCounts[section], 1, "\(section.rawValue) store filter must keep 1 store")
+            XCTAssertEqual(
+                PulseLaunch.uniqueStores(in: one.filtered[section] ?? []),
+                [districtStores[0]],
+                "\(section.rawValue) store filter leaked another store"
+            )
+        }
+        var region = DashboardFilters()
+        region.region = MarketRegion.california.rawValue
+        let california = PulseLaunch.seatSlice(warehouse: warehouse, roster: roster, filters: region)
+        for section in MetricSection.dashboardCards {
+            XCTAssertEqual(
+                PulseLaunch.summaryStoreCounts(california.summaries)[section],
+                20,
+                "\(section.rawValue) California seat must keep the NorCal book"
+            )
+        }
+        var om = DashboardFilters()
+        om.om = "Jino Arvin"
+        let omView = PulseLaunch.seatSlice(warehouse: warehouse, roster: roster, filters: om)
+        for section in MetricSection.dashboardCards {
+            XCTAssertEqual(
+                PulseLaunch.summaryStoreCounts(omView.summaries)[section],
+                20,
+                "\(section.rawValue) OM seat must keep Jino's 20 stores"
+            )
+        }
+        var division = DashboardFilters()
+        division.division = "Jewel Osco"
+        let jewel = PulseLaunch.seatSlice(warehouse: warehouse, roster: roster, filters: division)
+        for section in MetricSection.dashboardCards {
+            XCTAssertEqual(
+                PulseLaunch.summaryStoreCounts(jewel.summaries)[section],
+                2,
+                "\(section.rawValue) Jewel Osco seat must keep both J1 stores"
+            )
+        }
+        XCTAssertFalse(PulseLaunch.shouldMountHubUnderRoleGate())
+        XCTAssertFalse(PulseLaunch.shouldUsePagingScroll())
+        XCTAssertFalse(PulseLaunch.shouldRemountPageOnDestinationChange())
+        XCTAssertFalse(PulseLaunch.shouldStampHubWhenExpandCacheFills())
+        XCTAssertFalse(PulseLaunch.shouldStreamPickerOnDashboard())
+        XCTAssertEqual(
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: .labor, header: "Cost Tgt", text: "12.00%", rowHealth: .risk
+            ),
+            .none
+        )
     }
 
     func testPickerGrainPacksStayWhenFactsExistEvenIfHidePicker() {
@@ -2574,6 +2820,16 @@ final class HeartbeatMathTests: XCTestCase {
         let merged = PulseQuery.overlayPageOnlySummaries(painted: [sales, empty], live: [live])
         XCTAssertEqual(merged.first { $0.section == .pickerScorecard }?.storeCount, 12)
         XCTAssertEqual(merged.first { $0.section == .sales }?.storeCount, 10)
+        let seated = PulseQuery.overlayPageOnlySummaries(
+            painted: [sales, empty],
+            live: [live],
+            filtersActive: true
+        )
+        XCTAssertEqual(
+            seated.first { $0.section == .pickerScorecard }?.storeCount,
+            0,
+            "seat paint must not restore company picker chrome"
+        )
         let kept = PulseQuery.keepPageOnlyRows(
             painted: [.sales: []],
             live: [.pickerScorecard: [MetricRow(section: .pickerScorecard, division: "10", operationsOM: "A", storeNumber: "12", payload: ["pph": 40], textPayload: ["shopper_id": "A", "shopper_name": "A"])]]

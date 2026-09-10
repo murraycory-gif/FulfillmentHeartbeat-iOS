@@ -621,10 +621,22 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func pickerFactCount() -> Int {
-        let latest = (latestBySection[.pickerScorecard] ?? []).count
+        let filtered = (filteredLatest[.pickerScorecard] ?? []).count
+        let sliced = PulseQuery.sliceSection(
+            .pickerScorecard,
+            rows: latestBySection[.pickerScorecard] ?? [],
+            allowed: pickerStoreSet(),
+            filters: filters,
+            roster: roster
+        ).count
         let chrome = packChrome
         let head = Int(chrome?.card(.pickerScorecard)?.headline ?? 0)
-        return max(latest, chrome?.pickerShoppers ?? 0, head, packPickerFactCount)
+        return PulseLaunch.pickerExpandFactCount(
+            filteredCount: filtered,
+            warehouseSlicedCount: sliced,
+            chromeCount: max(chrome?.pickerShoppers ?? 0, head, packPickerFactCount),
+            filtersActive: filters.isActive
+        )
     }
 
     /// Fill expand caches off the tap turn. Writes cache only — no filterStamp.
@@ -643,15 +655,21 @@ final class HeartbeatStore: ObservableObject {
             adoptLiveSalesExpand(built.0, days: built.1)
             return
         }
-        if section == .pickerScorecard, let chrome = packChrome {
-            seedPickerGrainFromChrome(chrome)
+        if section == .pickerScorecard {
+            if filters.isActive {
+                await loadFilteredPickerExpandIfNeeded()
+            } else if let chrome = packChrome {
+                seedPickerGrainFromChrome(chrome)
+            }
         }
-        if let cached = cachedGrainTables[section], HeartbeatMath.grainRowsAreLive(cached) {
+        if let cached = cachedGrainTables[section],
+           HeartbeatMath.grainRowsAreLive(cached),
+           PulseLaunch.grainMatchesSeat(cached, filters: filters, grain: effectiveDashboardGrain) {
             return
         }
         let grain = effectiveDashboardGrain
         var source = HeartbeatMath.rowsFillingRoster(displayRows(for: section), roster: roster)
-        if source.isEmpty {
+        if source.isEmpty, !filters.isActive {
             source = HeartbeatMath.rowsFillingRoster(latestBySection[section] ?? [], roster: roster)
         }
         if section == .lostRevenue {
@@ -706,15 +724,33 @@ final class HeartbeatStore: ObservableObject {
     private func buildGrainTableNow(for section: MetricSection) -> [HeartbeatMath.DashboardGrainTableRow] {
         let grain = effectiveDashboardGrain
         var source = HeartbeatMath.rowsFillingRoster(displayRows(for: section), roster: roster)
-        if source.isEmpty {
+        if source.isEmpty, !filters.isActive {
             source = HeartbeatMath.rowsFillingRoster(latestBySection[section] ?? [], roster: roster)
         }
         if section == .lostRevenue, source.filter({ $0.number("lost_revenue") != nil }).isEmpty {
-            source = HeartbeatMath.rowsFillingRoster(latestOrFacts(for: .lostRevenue), roster: roster)
+            let facts = HeartbeatMath.rowsFillingRoster(latestOrFacts(for: .lostRevenue), roster: roster)
+            source = filters.isActive
+                ? PulseQuery.sliceSection(
+                    .lostRevenue,
+                    rows: facts,
+                    allowed: pickerStoreSet(),
+                    filters: filters,
+                    roster: roster
+                )
+                : facts
         }
         if section == .dynacap, source.filter({ $0.number("dynacap_rate", "pieces_per_hour") != nil }).isEmpty {
             let raw = (latestBySection[.dynacap] ?? []) + rows.filter { $0.section == .dynacap }
-            source = HeartbeatMath.materializeDynacap(raw, roster: roster)
+            let filled = HeartbeatMath.materializeDynacap(raw, roster: roster)
+            source = filters.isActive
+                ? PulseQuery.sliceSection(
+                    .dynacap,
+                    rows: filled,
+                    allowed: pickerStoreSet(),
+                    filters: filters,
+                    roster: roster
+                )
+                : filled
         }
         if section == .dynacap {
             source = HeartbeatMath.overlayStorePPH(
@@ -813,7 +849,12 @@ final class HeartbeatStore: ObservableObject {
 
     private func mergeGrainTables(_ tables: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]]) {
         var changed = false
-        let merged = PulseLaunch.mergeLiveGrainTables(incoming: tables, live: cachedGrainTables)
+        let merged = PulseLaunch.mergeLiveGrainTables(
+            incoming: tables,
+            live: cachedGrainTables,
+            grain: effectiveDashboardGrain,
+            filtersActive: filters.isActive
+        )
         for (section, rows) in merged where !rows.isEmpty {
             if !HeartbeatMath.grainRowsAreLive(rows),
                let keep = cachedGrainTables[section],
@@ -2943,6 +2984,7 @@ final class HeartbeatStore: ObservableObject {
         } else {
             invalidateFilteredGrainChrome()
         }
+        applySeatSliceNow()
         grainPaintSettled = false
         paintGeneration += 1
         pageOnlyGeneration = -1
@@ -2983,6 +3025,59 @@ final class HeartbeatStore: ObservableObject {
             }
             self.warmUnfilteredPulse()
         }
+    }
+
+    /// Rebuild every section card + expand from the seat slice. Never chrome labels.
+    private func applySeatSliceNow() {
+        guard filters.isActive else { return }
+        refreshFilterOptions()
+        let allowed = PulseCaches.allowedStores(roster: roster, filters: filters)
+        let grain = effectiveDashboardGrain
+        var latest: [MetricSection: [MetricRow]] = [:]
+        latest.reserveCapacity(MetricSection.dashboardCards.count)
+        for section in MetricSection.dashboardCards {
+            latest[section] = PulseQuery.sliceSection(
+                section,
+                rows: latestBySection[section] ?? [],
+                allowed: allowed,
+                filters: filters,
+                roster: roster
+            )
+        }
+        filteredLatest = latest
+        cachedSummaries = MetricSection.dashboardCards.map { section in
+            HeartbeatMath.summarize(
+                section,
+                rows: latest[section] ?? [],
+                upload: upload(for: section)
+            )
+        }
+        cachedCardFlags = PulseCaches.cardFlags(latest: latest)
+        let seatStores: [(number: String, name: String?)] = {
+            if let allowed {
+                return allowed.sorted(by: HeartbeatFormat.storeOrder).map {
+                    ($0, roster[HeartbeatMath.canonicalStore($0)]?.name)
+                }
+            }
+            return cachedStores
+        }()
+        let packs = PulseCaches.grainPacks(
+            latest: latest,
+            grain: grain,
+            hidePicker: false,
+            stores: seatStores,
+            roster: roster
+        )
+        cachedGrainPacks = packs
+        cachedGrainTables = PulseCaches.grainTables(
+            latest: latest,
+            grain: grain,
+            roster: roster,
+            packs: packs,
+            goalFallback: lostRevenueGoalFallbackValue()
+        )
+        refreshSalesExpandCache()
+        lockPickerDashboard()
     }
 
     /// Drop company-wide region tables so Share / expand cannot emit East/South/CA/West under a district filter.
@@ -3207,7 +3302,7 @@ final class HeartbeatStore: ObservableObject {
                 uploads: uploadsCopy,
                 hidePicker: true,
                 light: light,
-                includePageOnly: false,
+                includePageOnly: current.isActive,
                 includeFlags: includeFlags
             )
         }.value
@@ -3218,12 +3313,19 @@ final class HeartbeatStore: ObservableObject {
         let liveSummaries = cachedSummaries
         let liveFiltered = filteredLatest
         var next = view.filtered
-        next = PulseQuery.keepPageOnlyRows(painted: next, live: liveFiltered)
-        next = PulseQuery.mergeFilteredRows(painted: next, live: liveFiltered)
+        next = PulseQuery.keepPageOnlyRows(painted: next, live: liveFiltered, filtersActive: current.isActive)
+        next = current.isActive
+            ? next
+            : PulseQuery.mergeFilteredRows(painted: next, live: liveFiltered)
         filteredLatest = next
         cachedSummaries = PulseLaunch.mergeDashboardSummaries(
-            painted: PulseQuery.overlayPageOnlySummaries(painted: view.summaries, live: liveSummaries),
-            live: liveSummaries
+            painted: PulseQuery.overlayPageOnlySummaries(
+                painted: view.summaries,
+                live: liveSummaries,
+                filtersActive: current.isActive
+            ),
+            live: liveSummaries,
+            filtersActive: current.isActive
         )
         pinUnfilteredLostRevenueHeadline()
         if !view.flags.isEmpty {
@@ -3257,8 +3359,17 @@ final class HeartbeatStore: ObservableObject {
                     tables[section] = keep
                 }
             }
-            cachedGrainPacks = PulseLaunch.mergeDashboardPacks(incoming: view.grains, live: cachedGrainPacks)
-            cachedGrainTables = PulseLaunch.mergeLiveGrainTables(incoming: tables, live: cachedGrainTables)
+            cachedGrainPacks = PulseLaunch.mergeDashboardPacks(
+                incoming: view.grains,
+                live: cachedGrainPacks,
+                filtersActive: current.isActive
+            )
+            cachedGrainTables = PulseLaunch.mergeLiveGrainTables(
+                incoming: tables,
+                live: cachedGrainTables,
+                grain: grain,
+                filtersActive: current.isActive
+            )
             if let goal = lostRevenueGoalFallbackValue(),
                HeartbeatMath.grainTableNeedsGoalFill(cachedGrainTables[.lostRevenue] ?? []) {
                 cachedGrainTables[.lostRevenue] = HeartbeatMath.fillingLostRevenueGoal(
@@ -3268,7 +3379,11 @@ final class HeartbeatStore: ObservableObject {
             }
             grainPaintSettled = true
         } else if cachedGrainPacks.isEmpty || filterPaint {
-            cachedGrainPacks = PulseLaunch.mergeDashboardPacks(incoming: view.grains, live: cachedGrainPacks)
+            cachedGrainPacks = PulseLaunch.mergeDashboardPacks(
+                incoming: view.grains,
+                live: cachedGrainPacks,
+                filtersActive: current.isActive
+            )
         }
         lockPickerDashboard()
         usingPackChrome = false
@@ -3605,6 +3720,7 @@ final class HeartbeatStore: ObservableObject {
             if !filters.includesDivision(identity.division) { continue }
             if !filters.includesDistrict(identity.district) { continue }
             if !filters.includesOM(identity.om) { continue }
+            if !filters.includesStore(number) { continue }
             if seen[number] == nil { seen[number] = identity.name }
         }
         cachedStores = seen.keys.sorted(by: HeartbeatFormat.storeOrder).map { ($0, seen[$0] ?? nil) }
@@ -3929,8 +4045,12 @@ final class HeartbeatStore: ObservableObject {
             }
             cachedGrainPacks = next
         }
-        seedExpandTablesFromChrome(chrome)
-        seedPickerGrainFromChrome(chrome)
+        if filters.isActive {
+            applySeatSliceNow()
+        } else {
+            seedExpandTablesFromChrome(chrome)
+            seedPickerGrainFromChrome(chrome)
+        }
         if chrome.pickerShoppers > 0 {
             cachedPickerBoard = HeartbeatMath.PickerBoard(
                 shopperCount: chrome.pickerShoppers,
@@ -3950,13 +4070,13 @@ final class HeartbeatStore: ObservableObject {
     /// Pack chrome already has live expand numbers. Seed them on the first
     /// frame so gold / chevron do not wait for a second tap.
     private func seedExpandTablesFromChrome(_ chrome: PulseDashChrome) {
+        guard !filters.isActive else { return }
         guard !chrome.tables.isEmpty else { return }
         var incoming: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] = [:]
         for (key, rows) in chrome.tables {
             guard let section = MetricSection(rawValue: key) else { continue }
-            let scoped = PulseLaunch.grainRowsScopedToFilter(rows, filters: filters)
-            if HeartbeatMath.grainRowsAreLive(scoped) {
-                incoming[section] = scoped
+            if HeartbeatMath.grainRowsAreLive(rows) {
+                incoming[section] = rows
             }
         }
         cachedGrainTables = PulseLaunch.mergeLiveGrainTables(incoming: incoming, live: cachedGrainTables)
@@ -3965,14 +4085,10 @@ final class HeartbeatStore: ObservableObject {
     /// Picker rows stay out of dashboard `displayRows` (Jetsam). Prefill expand
     /// from chrome so the chevron is never permanently light-blue inert.
     private func seedPickerGrainFromChrome(_ chrome: PulseDashChrome) {
+        guard !filters.isActive else { return }
         if let cached = cachedGrainTables[.pickerScorecard],
            HeartbeatMath.grainRowsAreLive(cached) {
-            if !filters.isActive { return }
-            let scoped = PulseLaunch.grainRowsScopedToFilter(cached, filters: filters)
-            if HeartbeatMath.grainRowsAreLive(scoped) {
-                cachedGrainTables[.pickerScorecard] = scoped
-                return
-            }
+            return
         }
         let table = PulseLaunch.pickerExpandRows(
             from: chrome,
@@ -3988,13 +4104,58 @@ final class HeartbeatStore: ObservableObject {
     /// shoppers over a 26,349 pack total. Never stamps the hub.
     private func lockPickerDashboard() {
         let allowed = pickerStoreSet()
-        let latest = PulseQuery.sliceSection(
-            .pickerScorecard,
-            rows: latestBySection[.pickerScorecard] ?? [],
+        let latest = PulseLaunch.pickerSeatRows(
+            filtered: filteredLatest[.pickerScorecard] ?? [],
+            warehouse: latestBySection[.pickerScorecard] ?? [],
             allowed: allowed,
             filters: filters,
             roster: roster
         )
+        let grain = effectiveDashboardGrain
+        if filters.isActive {
+            if !latest.isEmpty {
+                filteredLatest[.pickerScorecard] = latest
+                upsertPickerSummary(
+                    HeartbeatMath.summarize(
+                        .pickerScorecard,
+                        rows: latest,
+                        upload: upload(for: .pickerScorecard)
+                    )
+                )
+                cachedCardFlags[.pickerScorecard] = HeartbeatMath.dashboardActionFlags(
+                    section: .pickerScorecard,
+                    rows: latest,
+                    includeAll: true
+                )
+                cachedPickerBoard = HeartbeatMath.pickerBoard(latest)
+            }
+            let table = PulseLaunch.pickerExpandTable(
+                seatRows: latest,
+                chrome: nil,
+                filters: filters,
+                grain: grain
+            )
+            if HeartbeatMath.grainRowsAreLive(table) {
+                cachedGrainTables[.pickerScorecard] = table
+                let packs = PulseCaches.grainPacks(
+                    latest: [.pickerScorecard: latest],
+                    grain: grain,
+                    hidePicker: false,
+                    stores: cachedStores,
+                    roster: roster
+                )[.pickerScorecard] ?? []
+                if PulseLaunch.pickerPacksAreLive(packs) {
+                    cachedGrainPacks[.pickerScorecard] = packs
+                }
+            } else if !PulseLaunch.grainMatchesSeat(
+                cachedGrainTables[.pickerScorecard] ?? [],
+                filters: filters,
+                grain: grain
+            ) {
+                cachedGrainTables[.pickerScorecard] = []
+            }
+            return
+        }
         if !latest.isEmpty {
             let painted = HeartbeatMath.summarize(
                 .pickerScorecard,
@@ -4002,7 +4163,7 @@ final class HeartbeatStore: ObservableObject {
                 upload: upload(for: .pickerScorecard)
             )
             let chromeHead = Double(max(packChrome?.pickerShoppers ?? 0, Int(packChrome?.card(.pickerScorecard)?.headline ?? 0), packPickerFactCount))
-            if filters.isActive || (painted.headline ?? 0) >= chromeHead {
+            if (painted.headline ?? 0) >= chromeHead {
                 upsertPickerSummary(painted)
                 cachedCardFlags[.pickerScorecard] = HeartbeatMath.dashboardActionFlags(
                     section: .pickerScorecard,
@@ -4013,22 +4174,15 @@ final class HeartbeatStore: ObservableObject {
             } else if let chrome = packChrome, let card = PulseLaunch.pickerSummaryFromChrome(chrome) {
                 upsertPickerSummary(card)
             }
-            let grain = effectiveDashboardGrain
-            let table = HeartbeatMath.dashboardGrainTableFilled(
-                section: .pickerScorecard,
-                rows: latest,
+            let table = PulseLaunch.pickerExpandTable(
+                seatRows: latest,
+                chrome: packChrome,
+                filters: filters,
                 grain: grain,
-                order: cachedGrainPacks[.pickerScorecard]?.map(\.line.label) ?? []
+                packOrder: cachedGrainPacks[.pickerScorecard]?.map(\.line.label) ?? []
             )
-            let chromeTable = packChrome.map {
-                PulseLaunch.pickerExpandRows(from: $0, filters: filters, grain: grain)
-            } ?? []
-            let chromeLive = HeartbeatMath.grainRowsAreLive(chromeTable)
-            let latestIsBook = filters.isActive || Double(latest.count) >= chromeHead * 0.5
-            if HeartbeatMath.grainRowsAreLive(table), latestIsBook || !chromeLive {
+            if HeartbeatMath.grainRowsAreLive(table) {
                 cachedGrainTables[.pickerScorecard] = table
-            } else if chromeLive {
-                cachedGrainTables[.pickerScorecard] = chromeTable
             }
             let packs = PulseCaches.grainPacks(
                 latest: [.pickerScorecard: latest],
@@ -4036,7 +4190,7 @@ final class HeartbeatStore: ObservableObject {
                 hidePicker: false,
                 roster: roster
             )[.pickerScorecard] ?? []
-            if PulseLaunch.pickerPacksAreLive(packs), latestIsBook {
+            if PulseLaunch.pickerPacksAreLive(packs), Double(latest.count) >= chromeHead * 0.5 {
                 cachedGrainPacks[.pickerScorecard] = packs
             }
         } else if let chrome = packChrome {
@@ -4066,6 +4220,10 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func prefetchPickerDashboardIfNeeded() async {
+        if filters.isActive {
+            await loadFilteredPickerExpandIfNeeded()
+            return
+        }
         lockPickerDashboard()
         if HeartbeatMath.grainRowsAreLive(cachedGrainTables[.pickerScorecard] ?? []),
            (cachedSummaries.first(where: { $0.section == .pickerScorecard })?.headline ?? 0) > 0 {
@@ -4086,6 +4244,37 @@ final class HeartbeatStore: ObservableObject {
             latestBySection[.pickerScorecard] = rows
         }
         lockPickerDashboard()
+    }
+
+    private func loadFilteredPickerExpandIfNeeded() async {
+        lockPickerDashboard()
+        let grain = effectiveDashboardGrain
+        if PulseLaunch.grainMatchesSeat(
+            cachedGrainTables[.pickerScorecard] ?? [],
+            filters: filters,
+            grain: grain
+        ), !(filteredLatest[.pickerScorecard] ?? []).isEmpty {
+            return
+        }
+        let allowed = pickerStoreSet() ?? []
+        guard filters.isActive, !allowed.isEmpty, PulseSQLite.exists(at: sqliteURL) else { return }
+        let url = sqliteURL
+        let stores = allowed
+        let rosterCopy = roster
+        let rows = await Task.detached(priority: .userInitiated) { () -> [MetricRow] in
+            let raw = PulseSQLite.readStores(from: url, sections: [.pickerScorecard], stores: stores)
+            return HeartbeatMath.applyRoster(HeartbeatMath.latestPerShopper(raw), roster: rosterCopy)
+        }.value
+        guard !rows.isEmpty else { return }
+        filteredLatest[.pickerScorecard] = rows
+        latestBySection[.pickerScorecard] = PulseLaunch.mergePickerRows(
+            existing: latestBySection[.pickerScorecard] ?? [],
+            incoming: rows
+        )
+        lockPickerDashboard()
+        if HeartbeatMath.grainRowsAreLive(cachedGrainTables[.pickerScorecard] ?? []) {
+            objectWillChange.send()
+        }
     }
 
     @discardableResult
