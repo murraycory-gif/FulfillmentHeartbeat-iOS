@@ -265,13 +265,16 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func applyRestoredLaunchFiltersIfNeeded() {
-        guard !needsRolePick, !filters.isActive,
-              let pending = pendingLaunchFilters, pending.isActive
-        else { return }
+        let decision = PulseLaunch.consumePendingLaunchFilters(
+            pending: pendingLaunchFilters,
+            filtersActive: filters.isActive,
+            needsRolePick: needsRolePick
+        )
+        pendingLaunchFilters = decision.remaining
+        guard let pending = decision.apply else { return }
         hydrating = true
         filters = pending
         hydrating = false
-        pendingLaunchFilters = nil
         invalidateFilteredGrainChrome()
     }
 
@@ -784,16 +787,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     var effectiveDashboardGrain: DashScopeGrain {
-        if !filters.store.isEmpty || !filters.om.isEmpty || !filters.district.isEmpty {
-            return .store
-        }
-        if !filters.division.isEmpty {
-            return .district
-        }
-        if !filters.region.isEmpty {
-            return .division
-        }
-        return sessionRole?.dashboardGrain ?? .region
+        PulseLaunch.dashboardGrain(filters: filters, sessionRole: sessionRole)
     }
 
     var pickerBoard: HeartbeatMath.PickerBoard { cachedPickerBoard }
@@ -1753,6 +1747,9 @@ final class HeartbeatStore: ObservableObject {
             next.store = store
         }
         next.sanitize()
+        if PulseLaunch.shouldDiscardPendingLaunchFiltersOnRolePick() {
+            pendingLaunchFilters = nil
+        }
         let filterChanged = filters != next
         if filterChanged {
             filters = next
@@ -1769,7 +1766,13 @@ final class HeartbeatStore: ObservableObject {
     func finishRoleGate() {
         needsRolePick = false
         noteHubInteractive()
-        if let pending = pendingLaunchFilters, pending.isActive, !filters.isActive {
+        let decision = PulseLaunch.consumePendingLaunchFilters(
+            pending: pendingLaunchFilters,
+            filtersActive: filters.isActive,
+            needsRolePick: false
+        )
+        pendingLaunchFilters = decision.remaining
+        if let pending = decision.apply {
             filters = pending
         }
     }
@@ -1797,11 +1800,18 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func clearFilters() {
+        if PulseLaunch.shouldDiscardPendingLaunchFiltersOnClear() {
+            pendingLaunchFilters = nil
+        }
         hydrating = true
         filters = DashboardFilters()
         hydrating = false
         persistFilters()
         applyFilters()
+        refreshFilterOptions()
+        if PulseLaunch.shouldAcknowledgeFilterClearImmediately(previousActive: true, nextActive: false) {
+            filterStamp += 1
+        }
     }
 
     func loadSampleMarket() {
@@ -2779,7 +2789,15 @@ final class HeartbeatStore: ObservableObject {
         if PulseLaunch.shouldRestoreUnfilteredPulseOnClear(hasCompanyWideCache: unfilteredPulseIsReady(unfilteredPulse)),
            let pulse = unfilteredPulse {
             install(pulse)
-            if pulse.grainTables.values.allSatisfy(\.isEmpty) {
+            let grainLabels = pulse.grainTables[.sales]?.map(\.label)
+                ?? pulse.grainTables[.scheduleQuality]?.map(\.label)
+                ?? pulse.grainTables.values.first(where: { !$0.isEmpty })?.map(\.label)
+                ?? []
+            if pulse.grainTables.values.allSatisfy(\.isEmpty)
+                || !PulseLaunch.grainTableMatchesCurrent(
+                    labels: grainLabels,
+                    grain: PulseLaunch.unfilteredDashboardGrain()
+                ) {
                 applyUnfilteredGrainFromWarehouse()
             }
             return true
@@ -3230,7 +3248,7 @@ final class HeartbeatStore: ObservableObject {
         let uploadsCopy = uploads
         let laborMarket = laborMarketRow()
         let lostMarket = lostRevenueMarketRow()
-        let grain = sessionRole?.dashboardGrain ?? .region
+        let grain = PulseLaunch.unfilteredDashboardGrain()
         let generation = pulseGeneration
         unfilteredWarmTask = Task.detached(priority: .utility) {
             let caches = PulseCaches.refilter(

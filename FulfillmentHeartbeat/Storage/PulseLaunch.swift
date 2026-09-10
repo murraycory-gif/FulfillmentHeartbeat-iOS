@@ -150,6 +150,39 @@ enum PulseLaunch {
         previousActive && !nextActive
     }
 
+    /// Company-wide chrome is always Regions 4 — never the last seat's store grain.
+    static func shouldUseCompanyGrainWhenFiltersClear() -> Bool { true }
+
+    /// Unfiltered pulse / Clear restore must paint East / South / California / West.
+    static func unfilteredDashboardGrain() -> DashScopeGrain { .region }
+
+    /// Seat grain only while a filter is on. Clear returns the 4-region book.
+    static func dashboardGrain(filters: DashboardFilters, sessionRole: HeartbeatRole?) -> DashScopeGrain {
+        if !filters.store.isEmpty || !filters.om.isEmpty || !filters.district.isEmpty {
+            return .store
+        }
+        if !filters.division.isEmpty { return .district }
+        if !filters.region.isEmpty { return .division }
+        if shouldUseCompanyGrainWhenFiltersClear() { return .region }
+        return sessionRole?.dashboardGrain ?? .region
+    }
+
+    /// Last-seat pending filters apply once. Clear / a new seat pick must not bounce them back.
+    static func shouldDiscardPendingLaunchFiltersOnClear() -> Bool { true }
+
+    static func shouldDiscardPendingLaunchFiltersOnRolePick() -> Bool { true }
+
+    static func consumePendingLaunchFilters(
+        pending: DashboardFilters?,
+        filtersActive: Bool,
+        needsRolePick: Bool
+    ) -> (apply: DashboardFilters?, remaining: DashboardFilters?) {
+        if needsRolePick { return (nil, pending) }
+        guard let pending, pending.isActive else { return (nil, nil) }
+        if filtersActive { return (nil, nil) }
+        return (pending, nil)
+    }
+
     /// Changing filters can coalesce; clear-all paints with no extra wait.
     static func filterPaintDelayNanoseconds(clearingAll: Bool) -> UInt64 {
         clearingAll ? 0 : 32_000_000

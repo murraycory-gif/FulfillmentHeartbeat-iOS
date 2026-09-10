@@ -974,6 +974,7 @@ struct FilterBar: View {
     @State private var sheetFocus: FilterFocus?
 
     var body: some View {
+        let stamp = store.filterStamp
         HStack(spacing: 8) {
             if !compactPills, store.filters.isActive {
                 Button("Clear") { clearNow() }
@@ -988,6 +989,7 @@ struct FilterBar: View {
                 }
             }
         }
+        .id(stamp)
         .fullScreenCover(item: $sheetFocus) { focus in
             FilterSheet(initialFocus: focus)
                 .environmentObject(store)
@@ -1039,18 +1041,13 @@ struct FilterBar: View {
     }
 
     private func pillTitle(for focus: FilterFocus) -> String {
-        let values = store.filters.values(for: focus)
-        if values.isEmpty { return focus.chipTitle }
-        if values.count == 1 { return HeartbeatMath.displayGrainLabel(values[0]) }
-        return "\(HeartbeatMath.displayGrainLabel(values[0])) +\(values.count - 1)"
+        store.filters.chipTitle(for: focus)
     }
 
     private var compactFilterTitle: String {
         let active = FilterFocus.allCases.compactMap { focus -> String? in
-            let values = store.filters.values(for: focus)
-            if values.isEmpty { return nil }
-            if values.count == 1 { return HeartbeatMath.displayGrainLabel(values[0]) }
-            return "\(HeartbeatMath.displayGrainLabel(values[0])) +\(values.count - 1)"
+            let title = store.filters.chipTitle(for: focus)
+            return title == focus.chipTitle ? nil : title
         }
         if active.isEmpty { return "Filters" }
         if active.count == 1 { return active[0] }

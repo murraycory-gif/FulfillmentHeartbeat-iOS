@@ -4406,6 +4406,14 @@ extension DashboardFilters {
         }
     }
 
+    /// Pill copy. Empty focus always shows Region / Division / District / OM / Store.
+    func chipTitle(for focus: FilterFocus) -> String {
+        let selected = values(for: focus)
+        if selected.isEmpty { return focus.chipTitle }
+        if selected.count == 1 { return HeartbeatMath.displayGrainLabel(selected[0]) }
+        return "\(HeartbeatMath.displayGrainLabel(selected[0])) +\(selected.count - 1)"
+    }
+
     mutating func toggle(_ value: String, in focus: FilterFocus) {
         if value.isEmpty {
             switch focus {

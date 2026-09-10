@@ -657,6 +657,28 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     @MainActor
+    func testClearFiltersResetsChromeAndCompanyGrain() {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = HeartbeatStore(rootURL: root)
+        store.applyLaunchRole(.districtManager, district: "03")
+        XCTAssertEqual(store.filters.district, "03")
+        XCTAssertEqual(store.filters.chipTitle(for: .district), "03")
+        XCTAssertEqual(store.effectiveDashboardGrain, .store)
+        store.clearFilters()
+        XCTAssertFalse(store.filters.isActive)
+        for focus in FilterFocus.allCases {
+            XCTAssertTrue(store.filters.values(for: focus).isEmpty, focus.rawValue)
+            XCTAssertEqual(store.filters.chipTitle(for: focus), focus.chipTitle, focus.rawValue)
+        }
+        XCTAssertEqual(store.effectiveDashboardGrain, .region)
+        store.applyLaunchRole(.om, om: "Pat Lee")
+        XCTAssertEqual(store.effectiveDashboardGrain, .store)
+        store.clearFilters()
+        XCTAssertEqual(store.effectiveDashboardGrain, .region)
+        XCTAssertEqual(store.filters.chipTitle(for: .om), "OM")
+    }
+
+    @MainActor
     func testChecklistReadyAfterEveryKPIHasStatus() {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = HeartbeatStore(rootURL: root)
@@ -1835,6 +1857,58 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseLaunch.shouldAcknowledgeFilterClearImmediately(previousActive: true, nextActive: false))
         XCTAssertFalse(PulseLaunch.shouldAcknowledgeFilterClearImmediately(previousActive: false, nextActive: false))
         XCTAssertFalse(PulseLaunch.shouldAcknowledgeFilterClearImmediately(previousActive: true, nextActive: true))
+        XCTAssertTrue(PulseLaunch.shouldUseCompanyGrainWhenFiltersClear())
+        XCTAssertEqual(PulseLaunch.unfilteredDashboardGrain(), .region)
+        XCTAssertTrue(PulseLaunch.shouldDiscardPendingLaunchFiltersOnClear())
+        XCTAssertTrue(PulseLaunch.shouldDiscardPendingLaunchFiltersOnRolePick())
+        var districtSeat = DashboardFilters()
+        districtSeat.district = "03"
+        XCTAssertEqual(
+            PulseLaunch.dashboardGrain(filters: districtSeat, sessionRole: .districtManager),
+            .store
+        )
+        XCTAssertEqual(
+            PulseLaunch.dashboardGrain(filters: DashboardFilters(), sessionRole: .districtManager),
+            .region
+        )
+        XCTAssertEqual(
+            PulseLaunch.dashboardGrain(filters: DashboardFilters(), sessionRole: .om),
+            .region
+        )
+        let bounce = PulseLaunch.consumePendingLaunchFilters(
+            pending: districtSeat,
+            filtersActive: false,
+            needsRolePick: false
+        )
+        XCTAssertEqual(bounce.apply?.district, "03")
+        XCTAssertNil(bounce.remaining)
+        let afterClear = PulseLaunch.consumePendingLaunchFilters(
+            pending: nil,
+            filtersActive: false,
+            needsRolePick: false
+        )
+        XCTAssertNil(afterClear.apply)
+        XCTAssertNil(afterClear.remaining)
+        let alreadySeated = PulseLaunch.consumePendingLaunchFilters(
+            pending: districtSeat,
+            filtersActive: true,
+            needsRolePick: false
+        )
+        XCTAssertNil(alreadySeated.apply)
+        XCTAssertNil(alreadySeated.remaining)
+        let waitingForSeat = PulseLaunch.consumePendingLaunchFilters(
+            pending: districtSeat,
+            filtersActive: false,
+            needsRolePick: true
+        )
+        XCTAssertNil(waitingForSeat.apply)
+        XCTAssertEqual(waitingForSeat.remaining?.district, "03")
+        XCTAssertEqual(DashboardFilters().chipTitle(for: .region), "Region")
+        XCTAssertEqual(DashboardFilters().chipTitle(for: .division), "Division")
+        XCTAssertEqual(DashboardFilters().chipTitle(for: .district), "District")
+        XCTAssertEqual(DashboardFilters().chipTitle(for: .om), "OM")
+        XCTAssertEqual(DashboardFilters().chipTitle(for: .store), "Store")
+        XCTAssertEqual(districtSeat.chipTitle(for: .district), "03")
         XCTAssertEqual(PulseLaunch.filterPaintDelayNanoseconds(clearingAll: true), 0)
         XCTAssertGreaterThan(PulseLaunch.filterPaintDelayNanoseconds(clearingAll: false), 0)
         XCTAssertLessThan(PulseLaunch.filterPaintDelayNanoseconds(clearingAll: false), PulseLaunch.grainPaintDelayNanoseconds)
@@ -1859,6 +1933,7 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(PulseLaunch.grainTableMatchesCurrent(labels: ["East Region", "West Region"], grain: .store))
         XCTAssertFalse(PulseLaunch.grainTableMatchesCurrent(labels: ["East Region"], grain: .district))
         XCTAssertTrue(PulseLaunch.grainTableMatchesCurrent(labels: ["East Region", "South Region"], grain: .region))
+        XCTAssertFalse(PulseLaunch.grainTableMatchesCurrent(labels: ["1490 | NorCal", "304 | NorCal"], grain: .region))
         XCTAssertTrue(PulseLaunch.grainTableMatchesCurrent(labels: ["03", "304"], grain: .store))
         XCTAssertFalse(PulseLaunch.flagsMatchFilter(flagStores: [1841, 77, 243], scopedStores: 20))
         XCTAssertTrue(PulseLaunch.flagsMatchFilter(flagStores: [18, 2], scopedStores: 20))
@@ -2870,6 +2945,64 @@ final class HeartbeatMathTests: XCTestCase {
             DashboardFilters.display("J3CHICAGO", empty: "All districts", prefix: "District "),
             "District J3"
         )
+    }
+
+    func testCompanyWideScheduleQualityKeepsCaliforniaRegion() {
+        let east = MetricRow(
+            section: .scheduleQuality,
+            division: "Jewel Osco",
+            operationsOM: "C",
+            storeNumber: "100",
+            payload: ["schedule_efficiency_pct": 80, "under_schedule_pct": 2, "over_schedule_pct": 1],
+            textPayload: ["district": "J3"]
+        )
+        let caTotal = MetricRow(
+            section: .scheduleQuality,
+            division: "California",
+            operationsOM: "",
+            storeNumber: "",
+            payload: ["schedule_efficiency_pct": 88, "under_schedule_pct": 3, "over_schedule_pct": 1]
+        )
+        XCTAssertTrue(PulseQuery.isStoreFact(caTotal))
+        let merged = PulseQuery.fillMissingRegions(
+            existing: [east],
+            facts: [east, caTotal],
+            section: .scheduleQuality
+        )
+        XCTAssertTrue(merged.contains { $0.division == "California" && $0.storeNumber.isEmpty })
+        let order = MarketRegion.allCases.map(\.rawValue)
+        let table = HeartbeatMath.dashboardGrainTableFilled(
+            section: .scheduleQuality,
+            rows: merged,
+            grain: .region,
+            order: order
+        )
+        XCTAssertEqual(table.map(\.label), order)
+        let california = table.first { $0.label == MarketRegion.california.rawValue }
+        XCTAssertGreaterThan(california?.storeCount ?? 0, 0)
+        XCTAssertNotEqual(california?.values.first, "—")
+        XCTAssertTrue(california?.values.contains("88.00%") == true || california?.values.first?.contains("88") == true, "\(california?.values ?? [])")
+        let prepared = PulseQuery.prepareWarehouse(
+            warehouse: [.scheduleQuality: [east]],
+            roster: ["100": .init(division: "Jewel Osco", district: "J3", om: "C", name: nil)],
+            filters: DashboardFilters(),
+            rawRows: [east, caTotal],
+            pickers: [],
+            bundledFacts: [caTotal],
+            scopedLost: nil
+        )
+        let painted = PulseQuery.paint(
+            warehouse: prepared,
+            roster: ["100": .init(division: "Jewel Osco", district: "J3", om: "C", name: nil)],
+            filters: DashboardFilters(),
+            grain: .region,
+            uploads: [],
+            hidePicker: true,
+            light: false
+        )
+        let labels = (painted.tables[.scheduleQuality] ?? []).map(\.label)
+        XCTAssertFalse(labels.isEmpty)
+        XCTAssertTrue(labels.contains(MarketRegion.california.rawValue), "\(labels)")
     }
 
     func testShareDashboardMatchesOnScreenCalloutsAndOpensWithoutHTML() {
