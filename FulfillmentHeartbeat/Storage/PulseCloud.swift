@@ -222,6 +222,27 @@ enum PulseCloud {
         try await uploadObject(factsObject, data: data, contentType: "application/json")
     }
 
+    /// Upload `packs/manifest.json` plus every company / district / store seat sqlite.
+    static func publishSeatPacks(root: URL, manifest: PulseSeatPack.Manifest) async throws {
+        let manifestURL = root.appendingPathComponent(PulseSeatPack.manifestObject)
+        let manifestData: Data
+        if let disk = try? Data(contentsOf: manifestURL), !disk.isEmpty {
+            manifestData = disk
+        } else {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            manifestData = try encoder.encode(manifest)
+        }
+        try await uploadObject(PulseSeatPack.manifestObject, data: manifestData, contentType: "application/json")
+        for entry in manifest.allEntries {
+            let file = root.appendingPathComponent(entry.path)
+            guard PulseSeatPack.isUsable(at: file) else { throw PulseCloudError.upload }
+            let data = try Data(contentsOf: file, options: [.mappedIfSafe])
+            try await uploadObject(entry.path, data: data, contentType: "application/octet-stream")
+        }
+        invalidateObjectList()
+    }
+
     static func downloadFacts() async throws -> Data {
         try await downloadNamed(factsObject)
     }

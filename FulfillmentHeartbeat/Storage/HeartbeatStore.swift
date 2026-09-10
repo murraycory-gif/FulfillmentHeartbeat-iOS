@@ -2194,11 +2194,11 @@ final class HeartbeatStore: ObservableObject {
         if !PulseSeatPack.isUsable(at: dest) {
             _ = await downloadSeatPack(key, to: dest)
         }
-        if !PulseSeatPack.isUsable(at: dest) {
+        if !PulseSeatPack.isUsable(at: dest), PulseSeatPack.shouldMaterializeMissingSeat() {
             _ = materializeSeatFromCompany(key, to: dest)
         }
         guard PulseSeatPack.isUsable(at: dest) else {
-            errorMessage = "Could not open the \(key.grain.rawValue) pack."
+            errorMessage = PulseSeatPack.missingSeatMessage(key)
             return
         }
         if !PulseSeatPack.shouldMergeSeatWithCompanyOnSwap() {
@@ -2340,8 +2340,10 @@ final class HeartbeatStore: ObservableObject {
         }
     }
 
+    /// Kitchen only. Field iPad Release must fail instead of calling this.
     @discardableResult
     private func materializeSeatFromCompany(_ key: PulseSeatPack.Key, to dest: URL) -> Bool {
+        guard PulseSeatPack.shouldMaterializeMissingSeat() else { return false }
         guard PulseSQLite.exists(at: companySQLiteURL) else { return false }
         do {
             _ = try PulseSeatPack.materialize(
@@ -2744,14 +2746,18 @@ final class HeartbeatStore: ObservableObject {
     private func publishCloudPack() {
         publishFacts()
         guard Self.hasFullScorecards(rows) else { return }
-        let url = sqliteURL
+        let companyURL = companySQLiteURL
         let cardsPath = cardsURL
         let cards = PulseCards.from(board: cachedPickerBoard)
+        let packRows = rows
+        let packUploads = uploads
+        let packRoot = rootURL.appendingPathComponent("packs", isDirectory: true)
+        let appRoot = rootURL
         Task.detached(priority: .utility) {
-            var data = try? Data(contentsOf: url)
+            var data = try? Data(contentsOf: companyURL)
             if data == nil || (data?.count ?? 0) < 1_000 {
                 try? await Task.sleep(nanoseconds: 800_000_000)
-                data = try? Data(contentsOf: url)
+                data = try? Data(contentsOf: companyURL)
             }
             guard let data, data.count > 1_000 else { return }
             try? PulseCards.write(cards, to: cardsPath)
@@ -2764,6 +2770,23 @@ final class HeartbeatStore: ObservableObject {
             }
             await MainActor.run {
                 UserDefaults.standard.set(data.count, forKey: "hb.cloudPackBytes")
+            }
+            guard PulseSeatPack.shouldPublishSeatPlaneFromCook() else { return }
+            do {
+                let manifest = try PulseSeatPack.cookPublished(
+                    rows: packRows,
+                    uploads: packUploads,
+                    packRoot: packRoot,
+                    includeStores: PulseSeatPack.shouldCookEveryStoreSeat()
+                )
+                try await PulseCloud.publishSeatPacks(root: appRoot, manifest: manifest)
+                await MainActor.run {
+                    UserDefaults.standard.set(manifest.allEntries.count, forKey: "hb.cloudSeatPackCount")
+                }
+            } catch {
+                await MainActor.run {
+                    self.errorMessage = "Seat packs did not publish. \(error.localizedDescription)"
+                }
             }
         }
     }

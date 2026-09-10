@@ -2159,6 +2159,81 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(PulseSeatPack.Key(grain: .district, id: "03").dashboardGrain, .store)
         XCTAssertFalse(PulseLaunch.shouldPlaySeatLoadHalloween())
         XCTAssertEqual(PulseSeatPack.deviceCacheCeilingBytes, 250_000_000)
+        XCTAssertTrue(PulseSeatPack.shouldPublishSeatPlaneFromCook())
+        XCTAssertTrue(PulseSeatPack.shouldCookEveryStoreSeat())
+        XCTAssertFalse(PulseSeatPack.shouldMaterializeMissingSeatOnFieldDevice())
+        XCTAssertFalse(PulseSeatPack.shouldMaterializeMissingSeat(isKitchen: false))
+        XCTAssertTrue(PulseSeatPack.shouldMaterializeMissingSeat(isKitchen: true))
+        XCTAssertTrue(
+            PulseSeatPack.missingSeatMessage(PulseSeatPack.Key(grain: .district, id: "03"))
+                .contains("not published")
+        )
+    }
+
+    func testArchitecture381bMacCookPublishesEverySeatSqlite() throws {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.381")
+        XCTAssertTrue(PulseSeatPack.shouldCookEveryStoreSeat())
+        XCTAssertTrue(PulseSeatPack.shouldPublishSeatPlaneFromCook())
+        XCTAssertFalse(PulseSeatPack.shouldMaterializeMissingSeatOnFieldDevice())
+        XCTAssertFalse(PulseLaunch.shouldPlaySeatLoadHalloween())
+
+        var roster: [String: HeartbeatMath.StoreIdentity] = [:]
+        for store in ["12", "13"] {
+            roster[store] = HeartbeatMath.StoreIdentity(
+                division: "NorCal", district: "03", om: "Jino Arvin", name: store
+            )
+        }
+        roster["9001"] = HeartbeatMath.StoreIdentity(
+            division: "Jewel Osco", district: "J1", om: "Shelly Selof", name: "9001"
+        )
+        func fact(_ section: MetricSection, _ store: String, payload: [String: Double]) -> MetricRow {
+            let identity = roster[store]!
+            return MetricRow(
+                section: section,
+                division: identity.division,
+                operationsOM: identity.om,
+                storeNumber: store,
+                storeName: identity.name,
+                payload: payload,
+                textPayload: ["district": identity.district]
+            )
+        }
+        let stores = ["12", "13", "9001"]
+        var rows: [MetricRow] = []
+        rows.append(contentsOf: stores.map { fact(.storeRoster, $0, payload: ["roster": 1]) })
+        rows.append(contentsOf: stores.map { fact(.sales, $0, payload: ["sales_dollars": 100, "sales_orders": 4]) })
+        rows.append(contentsOf: stores.map { fact(.lostRevenue, $0, payload: ["lost_revenue": 10]) })
+        rows.append(contentsOf: stores.map { fact(.fiveStar, $0, payload: ["star_rating": 4.8]) })
+
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("seat-pack-381b-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let packRoot = tmp.appendingPathComponent("packs", isDirectory: true)
+        let manifest = try PulseSeatPack.cookPublished(
+            rows: rows,
+            uploads: [],
+            packRoot: packRoot,
+            includeStores: PulseSeatPack.shouldCookEveryStoreSeat()
+        )
+        XCTAssertEqual(manifest.company.path, "packs/seat/company/all/current.sqlite")
+        XCTAssertEqual(Set(manifest.districts.map(\.id)), ["03", "J1"])
+        XCTAssertEqual(Set(manifest.stores.map(\.id)), ["12", "13", "9001"])
+        let paths = PulseSeatPack.publishObjectPaths(from: manifest)
+        XCTAssertTrue(paths.contains("packs/manifest.json"))
+        XCTAssertTrue(paths.contains("packs/seat/company/all/current.sqlite"))
+        XCTAssertTrue(paths.contains("packs/seat/district/03/current.sqlite"))
+        XCTAssertTrue(paths.contains("packs/seat/store/12/current.sqlite"))
+        for path in paths where path.hasSuffix(".sqlite") {
+            XCTAssertTrue(
+                PulseSeatPack.isUsable(at: tmp.appendingPathComponent(path)),
+                "Mac cook must write \(path)"
+            )
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: packRoot.appendingPathComponent("manifest.json").path))
+        XCTAssertFalse(PulseLaunch.shouldPlaySeatLoadHalloween())
+        XCTAssertFalse(PulseSeatPack.shouldMergeSeatWithCompanyOnSwap())
+        XCTAssertTrue(PulseSeatPack.shouldPaintHubFromActiveSeatSQLite())
     }
 
     func testSeatPackDistrict03EverySectionStoresEqualsHeartbeatN() throws {

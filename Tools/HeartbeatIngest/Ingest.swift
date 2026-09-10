@@ -78,8 +78,8 @@ enum HeartbeatIngest {
             exit(1)
         }
         print("Dashboard tiles complete.")
-        let includeStores = ProcessInfo.processInfo.environment["COOK_SEAT_STORES"] == "1"
-        print(includeStores ? "Cooking district + store seat packs…" : "Cooking district + company-thin seat packs…")
+        let includeStores = PulseSeatPack.shouldCookEveryStoreSeat()
+        print("Cooking company + every district + every store seat pack…")
         let packRoot = sqlite.deletingLastPathComponent().appendingPathComponent("packs", isDirectory: true)
         let manifest = try PulseSeatPack.cookPublished(
             rows: rows,

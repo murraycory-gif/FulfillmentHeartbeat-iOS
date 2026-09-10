@@ -1,6 +1,6 @@
 # Seat-scoped packs — architecture contract (Tip 1)
 
-Stamp **HB-0828.381**. Path A locked. File audit uses this document.
+Stamp **HB-0828.381** / 706 (.381b). Path A locked. File audit uses this document.
 
 Heartbeat is a field iPad app. Production analytics mobile apps (Power BI Mobile, Tableau Mobile, Salesforce Field / Briefcase, retail territory packs) do **not** download the full market and re-slice it in the client on every filter. They:
 
@@ -15,10 +15,10 @@ Heartbeat is a field iPad app. Production analytics mobile apps (Power BI Mobile
 
 | Rule | Must |
 |---|---|
-| Cook | `packs/manifest.json` + `packs/seat/{grain}/{id}/current.sqlite` |
+| Cook | `cookPublished(includeStores: true)` → `packs/manifest.json` + every company / district / store sqlite. `publishCloudPack` uploads that seat plane. |
 | Grains this tip | `district`, `store`, `company` (market thin summary) |
 | Pre-roll in each seat sqlite | Card headlines, expand grain, Healthy/Watch/At Risk flags, seat store roster. Shoppers = **that seat’s stores only**. |
-| Device | Who’s looking → download **that** seat pack → hub paints from **that** sqlite |
+| Device | Who’s looking → download **that** seat pack → hub paints from **that** sqlite. Missing object **fails** the hub. |
 | BAN | Market `current.sqlite` as primary under a seat |
 | BAN | `applySeatSlice` of the full market as the data plane |
 | Clear / new seat | **Swap** the active sqlite. No seat+company merge |
@@ -39,13 +39,14 @@ heartbeat-packs/
 
 Device cache mirrors the same relative paths under Application Support.
 
-Nightly cook writes district + store + company thin. The 15-minute cook always refreshes company + **all districts** (field day). Stores can wait for the nightly pass; a missing store pack is **materialized** on device with `readStores` into a seat sqlite (still a pack swap — not an in-memory market slice).
+Mac cook (`publishCloudPack` / HeartbeatIngest) always runs `cookPublished(includeStores: true)` and uploads `packs/manifest.json` plus **every** company / district / store sqlite. A missing seat object on the field iPad **fails the hub**. `materializeSeatFromCompany` is Mac / DEBUG kitchen only.
 
 ## Device state machine
 
 ```
 boot        → company sqlite (roster / Who’s looking only)
-Continue    → resolve SeatPack.Key → download or materialize → activePackURL = seat file
+Continue    → resolve SeatPack.Key → download that object → activePackURL = seat file
+              missing object → FAIL hub (no silent company materialize)
 hub paint   → chrome + facts from active seat sqlite only
 Clear       → activePackURL = company sqlite, wipe seat caches, no merge
 new seat    → wipe → swap file → paint
@@ -78,4 +79,4 @@ Cook writes a fully indexed seat sqlite, `VACUUM`s it, then the device **atomica
 ## Later tips
 
 - Tip 2: Region / OM / Division published grains; UITableView / LazyVStack store lists
-- Tip 3: Comedy polish; drop materialize fallback once nightly store coverage is complete
+- Tip 3: Comedy polish

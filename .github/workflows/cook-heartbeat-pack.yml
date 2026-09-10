@@ -71,15 +71,19 @@ jobs:
 
       - name: Cook sqlite pack
         if: env.skip != '1'
-        env:
-          COOK_SEAT_STORES: ${{ github.event.schedule == '0 6 * * *' && '1' || github.event_name == 'workflow_dispatch' && '1' || '0' }}
         run: |
           set -euo pipefail
-          echo "COOK_SEAT_STORES=$COOK_SEAT_STORES"
           Tools/HeartbeatIngest/.build/release/HeartbeatIngest /tmp/daily.xlsx /tmp/current.sqlite
           ls -l /tmp/current.sqlite
-          ls -l /tmp/packs/manifest.json || true
-          find /tmp/packs/seat -name current.sqlite | wc -l
+          test -f /tmp/packs/manifest.json
+          test -f /tmp/packs/seat/company/all/current.sqlite
+          DISTRICT_N=$(find /tmp/packs/seat/district -name current.sqlite | wc -l | tr -d ' ')
+          STORE_N=$(find /tmp/packs/seat/store -name current.sqlite | wc -l | tr -d ' ')
+          echo "seat districts=$DISTRICT_N stores=$STORE_N"
+          if [ "$DISTRICT_N" -lt 1 ] || [ "$STORE_N" -lt 1 ]; then
+            echo "Mac cook must publish every district and store seat sqlite."
+            exit 1
+          fi
 
       - name: Publish current.sqlite and seat packs
         if: env.skip != '1'
@@ -122,13 +126,16 @@ jobs:
             exit 1
           fi
           upload "current.sqlite" /tmp/current.sqlite application/octet-stream
-          if [ -f /tmp/packs/manifest.json ]; then
-            upload "packs/manifest.json" /tmp/packs/manifest.json application/json
+          test -f /tmp/packs/manifest.json
+          upload "packs/manifest.json" /tmp/packs/manifest.json application/json
+          SEAT_N=0
+          while IFS= read -r file; do
+            rel=${file#/tmp/}
+            upload "$rel" "$file" application/octet-stream
+            SEAT_N=$((SEAT_N + 1))
+          done < <(find /tmp/packs/seat -name current.sqlite | sort)
+          if [ "$SEAT_N" -lt 2 ]; then
+            echo "Seat plane missing (uploaded $SEAT_N sqlite files)."
+            exit 1
           fi
-          if [ -d /tmp/packs/seat ]; then
-            while IFS= read -r file; do
-              rel=${file#/tmp/}
-              upload "$rel" "$file" application/octet-stream
-            done < <(find /tmp/packs/seat -name current.sqlite | sort)
-          fi
-          echo "Published current.sqlite ($BYTES bytes) and seat packs."
+          echo "Published current.sqlite ($BYTES bytes) and $SEAT_N seat sqlites."

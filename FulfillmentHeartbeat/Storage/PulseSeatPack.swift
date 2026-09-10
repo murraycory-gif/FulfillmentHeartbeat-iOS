@@ -16,6 +16,38 @@ enum PulseSeatPack {
         PulseSQLite.exists(at: url) && PulseSQLite.fileBytes(at: url) >= minimumSeatBytes
     }
 
+    /// Mac cook always writes company + every district + every store.
+    static func shouldCookEveryStoreSeat() -> Bool { true }
+
+    /// `publishCloudPack` must upload the seat plane, not only `current.sqlite`.
+    static func shouldPublishSeatPlaneFromCook() -> Bool { true }
+
+    /// Field iPad Release never invents a seat file from the market pack.
+    static func shouldMaterializeMissingSeatOnFieldDevice() -> Bool { false }
+
+    /// Kitchen (Mac cook / DEBUG) may materialize while iterating. Device Release must fail.
+    static func shouldMaterializeMissingSeat(isKitchen: Bool) -> Bool { isKitchen }
+
+    static func shouldMaterializeMissingSeat() -> Bool {
+        shouldMaterializeMissingSeat(isKitchen: isKitchenBuild)
+    }
+
+    static func missingSeatMessage(_ key: Key) -> String {
+        "The \(key.grain.rawValue) \(key.slug) pack is not published. Cook on Mac so Heartbeat uploads that seat sqlite — the hub will not invent it from the market file."
+    }
+
+    static func publishObjectPaths(from manifest: Manifest) -> [String] {
+        [manifestObject] + manifest.allEntries.map(\.path)
+    }
+
+    private static var isKitchenBuild: Bool {
+        #if os(macOS) || targetEnvironment(macCatalyst) || DEBUG
+        return true
+        #else
+        return false
+        #endif
+    }
+
     enum Grain: String, Codable, CaseIterable {
         case company
         case district
