@@ -196,7 +196,7 @@ struct SectionDetailView: View {
                 }
             }
         }
-        .background(AppTheme.bg.ignoresSafeArea())
+        .background(AppTheme.bg.ignoresSafeArea(edges: .bottom))
         .environmentObject(laborHeaderPin)
         .readWidth($pageWidth)
         .onPreferenceChange(LaborListTopKey.self) { top in

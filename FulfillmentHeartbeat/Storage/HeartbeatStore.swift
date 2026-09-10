@@ -235,6 +235,19 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func finishWarehouseAfterSeat(chrome: PulseDashChrome?) async {
+        if PulseLaunch.shouldCheckCloudPackDuringSeatWait() {
+            setBootPhase(.readingPack)
+            PulseCloud.invalidateObjectList()
+            if await importCloudSQLiteIfPresent(reason: .boot), warehouseRowCount > 0 {
+                warehouseHydrating = false
+                setBootPhase(.ready)
+                Task { await self.adoptFactsThenFill() }
+                if HubLayout.ingestsWorkbook {
+                    Task { await self.ingestWorkbookOnMacIfNeeded() }
+                }
+                return
+            }
+        }
         if PulseLaunch.shouldPaintDashboardSectionsProgressively() {
             setBootPhase(.readingPack)
             await loadWarehouseWave(PulseLaunch.dashboardFirstWave)
@@ -2014,10 +2027,13 @@ final class HeartbeatStore: ObservableObject {
             info = PulseCloud.ObjectStat(size: remote.size, updated: remote.updated)
         }
         let localBytes = PulseSQLite.fileBytes(at: sqliteURL)
+        let knownUpdated = UserDefaults.standard.string(forKey: "hb.cloudPackUpdated") ?? ""
         if PulseLaunch.shouldFetchRemotePack(
             remoteBytes: info.size,
             localBytes: localBytes,
-            localRowsLoaded: warehouseRowCount
+            localRowsLoaded: warehouseRowCount,
+            remoteUpdated: info.updated,
+            knownUpdated: knownUpdated
         ) {
             await importCloudSQLiteIfPresent(reason: .refresh)
         }
@@ -2085,16 +2101,20 @@ final class HeartbeatStore: ObservableObject {
         case boot, refresh
     }
 
-    private func importCloudSQLiteIfPresent(reason: PackFetchReason) async {
-        guard !packFetchInFlight else { return }
-        let remote = await PulseCloud.objectSize(PulseCloud.object)
+    @discardableResult
+    private func importCloudSQLiteIfPresent(reason: PackFetchReason) async -> Bool {
+        guard !packFetchInFlight else { return false }
+        let remote = await PulseCloud.objectInfo(PulseCloud.object)
         let localBytes = PulseSQLite.fileBytes(at: sqliteURL)
         let alreadyLoaded = warehouseRowCount
+        let knownUpdated = UserDefaults.standard.string(forKey: "hb.cloudPackUpdated") ?? ""
         guard PulseLaunch.shouldFetchRemotePack(
-            remoteBytes: remote,
+            remoteBytes: remote.size,
             localBytes: localBytes,
-            localRowsLoaded: alreadyLoaded
-        ) else { return }
+            localRowsLoaded: alreadyLoaded,
+            remoteUpdated: remote.updated,
+            knownUpdated: knownUpdated
+        ) else { return false }
         packFetchInFlight = true
         defer { packFetchInFlight = false }
         let staging = sqliteURL.deletingLastPathComponent().appendingPathComponent(PulseLaunch.stagingFileName)
@@ -2103,30 +2123,39 @@ final class HeartbeatStore: ObservableObject {
             let size = try await PulseCloud.downloadPack(to: staging, timeout: timeout)
             guard PulseSQLite.isUsableFile(at: staging) else {
                 try? fileManager.removeItem(at: staging)
-                return
+                return false
             }
-            let shouldReload = PulseLaunch.reloadInSessionAfterFetch(
-                constrained: HubLayout.constrained,
-                localRowsLoaded: alreadyLoaded
-            )
             try promoteStagingPack(staging)
             UserDefaults.standard.set(size, forKey: "hb.cloudPackBytes")
-            let stamp = await PulseCloud.objectInfo(PulseCloud.object)
-            if !stamp.updated.isEmpty {
-                UserDefaults.standard.set(stamp.updated, forKey: "hb.cloudPackUpdated")
+            if !remote.updated.isEmpty {
+                UserDefaults.standard.set(remote.updated, forKey: "hb.cloudPackUpdated")
+            } else {
+                let stamp = await PulseCloud.objectInfo(PulseCloud.object)
+                if !stamp.updated.isEmpty {
+                    UserDefaults.standard.set(stamp.updated, forKey: "hb.cloudPackUpdated")
+                }
             }
-            if !shouldReload {
+            guard PulseLaunch.reloadInSessionAfterFetch(
+                constrained: HubLayout.constrained,
+                localRowsLoaded: alreadyLoaded
+            ) else {
                 applyLocalCards()
-                return
+                return true
+            }
+            if alreadyLoaded > 0 {
+                rows = []
+                latestBySection = [:]
             }
             await loadPack()
-            guard seeded, !rows.isEmpty else { return }
+            guard seeded, warehouseRowCount > 0 else { return true }
             await paintFromWarehouse(light: true)
             if reason != .boot {
                 scheduleGrainPaint(generation: paintGeneration)
             }
+            return true
         } catch {
             try? fileManager.removeItem(at: staging)
+            return false
         }
     }
 

@@ -369,10 +369,9 @@ struct MainHubView: View {
                 }
             }
             .clipped()
-            .ignoresSafeArea(edges: .bottom)
             .animation(nil, value: router.current)
         }
-        .background(AppTheme.bg.ignoresSafeArea())
+        .background(AppTheme.bg)
         .hubChrome(
             showBack: router.current != .dashboard,
             showsFilters: true

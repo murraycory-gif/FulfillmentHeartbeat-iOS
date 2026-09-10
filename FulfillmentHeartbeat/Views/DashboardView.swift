@@ -86,7 +86,7 @@ struct DashboardView: View {
                 SectionDetailView(section: section)
             }
         }
-        .background(AppTheme.bg.ignoresSafeArea())
+        .background(AppTheme.bg.ignoresSafeArea(edges: .bottom))
         .alert("Couldn’t load", isPresented: $showError) {
             Button("OK", role: .cancel) {
                 store.errorMessage = nil

@@ -30,11 +30,8 @@ enum PulseCloud {
         var map: [String: ObjectStat] = [:]
         for row in await listObjects() {
             guard let name = row["name"] as? String else { continue }
-            var size = 0
-            if let meta = row["metadata"] as? [String: Any] {
-                if let value = meta["size"] as? Int { size = value }
-                else if let value = meta["contentLength"] as? Int { size = value }
-            }
+            let meta = row["metadata"] as? [String: Any]
+            let size = objectByteCount(from: meta)
             let updated = (row["updated_at"] as? String) ?? (row["created_at"] as? String) ?? ""
             map[name] = ObjectStat(size: size, updated: updated)
         }
@@ -54,6 +51,24 @@ enum PulseCloud {
 
     private static var listedAt: Date?
     private static var listedRows: [[String: Any]] = []
+
+    static func invalidateObjectList() {
+        listedAt = nil
+        listedRows = []
+    }
+
+    /// Storage metadata size is often NSNumber / Double, not Int.
+    static func objectByteCount(from metadata: [String: Any]?) -> Int {
+        intValue(metadata?["size"]) ?? intValue(metadata?["contentLength"]) ?? 0
+    }
+
+    static func intValue(_ raw: Any?) -> Int? {
+        if let value = raw as? Int { return value }
+        if let value = raw as? NSNumber { return value.intValue }
+        if let value = raw as? Double { return Int(value) }
+        if let value = raw as? String { return Int(value) }
+        return nil
+    }
 
     private static func listObjects() async -> [[String: Any]] {
         if let listedAt, Date().timeIntervalSince(listedAt) < 20, !listedRows.isEmpty {
@@ -85,6 +100,7 @@ enum PulseCloud {
             var request = URLRequest(url: url)
             request.httpMethod = "GET"
             request.timeoutInterval = 180
+            request.cachePolicy = .reloadIgnoringLocalCacheData
             applyAuth(&request)
             do {
                 let (temp, response) = try await URLSession.shared.download(for: request)
@@ -121,6 +137,7 @@ enum PulseCloud {
             var request = URLRequest(url: url)
             request.httpMethod = "GET"
             request.timeoutInterval = timeout
+            request.cachePolicy = .reloadIgnoringLocalCacheData
             applyAuth(&request)
             do {
                 let (temp, response) = try await URLSession.shared.download(for: request)

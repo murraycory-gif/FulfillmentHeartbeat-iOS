@@ -9789,12 +9789,13 @@ struct HubChromeModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         Group {
-            if HubLayout.isPhone(sizeClass) {
+            if PulseLaunch.shouldPinHubChromeAboveContent() || HubLayout.isPhone(sizeClass) {
                 VStack(spacing: 0) {
                     HubBrandBar(showBack: showBack, showsFilters: showsFilters)
                     content
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 }
+                .safeAreaPadding(.top)
             } else {
                 content
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -9804,7 +9805,7 @@ struct HubChromeModifier: ViewModifier {
                     }
             }
         }
-        .background(AppTheme.bg.ignoresSafeArea())
+        .background(AppTheme.bg.ignoresSafeArea(edges: .bottom))
         .navigationBarTitleDisplayMode(.inline)
         .navigationTitle("")
         .tint(AppTheme.blue)
@@ -10011,7 +10012,7 @@ extension View {
     func hubPageCanvas() -> some View {
         self
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .background(AppTheme.bg.ignoresSafeArea())
+            .background(AppTheme.bg.ignoresSafeArea(edges: .bottom))
     }
 
     func hubPhoneTable(minWidth: CGFloat = 720) -> some View {

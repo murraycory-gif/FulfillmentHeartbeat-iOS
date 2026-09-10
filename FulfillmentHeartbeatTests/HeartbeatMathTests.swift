@@ -1684,10 +1684,41 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(
             PulseLaunch.shouldFetchRemotePack(remoteBytes: 12_000, localBytes: 0, localRowsLoaded: 0)
         )
+        XCTAssertTrue(
+            PulseLaunch.shouldFetchRemotePack(
+                remoteBytes: 2_000_000,
+                localBytes: 2_000_000,
+                localRowsLoaded: 400,
+                remoteUpdated: "2026-09-10T19:15:00.000Z",
+                knownUpdated: "2026-09-09T12:00:00.000Z"
+            )
+        )
+        XCTAssertFalse(
+            PulseLaunch.shouldFetchRemotePack(
+                remoteBytes: 2_000_000,
+                localBytes: 2_000_000,
+                localRowsLoaded: 400,
+                remoteUpdated: "2026-09-10T19:15:00.000Z",
+                knownUpdated: "2026-09-10T19:15:00.000Z"
+            )
+        )
+        XCTAssertTrue(
+            PulseLaunch.shouldFetchRemotePack(
+                remoteBytes: 2_000_000,
+                localBytes: 2_000_000,
+                localRowsLoaded: 400,
+                remoteUpdated: "2026-09-10T19:15:00.000Z",
+                knownUpdated: ""
+            )
+        )
+        XCTAssertEqual(PulseCloud.objectByteCount(from: ["size": NSNumber(value: 2_100_000)]), 2_100_000)
+        XCTAssertEqual(PulseCloud.objectByteCount(from: ["size": 2_100_000.0]), 2_100_000)
+        XCTAssertTrue(PulseLaunch.shouldCheckCloudPackDuringSeatWait())
+        XCTAssertTrue(PulseLaunch.shouldPinHubChromeAboveContent())
     }
 
-    func testConstrainedRefreshDoesNotReloadPackInSession() {
-        XCTAssertFalse(PulseLaunch.reloadInSessionAfterFetch(constrained: true, localRowsLoaded: 400))
+    func testPromotedPackReloadsInSessionEvenWhenConstrained() {
+        XCTAssertTrue(PulseLaunch.reloadInSessionAfterFetch(constrained: true, localRowsLoaded: 400))
         XCTAssertTrue(PulseLaunch.reloadInSessionAfterFetch(constrained: true, localRowsLoaded: 0))
         XCTAssertTrue(PulseLaunch.reloadInSessionAfterFetch(constrained: false, localRowsLoaded: 400))
     }
@@ -1956,6 +1987,9 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(PulseLaunch.shouldMountHubUnderRoleGate())
         XCTAssertFalse(PulseLaunch.shouldUsePagingScroll())
         XCTAssertTrue(PulseLaunch.shouldRevealHubAfterSeatPaint())
+        XCTAssertTrue(PulseLaunch.shouldCheckCloudPackDuringSeatWait())
+        XCTAssertTrue(PulseLaunch.shouldPinHubChromeAboveContent())
+        XCTAssertTrue(PulseLaunch.reloadInSessionAfterFetch(constrained: true, localRowsLoaded: 400))
         XCTAssertFalse(PulseLaunch.shouldShowHubFillBanner(needsRolePick: true, warehouseHydrating: true))
         XCTAssertTrue(PulseLaunch.shouldShowHubFillBanner(needsRolePick: false, warehouseHydrating: true))
         XCTAssertFalse(PulseLaunch.shouldShowHubFillBanner(needsRolePick: false, warehouseHydrating: false))

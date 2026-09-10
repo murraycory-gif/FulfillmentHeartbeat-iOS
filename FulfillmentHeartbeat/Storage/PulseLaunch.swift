@@ -385,6 +385,13 @@ enum PulseLaunch {
         utf8Count > mailBodyMaxBytes
     }
 
+    /// Who's looking wait is the safe time to swap a newer cloud pack (hub is not mounted).
+    static func shouldCheckCloudPackDuringSeatWait() -> Bool { true }
+
+    /// Pin the brand / greeting / filter bar in flow above the page. safeAreaInset
+    /// loses to page `ignoresSafeArea` after the pager was removed — cards hide under chrome.
+    static func shouldPinHubChromeAboveContent() -> Bool { true }
+
     /// Cloud facts/pack after Who's looking — not on splash, not in the first breath.
     static let cloudHydrateDelayNanoseconds: UInt64 = 12_000_000_000
     static let foregroundCloudQuietSeconds: TimeInterval = 90
@@ -476,21 +483,27 @@ enum PulseLaunch {
         summaries.filter { $0.storeCount >= 8 || ($0.headline ?? 0) > 0 }.count
     }
 
-    /// Fetch a remote pack only when the device has nothing usable, or the
-    /// cloud file is a different size. A new app stamp must not force another
-    /// download — that reloaded the pack on top of itself and jetsamed 4GB devices.
-    static func shouldFetchRemotePack(remoteBytes: Int, localBytes: Int, localRowsLoaded: Int) -> Bool {
+    /// Fetch when the device has nothing usable, the cloud file is a different
+    /// size, or storage `updated_at` moved. SQLite page alignment often keeps
+    /// the same byte length after Wednesday lands — size-only compare skipped it.
+    /// A new app stamp must not force a download by itself (jetsam on 4GB).
+    static func shouldFetchRemotePack(
+        remoteBytes: Int,
+        localBytes: Int,
+        localRowsLoaded: Int,
+        remoteUpdated: String = "",
+        knownUpdated: String = ""
+    ) -> Bool {
         guard isUsableFileSize(remoteBytes) else { return false }
-        if localRowsLoaded > 0, localBytes == remoteBytes { return false }
         if localRowsLoaded == 0 { return true }
+        if !remoteUpdated.isEmpty, remoteUpdated != knownUpdated { return true }
         return remoteBytes != localBytes
     }
 
-    /// 4GB devices keep the in-memory pack. Swap the file for the next launch
-    /// instead of reading current.sqlite a second time.
+    /// A promoted newer pack must paint in this session. iPad is `constrained`
+    /// (skipExcel); skipping the reload left Wednesday on disk and old Sales on screen.
     static func reloadInSessionAfterFetch(constrained: Bool, localRowsLoaded: Int) -> Bool {
-        if constrained, localRowsLoaded > 0 { return false }
-        return true
+        true
     }
 
     static func missingPackMessage() -> String {
