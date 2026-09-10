@@ -201,6 +201,9 @@ final class HeartbeatStore: ObservableObject {
     }
 
     var aisleFillCaption: String {
+        if needsRolePick, warehouseHydrating {
+            return PulseLaunch.seatLoadQuip(at: importProgress.loaded)
+        }
         if needsRolePick {
             return importProgress.label ?? PulseLaunch.BootPhase.readingPack.label
         }
@@ -733,7 +736,9 @@ final class HeartbeatStore: ObservableObject {
         if HeartbeatMath.grainRowsAreLive(table) {
             let wasLive = HeartbeatMath.grainRowsAreLive(cachedGrainTables[section] ?? [])
             cachedGrainTables[section] = table
-            if !wasLive { objectWillChange.send() }
+            if !wasLive {
+                acknowledgeBackgroundFill(stampIfAllowed: PulseLaunch.shouldStampHubWhenExpandCacheFills())
+            }
         }
     }
 
@@ -919,12 +924,8 @@ final class HeartbeatStore: ObservableObject {
             )
             changed = true
         }
-        if changed, !needsRolePick, grainPaintSettled,
-           PulseLaunch.shouldStampHubWhenExpandCacheFills() {
-            filterStamp += 1
-        } else if changed, !needsRolePick {
-            // Live expand landed — refresh the chevron, never remount the hub.
-            objectWillChange.send()
+        if changed, !needsRolePick {
+            acknowledgeBackgroundFill(stampIfAllowed: PulseLaunch.shouldStampHubWhenExpandCacheFills())
         }
     }
 
@@ -937,7 +938,7 @@ final class HeartbeatStore: ObservableObject {
             cachedSalesDayRows = days
         }
         if PulseLaunch.salesExpandIsLive(cachedSalesScopeRows), !wasLive {
-            objectWillChange.send()
+            acknowledgeBackgroundFill(stampIfAllowed: PulseLaunch.shouldStampHubWhenExpandCacheFills())
         }
     }
 
@@ -3279,6 +3280,18 @@ final class HeartbeatStore: ObservableObject {
         )
     }
 
+    /// Cache writes during grain / pageOnly / picker fill. Never remount the hub
+    /// while the user is scrolling or switching pages.
+    private func acknowledgeBackgroundFill(stampIfAllowed: Bool) {
+        if stampIfAllowed {
+            filterStamp += 1
+            return
+        }
+        if PulseLaunch.shouldInvalidateHubOnBackgroundFill() {
+            objectWillChange.send()
+        }
+    }
+
     /// Slice picker / item grains only after cards, and only if already in memory.
     private func schedulePageOnlyRefresh(generation: Int) {
         pageOnlyTask?.cancel()
@@ -3317,11 +3330,7 @@ final class HeartbeatStore: ObservableObject {
             }
         }
         pageOnlyGeneration = generation
-        if PulseLaunch.shouldStampGrainOrPageOnlyFill() {
-            filterStamp += 1
-        } else {
-            objectWillChange.send()
-        }
+        acknowledgeBackgroundFill(stampIfAllowed: PulseLaunch.shouldStampGrainOrPageOnlyFill())
     }
 
     /// Full grain expand after cards, at utility, and only once the hub is in use.
@@ -3536,11 +3545,7 @@ final class HeartbeatStore: ObservableObject {
         if needsRolePick, !PulseLaunch.shouldStampUIDuringRolePick() {
             return
         }
-        if PulseLaunch.shouldStampGrainOrPageOnlyFill() {
-            filterStamp += 1
-        } else {
-            objectWillChange.send()
-        }
+        acknowledgeBackgroundFill(stampIfAllowed: PulseLaunch.shouldStampGrainOrPageOnlyFill())
     }
 
     /// Light paint skips flag grids (pack chrome stays). .343 built a PPH chip that
@@ -3724,10 +3729,8 @@ final class HeartbeatStore: ObservableObject {
                 var snap = self.snapshotPulse()
                 snap.grainPacks = packs
                 self.unfilteredPulse = snap
-                if !self.needsRolePick, PulseLaunch.shouldStampGrainOrPageOnlyFill() {
-                    self.filterStamp += 1
-                } else if !self.needsRolePick {
-                    self.objectWillChange.send()
+                if !self.needsRolePick {
+                    self.acknowledgeBackgroundFill(stampIfAllowed: PulseLaunch.shouldStampGrainOrPageOnlyFill())
                 }
             }
         }
@@ -4410,7 +4413,7 @@ final class HeartbeatStore: ObservableObject {
         )
         lockPickerDashboard()
         if HeartbeatMath.grainRowsAreLive(cachedGrainTables[.pickerScorecard] ?? []) {
-            objectWillChange.send()
+            acknowledgeBackgroundFill(stampIfAllowed: PulseLaunch.shouldStampHubWhenExpandCacheFills())
         }
     }
 
@@ -4640,10 +4643,8 @@ final class HeartbeatStore: ObservableObject {
             patchPPHCallouts()
         }
         pageOnlyGeneration = paintGeneration
-        if stamp, PulseLaunch.shouldStampPickerOrPageOnlyInstall() {
-            filterStamp += 1
-        } else {
-            objectWillChange.send()
+        if stamp {
+            acknowledgeBackgroundFill(stampIfAllowed: PulseLaunch.shouldStampPickerOrPageOnlyInstall())
         }
     }
 
@@ -4669,11 +4670,7 @@ final class HeartbeatStore: ObservableObject {
         if PulseQuery.pageOnlySections.contains(section) {
             pageOnlyGeneration = paintGeneration
         }
-        if PulseLaunch.shouldStampPickerOrPageOnlyInstall() {
-            filterStamp += 1
-        } else {
-            objectWillChange.send()
-        }
+        acknowledgeBackgroundFill(stampIfAllowed: PulseLaunch.shouldStampPickerOrPageOnlyInstall())
     }
 
     private func schedulePickerIndex(_ pickers: [MetricRow]) {

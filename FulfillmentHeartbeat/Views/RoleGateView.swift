@@ -22,10 +22,7 @@ struct RoleGateView: View {
                         .frame(maxWidth: 760, alignment: .leading)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     Spacer(minLength: 12)
-                    SeatLoadPanel(
-                        progress: store.importProgress,
-                        caption: store.aisleFillCaption
-                    )
+                    SeatLoadPanel(progress: store.importProgress)
                     Spacer(minLength: 24)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -67,7 +64,7 @@ struct RoleGateView: View {
                 .foregroundStyle(AppTheme.text)
             Text(
                 store.warehouseHydrating && PulseLaunch.shouldHoldSeatPickerUntilWarehouseReady()
-                    ? "The floor is loading. Seats unlock when it is ready."
+                    ? PulseLaunch.seatLoadDirective
                     : "Pick a seat. The dashboard only includes that book of business."
             )
                 .font(phone ? .body : .title3)
@@ -508,8 +505,8 @@ private struct FlexibleChipWrap: View {
 
 private struct SeatLoadPanel: View {
     @ObservedObject var progress: ImportProgress
-    var caption: String
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @State private var quipIndex = 0
 
     var body: some View {
         let phone = HubLayout.isPhone(sizeClass)
@@ -521,7 +518,7 @@ private struct SeatLoadPanel: View {
                 .font((phone ? Font.title3 : Font.title2).weight(.bold))
                 .foregroundStyle(AppTheme.text)
                 .multilineTextAlignment(.center)
-            Text(caption)
+            Text(PulseLaunch.seatLoadQuip(at: quipIndex))
                 .font(phone ? .body : .title3)
                 .foregroundStyle(AppTheme.textSecondary)
                 .multilineTextAlignment(.center)
@@ -536,6 +533,12 @@ private struct SeatLoadPanel: View {
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
         }
+        .onAppear {
+            quipIndex = Int.random(in: 0..<max(PulseLaunch.aisleQuips.count, 1))
+        }
+        .onReceive(Timer.publish(every: 2.2, on: .main, in: .common).autoconnect()) { _ in
+            quipIndex += 1
+        }
         .padding(.horizontal, phone ? 24 : 36)
         .padding(.vertical, phone ? 28 : 36)
         .frame(maxWidth: 420)
@@ -549,7 +552,7 @@ private struct SeatLoadPanel: View {
         )
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(PulseLaunch.seatLoadTitle). \(caption). \(PulseLaunch.seatLoadDirective)")
+        .accessibilityLabel("\(PulseLaunch.seatLoadTitle). \(PulseLaunch.seatLoadQuip(at: quipIndex)). \(PulseLaunch.seatLoadDirective)")
     }
 }
 

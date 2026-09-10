@@ -249,6 +249,15 @@ enum PulseLaunch {
     /// Picker dashboard + `installSectionSlice` stay objectWillChange-only.
     static func shouldStampPickerOrPageOnlyInstall() -> Bool { false }
 
+    /// Grain / pageOnly / picker cache writes must not invalidate the hub.
+    /// `objectWillChange` remounts MainHub + page List the same way `filterStamp` did.
+    static func shouldInvalidateHubOnBackgroundFill() -> Bool { false }
+
+    /// Scorecard SQLite waits until chrome has committed so a sidebar tap stays snappy.
+    static func shouldDeferSectionSQLUntilAfterChrome() -> Bool { true }
+
+    static var pageSectionLoadDelayNanoseconds: UInt64 { 180_000_000 }
+
     /// Seat warehouse must never leave Who's looking locked at presentingSeat ~40%.
     enum SeatWarehouseOutcome: Equatable {
         case completed
@@ -541,10 +550,34 @@ enum PulseLaunch {
     /// Kept for the unused pager path; paging itself is off.
     static func shouldLockPagerScrollDirection() -> Bool { true }
 
-    static var seatLoadTitle: String { "Setting the floor" }
+    static let aisleQuips: [String] = [
+        "Counting the bananas…",
+        "Herding the avocados…",
+        "Checking the ice cream aisle…",
+        "Weighing the grapes…",
+        "Finding the last rotisserie chicken…",
+        "Scanning the frozen pizza…",
+        "Bagging the kale — carefully…",
+        "Chasing a runaway lime…",
+        "Restocking the oat milk…",
+        "Asking produce for a second opinion…",
+        "Warming up the baguettes…",
+        "Corralling the rotisserie tickets…",
+        "Putting the pickles back in the jar…",
+        "Slicing the deli line a little thinner…",
+        "Making sure the blueberries stay in the box…"
+    ]
+
+    static var seatLoadTitle: String { "Checking the ice cream aisle…" }
+
+    static func seatLoadQuip(at index: Int) -> String {
+        guard !aisleQuips.isEmpty else { return seatLoadTitle }
+        let i = index % aisleQuips.count
+        return aisleQuips[i >= 0 ? i : 0]
+    }
 
     static var seatLoadDirective: String {
-        "Wait until this finishes — then pick a seat."
+        "Hang tight — seats unlock when the pack is on the floor."
     }
 
     /// Neighbor scorecards stay blank. Hydrating them makes filterStamp rebuild two extra full tables.

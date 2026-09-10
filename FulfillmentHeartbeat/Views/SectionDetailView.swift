@@ -207,6 +207,11 @@ struct SectionDetailView: View {
         }
         .task(id: router.current) {
             guard PulseLaunch.shouldLoadSection(visible: router.current, section: section) else { return }
+            if PulseLaunch.shouldDeferSectionSQLUntilAfterChrome() {
+                await Task.yield()
+                try? await Task.sleep(nanoseconds: PulseLaunch.pageSectionLoadDelayNanoseconds)
+                guard PulseLaunch.shouldLoadSection(visible: self.router.current, section: section) else { return }
+            }
             await store.ensureSectionLoaded(section)
             if section == .preSubOOS {
                 await store.ensureSectionLoaded(.preSubOOSItem)

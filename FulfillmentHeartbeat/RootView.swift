@@ -59,23 +59,7 @@ struct LaunchSplashView: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var quipIndex = 0
 
-    private static let quips = [
-        "Counting the bananas…",
-        "Herding the avocados…",
-        "Checking the ice cream aisle…",
-        "Weighing the grapes…",
-        "Finding the last rotisserie chicken…",
-        "Scanning the frozen pizza…",
-        "Bagging the kale — carefully…",
-        "Chasing a runaway lime…",
-        "Restocking the oat milk…",
-        "Asking produce for a second opinion…",
-        "Warming up the baguettes…",
-        "Corralling the rotisserie tickets…",
-        "Putting the pickles back in the jar…",
-        "Slicing the deli line a little thinner…",
-        "Making sure the blueberries stay in the box…"
-    ]
+    private static let quips = PulseLaunch.aisleQuips
 
     var body: some View {
         let phone = HubLayout.isPhone(sizeClass)
