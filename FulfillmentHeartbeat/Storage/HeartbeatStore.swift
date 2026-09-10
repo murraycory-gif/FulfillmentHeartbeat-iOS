@@ -591,20 +591,34 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func dashboardGrainRows(for section: MetricSection) -> [HeartbeatMath.DashboardGrainTableRow] {
-        if let cached = cachedGrainTables[section], !cached.isEmpty { return cached }
-        let packs = cachedGrainPacks[section] ?? []
-        let goal = section == .lostRevenue ? lostRevenueGoalFallbackValue() : nil
-        return HeartbeatMath.dashboardGrainRowsFromPacks(packs, section: section, goalFallback: goal)
+        if let cached = cachedGrainTables[section], HeartbeatMath.grainRowsAreLive(cached) {
+            return cached
+        }
+        // Placeholder packs (value "—") must never become an expand table.
+        return []
     }
 
     func salesExpandRows() -> [SalesRollupRow] {
         cachedSalesScopeRows
     }
 
+    func salesExpandIsLive() -> Bool {
+        PulseLaunch.salesExpandIsLive(cachedSalesScopeRows)
+    }
+
+    /// Chevron / table gate: never open a header shell over an empty body.
+    func dashboardExpandIsLive(_ section: MetricSection) -> Bool {
+        PulseLaunch.dashboardExpandIsLive(
+            section: section,
+            salesRows: cachedSalesScopeRows,
+            grainRows: cachedGrainTables[section] ?? []
+        )
+    }
+
     /// Fill expand caches off the tap turn. Writes cache only — no filterStamp.
     func prefetchExpand(section: MetricSection) async {
         if section == .sales {
-            if !cachedSalesScopeRows.isEmpty { return }
+            if PulseLaunch.salesExpandIsLive(cachedSalesScopeRows) { return }
             let source = salesStores()
             let grain = effectiveDashboardGrain
             let company = filters.isActive ? nil : salesCompanyFact()
@@ -614,10 +628,7 @@ final class HeartbeatStore: ObservableObject {
                     SalesRollupBuilder.dayRows(from: source, company: company)
                 )
             }.value
-            if cachedSalesScopeRows.isEmpty || built.0.count >= cachedSalesScopeRows.count {
-                cachedSalesScopeRows = built.0
-                cachedSalesDayRows = built.1
-            }
+            adoptLiveSalesExpand(built.0, days: built.1)
             return
         }
         if let cached = cachedGrainTables[section], HeartbeatMath.grainRowsAreLive(cached) {
@@ -640,14 +651,11 @@ final class HeartbeatStore: ObservableObject {
                 goalFallback: goal
             )
         }.value
+        // Live grain only. Placeholder packs must not land in cachedGrainTables.
         if HeartbeatMath.grainRowsAreLive(table) {
+            let wasLive = HeartbeatMath.grainRowsAreLive(cachedGrainTables[section] ?? [])
             cachedGrainTables[section] = table
-        } else if cachedGrainTables[section]?.isEmpty != false {
-            cachedGrainTables[section] = HeartbeatMath.dashboardGrainRowsFromPacks(
-                packs,
-                section: section,
-                goalFallback: goal
-            )
+            if !wasLive { objectWillChange.send() }
         }
     }
 
@@ -754,8 +762,7 @@ final class HeartbeatStore: ObservableObject {
                 self.mergeGrainTables(tables)
                 if PulseLaunch.shouldPrefetchSalesExpandWithGrainTables(),
                    salesScope.count >= self.cachedSalesScopeRows.count {
-                    self.cachedSalesScopeRows = salesScope
-                    self.cachedSalesDayRows = salesDays
+                    self.adoptLiveSalesExpand(salesScope, days: salesDays)
                 }
             }
         }
@@ -803,6 +810,22 @@ final class HeartbeatStore: ObservableObject {
         if changed, !needsRolePick, grainPaintSettled,
            PulseLaunch.shouldStampHubWhenExpandCacheFills() {
             filterStamp += 1
+        } else if changed, !needsRolePick {
+            // Live expand landed — refresh the chevron, never remount the hub.
+            objectWillChange.send()
+        }
+    }
+
+    /// Write sales expand cache. `objectWillChange` only — never `filterStamp`.
+    private func adoptLiveSalesExpand(_ rows: [SalesRollupRow], days: [SalesRollupRow]) {
+        let wasLive = PulseLaunch.salesExpandIsLive(cachedSalesScopeRows)
+        if rows.isEmpty, wasLive { return }
+        if PulseLaunch.salesExpandIsLive(rows) || cachedSalesScopeRows.isEmpty {
+            cachedSalesScopeRows = rows
+            cachedSalesDayRows = days
+        }
+        if PulseLaunch.salesExpandIsLive(cachedSalesScopeRows), !wasLive {
+            objectWillChange.send()
         }
     }
 
@@ -868,19 +891,13 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func dashboardScopeCount(_ grain: DashScopeGrain) -> Int {
-        if !cachedSalesScopeRows.isEmpty {
+        // Roster / placeholder packs are not an expand count. "Regions 4" with
+        // an empty table was `containing(division)` while sales cache was empty.
+        _ = grain
+        if PulseLaunch.salesExpandIsLive(cachedSalesScopeRows) {
             return cachedSalesScopeRows.count
         }
-        switch grain {
-        case .region:
-            return Set(roster.values.compactMap { MarketRegion.containing($0.division)?.rawValue }).count
-        case .division:
-            return cachedDivisions.filter { filters.includesDivision($0) }.count
-        case .district:
-            return cachedDistricts.count
-        case .store:
-            return cachedStores.count
-        }
+        return 0
     }
 
     var effectiveDashboardGrain: DashScopeGrain {
@@ -3206,6 +3223,10 @@ final class HeartbeatStore: ObservableObject {
         }
         if !light {
             refreshSalesExpandCache()
+        } else if !PulseLaunch.salesExpandIsLive(cachedSalesScopeRows) {
+            // Light paint must not wait on the 1.2s grain defer. Prefill sales
+            // off-main so the chevron is live before it is tappable.
+            Task { await prefetchExpand(section: .sales) }
         }
         if cachedGrainTables.values.allSatisfy(\.isEmpty) || cachedSalesScopeRows.isEmpty {
             fillExpandTablesSoon()

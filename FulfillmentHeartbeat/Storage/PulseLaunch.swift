@@ -244,6 +244,34 @@ enum PulseLaunch {
     /// Prefetch it with grain tables so the chevron is not headers-only.
     static func shouldPrefetchSalesExpandWithGrainTables() -> Bool { true }
 
+    /// Real $ / orders only. An empty sales cache must not look like "Regions 4".
+    static func salesExpandIsLive(_ rows: [SalesRollupRow]) -> Bool {
+        rows.contains { ($0.pack.sales ?? 0) > 0 || ($0.pack.orders ?? 0) > 0 }
+    }
+
+    /// Chevron / table gate. Never open a header shell over an empty body.
+    static func dashboardExpandIsLive(
+        section: MetricSection,
+        salesRows: [SalesRollupRow],
+        grainRows: [HeartbeatMath.DashboardGrainTableRow]
+    ) -> Bool {
+        if section == .sales { return salesExpandIsLive(salesRows) }
+        return HeartbeatMath.grainRowsAreLive(grainRows)
+    }
+
+    /// Live expand caches only. Never `packs.count` — `placeholderGrainPacks`
+    /// seeds four region lines with value "—" and paints "Regions 4" over headers.
+    static func dashboardBannerCount(
+        section: MetricSection,
+        salesRows: [SalesRollupRow],
+        grainRows: [HeartbeatMath.DashboardGrainTableRow]
+    ) -> Int {
+        guard dashboardExpandIsLive(section: section, salesRows: salesRows, grainRows: grainRows) else {
+            return 0
+        }
+        return section == .sales ? salesRows.count : grainRows.count
+    }
+
     /// Apply the seat filter while Who's looking is still up, then mount the hub
     /// so Continue does not land on a mid-paint dashboard.
     static func shouldRevealHubAfterSeatPaint() -> Bool { true }

@@ -1271,6 +1271,36 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(rows.allSatisfy { ($0.pack.sales ?? 0) > 0 })
         XCTAssertTrue(PulseLaunch.shouldPrefetchSalesExpandWithGrainTables())
         XCTAssertFalse(PulseLaunch.shouldStampHubWhenExpandCacheFills())
+        XCTAssertTrue(PulseLaunch.salesExpandIsLive(rows))
+        XCTAssertTrue(PulseLaunch.dashboardExpandIsLive(section: .sales, salesRows: rows, grainRows: []))
+        XCTAssertEqual(PulseLaunch.dashboardBannerCount(section: .sales, salesRows: rows, grainRows: []), 4)
+        XCTAssertFalse(PulseLaunch.shouldMountHubUnderRoleGate())
+        XCTAssertFalse(PulseLaunch.shouldUsePagingScroll())
+        XCTAssertFalse(PulseLaunch.shouldRemountPageOnDestinationChange())
+    }
+
+    func testSalesExpandDoesNotShowPlaceholderRegionsFour() {
+        XCTAssertFalse(PulseLaunch.salesExpandIsLive([]))
+        XCTAssertFalse(PulseLaunch.dashboardExpandIsLive(section: .sales, salesRows: [], grainRows: []))
+        XCTAssertEqual(PulseLaunch.dashboardBannerCount(section: .sales, salesRows: [], grainRows: []), 0)
+
+        let placeholders = PulseCaches.placeholderGrainPacks(grain: .region)[.sales] ?? []
+        XCTAssertEqual(placeholders.count, 4)
+        XCTAssertTrue(placeholders.allSatisfy { $0.line.value == "—" && $0.line.count == 0 })
+        let fromPacks = HeartbeatMath.dashboardGrainRowsFromPacks(
+            placeholders,
+            section: .sales,
+            goalFallback: nil
+        )
+        XCTAssertFalse(HeartbeatMath.grainRowsAreLive(fromPacks))
+        XCTAssertEqual(
+            PulseLaunch.dashboardBannerCount(section: .sales, salesRows: [], grainRows: fromPacks),
+            0,
+            "placeholder packs must not paint Regions 4 over an empty table"
+        )
+        XCTAssertFalse(PulseLaunch.dashboardExpandIsLive(section: .pph, salesRows: [], grainRows: fromPacks))
+        XCTAssertEqual(PulseLaunch.dashboardBannerCount(section: .pph, salesRows: [], grainRows: fromPacks), 0)
+        XCTAssertFalse(PulseLaunch.shouldStampHubWhenExpandCacheFills())
     }
 
     func testPowerBISalesTabSundayMondayTuesdayAndTotal() {

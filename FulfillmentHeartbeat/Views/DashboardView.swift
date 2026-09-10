@@ -443,21 +443,24 @@ struct DashScopeStrip: View {
     let grain: DashScopeGrain
     let packs: [DashScopePack]
     @State private var expanded = false
-    @State private var salesRows: [SalesRollupRow] = []
-    @State private var dayRows: [SalesRollupRow] = []
-    @State private var grainRows: [HeartbeatMath.DashboardGrainTableRow] = []
+
+    private var expandLive: Bool { store.dashboardExpandIsLive(section) }
+    private var salesRows: [SalesRollupRow] { store.salesExpandRows() }
+    private var dayRows: [SalesRollupRow] { store.cachedSalesDayRows }
+    private var grainRows: [HeartbeatMath.DashboardGrainTableRow] {
+        store.dashboardGrainRows(for: section)
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: expanded ? 10 : 8) {
+        VStack(alignment: .leading, spacing: expanded && expandLive ? 10 : 8) {
             Button {
+                // Inert until live caches exist. Toggle only — never cook on
+                // the gesture thread and never bump filterStamp.
+                guard expandLive else { return }
                 var txn = Transaction()
                 txn.animation = nil
                 withTransaction(txn) {
                     expanded.toggle()
-                    if expanded { snapshotExpandRows() }
-                }
-                if expanded {
-                    Task { await fillExpandRows() }
                 }
             } label: {
                 HStack(spacing: 8) {
@@ -467,13 +470,15 @@ struct DashScopeStrip: View {
                     Text(grain.title)
                         .font(AppTheme.rounded(HubLayout.isPhone(sizeClass) ? .caption : .subheadline, weight: .bold))
                         .foregroundStyle(Color.white)
-                    Text("\(bannerCount)")
-                        .font(AppTheme.rounded(.caption, weight: .semibold))
-                        .foregroundStyle(Color.white.opacity(0.85))
+                    if bannerCount > 0 {
+                        Text("\(bannerCount)")
+                            .font(AppTheme.rounded(.caption, weight: .semibold))
+                            .foregroundStyle(Color.white.opacity(0.85))
+                    }
                     Spacer(minLength: 8)
-                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                    Image(systemName: expandLive && expanded ? "chevron.up" : "chevron.down")
                         .font(.caption.weight(.bold))
-                        .foregroundStyle(Color.white)
+                        .foregroundStyle(Color.white.opacity(expandLive ? 1 : 0.45))
                 }
                 .padding(.horizontal, HubLayout.isPhone(sizeClass) ? 10 : 14)
                 .padding(.vertical, HubLayout.isPhone(sizeClass) ? 8 : 10)
@@ -481,38 +486,48 @@ struct DashScopeStrip: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            if expanded {
+            .disabled(!expandLive)
+            .allowsHitTesting(expandLive)
+            if expanded && expandLive {
                 expandedTables
             }
         }
         .transaction { $0.animation = nil }
+        .onAppear {
+            Task { await store.prefetchExpand(section: section) }
+        }
+        .onChange(of: store.filterStamp) { _, _ in
+            expanded = false
+            Task { await store.prefetchExpand(section: section) }
+        }
     }
 
+    /// Live expand caches only. Never roster / placeholder pack counts.
     private var bannerCount: Int {
-        let scoped = store.dashboardScopeCount(grain)
-        if scoped > 0 { return scoped }
-        if section == .sales { return store.cachedSalesScopeRows.count }
-        let live = packs.filter {
-            $0.line.count > 0 || (!$0.line.value.isEmpty && $0.line.value != "—")
-        }
-        return live.isEmpty ? packs.count : live.count
+        PulseLaunch.dashboardBannerCount(
+            section: section,
+            salesRows: salesRows,
+            grainRows: grainRows
+        )
     }
 
     @ViewBuilder
     private var expandedTables: some View {
         VStack(alignment: .leading, spacing: 10) {
             if section == .sales {
-                OverviewSalesAlignedTable(
-                    title: grain.title,
-                    rows: grain == .store ? Array(salesRows.prefix(40)) : salesRows,
-                    showCount: grain != .store,
-                    district: grain == .district
-                )
+                if !salesRows.isEmpty {
+                    OverviewSalesAlignedTable(
+                        title: grain.title,
+                        rows: grain == .store ? Array(salesRows.prefix(40)) : salesRows,
+                        showCount: grain != .store,
+                        district: grain == .district
+                    )
+                }
                 if !dayRows.isEmpty {
                     OverviewSalesAlignedTable(title: "By Day", rows: dayRows, showCount: false)
                         .padding(.top, 8)
                 }
-            } else {
+            } else if !grainRows.isEmpty {
                 OverviewMetricAlignedTable(
                     title: grain.title,
                     headers: HeartbeatMath.dashboardTableHeaders(section),
@@ -522,20 +537,6 @@ struct DashScopeStrip: View {
                 )
             }
         }
-    }
-
-    private func snapshotExpandRows() {
-        if section == .sales {
-            salesRows = store.salesExpandRows()
-            dayRows = store.cachedSalesDayRows
-        } else {
-            grainRows = store.dashboardGrainRows(for: section)
-        }
-    }
-
-    private func fillExpandRows() async {
-        await store.prefetchExpand(section: section)
-        snapshotExpandRows()
     }
 }
 
