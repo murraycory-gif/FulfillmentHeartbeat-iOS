@@ -607,7 +607,6 @@ struct BeatingHeartbeatMark: View {
     var height: CGFloat = 52
     var showsTrace: Bool = true
     var showsWordmark: Bool = true
-    var showsCaption: Bool = true
     var forceTrace: Bool = false
 
     var body: some View {
@@ -617,7 +616,7 @@ struct BeatingHeartbeatMark: View {
                 if showsWordmark {
                     FulfillmentWordmark(height: min(height, 56))
                 }
-                heartWithCaption
+                heartBlock
             }
             .frame(maxWidth: .infinity)
         }
@@ -630,27 +629,13 @@ struct BeatingHeartbeatMark: View {
             if showsWordmark {
                 FulfillmentWordmark(height: height)
             }
-            heartWithCaption
-        }
-    }
-
-    private var heartWithCaption: some View {
-        VStack(alignment: .leading, spacing: height * 0.06) {
             heartBlock
-            if showsCaption {
-                Text("Heartbeat")
-                    .font(.system(size: max(9, height * 0.22), weight: .bold, design: .default))
-                    .foregroundStyle(Color(hex: "003DA5"))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                    .frame(width: height, alignment: .center)
-            }
         }
     }
 
     private var heartBlock: some View {
         ZStack(alignment: .leading) {
-            if showsTrace, forceTrace || !HubLayout.constrained {
+            if showsTrace || forceTrace {
                 LogoECGUI(lineWidth: height * 0.11)
                     .frame(width: height * 1.42, height: height * 0.70)
                     .offset(x: height * 0.88, y: height * 0.04)
@@ -732,12 +717,7 @@ struct HubNavLogo: View {
     var height: CGFloat = 32
 
     var body: some View {
-        BeatingHeartbeatMark(
-            height: height,
-            showsTrace: pulse,
-            showsWordmark: false,
-            showsCaption: true
-        )
+        BeatingHeartbeatMark(height: height, showsTrace: pulse, showsWordmark: pulse)
     }
 }
 
@@ -9716,10 +9696,10 @@ struct HubBrandBar: View {
                 assistButton
             }
             .zIndex(2)
-            BeatingHeartbeatMark(height: markHeight, showsTrace: true, showsCaption: true)
+            BeatingHeartbeatMark(height: markHeight, showsTrace: true, forceTrace: true)
                 .allowsHitTesting(false)
         }
-        .frame(minHeight: markHeight + 22)
+        .frame(minHeight: markHeight + 8)
     }
 
     private var compactBar: some View {

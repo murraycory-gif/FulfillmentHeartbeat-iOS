@@ -34,7 +34,7 @@ struct RoleGateView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
-            BeatingHeartbeatMark(height: phone ? 36 : 56, showsTrace: true)
+            BeatingHeartbeatMark(height: phone ? 36 : 56, showsTrace: true, forceTrace: true)
             Text("Who’s looking?")
                 .font(phone ? .title2.weight(.bold) : .largeTitle.weight(.bold))
                 .foregroundStyle(AppTheme.text)
