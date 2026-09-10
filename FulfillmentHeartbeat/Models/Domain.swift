@@ -585,9 +585,6 @@ enum HeartbeatMath {
 
     static func dashboardCallouts(_ summaries: [SectionSummary], role: HeartbeatRole?, storeScoped: Bool = false) -> [SectionSummary] {
         var cards = dashboardCallouts(summaries)
-        if role == .evp {
-            cards.removeAll { $0.section == .pickerScorecard }
-        }
         var pin: [MetricSection] = [.sales, .lostRevenue, .fiveStar, .labor, .pickerScorecard]
         if role == .evp {
             pin.append(contentsOf: [.fiveStar, .dynacap])
@@ -643,7 +640,10 @@ enum HeartbeatMath {
         }
         guard let identity else { return row }
         var next = row
-        if next.division.isEmpty, !identity.division.isEmpty { next.division = identity.division }
+        let incomingCanon = MarketRegion.canonicalName(next.division)
+        if incomingCanon.isEmpty, !identity.division.isEmpty {
+            next.division = identity.division
+        }
         if (next.textPayload["district"] ?? "").isEmpty, !identity.district.isEmpty {
             next.textPayload["district"] = identity.district
         }
@@ -655,15 +655,7 @@ enum HeartbeatMath {
     static func dashboardScopeKey(_ row: MetricRow, grain: DashScopeGrain) -> String? {
         switch grain {
         case .region:
-            let market = RollupMarketFill.divisionKey(row.division)
-            if !market.isEmpty, market != "Unassigned", let region = MarketRegion.containing(market) {
-                return region.rawValue
-            }
-            let district = RollupMarketFill.districtKey(row.district)
-            if !district.isEmpty, let region = MarketRegion.containing(district) {
-                return region.rawValue
-            }
-            return nil
+            return MarketRegion.resolved(division: row.division, district: row.district)?.rawValue
         case .division:
             let key = RollupMarketFill.divisionKey(row.division)
             return key.isEmpty ? nil : key
@@ -692,7 +684,7 @@ enum HeartbeatMath {
         return buckets.map { key, group -> (DashScopeLine, Double) in
             let worst = worstHealth(section, rows: group)
             let line = DashScopeLine(
-                label: key,
+                label: displayGrainLabel(key),
                 value: scopeHeadline(section, rows: group),
                 health: worst,
                 count: group.count
@@ -716,6 +708,504 @@ enum HeartbeatMath {
             return lhs.0.label.localizedStandardCompare(rhs.0.label) == .orderedAscending
         }
         .map(\.0)
+    }
+
+    struct DashboardGrainTableRow: Identifiable, Equatable, Sendable, Codable {
+        let label: String
+        let storeCount: Int
+        let values: [String]
+        let health: Health
+        var id: String { label }
+    }
+
+    /// Column titles for the Sales-style grain table on every dashboard card.
+    static func dashboardTableHeaders(_ section: MetricSection) -> [String] {
+        switch section {
+        case .lostRevenue:
+            return ["Lost $", "Lost %", "Goal %", "eComm $", "Post Sub", "Refund", "Missed", "Cancel", "Kill"]
+        case .fiveStar:
+            return ["Rating", "Flash", "COE", "OTT", "Pre-Sub", "OTH"]
+        case .missingItems, .preSubOOS:
+            return ["Rate", "Healthy", "Watch", "At Risk"]
+        case .pickPath, .pickPathPicker:
+            return ["Path %", "AVG PPH"]
+        case .prepNotReady:
+            return ["PNR %", "Goal", "Watch"]
+        case .dynacap:
+            return ["Pcs/Hr", "PPH", "Util %"]
+        case .scheduleQuality:
+            return ["Sch Eff", "Staffing", "Under", "Over"]
+        case .pph:
+            return ["PPH", "At Goal", "Below 74"]
+        case .labor:
+            return ["Target Vs Actual", "Act Cost", "Cost Tgt", "Sch Eff", "UPLH", "Wage", "AIV"]
+        case .pickerScorecard:
+            return ["Shoppers", "Healthy", "Watch", "At Risk"]
+        case .sales:
+            return ["Sales $", "YoY %", "Orders"]
+        default:
+            return ["Result"]
+        }
+    }
+
+    static func dashboardTableValues(
+        _ section: MetricSection,
+        rows: [MetricRow],
+        goalFallback: Double? = nil
+    ) -> (values: [String], health: Health) {
+        let health = worstHealth(section, rows: rows)
+        let dash = Array(repeating: "—", count: dashboardTableHeaders(section).count)
+        if rows.isEmpty {
+            if section == .lostRevenue, let goal = goalFallback {
+                var values = dash
+                if let index = dashboardTableHeaders(section).firstIndex(of: "Goal %") {
+                    values[index] = HeartbeatFormat.pct(goal)
+                }
+                return (values, .none)
+            }
+            return (dash, .none)
+        }
+        switch section {
+        case .lostRevenue:
+            let sales = lostRevenueTODollars(rows, key: "ecomm_sales")
+            let lost = lostRevenueTODollars(rows, key: "lost_revenue")
+            let market = lostRevenueMarketRow(in: rows)
+            let pct = market?.number("lost_revenue_pct")
+                ?? (sales > 0 ? lost / sales * 100 : average(lostRevenueStoreRows(rows).compactMap { $0.number("lost_revenue_pct") }))
+            let goal = lostRevenueInheritedGoalPct(rows: rows, fallback: goalFallback)
+            return (
+                [
+                    HeartbeatFormat.money(lost),
+                    HeartbeatFormat.pct(pct),
+                    HeartbeatFormat.pct(goal),
+                    HeartbeatFormat.money(sales),
+                    HeartbeatFormat.money(lostRevenueTODollars(rows, key: "post_sub_oos_foregone")),
+                    HeartbeatFormat.money(lostRevenueTODollars(rows, key: "refund_lost")),
+                    HeartbeatFormat.money(lostRevenueTODollars(rows, key: "missed_sales")),
+                    HeartbeatFormat.money(lostRevenueTODollars(rows, key: "cancelled_lost")),
+                    HeartbeatFormat.money(lostRevenueTODollars(rows, key: "kill_switch_lost")),
+                ],
+                lostRevenueHealth(pct: pct)
+            )
+        case .fiveStar:
+            return (
+                [
+                    HeartbeatFormat.stars(average(rows.compactMap { $0.number("star_rating") })),
+                    HeartbeatFormat.pct(average(rows.compactMap { $0.number("flash_pct") })),
+                    HeartbeatFormat.pct(average(rows.compactMap { $0.number("coe_pct") })),
+                    HeartbeatFormat.pct(average(rows.compactMap { $0.number("ott_pct") })),
+                    HeartbeatFormat.pct(average(rows.compactMap { $0.number("presub_pct") })),
+                    HeartbeatFormat.pct(average(rows.compactMap { $0.number("oth5_pct") })),
+                ],
+                health
+            )
+        case .missingItems, .preSubOOS:
+            let stores = rows.filter { !isIgnoredStore($0.storeNumber) && !$0.storeNumber.isEmpty }
+            let scoped = stores.isEmpty ? rows : stores
+            return (
+                [
+                    HeartbeatFormat.pct(average(scoped.compactMap { $0.number(MissingItemDept.totalKey) })),
+                    HeartbeatFormat.num(Double(scoped.filter { missingItemsHealth($0) == .good }.count)),
+                    HeartbeatFormat.num(Double(scoped.filter { missingItemsHealth($0) == .watch }.count)),
+                    HeartbeatFormat.num(Double(scoped.filter { missingItemsHealth($0) == .risk }.count)),
+                ],
+                health
+            )
+        case .pickPath, .pickPathPicker:
+            return (
+                [
+                    HeartbeatFormat.pct(average(rows.compactMap { $0.number("compliance_pct") })),
+                    HeartbeatFormat.num(average(rows.compactMap(pphNumber)), digits: 1),
+                ],
+                health
+            )
+        case .prepNotReady:
+            return (
+                [
+                    HeartbeatFormat.pct(average(rows.compactMap { $0.number("pnr_rate_pct", "pnr_hours", "prep_not_ready_pct") })),
+                    String(format: "%.1f%%", pnrGoal),
+                    String(format: "%.1f–%.1f%%", pnrGoal, pnrWatch),
+                ],
+                health
+            )
+        case .dynacap:
+            return (
+                [
+                    HeartbeatFormat.num(average(rows.compactMap { $0.number("dynacap_rate", "pieces_per_hour") }), digits: 1),
+                    HeartbeatFormat.num(weekPurePPH(rows), digits: 1),
+                    HeartbeatFormat.pct(average(rows.compactMap { $0.number("utilization_pct", "pickup_util_pct") })),
+                ],
+                health
+            )
+        case .scheduleQuality:
+            return (
+                [
+                    HeartbeatFormat.pct(average(rows.compactMap { $0.number("schedule_efficiency_pct") })),
+                    HeartbeatFormat.pct(average(rows.compactMap { $0.number("staffing_efficiency_pct") })),
+                    HeartbeatFormat.pct(average(rows.compactMap { $0.number("under_schedule_pct", "under_scheduled", "under_staffing_pct") })),
+                    HeartbeatFormat.pct(average(rows.compactMap { $0.number("over_schedule_pct", "over_scheduled", "over_staffing_pct") })),
+                ],
+                health
+            )
+        case .pph:
+            let pph = weekPurePPH(rows)
+            let stores = latestPerStore(rows.filter { !isIgnoredStore($0.storeNumber) && !$0.storeNumber.isEmpty })
+            return (
+                [
+                    HeartbeatFormat.num(pph, digits: 1),
+                    HeartbeatFormat.num(Double(stores.filter { (pphNumber($0) ?? 0) >= pphGoal }.count)),
+                    HeartbeatFormat.num(Double(stores.filter { (pphNumber($0) ?? .greatestFiniteMagnitude) < pphRisk }.count)),
+                ],
+                health
+            )
+        case .labor:
+            let tva = laborRollup(rows, key: "target_vs_actual_pct")
+            return (
+                [
+                    HeartbeatFormat.pct(tva),
+                    HeartbeatFormat.pct(laborRollup(rows, key: "act_cost_pct")),
+                    HeartbeatFormat.pct(laborRollup(rows, key: "cost_trgt_pct")),
+                    HeartbeatFormat.pct(laborRollup(rows, key: "schedule_efficiency_pct")),
+                    HeartbeatFormat.pct(laborRollup(rows, key: "uplh_impact_pct")),
+                    HeartbeatFormat.pct(laborRollup(rows, key: "wage_impact_pct")),
+                    HeartbeatFormat.pct(laborRollup(rows, key: "aiv_impact_pct")),
+                ],
+                laborHealth(tva)
+            )
+        case .pickerScorecard:
+            let status = pickerStatusCounts(rows)
+            return (
+                [
+                    HeartbeatFormat.num(Double(status.shoppers)),
+                    HeartbeatFormat.num(Double(status.healthy)),
+                    HeartbeatFormat.num(Double(status.watch)),
+                    HeartbeatFormat.num(Double(status.risk)),
+                ],
+                health
+            )
+        case .sales:
+            let sales = rows.reduce(0) { $0 + salesHeadlineDollars($1) }
+            let orders = rows.reduce(0) { $0 + salesOrders($1) }
+            let yoy = salesRollupYoY(
+                current: rows.map { salesHeadlineDollars($0) },
+                yoyPct: rows.map { $0.number("sales_yoy_pct") }
+            )
+            return (
+                [
+                    HeartbeatFormat.money(sales),
+                    HeartbeatFormat.pct(yoy),
+                    HeartbeatFormat.num(orders, digits: 0),
+                ],
+                salesHealth(planPct: nil, yoy: yoy)
+            )
+        default:
+            return ([scopeHeadline(section, rows: rows)], health)
+        }
+    }
+
+    /// Pack chrome may still say "J3CHICAGO" / "308 - J3 CHICAGO" while buckets are keyed "J3".
+    static func grainAliasKeys(_ raw: String, grain: DashScopeGrain) -> [String] {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+        var keys: [String] = [trimmed]
+        let display = displayGrainLabel(trimmed)
+        if display != trimmed { keys.append(display) }
+        switch grain {
+        case .district:
+            let district = RollupMarketFill.districtKey(trimmed)
+            if district != "Unassigned" { keys.append(district) }
+        case .division:
+            let division = RollupMarketFill.divisionKey(trimmed)
+            if division != "Unassigned" { keys.append(division) }
+        case .region:
+            if let region = MarketRegion.named(trimmed) ?? MarketRegion.containing(trimmed) {
+                keys.append(region.rawValue)
+            }
+        case .store:
+            let number = canonicalStore(trimmed)
+            if !number.isEmpty { keys.append(number) }
+        }
+        let compact = compactKey(display == trimmed ? trimmed : display)
+        if !compact.isEmpty { keys.append(compact) }
+        var seen: Set<String> = []
+        return keys.filter { seen.insert($0).inserted }
+    }
+
+    static func grainRowsAreLive(_ rows: [DashboardGrainTableRow]) -> Bool {
+        rows.contains { row in
+            row.storeCount > 0 || row.values.filter { $0 != "—" && !$0.isEmpty }.count >= 2
+        }
+    }
+
+    /// Expand has dollars/other columns but Goal % is still a dash.
+    static func grainTableNeedsGoalFill(_ rows: [DashboardGrainTableRow]) -> Bool {
+        guard let index = dashboardTableHeaders(.lostRevenue).firstIndex(of: "Goal %") else { return false }
+        return rows.contains { row in
+            guard index < row.values.count else { return true }
+            let goal = row.values[index]
+            let hasBook = row.storeCount > 0 || row.values.contains { $0 != "—" && !$0.isEmpty && $0 != goal }
+            return hasBook && (goal == "—" || goal.isEmpty)
+        }
+    }
+
+    static func fillingLostRevenueGoal(_ rows: [DashboardGrainTableRow], goal: Double) -> [DashboardGrainTableRow] {
+        guard let index = dashboardTableHeaders(.lostRevenue).firstIndex(of: "Goal %") else { return rows }
+        let text = HeartbeatFormat.pct(goal)
+        return rows.map { row in
+            guard index < row.values.count else { return row }
+            let current = row.values[index]
+            guard current == "—" || current.isEmpty else { return row }
+            var values = row.values
+            values[index] = text
+            return DashboardGrainTableRow(
+                label: row.label,
+                storeCount: row.storeCount,
+                values: values,
+                health: row.health
+            )
+        }
+    }
+
+    /// Share / pack chrome often keeps the first metric and drops YoY, Orders, PPH, …
+    static func grainTableNeedsColumnFill(_ rows: [DashboardGrainTableRow], section: MetricSection) -> Bool {
+        let count = dashboardTableHeaders(section).count
+        guard count > 1 else { return false }
+        return rows.contains { row in
+            row.values.count < count
+                || row.values.dropFirst().allSatisfy { $0 == "—" || $0.isEmpty }
+        }
+    }
+
+    /// Keep grain labels (1490 | NorCal) and fill missing metric cells from the same filtered rows expand uses.
+    static func fillingGrainTable(
+        _ rows: [DashboardGrainTableRow],
+        section: MetricSection,
+        metricRows: [MetricRow],
+        grain: DashScopeGrain,
+        goalFallback: Double? = nil
+    ) -> [DashboardGrainTableRow] {
+        let headers = dashboardTableHeaders(section)
+        guard !rows.isEmpty, headers.count > 1, !metricRows.isEmpty else {
+            return paddedGrainTable(rows, headerCount: headers.count)
+        }
+        let rebuilt = dashboardGrainTableFilled(
+            section: section,
+            rows: metricRows,
+            grain: grain,
+            order: rows.map(\.label),
+            goalFallback: goalFallback
+        )
+        var aliasToRow: [String: DashboardGrainTableRow] = [:]
+        aliasToRow.reserveCapacity(rebuilt.count * 3)
+        for row in rebuilt {
+            for alias in grainAliasKeys(row.label, grain: grain) where aliasToRow[alias] == nil {
+                aliasToRow[alias] = row
+            }
+        }
+        func match(_ label: String) -> DashboardGrainTableRow? {
+            for alias in grainAliasKeys(label, grain: grain) {
+                if let hit = aliasToRow[alias] { return hit }
+            }
+            return nil
+        }
+        return rows.map { row in
+            let incoming = match(row.label)
+            return DashboardGrainTableRow(
+                label: row.label,
+                storeCount: max(row.storeCount, incoming?.storeCount ?? 0),
+                values: mergedGrainValues(
+                    current: row.values,
+                    incoming: incoming?.values ?? [],
+                    headerCount: headers.count
+                ),
+                health: row.health == .none ? (incoming?.health ?? row.health) : row.health
+            )
+        }
+    }
+
+    static func paddedGrainTable(
+        _ rows: [DashboardGrainTableRow],
+        headerCount: Int
+    ) -> [DashboardGrainTableRow] {
+        guard headerCount > 0 else { return rows }
+        return rows.map { row in
+            guard row.values.count != headerCount else { return row }
+            return DashboardGrainTableRow(
+                label: row.label,
+                storeCount: row.storeCount,
+                values: mergedGrainValues(current: row.values, incoming: [], headerCount: headerCount),
+                health: row.health
+            )
+        }
+    }
+
+    static func mergedGrainValues(current: [String], incoming: [String], headerCount: Int) -> [String] {
+        var out: [String] = []
+        out.reserveCapacity(headerCount)
+        for index in 0..<headerCount {
+            let have = index < current.count ? current[index] : ""
+            let next = index < incoming.count ? incoming[index] : ""
+            if next != "—" && !next.isEmpty {
+                out.append(next)
+            } else if have != "—" && !have.isEmpty {
+                out.append(have)
+            } else if !next.isEmpty {
+                out.append(next)
+            } else if !have.isEmpty {
+                out.append(have)
+            } else {
+                out.append("—")
+            }
+        }
+        return out
+    }
+
+    static func dashboardGrainTable(
+        section: MetricSection,
+        rows: [MetricRow],
+        grain: DashScopeGrain,
+        order: [String],
+        goalFallback: Double? = nil
+    ) -> [DashboardGrainTableRow] {
+        let source = section == .pickerScorecard ? latestPerShopper(rows) : rows
+        var buckets: [String: [MetricRow]] = [:]
+        for row in source {
+            if row.textPayload["lost_grain"] == "market" { continue }
+            if row.textPayload["labor_grain"] == "market" { continue }
+            if row.textPayload["sales_grain"] == "company" { continue }
+            guard let key = dashboardScopeKey(row, grain: grain) else { continue }
+            buckets[key, default: []].append(row)
+        }
+        var aliasToKey: [String: String] = [:]
+        aliasToKey.reserveCapacity(buckets.count * 3)
+        for key in buckets.keys {
+            for alias in grainAliasKeys(key, grain: grain) where aliasToKey[alias] == nil {
+                aliasToKey[alias] = key
+            }
+        }
+        func group(for label: String) -> (key: String?, rows: [MetricRow]) {
+            for alias in grainAliasKeys(label, grain: grain) {
+                if let key = aliasToKey[alias], let rows = buckets[key] {
+                    return (key, rows)
+                }
+                if let rows = buckets[alias] {
+                    return (alias, rows)
+                }
+            }
+            return (nil, [])
+        }
+        func makeRow(label: String, group: [MetricRow]) -> DashboardGrainTableRow {
+            let built = dashboardTableValues(section, rows: group, goalFallback: goalFallback)
+            return DashboardGrainTableRow(
+                label: displayGrainLabel(label),
+                storeCount: group.count,
+                values: built.values,
+                health: built.health
+            )
+        }
+        let labels: [String]
+        if !order.isEmpty {
+            labels = order
+        } else if grain == .region {
+            labels = MarketRegion.allCases.map(\.rawValue)
+        } else {
+            labels = buckets.keys.sorted()
+        }
+        var used: Set<String> = []
+        var table: [DashboardGrainTableRow] = []
+        table.reserveCapacity(max(labels.count, buckets.count))
+        for label in labels {
+            let hit = group(for: label)
+            if let key = hit.key { used.insert(key) }
+            // Keep official region slots so "Regions 4" always paints East/South/California/West.
+            // District/store order aliases (J3CHICAGO vs J3) still skip blank placeholders.
+            if hit.rows.isEmpty, !buckets.isEmpty, grain != .region, grain != .store { continue }
+            table.append(makeRow(label: label, group: hit.rows))
+        }
+        if !order.isEmpty {
+            for key in buckets.keys.sorted() where !used.contains(key) {
+                let group = buckets[key] ?? []
+                guard !group.isEmpty else { continue }
+                table.append(makeRow(label: key, group: group))
+            }
+        }
+        return table
+    }
+
+    /// Prefer live warehouse buckets. If pack order keys missed, rebuild without order.
+    static func dashboardGrainTableFilled(
+        section: MetricSection,
+        rows: [MetricRow],
+        grain: DashScopeGrain,
+        order: [String],
+        goalFallback: Double? = nil
+    ) -> [DashboardGrainTableRow] {
+        let table = dashboardGrainTable(
+            section: section,
+            rows: rows,
+            grain: grain,
+            order: order,
+            goalFallback: goalFallback
+        )
+        if grain == .region { return table }
+        if grainRowsAreLive(table) { return table }
+        guard !order.isEmpty else { return table }
+        let fallback = dashboardGrainTable(
+            section: section,
+            rows: rows,
+            grain: grain,
+            order: [],
+            goalFallback: goalFallback
+        )
+        return grainRowsAreLive(fallback) ? fallback : table
+    }
+
+    /// Banner packs already have the headline. Use them when the warehouse slice is not ready.
+    static func dashboardGrainRowsFromPacks(
+        _ packs: [DashScopePack],
+        section: MetricSection,
+        goalFallback: Double? = nil
+    ) -> [DashboardGrainTableRow] {
+        let headers = dashboardTableHeaders(section)
+        return packs.compactMap { pack -> DashboardGrainTableRow? in
+            let line = pack.line
+            guard !line.label.isEmpty, line.label != "Unassigned" else { return nil }
+            let live = line.count > 0 || (!line.value.isEmpty && line.value != "—")
+            guard live || !pack.flags.isEmpty || goalFallback != nil else { return nil }
+            var values: [String] = []
+            values.reserveCapacity(max(headers.count, 1))
+            for (index, header) in headers.enumerated() {
+                if header == "Goal %", let goal = goalFallback {
+                    values.append(HeartbeatFormat.pct(goal))
+                } else if let flag = pack.flags.first(where: { flagName($0.name, matches: header) }) {
+                    if !flag.value.isEmpty {
+                        values.append(flag.value)
+                    } else if section == .pickerScorecard
+                        || header == "Healthy" || header == "Watch" || header == "At Risk" {
+                        values.append(HeartbeatFormat.num(Double(flag.stores)))
+                    } else {
+                        values.append("—")
+                    }
+                } else if index == 0 {
+                    values.append(line.value.isEmpty ? "—" : line.value)
+                } else {
+                    values.append("—")
+                }
+            }
+            if values.isEmpty { values = [line.value.isEmpty ? "—" : line.value] }
+            return DashboardGrainTableRow(
+                label: displayGrainLabel(line.label),
+                storeCount: line.count,
+                values: values,
+                health: line.health
+            )
+        }
+    }
+
+    private static func flagName(_ name: String, matches header: String) -> Bool {
+        let a = compactKey(name)
+        let b = compactKey(header)
+        return !a.isEmpty && !b.isEmpty && (a == b || a.contains(b) || b.contains(a))
     }
 
     static func dashboardStoreLines(
@@ -800,7 +1290,7 @@ enum HeartbeatMath {
         case .scheduleQuality:
             return HeartbeatFormat.pct(average(rows.compactMap { $0.number("schedule_efficiency_pct") }))
         case .pph:
-            return HeartbeatFormat.num(average(rows.compactMap { $0.number("pph") ?? $0.number("pure_pph") }), digits: 1)
+            return HeartbeatFormat.num(weekPurePPH(rows), digits: 1)
         case .labor:
             return HeartbeatFormat.pct(average(rows.compactMap { $0.number("target_vs_actual_pct") }))
         case .pickerScorecard:
@@ -820,6 +1310,7 @@ enum HeartbeatMath {
         pickers: [MetricRow] = [],
         pathPickers: [MetricRow] = [],
         items: [MetricRow] = [],
+        pphRows: [MetricRow] = [],
         includeAll: Bool = false
     ) -> [FiveStarFlag] {
         if section == .sales { return salesActionFlags(rows) }
@@ -828,25 +1319,19 @@ enum HeartbeatMath {
         if section == .labor { return laborActionFlags(rows) }
         if section == .scheduleQuality { return scheduleActionFlags(rows, includeAll: true) }
         if section == .pickPath { return pickPathMetricFlags(rows) }
-        if section == .dynacap { return dynacapActionFlags(rows) }
+        if section == .dynacap {
+            return dynacapActionFlags(
+                overlayStorePPH(rows, from: pphRows, pickers: pickers),
+                bookPPH: pphRows.isEmpty ? pickers : pphRows
+            )
+        }
+        if section == .pph {
+            return pphDashboardFlags(rows, pickers: pickers)
+        }
         if section == .preSubOOS { return preSubActionFlags(rows, items: items) }
         if section == .pickerScorecard {
-            let shoppers = rows.filter { isRealPicker($0) || pickerHasVolume($0) }
-            func tone(_ row: MetricRow) -> Health {
-                var health = pickerHealth(row)
-                if health == .none, pickerHasVolume(row) { health = .watch }
-                return health
-            }
-            var healthy = shoppers.filter { tone($0) == .good }.count
-            var watch = shoppers.filter { tone($0) == .watch }.count
-            var risk = shoppers.filter { tone($0) == .risk }.count
-            if healthy + watch + risk == 0, !shoppers.isEmpty {
-                let board = pickerBoard(shoppers)
-                healthy = board.strongCount
-                risk = board.opportunityCount
-                watch = max(0, shoppers.count - healthy - risk)
-            }
-            return bandFlags(healthy: healthy, watch: watch, risk: risk, unit: "shoppers")
+            let status = pickerStatusCounts(rows)
+            return bandFlags(healthy: status.healthy, watch: status.watch, risk: status.risk, unit: "shoppers")
         }
         let stores = rows.filter { !isIgnoredStore($0.storeNumber) && !$0.storeNumber.isEmpty }
         let healthy = stores.filter { health(for: section, row: $0) == .good }.count
@@ -967,7 +1452,10 @@ enum HeartbeatMath {
         if !selectedDivisions.isEmpty {
             divisionValues = selectedDivisions
         } else {
-            divisionValues = selectedRegions.flatMap { MarketRegion(rawValue: $0)?.divisions ?? [] }
+            divisionValues = selectedRegions.flatMap { name -> [String] in
+                let region = MarketRegion(rawValue: name) ?? MarketRegion.named(name)
+                return region?.divisions ?? []
+            }
         }
         let districtValues = DashboardFilters.parts(district)
         let omValues = DashboardFilters.parts(om)
@@ -1038,7 +1526,7 @@ enum HeartbeatMath {
         if !storeNumber.isEmpty {
             let store = canonicalStore(storeNumber)
             if stores.contains(store) { return true }
-            return stores.contains { sameStore($0, store) }
+            return storeInAllowed(store, allowed: stores)
         }
         return values.contains { MarketRegion.matchesDivision(identity, $0) }
     }
@@ -1070,9 +1558,14 @@ enum HeartbeatMath {
     /// Numbered codes (03, 3) match each other. Letter codes (D3, B3) match
     /// only themselves. Do not map 03→D3 or B3→3 — the roster has both.
     static func districtMatchKeys(_ raw: String) -> Set<String> {
-        let compact = compactKey(canonicalDistrict(raw))
+        let canon = canonicalDistrict(raw)
+        let compact = compactKey(canon)
         guard !compact.isEmpty else { return [] }
         var keys: Set<String> = [compact]
+        let rawCompact = compactKey(raw)
+        if !rawCompact.isEmpty { keys.insert(rawCompact) }
+        let short = compactKey(shortDistrictName(raw.replacingOccurrences(of: "\\s+", with: "", options: .regularExpression)))
+        if !short.isEmpty { keys.insert(short) }
         if compact.allSatisfy(\.isNumber), let value = Int(compact) {
             keys.insert(String(value))
             keys.insert(String(format: "%02d", value))
@@ -1096,9 +1589,69 @@ enum HeartbeatMath {
         value = value.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
         guard !value.isEmpty else { return "" }
         if value.rangeOfCharacter(from: .decimalDigits) != nil {
-            return value.replacingOccurrences(of: "\\s+", with: "", options: .regularExpression).uppercased()
+            value = value.replacingOccurrences(of: "\\s+", with: "", options: .regularExpression).uppercased()
+            return shortDistrictName(value)
         }
         return value
+    }
+
+    /// Filter-true short name: J3CHICAGO → J3, J1NORTHSHORE → J1, "308 - J3 CHICAGO" → J3.
+    /// Leaves 03 / D3 / J3 alone.
+    static func shortDistrictName(_ raw: String) -> String {
+        let canon = raw.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard !canon.isEmpty else { return "" }
+        if let match = canon.range(of: #"^[A-Z]{1,3}\d{1,2}"#, options: .regularExpression) {
+            let prefix = String(canon[match])
+            let rest = canon[match.upperBound...]
+            if rest.contains(where: \.isLetter) { return prefix }
+            return canon.replacingOccurrences(of: "\\s+", with: "", options: .regularExpression)
+        }
+        if let match = canon.range(of: #"[A-Z]{1,3}\d{1,2}(?=[\s\-]*[A-Z])"#, options: .regularExpression) {
+            return String(canon[match])
+        }
+        return canon
+    }
+
+    /// Grain / filter label: J3CHICAGO and "308 - J3 CHICAGO" → J3. Leaves stores and markets alone.
+    static func displayGrainLabel(_ raw: String) -> String {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        let short = shortDistrictName(trimmed)
+        guard short.range(of: #"^[A-Z]{1,3}\d{1,2}$"#, options: .regularExpression) != nil else {
+            return trimmed
+        }
+        let compact = compactKey(trimmed)
+        let shortCompact = compactKey(short)
+        if compact == shortCompact { return short }
+        if compact.hasPrefix(shortCompact), compact.dropFirst(shortCompact.count).contains(where: \.isLetter) {
+            return short
+        }
+        if compact.contains(shortCompact),
+           trimmed.contains(where: { $0 == "-" || $0 == "·" || $0.isWhitespace }) {
+            let rest = compact.replacingOccurrences(of: shortCompact, with: "")
+            if rest.contains(where: \.isLetter) { return short }
+        }
+        return trimmed
+    }
+
+    /// Dashboard KPI chips must stay inside the card. Strip leading SKU codes and cap length.
+    static func compactCalloutLabel(_ raw: String, limit: Int = 22) -> String {
+        var text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let range = text.range(of: #"^\d{5,}\s*[-\u2013:]\s*"#, options: .regularExpression) {
+            text.removeSubrange(range)
+        }
+        text = text.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        guard text.count > limit else { return text }
+        return String(text.prefix(limit - 1)).trimmingCharacters(in: .whitespacesAndNewlines) + "…"
+    }
+
+    /// Roster names that are really district titles should not appear on store chips.
+    static func usableStoreName(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return nil }
+        if displayGrainLabel(trimmed) != trimmed { return nil }
+        return trimmed
     }
 
     static func storeDisplayLabel(
@@ -1230,6 +1783,18 @@ enum HeartbeatMath {
         !storeAliases(lhs).isDisjoint(with: storeAliases(rhs))
     }
 
+    /// O(1). Canonical + zero-padded aliases. Does not allocate a Set or scan `allowed`.
+    static func storeInAllowed(_ raw: String, allowed: Set<String>) -> Bool {
+        let store = canonicalStore(raw)
+        if store.isEmpty { return false }
+        if allowed.contains(store) || allowed.contains(raw) { return true }
+        if let value = Int(store) {
+            if allowed.contains(String(format: "%04d", value)) { return true }
+            if allowed.contains(String(format: "%05d", value)) { return true }
+        }
+        return false
+    }
+
     static let ignoredStores: Set<String> = ["210", "239"]
 
     static let identityOverrides: [String: StoreIdentity] = [
@@ -1343,6 +1908,106 @@ enum HeartbeatMath {
             .filter(hasRate)
         if !perStore.isEmpty { return perStore }
         return materializeDistrictMetric(rows, roster: roster).filter(hasRate)
+    }
+
+    static func pphNumber(_ row: MetricRow) -> Double? {
+        row.number("pph") ?? row.number("pure_pph")
+    }
+
+    /// Week Pure PPH (Total) for the stores in `rows`. Multiple DATE rows collapse
+    /// with `latestPerStore` (same as the PPH sheet's Total column). Empty store
+    /// rows are grain totals. Shopper rows only fill when the PPH book is empty.
+    static func weekPurePPH(_ rows: [MetricRow], pickers: [MetricRow] = []) -> Double? {
+        let stores = latestPerStore(rows.filter { !isIgnoredStore($0.storeNumber) && !$0.storeNumber.isEmpty })
+        if let avg = average(stores.compactMap(pphNumber)) { return avg }
+        let grainTotals = rows.filter { canonicalStore($0.storeNumber).isEmpty }
+        if let avg = average(grainTotals.compactMap(pphNumber)) { return avg }
+        let lookup = storePPHLookup(pickers)
+        if lookup.isEmpty { return nil }
+        return average(Array(lookup.values))
+    }
+
+    /// One week Pure PPH (Total) row per store. Picker Total Pure PPH fills only
+    /// when the PPH sheet did not score those stores.
+    static func materializePPH(
+        _ rows: [MetricRow],
+        roster: [String: StoreIdentity],
+        pickers: [MetricRow] = []
+    ) -> [MetricRow] {
+        let perStore = applyRoster(
+            latestPerStore(rows.filter { !canonicalStore($0.storeNumber).isEmpty }),
+            roster: roster
+        ).filter { pphNumber($0) != nil }
+        if !perStore.isEmpty { return perStore }
+        let map = storePPHLookup(pickers)
+        guard !map.isEmpty else { return [] }
+        return map.keys.sorted().compactMap { store in
+            guard let pph = map[store] else { return nil }
+            let identity = roster[store]
+            var text: [String: String] = [:]
+            if let district = identity?.district, !district.isEmpty {
+                text["district"] = district
+            }
+            return MetricRow(
+                section: .pph,
+                division: identity?.division ?? "",
+                operationsOM: identity?.om ?? "",
+                storeNumber: store,
+                storeName: identity?.name,
+                payload: ["pph": pph],
+                textPayload: text
+            )
+        }
+    }
+
+    /// Dynacap sheets carry pieces/hr + utilization. Store PPH lives on the PPH (or picker) scorecard.
+    static func storePPHLookup(_ rows: [MetricRow]) -> [String: Double] {
+        var out: [String: Double] = [:]
+        out.reserveCapacity(min(rows.count, 2_200))
+        for row in latestPerStore(rows) {
+            let store = canonicalStore(row.storeNumber)
+            guard !store.isEmpty, let pph = pphNumber(row) else { continue }
+            out[store] = pph
+        }
+        return out
+    }
+
+    static func overlayStorePPH(
+        _ rows: [MetricRow],
+        from pphRows: [MetricRow],
+        pickers: [MetricRow] = []
+    ) -> [MetricRow] {
+        var map = storePPHLookup(pphRows)
+        if map.count < 8 {
+            for (store, pph) in storePPHLookup(pickers) where map[store] == nil {
+                map[store] = pph
+            }
+        }
+        guard !map.isEmpty else { return rows }
+        var aliased: [String: Double] = map
+        for (store, pph) in map {
+            for alias in storeAliases(store) { aliased[alias] = aliased[alias] ?? pph }
+        }
+        return rows.map { row in
+            if pphNumber(row) != nil { return row }
+            let store = canonicalStore(row.storeNumber)
+            var pph = aliased[store]
+            if pph == nil {
+                pph = storeAliases(store).compactMap { aliased[$0] }.first
+            }
+            guard let pph else { return row }
+            var next = row
+            next.payload["pph"] = pph
+            return next
+        }
+    }
+
+    static func overlayDynacapPPH(_ latest: [MetricSection: [MetricRow]]) -> [MetricSection: [MetricRow]] {
+        guard let dyn = latest[.dynacap], !dyn.isEmpty else { return latest }
+        let next = overlayStorePPH(dyn, from: latest[.pph] ?? [], pickers: latest[.pickerScorecard] ?? [])
+        var out = latest
+        out[.dynacap] = next
+        return out
     }
 
     static func materializePickPath(_ rows: [MetricRow], roster: [String: StoreIdentity]) -> [MetricRow] {
@@ -1613,18 +2278,19 @@ enum HeartbeatMath {
                 overScheduledCount: overRisk
             )
         case .pph:
-            let headline = average(latest.compactMap { $0.number("pph") })
-            let atGoal = latest.filter { ($0.number("pph") ?? 0) >= pphGoal }.count
-            let atRisk = latest.filter { ($0.number("pph") ?? .greatestFiniteMagnitude) < pphRisk }.count
+            let scored = latest.filter { pphNumber($0) != nil }
+            let headline = weekPurePPH(latest)
+            let atGoal = scored.filter { (pphNumber($0) ?? 0) >= pphGoal }.count
+            let atRisk = scored.filter { (pphNumber($0) ?? .greatestFiniteMagnitude) < pphRisk }.count
             return SectionSummary(
                 section: section,
-                storeCount: latest.count,
+                storeCount: scored.count,
                 headline: headline,
-                headlineLabel: "Avg pure PPH",
-                secondary: latest.isEmpty
+                headlineLabel: "Week Pure PPH",
+                secondary: scored.isEmpty
                     ? "No stores in view"
-                    : "\(atGoal) of \(latest.count) at 80 · \(atRisk) below 74",
-                health: latest.isEmpty ? .none : band(headline, good: pphGoal, watch: pphRisk),
+                    : "\(atGoal) of \(scored.count) at 80 · \(atRisk) below 74",
+                health: headline == nil ? .none : band(headline, good: pphGoal, watch: pphRisk),
                 watchCount: watch,
                 riskCount: risk,
                 lastFilename: upload?.filename,
@@ -1681,25 +2347,18 @@ enum HeartbeatMath {
                     && $0.number("lost_revenue") != nil
             }
             let market = latest.first { $0.textPayload["lost_grain"] == "market" && $0.storeNumber.isEmpty }
-            let marketDollars = market?.number("lost_revenue") ?? 0
+            // Excel "Total Lost Revenue (Total Opportunity)":
+            // unfiltered → Total / grand-total row; filtered → that column on stores in seat.
+            let marketDollars = totalOpportunityDollars(market)
             let storeTotals = lostRevenueTotals(stores)
             let dollars: Double?
             let pct: Double?
-            if marketDollars >= 1_000_000, stores.count >= 800 {
+            if marketDollars > 0 {
                 dollars = marketDollars
                 pct = market?.number("lost_revenue_pct")
-            } else if !stores.isEmpty, stores.count < 800 {
+            } else if !stores.isEmpty {
                 dollars = storeTotals.dollars
                 pct = storeTotals.pct
-            } else if marketDollars >= 1_000_000 {
-                dollars = marketDollars
-                pct = market?.number("lost_revenue_pct")
-            } else if storeTotals.dollars >= 1_000_000, (storeTotals.pct ?? 0) < 40 {
-                dollars = storeTotals.dollars
-                pct = storeTotals.pct
-            } else if marketDollars > 0 {
-                dollars = marketDollars
-                pct = market?.number("lost_revenue_pct")
             } else {
                 dollars = nil
                 pct = nil
@@ -2005,11 +2664,7 @@ enum HeartbeatMath {
     }
 
     static func lostRevenueMetricFlags(_ rows: [MetricRow], includeAll: Bool = true) -> [FiveStarFlag] {
-        let stores = rows.filter {
-            $0.textPayload["lost_grain"] != "market"
-                && !isIgnoredStore($0.storeNumber)
-                && !$0.storeNumber.isEmpty
-        }
+        let stores = lostRevenueStoreRows(rows)
         let specs: [(name: String, dollar: String, pct: String)] = [
             ("Total Lost Revenue", "lost_revenue", "lost_revenue_pct"),
             ("Post Sub OOS Foregone", "post_sub_oos_foregone", "post_sub_oos_foregone_pct"),
@@ -2021,20 +2676,24 @@ enum HeartbeatMath {
         var flags: [FiveStarFlag] = []
         flags.reserveCapacity(specs.count)
         for spec in specs {
-            var dollars = 0.0
-            var sales = 0.0
+            var dollars = lostRevenueTODollars(rows, key: spec.dollar)
+            var sales = lostRevenueTODollars(rows, key: "ecomm_sales")
             var risk = 0
-            var seen = false
-            for row in stores {
-                if let value = row.number(spec.dollar) {
-                    dollars += value
-                    seen = true
-                    sales += row.number("ecomm_sales") ?? 0
-                } else if spec.dollar == "missed_sales", let cap = row.number("reduced_capacity") {
-                    dollars += cap
-                    seen = true
-                    sales += row.number("ecomm_sales") ?? 0
+            var seen = dollars != 0 || lostRevenueMarketRow(in: rows)?.number(spec.dollar) != nil
+            if !seen {
+                for row in stores {
+                    if let value = row.number(spec.dollar) {
+                        dollars += value
+                        seen = true
+                        sales += row.number("ecomm_sales") ?? 0
+                    } else if spec.dollar == "missed_sales", let cap = row.number("reduced_capacity") {
+                        dollars += cap
+                        seen = true
+                        sales += row.number("ecomm_sales") ?? 0
+                    }
                 }
+            }
+            for row in stores {
                 let pct = row.number(spec.pct)
                 if lostRevenueHealth(pct: pct) == .risk {
                     risk += 1
@@ -2042,14 +2701,24 @@ enum HeartbeatMath {
             }
             guard seen || includeAll else { continue }
             if !seen, !includeAll { continue }
-            let pct = sales > 0 ? dollars / sales * 100 : stores.compactMap { $0.number(spec.pct) }.first
-            let health = lostRevenueHealth(pct: pct)
+            let pct = lostRevenueMarketRow(in: rows)?.number(spec.pct)
+                ?? (sales > 0 ? dollars / sales * 100 : stores.compactMap { $0.number(spec.pct) }.first)
+            let health: Health
+            switch spec.dollar {
+            case "refund_lost", "cancelled_lost":
+                health = lostSalesDollarHealth(dollars: dollars, pct: pct, anyDollarIsRisk: false)
+            case "kill_switch_lost":
+                health = lostSalesDollarHealth(dollars: dollars, pct: pct, anyDollarIsRisk: true)
+            default:
+                let banded = lostRevenueHealth(pct: pct)
+                health = banded == .none ? (dollars > 0 ? .watch : .good) : banded
+            }
             if !includeAll, dollars == 0, health == .good { continue }
             flags.append(
                 FiveStarFlag(
                     name: spec.name,
                     value: HeartbeatFormat.money(dollars),
-                    health: health == .none ? .watch : health,
+                    health: health,
                     stores: risk
                 )
             )
@@ -2219,11 +2888,39 @@ enum HeartbeatMath {
         ]
     }
 
-    static func dynacapActionFlags(_ rows: [MetricRow]) -> [FiveStarFlag] {
+    static func pphDashboardFlags(_ rows: [MetricRow], pickers: [MetricRow] = []) -> [FiveStarFlag] {
+        let stores = latestPerStore(rows.filter { !isIgnoredStore($0.storeNumber) && !$0.storeNumber.isEmpty })
+        let scored = stores.filter { pphNumber($0) != nil }
+        let pph = weekPurePPH(rows, pickers: pickers)
+        let sourceCount = scored.isEmpty ? storePPHLookup(pickers).count : scored.count
+        let healthy = scored.filter { health(for: .pph, row: $0) == .good }.count
+        let watch = scored.filter { health(for: .pph, row: $0) == .watch }.count
+        let risk = scored.filter { health(for: .pph, row: $0) == .risk }.count
+        var flags: [FiveStarFlag] = [
+            FiveStarFlag(
+                name: "PPH",
+                value: HeartbeatFormat.num(pph, digits: 1),
+                health: band(pph, good: pphGoal, watch: pphRisk),
+                stores: sourceCount,
+                unit: "stores"
+            )
+        ]
+        flags += bandFlags(healthy: healthy, watch: watch, risk: risk)
+        return flags
+    }
+
+    static func dynacapActionFlags(_ rows: [MetricRow], bookPPH: [MetricRow] = []) -> [FiveStarFlag] {
         let stores = rows.filter { !isIgnoredStore($0.storeNumber) && !$0.storeNumber.isEmpty }
         let scoped = stores.isEmpty ? rows : stores
         let pieces = average(scoped.compactMap { $0.number("dynacap_rate", "pieces_per_hour") })
-        let pph = average(scoped.compactMap { $0.number("pph") })
+        var pph = weekPurePPH(scoped)
+        var pphStores = latestPerStore(scoped.filter { pphNumber($0) != nil })
+        if pph == nil || pphStores.isEmpty {
+            pph = weekPurePPH(bookPPH)
+            pphStores = latestPerStore(bookPPH.filter {
+                !isIgnoredStore($0.storeNumber) && pphNumber($0) != nil
+            })
+        }
         let util = average(scoped.compactMap { $0.number("utilization_pct", "pickup_util_pct") })
         return [
             FiveStarFlag(
@@ -2234,9 +2931,9 @@ enum HeartbeatMath {
             ),
             FiveStarFlag(
                 name: "Store PPH",
-                value: HeartbeatFormat.num(pph),
+                value: HeartbeatFormat.num(pph, digits: 1),
                 health: band(pph, good: pphGoal, watch: pphRisk),
-                stores: scoped.filter { band($0.number("pph"), good: pphGoal, watch: pphRisk) == .risk }.count
+                stores: pphStores.filter { band(pphNumber($0), good: pphGoal, watch: pphRisk) == .risk }.count
             ),
             FiveStarFlag(
                 name: "Utilization",
@@ -2262,15 +2959,18 @@ enum HeartbeatMath {
             (lhs.number("presub_pct") ?? 0) < (rhs.number("presub_pct") ?? 0)
         }
         if let ranked {
-            let name = ranked.textPayload["bpn"]?.trimmingCharacters(in: .whitespacesAndNewlines)
-            let label = (name?.isEmpty == false ? name! : "Top item")
             flags.append(
                 FiveStarFlag(
                     name: "#1 Pre-Sub Item",
-                    value: "\(label) · \(HeartbeatFormat.pct(ranked.number("presub_pct")))",
+                    value: HeartbeatFormat.pct(ranked.number("presub_pct")),
                     health: missingItemsHealth(pct: ranked.number("presub_pct")),
                     stores: 1,
-                    unit: "item"
+                    unit: {
+                        let label = compactCalloutLabel(
+                            ranked.textPayload["bpn"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                        )
+                        return label.isEmpty ? "item" : label
+                    }()
                 )
             )
         }
@@ -2281,7 +2981,7 @@ enum HeartbeatMath {
         let stores = rows.filter { !isIgnoredStore($0.storeNumber) && !$0.storeNumber.isEmpty }
         let scoped = stores.isEmpty ? rows : stores
         let path = average(scoped.compactMap { $0.number("compliance_pct") })
-        let pph = average(scoped.compactMap { $0.number("pph") })
+        let pph = average(scoped.compactMap(pphNumber))
         return [
             FiveStarFlag(
                 name: "Pick Path",
@@ -2419,7 +3119,7 @@ enum HeartbeatMath {
     }
 
     static func pphHealth(_ row: MetricRow) -> Health {
-        band(row.number("pph"), good: pphGoal, watch: pphRisk)
+        band(pphNumber(row), good: pphGoal, watch: pphRisk)
     }
 
     static func laborRollup(_ rows: [MetricRow], key: String) -> Double? {
@@ -2478,8 +3178,274 @@ enum HeartbeatMath {
         return .risk
     }
 
+    static func parsePctToken(_ text: String) -> Double? {
+        let trimmed = text
+            .replacingOccurrences(of: "%", with: "")
+            .replacingOccurrences(of: ",", with: "")
+            .replacingOccurrences(of: "$", with: "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty || trimmed == "—" { return nil }
+        return Double(trimmed)
+    }
+
+    /// Header key that keeps $ / % so "Lost $" and "Lost %" stay distinct.
+    static func expandHeaderKey(_ header: String) -> String {
+        normalize(header)
+            .replacingOccurrences(of: "$", with: "usd")
+            .replacingOccurrences(of: "%", with: "pct")
+            .replacingOccurrences(of: "[^a-z0-9]", with: "", options: .regularExpression)
+    }
+
+    /// Expand cell ink. Same Healthy / Watch / At Risk polarity as that section’s card callouts.
+    /// Labor: +red / −green on TVA / UPLH / Wage / AIV. Cost Target stays black.
+    static func dashboardExpandCellHealth(
+        section: MetricSection,
+        header: String,
+        text: String,
+        rowHealth: Health,
+        values: [String] = [],
+        headers: [String] = []
+    ) -> Health {
+        _ = rowHealth
+        let key = expandHeaderKey(header)
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || text == "—" {
+            return .none
+        }
+        if section == .prepNotReady, key == "watch" || key == "goal" || key.contains("pnrgoal") {
+            return .none
+        }
+        if key == "healthy" || key == "atgoal" { return .good }
+        if key == "watch" { return .watch }
+        if key.contains("atrisk") || key == "below74" || key == "risk" { return .risk }
+
+        let number = parsePctToken(text)
+        var siblings: [String: Double] = [:]
+        if !headers.isEmpty, headers.count == values.count {
+            for (title, cell) in zip(headers, values) {
+                if let parsed = parsePctToken(cell) {
+                    siblings[expandHeaderKey(title)] = parsed
+                }
+            }
+        }
+
+        switch section {
+        case .labor:
+            if key.contains("costtgt") || key.contains("costtarget") || key.contains("costtrgt") {
+                return .none
+            }
+            if key.contains("targetvsactual") || key.contains("tgtvsact") || key == "tva"
+                || key == "uplh" || key.contains("uplh")
+                || key == "wage" || key.contains("wage")
+                || key == "aiv" || key.contains("aiv") {
+                return laborHealth(number)
+            }
+            if key.contains("scheff") || key.contains("actcost") {
+                return .none
+            }
+            return .none
+        case .lostRevenue:
+            return lostRevenueExpandCellHealth(key: key, number: number, siblings: siblings)
+        case .fiveStar:
+            return fiveStarExpandCellHealth(key: key, number: number)
+        case .missingItems, .preSubOOS, .preSubOOSItem:
+            if key == "rate" || key == "total" || key.contains("presub") || key.contains("oos") {
+                return missingItemsHealth(pct: number)
+            }
+            return .none
+        case .pickPath, .pickPathPicker:
+            if key.contains("path") || key.contains("compliance") {
+                return band(number, good: pickPathGoal, watch: pickPathRisk)
+            }
+            if key.contains("pph") {
+                return band(number, good: pphGoal, watch: pphRisk)
+            }
+            return .none
+        case .prepNotReady:
+            if key.contains("pnr") {
+                return band(number, good: pnrGoal, watch: pnrWatch, invert: true)
+            }
+            return .none
+        case .dynacap:
+            if key.contains("pcs") || key.contains("pieces") || key.contains("dynacap") {
+                return band(number, good: dynacapGoal, watch: dynacapRisk)
+            }
+            if key.contains("pph") {
+                return band(number, good: pphGoal, watch: pphRisk)
+            }
+            if key.contains("util") {
+                return band(number, good: dynacapGoal, watch: dynacapRisk)
+            }
+            return .none
+        case .scheduleQuality:
+            if key.contains("under") || key.contains("over") {
+                return varianceHealth(number)
+            }
+            if key.contains("scheff") || key.contains("efficiency") || key.contains("staffing") {
+                return band(number, good: scheduleGoal, watch: scheduleWatch)
+            }
+            return .none
+        case .pph:
+            if key.contains("pph") || key.contains("pure") {
+                return band(number, good: pphGoal, watch: pphRisk)
+            }
+            return .none
+        case .sales:
+            if key.contains("yoy") {
+                return salesHealth(planPct: nil, yoy: number)
+            }
+            return .none
+        case .pickerScorecard:
+            return .none
+        default:
+            return .none
+        }
+    }
+
+    private static func lostRevenueExpandCellHealth(
+        key: String,
+        number: Double?,
+        siblings: [String: Double]
+    ) -> Health {
+        if key.contains("goal") || key.contains("ecomm") || key.contains("salesusd") {
+            return .none
+        }
+        let dollars: Double
+        let pct: Double?
+        if key.contains("pct") || key.hasSuffix("pct") || key == "lostpct" {
+            dollars = siblings["lostusd"] ?? siblings["lost"] ?? 0
+            pct = number
+        } else {
+            dollars = number ?? 0
+            pct = siblings["lostpct"]
+                ?? lostRevenueImpliedPct(dollars: dollars, sales: siblings["ecommusd"] ?? siblings["ecomm"])
+        }
+        if key.contains("refund") || key.contains("cancel") {
+            return lostSalesDollarHealth(dollars: dollars, pct: pct, anyDollarIsRisk: false)
+        }
+        if key.contains("kill") {
+            return lostSalesDollarHealth(dollars: dollars, pct: pct, anyDollarIsRisk: true)
+        }
+        let banded = lostRevenueHealth(pct: pct)
+        if key.contains("post") || key.contains("missed") {
+            let implied = pct ?? lostRevenueImpliedPct(
+                dollars: dollars,
+                sales: siblings["ecommusd"] ?? siblings["ecomm"]
+            )
+            let fromPct = lostRevenueHealth(pct: implied)
+            return fromPct == .none ? (dollars > 0 ? .watch : .good) : fromPct
+        }
+        return banded == .none ? (dollars > 0 ? .watch : .good) : banded
+    }
+
+    private static func lostRevenueImpliedPct(dollars: Double, sales: Double?) -> Double? {
+        guard let sales, sales > 0 else { return nil }
+        return dollars / sales * 100
+    }
+
+    private static func fiveStarExpandCellHealth(key: String, number: Double?) -> Health {
+        if key.contains("rating") || key.contains("star") {
+            return band(number, good: 4.5, watch: fiveStarPass)
+        }
+        if key.contains("flash") {
+            return starMark(value: number, full: 75, half: 55).health
+        }
+        if key.contains("coe") {
+            return starMark(value: number, full: 20, half: 0).health
+        }
+        if key.contains("ott") {
+            return starMark(value: number, full: 95, half: 90).health
+        }
+        if key.contains("presub") {
+            return starMark(value: number, full: 5, half: 6, invert: true).health
+        }
+        if key.contains("oth") {
+            return starMark(value: number, full: 92, half: 78).health
+        }
+        return .none
+    }
+
     static func lostRevenueHealth(_ row: MetricRow) -> Health {
         lostRevenueHealth(pct: row.number("lost_revenue_pct"))
+    }
+
+    /// FY goal % from the pack, or goal $ / eComm sales when the sheet only shipped dollars.
+    static func lostRevenueGoalPct(_ row: MetricRow) -> Double? {
+        if let pct = row.number(
+            "lost_revenue_goal_pct",
+            "goal_pct",
+            "fy2026_goal_pct",
+            "fy_goal_pct",
+            "lost_revenue_fy_goal_pct"
+        ) {
+            return pct
+        }
+        let dollars = row.number(
+            "lost_revenue_goal",
+            "goal",
+            "fy2026_goal",
+            "fy_goal",
+            "lost_revenue_fy_goal"
+        )
+        let sales = row.number("ecomm_sales", "sales_dollars")
+        guard let dollars, let sales, sales > 0 else { return nil }
+        return dollars / sales * 100
+    }
+
+    static func lostRevenueGoalPct(rows: [MetricRow], market: MetricRow? = nil) -> Double? {
+        if let market, let pct = lostRevenueGoalPct(market) { return pct }
+        return lostRevenueInheritedGoalPct(rows: rows)
+    }
+
+    /// Store/region goal first; FY2026 market goal fills grains when the pack only shipped a company target.
+    static func lostRevenueInheritedGoalPct(rows: [MetricRow], fallback: Double? = nil) -> Double? {
+        let dollars = rows.compactMap { $0.number("lost_revenue_goal") }.reduce(0, +)
+        let sales = rows.compactMap { $0.number("ecomm_sales") }.reduce(0, +)
+        if sales > 0, dollars > 0 { return dollars / sales * 100 }
+        if let avg = average(rows.compactMap { lostRevenueGoalPct($0) }) { return avg }
+        return fallback
+    }
+
+    /// Market / FY row in the book, else inherited store goals. Used when grain buckets skip `lost_grain=market`.
+    static func lostRevenueGoalFallback(_ rows: [MetricRow]) -> Double? {
+        if let market = rows.first(where: { $0.textPayload["lost_grain"] == "market" }),
+           let pct = lostRevenueGoalPct(market) {
+            return pct
+        }
+        if let total = rows.first(where: {
+            canonicalStore($0.storeNumber).isEmpty && lostRevenueGoalPct($0) != nil
+        }), let pct = lostRevenueGoalPct(total) {
+            return pct
+        }
+        return lostRevenueInheritedGoalPct(rows: rows.filter { $0.textPayload["lost_grain"] != "market" })
+    }
+
+    /// Excel **Total Lost Revenue (Total Opportunity)** — pack key `lost_revenue`.
+    static func totalOpportunityDollars(_ row: MetricRow?) -> Double {
+        row?.number("lost_revenue") ?? 0
+    }
+
+    static func lostRevenueMarketRow(in rows: [MetricRow]) -> MetricRow? {
+        rows.first {
+            $0.textPayload["lost_grain"] == "market"
+                && canonicalStore($0.storeNumber).isEmpty
+        }
+    }
+
+    static func lostRevenueStoreRows(_ rows: [MetricRow]) -> [MetricRow] {
+        rows.filter {
+            $0.textPayload["lost_grain"] != "market"
+                && !isIgnoredStore($0.storeNumber)
+                && !$0.storeNumber.isEmpty
+        }
+    }
+
+    /// Unfiltered: Excel Total / market-row TO key. Filtered seat: SUM of that TO key.
+    /// One path — market row present means company book; callers must not attach it on a seat.
+    static func lostRevenueTODollars(_ rows: [MetricRow], key: String) -> Double {
+        if let market = lostRevenueMarketRow(in: rows), let value = market.number(key) {
+            return value
+        }
+        return lostRevenueStoreRows(rows).compactMap { $0.number(key) }.reduce(0, +)
     }
 
     static func lostRevenueTotals(_ stores: [MetricRow]) -> (dollars: Double, sales: Double, pct: Double?) {
@@ -2498,6 +3464,15 @@ enum HeartbeatMath {
 
     static func lostRevenueHealth(pct: Double?) -> Health {
         band(pct, good: lostRevenueGood, watch: lostRevenueWatch, invert: true)
+    }
+
+    /// Refund / cancel / kill-switch dollars are lost sales. $0 is healthy; any loss is at least watch.
+    static func lostSalesDollarHealth(dollars: Double, pct: Double?, anyDollarIsRisk: Bool) -> Health {
+        if dollars <= 0 { return .good }
+        if anyDollarIsRisk { return .risk }
+        let fromPct = lostRevenueHealth(pct: pct)
+        if fromPct == .risk { return .risk }
+        return .watch
     }
 
     static func salesHeadlineDollars(_ row: MetricRow) -> Double {
@@ -2728,6 +3703,30 @@ enum HeartbeatMath {
         }
         guard !parts.isEmpty else { return 0 }
         return parts.reduce(0, +) / Double(parts.count)
+    }
+
+    /// Card tiles and expand Healthy / Watch / At Risk must use this count.
+    /// Raw `pickerHealth` leaves volume shoppers at `.none` — tiles already
+    /// promote those to Watch and fall back to the opportunity board.
+    static func pickerStatusTone(_ row: MetricRow) -> Health {
+        var health = pickerHealth(row)
+        if health == .none, pickerHasVolume(row) { health = .watch }
+        return health
+    }
+
+    static func pickerStatusCounts(_ rows: [MetricRow]) -> (shoppers: Int, healthy: Int, watch: Int, risk: Int) {
+        let shoppers = rows.filter { isRealPicker($0) || pickerHasVolume($0) }
+        let pool = shoppers.isEmpty ? rows : shoppers
+        var healthy = pool.filter { pickerStatusTone($0) == .good }.count
+        var watch = pool.filter { pickerStatusTone($0) == .watch }.count
+        var risk = pool.filter { pickerStatusTone($0) == .risk }.count
+        if healthy + watch + risk == 0, !pool.isEmpty {
+            let board = pickerBoard(pool)
+            healthy = board.strongCount
+            risk = board.opportunityCount
+            watch = max(0, pool.count - healthy - risk)
+        }
+        return (pool.count, healthy, watch, risk)
     }
 
     static func pickerHealth(_ row: MetricRow) -> Health {
@@ -3089,6 +4088,7 @@ enum HeartbeatRole: String, CaseIterable, Identifiable, Sendable {
     case director
     case districtManager
     case om
+    case store
 
     var id: String { rawValue }
 
@@ -3099,6 +4099,7 @@ enum HeartbeatRole: String, CaseIterable, Identifiable, Sendable {
         case .director: return "Director / Market VP / Sr Director Sales"
         case .districtManager: return "District Manager"
         case .om: return "Operations Manager"
+        case .store: return "Store View"
         }
     }
 
@@ -3107,13 +4108,15 @@ enum HeartbeatRole: String, CaseIterable, Identifiable, Sendable {
         case .backstage:
             return "Total company view · every region, market, and store"
         case .evp:
-            return "East, South, California, or West · markets under each callout"
+            return "One or many regions · markets under each callout"
         case .director:
-            return "One market · districts under each callout"
+            return "One or many markets · districts under each callout"
         case .districtManager:
-            return "Your district · stores under each callout"
+            return "One or many districts · stores under each callout"
         case .om:
-            return "Your OM book · assigned stores under each callout"
+            return "One or many OMs · assigned stores under each callout"
+        case .store:
+            return "One or many stores · that store book of business"
         }
     }
 
@@ -3124,6 +4127,29 @@ enum HeartbeatRole: String, CaseIterable, Identifiable, Sendable {
         case .director: return "chart.bar.doc.horizontal.fill"
         case .districtManager: return "square.grid.2x2.fill"
         case .om: return "person.crop.rectangle.stack.fill"
+        case .store: return "storefront.fill"
+        }
+    }
+
+    var pickNoun: String {
+        switch self {
+        case .evp: return "region"
+        case .director: return "market"
+        case .districtManager: return "district"
+        case .om: return "OM"
+        case .store: return "store"
+        case .backstage: return ""
+        }
+    }
+
+    var searchPrompt: String {
+        switch self {
+        case .evp: return "Search regions"
+        case .director: return "Search markets"
+        case .districtManager: return "Search districts"
+        case .om: return "Search operations managers"
+        case .store: return "Search stores"
+        case .backstage: return ""
         }
     }
 
@@ -3134,7 +4160,7 @@ enum HeartbeatRole: String, CaseIterable, Identifiable, Sendable {
         case .backstage: return .region
         case .evp: return .division
         case .director: return .district
-        case .districtManager, .om: return .store
+        case .districtManager, .om, .store: return .store
         }
     }
 }
@@ -3236,10 +4262,12 @@ struct DashboardFilters: Equatable, Codable {
             return selected.contains { MarketRegion.matchesDivision(value, $0) }
         }
         let selectedRegions = Self.parts(region)
-        if !selectedRegions.isEmpty {
-            return selectedRegions.contains { MarketRegion(rawValue: $0)?.contains(value) == true }
+        if selectedRegions.isEmpty { return true }
+        return selectedRegions.contains { name in
+            guard let region = MarketRegion(rawValue: name) ?? MarketRegion.named(name) else { return false }
+            if region.contains(value) { return true }
+            return MarketRegion.containing(value) == region
         }
-        return true
     }
 
     func includesDistrict(_ value: String) -> Bool {
@@ -3279,7 +4307,7 @@ struct DashboardFilters: Equatable, Codable {
     }
 
     static func display(_ raw: String, empty: String, prefix: String = "") -> String {
-        let values = parts(raw)
+        let values = parts(raw).map { HeartbeatMath.displayGrainLabel($0) }.filter { !$0.isEmpty }
         if values.isEmpty { return empty }
         if values.count == 1 { return prefix + values[0] }
         if values.count == 2 { return prefix + values[0] + ", " + values[1] }
@@ -3380,14 +4408,64 @@ enum MarketRegion: String, CaseIterable, Identifiable, Sendable {
             || divisions.contains { Self.matchesDivision(Self.canonicalName(division), $0) }
     }
 
+    /// Region title ("California", "California Region") or a market inside it (NorCal / SoCal).
+    static func named(_ raw: String) -> MarketRegion? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        var compact = HeartbeatMath.normalize(
+            trimmed.replacingOccurrences(of: "[-'’./]", with: " ", options: .regularExpression)
+        )
+        compact = compact.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        if compact.hasSuffix(" region") {
+            compact = String(compact.dropLast(" region".count)).trimmingCharacters(in: .whitespaces)
+        }
+        var key = HeartbeatMath.compactKey(compact)
+        if key.hasSuffix("region"), key.count > 6 {
+            key.removeLast(6)
+        }
+        switch key {
+        case "california", "calif", "ca":
+            return .california
+        case "east":
+            return .east
+        case "south":
+            return .south
+        case "west":
+            return .west
+        default:
+            return nil
+        }
+    }
+
     static func containing(_ division: String) -> MarketRegion? {
-        allCases.first { $0.contains(division) }
+        let trimmed = division.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if let named = named(trimmed) { return named }
+        return allCases.first { $0.contains(trimmed) }
+    }
+
+    /// Map a store to East/South/California/West without calling `containing` on district codes.
+    /// `containing("J3")` is nil on purpose — that path used to recurse through `matchesDivision`.
+    static func resolved(division: String, district: String) -> MarketRegion? {
+        if let named = named(division) { return named }
+        let market = canonicalName(division)
+        if !market.isEmpty, let region = containing(market) { return region }
+        if let named = named(district) { return named }
+        return nil
     }
 
     static func matchesDivision(_ lhs: String, _ rhs: String) -> Bool {
         let a = canonicalName(lhs)
         let b = canonicalName(rhs)
         if !a.isEmpty, !b.isEmpty { return HeartbeatMath.compactKey(a) == HeartbeatMath.compactKey(b) }
+        // Region title vs market inside it (California ↔ NorCal). Do not call
+        // containing() here — that walks contains() → matchesDivision again.
+        if let region = named(lhs), region.divisions.contains(where: { canonicalName($0) == b && !b.isEmpty }) {
+            return true
+        }
+        if let region = named(rhs), region.divisions.contains(where: { canonicalName($0) == a && !a.isEmpty }) {
+            return true
+        }
         return HeartbeatMath.compactKey(lhs) == HeartbeatMath.compactKey(rhs) && !HeartbeatMath.compactKey(lhs).isEmpty
     }
 
@@ -3554,6 +4632,14 @@ extension DashboardFilters {
         case .om: return Self.parts(om)
         case .store: return Self.parts(store)
         }
+    }
+
+    /// Pill copy. Empty focus always shows Region / Division / District / OM / Store.
+    func chipTitle(for focus: FilterFocus) -> String {
+        let selected = values(for: focus)
+        if selected.isEmpty { return focus.chipTitle }
+        if selected.count == 1 { return HeartbeatMath.displayGrainLabel(selected[0]) }
+        return "\(HeartbeatMath.displayGrainLabel(selected[0])) +\(selected.count - 1)"
     }
 
     mutating func toggle(_ value: String, in focus: FilterFocus) {

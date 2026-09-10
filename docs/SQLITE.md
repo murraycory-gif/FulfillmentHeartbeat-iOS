@@ -28,4 +28,4 @@ win. District 03 is 20 NorCal stores totaling $36,193.
 
 ## Stamp
 
-HB-0828.308 / 1.0 (630)
+HB-0828.317 / 1.0 (639)

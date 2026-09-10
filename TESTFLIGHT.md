@@ -85,7 +85,7 @@ They only see the app if you add them. Remove anyone from the group to cut acces
 
 **What to Test** (paste this on the first external build):
 
-> Fulfillment Heartbeat for iPad. Load the master workbook or individual KPI sheets. Check Dashboard, filters (multi-select + Clear), swipe between scorecards, and the Operational Heartbeat Checklist. Confirm store tables and shopper expand match the files you uploaded.
+> Fulfillment Heartbeat for iPad. Load the master workbook or individual KPI sheets. Check Dashboard, filters (multi-select + Clear), and swipe between scorecards. Confirm store tables and shopper expand match the files you uploaded.
 
 ---
 
@@ -95,8 +95,8 @@ They only see the app if you add them. Remove anyone from the group to cut acces
 Install TestFlight from the App Store on your iPad.
 Open the invite email (or tap the TestFlight link I sent).
 Accept, then Install Heartbeat.
-Upload your KPI files (or the master workbook) in Upload.
-Top-right stamp should read HB-0821.57  1.0 (172) after this build.
+The Heartbeat pack on the device fills Dashboard. There is no Upload page.
+Top-right stamp should read HB-0828.332  1.0 (654) after this build.
 Tell me that stamp if something looks old.
 ```
 

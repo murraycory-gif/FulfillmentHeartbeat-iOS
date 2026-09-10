@@ -2,17 +2,19 @@ import SwiftUI
 import UIKit
 
 /// Native paging between Dashboard and scorecards. Sidebar taps jump; swipes page.
+/// Same pager on iPhone 13+ (CompactNavSheet) and iPad 13+ (overlay drawer).
+/// Off by default (`PulseLaunch.shouldUsePagingScroll()`): a UIPageViewController
+/// wrapping SwiftUI ScrollView steals / hitches vertical dashboard drags.
 struct ScorecardPager: UIViewControllerRepresentable, Equatable {
     @ObservedObject var router: HubRouter
-    var filterStamp: Int
     var page: (HubDestination) -> AnyView
 
     static func == (lhs: ScorecardPager, rhs: ScorecardPager) -> Bool {
-        lhs.filterStamp == rhs.filterStamp && lhs.router.destination == rhs.router.destination
+        lhs.router.destination == rhs.router.destination
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(page: page, router: router, filterStamp: filterStamp)
+        Coordinator(page: page, router: router)
     }
 
     func makeUIViewController(context: Context) -> UIPageViewController {
@@ -27,8 +29,9 @@ struct ScorecardPager: UIViewControllerRepresentable, Equatable {
         pager.view.clipsToBounds = true
         pager.view.layer.masksToBounds = true
         context.coordinator.attach(pager)
-        let dest = router.current == .upload ? .dashboard : router.current
+        let dest = router.current
         context.coordinator.snap(to: dest, animated: false)
+        context.coordinator.lockPagerScroll(pager)
         return pager
     }
 
@@ -41,12 +44,6 @@ struct ScorecardPager: UIViewControllerRepresentable, Equatable {
         if coordinator.isSwiping { return }
 
         let dest = router.current
-        if coordinator.filterStamp != filterStamp {
-            coordinator.filterStamp = filterStamp
-            coordinator.reloadHydrated()
-        }
-
-        guard dest != .upload else { return }
         if dest != coordinator.displayed {
             coordinator.snap(to: dest, animated: false)
         }
@@ -84,20 +81,29 @@ struct ScorecardPager: UIViewControllerRepresentable, Equatable {
     final class Coordinator: NSObject, UIPageViewControllerDataSource, UIPageViewControllerDelegate {
         var page: (HubDestination) -> AnyView
         var router: HubRouter
-        var filterStamp: Int
         var cache: [HubDestination: PageHost] = [:]
         var displayed: HubDestination = .dashboard
         var isSwiping = false
         private weak var pager: UIPageViewController?
 
-        init(page: @escaping (HubDestination) -> AnyView, router: HubRouter, filterStamp: Int) {
+        init(page: @escaping (HubDestination) -> AnyView, router: HubRouter) {
             self.page = page
             self.router = router
-            self.filterStamp = filterStamp
         }
 
         func attach(_ pager: UIPageViewController) {
             self.pager = pager
+            lockPagerScroll(pager)
+        }
+
+        func lockPagerScroll(_ pager: UIPageViewController) {
+            guard PulseLaunch.shouldLockPagerScrollDirection() else { return }
+            for sub in pager.view.subviews {
+                guard let scroll = sub as? UIScrollView else { continue }
+                scroll.isDirectionalLockEnabled = true
+                scroll.delaysContentTouches = false
+                scroll.canCancelContentTouches = true
+            }
         }
 
         func host(for dest: HubDestination) -> PageHost {
@@ -136,7 +142,12 @@ struct ScorecardPager: UIViewControllerRepresentable, Equatable {
         }
 
         func dehydrate(keeping dest: HubDestination) {
-            let keep = Set(neighbors(of: dest) + [dest])
+            let keep: Set<HubDestination>
+            if HubLayout.hydrateNeighbors || PulseLaunch.shouldKeepNeighborPagesHydrated() {
+                keep = Set(neighbors(of: dest) + [dest])
+            } else {
+                keep = [dest]
+            }
             for (key, host) in cache where host.hydrated && !keep.contains(key) {
                 host.rootView = Self.blank
                 host.hydrated = false
@@ -146,12 +157,21 @@ struct ScorecardPager: UIViewControllerRepresentable, Equatable {
 
         func snap(to dest: HubDestination, animated: Bool) {
             guard let pager else { return }
-            hydrate(dest)
+            let host = host(for: dest)
             displayed = dest
+            if !host.hydrated, PulseLaunch.shouldPaintDestinationChromeImmediately() {
+                hydrate(dest)
+            }
             pager.dataSource = nil
-            pager.setViewControllers([host(for: dest)], direction: .forward, animated: false)
+            pager.setViewControllers([host], direction: .forward, animated: false)
             pager.dataSource = self
             resetScroll(pager)
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.displayed == dest else { return }
+                if !host.hydrated { self.hydrate(dest) }
+                self.dehydrate(keeping: dest)
+                self.warmSides(of: dest)
+            }
         }
 
         private func warmSides(of dest: HubDestination) {
