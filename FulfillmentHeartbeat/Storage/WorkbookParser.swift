@@ -948,6 +948,7 @@ enum WorkbookParser {
         let headers = matrix[headerIndex]
         let keys = headers.map(lostRevenueColumn)
         guard keys.contains("store"), keys.contains("lost_revenue") else { return nil }
+        var lastStore = ""
         var out: [ParsedWorkbookRow] = []
         out.reserveCapacity(max(matrix.count - headerIndex, 1))
         for line in matrix.dropFirst(headerIndex + 1) {
@@ -979,11 +980,18 @@ enum WorkbookParser {
             }
             if store.lowercased().hasPrefix("applied filters") { continue }
             let isTotal = isTotalCell(store)
+            if store.isEmpty, !isTotal { store = lastStore }
             if store.isEmpty { continue }
             if !isTotal {
                 store = HeartbeatMath.canonicalStore(store)
                 if store.isEmpty || HeartbeatMath.isIgnoredStore(store) { continue }
+                if payload["lost_revenue"] == nil {
+                    let parts = ["post_sub_oos_foregone", "refund_lost", "missed_sales", "cancelled_lost", "kill_switch_lost"]
+                    let sum = parts.compactMap { payload[$0] }.reduce(0, +)
+                    if sum > 0 { payload["lost_revenue"] = sum }
+                }
                 if payload["lost_revenue"] == nil && payload["ecomm_sales"] == nil { continue }
+                lastStore = store
             }
             var text: [String: String] = ["lost_grain": isTotal ? "market" : "store"]
             if isTotal { text["parser_rev"] = "lost1" }
@@ -1022,6 +1030,8 @@ enum WorkbookParser {
         if lower.contains("total lost revenue") && lower.contains("fy") { return "lost_revenue_goal" }
         if lower.contains("total lost revenue") && lower.contains("total opportunity") && hasPct { return "lost_revenue_pct" }
         if lower.contains("total lost revenue") && lower.contains("total opportunity") { return "lost_revenue" }
+        if lower.contains("lost revenue") && hasPct { return "lost_revenue_pct" }
+        if lower.contains("lost revenue") { return "lost_revenue" }
         if lower.contains("post sub oos") && hasPct && !lower.contains("foregone") { return "post_sub_oos_pct" }
         if lower.contains("post sub oos") && lower.contains("foregone") && hasPct { return "post_sub_oos_foregone_pct" }
         if lower.contains("post sub oos") && lower.contains("foregone") { return "post_sub_oos_foregone" }

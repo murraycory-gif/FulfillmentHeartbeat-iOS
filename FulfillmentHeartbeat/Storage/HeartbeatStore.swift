@@ -2221,23 +2221,30 @@ final class HeartbeatStore: ObservableObject {
     private func rebuildLostIndex() {
         var map: [String: MetricRow] = [:]
         map.reserveCapacity(2200)
-        for row in rows where row.section == .lostRevenue {
+        func consider(_ row: MetricRow) {
+            if row.textPayload["lost_grain"] == "market", HeartbeatMath.canonicalStore(row.storeNumber).isEmpty {
+                return
+            }
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
-            if store.isEmpty { continue }
-            if map[store] == nil { map[store] = row }
-            for alias in HeartbeatMath.storeAliases(store) where map[alias] == nil {
-                map[alias] = row
+            if store.isEmpty { return }
+            func keep(_ existing: MetricRow?) -> Bool {
+                guard let existing else { return true }
+                let old = existing.number("lost_revenue")
+                let next = row.number("lost_revenue")
+                if old == nil, next != nil { return true }
+                if old != nil, next == nil { return false }
+                return false
+            }
+            if keep(map[store]) { map[store] = row }
+            for alias in HeartbeatMath.storeAliases(store) {
+                if keep(map[alias]) { map[alias] = row }
             }
         }
-        if map.isEmpty {
-            for row in (latestBySection[.lostRevenue] ?? []) {
-                let store = HeartbeatMath.canonicalStore(row.storeNumber)
-                if store.isEmpty { continue }
-                if map[store] == nil { map[store] = row }
-                for alias in HeartbeatMath.storeAliases(store) where map[alias] == nil {
-                    map[alias] = row
-                }
-            }
+        for row in rows where row.section == .lostRevenue {
+            consider(row)
+        }
+        for row in (latestBySection[.lostRevenue] ?? []) {
+            consider(row)
         }
         lostByStore = map
     }
@@ -2249,11 +2256,33 @@ final class HeartbeatStore: ObservableObject {
         out.reserveCapacity(stores.count)
         for raw in stores {
             let store = HeartbeatMath.canonicalStore(raw)
-            guard let row = lostByStore[store] ?? lostByStore[raw] else { continue }
+            var row = lostByStore[store] ?? lostByStore[raw]
+            if row == nil {
+                for alias in HeartbeatMath.storeAliases(store) {
+                    if let hit = lostByStore[alias] {
+                        row = hit
+                        break
+                    }
+                }
+            }
+            guard let row else { continue }
             let key = HeartbeatMath.canonicalStore(row.storeNumber)
-            if seen.insert(key).inserted { out.append(row) }
+            if seen.insert(key).inserted {
+                out.append(HeartbeatMath.stampRoster(row, roster: roster))
+            }
         }
         return out
+    }
+
+    private func scopedLostRevenue(_ allowed: Set<String>) -> [MetricRow] {
+        rebuildLostIndex()
+        var hits = lostRevenueForStores(allowed)
+        if hits.isEmpty {
+            let pool = (latestBySection[.lostRevenue] ?? []) + rows.filter { $0.section == .lostRevenue }
+            hits = PulseCaches.rowsMatchingStores(pool, stores: allowed, skipMarket: true)
+                .map { HeartbeatMath.stampRoster($0, roster: roster) }
+        }
+        return hits
     }
 
     private func applyFilters() {
@@ -2326,12 +2355,13 @@ final class HeartbeatStore: ObservableObject {
         }
         let allowed = PulseCaches.allowedStores(roster: roster, filters: filters) ?? []
         var next: [MetricSection: [MetricRow]] = [:]
-        next.reserveCapacity(latestBySection.count)
-        for (section, sectionRows) in latestBySection {
+        next.reserveCapacity(latestBySection.count + 1)
+        next[.lostRevenue] = scopedLostRevenue(allowed)
+        for (section, sectionRows) in latestBySection where section != .lostRevenue {
             next[section] = PulseCaches.rowsMatchingStores(
                 sectionRows,
                 stores: allowed,
-                skipMarket: section == .lostRevenue || section == .labor
+                skipMarket: section == .labor
             )
         }
         filteredLatest = latestBySection.merging(next) { _, new in new }
