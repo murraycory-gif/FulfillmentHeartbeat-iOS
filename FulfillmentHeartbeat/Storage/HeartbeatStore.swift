@@ -137,9 +137,11 @@ final class HeartbeatStore: ObservableObject {
             await importCloudSQLiteIfPresent()
         }
         await loadPublishedFacts()
+        paintFactsScorecards()
         if cachedSummaries.isEmpty, !rows.isEmpty {
             rebuildIndex()
             installCompanyWideFast()
+            paintFactsScorecards()
         }
         if seeded, !cachedSummaries.isEmpty {
             isImporting = false
@@ -223,7 +225,28 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func allLatest(for section: MetricSection) -> [MetricRow] {
-        latestBySection[section] ?? []
+        if factsOwned.contains(section), let ram = latestBySection[section], !ram.isEmpty {
+            return ram
+        }
+        let ram = latestBySection[section] ?? []
+        if section == .lostRevenue || section == .sales || section == .fiveStar {
+            let facts = PulseFacts.bundledMetricRows().filter {
+                $0.section == section
+                    && $0.textPayload["lost_grain"] != "market"
+                    && $0.textPayload["sales_grain"] != "company"
+                    && $0.textPayload["sales_grain"] != "day"
+                    && !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty
+                    && !$0.payload.isEmpty
+            }
+            let ramScored = ram.filter { !$0.payload.isEmpty && !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty }.count
+            if facts.count > ramScored {
+                let stamped = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(facts), roster: roster)
+                latestBySection[section] = stamped
+                factsOwned.insert(section)
+                return stamped
+            }
+        }
+        return ram
     }
 
     func salesCompanyFact() -> MetricRow? {
@@ -315,12 +338,17 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func displayRows(for section: MetricSection) -> [MetricRow] {
+        let rows: [MetricRow]
         switch section {
         case .pickerScorecard, .pickPathPicker, .preSubOOSItem, .aisleMapper, .storeRoster:
-            return HeartbeatMath.rowsFillingRoster(filteredLatest[section] ?? [], roster: roster)
+            rows = HeartbeatMath.rowsFillingRoster(filteredLatest[section] ?? allLatest(for: section), roster: roster)
         default:
-            return rosterJoined(for: section)
+            rows = rosterJoined(for: section)
         }
+        if section == .lostRevenue || section == .sales || section == .fiveStar {
+            return rows.filter { !$0.payload.isEmpty }
+        }
+        return rows
     }
 
     func summary(for section: MetricSection) -> SectionSummary {
@@ -1376,6 +1404,10 @@ final class HeartbeatStore: ObservableObject {
             persistFilters()
         }
         needsRolePick = false
+        paintFactsScorecards()
+        if filters.isActive {
+            applyVisibleFilter()
+        }
         startCloudHydrateIfNeeded()
     }
 
@@ -2571,6 +2603,7 @@ final class HeartbeatStore: ObservableObject {
         if unfilteredPulse == nil {
             unfilteredPulse = snapshotPulse()
         }
+        paintFactsScorecards()
     }
 
     private func rebuildCompanyGrainPacks() {
@@ -2853,7 +2886,6 @@ final class HeartbeatStore: ObservableObject {
             applyVisibleFilter()
         } else {
             paintFactsScorecards()
-            rebuildCompanyGrainPacks()
         }
     }
 
@@ -2962,7 +2994,7 @@ final class HeartbeatStore: ObservableObject {
 
     @discardableResult
     private func restorePackChrome() -> Bool {
-        guard let chrome = packChrome, chrome.isPaintReady else { return false }
+        guard usingPackChrome, let chrome = packChrome, chrome.isPaintReady else { return false }
         filteredLatest = latestBySection
         refreshFilterOptions()
         applyDashChrome(chrome)
@@ -2998,22 +3030,14 @@ final class HeartbeatStore: ObservableObject {
                 return !HeartbeatMath.canonicalStore(fact.storeNumber).isEmpty
             }
             let stamped = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(factRows), roster: roster)
-            let factStores = Set(stamped.map { HeartbeatMath.canonicalStore($0.storeNumber) })
-            guard factStores.count >= 200 else { continue }
-            let current = (latestBySection[section] ?? []).filter {
-                $0.textPayload["lost_grain"] != "market"
-                    && $0.textPayload["sales_grain"] != "company"
-                    && $0.textPayload["sales_grain"] != "day"
-                    && !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty
-            }
-            let packStores = Set(current.map { HeartbeatMath.canonicalStore($0.storeNumber) })
-            if factStores.count > packStores.count {
-                latestBySection[section] = stamped
-                factsOwned.insert(section)
-                adopted[section] = stamped
-            }
+            let scoredFacts = stamped.filter { !$0.payload.isEmpty }.count
+            guard scoredFacts >= 200 else { continue }
+            latestBySection[section] = stamped
+            factsOwned.insert(section)
+            adopted[section] = stamped
         }
         guard !adopted.isEmpty else { return }
+        usingPackChrome = false
         rebuildLostIndex()
         if filters.isActive {
             applyVisibleFilter()

@@ -17,7 +17,7 @@ struct SectionDetailView: View {
     @State private var lostRevenueFocus: LostRevenueFocus = .all
     @State private var missingItemsFocus: MissingItemsFocus = .all
     @State private var miCategories: Set<MissingItemDept> = []
-    @State private var showTables = false
+    @State private var showTables = true
     @State private var pageWidth: CGFloat = 980
 
     private var summary: SectionSummary { store.summary(for: section) }
