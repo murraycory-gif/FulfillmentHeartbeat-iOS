@@ -9,12 +9,13 @@ enum MissingItemsMath {
     }
 }
 
-private enum MILayout {
-    static let gutter: CGFloat = 6
+enum MILayout {
+    static let gutter: CGFloat = HubLayout.tableGutter
     static var storeW: CGFloat { HubLayout.pageLabelWidth }
     static let countW: CGFloat = 52
-    static let statusW: CGFloat = 88
-    static let minCell: CGFloat = 78
+    static let statusW: CGFloat = HubLayout.readableStatusWidth(phone: HubLayout.isPhoneDevice)
+    /// Wide enough for "330" + "Seafood" and a percent. Never squeeze into the card.
+    static var minCell: CGFloat { HubLayout.isPhoneDevice ? 100 : 112 }
 
     struct Metrics {
         let cellW: CGFloat
@@ -28,10 +29,12 @@ private enum MILayout {
         storeW: CGFloat = Self.storeW
     ) -> Metrics {
         let columns = CGFloat(max(depts, 0) + 1)
-        let slots = 2 + (showCount ? 1 : 0) + Int(columns) + 1
+        let slots = 2 + (showCount ? 1 : 0) + Int(columns)
         let gutters = gutter * CGFloat(max(slots - 1, 0))
         let fixed = storeW + (showCount ? countW : 0) + statusW + gutters
-        let leftover = max(available, 320) - fixed
+        let floor = fixed + minCell * columns
+        let span = HubLayout.tableSpan(available: available, floor: floor)
+        let leftover = max(span - fixed, 0)
         let cellW = max(minCell, leftover / max(columns, 1))
         return Metrics(cellW: cellW, tableWidth: fixed + cellW * columns)
     }
@@ -592,17 +595,18 @@ private struct MissingItemsStoreRow: View, Equatable {
     let snap: MissingItemsLineSnap
     let depts: [MissingItemDept]
     let cellW: CGFloat
+    var storeW: CGFloat = MILayout.storeW
     let expanded: Bool
     let onToggle: () -> Void
 
     static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.snap == rhs.snap && lhs.depts == rhs.depts && lhs.cellW == rhs.cellW && lhs.expanded == rhs.expanded
+        lhs.snap == rhs.snap && lhs.depts == rhs.depts && lhs.cellW == rhs.cellW && lhs.storeW == rhs.storeW && lhs.expanded == rhs.expanded
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
             Button(action: onToggle) {
-                MissingItemsCheapLine(snap: snap, depts: depts, cellW: cellW, expanded: expanded)
+                MissingItemsCheapLine(snap: snap, depts: depts, cellW: cellW, storeW: storeW, expanded: expanded)
                     .equatable()
                     .contentShape(Rectangle())
             }
@@ -619,6 +623,7 @@ private struct MissingItemsCheapLine: View, Equatable {
     let snap: MissingItemsLineSnap
     let depts: [MissingItemDept]
     let cellW: CGFloat
+    var storeW: CGFloat = MILayout.storeW
     let expanded: Bool
 
     var body: some View {
@@ -633,7 +638,7 @@ private struct MissingItemsCheapLine: View, Equatable {
                     .font(.caption.weight(.bold))
                     .foregroundStyle(AppTheme.blue)
             }
-            .frame(width: MILayout.storeW, alignment: .leading)
+            .frame(width: storeW, alignment: .leading)
             ForEach(depts) { dept in
                 let value = snap.raw[dept.rawValue]
                 cell(snap.values[dept.rawValue] ?? "—", MissingItemsMath.health(value), width: cellW)
@@ -831,23 +836,21 @@ struct MissingItemsMetricHeader: View {
                 .frame(width: storeW, alignment: .leading)
             if showCount {
                 head("Stores", key: "count", alignment: .center)
-                    .frame(width: MILayout.countW)
+                    .frame(width: MILayout.countW, alignment: .center)
             }
             ForEach(depts) { dept in
                 deptHead(dept)
-                    .frame(width: cellW)
+                    .frame(width: cellW, alignment: .center)
             }
             head("Total", key: MissingItemDept.totalKey, alignment: .center)
-                .frame(width: cellW)
+                .frame(width: cellW, alignment: .center)
             head("Status", key: "status", alignment: .trailing)
                 .frame(width: MILayout.statusW, alignment: .trailing)
         }
         .font(.caption.weight(.bold))
         .lineLimit(2)
-        .minimumScaleFactor(0.7)
+        .minimumScaleFactor(0.75)
         .fixedSize(horizontal: false, vertical: true)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 4)
         .padding(.top, 6)
         .padding(.bottom, 8)
     }
@@ -865,7 +868,7 @@ struct MissingItemsMetricHeader: View {
             Text(dept.short.uppercased())
         }
         .foregroundStyle(selected ? AppTheme.blue : AppTheme.text)
-        .frame(maxWidth: .infinity)
+        .frame(width: cellW, alignment: .center)
         .contentShape(Rectangle())
         return Group {
             if let onSelect {
@@ -888,7 +891,7 @@ struct MissingItemsMetricHeader: View {
             }
         }
         .foregroundStyle(selected ? AppTheme.blue : AppTheme.text)
-        .frame(maxWidth: alignment == .leading ? nil : .infinity, alignment: alignment)
+        .frame(maxWidth: .infinity, alignment: alignment)
         .contentShape(Rectangle())
         return Group {
             if let onSelect {
@@ -974,7 +977,10 @@ struct MissingItemsRollupTable: View {
                 }
                 .buttonStyle(.plain)
                 if expanded {
-                    HubAdaptiveHScroll(minWidth: metrics.tableWidth) {
+                    HubAdaptiveHScroll(
+                        minWidth: metrics.tableWidth,
+                        minHeight: CGFloat(max(summary.count, 1)) * 48 + 64
+                    ) {
                         VStack(alignment: .leading, spacing: 8) {
                             MissingItemsMetricHeader(
                                 label: grain.columnTitle,

@@ -1994,5 +1994,15 @@ final class HeartbeatMathTests: XCTestCase {
         try? FileManager.default.removeItem(at: url)
         XCTAssertFalse(PulseSQLite.exists(at: url))
     }
+
+    func testMissingItemsDeptMatrixScrollsInsteadOfClipping() {
+        let cramped = MILayout.metrics(depts: MissingItemDept.allCases.count, showCount: true, available: 900)
+        XCTAssertEqual(cramped.cellW, MILayout.minCell, accuracy: 0.5)
+        XCTAssertGreaterThan(cramped.tableWidth, 1600)
+        XCTAssertGreaterThan(cramped.tableWidth, 900)
+        let wide = MILayout.metrics(depts: MissingItemDept.allCases.count, showCount: true, available: 2_400)
+        XCTAssertGreaterThanOrEqual(wide.cellW, MILayout.minCell)
+        XCTAssertEqual(wide.tableWidth, 2_400, accuracy: 1)
+    }
 }
 
