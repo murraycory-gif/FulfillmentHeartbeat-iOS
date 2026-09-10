@@ -15,14 +15,12 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
     case lostRevenue
     case missingItems
     case preSubOOS
-    case checklist
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .dashboard: return "Dashboard"
-        case .checklist: return "Checklist"
         case .upload: return "Upload"
         case .fiveStar: return MetricSection.fiveStar.title
         case .pickPath: return MetricSection.pickPath.title
@@ -42,7 +40,6 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
     var symbol: String {
         switch self {
         case .dashboard: return "square.grid.2x2.fill"
-        case .checklist: return "checklist"
         case .upload: return "square.and.arrow.up"
         case .fiveStar: return MetricSection.fiveStar.symbol
         case .pickPath: return MetricSection.pickPath.symbol
@@ -73,7 +70,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         case .lostRevenue: return .lostRevenue
         case .missingItems: return .missingItems
         case .preSubOOS: return .preSubOOS
-        case .dashboard, .checklist, .upload: return nil
+        case .dashboard, .upload: return nil
         }
     }
 
@@ -96,7 +93,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
         }
     }
 
-    static var sectionItems: [HubDestination] { [.dashboard, .sales, .lostRevenue, .missingItems, .fiveStar, .preSubOOS, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pickerScorecard, .pph, .labor, .checklist] }
+    static var sectionItems: [HubDestination] { [.dashboard, .sales, .lostRevenue, .missingItems, .fiveStar, .preSubOOS, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pickerScorecard, .pph, .labor] }
     static var settingsItems: [HubDestination] { [.upload] }
     static var primaryTabs: [HubDestination] { [.dashboard, .upload] }
     static var metricItems: [HubDestination] { [.sales, .lostRevenue, .missingItems, .fiveStar, .preSubOOS, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pickerScorecard, .pph, .labor] }
@@ -274,7 +271,7 @@ struct MainHubView: View {
         switch dest {
         case .upload:
             return .none
-        case .dashboard, .checklist:
+        case .dashboard:
             return store.summaries.map(\.health).max(by: { healthRank($0) < healthRank($1) }) ?? .none
         default:
             guard let section = dest.section else { return .none }
@@ -324,8 +321,6 @@ struct MainHubView: View {
         switch dest {
         case .dashboard:
             DashboardView().hubPageCanvas()
-        case .checklist:
-            ChecklistView().hubPageCanvas()
         case .upload:
             UploadView().hubPageCanvas()
         case .fiveStar, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pph, .labor, .pickerScorecard, .sales, .lostRevenue, .missingItems, .preSubOOS:

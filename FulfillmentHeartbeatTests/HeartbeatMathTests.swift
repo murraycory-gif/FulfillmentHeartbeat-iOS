@@ -34,7 +34,10 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(HeartbeatAssist.intent(for: "How do we get to 80 PPH?", dest: .pph), .pph)
         XCTAssertEqual(HeartbeatAssist.intent(for: "Is this call-offs or a bad map?", dest: .labor), .labor)
         XCTAssertEqual(HeartbeatAssist.intent(for: "Who should we coach today?", dest: .pickerScorecard), .shoppers)
-        XCTAssertTrue(HeartbeatAssist.pagePrompts(.checklist).isEmpty)
+        XCTAssertFalse(HubDestination.sectionItems.contains { $0.rawValue == "checklist" })
+        XCTAssertFalse(HubDestination.allCases.contains { $0.rawValue == "checklist" })
+        XCTAssertFalse(HubDestination.metricItems.contains { $0.rawValue == "checklist" })
+        XCTAssertFalse(HubDestination.settingsItems.contains { $0.rawValue == "checklist" })
     }
 
     func testDashboardCalloutsSortRiskThenWatchThenHealthy() {

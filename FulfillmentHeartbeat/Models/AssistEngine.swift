@@ -58,8 +58,6 @@ enum HeartbeatAssist {
                 "Which shoppers should we coach first?",
                 "How do we fix it today?",
             ]
-        case .checklist:
-            return []
         case .sales:
             return [
                 "Who has the most eComm sales?",
@@ -151,7 +149,6 @@ enum HeartbeatAssist {
     static func intent(for question: String, dest: HubDestination) -> Intent {
         let q = normalize(question)
         if dest == .upload { return .upload }
-        if dest == .checklist { return .overview }
         if let mapped = promptIntents(dest)[q] { return mapped }
         return keywordIntent(q, dest: dest)
     }

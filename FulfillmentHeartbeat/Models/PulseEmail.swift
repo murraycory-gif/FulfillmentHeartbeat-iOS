@@ -153,7 +153,7 @@ enum PulseMail {
         .muted{color:#5C677A}
         </style></head><body><div class="wrap">
         <h1>Fulfillment Heartbeat</h1>
-        <p class="sub">\(esc(snap.filterSummary))<br>\(esc(HeartbeatFormat.stamp(snap.generatedAt))) · Matches the in-app pages · Checklist not included</p>
+        <p class="sub">\(esc(snap.filterSummary))<br>\(esc(HeartbeatFormat.stamp(snap.generatedAt))) · Matches the in-app pages · Upload is not included</p>
         """
         if pages.contains(.dashboard) {
             out += dashboardHTML(snap)
@@ -907,7 +907,7 @@ enum PulseMail {
             "Fulfillment Heartbeat",
             snap.filterSummary,
             HeartbeatFormat.stamp(snap.generatedAt),
-            "Matches the in-app pages. Checklist not included.",
+            "Matches the in-app pages. Upload is not included.",
             "",
         ]
         if pages.contains(.dashboard) {

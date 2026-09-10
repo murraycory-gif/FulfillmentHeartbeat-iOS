@@ -1096,7 +1096,7 @@ struct SharePulseSheet: View {
                 }
                 .disabled(selected.isEmpty)
             } footer: {
-                Text("Checklist and Upload are never included. Select every scorecard, or tap only the pages you want in the email.")
+                Text("Upload is never included. Select every scorecard, or tap only the pages you want in the email.")
             }
 
             Section("Pages") {
@@ -9667,7 +9667,6 @@ struct HubBrandBar: View {
         switch router.current {
         case .dashboard: return "Operational Heartbeat"
         case .upload: return "Upload"
-        case .checklist: return "Checklist"
         default: return router.current.title
         }
     }
@@ -9737,35 +9736,33 @@ struct HubBrandBar: View {
 
     @ViewBuilder
     private var assistButton: some View {
-        if router.current != .checklist {
-            Button {
-                showAssist = true
-            } label: {
-                if compact {
-                    Image(systemName: "sparkles")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 30, height: 30)
-                        .background(AppTheme.blue, in: Circle())
-                } else {
-                    HStack(spacing: 8) {
-                        Image(systemName: "sparkles")
-                            .font(.body.weight(.bold))
-                        Text("Heartbeat Assist")
-                            .font(.subheadline.weight(.bold))
-                            .lineLimit(1)
-                    }
+        Button {
+            showAssist = true
+        } label: {
+            if compact {
+                Image(systemName: "sparkles")
+                    .font(.caption.weight(.bold))
                     .foregroundStyle(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 11)
-                    .frame(minHeight: 44)
-                    .background(AppTheme.blue, in: Capsule(style: .continuous))
-                    .shadow(color: AppTheme.blue.opacity(0.35), radius: 8, y: 3)
+                    .frame(width: 30, height: 30)
+                    .background(AppTheme.blue, in: Circle())
+            } else {
+                HStack(spacing: 8) {
+                    Image(systemName: "sparkles")
+                        .font(.body.weight(.bold))
+                    Text("Heartbeat Assist")
+                        .font(.subheadline.weight(.bold))
+                        .lineLimit(1)
                 }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 11)
+                .frame(minHeight: 44)
+                .background(AppTheme.blue, in: Capsule(style: .continuous))
+                .shadow(color: AppTheme.blue.opacity(0.35), radius: 8, y: 3)
             }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Heartbeat Assist, build \(BuildStamp.label)")
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Heartbeat Assist, build \(BuildStamp.label)")
     }
 
     private var markHeight: CGFloat {
@@ -10000,7 +9997,7 @@ struct FulfillmentChecklistCard: View {
         VStack(spacing: 0) {
             if sizeClass == .regular {
                 HubStickyPageBanner(
-                    icon: HubDestination.checklist.symbol,
+                    icon: "checklist",
                     title: "Operational Heartbeat Checklist",
                     accessory: "\(store.filters.summary)  ·  \(store.checklistOpenCount) open",
                     trailing: store.sharedDataWindow()

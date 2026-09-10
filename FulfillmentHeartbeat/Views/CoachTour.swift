@@ -28,7 +28,7 @@ enum CoachTour: Equatable {
         CoachStep(
             icon: "heart.fill",
             heading: "Fulfillment Heartbeat",
-            body: "This is the operational pulse for every eCommerce store. Dashboard cards, scorecard tables, and the checklist all read from the workbooks you load — nothing is hardcoded."
+            body: "This is the operational pulse for every eCommerce store. Dashboard cards and scorecard tables all read from the workbooks you load — nothing is hardcoded."
         ),
         CoachStep(
             icon: "square.and.arrow.up",
@@ -38,7 +38,7 @@ enum CoachTour: Equatable {
         CoachStep(
             icon: "square.grid.2x2.fill",
             heading: "How the app is laid out",
-            body: "Dashboard is the heartbeat. Swipe between scorecards (Loss Revenue → Missing Items → 5 Star → Pre-Sub OOS → Pick Path → Prep → Dynacap → Schedule → Picker → PPH → Labor → Checklist). Filters in the header apply everywhere. Share sends the recap. Upload lives in Settings — it is not in the swipe path."
+            body: "Dashboard is the heartbeat. Swipe between scorecards (Loss Revenue → Missing Items → 5 Star → Pre-Sub OOS → Pick Path → Prep → Dynacap → Schedule → Picker → PPH → Labor). Filters in the header apply everywhere. Share sends the recap. Upload lives in Settings — it is not in the swipe path."
         ),
         CoachStep(
             icon: "hand.tap.fill",
@@ -64,7 +64,7 @@ enum CoachTour: Equatable {
                 CoachStep(
                     icon: "waveform.path.ecg",
                     heading: "Then the pulse fills",
-                    body: "Once a file lands, Dashboard, every scorecard, and the checklist populate. Open Dashboard or swipe from there. Filters and Share work after data is in."
+                    body: "Once a file lands, Dashboard and every scorecard populate. Open Dashboard or swipe from there. Filters and Share work after data is in."
                 ),
             ]
         case .dashboard:
@@ -239,19 +239,6 @@ enum CoachTour: Equatable {
                     icon: "tablecells",
                     heading: "Stores",
                     body: "Markets then stores. Pair this with Schedule Quality when punch vs target is off."
-                ),
-            ]
-        case .checklist:
-            return [
-                CoachStep(
-                    icon: "checklist",
-                    heading: "What to fix",
-                    body: "Every at-risk KPI lists the stores, why it costs sales and customer experience, and the action to course-correct."
-                ),
-                CoachStep(
-                    icon: "person.2.fill",
-                    heading: "Shoppers are KPI-specific",
-                    body: "Expand a store for the shoppers that KPI cares about — 5 Star metrics on 5 Star, pick path on Pick Path, and so on."
                 ),
             ]
         }

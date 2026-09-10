@@ -210,8 +210,6 @@ struct HeartbeatAssistSheet: View {
             return "You're on Picker ScoreCard for \(book). I'll name the LDAPS to floor-coach today."
         case .upload:
             return "You're on Upload. I'll tell you which KPI files are missing and how to load the master."
-        case .checklist:
-            return "Assist is for the scorecards. Open a KPI page to ask about the live numbers."
         }
     }
 

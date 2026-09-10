@@ -85,7 +85,7 @@ They only see the app if you add them. Remove anyone from the group to cut acces
 
 **What to Test** (paste this on the first external build):
 
-> Fulfillment Heartbeat for iPad. Load the master workbook or individual KPI sheets. Check Dashboard, filters (multi-select + Clear), swipe between scorecards, and the Operational Heartbeat Checklist. Confirm store tables and shopper expand match the files you uploaded.
+> Fulfillment Heartbeat for iPad. Load the master workbook or individual KPI sheets. Check Dashboard, filters (multi-select + Clear), and swipe between scorecards. Confirm store tables and shopper expand match the files you uploaded.
 
 ---
 
