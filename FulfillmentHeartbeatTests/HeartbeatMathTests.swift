@@ -676,6 +676,9 @@ final class HeartbeatMathTests: XCTestCase {
         store.clearFilters()
         XCTAssertEqual(store.effectiveDashboardGrain, .region)
         XCTAssertEqual(store.filters.chipTitle(for: .om), "OM")
+        XCTAssertFalse(store.filters.isActive)
+        XCTAssertEqual(PulseLaunch.unfilteredDashboardGrain(), .region)
+        XCTAssertTrue(PulseLaunch.shouldUseCompanyGrainWhenFiltersClear())
     }
 
     @MainActor
@@ -1825,6 +1828,234 @@ final class HeartbeatMathTests: XCTestCase {
             ).storeCount,
             2
         )
+    }
+
+    func testDistrict03EverySectionHubStoreCardMatchesHeartbeatN() {
+        let districtStores = (1...20).map { String($0) }
+        var roster: [String: HeartbeatMath.StoreIdentity] = [:]
+        for store in districtStores {
+            roster[store] = HeartbeatMath.StoreIdentity(
+                division: "NorCal", district: "03", om: "Jino Arvin", name: store
+            )
+        }
+        func row(_ section: MetricSection, _ store: String, payload: [String: Double]) -> MetricRow {
+            MetricRow(
+                section: section,
+                division: "NorCal",
+                operationsOM: "Jino Arvin",
+                storeNumber: store,
+                storeName: store,
+                payload: payload,
+                textPayload: ["district": "03"]
+            )
+        }
+        var district = DashboardFilters()
+        district.district = "03"
+        let allowed = PulseCaches.allowedStores(roster: roster, filters: district)
+        XCTAssertEqual(allowed, Set(districtStores))
+        let heartbeatN = allowed?.count ?? 0
+        XCTAssertEqual(heartbeatN, 20)
+        for section in MetricSection.dashboardCards {
+            let facts: [MetricRow]
+            switch section {
+            case .scheduleQuality:
+                facts = Array(districtStores.dropLast(2)).map {
+                    row(section, $0, payload: ["schedule_efficiency_pct": 91])
+                }
+            case .pickPath:
+                facts = Array(districtStores.dropLast(1)).map {
+                    row(section, $0, payload: ["compliance_pct": 92])
+                }
+            case .pickerScorecard:
+                facts = districtStores.map {
+                    row(section, $0, payload: ["pph": 80, "orders": 10])
+                }
+            default:
+                facts = districtStores.map { row(section, $0, payload: ["pph": 80]) }
+            }
+            let padded = PulseQuery.sliceSection(
+                section,
+                rows: facts,
+                allowed: allowed,
+                filters: district,
+                roster: roster
+            )
+            if section == .pickerScorecard {
+                XCTAssertEqual(
+                    PulseLaunch.hubStoreCardCount(padded),
+                    heartbeatN,
+                    "\(section.rawValue) picker seat must still cover Heartbeat N stores"
+                )
+            } else {
+                XCTAssertEqual(
+                    padded.count,
+                    heartbeatN,
+                    "\(section.rawValue) page rows must be rosterJoined Heartbeat N, not fact coverage"
+                )
+                XCTAssertEqual(
+                    PulseLaunch.hubStoreCardCount(padded),
+                    heartbeatN,
+                    "\(section.rawValue) HubStoreCard N must equal Heartbeat \(heartbeatN)"
+                )
+            }
+            XCTAssertEqual(
+                PulseLaunch.pinSeatStoreCount(
+                    SectionSummary(
+                        section: section,
+                        storeCount: facts.count,
+                        headline: 1,
+                        headlineLabel: "Avg",
+                        secondary: "",
+                        health: .good,
+                        watchCount: 0,
+                        riskCount: 0,
+                        lastFilename: nil,
+                        lastUploadedAt: nil
+                    ),
+                    seatStores: heartbeatN
+                ).storeCount,
+                heartbeatN,
+                "\(section.rawValue) card storeCount must pin to Heartbeat N"
+            )
+        }
+    }
+
+    func testGrainAndPageOnlyFillMustNotBumpFilterStamp() {
+        XCTAssertFalse(PulseLaunch.shouldStampHubOnWarehousePaint())
+        XCTAssertFalse(PulseLaunch.shouldStampHubWhenExpandCacheFills())
+        XCTAssertFalse(PulseLaunch.shouldStampGrainOrPageOnlyFill())
+        XCTAssertFalse(PulseLaunch.shouldStampPickerOrPageOnlyInstall())
+        XCTAssertTrue(PulseLaunch.shouldBuildExpandTableOffMain())
+        XCTAssertFalse(PulseLaunch.shouldMountHubUnderRoleGate())
+        XCTAssertFalse(PulseLaunch.shouldUsePagingScroll())
+        XCTAssertFalse(PulseLaunch.shouldRemountPageOnDestinationChange())
+        XCTAssertFalse(PulseLaunch.shouldStreamPickerOnDashboard())
+        XCTAssertFalse(PulseLaunch.shouldStampUIDuringRolePick())
+        XCTAssertTrue(PulseLaunch.shouldSkipWarehousePaintOnClear(restoredCompanyWide: true))
+        XCTAssertFalse(PulseLaunch.shouldPaintWarehouseOnClear())
+    }
+
+    func testSeatWarehouseAlwaysClearsHydrating() async {
+        XCTAssertTrue(PulseLaunch.seatWarehouseUnlocksHydrating(.completed))
+        XCTAssertTrue(PulseLaunch.seatWarehouseUnlocksHydrating(.timedOut))
+        XCTAssertTrue(PulseLaunch.seatWarehouseUnlocksHydrating(.failed))
+        XCTAssertTrue(PulseLaunch.shouldUnlockWarehouseHydratingAfterSeat(completed: true))
+        XCTAssertTrue(PulseLaunch.shouldUnlockWarehouseHydratingAfterSeat(timedOut: true))
+        XCTAssertTrue(PulseLaunch.shouldUnlockWarehouseHydratingAfterSeat(failed: true))
+        XCTAssertFalse(PulseLaunch.seatWarehouseShowsError(.completed))
+        XCTAssertTrue(PulseLaunch.seatWarehouseShowsError(.timedOut))
+        XCTAssertTrue(PulseLaunch.seatWarehouseShowsError(.failed))
+        XCTAssertEqual(PulseLaunch.warehouseAfterSeatTimeoutNanoseconds(), 25_000_000_000)
+        XCTAssertFalse(PulseLaunch.seatWarehouseTimeoutMessage().isEmpty)
+        XCTAssertEqual(
+            PulseLaunch.BootPhase.presentingSeat.fraction,
+            3.0 / 7.0,
+            accuracy: 0.01,
+            "presentingSeat is the ~40% hang if hydrating never clears"
+        )
+        let timedOut = await PulseLaunch.awaitSeatWarehouse(timeoutNanoseconds: 2_000_000) {
+            try? await Task.sleep(nanoseconds: 40_000_000)
+        }
+        XCTAssertTrue(timedOut, "timeout must win so Who's looking unlocks")
+        let completed = await PulseLaunch.awaitSeatWarehouse(timeoutNanoseconds: 40_000_000) {
+            try? await Task.sleep(nanoseconds: 1_000_000)
+        }
+        XCTAssertFalse(completed, "finished warehouse must not report timeout")
+    }
+
+    @MainActor
+    func testUnlockWarehouseAfterSeatClearsHydratingOnFailAndTimeout() {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let store = HeartbeatStore(rootURL: root)
+        store.beginSeatWarehouseHydrating()
+        XCTAssertTrue(store.warehouseHydrating)
+        store.unlockWarehouseAfterSeat(outcome: .timedOut)
+        XCTAssertFalse(store.warehouseHydrating, "timeout must unlock seats")
+        XCTAssertEqual(store.errorMessage, PulseLaunch.seatWarehouseTimeoutMessage())
+        store.beginSeatWarehouseHydrating()
+        store.unlockWarehouseAfterSeat(
+            outcome: .failed,
+            error: NSError(domain: "seat.warehouse", code: 1, userInfo: [NSLocalizedDescriptionKey: "pack missing"])
+        )
+        XCTAssertFalse(store.warehouseHydrating, "fail must unlock seats")
+        XCTAssertEqual(store.errorMessage, "pack missing")
+        store.beginSeatWarehouseHydrating()
+        store.unlockWarehouseAfterSeat(outcome: .completed)
+        XCTAssertFalse(store.warehouseHydrating)
+    }
+
+    func testRollupMarketFillGrainMatchesDashboardGrainUnderDistrict() {
+        var district = DashboardFilters()
+        district.district = "03"
+        XCTAssertEqual(PulseLaunch.dashboardGrain(filters: district, sessionRole: .districtManager), .store)
+        XCTAssertEqual(RollupMarketFill.grain(for: district), .store)
+        var store = DashboardFilters()
+        store.store = "304"
+        XCTAssertEqual(RollupMarketFill.grain(for: store), .store)
+        var om = DashboardFilters()
+        om.om = "Jino Arvin"
+        XCTAssertEqual(RollupMarketFill.grain(for: om), .store)
+        var division = DashboardFilters()
+        division.division = "Jewel Osco"
+        XCTAssertEqual(PulseLaunch.dashboardGrain(filters: division, sessionRole: .director), .district)
+        XCTAssertEqual(RollupMarketFill.grain(for: division), .district)
+        var region = DashboardFilters()
+        region.region = MarketRegion.california.rawValue
+        XCTAssertEqual(RollupMarketFill.grain(for: region), .division)
+        XCTAssertEqual(RollupMarketFill.grain(for: DashboardFilters()), .region)
+    }
+
+    func testUnfilteredMergeDropsSeatGrainAndSeatPacksRejectChrome() {
+        let seat = HeartbeatMath.DashboardGrainTableRow(
+            label: "304 | NorCal",
+            storeCount: 1,
+            values: ["90.0%"],
+            health: .good
+        )
+        let regions = MarketRegion.allCases.map {
+            HeartbeatMath.DashboardGrainTableRow(
+                label: $0.rawValue,
+                storeCount: 400,
+                values: ["400"],
+                health: .watch
+            )
+        }
+        let restored = PulseLaunch.mergeLiveGrainTables(
+            incoming: [:],
+            live: [.scheduleQuality: [seat]],
+            grain: .region,
+            filtersActive: false
+        )
+        XCTAssertNil(
+            restored[.scheduleQuality],
+            "unfiltered region restore must not keep District store grain"
+        )
+        let keptRegions = PulseLaunch.mergeLiveGrainTables(
+            incoming: [.scheduleQuality: regions],
+            live: [.scheduleQuality: [seat]],
+            grain: .region,
+            filtersActive: false
+        )
+        XCTAssertEqual(keptRegions[.scheduleQuality]?.map(\.label), MarketRegion.allCases.map(\.rawValue))
+        let chromePacks = MarketRegion.allCases.map {
+            DashScopePack(line: DashScopeLine(label: $0.rawValue, value: "400", health: .watch, count: 400), flags: [], children: [])
+        }
+        XCTAssertTrue(
+            PulseLaunch.grainRowsFromSeatPacks(chromePacks, section: .scheduleQuality, grain: .store).isEmpty,
+            "DashScopeStrip must never fall back to chrome region labels"
+        )
+        let seatPacks = [
+            DashScopePack(
+                line: DashScopeLine(label: "304", value: "90.0%", health: .good, count: 1),
+                flags: [],
+                children: []
+            )
+        ]
+        let fromPacks = PulseLaunch.grainRowsFromSeatPacks(seatPacks, section: .scheduleQuality, grain: .store)
+        XCTAssertTrue(HeartbeatMath.grainRowsAreLive(fromPacks))
+        XCTAssertEqual(fromPacks.count, 1)
+        XCTAssertTrue(PulseLaunch.shouldSkipWarehousePaintOnClear(restoredCompanyWide: true))
+        XCTAssertFalse(PulseLaunch.shouldPaintWarehouseOnClear())
     }
 
     func testPickerGrainPacksStayWhenFactsExistEvenIfHidePicker() {

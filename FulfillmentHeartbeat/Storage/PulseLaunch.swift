@@ -243,6 +243,74 @@ enum PulseLaunch {
     /// Warehouse / grain paints must not remount page tables while the user scrolls.
     static func shouldStampHubOnWarehousePaint() -> Bool { false }
 
+    /// Grain / pageOnly / picker install must not bump `filterStamp` (25 rebuild sites).
+    static func shouldStampGrainOrPageOnlyFill() -> Bool { shouldStampHubOnWarehousePaint() }
+
+    /// Picker dashboard + `installSectionSlice` stay objectWillChange-only.
+    static func shouldStampPickerOrPageOnlyInstall() -> Bool { false }
+
+    /// Seat warehouse must never leave Who's looking locked at presentingSeat ~40%.
+    enum SeatWarehouseOutcome: Equatable {
+        case completed
+        case timedOut
+        case failed
+    }
+
+    static func warehouseAfterSeatTimeoutNanoseconds() -> UInt64 { 25_000_000_000 }
+
+    static func seatWarehouseTimeoutMessage() -> String {
+        "The store pack timed out. Seats are unlocked — Continue, or Retry if the aisle is empty."
+    }
+
+    static func seatWarehouseUnlocksHydrating(_ outcome: SeatWarehouseOutcome) -> Bool { true }
+
+    static func seatWarehouseShowsError(_ outcome: SeatWarehouseOutcome) -> Bool {
+        outcome == .timedOut || outcome == .failed
+    }
+
+    static func shouldUnlockWarehouseHydratingAfterSeat(
+        completed: Bool = false,
+        timedOut: Bool = false,
+        failed: Bool = false
+    ) -> Bool {
+        seatWarehouseUnlocksHydrating(
+            timedOut ? .timedOut : failed ? .failed : .completed
+        )
+    }
+
+    /// `true` when the timeout won and seats must unlock with an error.
+    static func awaitSeatWarehouse(
+        timeoutNanoseconds: UInt64,
+        work: @escaping @Sendable () async -> Void
+    ) async -> Bool {
+        let job = Task { await work() }
+        return await awaitSeatWarehouseTask(timeoutNanoseconds: timeoutNanoseconds, work: job)
+    }
+
+    static func awaitSeatWarehouseTask<T: Sendable>(
+        timeoutNanoseconds: UInt64,
+        work: Task<T, Never>
+    ) async -> Bool {
+        await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                _ = await work.value
+                return false
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: timeoutNanoseconds)
+                return true
+            }
+            let first = await group.next() ?? true
+            group.cancelAll()
+            return first
+        }
+    }
+
+    /// Page HubStoreCard N is Heartbeat roster stores, not fact-present rows.
+    static func hubStoreCardCount(_ rows: [MetricRow]) -> Int {
+        uniqueStores(in: rows).count
+    }
+
     /// Card storeCount under a seat is Heartbeat Stores N, not fact coverage.
     static func pinSeatStoreCount(_ summary: SectionSummary, seatStores: Int) -> SectionSummary {
         guard seatStores > 0 else { return summary }
@@ -439,17 +507,30 @@ enum PulseLaunch {
         grain: DashScopeGrain = .region,
         filtersActive: Bool = false
     ) -> [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] {
+        _ = filtersActive
         var next = incoming
         for (section, rows) in live {
             let incomingLive = HeartbeatMath.grainRowsAreLive(next[section] ?? [])
             if incomingLive { continue }
             guard HeartbeatMath.grainRowsAreLive(rows) else { continue }
-            if filtersActive, !grainTableMatchesCurrent(labels: rows.map(\.label), grain: grain) {
+            if !grainTableMatchesCurrent(labels: rows.map(\.label), grain: grain) {
                 continue
             }
             next[section] = rows
         }
         return next
+    }
+
+    /// Seat expand may read live store packs. Never chrome East/South/CA/West labels.
+    static func grainRowsFromSeatPacks(
+        _ packs: [DashScopePack],
+        section: MetricSection,
+        grain: DashScopeGrain
+    ) -> [HeartbeatMath.DashboardGrainTableRow] {
+        let rows = HeartbeatMath.dashboardGrainRowsFromPacks(packs, section: section)
+        guard HeartbeatMath.grainRowsAreLive(rows) else { return [] }
+        guard grainTableMatchesCurrent(labels: rows.map(\.label), grain: grain) else { return [] }
+        return rows
     }
 
     /// Apply the seat filter while Who's looking is still up, then mount the hub

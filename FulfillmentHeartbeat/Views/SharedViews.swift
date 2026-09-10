@@ -5411,13 +5411,12 @@ enum RollupMarketFill {
     }
 
     static func grain(for filters: DashboardFilters) -> LaborRollupGrain {
-        if !filters.division.isEmpty || !filters.district.isEmpty || !filters.om.isEmpty || !filters.store.isEmpty {
-            return .district
+        switch PulseLaunch.dashboardGrain(filters: filters, sessionRole: nil) {
+        case .store: return .store
+        case .district: return .district
+        case .division: return .division
+        case .region: return .region
         }
-        if !filters.region.isEmpty {
-            return .division
-        }
-        return .region
     }
 
     static func missingRegions(present: [String]) -> [String] {

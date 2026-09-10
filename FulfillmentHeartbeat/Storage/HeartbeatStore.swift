@@ -92,6 +92,7 @@ final class HeartbeatStore: ObservableObject {
     private var unfilteredPulse: FilterPulse?
     private var refilterTask: Task<Void, Never>?
     private var grainPaintTask: Task<Void, Never>?
+    private var expandFillTask: Task<Void, Never>?
     private var pageOnlyTask: Task<Void, Never>?
     private var pickerLoadTask: Task<Void, Never>?
     private var unfilteredWarmTask: Task<Void, Never>?
@@ -235,12 +236,44 @@ final class HeartbeatStore: ObservableObject {
         setBootPhase(.presentingSeat)
     }
 
+    /// Who's looking stays locked only while warehouse work runs. Timeout / fail must unlock.
+    func unlockWarehouseAfterSeat(
+        outcome: PulseLaunch.SeatWarehouseOutcome = .completed,
+        error: Error? = nil
+    ) {
+        if PulseLaunch.seatWarehouseUnlocksHydrating(outcome) {
+            warehouseHydrating = false
+        }
+        if PulseLaunch.seatWarehouseShowsError(outcome) {
+            errorMessage = error?.localizedDescription ?? PulseLaunch.seatWarehouseTimeoutMessage()
+            setBootPhase(.ready)
+        }
+    }
+
+    func beginSeatWarehouseHydrating() {
+        warehouseHydrating = true
+    }
+
     private func finishWarehouseAfterSeat(chrome: PulseDashChrome?) async {
+        defer { unlockWarehouseAfterSeat(outcome: .completed) }
+        let work = Task { @MainActor in
+            await self.runWarehouseAfterSeat(chrome: chrome)
+        }
+        let timedOut = await PulseLaunch.awaitSeatWarehouseTask(
+            timeoutNanoseconds: PulseLaunch.warehouseAfterSeatTimeoutNanoseconds(),
+            work: work
+        )
+        if timedOut {
+            work.cancel()
+            unlockWarehouseAfterSeat(outcome: .timedOut)
+        }
+    }
+
+    private func runWarehouseAfterSeat(chrome: PulseDashChrome?) async {
         if PulseLaunch.shouldCheckCloudPackDuringSeatWait() {
             setBootPhase(.readingPack)
             PulseCloud.invalidateObjectList()
             if await importCloudSQLiteIfPresent(reason: .boot), warehouseRowCount > 0 {
-                warehouseHydrating = false
                 setBootPhase(.ready)
                 Task { await self.adoptFactsThenFill() }
                 if HubLayout.ingestsWorkbook {
@@ -259,7 +292,6 @@ final class HeartbeatStore: ObservableObject {
             await loadWarehouseWave(PulseLaunch.dashboardSecondWave)
             await paintFromWarehouse(light: true, adoptFacts: false)
             syncWarehouseTape()
-            warehouseHydrating = false
             setBootPhase(.ready)
             Task { await self.adoptFactsThenFill() }
             if HubLayout.ingestsWorkbook {
@@ -273,7 +305,6 @@ final class HeartbeatStore: ObservableObject {
         setBootPhase(.paintingAisle)
         await paintFromWarehouse(light: true, adoptFacts: false)
         syncWarehouseTape()
-        warehouseHydrating = false
         setBootPhase(.ready)
         Task { await self.adoptFactsThenFill() }
         if HubLayout.ingestsWorkbook {
@@ -478,7 +509,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func salesStores() -> [MetricRow] {
-        SalesRollupBuilder.source(from: displayRows(for: .sales), filters: DashboardFilters(), roster: roster)
+        SalesRollupBuilder.source(from: seatRows(for: .sales), filters: DashboardFilters(), roster: roster)
     }
 
     func refreshSalesExpandCache() {
@@ -597,10 +628,19 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func dashboardGrainRows(for section: MetricSection) -> [HeartbeatMath.DashboardGrainTableRow] {
+        let grain = effectiveDashboardGrain
         if let cached = cachedGrainTables[section], HeartbeatMath.grainRowsAreLive(cached) {
-            return cached
+            if !filters.isActive || PulseLaunch.grainTableMatchesCurrent(labels: cached.map(\.label), grain: grain) {
+                return cached
+            }
         }
-        // Placeholder packs (value "—") must never become an expand table.
+        if filters.isActive {
+            return PulseLaunch.grainRowsFromSeatPacks(
+                cachedGrainPacks[section] ?? [],
+                section: section,
+                grain: grain
+            )
+        }
         return []
     }
 
@@ -617,7 +657,7 @@ final class HeartbeatStore: ObservableObject {
         PulseLaunch.dashboardExpandIsLive(
             section: section,
             salesRows: cachedSalesScopeRows,
-            grainRows: cachedGrainTables[section] ?? [],
+            grainRows: dashboardGrainRows(for: section),
             pickerFacts: pickerFactCount()
         )
     }
@@ -801,10 +841,12 @@ final class HeartbeatStore: ObservableObject {
         let delay = grainTablePrefetchDelayNanoseconds()
         let salesRaw = latest[.sales] ?? []
         let company = filters.isActive ? nil : salesCompanyFact()
-        Task.detached(priority: .background) {
+        expandFillTask?.cancel()
+        expandFillTask = Task.detached(priority: .background) {
             if delay > 0 {
                 try? await Task.sleep(nanoseconds: delay)
             }
+            guard !Task.isCancelled else { return }
             let tables = PulseCaches.grainTables(
                 latest: latest,
                 grain: grain,
@@ -820,6 +862,7 @@ final class HeartbeatStore: ObservableObject {
             let salesScope = SalesRollupBuilder.dashboardRows(from: salesSource, grain: grain)
             let salesDays = SalesRollupBuilder.dayRows(from: salesSource, company: company)
             await MainActor.run {
+                guard !Task.isCancelled else { return }
                 guard self.effectiveDashboardGrain == grain else { return }
                 self.mergeGrainTables(tables)
                 if PulseLaunch.shouldPrefetchSalesExpandWithGrainTables(),
@@ -2049,6 +2092,7 @@ final class HeartbeatStore: ObservableObject {
         cachedSalesScopeRows = []
         cachedSalesDayRows = []
         cachedCardFlags = [:]
+        lastPickerStampCount = 0
     }
 
     func loadSampleMarket() {
@@ -2978,6 +3022,7 @@ final class HeartbeatStore: ObservableObject {
         refilterTask?.cancel()
         grainPaintTask?.cancel()
         pageOnlyTask?.cancel()
+        expandFillTask?.cancel()
         let clearing = !filters.isActive
         if clearing {
             wipeSeatDashboardState()
@@ -2986,6 +3031,10 @@ final class HeartbeatStore: ObservableObject {
             pageOnlyGeneration = -1
             if PulseLaunch.shouldAcknowledgeFilterClearImmediately(previousActive: true, nextActive: false) {
                 filterStamp += 1
+            }
+            if PulseLaunch.shouldSkipWarehousePaintOnClear(restoredCompanyWide: grainPaintSettled)
+                || !PulseLaunch.shouldPaintWarehouseOnClear() {
+                return
             }
             return
         }
@@ -3082,12 +3131,17 @@ final class HeartbeatStore: ObservableObject {
             roster: roster
         )
         cachedGrainPacks = packs
-        cachedGrainTables = PulseCaches.grainTables(
-            latest: latest,
+        cachedGrainTables = PulseLaunch.mergeLiveGrainTables(
+            incoming: PulseCaches.grainTables(
+                latest: latest,
+                grain: grain,
+                roster: roster,
+                packs: packs,
+                goalFallback: lostRevenueGoalFallbackValue()
+            ),
+            live: cachedGrainTables,
             grain: grain,
-            roster: roster,
-            packs: packs,
-            goalFallback: lostRevenueGoalFallbackValue()
+            filtersActive: true
         )
         refreshSalesExpandCache()
         lockPickerDashboard()
@@ -3100,9 +3154,19 @@ final class HeartbeatStore: ObservableObject {
         cachedCardFlags = [:]
     }
 
-    /// Share-unsafe tables only. Live callout headers stay until the filter paint lands.
+    /// Share-unsafe tables only. Live store tables stay so a light filter paint
+    /// cannot leave the chevron inert. Chrome region labels are dropped.
     private func invalidateShareGrainTables() {
-        cachedGrainTables = [:]
+        if filters.isActive {
+            cachedGrainTables = PulseLaunch.mergeLiveGrainTables(
+                incoming: [:],
+                live: cachedGrainTables,
+                grain: effectiveDashboardGrain,
+                filtersActive: true
+            )
+        } else {
+            cachedGrainTables = [:]
+        }
         cachedSalesScopeRows = []
         cachedSalesDayRows = []
     }
@@ -3154,7 +3218,28 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func applyUnfilteredGrainFromWarehouse() {
-        let grain = effectiveDashboardGrain
+        if !PulseLaunch.shouldPaintWarehouseOnClear() {
+            if let pulse = unfilteredPulse {
+                cachedGrainPacks = PulseLaunch.mergeDashboardPacks(
+                    incoming: pulse.grainPacks,
+                    live: [:],
+                    filtersActive: false
+                )
+                cachedGrainTables = PulseLaunch.mergeLiveGrainTables(
+                    incoming: pulse.grainTables,
+                    live: [:],
+                    grain: PulseLaunch.unfilteredDashboardGrain(),
+                    filtersActive: false
+                )
+            }
+            if !filters.isActive {
+                rebuildCompanyGrainPacks()
+            }
+            lockPickerDashboard()
+            refreshSalesExpandCache()
+            return
+        }
+        let grain = PulseLaunch.unfilteredDashboardGrain()
         let latest = filteredLatest.isEmpty ? latestBySection : filteredLatest
         let packs = PulseCaches.grainPacks(
             latest: latest,
@@ -3170,8 +3255,17 @@ final class HeartbeatStore: ObservableObject {
             packs: packs,
             goalFallback: lostRevenueGoalFallbackValue()
         )
-        cachedGrainPacks = PulseLaunch.mergeDashboardPacks(incoming: packs, live: cachedGrainPacks)
-        cachedGrainTables = PulseLaunch.mergeLiveGrainTables(incoming: tables, live: cachedGrainTables)
+        cachedGrainPacks = PulseLaunch.mergeDashboardPacks(
+            incoming: packs,
+            live: cachedGrainPacks,
+            filtersActive: false
+        )
+        cachedGrainTables = PulseLaunch.mergeLiveGrainTables(
+            incoming: tables,
+            live: cachedGrainTables,
+            grain: grain,
+            filtersActive: false
+        )
         lockPickerDashboard()
         refreshSalesExpandCache()
     }
@@ -3222,7 +3316,7 @@ final class HeartbeatStore: ObservableObject {
             }
         }
         pageOnlyGeneration = generation
-        if PulseLaunch.shouldStampHubOnWarehousePaint() {
+        if PulseLaunch.shouldStampGrainOrPageOnlyFill() {
             filterStamp += 1
         } else {
             objectWillChange.send()
@@ -3395,12 +3489,22 @@ final class HeartbeatStore: ObservableObject {
                 )
             }
             grainPaintSettled = true
-        } else if cachedGrainPacks.isEmpty || filterPaint {
-            cachedGrainPacks = PulseLaunch.mergeDashboardPacks(
-                incoming: view.grains,
-                live: cachedGrainPacks,
-                filtersActive: current.isActive
-            )
+        } else {
+            if current.isActive {
+                cachedGrainTables = PulseLaunch.mergeLiveGrainTables(
+                    incoming: [:],
+                    live: cachedGrainTables,
+                    grain: grain,
+                    filtersActive: true
+                )
+            }
+            if cachedGrainPacks.isEmpty || filterPaint {
+                cachedGrainPacks = PulseLaunch.mergeDashboardPacks(
+                    incoming: view.grains,
+                    live: cachedGrainPacks,
+                    filtersActive: current.isActive
+                )
+            }
         }
         lockPickerDashboard()
         usingPackChrome = false
@@ -3431,7 +3535,7 @@ final class HeartbeatStore: ObservableObject {
         if needsRolePick, !PulseLaunch.shouldStampUIDuringRolePick() {
             return
         }
-        if PulseLaunch.shouldStampHubOnWarehousePaint() {
+        if PulseLaunch.shouldStampGrainOrPageOnlyFill() {
             filterStamp += 1
         } else {
             objectWillChange.send()
@@ -3604,16 +3708,22 @@ final class HeartbeatStore: ObservableObject {
                 guard !self.filters.isActive else { return }
                 guard self.effectiveDashboardGrain == grain else { return }
                 guard self.filterStamp >= token else { return }
-                self.cachedGrainPacks = PulseLaunch.mergeDashboardPacks(incoming: packs, live: self.cachedGrainPacks)
+                self.cachedGrainPacks = PulseLaunch.mergeDashboardPacks(
+                    incoming: packs,
+                    live: self.cachedGrainPacks,
+                    filtersActive: false
+                )
                 self.cachedGrainTables = PulseLaunch.mergeLiveGrainTables(
                     incoming: tables,
-                    live: self.cachedGrainTables
+                    live: self.cachedGrainTables,
+                    grain: PulseLaunch.unfilteredDashboardGrain(),
+                    filtersActive: false
                 )
                 self.lockPickerDashboard()
                 var snap = self.snapshotPulse()
                 snap.grainPacks = packs
                 self.unfilteredPulse = snap
-                if !self.needsRolePick, PulseLaunch.shouldStampHubOnWarehousePaint() {
+                if !self.needsRolePick, PulseLaunch.shouldStampGrainOrPageOnlyFill() {
                     self.filterStamp += 1
                 } else if !self.needsRolePick {
                     self.objectWillChange.send()
@@ -4099,7 +4209,12 @@ final class HeartbeatStore: ObservableObject {
                 incoming[section] = rows
             }
         }
-        cachedGrainTables = PulseLaunch.mergeLiveGrainTables(incoming: incoming, live: cachedGrainTables)
+        cachedGrainTables = PulseLaunch.mergeLiveGrainTables(
+            incoming: incoming,
+            live: cachedGrainTables,
+            grain: PulseLaunch.unfilteredDashboardGrain(),
+            filtersActive: false
+        )
     }
 
     /// Picker rows stay out of dashboard `displayRows` (Jetsam). Prefill expand
@@ -4524,8 +4639,10 @@ final class HeartbeatStore: ObservableObject {
             patchPPHCallouts()
         }
         pageOnlyGeneration = paintGeneration
-        if stamp {
+        if stamp, PulseLaunch.shouldStampPickerOrPageOnlyInstall() {
             filterStamp += 1
+        } else {
+            objectWillChange.send()
         }
     }
 
@@ -4551,7 +4668,11 @@ final class HeartbeatStore: ObservableObject {
         if PulseQuery.pageOnlySections.contains(section) {
             pageOnlyGeneration = paintGeneration
         }
-        filterStamp += 1
+        if PulseLaunch.shouldStampPickerOrPageOnlyInstall() {
+            filterStamp += 1
+        } else {
+            objectWillChange.send()
+        }
     }
 
     private func schedulePickerIndex(_ pickers: [MetricRow]) {
@@ -4682,10 +4803,16 @@ final class HeartbeatStore: ObservableObject {
             await MainActor.run {
                 if self.usingPackChrome, !self.filters.isActive { return }
                 self.cachedCardFlags = flags
-                self.cachedGrainPacks = PulseLaunch.mergeDashboardPacks(incoming: packs, live: self.cachedGrainPacks)
+                self.cachedGrainPacks = PulseLaunch.mergeDashboardPacks(
+                    incoming: packs,
+                    live: self.cachedGrainPacks,
+                    filtersActive: self.filters.isActive
+                )
                 self.cachedGrainTables = PulseLaunch.mergeLiveGrainTables(
                     incoming: tables,
-                    live: self.cachedGrainTables
+                    live: self.cachedGrainTables,
+                    grain: grain,
+                    filtersActive: self.filters.isActive
                 )
                 self.lockPickerDashboard()
                 self.patchPPHCallouts()

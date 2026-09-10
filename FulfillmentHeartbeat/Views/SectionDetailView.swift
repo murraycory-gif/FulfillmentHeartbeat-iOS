@@ -137,7 +137,7 @@ struct SectionDetailView: View {
                 }
                 MissingItemsTable(rows: missingItemsRows, depts: visibleMIDepts, pageWidth: pageWidth, section: section)
                 if section == .preSubOOS {
-                    PreSubItemTable(rows: store.displayRows(for: .preSubOOSItem), pageWidth: pageWidth)
+                    PreSubItemTable(rows: store.seatRows(for: .preSubOOSItem), pageWidth: pageWidth)
                 }
             } else {
                 StoreTable(section: section, rows: snapshots)
