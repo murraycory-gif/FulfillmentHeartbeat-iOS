@@ -258,6 +258,22 @@ enum PulseLaunch {
 
     static var pageSectionLoadDelayNanoseconds: UInt64 { 180_000_000 }
 
+    /// Keep Dashboard mounted so returning from a scorecard is not a full remount.
+    static func shouldKeepDashboardHostWarm() -> Bool { true }
+
+    /// Store snap trees stay empty until the user opens the HubStoreCard.
+    static func shouldBuildStoreSnapsWhileCollapsed() -> Bool { false }
+
+    static func shouldSkipCollapsedStoreRebuild(expanded: Bool) -> Bool {
+        !expanded && !shouldBuildStoreSnapsWhileCollapsed()
+    }
+
+    /// Picker SQL must not start on the sidebar tap turn.
+    static func shouldStartPickerStreamOnDestinationSwitch() -> Bool { false }
+
+    /// Lightweight Halloween parade on Who's looking load only. Flip off after the season.
+    static func shouldPlaySeatLoadHalloween() -> Bool { true }
+
     /// Seat warehouse must never leave Who's looking locked at presentingSeat ~40%.
     enum SeatWarehouseOutcome: Equatable {
         case completed

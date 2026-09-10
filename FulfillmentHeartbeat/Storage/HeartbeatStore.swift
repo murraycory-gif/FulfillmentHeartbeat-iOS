@@ -412,7 +412,9 @@ final class HeartbeatStore: ObservableObject {
         } else if isReady, !needsRolePick, PulseLaunch.shouldRestartGrainPaint(alreadySettled: grainPaintSettled, dest: dest) {
             scheduleGrainPaint(generation: paintGeneration)
         }
-        if PulseLaunch.needsShopperJoin(dest), !pickerStreamDone {
+        if PulseLaunch.needsShopperJoin(dest),
+           !pickerStreamDone,
+           PulseLaunch.shouldStartPickerStreamOnDestinationSwitch() {
             Task { await self.streamPicker(preferSnappy: dest == .pickerScorecard) }
         }
     }

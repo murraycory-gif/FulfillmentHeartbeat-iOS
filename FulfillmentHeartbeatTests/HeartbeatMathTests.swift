@@ -1953,8 +1953,16 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseLaunch.shouldPaintScorecardTablesAfterChrome())
         XCTAssertTrue(PulseLaunch.shouldDeferSectionSQLUntilAfterChrome())
         XCTAssertTrue(PulseLaunch.shouldHoldSeatPickerUntilWarehouseReady())
+        XCTAssertTrue(PulseLaunch.shouldKeepDashboardHostWarm())
+        XCTAssertFalse(PulseLaunch.shouldBuildStoreSnapsWhileCollapsed())
+        XCTAssertTrue(PulseLaunch.shouldSkipCollapsedStoreRebuild(expanded: false))
+        XCTAssertFalse(PulseLaunch.shouldSkipCollapsedStoreRebuild(expanded: true))
+        XCTAssertFalse(PulseLaunch.shouldStartPickerStreamOnDestinationSwitch())
+        XCTAssertTrue(PulseLaunch.shouldPlaySeatLoadHalloween())
         XCTAssertTrue(PulseLaunch.aisleQuips.contains(PulseLaunch.seatLoadTitle) || PulseLaunch.seatLoadTitle.contains("aisle"))
         XCTAssertTrue(PulseLaunch.seatLoadDirective.localizedCaseInsensitiveContains("unlock"))
+        XCTAssertFalse(PulseLaunch.seatLoadTitle.localizedCaseInsensitiveContains("setting the floor"))
+        XCTAssertFalse(PulseLaunch.seatLoadDirective.localizedCaseInsensitiveContains("choosing a seat"))
     }
 
     func testSeatWarehouseAlwaysClearsHydrating() async {

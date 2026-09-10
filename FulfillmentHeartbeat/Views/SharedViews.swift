@@ -1896,6 +1896,7 @@ struct PickPathTable: View {
     }
 
     private func rebuildOrder(sort: Column, ascending: Bool) {
+        guard !PulseLaunch.shouldSkipCollapsedStoreRebuild(expanded: headerPin.storesExpanded) else { return }
         let sorted = rows.sorted { lhs, rhs in
             let result = compare(lhs, rhs, sort: sort)
             return ascending ? result == .orderedAscending : result == .orderedDescending
@@ -3014,6 +3015,7 @@ struct DynacapTable: View {
     }
 
     private func rebuildOrder(sort: Column, ascending: Bool) {
+        guard !PulseLaunch.shouldSkipCollapsedStoreRebuild(expanded: headerPin.storesExpanded) else { return }
         var pphByStore: [String: Double] = [:]
         for row in store.latest(for: .pph) {
             if let pph = row.number("pph") {
@@ -3868,6 +3870,7 @@ struct PrepTable: View {
     }
 
     private func rebuildOrder(sort: Column, ascending: Bool) {
+        guard !PulseLaunch.shouldSkipCollapsedStoreRebuild(expanded: headerPin.storesExpanded) else { return }
         let sorted = rows.sorted { lhs, rhs in
             let result = compare(lhs, rhs, sort: sort)
             return ascending ? result == .orderedAscending : result == .orderedDescending
@@ -4603,6 +4606,7 @@ struct FiveStarTable: View {
     }
 
     private func rebuildOrder(sort: Column, ascending: Bool) {
+        guard !PulseLaunch.shouldSkipCollapsedStoreRebuild(expanded: headerPin.storesExpanded) else { return }
         let sorted = rows.sorted { lhs, rhs in
             let result = compare(lhs, rhs, sort: sort)
             return ascending ? result == .orderedAscending : result == .orderedDescending
@@ -6314,6 +6318,7 @@ struct LaborTable: View {
     }
 
     private func rebuildOrder(sort: Column, ascending: Bool) {
+        guard !PulseLaunch.shouldSkipCollapsedStoreRebuild(expanded: headerPin.storesExpanded) else { return }
         let sorted = rows.sorted { lhs, rhs in
             let result = compare(lhs, rhs, sort: sort)
             return ascending ? result == .orderedAscending : result == .orderedDescending
@@ -7333,6 +7338,7 @@ struct LostRevenueTable: View {
     }
 
     private func rebuildOrder(sort: Column, ascending: Bool) {
+        guard !PulseLaunch.shouldSkipCollapsedStoreRebuild(expanded: headerPin.storesExpanded) else { return }
         let sorted = rows.sorted { lhs, rhs in
             let result = compare(lhs, rhs, sort: sort)
             return ascending ? result == .orderedAscending : result == .orderedDescending
@@ -7652,6 +7658,7 @@ struct ScheduleTable: View {
     }
 
     private func rebuildOrder(sort: Column, ascending: Bool) {
+        guard !PulseLaunch.shouldSkipCollapsedStoreRebuild(expanded: headerPin.storesExpanded) else { return }
         let sorted = rows.sorted { lhs, rhs in
             let result = compare(lhs, rhs, sort: sort)
             return ascending ? result == .orderedAscending : result == .orderedDescending
@@ -8487,6 +8494,7 @@ struct PPHTable: View {
     }
 
     private func rebuildOrder(sort: Column, ascending: Bool) {
+        guard !PulseLaunch.shouldSkipCollapsedStoreRebuild(expanded: headerPin.storesExpanded) else { return }
         let counts = Dictionary(uniqueKeysWithValues: rows.map { ($0.storeNumber, store.pphPickerCount(forStore: $0.storeNumber)) })
         let sorted = rows.sorted { lhs, rhs in
             let result = compare(lhs, rhs, sort: sort, counts: counts)
@@ -9328,6 +9336,7 @@ struct PickerScoreTable: View {
     }
 
     private func rebuildPage() {
+        guard !PulseLaunch.shouldSkipCollapsedStoreRebuild(expanded: headerPin.storesExpanded) else { return }
         headerPin.storeCount = total
         snaps = store.pickerPage(focus: focus, sort: sort.sort, ascending: ascending, limit: limit).map {
             PickerLineSnap($0, division: place(for: $0))

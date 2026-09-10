@@ -944,6 +944,7 @@ struct SalesTable: View {
     }
 
     private func rebuild() {
+        guard !PulseLaunch.shouldSkipCollapsedStoreRebuild(expanded: headerPin.storesExpanded) else { return }
         var next = rows.compactMap { row -> SalesLineSnap? in
             let snap = SalesLineSnap(row, identity: store.identity(forStore: row.storeNumber))
             guard snap.pack.sales != nil || snap.pack.orders != nil else { return nil }

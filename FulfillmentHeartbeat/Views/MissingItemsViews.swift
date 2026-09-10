@@ -335,6 +335,7 @@ struct MissingItemsTable: View {
     }
 
     private func rebuildOrder(sort: Column, ascending: Bool) {
+        guard !PulseLaunch.shouldSkipCollapsedStoreRebuild(expanded: headerPin.storesExpanded) else { return }
         let sorted = rows.sorted { lhs, rhs in
             let result = compare(lhs, rhs, sort: sort)
             return ascending ? result == .orderedAscending : result == .orderedDescending

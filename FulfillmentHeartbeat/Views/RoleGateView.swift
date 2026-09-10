@@ -511,6 +511,11 @@ private struct SeatLoadPanel: View {
     var body: some View {
         let phone = HubLayout.isPhone(sizeClass)
         VStack(spacing: phone ? 16 : 20) {
+            if PulseLaunch.shouldPlaySeatLoadHalloween() {
+                HalloweenSeatParade()
+                    .frame(height: phone ? 52 : 60)
+                    .accessibilityHidden(true)
+            }
             ProgressView()
                 .controlSize(.regular)
                 .tint(AppTheme.blue)
@@ -553,6 +558,37 @@ private struct SeatLoadPanel: View {
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(PulseLaunch.seatLoadTitle). \(PulseLaunch.seatLoadQuip(at: quipIndex)). \(PulseLaunch.seatLoadDirective)")
+    }
+}
+
+/// Seat-load only. Emoji offsets — no Lottie, video, or GIF. Stops when the panel unmounts.
+private struct HalloweenSeatParade: View {
+    private let runners: [(glyph: String, speed: Double, y: CGFloat, bounce: CGFloat, phase: Double)] = [
+        ("🎃", 34, 18, 8, 0.0),
+        ("👻", 28, 8, 12, 1.3),
+        ("🦇", 42, 2, 16, 2.1),
+        ("🧙", 24, 20, 10, 0.6),
+        ("🐈‍⬛", 36, 14, 7, 2.8),
+    ]
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 1.0 / 15.0)) { timeline in
+            let t = timeline.date.timeIntervalSinceReferenceDate
+            GeometryReader { geo in
+                let width = max(geo.size.width, 1)
+                ZStack {
+                    ForEach(Array(runners.enumerated()), id: \.offset) { _, runner in
+                        let travel = (t * runner.speed + runner.phase * 40).truncatingRemainder(dividingBy: width + 56) - 28
+                        let nearHeart = abs(travel - width * 0.5) < 36
+                        let jump = nearHeart ? runner.bounce * 1.6 : runner.bounce * sin(t * 4 + runner.phase)
+                        Text(runner.glyph)
+                            .font(.system(size: 22))
+                            .offset(x: travel, y: runner.y - abs(jump))
+                    }
+                }
+            }
+        }
+        .allowsHitTesting(false)
     }
 }
 

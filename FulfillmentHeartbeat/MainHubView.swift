@@ -366,6 +366,8 @@ struct MainHubView: View {
                 } else if PulseLaunch.shouldRemountPageOnDestinationChange() {
                     page(for: router.current)
                         .id(router.current)
+                } else if PulseLaunch.shouldKeepDashboardHostWarm() {
+                    warmDetail
                 } else {
                     page(for: router.current)
                 }
@@ -378,6 +380,22 @@ struct MainHubView: View {
             showBack: router.current != .dashboard,
             showsFilters: true
         )
+    }
+
+    /// Dashboard stays mounted. Scorecards still swap, but store tables wait
+    /// until after chrome (`showTables`) so a sidebar tap is not a full List cook.
+    @ViewBuilder
+    private var warmDetail: some View {
+        ZStack {
+            DashboardView()
+                .hubPageCanvas()
+                .opacity(router.current == .dashboard ? 1 : 0)
+                .allowsHitTesting(router.current == .dashboard)
+                .accessibilityHidden(router.current != .dashboard)
+            if router.current != .dashboard {
+                page(for: router.current)
+            }
+        }
     }
 
     @ViewBuilder
