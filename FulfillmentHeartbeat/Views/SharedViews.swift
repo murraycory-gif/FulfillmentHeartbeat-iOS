@@ -8945,22 +8945,24 @@ struct PickerScoreTable: View {
     var body: some View {
         if total == 0 {
             Section {
-                if store.pickerLoading {
-                    HStack(spacing: 10) {
-                        ProgressView()
-                            .tint(AppTheme.blue)
-                        Text("Loading shoppers…")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(AppTheme.textSecondary)
+                Group {
+                    if store.pickerLoading {
+                        HStack(spacing: 10) {
+                            ProgressView()
+                                .tint(AppTheme.blue)
+                            Text("Loading shoppers…")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(AppTheme.textSecondary)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 12)
+                    } else {
+                        EmptyHint(
+                            symbol: "person.2",
+                            title: "No shoppers in \(focus.title.lowercased())",
+                            detail: "Shoppers fill from the Heartbeat pack after ready. Tap another callout, or wait for the stream."
+                        )
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 12)
-                } else {
-                    EmptyHint(
-                        symbol: "person.2",
-                        title: "No shoppers in \(focus.title.lowercased())",
-                        detail: "Shoppers fill from the Heartbeat pack after ready. Tap another callout, or wait for the stream."
-                    )
                 }
                 .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 20, trailing: 20))
                 .listRowSeparator(.hidden)
