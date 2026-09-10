@@ -980,6 +980,7 @@ struct DashCallout: View, Equatable {
     let width: CGFloat
     let action: () -> Void
     @Environment(\.horizontalSizeClass) private var sizeClass
+    @State private var flagsOpen = false
 
     private var compact: Bool { HubLayout.isPhone(sizeClass) }
 
