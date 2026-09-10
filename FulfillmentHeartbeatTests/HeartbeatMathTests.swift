@@ -2074,6 +2074,13 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(PulseLaunch.shouldStampGrainOrPageOnlyFill())
         XCTAssertFalse(PulseLaunch.shouldStampPickerOrPageOnlyInstall())
         XCTAssertFalse(PulseLaunch.shouldPublishSeatFill(dest: .dashboard, interactiveAt: Date()))
+        XCTAssertFalse(PulseLaunch.shouldPublishSeatFill(dest: .pickerScorecard, interactiveAt: Date()))
+        XCTAssertTrue(
+            PulseLaunch.shouldPublishSeatFill(
+                dest: .pickerScorecard,
+                interactiveAt: Date().addingTimeInterval(-3)
+            )
+        )
         XCTAssertFalse(PulseLaunch.hubScrollSettled(interactiveAt: Date(), now: Date()))
         XCTAssertTrue(
             PulseLaunch.hubScrollSettled(
