@@ -1175,5 +1175,24 @@ final class HeartbeatMathTests: XCTestCase {
         let east = packs.first { $0.line.label == "East Region" }
         XCTAssertEqual(east?.line.count, 612)
     }
+
+    func testFactsSalesAndFiveStarCompanyWide() throws {
+        let tests = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        let url = tests.deletingLastPathComponent().appendingPathComponent("FulfillmentHeartbeat/facts.json")
+        let file = try JSONDecoder().decode(PulseFactsFile.self, from: Data(contentsOf: url))
+        let rows = PulseFacts.metricRows(from: file)
+        let caches = PulseCaches.build(rows: rows, filters: DashboardFilters(), uploads: [], heavy: false, grain: .region)
+        let sales = caches.cachedSummaries.first { $0.section == .sales }
+        XCTAssertEqual(sales?.headline ?? 0, 132_830_509, accuracy: 50)
+        let stars = caches.cachedSummaries.first { $0.section == .fiveStar }
+        XCTAssertGreaterThan(stars?.storeCount ?? 0, 2_000)
+        for section in [MetricSection.sales, .fiveStar, .lostRevenue] {
+            let packs = caches.cachedGrainPacks[section] ?? []
+            XCTAssertEqual(packs.count, 4, section.rawValue)
+            for pack in packs {
+                XCTAssertGreaterThan(pack.line.count, 0, "\(section.rawValue) \(pack.line.label)")
+            }
+        }
+    }
 }
 

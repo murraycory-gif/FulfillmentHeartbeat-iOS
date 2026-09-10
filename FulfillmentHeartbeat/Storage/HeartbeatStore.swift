@@ -95,6 +95,7 @@ final class HeartbeatStore: ObservableObject {
     private var heavyLoadStarted = false
     private var usingPackChrome = false
     private var packChrome: PulseDashChrome?
+    private var factsOwned: Set<MetricSection> = []
 
     init(rootURL: URL? = nil) {
         fileManager = .default
@@ -2378,6 +2379,18 @@ final class HeartbeatStore: ObservableObject {
         var next: [MetricSection: [MetricRow]] = [:]
         next.reserveCapacity(latestBySection.count + extra.count + 1)
         for section in MetricSection.dashboardCards {
+            if factsOwned.contains(section) {
+                if section == .lostRevenue {
+                    next[section] = scopedLostRevenue(allowed)
+                } else {
+                    next[section] = PulseCaches.rowsMatchingStores(
+                        latestBySection[section] ?? [],
+                        stores: allowed,
+                        skipMarket: false
+                    )
+                }
+                continue
+            }
             if let rows = extra[section], !rows.isEmpty {
                 next[section] = PulseCaches.rowsMatchingStores(
                     rows,
@@ -2839,7 +2852,7 @@ final class HeartbeatStore: ObservableObject {
         if filters.isActive {
             applyVisibleFilter()
         } else {
-            paintLostRevenueFromFacts()
+            paintFactsScorecards()
             rebuildCompanyGrainPacks()
         }
     }
@@ -2895,7 +2908,7 @@ final class HeartbeatStore: ObservableObject {
                 if let chrome {
                     applyDashChrome(chrome)
                 }
-                paintLostRevenueFromFacts()
+                paintFactsScorecards()
                 hydrating = false
                 applyLocalCards()
                 importProgress.loaded = MetricSection.uploadOrder.count
@@ -2953,77 +2966,99 @@ final class HeartbeatStore: ObservableObject {
         filteredLatest = latestBySection
         refreshFilterOptions()
         applyDashChrome(chrome)
-        paintLostRevenueFromFacts()
+        paintFactsScorecards()
         rebuildCompanyGrainPacks()
         refreshSalesExpandCache()
         return true
     }
 
-    /// Pack lost-revenue is a 147-store East slice. Bundled facts.json is 2,161 stores.
-    /// That file is the source for the card, region expand, and every filter.
-    private func paintLostRevenueFromFacts() {
-        let facts = PulseFacts.bundledLostRevenue().filter {
-            $0.textPayload["lost_grain"] != "market"
-                && !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty
+    /// Sales, 5 Star, and Loss Revenue come from bundled facts.json (2,161 stores).
+    /// The sqlite pack is a 147-store East slice and is not allowed to overwrite them.
+    private func paintFactsScorecards() {
+        let facts = PulseFacts.bundledMetricRows()
+        guard !facts.isEmpty else { return }
+        for row in facts where row.section == .storeRoster || row.textPayload["roster"] == "1" {
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            guard !store.isEmpty else { continue }
+            let existing = roster[store]
+            roster[store] = HeartbeatMath.StoreIdentity(
+                division: row.division.isEmpty ? (existing?.division ?? "") : row.division,
+                district: row.district.isEmpty ? (existing?.district ?? "") : row.district,
+                om: row.operationsOM.isEmpty ? (existing?.om ?? "") : row.operationsOM,
+                name: row.storeName ?? existing?.name
+            )
         }
-        guard facts.count >= 200 else { return }
-        let stamped = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(facts), roster: roster)
-        let current = (latestBySection[.lostRevenue] ?? []).filter {
-            $0.textPayload["lost_grain"] != "market"
-                && !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty
-        }
-        if stamped.count > current.count {
-            latestBySection[.lostRevenue] = stamped
-        } else {
-            var merged = current
-            var have: Set<String> = []
-            for row in current {
-                have.formUnion(HeartbeatMath.storeAliases(row.storeNumber))
+        let owned: [MetricSection] = [.lostRevenue, .sales, .fiveStar]
+        var adopted: [MetricSection: [MetricRow]] = [:]
+        for section in owned {
+            let factRows = facts.filter { fact in
+                guard fact.section == section else { return false }
+                if fact.textPayload["lost_grain"] == "market" { return false }
+                if fact.textPayload["sales_grain"] == "company" || fact.textPayload["sales_grain"] == "day" { return false }
+                return !HeartbeatMath.canonicalStore(fact.storeNumber).isEmpty
             }
-            for row in stamped where !have.contains(HeartbeatMath.canonicalStore(row.storeNumber)) {
-                merged.append(row)
-                have.formUnion(HeartbeatMath.storeAliases(row.storeNumber))
+            let stamped = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(factRows), roster: roster)
+            let factStores = Set(stamped.map { HeartbeatMath.canonicalStore($0.storeNumber) })
+            guard factStores.count >= 200 else { continue }
+            let current = (latestBySection[section] ?? []).filter {
+                $0.textPayload["lost_grain"] != "market"
+                    && $0.textPayload["sales_grain"] != "company"
+                    && $0.textPayload["sales_grain"] != "day"
+                    && !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty
             }
-            latestBySection[.lostRevenue] = merged
+            let packStores = Set(current.map { HeartbeatMath.canonicalStore($0.storeNumber) })
+            if factStores.count > packStores.count {
+                latestBySection[section] = stamped
+                factsOwned.insert(section)
+                adopted[section] = stamped
+            }
         }
+        guard !adopted.isEmpty else { return }
         rebuildLostIndex()
-        let lost = (latestBySection[.lostRevenue] ?? []).filter { $0.textPayload["lost_grain"] != "market" }
-        filteredLatest[.lostRevenue] = latestBySection[.lostRevenue]
-        let summary = HeartbeatMath.summarize(
-            .lostRevenue,
-            rows: lost,
-            upload: uploads.first { $0.section == .lostRevenue }
-        )
-        if cachedSummaries.contains(where: { $0.section == .lostRevenue }) {
-            cachedSummaries = cachedSummaries.map { $0.section == .lostRevenue ? summary : $0 }
-        } else {
-            cachedSummaries.append(summary)
+        if filters.isActive {
+            applyVisibleFilter()
+            return
         }
-        if var chrome = packChrome {
-            chrome.summaries = chrome.summaries.map { $0.section == .lostRevenue ? summary : $0 }
-            packChrome = chrome
+        for section in factsOwned {
+            filteredLatest[section] = latestBySection[section]
+            let rows = (latestBySection[section] ?? []).filter {
+                $0.textPayload["lost_grain"] != "market"
+                    && $0.textPayload["sales_grain"] != "company"
+            }
+            refreshSummary(for: section, rows: rows)
         }
-        if let flags = PulseCaches.cardFlags(latest: [.lostRevenue: lost])[.lostRevenue] {
-            cachedCardFlags[.lostRevenue] = flags
+        let flags = PulseCaches.cardFlags(latest: adopted)
+        for (section, value) in flags {
+            cachedCardFlags[section] = value
         }
-        let grain = filters.isActive ? effectiveDashboardGrain : .region
+        let grain: DashScopeGrain = .region
         let packs = PulseCaches.grainPacks(
-            latest: [.lostRevenue: lost],
+            latest: adopted,
             grain: grain,
             hidePicker: true,
             stores: cachedStores,
             roster: roster
         )
-        if let lostPacks = packs[.lostRevenue] {
-            cachedGrainPacks[.lostRevenue] = lostPacks
-            if var chrome = packChrome {
-                chrome.packs[MetricSection.lostRevenue.rawValue] = lostPacks
-                packChrome = chrome
-            }
+        for (section, value) in packs {
+            cachedGrainPacks[section] = value
         }
+        if var chrome = packChrome {
+            chrome.summaries = chrome.summaries.map { summary in
+                cachedSummaries.first { $0.section == summary.section && factsOwned.contains(summary.section) } ?? summary
+            }
+            for section in factsOwned {
+                if let value = packs[section] {
+                    chrome.packs[section.rawValue] = value
+                }
+            }
+            packChrome = chrome
+        }
+        refreshSalesExpandCache()
+        filterStamp += 1
     }
 
     func ensureSectionLoaded(_ section: MetricSection) async {
+        if factsOwned.contains(section) { return }
         if !(latestBySection[section] ?? []).isEmpty { return }
         guard PulseSQLite.exists(at: sqliteURL) else { return }
         let url = sqliteURL
@@ -3174,6 +3209,7 @@ final class HeartbeatStore: ObservableObject {
         hydrating = true
         install(caches)
         hydrating = false
+        paintFactsScorecards()
         scheduleHeavyExtras(latest: caches.filteredLatest, roster: caches.roster)
     }
 

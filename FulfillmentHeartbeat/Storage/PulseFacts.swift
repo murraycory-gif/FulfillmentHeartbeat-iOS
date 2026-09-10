@@ -104,6 +104,16 @@ enum PulseFacts {
         return try? Data(contentsOf: url)
     }
 
+    private static var cachedBundledRows: [MetricRow]?
+
+    static func bundledMetricRows() -> [MetricRow] {
+        if let cachedBundledRows { return cachedBundledRows }
+        guard let file = decode(bundledData()) else { return [] }
+        let rows = metricRows(from: file)
+        cachedBundledRows = rows
+        return rows
+    }
+
     private static func pack(
         _ rows: [MetricRow],
         roster: [String: HeartbeatMath.StoreIdentity],
