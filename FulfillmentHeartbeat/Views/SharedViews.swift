@@ -5379,9 +5379,7 @@ enum RollupMarketFill {
     static func bucketKey(_ row: MetricRow, grain: LaborRollupGrain) -> String {
         switch grain {
         case .region:
-            if let region = MarketRegion.containing(row.division) { return region.rawValue }
-            if let region = MarketRegion.containing(row.district) { return region.rawValue }
-            return "Unassigned"
+            return MarketRegion.resolved(division: row.division, district: row.district)?.rawValue ?? "Unassigned"
         case .division:
             return divisionKey(row.division)
         case .district:

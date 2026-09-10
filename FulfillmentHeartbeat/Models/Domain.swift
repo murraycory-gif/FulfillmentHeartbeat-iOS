@@ -655,15 +655,7 @@ enum HeartbeatMath {
     static func dashboardScopeKey(_ row: MetricRow, grain: DashScopeGrain) -> String? {
         switch grain {
         case .region:
-            let market = RollupMarketFill.divisionKey(row.division)
-            if !market.isEmpty, market != "Unassigned", let region = MarketRegion.containing(market) {
-                return region.rawValue
-            }
-            let district = RollupMarketFill.districtKey(row.district)
-            if !district.isEmpty, let region = MarketRegion.containing(district) {
-                return region.rawValue
-            }
-            return nil
+            return MarketRegion.resolved(division: row.division, district: row.district)?.rawValue
         case .division:
             let key = RollupMarketFill.divisionKey(row.division)
             return key.isEmpty ? nil : key
@@ -738,7 +730,7 @@ enum HeartbeatMath {
         case .pickPath, .pickPathPicker:
             return ["Path %", "AVG PPH"]
         case .prepNotReady:
-            return ["PNR %"]
+            return ["PNR %", "Goal", "Watch"]
         case .dynacap:
             return ["Pcs/Hr", "PPH", "Util %"]
         case .scheduleQuality:
@@ -827,7 +819,11 @@ enum HeartbeatMath {
             )
         case .prepNotReady:
             return (
-                [HeartbeatFormat.pct(average(rows.compactMap { $0.number("pnr_rate_pct", "pnr_hours", "prep_not_ready_pct") }))],
+                [
+                    HeartbeatFormat.pct(average(rows.compactMap { $0.number("pnr_rate_pct", "pnr_hours", "prep_not_ready_pct") })),
+                    String(format: "%.1f%%", pnrGoal),
+                    String(format: "%.1f–%.1f%%", pnrGoal, pnrWatch),
+                ],
                 health
             )
         case .dynacap:
@@ -966,14 +962,23 @@ enum HeartbeatMath {
                 health: built.health
             )
         }
-        let labels = order.isEmpty ? buckets.keys.sorted() : order
+        let labels: [String]
+        if !order.isEmpty {
+            labels = order
+        } else if grain == .region {
+            labels = MarketRegion.allCases.map(\.rawValue)
+        } else {
+            labels = buckets.keys.sorted()
+        }
         var used: Set<String> = []
         var table: [DashboardGrainTableRow] = []
         table.reserveCapacity(max(labels.count, buckets.count))
         for label in labels {
             let hit = group(for: label)
             if let key = hit.key { used.insert(key) }
-            if hit.rows.isEmpty, !buckets.isEmpty { continue }
+            // Keep official region slots so "Regions 4" always paints East/South/California/West.
+            // District/store order aliases (J3CHICAGO vs J3) still skip blank placeholders.
+            if hit.rows.isEmpty, !buckets.isEmpty, grain != .region { continue }
             table.append(makeRow(label: label, group: hit.rows))
         }
         if !order.isEmpty {
@@ -1001,6 +1006,7 @@ enum HeartbeatMath {
             order: order,
             goalFallback: goalFallback
         )
+        if grain == .region { return table }
         if grainRowsAreLive(table) { return table }
         guard !order.isEmpty else { return table }
         let fallback = dashboardGrainTable(
@@ -3891,6 +3897,16 @@ enum MarketRegion: String, CaseIterable, Identifiable, Sendable {
         guard !trimmed.isEmpty else { return nil }
         if let named = named(trimmed) { return named }
         return allCases.first { $0.contains(trimmed) }
+    }
+
+    /// Map a store to East/South/California/West without calling `containing` on district codes.
+    /// `containing("J3")` is nil on purpose — that path used to recurse through `matchesDivision`.
+    static func resolved(division: String, district: String) -> MarketRegion? {
+        if let named = named(division) { return named }
+        let market = canonicalName(division)
+        if !market.isEmpty, let region = containing(market) { return region }
+        if let named = named(district) { return named }
+        return nil
     }
 
     static func matchesDivision(_ lhs: String, _ rhs: String) -> Bool {

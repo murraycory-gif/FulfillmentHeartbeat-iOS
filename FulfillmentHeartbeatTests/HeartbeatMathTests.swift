@@ -2001,14 +2001,92 @@ final class HeartbeatMathTests: XCTestCase {
         ))
     }
 
+    func testCompanyWideLostRevenueExpandPaintsAllFourRegionsEvenWhenPackIsEastOnly() throws {
+        let east = MetricRow(
+            section: .lostRevenue,
+            division: "Jewel Osco",
+            operationsOM: "A",
+            storeNumber: "308",
+            payload: [
+                "lost_revenue": 247_025.38,
+                "lost_revenue_pct": 8.24,
+                "ecomm_sales": 2_997_175.77,
+                "post_sub_oos_foregone": 87_241.71,
+                "refund_lost": 3_926,
+                "missed_sales": 18_627,
+                "cancelled_lost": 4_640,
+                "kill_switch_lost": 2_024.78,
+            ],
+            textPayload: ["lost_grain": "store", "district": "J3"]
+        )
+        let order = MarketRegion.allCases.map(\.rawValue)
+        let placeholders = HeartbeatMath.dashboardGrainTable(
+            section: .lostRevenue,
+            rows: [east],
+            grain: .region,
+            order: order,
+            goalFallback: 3.89
+        )
+        XCTAssertEqual(placeholders.map(\.label), order)
+        XCTAssertEqual(placeholders.first?.label, "East Region")
+        XCTAssertGreaterThan(placeholders.first?.storeCount ?? 0, 0)
+        XCTAssertEqual(placeholders.filter { $0.storeCount > 0 }.count, 1)
+        for row in placeholders {
+            XCTAssertTrue(row.values.contains("3.89%"), "\(row.label) \(row.values)")
+        }
+
+        let tests = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        let url = tests.deletingLastPathComponent().appendingPathComponent("FulfillmentHeartbeat/facts.json")
+        let file = try JSONDecoder().decode(PulseFactsFile.self, from: Data(contentsOf: url))
+        let facts = PulseFacts.metricRows(from: file)
+        let eastPack = (1...300).map { n in
+            MetricRow(
+                section: .lostRevenue,
+                division: "Jewel Osco",
+                operationsOM: "A",
+                storeNumber: String(n),
+                payload: ["lost_revenue": 10, "ecomm_sales": 1_000, "lost_revenue_pct": 1],
+                textPayload: ["lost_grain": "store"]
+            )
+        }
+        XCTAssertNil(PulseQuery.fillIfThin(existing: eastPack, incoming: facts.filter { $0.section == .lostRevenue }))
+        let merged = PulseQuery.fillMissingRegions(
+            existing: eastPack,
+            facts: facts,
+            section: .lostRevenue
+        )
+        XCTAssertGreaterThan(merged.count, eastPack.count)
+        let filled = HeartbeatMath.dashboardGrainTableFilled(
+            section: .lostRevenue,
+            rows: merged,
+            grain: .region,
+            order: order,
+            goalFallback: 3.89
+        )
+        XCTAssertEqual(filled.map(\.label), order)
+        let goalIndex = HeartbeatMath.dashboardTableHeaders(.lostRevenue).firstIndex(of: "Goal %")
+        XCTAssertEqual(goalIndex, 2)
+        for region in MarketRegion.allCases {
+            let row = filled.first { $0.label == region.rawValue }
+            XCTAssertGreaterThan(row?.storeCount ?? 0, 0, region.rawValue)
+            XCTAssertNotEqual(row?.values.first, "—", region.rawValue)
+            XCTAssertNotEqual(row?.values[2], "—", "\(region.rawValue) missing Goal % \(row?.values ?? [])")
+        }
+        XCTAssertEqual(MarketRegion.resolved(division: "Jewel Osco", district: "J3"), .east)
+        XCTAssertEqual(MarketRegion.resolved(division: "NorCal", district: ""), .california)
+        XCTAssertNil(MarketRegion.resolved(division: "", district: "J3"))
+    }
+
     func testPrepEvenColumnsMatchPickPathSpread() {
+        let headers = HeartbeatMath.dashboardTableHeaders(.prepNotReady)
+        XCTAssertEqual(headers, ["PNR %", "Goal", "Watch"])
         let prep = HubLayout.evenValueWidth(
             available: 1_400,
             phone: false,
-            columns: 3,
+            columns: headers.count,
             showCount: true,
             district: false,
-            valueMin: HubLayout.dashboardValueMin(phone: false, columns: 3)
+            valueMin: HubLayout.dashboardValueMin(phone: false, columns: headers.count)
         )
         let path = HubLayout.evenValueWidth(
             available: 1_400,
@@ -2020,6 +2098,31 @@ final class HeartbeatMathTests: XCTestCase {
         )
         XCTAssertEqual(prep, path, accuracy: 0.5)
         XCTAssertGreaterThan(prep, HubLayout.readableValueMin(phone: false))
+        let dumped = HubLayout.evenValueWidth(
+            available: 1_400,
+            phone: false,
+            columns: 1,
+            showCount: true,
+            district: false,
+            valueMin: HubLayout.dashboardValueMin(phone: false, columns: 1)
+        )
+        XCTAssertGreaterThan(dumped, prep + 80, "a single PNR column dumps leftover into a giant gap")
+        let values = HeartbeatMath.dashboardTableValues(
+            .prepNotReady,
+            rows: [
+                MetricRow(
+                    section: .prepNotReady,
+                    division: "Jewel Osco",
+                    operationsOM: "A",
+                    storeNumber: "308",
+                    payload: ["pnr_rate_pct": 3.27]
+                )
+            ]
+        )
+        XCTAssertEqual(values.values.count, 3)
+        XCTAssertEqual(values.values[0], "3.27%")
+        XCTAssertEqual(values.values[1], "1.9%")
+        XCTAssertEqual(values.values[2], "1.9–2.5%")
     }
 
     func testTableLabelWidthFitsRegionNamesAndEvenValues() {

@@ -429,10 +429,16 @@ final class HeartbeatStore: ObservableObject {
             if cachedSalesScopeRows.isEmpty { refreshSalesExpandCache() }
             return
         }
-        if !HeartbeatMath.grainRowsAreLive(cachedGrainTables[section] ?? []) {
-            let table = buildGrainTableNow(for: section)
-            cachedGrainTables[section] = table
+        let cached = cachedGrainTables[section] ?? []
+        if !HeartbeatMath.grainRowsAreLive(cached) || regionExpandNeedsFill(cached) {
+            cachedGrainTables[section] = buildGrainTableNow(for: section)
         }
+    }
+
+    private func regionExpandNeedsFill(_ table: [HeartbeatMath.DashboardGrainTableRow]) -> Bool {
+        guard effectiveDashboardGrain == .region, !filters.isActive else { return false }
+        let live = Set(table.filter { $0.storeCount > 0 }.map(\.label))
+        return MarketRegion.allCases.contains { !live.contains($0.rawValue) }
     }
 
     private func buildGrainTableNow(for section: MetricSection) -> [HeartbeatMath.DashboardGrainTableRow] {
@@ -447,6 +453,14 @@ final class HeartbeatStore: ObservableObject {
         if section == .dynacap, source.filter({ $0.number("dynacap_rate", "pieces_per_hour") != nil }).isEmpty {
             let raw = (latestBySection[.dynacap] ?? []) + rows.filter { $0.section == .dynacap }
             source = HeartbeatMath.materializeDynacap(raw, roster: roster)
+        }
+        if grain == .region, !filters.isActive {
+            source = PulseQuery.fillMissingRegions(
+                existing: source,
+                facts: PulseFacts.bundledMetricRows(),
+                section: section
+            )
+            source = HeartbeatMath.rowsFillingRoster(source, roster: roster)
         }
         let packs = cachedGrainPacks[section] ?? []
         let order = packs.map(\.line.label)
@@ -2639,6 +2653,21 @@ final class HeartbeatStore: ObservableObject {
         if filters.isActive, let allowed = PulseCaches.allowedStores(roster: roster, filters: filters) {
             let lost = scopedLostRevenue(allowed)
             if !lost.isEmpty { warehouse[.lostRevenue] = lost }
+        } else {
+            let facts = PulseFacts.bundledMetricRows()
+            if !facts.isEmpty {
+                for section in [MetricSection.lostRevenue, .sales, .fiveStar] {
+                    let existing = warehouse[section] ?? []
+                    let merged = PulseQuery.fillMissingRegions(
+                        existing: existing,
+                        facts: facts,
+                        section: section
+                    )
+                    if merged.count > existing.count {
+                        warehouse[section] = HeartbeatMath.applyRoster(merged, roster: roster)
+                    }
+                }
+            }
         }
         let paintedWarehouse = warehouse
         let rosterCopy = roster
@@ -3224,7 +3253,16 @@ final class HeartbeatStore: ObservableObject {
             let incoming: [MetricRow]?
             switch mode {
             case .fillIfThin:
-                incoming = PulseQuery.fillIfThin(existing: latestBySection[section] ?? [], incoming: stamped)
+                if let full = PulseQuery.fillIfThin(existing: latestBySection[section] ?? [], incoming: stamped) {
+                    incoming = full
+                } else {
+                    let merged = PulseQuery.fillMissingRegions(
+                        existing: latestBySection[section] ?? [],
+                        facts: stamped,
+                        section: section
+                    )
+                    incoming = merged.count > (latestBySection[section] ?? []).count ? merged : nil
+                }
             case .takeIfRicher:
                 incoming = PulseQuery.takeIfRicher(existing: latestBySection[section] ?? [], incoming: stamped)
             }

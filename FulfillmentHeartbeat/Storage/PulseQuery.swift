@@ -80,6 +80,40 @@ enum PulseQuery {
         }
     }
 
+    /// Company-wide East-only packs can already pass `fillIfThin`'s store-count gate.
+    /// Append fact stores for official regions the pack never scored.
+    static func fillMissingRegions(
+        existing: [MetricRow],
+        facts: [MetricRow],
+        section: MetricSection
+    ) -> [MetricRow] {
+        func region(of row: MetricRow) -> String? {
+            HeartbeatMath.dashboardScopeKey(row, grain: .region)
+        }
+        let have = Set(existing.compactMap(region))
+        let missing = Set(MarketRegion.allCases.map(\.rawValue).filter { !have.contains($0) })
+        guard !missing.isEmpty else { return existing }
+        var seen: Set<String> = []
+        seen.reserveCapacity(existing.count + 2_200)
+        for row in existing {
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            if !store.isEmpty { seen.formUnion(HeartbeatMath.storeAliases(store)) }
+        }
+        var extra: [MetricRow] = []
+        extra.reserveCapacity(1_200)
+        for row in facts where row.section == section {
+            guard isStoreFact(row) else { continue }
+            guard let region = region(of: row), missing.contains(region) else { continue }
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            if store.isEmpty { continue }
+            if seen.contains(store) { continue }
+            extra.append(row)
+            seen.formUnion(HeartbeatMath.storeAliases(store))
+        }
+        guard !extra.isEmpty else { return existing }
+        return existing + extra
+    }
+
     /// Fill a thin warehouse from Excel store facts. Never replace a full table.
     static func fillIfThin(existing: [MetricRow], incoming: [MetricRow], minimum: Int = 200) -> [MetricRow]? {
         let have = scoredStoreFacts(existing)

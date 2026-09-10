@@ -316,9 +316,7 @@ enum HubLayout {
         district: Bool = false,
         valueMin: CGFloat? = nil
     ) -> CGFloat {
-        let label = district
-            ? scopeLabelWidth(district: true, phone: phone)
-            : readableLabelWidth(phone: phone, available: available)
+        let label = scopeLabelWidth(district: district, phone: phone)
         let minVal = valueMin ?? readableValueMin(phone: phone)
         let floor = readableTableFloor(
             phone: phone,

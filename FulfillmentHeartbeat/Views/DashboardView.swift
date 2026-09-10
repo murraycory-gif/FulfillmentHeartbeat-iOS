@@ -582,6 +582,7 @@ private struct OverviewMetricColumns: View {
                 )
             }
         }
+        .frame(minWidth: max(tableWidth, 1), alignment: .leading)
     }
 
     private func row(
