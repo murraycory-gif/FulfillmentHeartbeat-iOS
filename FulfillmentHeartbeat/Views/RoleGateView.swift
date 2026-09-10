@@ -58,7 +58,18 @@ struct RoleGateView: View {
 
     private var seatHeader: some View {
         VStack(alignment: .leading, spacing: 12) {
-            BeatingHeartbeatMark(height: phone ? 40 : 56, showsTrace: true, forceTrace: true)
+            let halloween = PulseLaunch.shouldMountSeatLoadHalloween(
+                warehouseHydrating: store.warehouseHydrating
+            )
+            ZStack(alignment: .leading) {
+                BeatingHeartbeatMark(height: phone ? 40 : 56, showsTrace: true, forceTrace: true)
+                    .padding(.vertical, halloween ? 18 : 0)
+                if halloween {
+                    HalloweenSeatParade()
+                        .frame(height: phone ? 76 : 92)
+                        .accessibilityHidden(true)
+                }
+            }
             Text("Who’s looking?")
                 .font(phone ? .largeTitle.weight(.bold) : .largeTitle.weight(.bold))
                 .foregroundStyle(AppTheme.text)
@@ -511,11 +522,6 @@ private struct SeatLoadPanel: View {
     var body: some View {
         let phone = HubLayout.isPhone(sizeClass)
         VStack(spacing: phone ? 16 : 20) {
-            if PulseLaunch.shouldPlaySeatLoadHalloween() {
-                HalloweenSeatParade()
-                    .frame(height: phone ? 52 : 60)
-                    .accessibilityHidden(true)
-            }
             ProgressView()
                 .controlSize(.regular)
                 .tint(AppTheme.blue)
@@ -561,34 +567,130 @@ private struct SeatLoadPanel: View {
     }
 }
 
-/// Seat-load only. Emoji offsets — no Lottie, video, or GIF. Stops when the panel unmounts.
+/// Seat-load only. Canvas shapes + emoji offsets — no Lottie, video, or GIF.
+/// Runners chase across the Fulfillment mark and jump at the heart. Unmount stops it.
 private struct HalloweenSeatParade: View {
-    private let runners: [(glyph: String, speed: Double, y: CGFloat, bounce: CGFloat, phase: Double)] = [
-        ("🎃", 34, 18, 8, 0.0),
-        ("👻", 28, 8, 12, 1.3),
-        ("🦇", 42, 2, 16, 2.1),
-        ("🧙", 24, 20, 10, 0.6),
-        ("🐈‍⬛", 36, 14, 7, 2.8),
+    /// Heart sits on the right of the wordmark + heart row.
+    private let heartAnchor: CGFloat = 0.72
+
+    private enum Kind {
+        case pumpkin
+        case ghost
+        case bat
+        case emoji
+    }
+
+    private struct Runner {
+        let kind: Kind
+        let glyph: String
+        let speed: Double
+        let phase: Double
+        let lane: CGFloat
+        let hop: CGFloat
+        let scale: CGFloat
+    }
+
+    private let pack: [Runner] = [
+        Runner(kind: .pumpkin, glyph: "", speed: 38, phase: 0.00, lane: 10, hop: 16, scale: 1.00),
+        Runner(kind: .ghost, glyph: "", speed: 44, phase: 0.14, lane: 4, hop: 18, scale: 0.95),
+        Runner(kind: .emoji, glyph: "🧙", speed: 32, phase: 0.28, lane: 12, hop: 14, scale: 1.00),
+        Runner(kind: .pumpkin, glyph: "", speed: 40, phase: 0.40, lane: 16, hop: 15, scale: 0.82),
+        Runner(kind: .bat, glyph: "", speed: 52, phase: 0.55, lane: -2, hop: 20, scale: 1.05),
+        Runner(kind: .emoji, glyph: "🐈‍⬛", speed: 46, phase: 0.70, lane: 8, hop: 13, scale: 1.00),
     ]
 
     var body: some View {
-        TimelineView(.periodic(from: .now, by: 1.0 / 15.0)) { timeline in
+        let fps = max(PulseLaunch.halloweenParadeFPS, 8)
+        TimelineView(.periodic(from: .now, by: 1.0 / fps)) { timeline in
             let t = timeline.date.timeIntervalSinceReferenceDate
-            GeometryReader { geo in
-                let width = max(geo.size.width, 1)
-                ZStack {
-                    ForEach(Array(runners.enumerated()), id: \.offset) { _, runner in
-                        let travel = (t * runner.speed + runner.phase * 40).truncatingRemainder(dividingBy: width + 56) - 28
-                        let nearHeart = abs(travel - width * 0.5) < 36
-                        let jump = nearHeart ? runner.bounce * 1.6 : runner.bounce * sin(t * 4 + runner.phase)
-                        Text(runner.glyph)
-                            .font(.system(size: 22))
-                            .offset(x: travel, y: runner.y - abs(jump))
+            Canvas { context, size in
+                let width = max(size.width, 1)
+                let heartX = width * heartAnchor
+                let track = width + 72
+                let ground = size.height * 0.62
+                for runner in pack {
+                    let travel = (t * runner.speed + runner.phase * track)
+                        .truncatingRemainder(dividingBy: track) - 36
+                    let nearHeart = abs(travel - heartX) < 34
+                    let bob = sin(t * 5.2 + runner.phase * 8) * 3
+                    let jump = nearHeart ? runner.hop : max(0, bob)
+                    let point = CGPoint(x: travel, y: ground + runner.lane - jump)
+                    switch runner.kind {
+                    case .pumpkin:
+                        Self.drawPumpkin(context, at: point, scale: runner.scale)
+                    case .ghost:
+                        Self.drawGhost(context, at: point, scale: runner.scale)
+                    case .bat:
+                        Self.drawBat(context, at: point, scale: runner.scale, flap: t)
+                    case .emoji:
+                        context.draw(
+                            Text(runner.glyph).font(.system(size: 20 * runner.scale)),
+                            at: point
+                        )
                     }
                 }
             }
         }
         .allowsHitTesting(false)
+    }
+
+    private static func drawPumpkin(_ context: GraphicsContext, at p: CGPoint, scale: CGFloat) {
+        let w: CGFloat = 18 * scale
+        let h: CGFloat = 15 * scale
+        let body = Path(ellipseIn: CGRect(x: p.x - w / 2, y: p.y - h / 2, width: w, height: h))
+        context.fill(body, with: .color(Color(red: 0.96, green: 0.48, blue: 0.12)))
+        var lobe = Path()
+        lobe.addEllipse(in: CGRect(x: p.x - w * 0.18, y: p.y - h / 2 - 0.5, width: w * 0.36, height: h + 1))
+        context.stroke(lobe, with: .color(Color(red: 0.72, green: 0.28, blue: 0.06)), lineWidth: 1)
+        let stem = Path(
+            roundedRect: CGRect(x: p.x - 1.4, y: p.y - h / 2 - 5, width: 2.8, height: 5.5),
+            cornerRadius: 1
+        )
+        context.fill(stem, with: .color(Color(red: 0.22, green: 0.46, blue: 0.18)))
+    }
+
+    private static func drawGhost(_ context: GraphicsContext, at p: CGPoint, scale: CGFloat) {
+        let w: CGFloat = 16 * scale
+        let h: CGFloat = 18 * scale
+        var path = Path()
+        path.addEllipse(in: CGRect(x: p.x - w / 2, y: p.y - h / 2, width: w, height: h * 0.72))
+        path.move(to: CGPoint(x: p.x - w / 2, y: p.y))
+        path.addLine(to: CGPoint(x: p.x - w / 2, y: p.y + h * 0.42))
+        path.addQuadCurve(
+            to: CGPoint(x: p.x - w * 0.16, y: p.y + h * 0.28),
+            control: CGPoint(x: p.x - w * 0.34, y: p.y + h * 0.18)
+        )
+        path.addQuadCurve(
+            to: CGPoint(x: p.x + w * 0.16, y: p.y + h * 0.42),
+            control: CGPoint(x: p.x, y: p.y + h * 0.22)
+        )
+        path.addQuadCurve(
+            to: CGPoint(x: p.x + w / 2, y: p.y + h * 0.28),
+            control: CGPoint(x: p.x + w * 0.34, y: p.y + h * 0.48)
+        )
+        path.addLine(to: CGPoint(x: p.x + w / 2, y: p.y))
+        context.fill(path, with: .color(Color.white.opacity(0.94)))
+        let eye = Path(ellipseIn: CGRect(x: p.x - 4, y: p.y - 4, width: 2.4, height: 3.2))
+        let eye2 = Path(ellipseIn: CGRect(x: p.x + 1.2, y: p.y - 4, width: 2.4, height: 3.2))
+        context.fill(eye, with: .color(Color(red: 0.15, green: 0.18, blue: 0.28)))
+        context.fill(eye2, with: .color(Color(red: 0.15, green: 0.18, blue: 0.28)))
+    }
+
+    private static func drawBat(_ context: GraphicsContext, at p: CGPoint, scale: CGFloat, flap: TimeInterval) {
+        let spread = 10 * scale + CGFloat(sin(flap * 14)) * 2.5
+        var wings = Path()
+        wings.move(to: CGPoint(x: p.x, y: p.y))
+        wings.addLine(to: CGPoint(x: p.x - spread, y: p.y - 3 * scale))
+        wings.addLine(to: CGPoint(x: p.x - spread * 0.45, y: p.y + 1))
+        wings.addLine(to: CGPoint(x: p.x, y: p.y))
+        wings.addLine(to: CGPoint(x: p.x + spread, y: p.y - 3 * scale))
+        wings.addLine(to: CGPoint(x: p.x + spread * 0.45, y: p.y + 1))
+        wings.closeSubpath()
+        context.fill(wings, with: .color(Color(red: 0.12, green: 0.10, blue: 0.16)))
+        context.fill(
+            Path(ellipseIn: CGRect(x: p.x - 2.4, y: p.y - 2.2, width: 4.8, height: 4.2)),
+            with: .color(Color(red: 0.12, green: 0.10, blue: 0.16))
+        )
     }
 }
 

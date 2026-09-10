@@ -293,6 +293,15 @@ enum PulseLaunch {
     /// Lightweight Halloween parade on Who's looking load only. Flip off after the season.
     static func shouldPlaySeatLoadHalloween() -> Bool { true }
 
+    /// Parade mounts only while the warehouse is hydrating and the readiness gate holds seats.
+    /// Unlocks unmount the view, so the TimelineView / Canvas stops. No Lottie, video, or GIF.
+    static func shouldMountSeatLoadHalloween(warehouseHydrating: Bool) -> Bool {
+        warehouseHydrating && shouldHoldSeatPickerUntilWarehouseReady() && shouldPlaySeatLoadHalloween()
+    }
+
+    /// 12 fps Canvas offsets — cheap enough that seat load must not Jetsam.
+    static var halloweenParadeFPS: Double { 12 }
+
     /// Seat warehouse must never leave Who's looking locked at presentingSeat ~40%.
     enum SeatWarehouseOutcome: Equatable {
         case completed
