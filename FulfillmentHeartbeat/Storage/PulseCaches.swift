@@ -45,32 +45,32 @@ struct PulseDashChrome: Codable {
     static func from(_ caches: PulseCaches) -> PulseDashChrome {
         let latest = caches.filteredLatest.isEmpty ? caches.latestBySection : caches.filteredLatest
         var packs = caches.cachedGrainPacks
-        if packs[.pickerScorecard] == nil {
-            let pickerOnly = grainPacks(
+        if packs[MetricSection.pickerScorecard] == nil {
+            let pickerOnly = PulseCaches.grainPacks(
                 latest: latest,
-                grain: .region,
+                grain: DashScopeGrain.region,
                 hidePicker: false,
                 roster: caches.roster
             )
-            if let picker = pickerOnly[.pickerScorecard] {
-                packs[.pickerScorecard] = picker
+            if let picker = pickerOnly[MetricSection.pickerScorecard] {
+                packs[MetricSection.pickerScorecard] = picker
             }
         }
         var tables = PulseCaches.grainTables(
             latest: latest,
-            grain: .region,
+            grain: DashScopeGrain.region,
             roster: caches.roster,
             packs: packs
         )
-        if !HeartbeatMath.grainRowsAreLive(tables[.pickerScorecard] ?? []) {
+        if !HeartbeatMath.grainRowsAreLive(tables[MetricSection.pickerScorecard] ?? []) {
             let pickerTable = HeartbeatMath.dashboardGrainTableFilled(
                 section: .pickerScorecard,
-                rows: latest[.pickerScorecard] ?? [],
-                grain: .region,
-                order: packs[.pickerScorecard]?.map(\.line.label) ?? []
+                rows: latest[MetricSection.pickerScorecard] ?? [],
+                grain: DashScopeGrain.region,
+                order: packs[MetricSection.pickerScorecard]?.map(\.line.label) ?? []
             )
             if HeartbeatMath.grainRowsAreLive(pickerTable) {
-                tables[.pickerScorecard] = pickerTable
+                tables[MetricSection.pickerScorecard] = pickerTable
             }
         }
         return PulseDashChrome(
