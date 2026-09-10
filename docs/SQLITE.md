@@ -23,4 +23,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.381 / 1.0 (706)
+HB-0828.382 / 1.0 (707) — Tip 1 seat packs + Option 8b Command Center home

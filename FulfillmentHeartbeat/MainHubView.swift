@@ -158,7 +158,9 @@ struct MainHubView: View {
 
     var body: some View {
         Group {
-            if sizeClass == .regular, !HubLayout.isPhoneDevice {
+            if HubLayout.isMac, PulseLaunch.shouldPinMacCommandCenterRails() {
+                macHub
+            } else if sizeClass == .regular, !HubLayout.isPhoneDevice {
                 padHub
             } else {
                 detail
@@ -206,6 +208,34 @@ struct MainHubView: View {
         .overlay {
             ImportProgressOverlay()
         }
+    }
+
+    /// Mac Catalyst Option 8b: persistent Pages rail + dense center + alerts.
+    private var macHub: some View {
+        HStack(spacing: 0) {
+            sidebar
+                .frame(width: 220)
+                .frame(maxHeight: .infinity, alignment: .top)
+                .background(AppTheme.bg.ignoresSafeArea())
+                .overlay(alignment: .trailing) {
+                    Rectangle()
+                        .fill(AppTheme.cardBorder)
+                        .frame(width: 1)
+                }
+            detail
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if router.current == .dashboard {
+                CommandCenterAlertsRail(open: { router.open(section: $0) })
+                    .frame(width: 248)
+                    .frame(maxHeight: .infinity)
+                    .overlay(alignment: .leading) {
+                        Rectangle()
+                            .fill(AppTheme.cardBorder)
+                            .frame(width: 1)
+                    }
+            }
+        }
+        .tint(AppTheme.blue)
     }
 
     /// Pages drawer overlays the hub so opening it does not reflow dashboard tables.

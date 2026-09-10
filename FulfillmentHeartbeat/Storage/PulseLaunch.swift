@@ -472,6 +472,15 @@ enum PulseLaunch {
         }
     }
 
+    /// Option 8b: Pulse / Power BI Mobile briefing home. Not always-open ScoreCard tables.
+    static func shouldUseCommandCenterHome() -> Bool { true }
+
+    /// Home glance never mounts DashScopeStrip / store tables. Expand is a section open.
+    static func shouldMountDashCalloutTablesOnHome() -> Bool { false }
+
+    /// Mac Catalyst Command Center keeps a persistent Pages rail + alerts column.
+    static func shouldPinMacCommandCenterRails() -> Bool { true }
+
     /// Halloween parade removed from Who's looking. Comedy copy + readiness stay.
     static func shouldPlaySeatLoadHalloween() -> Bool { false }
 

@@ -12,6 +12,8 @@ enum AppTheme {
     static let heart = Color(hex: "00285C")
     /// Lighter Albertsons blue — ECG pulse and "ment" in the wordmark.
     static let pulse = Color(hex: "00A9E0")
+    /// Live Stores N on navy heroes — Pulse / PBI gold, never grey.
+    static let gold = Color(hex: "D4A017")
 
     /// Same canvas as the HUB app.
     static let bg = Color(hex: "F5F7FC")

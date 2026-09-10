@@ -23,6 +23,7 @@
 		AA0100000000000000000A29 /* PulseQuery.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B29 /* PulseQuery.swift */; };
 		AA0100000000000000000A2A /* PulseLaunch.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B2A /* PulseLaunch.swift */; };
 		AA0100000000000000000A2C /* PulseSeatPack.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B2C /* PulseSeatPack.swift */; };
+		AA0100000000000000000A2D /* CommandCenterView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B2D /* CommandCenterView.swift */; };
 		AA0100000000000000000A2B /* HeartbeatFilePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B2B /* HeartbeatFilePicker.swift */; };
 		AA0100000000000000000A09 /* SampleMarket.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B09 /* SampleMarket.swift */; };
 		AA0100000000000000000A10 /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B10 /* DashboardView.swift */; };
@@ -74,6 +75,7 @@
 		AA0100000000000000000B29 /* PulseQuery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseQuery.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B2A /* PulseLaunch.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseLaunch.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B2C /* PulseSeatPack.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PulseSeatPack.swift; sourceTree = "<group>"; };
+		AA0100000000000000000B2D /* CommandCenterView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommandCenterView.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B2B /* HeartbeatFilePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HeartbeatFilePicker.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B09 /* SampleMarket.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleMarket.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B10 /* DashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardView.swift; sourceTree = "<group>"; };
@@ -164,6 +166,7 @@
 			isa = PBXGroup;
 			children = (
 				AA0100000000000000000B10 /* DashboardView.swift */,
+				AA0100000000000000000B2D /* CommandCenterView.swift */,
 				AA0100000000000000000B22 /* RoleGateView.swift */,
 				AA0100000000000000000B17 /* ScorecardPager.swift */,
 				AA0100000000000000000B12 /* SectionDetailView.swift */,
@@ -332,6 +335,7 @@
 				AA0100000000000000000A2B /* HeartbeatFilePicker.swift in Sources */,
 				AA0100000000000000000A09 /* SampleMarket.swift in Sources */,
 				AA0100000000000000000A10 /* DashboardView.swift in Sources */,
+				AA0100000000000000000A2D /* CommandCenterView.swift in Sources */,
 				AA0100000000000000000A12 /* SectionDetailView.swift in Sources */,
 				AA0100000000000000000A13 /* SharedViews.swift in Sources */,
 				AA0100000000000000000A15 /* BrandMarkData.swift in Sources */,
@@ -487,7 +491,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = M7FL68Q43A;
-				CURRENT_PROJECT_VERSION = 706;
+				CURRENT_PROJECT_VERSION = 707;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = FulfillmentHeartbeat/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -521,7 +525,7 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = M7FL68Q43A;
-				CURRENT_PROJECT_VERSION = 706;
+				CURRENT_PROJECT_VERSION = 707;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = FulfillmentHeartbeat/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -552,7 +556,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = M7FL68Q43A;
-				CURRENT_PROJECT_VERSION = 706;
+				CURRENT_PROJECT_VERSION = 707;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MARKETING_VERSION = 1.0;
@@ -570,7 +574,7 @@
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = M7FL68Q43A;
-				CURRENT_PROJECT_VERSION = 706;
+				CURRENT_PROJECT_VERSION = 707;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MARKETING_VERSION = 1.0;

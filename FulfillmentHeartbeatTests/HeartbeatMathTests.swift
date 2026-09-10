@@ -2129,7 +2129,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture381SeatPackContract() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.381")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.382")
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
         XCTAssertFalse(PulseSeatPack.shouldMergeSeatWithCompanyOnSwap())
         XCTAssertTrue(PulseSeatPack.shouldPaintHubFromActiveSeatSQLite())
@@ -2171,7 +2171,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture381bMacCookPublishesEverySeatSqlite() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.381")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.382")
         XCTAssertTrue(PulseSeatPack.shouldCookEveryStoreSeat())
         XCTAssertTrue(PulseSeatPack.shouldPublishSeatPlaneFromCook())
         XCTAssertFalse(PulseSeatPack.shouldMaterializeMissingSeatOnFieldDevice())
@@ -2233,6 +2233,67 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(FileManager.default.fileExists(atPath: packRoot.appendingPathComponent("manifest.json").path))
         XCTAssertFalse(PulseLaunch.shouldPlaySeatLoadHalloween())
         XCTAssertFalse(PulseSeatPack.shouldMergeSeatWithCompanyOnSwap())
+        XCTAssertTrue(PulseSeatPack.shouldPaintHubFromActiveSeatSQLite())
+    }
+
+    func testArchitecture382CommandCenterFillsViewportLikePulse() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.382")
+        XCTAssertTrue(PulseLaunch.shouldUseCommandCenterHome())
+        XCTAssertFalse(PulseLaunch.shouldMountDashCalloutTablesOnHome())
+        XCTAssertTrue(PulseLaunch.shouldPinMacCommandCenterRails())
+        XCTAssertFalse(PulseLaunch.shouldPlaySeatLoadHalloween())
+        XCTAssertTrue(CommandCenterLayout.coversEveryDashboardSection())
+        XCTAssertEqual(CommandCenterLayout.heroSections, [.sales, .lostRevenue, .fiveStar])
+        XCTAssertTrue(CommandCenterLayout.glanceSections.contains(.labor))
+        XCTAssertTrue(CommandCenterLayout.glanceSections.contains(.pickPath))
+        XCTAssertTrue(CommandCenterLayout.glanceSections.contains(.prepNotReady))
+        XCTAssertFalse(CommandCenterLayout.glanceSections.contains(.sales))
+        XCTAssertEqual(
+            Set(CommandCenterLayout.heroSections + CommandCenterLayout.glanceSections),
+            Set(MetricSection.dashboardCards)
+        )
+
+        let padLand = CommandCenterLayout.glanceColumns(width: 1366, phone: false, portrait: false)
+        XCTAssertGreaterThanOrEqual(padLand, 3)
+        let padPort = CommandCenterLayout.glanceColumns(width: 900, phone: false, portrait: true)
+        XCTAssertGreaterThanOrEqual(padPort, 2)
+        let phoneLand = CommandCenterLayout.glanceColumns(width: 844, phone: true, portrait: false)
+        XCTAssertEqual(phoneLand, 3)
+        let phonePort = CommandCenterLayout.glanceColumns(width: 390, phone: true, portrait: true)
+        XCTAssertEqual(phonePort, 2)
+
+        let leftover: CGFloat = 520
+        let tile = CommandCenterLayout.glanceTileHeight(
+            remaining: leftover,
+            cards: CommandCenterLayout.glanceSections.count,
+            columns: 3
+        )
+        XCTAssertGreaterThanOrEqual(tile, CommandCenterLayout.minGlanceHeight)
+        XCTAssertTrue(
+            CommandCenterLayout.fillsViewport(
+                remaining: leftover,
+                tileHeight: tile,
+                cards: CommandCenterLayout.glanceSections.count,
+                columns: 3
+            ),
+            "glance grid must consume leftover height — no Pulse-empty white band"
+        )
+        XCTAssertEqual(CommandCenterLayout.glanceTitle(.lostRevenue), "Loss")
+        XCTAssertEqual(CommandCenterLayout.compactValue(
+            SectionSummary(
+                section: .sales,
+                storeCount: 20,
+                headline: 49_000_000,
+                headlineLabel: "Sales",
+                secondary: "",
+                health: .good,
+                watchCount: 0,
+                riskCount: 0,
+                lastFilename: nil,
+                lastUploadedAt: nil
+            )
+        ), "$49.00M")
+        XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
         XCTAssertTrue(PulseSeatPack.shouldPaintHubFromActiveSeatSQLite())
     }
 

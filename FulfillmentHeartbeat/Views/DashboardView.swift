@@ -24,66 +24,10 @@ struct DashboardView: View {
                     trailing: store.sharedDataWindow()
                 )
             }
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    if briefingCards.isEmpty, store.seeded {
-                        HStack {
-                            Spacer()
-                            VStack(spacing: 10) {
-                                ProgressView()
-                                    .tint(AppTheme.blue)
-                                Text(store.aisleFillCaption)
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(AppTheme.textSecondary)
-                            }
-                            .padding(.top, 40)
-                            Spacer()
-                        }
-                    }
-                    ForEach(briefingCards) { card in
-                        DashCallout(
-                            card: card,
-                            flags: store.dashboardFlags(for: card.section),
-                            grains: store.dashboardGrains(for: card.section),
-                            grain: store.effectiveDashboardGrain,
-                            width: cardWidth
-                        ) {
-                            open(card.section)
-                        }
-                        .equatable()
-                        .padding(.horizontal, HubLayout.isPhone(sizeClass) ? 12 : 20)
-                        .padding(.vertical, HubLayout.isPhone(sizeClass) ? 5 : 6)
-                    }
-                    if !store.seeded {
-                        HubCard {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("Waiting for the pack")
-                                    .font(.headline)
-                                Text("Dashboard fills from the Heartbeat pack on this device. Stay here — shopper cards land after ready.")
-                                    .font(.subheadline)
-                                    .foregroundStyle(AppTheme.textSecondary)
-                            }
-                        }
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 20)
-                    }
-                }
-            }
-            .scrollIndicators(.hidden)
-            .scrollBounceBehavior(.basedOnSize)
-            .transaction { $0.animation = nil }
-            .background(
-                GeometryReader { geo in
-                    Color.clear.preference(key: HubWidthKey.self, value: geo.size.width)
-                }
-            )
-            .onPreferenceChange(HubWidthKey.self) { value in
-                if value > 0, abs(value - cardWidth) > 12 {
-                    cardWidth = value
-                }
-            }
-            .navigationDestination(item: $pushedSection) { section in
-                SectionDetailView(section: section)
+            if PulseLaunch.shouldUseCommandCenterHome() {
+                commandCenterBody
+            } else {
+                legacyCalloutScroll
             }
         }
         .background(AppTheme.bg.ignoresSafeArea(edges: .bottom))
@@ -104,6 +48,92 @@ struct DashboardView: View {
         }
         .onChange(of: showError) { _, presented in
             if !presented { store.errorMessage = nil }
+        }
+    }
+
+    private var commandCenterBody: some View {
+        ZStack {
+            CommandCenterHome(open: open)
+            if !store.seeded {
+                HubCard {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Waiting for the pack")
+                            .font(.headline)
+                        Text("Dashboard fills from the Heartbeat pack on this device. Stay here — shopper cards land after ready.")
+                            .font(.subheadline)
+                            .foregroundStyle(AppTheme.textSecondary)
+                    }
+                }
+                .padding(.horizontal, 20)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .navigationDestination(item: $pushedSection) { section in
+            SectionDetailView(section: section)
+        }
+    }
+
+    private var legacyCalloutScroll: some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                if briefingCards.isEmpty, store.seeded {
+                    HStack {
+                        Spacer()
+                        VStack(spacing: 10) {
+                            ProgressView()
+                                .tint(AppTheme.blue)
+                            Text(store.aisleFillCaption)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(AppTheme.textSecondary)
+                        }
+                        .padding(.top, 40)
+                        Spacer()
+                    }
+                }
+                ForEach(briefingCards) { card in
+                    DashCallout(
+                        card: card,
+                        flags: store.dashboardFlags(for: card.section),
+                        grains: store.dashboardGrains(for: card.section),
+                        grain: store.effectiveDashboardGrain,
+                        width: cardWidth
+                    ) {
+                        open(card.section)
+                    }
+                    .equatable()
+                    .padding(.horizontal, HubLayout.isPhone(sizeClass) ? 12 : 20)
+                    .padding(.vertical, HubLayout.isPhone(sizeClass) ? 5 : 6)
+                }
+                if !store.seeded {
+                    HubCard {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Waiting for the pack")
+                                .font(.headline)
+                            Text("Dashboard fills from the Heartbeat pack on this device. Stay here — shopper cards land after ready.")
+                                .font(.subheadline)
+                                .foregroundStyle(AppTheme.textSecondary)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 20)
+                }
+            }
+        }
+        .scrollIndicators(.hidden)
+        .scrollBounceBehavior(.basedOnSize)
+        .transaction { $0.animation = nil }
+        .background(
+            GeometryReader { geo in
+                Color.clear.preference(key: HubWidthKey.self, value: geo.size.width)
+            }
+        )
+        .onPreferenceChange(HubWidthKey.self) { value in
+            if value > 0, abs(value - cardWidth) > 12 {
+                cardWidth = value
+            }
+        }
+        .navigationDestination(item: $pushedSection) { section in
+            SectionDetailView(section: section)
         }
     }
 
