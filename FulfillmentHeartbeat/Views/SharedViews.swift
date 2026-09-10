@@ -1064,7 +1064,7 @@ struct FilterBar: View {
 struct SharePulseSheet: View {
     @EnvironmentObject private var store: HeartbeatStore
     @Environment(\.dismiss) private var dismiss
-    @State private var selected: Set<PulseMail.SharePage> = Set(PulseMail.SharePage.allCases)
+    @State private var selected: Set<PulseMail.SharePage> = [.dashboard]
     @State private var building = false
     @State private var packet: PulseMail.Packet?
 
