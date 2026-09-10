@@ -6533,17 +6533,16 @@ private enum LostRevenueMath {
         return dollars / sales * 100
     }
 
-    static func pack(_ rows: [MetricRow]) -> LostRevenueRollupRow {
+    static func pack(_ rows: [MetricRow], fallbackGoal: Double? = nil) -> LostRevenueRollupRow {
         let sales = sum(rows, "ecomm_sales")
         let lost = sum(rows, "lost_revenue")
-        let goalDollars = sum(rows, "lost_revenue_goal")
         return LostRevenueRollupRow(
             id: "tmp",
             label: "",
             storeCount: rows.count,
             lost: lost,
             pct: ratio(lost, sales) ?? HeartbeatMath.average(rows.compactMap { $0.number("lost_revenue_pct") }),
-            goal: ratio(goalDollars, sales) ?? HeartbeatMath.average(rows.compactMap { $0.number("lost_revenue_goal_pct") }),
+            goal: HeartbeatMath.lostRevenueInheritedGoalPct(rows: rows, fallback: fallbackGoal),
             sales: sales,
             post: sum(rows, "post_sub_oos_foregone"),
             refund: sum(rows, "refund_lost"),
@@ -6563,7 +6562,7 @@ private enum LostRevenueRollupBuilder {
         }
     }
 
-    static func rows(from stores: [MetricRow], grain: LaborRollupGrain) -> [LostRevenueRollupRow] {
+    static func rows(from stores: [MetricRow], grain: LaborRollupGrain, fallbackGoal: Double? = nil) -> [LostRevenueRollupRow] {
         var buckets: [String: [MetricRow]] = [:]
         for row in stores {
             let key: String
@@ -6584,7 +6583,7 @@ private enum LostRevenueRollupBuilder {
         var result: [LostRevenueRollupRow] = []
         result.reserveCapacity(buckets.count)
         for (key, group) in buckets {
-            let packed = LostRevenueMath.pack(group)
+            let packed = LostRevenueMath.pack(group, fallbackGoal: fallbackGoal)
             let label: String
             switch grain {
             case .region, .division, .district:
@@ -6634,7 +6633,7 @@ private struct LostRevenueLineSnap: Identifiable, Equatable {
     let refundValue: Double
     let missedValue: Double
 
-    init(_ row: MetricRow) {
+    init(_ row: MetricRow, fallbackGoal: Double? = nil) {
         id = row.id
         storeNumber = row.storeNumber
         label = HeartbeatMath.storeDisplayLabel(row)
@@ -6642,7 +6641,7 @@ private struct LostRevenueLineSnap: Identifiable, Equatable {
         om = row.operationsOM
         let lostNum = row.number("lost_revenue")
         let pctNum = row.number("lost_revenue_pct")
-        let goalNum = HeartbeatMath.lostRevenueGoalPct(row)
+        let goalNum = HeartbeatMath.lostRevenueGoalPct(row) ?? fallbackGoal
         let salesNum = row.number("ecomm_sales")
         let postNum = row.number("post_sub_oos_foregone")
         let refundNum = row.number("refund_lost")
@@ -6978,7 +6977,8 @@ struct LostRevenueRollupTable: View {
         grain = next
         guard let next else { summary = []; return }
         let source = LostRevenueRollupBuilder.source(from: store.rollupStores(for: .lostRevenue), filters: store.filters)
-        var rows = LostRevenueRollupBuilder.rows(from: source, grain: next)
+        let fallbackGoal = store.lostRevenueMarketRow().flatMap { HeartbeatMath.lostRevenueGoalPct($0) }
+        var rows = LostRevenueRollupBuilder.rows(from: source, grain: next, fallbackGoal: fallbackGoal)
         if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
                 rows.append(
@@ -7058,6 +7058,9 @@ struct LostRevenueTable: View {
     @State private var orderedCount = 0
 
     private var expanded: Bool { headerPin.storesExpanded }
+    private var fallbackGoal: Double? {
+        store.lostRevenueMarketRow().flatMap { HeartbeatMath.lostRevenueGoalPct($0) }
+    }
 
     var body: some View {
         if rows.isEmpty {
@@ -7080,7 +7083,7 @@ struct LostRevenueTable: View {
                     if !next { headerPin.pinned = false }
                     if next { rebuildOrder(sort: sort, ascending: ascending) }
                 } content: {
-                    HubPhonePane(minWidth: 860) {
+                    HubAdaptiveHScroll(minWidth: 860) {
                         VStack(spacing: 0) {
                             LostRevenueMetricHeader(
                                 label: "Store",
@@ -7161,7 +7164,7 @@ struct LostRevenueTable: View {
             return ascending ? result == .orderedAscending : result == .orderedDescending
         }
         orderedCount = sorted.count
-        snaps = Array(sorted.prefix(limit)).map(LostRevenueLineSnap.init)
+        snaps = Array(sorted.prefix(limit)).map { LostRevenueLineSnap($0, fallbackGoal: fallbackGoal) }
     }
 
     private func compare(_ lhs: MetricRow, _ rhs: MetricRow, sort: Column) -> ComparisonResult {

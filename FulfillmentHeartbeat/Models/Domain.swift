@@ -730,7 +730,7 @@ enum HeartbeatMath {
     static func dashboardTableHeaders(_ section: MetricSection) -> [String] {
         switch section {
         case .lostRevenue:
-            return ["Lost $", "Lost %", "eComm $", "Post Sub", "Refund", "Missed", "Cancel", "Kill"]
+            return ["Lost $", "Lost %", "Goal %", "eComm $", "Post Sub", "Refund", "Missed", "Cancel", "Kill"]
         case .fiveStar:
             return ["Rating", "Flash", "COE", "OTT", "Pre-Sub", "OTH"]
         case .missingItems, .preSubOOS:
@@ -756,7 +756,11 @@ enum HeartbeatMath {
         }
     }
 
-    static func dashboardTableValues(_ section: MetricSection, rows: [MetricRow]) -> (values: [String], health: Health) {
+    static func dashboardTableValues(
+        _ section: MetricSection,
+        rows: [MetricRow],
+        goalFallback: Double? = nil
+    ) -> (values: [String], health: Health) {
         let health = worstHealth(section, rows: rows)
         let dash = Array(repeating: "—", count: dashboardTableHeaders(section).count)
         guard !rows.isEmpty else { return (dash, .none) }
@@ -765,10 +769,12 @@ enum HeartbeatMath {
             let sales = rows.compactMap { $0.number("ecomm_sales") }.reduce(0, +)
             let lost = rows.compactMap { $0.number("lost_revenue") }.reduce(0, +)
             let pct = sales > 0 ? lost / sales * 100 : average(rows.compactMap { $0.number("lost_revenue_pct") })
+            let goal = lostRevenueGoalPct(rows: rows) ?? goalFallback
             return (
                 [
                     HeartbeatFormat.money(lost),
                     HeartbeatFormat.pct(pct),
+                    HeartbeatFormat.pct(goal),
                     HeartbeatFormat.money(sales),
                     HeartbeatFormat.money(rows.compactMap { $0.number("post_sub_oos_foregone") }.reduce(0, +)),
                     HeartbeatFormat.money(rows.compactMap { $0.number("refund_lost") }.reduce(0, +)),
@@ -878,7 +884,8 @@ enum HeartbeatMath {
         section: MetricSection,
         rows: [MetricRow],
         grain: DashScopeGrain,
-        order: [String]
+        order: [String],
+        goalFallback: Double? = nil
     ) -> [DashboardGrainTableRow] {
         let source = section == .pickerScorecard ? latestPerShopper(rows) : rows
         var buckets: [String: [MetricRow]] = [:]
@@ -892,7 +899,7 @@ enum HeartbeatMath {
         let labels = order.isEmpty ? buckets.keys.sorted() : order
         return labels.map { label in
             let group = buckets[label] ?? []
-            let built = dashboardTableValues(section, rows: group)
+            let built = dashboardTableValues(section, rows: group, goalFallback: goalFallback)
             return DashboardGrainTableRow(
                 label: label,
                 storeCount: group.count,
@@ -900,6 +907,44 @@ enum HeartbeatMath {
                 health: built.health
             )
         }
+    }
+
+    /// Banner packs already have the headline. Use them when the warehouse slice is not ready.
+    static func dashboardGrainRowsFromPacks(
+        _ packs: [DashScopePack],
+        section: MetricSection
+    ) -> [DashboardGrainTableRow] {
+        let headers = dashboardTableHeaders(section)
+        return packs.compactMap { pack -> DashboardGrainTableRow? in
+            let line = pack.line
+            guard !line.label.isEmpty, line.label != "Unassigned" else { return nil }
+            let live = line.count > 0 || (!line.value.isEmpty && line.value != "—")
+            guard live || !pack.flags.isEmpty else { return nil }
+            var values: [String] = []
+            values.reserveCapacity(max(headers.count, 1))
+            for (index, header) in headers.enumerated() {
+                if let flag = pack.flags.first(where: { flagName($0.name, matches: header) }), !flag.value.isEmpty {
+                    values.append(flag.value)
+                } else if index == 0 {
+                    values.append(line.value.isEmpty ? "—" : line.value)
+                } else {
+                    values.append("—")
+                }
+            }
+            if values.isEmpty { values = [line.value.isEmpty ? "—" : line.value] }
+            return DashboardGrainTableRow(
+                label: line.label,
+                storeCount: line.count,
+                values: values,
+                health: line.health
+            )
+        }
+    }
+
+    private static func flagName(_ name: String, matches header: String) -> Bool {
+        let a = compactKey(name)
+        let b = compactKey(header)
+        return !a.isEmpty && !b.isEmpty && (a == b || a.contains(b) || b.contains(a))
     }
 
     static func dashboardStoreLines(
@@ -2700,10 +2745,16 @@ enum HeartbeatMath {
 
     static func lostRevenueGoalPct(rows: [MetricRow], market: MetricRow? = nil) -> Double? {
         if let market, let pct = lostRevenueGoalPct(market) { return pct }
+        return lostRevenueInheritedGoalPct(rows: rows)
+    }
+
+    /// Store/region goal first; FY2026 market goal fills grains when the pack only shipped a company target.
+    static func lostRevenueInheritedGoalPct(rows: [MetricRow], fallback: Double? = nil) -> Double? {
         let dollars = rows.compactMap { $0.number("lost_revenue_goal") }.reduce(0, +)
         let sales = rows.compactMap { $0.number("ecomm_sales") }.reduce(0, +)
         if sales > 0, dollars > 0 { return dollars / sales * 100 }
-        return average(rows.compactMap { lostRevenueGoalPct($0) })
+        if let avg = average(rows.compactMap { lostRevenueGoalPct($0) }) { return avg }
+        return fallback
     }
 
     static func lostRevenueTotals(_ stores: [MetricRow]) -> (dollars: Double, sales: Double, pct: Double?) {

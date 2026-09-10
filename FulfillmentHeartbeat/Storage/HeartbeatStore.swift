@@ -412,7 +412,80 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func dashboardGrainRows(for section: MetricSection) -> [HeartbeatMath.DashboardGrainTableRow] {
-        cachedGrainTables[section] ?? []
+        if let cached = cachedGrainTables[section], !cached.isEmpty { return cached }
+        return buildGrainTableNow(for: section)
+    }
+
+    func salesExpandRows() -> [SalesRollupRow] {
+        if cachedSalesScopeRows.isEmpty { refreshSalesExpandCache() }
+        return cachedSalesScopeRows
+    }
+
+    /// Fill the expand table before the chevron opens so the first paint has rows.
+    func ensureDashboardExpandReady(_ section: MetricSection) {
+        if section == .sales {
+            if cachedSalesScopeRows.isEmpty { refreshSalesExpandCache() }
+            return
+        }
+        if cachedGrainTables[section]?.isEmpty ?? true {
+            let table = buildGrainTableNow(for: section)
+            if !table.isEmpty { cachedGrainTables[section] = table }
+        }
+    }
+
+    private func buildGrainTableNow(for section: MetricSection) -> [HeartbeatMath.DashboardGrainTableRow] {
+        let grain = effectiveDashboardGrain
+        var source = HeartbeatMath.rowsFillingRoster(displayRows(for: section), roster: roster)
+        if source.isEmpty {
+            source = HeartbeatMath.rowsFillingRoster(latestBySection[section] ?? [], roster: roster)
+        }
+        let packs = cachedGrainPacks[section] ?? []
+        let order = packs.map(\.line.label)
+        let goalFallback = section == .lostRevenue
+            ? lostRevenueMarketRow().flatMap { HeartbeatMath.lostRevenueGoalPct($0) }
+            : nil
+        let table = HeartbeatMath.dashboardGrainTable(
+            section: section,
+            rows: source,
+            grain: grain,
+            order: order,
+            goalFallback: goalFallback
+        )
+        let live = table.filter { $0.storeCount > 0 || $0.values.contains(where: { $0 != "—" && !$0.isEmpty }) }
+        if !live.isEmpty { return live }
+        return HeartbeatMath.dashboardGrainRowsFromPacks(packs, section: section)
+    }
+
+    private func fillExpandTablesSoon() {
+        let grain = effectiveDashboardGrain
+        let latest = filteredLatest.isEmpty ? latestBySection : filteredLatest
+        let packs = cachedGrainPacks
+        let rosterCopy = roster
+        let goalFallback = lostRevenueMarketRow().flatMap { HeartbeatMath.lostRevenueGoalPct($0) }
+        Task.detached(priority: .userInitiated) {
+            let tables = PulseCaches.grainTables(
+                latest: latest,
+                grain: grain,
+                roster: rosterCopy,
+                packs: packs,
+                goalFallback: goalFallback
+            )
+            await MainActor.run {
+                guard self.effectiveDashboardGrain == grain else { return }
+                self.mergeGrainTables(tables)
+            }
+        }
+    }
+
+    private func mergeGrainTables(_ tables: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]]) {
+        var changed = false
+        for (section, rows) in tables where !rows.isEmpty {
+            if cachedGrainTables[section] != rows {
+                cachedGrainTables[section] = rows
+                changed = true
+            }
+        }
+        if changed { filterStamp += 1 }
     }
 
     func dashboardGrainChildren(section: MetricSection, label: String) -> [DashScopeLine] {
@@ -863,7 +936,8 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func lostRevenueMarketRow() -> MetricRow? {
-        rows.first { $0.section == .lostRevenue && $0.textPayload["lost_grain"] == "market" }
+        let pool = (latestBySection[.lostRevenue] ?? []) + (filteredLatest[.lostRevenue] ?? []) + rows
+        return pool.first { $0.textPayload["lost_grain"] == "market" }
     }
 
     func dynacapCoverageNote() -> String? {
@@ -2574,12 +2648,12 @@ final class HeartbeatStore: ObservableObject {
             )
             rebuildPPHPickerIndex(scorecard: pickers)
         }
-        if !light || cachedGrainPacks.isEmpty {
+        if !light {
             cachedGrainPacks = view.grains
             cachedGrainTables = view.tables
-        }
-        if !light {
             grainPaintSettled = true
+        } else if cachedGrainPacks.isEmpty {
+            cachedGrainPacks = view.grains
         }
         usingPackChrome = false
         if lostByStore.isEmpty {
@@ -2587,6 +2661,9 @@ final class HeartbeatStore: ObservableObject {
         }
         refreshFilterOptions()
         refreshSalesExpandCache()
+        if cachedGrainTables.values.allSatisfy(\.isEmpty) {
+            fillExpandTablesSoon()
+        }
         hydrating = false
         filterStamp += 1
     }
@@ -3049,6 +3126,7 @@ final class HeartbeatStore: ObservableObject {
         if !filters.isActive {
             unfilteredPulse = snapshotPulse()
         }
+        fillExpandTablesSoon()
     }
 
     @discardableResult
@@ -3495,6 +3573,7 @@ final class HeartbeatStore: ObservableObject {
             rebuildLaborWeekIndex()
             refreshChecklistOpenCount()
             refreshSalesExpandCache()
+            fillExpandTablesSoon()
             return
         }
         cachedSummaries = caches.cachedSummaries

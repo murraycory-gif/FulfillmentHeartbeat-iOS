@@ -408,7 +408,8 @@ struct PulseCaches {
         latest: [MetricSection: [MetricRow]],
         grain: DashScopeGrain?,
         roster: [String: HeartbeatMath.StoreIdentity],
-        packs: [MetricSection: [DashScopePack]]
+        packs: [MetricSection: [DashScopePack]],
+        goalFallback: Double? = nil
     ) -> [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] {
         guard let grain else { return [:] }
         var out: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] = [:]
@@ -418,7 +419,8 @@ struct PulseCaches {
                 section: section,
                 rows: rows,
                 grain: grain,
-                order: sectionPacks.map(\.line.label)
+                order: sectionPacks.map(\.line.label),
+                goalFallback: section == .lostRevenue ? goalFallback : nil
             )
         }
         return out

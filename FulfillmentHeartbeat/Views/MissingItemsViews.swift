@@ -221,22 +221,53 @@ struct MissingItemsTable: View {
                     if !next { headerPin.pinned = false }
                     if next { rebuildOrder(sort: sort, ascending: ascending) }
                 } content: {
-                    MissingItemsStoreGrid(
-                        snaps: snaps,
-                        depts: depts,
-                        available: max(pageWidth - 48, 320),
-                        sortKey: sort.key,
-                        ascending: ascending,
-                        onSelect: applyHeaderSort,
-                        openStore: $openStore,
-                        shown: snaps.count,
-                        total: orderedCount,
-                        onMore: {
-                            limit += 150
-                            rebuildOrder(sort: sort, ascending: ascending)
-                        }
+                    let metrics = MILayout.metrics(
+                        depts: depts.count,
+                        showCount: false,
+                        available: max(pageWidth - 48, 320)
                     )
-                    .frame(height: max(420, min(640, pageWidth * 0.5)))
+                    HubAdaptiveHScroll(minWidth: metrics.tableWidth) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            MissingItemsMetricHeader(
+                                label: "Store",
+                                showCount: false,
+                                depts: depts,
+                                cellW: metrics.cellW,
+                                active: sort.key,
+                                ascending: ascending,
+                                onSelect: applyHeaderSort
+                            )
+                            .frame(width: metrics.tableWidth, alignment: .leading)
+                            ForEach(snaps) { snap in
+                                MissingItemsStoreRow(
+                                    snap: snap,
+                                    depts: depts,
+                                    cellW: metrics.cellW,
+                                    expanded: openStore == snap.storeNumber,
+                                    onToggle: {
+                                        openStore = openStore == snap.storeNumber ? nil : snap.storeNumber
+                                    }
+                                )
+                                .equatable()
+                                .frame(width: metrics.tableWidth, alignment: .leading)
+                            }
+                            if snaps.count < orderedCount {
+                                Button {
+                                    limit += 150
+                                    rebuildOrder(sort: sort, ascending: ascending)
+                                } label: {
+                                    Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(AppTheme.blue)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 12)
+                                }
+                                .buttonStyle(.plain)
+                                .frame(width: metrics.tableWidth)
+                            }
+                        }
+                        .frame(minWidth: metrics.tableWidth, alignment: .leading)
+                    }
                     .background(
                         GeometryReader { geo in
                             Color.clear.preference(
@@ -1071,86 +1102,84 @@ struct PreSubItemTable: View {
 
     var body: some View {
         Section {
-            Button {
-                expanded.toggle()
-                rebuild()
-            } label: {
-                HubTableHeader(
-                    icon: "barcode",
-                    title: "Pre-Sub OOS Items",
-                    accessory: rows.isEmpty
-                        ? "Item rows fill from the Heartbeat pack after ready  ·  tap to expand"
-                        : "\(HeartbeatFormat.num(Double(rows.count))) items  ·  tap to \(expanded ? "collapse" : "expand")",
-                    expanded: expanded
-                )
+            VStack(alignment: .leading, spacing: 0) {
+                Button {
+                    let next = !expanded
+                    expanded = next
+                    if next { rebuild() }
+                } label: {
+                    HubTableHeader(
+                        icon: "barcode",
+                        title: "Pre-Sub OOS Items",
+                        accessory: rows.isEmpty
+                            ? "Item rows fill from the Heartbeat pack after ready  ·  tap to expand"
+                            : "\(HeartbeatFormat.num(Double(rows.count))) items  ·  tap to \(expanded ? "collapse" : "expand")",
+                        expanded: expanded,
+                        embedded: true
+                    )
+                }
+                .buttonStyle(.plain)
+                if expanded {
+                    if rows.isEmpty {
+                        EmptyHint(
+                            symbol: "barcode",
+                            title: "No item rows in this view",
+                            detail: "Item rows fill from the Heartbeat pack after ready. Header filters still apply."
+                        )
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 12)
+                    } else {
+                        HubAdaptiveHScroll(minWidth: 860) {
+                            VStack(alignment: .leading, spacing: 0) {
+                                PreSubItemHeader(active: sort.key, ascending: ascending, onSelect: applySort)
+                                ForEach(snaps) { snap in
+                                    PreSubItemLine(snap: snap)
+                                        .padding(.vertical, 5)
+                                }
+                                if orderedCount > snaps.count {
+                                    Button {
+                                        limit += 80
+                                        rebuild()
+                                    } label: {
+                                        Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
+                                            .font(.subheadline.weight(.semibold))
+                                            .foregroundStyle(AppTheme.blue)
+                                            .frame(maxWidth: .infinity)
+                                            .padding(.vertical, 12)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.top, 4)
+                        .padding(.bottom, 12)
+                    }
+                }
             }
-            .buttonStyle(.plain)
             .background(AppTheme.tableFill)
             .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
                     .stroke(AppTheme.blue, lineWidth: 2.5)
             )
-            .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: expanded ? 4 : 20, trailing: 20))
+            .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 20, trailing: 20))
             .listRowSeparator(.hidden)
             .listRowBackground(AppTheme.bg)
-        }
-        if expanded {
-            if rows.isEmpty {
-                Section {
-                    EmptyHint(
-                        symbol: "barcode",
-                        title: "No item rows in this view",
-                        detail: "Item rows fill from the Heartbeat pack after ready. Header filters still apply."
-                    )
-                    .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 20, trailing: 20))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(AppTheme.bg)
-                }
-            } else {
-                Section {
-                    PreSubItemHeader(active: sort.key, ascending: ascending, onSelect: applySort)
-                        .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.tableFill)
-                    ForEach(snaps) { snap in
-                        PreSubItemLine(snap: snap)
-                            .listRowInsets(EdgeInsets(top: 5, leading: 20, bottom: 5, trailing: 20))
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(AppTheme.tableFill)
-                    }
-                    if orderedCount > snaps.count {
-                        Button {
-                            limit += 80
-                            rebuild()
-                        } label: {
-                            Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(AppTheme.blue)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                        }
-                        .buttonStyle(.plain)
-                        .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 16, trailing: 20))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.tableFill)
-                    }
-                }
-                .transaction { $0.animation = nil }
-                .onAppear { rebuild() }
-                .onChange(of: store.filterStamp) { _, _ in
-                    limit = 80
-                    rebuild()
-                }
-                .onChange(of: rows.count) { _, _ in
-                    limit = 80
-                    rebuild()
-                }
-                .onChange(of: rows.first?.storeNumber) { _, _ in
-                    rebuild()
-                }
+            .onAppear { if expanded { rebuild() } }
+            .onChange(of: store.filterStamp) { _, _ in
+                limit = 80
+                if expanded { rebuild() }
+            }
+            .onChange(of: rows.count) { _, _ in
+                limit = 80
+                if expanded { rebuild() }
+            }
+            .onChange(of: rows.first?.storeNumber) { _, _ in
+                if expanded { rebuild() }
             }
         }
+        .transaction { $0.animation = nil }
     }
 
     private func applySort(_ key: String) {

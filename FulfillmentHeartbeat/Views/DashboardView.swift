@@ -432,6 +432,7 @@ struct DashScopeStrip: View {
     var body: some View {
         VStack(alignment: .leading, spacing: expanded ? 10 : 8) {
             Button {
+                store.ensureDashboardExpandReady(section)
                 var txn = Transaction()
                 txn.animation = nil
                 withTransaction(txn) { expanded.toggle() }
@@ -476,11 +477,15 @@ struct DashScopeStrip: View {
 
     @ViewBuilder
     private var expandedTables: some View {
+        let grainRows = store.dashboardGrainRows(for: section)
+        let shownGrain = grain == .store ? Array(grainRows.prefix(40)) : grainRows
+        let salesRows = store.salesExpandRows()
+        let shownSales = grain == .store ? Array(salesRows.prefix(40)) : salesRows
         VStack(alignment: .leading, spacing: 10) {
             if section == .sales {
                 OverviewSalesAlignedTable(
                     title: grain.title,
-                    rows: Array(store.cachedSalesScopeRows.prefix(20)),
+                    rows: shownSales,
                     showCount: grain != .store
                 )
                 if !store.cachedSalesDayRows.isEmpty {
@@ -491,11 +496,12 @@ struct DashScopeStrip: View {
                 OverviewMetricAlignedTable(
                     title: grain.title,
                     headers: HeartbeatMath.dashboardTableHeaders(section),
-                    rows: Array(store.dashboardGrainRows(for: section).prefix(40)),
+                    rows: shownGrain,
                     showCount: grain != .store
                 )
             }
         }
+        .environment(\.hubTableWidth, max(width, 1))
     }
 }
 

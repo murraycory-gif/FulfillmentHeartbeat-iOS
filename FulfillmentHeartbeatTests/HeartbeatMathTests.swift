@@ -1797,6 +1797,47 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(HeartbeatMath.lostRevenueGoalPct(alias) ?? 0, 2.8, accuracy: 0.01)
     }
 
+    func testLostRevenueGrainInheritsFY2026GoalWhenStoresHaveNone() {
+        let market = MetricRow(
+            section: .lostRevenue,
+            division: "",
+            operationsOM: "",
+            storeNumber: "",
+            payload: ["lost_revenue_goal_pct": 3.71, "ecomm_sales": 46_000_000],
+            textPayload: ["lost_grain": "market"]
+        )
+        let store = MetricRow(
+            section: .lostRevenue,
+            division: "NorCal",
+            operationsOM: "A",
+            storeNumber: "304",
+            payload: ["lost_revenue": 400, "lost_revenue_pct": 4.0, "ecomm_sales": 10_000]
+        )
+        XCTAssertNil(HeartbeatMath.lostRevenueGoalPct(store))
+        XCTAssertEqual(HeartbeatMath.lostRevenueGoalPct(market) ?? 0, 3.71, accuracy: 0.01)
+        XCTAssertEqual(
+            HeartbeatMath.lostRevenueInheritedGoalPct(rows: [store], fallback: HeartbeatMath.lostRevenueGoalPct(market)) ?? 0,
+            3.71,
+            accuracy: 0.01
+        )
+        XCTAssertTrue(HeartbeatMath.dashboardTableHeaders(.lostRevenue).contains("Goal %"))
+        let table = HeartbeatMath.dashboardGrainTable(
+            section: .lostRevenue,
+            rows: [store],
+            grain: .region,
+            order: ["California Region"],
+            goalFallback: 3.71
+        )
+        XCTAssertEqual(table.first?.label, "California Region")
+        XCTAssertTrue(table.first?.values.contains("3.71%") == true, "\(table.first?.values ?? [])")
+        let fromPacks = HeartbeatMath.dashboardGrainRowsFromPacks(
+            [DashScopePack(line: DashScopeLine(label: "California Region", value: "4.24%", health: .watch, count: 604), flags: [])],
+            section: .lostRevenue
+        )
+        XCTAssertEqual(fromPacks.first?.label, "California Region")
+        XCTAssertEqual(fromPacks.first?.values.first, "4.24%")
+    }
+
     func testTableLabelWidthFitsRegionNamesAndEvenValues() {
         XCTAssertGreaterThanOrEqual(HubLayout.readableLabelWidth(phone: false), 220)
         XCTAssertGreaterThanOrEqual(HubLayout.pageLabelWidth, 156)
