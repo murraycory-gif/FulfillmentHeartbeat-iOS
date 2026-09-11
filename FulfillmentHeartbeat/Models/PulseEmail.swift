@@ -29,6 +29,17 @@ enum PulseMail {
         var grainTables: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] = [:]
         var flags: [MetricSection: [HeartbeatMath.FiveStarFlag]] = [:]
         var sums = MailSums()
+        var pickerShoppers: Int = 0
+        var pickerStrong: Int = 0
+        var pickerOpportunity: Int = 0
+    }
+
+    private struct MailTableRow {
+        var label: String
+        var detail: String = ""
+        var values: [String]
+        var tones: [Health?] = []
+        var health: Health = .none
     }
 
     enum SharePage: String, CaseIterable, Identifiable, Hashable, Sendable {
@@ -341,8 +352,8 @@ enum PulseMail {
         .block-title span{display:block;font-size:14px;font-weight:600;color:#5C677A;margin-top:4px}
         table.layout{width:100%;border-collapse:separate;border-spacing:0}
         table.layout td{vertical-align:top}
-        .table-wrap{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 0 22px;padding:0}
-        table.data{width:auto;border-collapse:separate;border-spacing:0;font-size:15px;line-height:1.45}
+        .mail-stack{width:100%;max-width:100%;margin:0 0 22px}
+        table.data{width:100%;max-width:100%;border-collapse:separate;border-spacing:0;font-size:15px;line-height:1.45}
         table.data th{text-align:left;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#003DA5;background:#EEF3FB;padding:10px 14px;border-bottom:2px solid #003DA5;border-right:1px solid #D6E2F5;white-space:nowrap;font-weight:700}
         table.data td{padding:10px 14px;border-bottom:1px solid #E4E9F4;border-right:1px solid #EEF1F6;vertical-align:middle}
         table.data td.name{font-weight:700;font-size:16px;white-space:nowrap;padding:10px 16px 10px 14px}
@@ -490,7 +501,7 @@ enum PulseMail {
                 metricRows: rows,
                 grain: grain
             )
-            return grainTableHTML(filled, section: section, grain: grain)
+            return grainTableHTML(shareGrainTable(filled, section: section, snap: snap, grain: grain), section: section, grain: grain)
         }
         let lines = HeartbeatMath.dashboardScopeLines(section: section, rows: rows, grain: grain)
             .filter { $0.label != "Unassigned" && !$0.label.isEmpty }
@@ -505,7 +516,29 @@ enum PulseMail {
             order: lines.map(\.label)
         )
         .filter { $0.label != "Unassigned" && !$0.label.isEmpty }
-        return grainTableHTML(table, section: section, grain: grain)
+        return grainTableHTML(shareGrainTable(table, section: section, snap: snap, grain: grain), section: section, grain: grain)
+    }
+
+    /// Prefer live shopper buckets on share. Never expand company grainTables into RAM.
+    private static func shareGrainTable(
+        _ table: [HeartbeatMath.DashboardGrainTableRow],
+        section: MetricSection,
+        snap: Snapshot,
+        grain: DashScopeGrain
+    ) -> [HeartbeatMath.DashboardGrainTableRow] {
+        guard section == .pickerScorecard else { return table }
+        if PulseLaunch.pickerExpandHasStatusBuckets(table) { return table }
+        let rows = snap.rows[.pickerScorecard] ?? []
+        if !rows.isEmpty {
+            let rebuilt = HeartbeatMath.dashboardGrainTableFilled(
+                section: .pickerScorecard,
+                rows: rows,
+                grain: grain,
+                order: table.map(\.label)
+            )
+            if PulseLaunch.pickerExpandHasStatusBuckets(rebuilt) { return rebuilt }
+        }
+        return table
     }
 
     private static func grainTableHTML(
@@ -521,39 +554,49 @@ enum PulseMail {
         if grain != .store { headers.append("Stores") }
         headers += HeartbeatMath.dashboardTableHeaders(section)
         headers.append("Status")
-        var body = ""
+        var rows: [MailTableRow] = []
         for line in shown {
             let health = line.health == .none && line.storeCount > 0 ? Health.good : line.health
-            var cells = nameCell(HeartbeatMath.displayGrainLabel(line.label))
+            var values: [String] = []
+            var tones: [Health?] = []
             if grain != .store {
-                cells += numCell(HeartbeatFormat.num(Double(line.storeCount)), muted: true)
+                values.append(HeartbeatFormat.num(Double(line.storeCount)))
+                tones.append(nil)
             }
             let metrics = HeartbeatMath.dashboardTableHeaders(section)
-            let values = HeartbeatMath.mergedGrainValues(
+            let metricValues = HeartbeatMath.mergedGrainValues(
                 current: line.values,
                 incoming: [],
                 headerCount: metrics.count
             )
-            for (header, value) in zip(metrics, values) {
-                let tone = HeartbeatMath.dashboardExpandCellHealth(
-                    section: section,
-                    header: header,
-                    text: value,
-                    rowHealth: health,
-                    values: values,
-                    headers: metrics
+            for (header, value) in zip(metrics, metricValues) {
+                values.append(value)
+                tones.append(
+                    HeartbeatMath.dashboardExpandCellHealth(
+                        section: section,
+                        header: header,
+                        text: value,
+                        rowHealth: health,
+                        values: metricValues,
+                        headers: metrics
+                    )
                 )
-                cells += numCell(value, health: tone)
             }
-            cells += statusCell(health)
-            body += "<tr>\(cells)</tr>"
+            rows.append(
+                MailTableRow(
+                    label: HeartbeatMath.displayGrainLabel(line.label),
+                    values: values,
+                    tones: tones,
+                    health: health
+                )
+            )
         }
         let unit = shown.count == 1 ? String(grain.unit.dropLast()) : grain.unit
         return dataTable(
             title: "\(grain.title) · \(shown.count) \(unit)",
             detail: "Same columns as the dashboard expand",
             headers: headers,
-            body: body,
+            rows: rows,
             banner: true
         )
     }
@@ -570,20 +613,20 @@ enum PulseMail {
         if grain != .store { headers.append("Stores") }
         let metrics = ["Sales $", "YoY %", "Orders", "Ord YoY", "AOS", "AIV", "Items/Txn", "Items"]
         headers += metrics + ["Status"]
-        var body = ""
-        var shown = 0
+        var rows: [MailTableRow] = []
         for label in labels {
             let group = buckets[label] ?? []
             if group.isEmpty { continue }
-            if grain == .store, shown >= 40 { break }
-            shown += 1
+            if grain == .store, rows.count >= 40 { break }
             let pack = SalesPack(rows: group)
             let health = pack.health == .none && (pack.sales ?? 0) > 0 ? Health.good : pack.health
-            var cells = nameCell(HeartbeatMath.displayGrainLabel(label))
+            var values: [String] = []
+            var tones: [Health?] = []
             if grain != .store {
-                cells += numCell(HeartbeatFormat.num(Double(group.count)), muted: true)
+                values.append(HeartbeatFormat.num(Double(group.count)))
+                tones.append(nil)
             }
-            let values = [
+            let metricValues = [
                 HeartbeatFormat.money(pack.sales),
                 HeartbeatFormat.pct(pack.yoy),
                 HeartbeatFormat.num(pack.orders, digits: 0),
@@ -593,27 +636,35 @@ enum PulseMail {
                 HeartbeatFormat.num(pack.ipt, digits: 1),
                 HeartbeatFormat.num(pack.items, digits: 0),
             ]
-            for (header, value) in zip(metrics, values) {
-                let tone = HeartbeatMath.dashboardExpandCellHealth(
-                    section: .sales,
-                    header: header,
-                    text: value,
-                    rowHealth: health,
-                    values: values,
-                    headers: metrics
+            for (header, value) in zip(metrics, metricValues) {
+                values.append(value)
+                tones.append(
+                    HeartbeatMath.dashboardExpandCellHealth(
+                        section: .sales,
+                        header: header,
+                        text: value,
+                        rowHealth: health,
+                        values: metricValues,
+                        headers: metrics
+                    )
                 )
-                cells += numCell(value, health: tone)
             }
-            cells += statusCell(health)
-            body += "<tr>\(cells)</tr>"
+            rows.append(
+                MailTableRow(
+                    label: HeartbeatMath.displayGrainLabel(label),
+                    values: values,
+                    tones: tones,
+                    health: health
+                )
+            )
         }
-        guard shown > 0 else { return "" }
-        let unit = shown == 1 ? String(grain.unit.dropLast()) : grain.unit
+        guard !rows.isEmpty else { return "" }
+        let unit = rows.count == 1 ? String(grain.unit.dropLast()) : grain.unit
         return dataTable(
-            title: "\(grain.title) · \(shown) \(unit)",
+            title: "\(grain.title) · \(rows.count) \(unit)",
             detail: "Same columns as the dashboard Sales expand",
             headers: headers,
-            body: body,
+            rows: rows,
             banner: true
         )
     }
@@ -621,6 +672,9 @@ enum PulseMail {
     private static func dashboardFlagModels(_ section: MetricSection, snap: Snapshot) -> [HeartbeatMath.FiveStarFlag] {
         let scoped = snap.summaries.first { $0.section == section }?.storeCount
             ?? (snap.rows[section] ?? []).filter { !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty }.count
+        if section == .pickerScorecard {
+            return pickerShareFlags(snap)
+        }
         if let cached = snap.flags[section], !cached.isEmpty,
            PulseLaunch.flagsMatchFilter(flagStores: cached.map(\.stores), scopedStores: scoped) {
             return cached
@@ -634,7 +688,6 @@ enum PulseMail {
         case .pph:
             return HeartbeatMath.pphActionFlags(stores: rows, shoppers: snap.rows[.pickerScorecard] ?? [])
         case .dynacap: return HeartbeatMath.dynacapActionFlags(rows)
-        case .pickerScorecard: return HeartbeatMath.pickerActionFlags(rows)
         case .labor: return HeartbeatMath.laborActionFlags(rows)
         case .missingItems, .preSubOOS: return HeartbeatMath.missingItemsActionFlags(rows)
         case .lostRevenue: return HeartbeatMath.lostRevenueActionFlags(rows)
@@ -645,6 +698,32 @@ enum PulseMail {
 
     private static func dashboardFlags(_ section: MetricSection, snap: Snapshot) -> [(String, String, Health)] {
         dashboardFlagModels(section, snap: snap).map { ($0.name, flagCaption($0), $0.health) }
+    }
+
+    private static func pickerShareBuckets(_ snap: Snapshot) -> (shoppers: Int, healthy: Int, watch: Int, risk: Int) {
+        PulseLaunch.pickerShareBuckets(
+            rows: snap.rows[.pickerScorecard] ?? [],
+            chromeShoppers: max(
+                snap.pickerShoppers,
+                Int(snap.summaries.first { $0.section == .pickerScorecard }?.headline ?? 0)
+            ),
+            chromeStrong: snap.pickerStrong,
+            chromeOpportunity: max(
+                snap.pickerOpportunity,
+                snap.summaries.first { $0.section == .pickerScorecard }?.riskCount ?? 0
+            ),
+            grain: snap.grainTables[.pickerScorecard] ?? []
+        )
+    }
+
+    private static func pickerShareFlags(_ snap: Snapshot) -> [HeartbeatMath.FiveStarFlag] {
+        let buckets = pickerShareBuckets(snap)
+        return HeartbeatMath.bandFlags(
+            healthy: buckets.healthy,
+            watch: buckets.watch,
+            risk: buckets.risk,
+            unit: "shoppers"
+        )
     }
 
     private static func sectionHTML(_ section: MetricSection, snap: Snapshot) -> String {
@@ -893,10 +972,13 @@ enum PulseMail {
                 tile("At Risk", HeartbeatFormat.num(Double(risk)), "Over 3%", risk == 0 ? .good : .risk),
             ]
         case .pickerScorecard:
-            let opportunity = summary?.riskCount ?? 0
+            let buckets = pickerShareBuckets(snap)
+            let shoppers = max(buckets.shoppers, scored.count)
             items = [
-                tile("All Shoppers", HeartbeatFormat.num(Double(scored.count)), "Every shopper in this filter", .none, brand: true),
-                tile("Opportunity", HeartbeatFormat.num(Double(opportunity)), "15+ orders · underperforming", opportunity == 0 ? .good : .risk),
+                tile("All Shoppers", HeartbeatFormat.num(Double(shoppers)), "Every shopper in this filter", .none, brand: true),
+                tile("Healthy", HeartbeatFormat.num(Double(buckets.healthy)), "Doing well", .good),
+                tile("Watch", HeartbeatFormat.num(Double(buckets.watch)), "Needs a look", buckets.watch == 0 ? .good : .watch),
+                tile("At Risk", HeartbeatFormat.num(Double(buckets.risk)), "Underperforming", buckets.risk == 0 ? .good : .risk),
             ]
         default:
             if let summary {
@@ -954,7 +1036,8 @@ enum PulseMail {
         let title = grain == "district" ? "By District" : "Markets"
         let filled = buckets.filter { !$0.value.isEmpty }.count
         let headers = storeHeaders(section)
-        var body = ""
+        let metricHeaders = Array(headers.dropFirst().filter { $0 != "Status" })
+        var rows: [MailTableRow] = []
         for key in buckets.keys.sorted() {
             let group = buckets[key] ?? []
             if group.isEmpty { continue }
@@ -963,15 +1046,23 @@ enum PulseMail {
             fake.storeNumber = key
             fake.payload = averagedPayload(group)
             let health = worst(group, section: section)
-            let count = group.count == 1 ? "1 store" : "\(group.count) stores"
-            body += "<tr>\(nameCell(key, extra: "<div class=\"muted\" style=\"font-size:13px;font-weight:600;color:#5C677A\">\(esc(count))</div>"))\(storeCells(section, row: fake, pickerCount: group.count, health: health))</tr>"
+            let values = metricCellsPlain(section, row: fake, pickerCount: group.count)
+            rows.append(
+                MailTableRow(
+                    label: key,
+                    detail: group.count == 1 ? "1 store" : "\(group.count) stores",
+                    values: values,
+                    tones: stackTones(section: section, headers: metricHeaders, values: values, rowHealth: health),
+                    health: health
+                )
+            )
         }
-        guard !body.isEmpty else { return "" }
+        guard !rows.isEmpty else { return "" }
         return dataTable(
             title: title,
             detail: "\(filled) \(grain == "district" ? "districts" : "divisions") · same columns as the page",
             headers: headers,
-            body: body
+            rows: rows
         )
     }
 
@@ -1022,7 +1113,9 @@ enum PulseMail {
             ordered = usable.sorted { HeartbeatFormat.storeOrder($0.storeNumber, $1.storeNumber) }
         }
         let shown = ordered
-        var body = ""
+        let headers = storeHeaders(section)
+        let metricHeaders = Array(headers.dropFirst().filter { $0 != "Status" })
+        var lines: [MailTableRow] = []
         for row in shown {
             let health = HeartbeatMath.health(for: section, row: row)
             let label: String
@@ -1034,7 +1127,19 @@ enum PulseMail {
             default:
                 label = placeLabel(row)
             }
-            body += "<tr>\(nameCell(label))\(storeCells(section, row: row, pickerCount: pickerCounts[HeartbeatMath.canonicalStore(row.storeNumber)] ?? 0, health: health))</tr>"
+            let values = metricCellsPlain(
+                section,
+                row: row,
+                pickerCount: pickerCounts[HeartbeatMath.canonicalStore(row.storeNumber)] ?? 0
+            )
+            lines.append(
+                MailTableRow(
+                    label: label,
+                    values: values,
+                    tones: stackTones(section: section, headers: metricHeaders, values: values, rowHealth: health),
+                    health: health
+                )
+            )
         }
         let reported = max(total ?? 0, ordered.count)
         let unit: String
@@ -1052,9 +1157,27 @@ enum PulseMail {
         return dataTable(
             title: title,
             detail: detail,
-            headers: storeHeaders(section),
-            body: body
+            headers: headers,
+            rows: lines
         )
+    }
+
+    private static func stackTones(
+        section: MetricSection,
+        headers: [String],
+        values: [String],
+        rowHealth: Health
+    ) -> [Health?] {
+        zip(headers, values).map { header, value in
+            HeartbeatMath.dashboardExpandCellHealth(
+                section: section,
+                header: header,
+                text: value,
+                rowHealth: rowHealth,
+                values: values,
+                headers: headers
+            )
+        }
     }
 
     private static func placeLabel(_ row: MetricRow) -> String {
@@ -1217,180 +1340,6 @@ enum PulseMail {
         }
     }
 
-    private static func storeCells(_ section: MetricSection, row: MetricRow, pickerCount: Int, health: Health) -> String {
-        func cell(_ text: String, _ metricHealth: Health? = nil) -> String {
-            let cls = metricHealth.map { "num cell-\($0.rawValue)" } ?? "num"
-            var style = "text-align:right;font-variant-numeric:tabular-nums;font-weight:700;font-size:16px;white-space:nowrap;padding:10px 14px;border-bottom:1px solid #E4E9F4;border-right:1px solid #EEF1F6"
-            if let metricHealth {
-                switch metricHealth {
-                case .good: style += ";background:#D1FAE5;color:#059669"
-                case .watch: style += ";background:#FEF3C7;color:#D97706"
-                case .risk: style += ";background:#FEE2E2;color:#DC2626"
-                case .none: break
-                }
-            }
-            return "<td class=\"\(cls)\" style=\"\(style)\">\(esc(text))</td>"
-        }
-        var html = ""
-        func polarity(_ headers: [String], _ values: [String]) {
-            for (header, value) in zip(headers, values) {
-                html += cell(
-                    value,
-                    HeartbeatMath.dashboardExpandCellHealth(
-                        section: section,
-                        header: header,
-                        text: value,
-                        rowHealth: health,
-                        values: values,
-                        headers: headers
-                    )
-                )
-            }
-        }
-        switch section {
-        case .fiveStar:
-            polarity(
-                ["Rating", "Flash", "Pre-Sub", "COE", "OTT", "OTH"],
-                [
-                    HeartbeatFormat.stars(row.number("star_rating")),
-                    HeartbeatFormat.pct(row.number("flash_pct")),
-                    HeartbeatFormat.pct(row.number("presub_pct")),
-                    HeartbeatFormat.pct(row.number("coe_pct")),
-                    HeartbeatFormat.pct(row.number("ott_pct")),
-                    HeartbeatFormat.pct(row.number("oth5_pct")),
-                ]
-            )
-        case .pickPath, .pickPathPicker:
-            polarity(
-                ["Path %", "AVG PPH"],
-                [
-                    HeartbeatFormat.pct(row.number("compliance_pct")),
-                    HeartbeatFormat.num(row.number("pph"), digits: 1),
-                ]
-            )
-            html += cell(HeartbeatFormat.num(row.number("orders") ?? row.number("picks_total")))
-            html += cell(HeartbeatFormat.shortDate(AisleMapperMath.mapperISO(row)), AisleMapperMath.health(AisleMapperMath.mapperISO(row)))
-            html += cell(HeartbeatFormat.shortDate(AisleMapperMath.sequenceISO(row)), AisleMapperMath.health(AisleMapperMath.sequenceISO(row)))
-        case .prepNotReady:
-            polarity(
-                ["PNR %", "Goal", "Watch"],
-                [
-                    HeartbeatFormat.pct(row.number("pnr_rate_pct", "pnr_hours", "prep_not_ready_pct")),
-                    "\(HeartbeatFormat.num(HeartbeatMath.pnrGoal, digits: 1))%",
-                    "\(HeartbeatFormat.num(HeartbeatMath.pnrWatch, digits: 1))%",
-                ]
-            )
-        case .dynacap:
-            polarity(
-                ["Pcs/Hr", "PPH", "Goal", "Util %"],
-                [
-                    HeartbeatFormat.num(row.number("dynacap_rate", "pieces_per_hour"), digits: 1),
-                    HeartbeatFormat.num(row.number("pph"), digits: 1),
-                    HeartbeatFormat.num(HeartbeatMath.dynacapGoal, digits: 0),
-                    HeartbeatFormat.pct(row.number("utilization_pct", "pickup_util_pct")),
-                ]
-            )
-        case .scheduleQuality:
-            polarity(
-                ["Sch Eff", "Staffing", "Goal", "Under", "Over"],
-                [
-                    HeartbeatFormat.pct(row.number("schedule_efficiency_pct")),
-                    HeartbeatFormat.pct(row.number("staffing_efficiency_pct")),
-                    "90%",
-                    HeartbeatFormat.pct(row.number("under_schedule_pct", "under_scheduled", "under_staffing_pct")),
-                    HeartbeatFormat.pct(row.number("over_schedule_pct", "over_scheduled", "over_staffing_pct")),
-                ]
-            )
-        case .pph:
-            polarity(
-                ["PPH", "Pickers", "Goal"],
-                [
-                    HeartbeatFormat.num(row.number("pph", "pure_pph"), digits: 1),
-                    HeartbeatFormat.num(Double(pickerCount)),
-                    "80.0",
-                ]
-            )
-        case .labor:
-            polarity(
-                ["Tgt vs Act", "CostTrgt%", "ActCost%", "Sch Effi%", "UPLH", "Wage", "AIV"],
-                [
-                    HeartbeatFormat.pct(row.number("target_vs_actual_pct")),
-                    HeartbeatFormat.pct(row.number("cost_trgt_pct")),
-                    HeartbeatFormat.pct(row.number("act_cost_pct")),
-                    HeartbeatFormat.pct(row.number("schedule_efficiency_pct")),
-                    HeartbeatFormat.pct(row.number("uplh_impact_pct")),
-                    HeartbeatFormat.pct(row.number("wage_impact_pct")),
-                    HeartbeatFormat.pct(row.number("aiv_impact_pct")),
-                ]
-            )
-        case .lostRevenue:
-            polarity(
-                HeartbeatMath.dashboardTableHeaders(.lostRevenue),
-                [
-                    HeartbeatFormat.money(row.number("lost_revenue")),
-                    HeartbeatFormat.pct(row.number("lost_revenue_pct")),
-                    HeartbeatFormat.pct(HeartbeatMath.lostRevenueGoalPct(row)),
-                    HeartbeatFormat.money(row.number("ecomm_sales")),
-                    HeartbeatFormat.money(row.number("post_sub_oos_foregone")),
-                    HeartbeatFormat.money(row.number("refund_lost", "refund_amt")),
-                    HeartbeatFormat.money(row.number("missed_sales")),
-                    HeartbeatFormat.money(row.number("cancelled_lost")),
-                    HeartbeatFormat.money(row.number("kill_switch_lost")),
-                ]
-            )
-        case .sales:
-            let pack = SalesPack(row)
-            polarity(
-                ["Sales $", "YoY %", "Orders", "Ord YoY", "AOS", "AIV", "Items/Txn", "Items"],
-                [
-                    HeartbeatFormat.money(pack.sales),
-                    HeartbeatFormat.pct(pack.yoy),
-                    HeartbeatFormat.num(pack.orders, digits: 0),
-                    HeartbeatFormat.pct(pack.ordersYoy),
-                    HeartbeatFormat.money(pack.aos),
-                    HeartbeatFormat.num(pack.aiv, digits: 2),
-                    HeartbeatFormat.num(pack.ipt, digits: 1),
-                    HeartbeatFormat.num(pack.items, digits: 0),
-                ]
-            )
-        case .missingItems, .preSubOOS:
-            html += cell(
-                HeartbeatFormat.pct(row.number(MissingItemDept.totalKey)),
-                HeartbeatMath.missingItemsHealth(pct: row.number(MissingItemDept.totalKey))
-            )
-            for dept in MissingItemDept.allCases {
-                html += cell(
-                    HeartbeatFormat.pct(row.number(dept.rawValue)),
-                    HeartbeatMath.missingItemsHealth(pct: row.number(dept.rawValue))
-                )
-            }
-        case .aisleMapper:
-            html += cell(HeartbeatFormat.shortDate(AisleMapperMath.mapperISO(row)), AisleMapperMath.health(AisleMapperMath.mapperISO(row)))
-            html += cell(HeartbeatFormat.shortDate(AisleMapperMath.sequenceISO(row)), AisleMapperMath.health(AisleMapperMath.sequenceISO(row)))
-        case .preSubOOSItem:
-            html += cell(row.textPayload["bpn"] ?? row.textPayload["item"] ?? "")
-            html += cell(HeartbeatFormat.pct(row.number("presub_pct")), HeartbeatMath.health(for: .preSubOOSItem, row: row))
-            html += cell(HeartbeatFormat.num(row.number("presub_count"), digits: 0))
-            html += cell(HeartbeatFormat.money(row.number("presub_dollars")))
-            html += cell(HeartbeatFormat.pct(row.number("oos_pct")))
-            html += cell(HeartbeatFormat.money(row.number("oos_dollars")))
-        case .pickerScorecard:
-            html += cell(HeartbeatFormat.num(row.number("pick_hours"), digits: 1))
-            html += cell(HeartbeatFormat.num(row.number("pph", "pure_pph"), digits: 1), HeartbeatMath.pickerHealth(row))
-            html += cell(HeartbeatFormat.num(row.number("orders")))
-            html += cell(HeartbeatFormat.pct(row.number("presub_pct", "presub_oos_pct")))
-            html += cell(HeartbeatFormat.pct(row.number("ott_pct")))
-            html += cell(HeartbeatFormat.pct(row.number("oth5_pct")))
-            html += cell(HeartbeatFormat.pct(row.number("coe_pct")))
-        case .storeRoster:
-            html += cell(row.division)
-            html += cell(row.district)
-            html += cell(row.operationsOM)
-        }
-        html += statusCell(health)
-        return html
-    }
-
     private static func worst(_ rows: [MetricRow], section: MetricSection) -> Health {
         let ranks: [Health: Int] = [.none: 0, .good: 1, .watch: 2, .risk: 3]
         return rows.map { HeartbeatMath.health(for: section, row: $0) }.max { (ranks[$0] ?? 0) < (ranks[$1] ?? 0) } ?? .none
@@ -1402,10 +1351,6 @@ enum PulseMail {
             return n == 0 ? "0 pickers at risk" : "\(HeartbeatFormat.num(Double(n))) pickers at risk"
         }
         return n == 0 ? "0 stores at risk" : "\(HeartbeatFormat.num(Double(n))) stores at risk"
-    }
-
-    private static func nameCell(_ text: String, extra: String = "") -> String {
-        "<td class=\"name\" width=\"168\" style=\"width:168px;font-weight:700;font-size:16px;white-space:nowrap;padding:12px 16px;border-bottom:1px solid #E4E9F4;border-right:1px solid #EEF1F6\">\(esc(text))\(extra)</td>"
     }
 
     private static func numCell(_ text: String, muted: Bool = false, health: Health? = nil) -> String {
@@ -1434,10 +1379,6 @@ enum PulseMail {
         return "<td class=\"\(cls)\" width=\"108\" style=\"width:108px;text-align:right;font-variant-numeric:tabular-nums;font-weight:700;font-size:16px;white-space:nowrap;padding:12px 14px;border-bottom:1px solid #E4E9F4;border-right:1px solid #EEF1F6;\(fill)color:\(color)\">\(esc(text))</td>"
     }
 
-    private static func statusCell(_ health: Health) -> String {
-        "<td class=\"status\" width=\"120\" style=\"width:120px;text-align:right;white-space:nowrap;padding:12px 14px;border-bottom:1px solid #E4E9F4\">\(pill(health))</td>"
-    }
-
     private static func pill(_ health: Health) -> String {
         let bg: String
         switch health {
@@ -1449,32 +1390,51 @@ enum PulseMail {
         return "<span class=\"pill\" style=\"display:inline-block;padding:5px 12px;border-radius:999px;font-size:12px;line-height:1.2;font-weight:700;color:#fff;letter-spacing:.02em;background:\(bg)\">\(esc(health.label.uppercased()))</span>"
     }
 
-    private static func dataTable(title: String, detail: String, headers: [String], body: String, banner: Bool = false) -> String {
-        let heads = headers.enumerated().map { index, name -> String in
-            let cls: String
-            let align: String
-            if index == 0 {
-                cls = ""
-                align = "left"
-            } else if name == "Status" {
-                cls = " class=\"status\""
-                align = "right"
-            } else {
-                cls = " class=\"num\""
-                align = "right"
-            }
-            return "<th\(cls) bgcolor=\"#EEF3FB\" style=\"text-align:\(align);font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#003DA5;background:#EEF3FB;padding:12px 14px;border-bottom:2px solid #003DA5;border-right:1px solid #D6E2F5;white-space:nowrap;font-weight:700\">\(esc(name))</th>"
-        }.joined()
+    private static func dataTable(
+        title: String,
+        detail: String,
+        headers: [String],
+        rows: [MailTableRow],
+        banner: Bool = false
+    ) -> String {
+        guard PulseLaunch.shouldStackShareTablesForMailClients(),
+              !PulseLaunch.shouldClipShareTablesInMailClients() else {
+            return ""
+        }
         let heading = banner
             ? bar(title, detail)
             : "<div class=\"block-title\" style=\"font-size:18px;font-weight:700;color:#003DA5;margin:22px 0 12px\">\(esc(title))<span style=\"display:block;font-size:14px;font-weight:600;color:#5C677A;margin-top:4px\">\(esc(detail))</span></div>"
+        let valueHeaders = Array(headers.dropFirst().filter { $0 != "Status" })
+        var cards = ""
+        for row in rows {
+            var lines = ""
+            for (index, header) in valueHeaders.enumerated() {
+                let value = index < row.values.count ? row.values[index] : "—"
+                let tone = index < row.tones.count ? row.tones[index] : nil
+                lines += """
+                <tr>
+                <th bgcolor="#EEF3FB" style="text-align:left;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#003DA5;background:#EEF3FB;padding:12px 14px;border-bottom:2px solid #003DA5;border-right:1px solid #D6E2F5;font-weight:700;width:50%">\(esc(header))</th>
+                \(numCell(value, health: tone))
+                </tr>
+                """
+            }
+            let extra = row.detail.isEmpty
+                ? ""
+                : "<div class=\"muted\" style=\"font-size:13px;font-weight:600;color:#5C677A;margin-top:4px\">\(esc(row.detail))</div>"
+            cards += """
+            <table class="data mail-stack" width="100%" cellspacing="0" cellpadding="12" bgcolor="#FFFFFF" style="width:100%;max-width:100%;border-collapse:separate;border-spacing:0;font-size:15px;line-height:1.45;background:#FFFFFF;border:1px solid #E4E9F4;margin:0 0 12px">
+            <tr>
+            <td class="name" style="font-weight:700;font-size:16px;padding:12px 14px;border-bottom:1px solid #E4E9F4;border-right:1px solid #EEF1F6">\(esc(row.label))\(extra)</td>
+            <td class="status" width="108" style="width:108px;text-align:right;white-space:nowrap;padding:12px 14px;border-bottom:1px solid #E4E9F4">\(pill(row.health))</td>
+            </tr>
+            \(lines)
+            </table>
+            """
+        }
         return """
         \(heading)
-        <div class="table-wrap" style="width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 0 22px">
-        <table class="data" cellspacing="0" cellpadding="12" bgcolor="#FFFFFF" style="width:auto;border-collapse:separate;border-spacing:0;font-size:15px;line-height:1.45;background:#FFFFFF">
-        <thead><tr>\(heads)</tr></thead>
-        <tbody>\(body)</tbody>
-        </table>
+        <div class="mail-stack" style="width:100%;max-width:100%;margin:0 0 22px">
+        \(cards)
         </div>
         """
     }

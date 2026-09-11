@@ -24,4 +24,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.402 / 1.0 (728) — Share Send dismisses SharePulseSheet first, then presents MFMailCompose from the key-window root (never over the active sheet). `canSendMail == false` copies the recap and offers Outlook / mailto with a clear alert. Jetsam Soft KEEP from .401: company does not pre-expand all sections into RAM — chrome/page/stream only. `expandTables` at region grain with no `only` returns empty. `canonicalName` is cached. Thin seat + .400 freshness kept.
+HB-0828.403 / 1.0 (729) — Share HTML stacks grain/store rows as 100% Mail cards (Apple Mail clips wide Regions tables). Picker ScoreCard Healthy / Watch / At Risk use live shopper buckets or pack chrome, not zero flags. Dismiss-before-Mail Soft KEEP and Jetsam expand gates unchanged.

@@ -6024,6 +6024,7 @@ final class HeartbeatStore: ObservableObject {
                 }
             }
         }
+        let pickerSummary = summaries.first { $0.section == .pickerScorecard }
         return PulseMail.Snapshot(
             filterSummary: filters.summary,
             grain: effectiveDashboardGrain.rawValue,
@@ -6033,7 +6034,18 @@ final class HeartbeatStore: ObservableObject {
             generatedAt: Date(),
             rowTotals: rowTotals,
             grainTables: grainTables,
-            flags: flags
+            flags: flags,
+            pickerShoppers: max(
+                cachedPickerBoard.shopperCount,
+                packChrome?.pickerShoppers ?? 0,
+                Int(pickerSummary?.headline ?? 0)
+            ),
+            pickerStrong: max(cachedPickerBoard.strongCount, packChrome?.pickerStrong ?? 0),
+            pickerOpportunity: max(
+                cachedPickerBoard.opportunityCount,
+                packChrome?.pickerOpportunity ?? 0,
+                pickerSummary?.riskCount ?? 0
+            )
         )
     }
 

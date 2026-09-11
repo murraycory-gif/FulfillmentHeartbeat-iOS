@@ -2135,7 +2135,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture381SeatPackContract() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.402")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.403")
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
         XCTAssertFalse(PulseSeatPack.shouldMergeSeatWithCompanyOnSwap())
         XCTAssertTrue(PulseSeatPack.shouldPaintHubFromActiveSeatSQLite())
@@ -2177,7 +2177,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture381bMacCookPublishesEverySeatSqlite() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.402")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.403")
         XCTAssertTrue(PulseSeatPack.shouldCookEveryStoreSeat())
         XCTAssertTrue(PulseSeatPack.shouldPublishSeatPlaneFromCook())
         XCTAssertFalse(PulseSeatPack.shouldMaterializeMissingSeatOnFieldDevice())
@@ -2245,7 +2245,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture382CommandCenterFillsViewportLikePulse() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.402")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.403")
         XCTAssertTrue(PulseLaunch.shouldUseCommandCenterHome())
         XCTAssertFalse(PulseLaunch.shouldMountDashCalloutTablesOnHome())
         XCTAssertTrue(PulseLaunch.shouldPinMacCommandCenterRails())
@@ -2324,7 +2324,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture383CompanyCommandCenterPickerChromeAndStoreTableScope() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.402")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.403")
         XCTAssertFalse(PulseLaunch.shouldStreamCompanyPickerForSeatFirstPaint())
         XCTAssertFalse(PulseLaunch.shouldPlaySeatLoadHalloween())
         XCTAssertFalse(PulseLaunch.shouldShowGroceryLoadQuips())
@@ -2556,7 +2556,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture384SeatSwapAndSectionOpenPlane() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.402")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.403")
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
         XCTAssertFalse(PulseSeatPack.shouldMergeSeatWithCompanyOnSwap())
         XCTAssertTrue(PulseSeatPack.shouldPaintHubFromActiveSeatSQLite())
@@ -2695,7 +2695,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture392PhoneChromeCardsNotSqueezedTable() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.402")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.403")
         XCTAssertEqual(HubLayout.SupportedCanvas.phonePortrait, 390)
         XCTAssertEqual(HubLayout.phoneHitTarget, 44)
         XCTAssertEqual(HubLayout.phoneControlHeight, 44)
@@ -2710,7 +2710,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture393PhoneScorecardRefusesPadTable() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.402")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.403")
         XCTAssertTrue(PulseLaunch.shouldRefusePadShopperTable(compact: true, phoneIdiom: false))
         XCTAssertTrue(PulseLaunch.shouldRefusePadShopperTable(compact: false, phoneIdiom: true))
         XCTAssertFalse(PulseLaunch.shouldRefusePadShopperTable(compact: false, phoneIdiom: false))
@@ -2724,7 +2724,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture394PhoneContentClearsHubChrome() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.402")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.403")
         XCTAssertFalse(PulseLaunch.shouldPinHubChromeAboveContent())
         XCTAssertTrue(PulseLaunch.shouldGiveHubChromeItsOwnTopSafeArea())
         XCTAssertFalse(PulseLaunch.shouldClipPhoneContentBelowHubChrome())
@@ -2743,7 +2743,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture395HubChromeSafeAreaInset() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.402")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.403")
         XCTAssertFalse(PulseLaunch.shouldPinHubChromeAboveContent())
         XCTAssertTrue(PulseLaunch.shouldInsetHubChromeIntoContentSafeArea())
         XCTAssertTrue(PulseLaunch.shouldGiveHubChromeItsOwnTopSafeArea())
@@ -2759,7 +2759,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture397PhoneFilterSwapPaintsCachedSeat() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.402")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.403")
         XCTAssertTrue(PulseLaunch.shouldUsePhoneNativeCommandCenter())
         XCTAssertTrue(PulseLaunch.shouldUsePhoneNativeSectionPages())
         XCTAssertFalse(PulseLaunch.shouldMountPadSectionListHost(usesPhoneScorecards: true))
@@ -2798,7 +2798,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture398PhonePageNavAndFilterSwapAreBothInstant() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.402")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.403")
         XCTAssertTrue(PulseLaunch.shouldUsePhoneNativeCommandCenter())
         XCTAssertTrue(PulseLaunch.shouldUsePhoneNativeSectionPages())
         XCTAssertFalse(PulseLaunch.shouldMountPadSectionListHost(usesPhoneScorecards: true))
@@ -2868,7 +2868,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture396PhoneNativeCommandCenter() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.402")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.403")
         XCTAssertTrue(PulseLaunch.shouldUsePhoneNativeCommandCenter())
         XCTAssertTrue(PulseLaunch.shouldUseCommandCenterHome())
         XCTAssertFalse(CommandCenterLayout.shouldFillPhoneViewport())
@@ -2887,7 +2887,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture391ColdOpenCannotMountWhoIsLooking() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.402")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.403")
         XCTAssertFalse(PulseLaunch.shouldRequireRoleGateOnColdOpen())
         XCTAssertTrue(PulseLaunch.shouldOpenCompanyCommandCenterOnColdOpen())
         XCTAssertFalse(PulseLaunch.shouldShowRoleGatePill())
@@ -2904,7 +2904,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture385CompanyColdOpenNoRoleGateNoToursFilterPaints() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.402")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.403")
         XCTAssertFalse(PulseLaunch.shouldPinMacCommandCenterAlertsRail())
         XCTAssertFalse(PulseLaunch.shouldOfferIPadCommandCenterAlertsDrawer())
         XCTAssertFalse(PulseLaunch.shouldRequireRoleGateOnColdOpen())
@@ -2955,7 +2955,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture387SectionPageTableMatrixAndNoIPadAlerts() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.402")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.403")
         XCTAssertFalse(PulseLaunch.shouldPinMacCommandCenterAlertsRail())
         XCTAssertFalse(PulseLaunch.shouldOfferIPadCommandCenterAlertsDrawer())
         XCTAssertTrue(PulseLaunch.shouldOfferIPadCommandCenterDrawers())
@@ -3007,7 +3007,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture389OMSeatPacksGlanceBannerPickerShoppersAndNoDashboardBack() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.402")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.403")
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
         XCTAssertFalse(PulseLaunch.shouldShowScorecardDashboardBackControl())
         XCTAssertTrue(CommandCenterLayout.glanceTitleUsesBlueBanner())
@@ -3140,7 +3140,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture399KitchenIngestSafeHitTarget() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.402")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.403")
         XCTAssertEqual(PulseLaunch.phoneMinimumHitTarget(), 44)
         XCTAssertTrue(RollupMarketFill.hidesUnassignedMarket("Unassigned"))
         XCTAssertTrue(RollupMarketFill.hidesUnassignedMarket(""))
@@ -3149,7 +3149,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture390PickerPhonePagesAssistUnassignedAndLabor() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.402")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.403")
         XCTAssertTrue(PulseLaunch.shouldUsePickerPhoneCards(phone: true))
         XCTAssertFalse(PulseLaunch.shouldUsePickerPhoneCards(phone: false))
         XCTAssertTrue(PulseLaunch.shouldUsePickerPhoneCards(phone: false, width: 390))
@@ -4400,9 +4400,14 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(packet.html.contains("cell-risk") || packet.html.contains("#DC2626"), packet.html)
         XCTAssertTrue(packet.html.contains("cellpadding=\"12\"") || packet.html.contains("cellpadding=\"14\""), packet.html)
         XCTAssertTrue(packet.html.contains("max-width:1100px"), packet.html)
+        XCTAssertTrue(packet.html.contains("mail-stack"), packet.html)
+        XCTAssertTrue(packet.html.contains("width:100%;max-width:100%"), packet.html)
+        XCTAssertFalse(packet.html.contains("overflow-x:auto"), packet.html)
         XCTAssertTrue(packet.html.contains("width=\"108\"") || packet.html.contains("width:108px"), packet.html)
         XCTAssertTrue(packet.html.contains("border-right:1px solid"), packet.html)
         XCTAssertFalse(packet.html.contains("width:25%"), packet.html)
+        XCTAssertTrue(PulseLaunch.shouldStackShareTablesForMailClients())
+        XCTAssertFalse(PulseLaunch.shouldClipShareTablesInMailClients())
         XCTAssertTrue(packet.plain.contains("Lost $"), packet.plain)
         XCTAssertTrue(packet.plain.contains("East Region"), packet.plain)
         XCTAssertTrue(packet.plain.contains("  "), packet.plain)
@@ -5076,7 +5081,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture401CompanyGrainExpandIsPageScopedNotAllCards() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.402")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.403")
         XCTAssertFalse(PulseLaunch.shouldPrefillAllExpandTablesAtCompany(pad: true))
         XCTAssertFalse(PulseLaunch.shouldPrefillAllExpandTablesAtCompany(pad: false))
         XCTAssertFalse(PulseLaunch.shouldPrefillExpandTables(filtersActive: false))
@@ -5142,7 +5147,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture402ShareMailPresentsAfterShareSheetDismiss() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.402")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.403")
         XCTAssertFalse(PulseLaunch.shouldPresentMailOverActiveShareSheet())
         XCTAssertTrue(PulseLaunch.shouldDismissShareSheetBeforePresentingMail())
         XCTAssertEqual(
@@ -5169,6 +5174,71 @@ final class HeartbeatMathTests: XCTestCase {
                 latest: [:],
                 roster: [:],
                 grain: .region
+            ).isEmpty
+        )
+    }
+
+    func testArchitecture403ShareMailStacksTablesAndWiresPickerBuckets() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.403")
+        XCTAssertTrue(PulseLaunch.shouldStackShareTablesForMailClients())
+        XCTAssertFalse(PulseLaunch.shouldClipShareTablesInMailClients())
+        XCTAssertFalse(PulseLaunch.shouldPresentMailOverActiveShareSheet())
+        XCTAssertTrue(PulseLaunch.shouldDismissShareSheetBeforePresentingMail())
+        XCTAssertFalse(PulseLaunch.shouldPrefillAllExpandTablesAtCompany(pad: true))
+        XCTAssertFalse(PulseLaunch.shouldBuildCompanyGrainTablesOnWarehousePaint())
+        let chrome = PulseLaunch.pickerShareBuckets(
+            rows: [],
+            chromeShoppers: 120,
+            chromeStrong: 80,
+            chromeOpportunity: 25,
+            grain: []
+        )
+        XCTAssertEqual(chrome.shoppers, 120)
+        XCTAssertEqual(chrome.healthy, 80)
+        XCTAssertEqual(chrome.watch, 15)
+        XCTAssertEqual(chrome.risk, 25)
+        let snap = PulseMail.Snapshot(
+            filterSummary: "Company",
+            grain: "region",
+            summaries: [
+                SectionSummary(
+                    section: .pickerScorecard,
+                    storeCount: 400,
+                    headline: 120,
+                    headlineLabel: "Shoppers",
+                    secondary: "25 opportunity · 80 doing well",
+                    health: .watch,
+                    watchCount: 15,
+                    riskCount: 25
+                )
+            ],
+            rows: [:],
+            pickerCounts: [:],
+            generatedAt: Date(timeIntervalSince1970: 1_700_000_000),
+            flags: [
+                .pickerScorecard: HeartbeatMath.bandFlags(healthy: 0, watch: 0, risk: 0, unit: "shoppers")
+            ],
+            pickerShoppers: 120,
+            pickerStrong: 80,
+            pickerOpportunity: 25
+        )
+        let html = PulseMail.make(snap, pages: [.pickerScorecard]).html
+        XCTAssertTrue(html.contains("All Shoppers"), html)
+        XCTAssertTrue(html.contains("Healthy"), html)
+        XCTAssertTrue(html.contains("Watch"), html)
+        XCTAssertTrue(html.contains("At Risk"), html)
+        XCTAssertTrue(html.contains(">80<") || html.contains("80"), html)
+        XCTAssertTrue(html.contains(">15<") || html.contains("15"), html)
+        XCTAssertTrue(html.contains(">25<") || html.contains("25"), html)
+        XCTAssertFalse(html.contains("overflow-x:auto"), html)
+        XCTAssertTrue(
+            PulseLaunch.grainTablesSkippingCompanyPrefill(
+                latest: [:],
+                grain: .region,
+                roster: [:],
+                packs: [:],
+                goalFallback: nil,
+                filtersActive: false
             ).isEmpty
         )
     }

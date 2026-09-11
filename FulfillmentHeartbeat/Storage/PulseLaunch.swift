@@ -1826,6 +1826,45 @@ enum PulseLaunch {
     }
     static var shareSheetDismissSettleNanoseconds: UInt64 { 350_000_000 }
 
+    /// Apple Mail clips wide `overflow-x` tables. Stack each grain/store row
+    /// as a 100% card so Regions columns stay readable on phone width.
+    static func shouldStackShareTablesForMailClients() -> Bool { true }
+    static func shouldClipShareTablesInMailClients() -> Bool { false }
+
+    /// Share Picker Healthy / Watch / At Risk. Live shopper rows first, then
+    /// grain totals, then pack chrome. Does not expand company grainTables.
+    static func pickerShareBuckets(
+        rows: [MetricRow],
+        chromeShoppers: Int,
+        chromeStrong: Int,
+        chromeOpportunity: Int,
+        grain: [HeartbeatMath.DashboardGrainTableRow]
+    ) -> (shoppers: Int, healthy: Int, watch: Int, risk: Int) {
+        let fromRows = HeartbeatMath.pickerStatusCounts(rows)
+        if fromRows.healthy + fromRows.watch + fromRows.risk > 0 {
+            return fromRows
+        }
+        let grainTotals = pickerExpandStatusTotals(grain)
+        if grainTotals.healthy + grainTotals.watch + grainTotals.risk > 0 {
+            let head = max(
+                chromeShoppers,
+                fromRows.shoppers,
+                grain.reduce(0) { $0 + $1.storeCount }
+            )
+            return (
+                head,
+                Int(grainTotals.healthy),
+                Int(grainTotals.watch),
+                Int(grainTotals.risk)
+            )
+        }
+        let shoppers = max(chromeShoppers, fromRows.shoppers)
+        let healthy = max(chromeStrong, 0)
+        let risk = max(chromeOpportunity, 0)
+        let watch = max(0, shoppers - healthy - risk)
+        return (shoppers, healthy, watch, risk)
+    }
+
     /// Boot copy that must move. One spinner phrase for 15s fails the reliability bar.
     enum BootPhase: Int, CaseIterable {
         case openingFloor = 1
