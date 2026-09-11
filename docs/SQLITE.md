@@ -24,4 +24,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.389 / 1.0 (715) — OM_ID roster bind (not OM_AREA); cook/publish OM person seats; glance blue title banner; no Dashboard back; Picker shoppers on Division/District/OM/Store. Recook + republish required.
+HB-0828.390 / 1.0 (716) — iPhone Picker cards; first-tap Pages; 44pt hits; Assist ops-coach shape; hide Unassigned Markets; roster-gate identities; Labor Total banner only when TVA/Total missing. Recook + republish still required for OM people packs.

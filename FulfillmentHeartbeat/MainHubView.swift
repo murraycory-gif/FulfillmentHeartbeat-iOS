@@ -140,6 +140,21 @@ final class HubRouter: ObservableObject {
         }
     }
 
+    /// Pages sheet: apply the destination in the same turn as dismiss so the first tap opens.
+    func openFromCompactPages(_ dest: HubDestination) {
+        var transaction = Transaction()
+        transaction.animation = nil
+        withTransaction(transaction) {
+            destination = dest
+            if dest == .dashboard {
+                pushedSection = nil
+            }
+            sidebarOpen = false
+            alertsOpen = false
+            showCompactMenu = false
+        }
+    }
+
     func pushPhone(section: MetricSection) {
         var transaction = Transaction()
         transaction.animation = nil
@@ -598,26 +613,28 @@ struct CompactNavSheet: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                Section("Sections") {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("SECTIONS")
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(AppTheme.textTertiary)
+                        .padding(.horizontal, 4)
                     ForEach(HubDestination.sectionItems) { item in
                         navRow(item)
                     }
                 }
-                if !HubDestination.settingsItems.isEmpty {
-                    Section("Settings") {
-                        ForEach(HubDestination.settingsItems) { item in
-                            navRow(item)
-                        }
-                    }
-                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
             }
-            .listStyle(.insetGrouped)
+            .background(AppTheme.bg)
             .navigationTitle("Heartbeat")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { router.showCompactMenu = false }
+                        .font(.body.weight(.semibold))
+                        .frame(minWidth: HubLayout.phoneHitTarget, minHeight: HubLayout.phoneHitTarget)
+                        .contentShape(Rectangle())
                 }
             }
         }
@@ -625,18 +642,61 @@ struct CompactNavSheet: View {
     }
 
     private func navRow(_ item: HubDestination) -> some View {
-        Button {
-            var transaction = Transaction()
-            transaction.animation = nil
-            withTransaction(transaction) {
-                router.open(item)
-                router.showCompactMenu = false
-            }
+        let health = navHealth(for: item)
+        let selected = router.destination == item
+        let iconInk = PulseLaunch.shouldTintPhonePagesIconsWithHealth()
+            ? HubNavSelection.iconInk(selected: selected, health: health)
+            : (selected ? AppTheme.blue : AppTheme.text)
+        let iconWash = PulseLaunch.shouldTintPhonePagesIconsWithHealth()
+            ? HubNavSelection.iconWash(selected: selected, health: health)
+            : AppTheme.blueSoft
+        return Button {
+            router.openFromCompactPages(item)
         } label: {
-            Label(item.title, systemImage: item.symbol)
-                .symbolRenderingMode(.monochrome)
-                .foregroundStyle(router.destination == item ? AppTheme.blue : AppTheme.text)
-                .fontWeight(router.destination == item ? .semibold : .regular)
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(iconWash)
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(iconInk.opacity(selected ? 0.45 : 0.18), lineWidth: selected ? 1.5 : 1)
+                    Image(systemName: item.symbol)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(iconInk)
+                }
+                .frame(width: 28, height: 28)
+                Text(item.title)
+                    .font(.body.weight(selected ? .semibold : .regular))
+                    .foregroundStyle(selected ? AppTheme.blue : AppTheme.text)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+            }
+            .frame(maxWidth: .infinity, minHeight: HubLayout.phoneHitTarget, alignment: .leading)
+            .padding(.horizontal, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .background(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(selected ? AppTheme.blue.opacity(0.12) : Color.white)
+        )
+    }
+
+    private func navHealth(for dest: HubDestination) -> Health {
+        switch dest {
+        case .dashboard:
+            return store.summaries.map(\.health).max(by: { healthRank($0) < healthRank($1) }) ?? .none
+        default:
+            guard let section = dest.section else { return .none }
+            return store.summary(for: section).health
+        }
+    }
+
+    private func healthRank(_ health: Health) -> Int {
+        switch health {
+        case .none: return 0
+        case .good: return 1
+        case .watch: return 2
+        case .risk: return 3
         }
     }
 }

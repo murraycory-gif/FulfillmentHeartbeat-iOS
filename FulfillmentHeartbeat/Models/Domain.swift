@@ -658,6 +658,9 @@ enum HeartbeatMath {
             return MarketRegion.resolved(division: row.division, district: row.district)?.rawValue
         case .division:
             let key = RollupMarketFill.divisionKey(row.division)
+            if PulseLaunch.shouldHideUnassignedMarketGrain(), RollupMarketFill.hidesUnassignedMarket(key) {
+                return nil
+            }
             return key.isEmpty ? nil : key
         case .district:
             let key = RollupMarketFill.districtKey(row.district)
@@ -1698,6 +1701,14 @@ enum HeartbeatMath {
         value = value.replacingOccurrences(of: "(?i)^(om|operations manager)\\s*[:\\-–]\\s*", with: "", options: .regularExpression)
         value = value.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
         return value
+    }
+
+    static func shopperInitials(_ raw: String) -> String {
+        let tokens = raw.split { $0.isWhitespace || $0 == "/" }.filter { $0.contains(where: \.isLetter) }
+        let letters = tokens.prefix(2).compactMap(\.first).map { String($0).uppercased() }
+        if !letters.isEmpty { return letters.joined() }
+        let fallback = raw.filter(\.isLetter).prefix(2).uppercased()
+        return fallback.isEmpty ? "?" : String(fallback)
     }
 
     struct StoreIdentity {

@@ -68,14 +68,21 @@ struct SectionDetailView: View {
 
             if showTables {
             if section == .pickerScorecard {
-                Section {
-                    PickerHighlightsPanel(
-                        onSelectOpportunity: { pickerFocus = .opportunity },
-                        onSelectStrong: { pickerFocus = .strong }
-                    )
-                    .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(AppTheme.bg)
+                if PulseLaunch.shouldShowPickerIndividualPictures(filters: store.filters) {
+                    Section {
+                        PickerHighlightsPanel(
+                            onSelectOpportunity: { pickerFocus = .opportunity },
+                            onSelectStrong: { pickerFocus = .strong }
+                        )
+                        .listRowInsets(EdgeInsets(
+                            top: 8,
+                            leading: HubLayout.isPhone(sizeClass) ? 12 : 20,
+                            bottom: 8,
+                            trailing: HubLayout.isPhone(sizeClass) ? 12 : 20
+                        ))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(AppTheme.bg)
+                    }
                 }
                 if PulseLaunch.shouldShowPickerShoppersTable(filters: store.filters) {
                     PickerScoreTable(focus: pickerFocus)
@@ -121,6 +128,19 @@ struct SectionDetailView: View {
                     LostRevenueTable(rows: lostRevenueRows)
                 }
             } else if section == .sales {
+                if PulseLaunch.shouldShowSalesDayWeekBlock(filters: store.filters) {
+                    Section {
+                        OverviewSalesBlock(includeMidRollup: false)
+                            .listRowInsets(EdgeInsets(
+                                top: 8,
+                                leading: HubLayout.isPhone(sizeClass) ? 12 : 20,
+                                bottom: 8,
+                                trailing: HubLayout.isPhone(sizeClass) ? 12 : 20
+                            ))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(AppTheme.bg)
+                    }
+                }
                 SectionRollupHost(grains: rollupGrains) { SalesRollupTable(forcedGrain: $0) }
                 if showStoreTable {
                     SalesTable(rows: snapshots)
@@ -282,7 +302,7 @@ struct SectionDetailView: View {
 
     @ViewBuilder
     private var pageIntro: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: HubLayout.isPhone(sizeClass) ? 6 : 8) {
             CommandCenterSectionHero(card: summary)
             CommandCenterStatusPills(card: summary, flags: store.dashboardFlags(for: section))
 

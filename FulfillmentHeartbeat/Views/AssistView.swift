@@ -4,12 +4,15 @@ struct HeartbeatAssistSheet: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var router: HubRouter
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var messages: [HeartbeatAssist.Message] = []
     @State private var draft = ""
     @State private var thinking = false
     @FocusState private var fieldFocused: Bool
 
     private var prompts: [String] { HeartbeatAssist.prompts(for: router.current) }
+    private var phone: Bool { HubLayout.isPhone(sizeClass) }
+    private var hit: CGFloat { PulseLaunch.phoneMinimumHitTarget() }
 
     private var assistWindow: String? {
         if let section = router.current.section {
@@ -21,15 +24,7 @@ struct HeartbeatAssistSheet: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                HubBanner(
-                    icon: "waveform.path.ecg",
-                    title: "Heartbeat Assist",
-                    accessory: "\(router.current.title)  ·  \(store.filters.summary)",
-                    trailing: assistWindow,
-                    clipped: false
-                )
-                .padding(.horizontal, 20)
-                .padding(.top, 12)
+                contextBar
                 transcript
                 promptBank
                 composer
@@ -39,11 +34,46 @@ struct HeartbeatAssistSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
-                        .font(.title3.weight(.semibold))
+                        .font((phone ? Font.body : Font.title3).weight(.semibold))
                         .foregroundStyle(AppTheme.blue)
+                        .frame(minWidth: hit, minHeight: hit)
+                        .contentShape(Rectangle())
                 }
             }
+            .navigationTitle("Heartbeat Assist")
+            .navigationBarTitleDisplayMode(.inline)
         }
+    }
+
+    private var contextBar: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(router.current.title)
+                .font((phone ? Font.subheadline : Font.headline).weight(.bold))
+                .foregroundStyle(AppTheme.text)
+                .lineLimit(1)
+            Text(store.filters.summary)
+                .font(phone ? .caption : .subheadline)
+                .foregroundStyle(AppTheme.textSecondary)
+                .lineLimit(2)
+            Spacer(minLength: 8)
+            if let assistWindow, !assistWindow.isEmpty {
+                Text(assistWindow)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.textTertiary)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.horizontal, phone ? 16 : 20)
+        .padding(.vertical, phone ? 8 : 10)
+        .frame(minHeight: hit, alignment: .center)
+        .background(Color.white)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(AppTheme.cardBorder)
+                .frame(height: 1)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(router.current.title). \(store.filters.summary)")
     }
 
     private var transcript: some View {
@@ -52,7 +82,7 @@ struct HeartbeatAssistSheet: View {
                 LazyVStack(alignment: .leading, spacing: 12) {
                     if messages.isEmpty && !thinking {
                         Text(intro)
-                            .font(.title3)
+                            .font(phone ? .body : .title3)
                             .foregroundStyle(AppTheme.textSecondary)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.top, 8)
@@ -68,7 +98,7 @@ struct HeartbeatAssistSheet: View {
                             .padding(.vertical, 8)
                     }
                 }
-                .padding(.horizontal, 28)
+                .padding(.horizontal, phone ? 16 : 28)
                 .padding(.vertical, 16)
             }
             .background(AppTheme.bg)
@@ -85,34 +115,32 @@ struct HeartbeatAssistSheet: View {
             Text(router.current == .dashboard ? "Ask anything across the heartbeat" : "Ask about this page")
                 .font(.subheadline.weight(.bold))
                 .foregroundStyle(AppTheme.textSecondary)
-                .padding(.horizontal, 4)
             ScrollView {
-                LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 320), spacing: 10)],
-                    alignment: .leading,
-                    spacing: 10
-                ) {
+                LazyVStack(alignment: .leading, spacing: 8) {
                     ForEach(prompts, id: \.self) { prompt in
                         Button {
                             ask(prompt)
                         } label: {
                             Text(prompt)
-                                .font(.body.weight(.semibold))
+                                .font((phone ? Font.body : Font.title3).weight(.semibold))
                                 .foregroundStyle(AppTheme.blue)
                                 .multilineTextAlignment(.leading)
+                                .fixedSize(horizontal: false, vertical: true)
                                 .padding(.horizontal, 14)
-                                .padding(.vertical, 12)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, phone ? 10 : 12)
+                                .frame(maxWidth: .infinity, minHeight: hit, alignment: .leading)
                                 .background(AppTheme.blueSoft, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                                .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                         }
                         .buttonStyle(.plain)
                         .disabled(thinking)
+                        .accessibilityLabel(prompt)
                     }
                 }
             }
-            .frame(maxHeight: 168)
+            .frame(maxHeight: phone ? 220 : 240)
         }
-        .padding(.horizontal, 24)
+        .padding(.horizontal, phone ? 16 : 24)
         .padding(.top, 10)
         .padding(.bottom, 8)
         .background(Color.white)
@@ -126,12 +154,12 @@ struct HeartbeatAssistSheet: View {
     private func bubble(_ message: HeartbeatAssist.Message) -> some View {
         let mine = message.role == .user
         return HStack {
-            if mine { Spacer(minLength: 48) }
+            if mine { Spacer(minLength: phone ? 28 : 48) }
             Text(message.text)
-                .font(.title3)
+                .font(phone ? .body : .title3)
                 .foregroundStyle(mine ? Color.white : AppTheme.text)
                 .textSelection(.enabled)
-                .padding(18)
+                .padding(phone ? 14 : 18)
                 .frame(maxWidth: 980, alignment: .leading)
                 .background(
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -143,7 +171,7 @@ struct HeartbeatAssistSheet: View {
                             .stroke(AppTheme.blue.opacity(0.22), lineWidth: 1.5)
                     }
                 }
-            if !mine { Spacer(minLength: 48) }
+            if !mine { Spacer(minLength: phone ? 28 : 48) }
         }
     }
 
@@ -151,22 +179,29 @@ struct HeartbeatAssistSheet: View {
         HStack(alignment: .bottom, spacing: 10) {
             TextField("Ask Heartbeat Assist…", text: $draft, axis: .vertical)
                 .textFieldStyle(.plain)
-                .font(.title3)
+                .font(phone ? .body : .title3)
                 .lineLimit(1...5)
                 .focused($fieldFocused)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .frame(minHeight: hit)
+                .background(AppTheme.bg, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 .onSubmit { ask(draft) }
             Button {
                 ask(draft)
             } label: {
                 Image(systemName: "arrow.up.circle.fill")
-                    .font(.system(size: 32, weight: .semibold))
+                    .font(.system(size: phone ? 34 : 36, weight: .semibold))
                     .foregroundStyle(canSend ? AppTheme.blue : AppTheme.textTertiary)
+                    .frame(width: hit, height: hit)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .disabled(!canSend)
+            .accessibilityLabel("Send")
         }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 16)
+        .padding(.horizontal, phone ? 16 : 24)
+        .padding(.vertical, 12)
         .background(Color.white)
         .overlay(alignment: .top) {
             Rectangle()

@@ -6,13 +6,13 @@ enum RollupMarketFill {
         let canonical = MarketRegion.canonicalName(raw)
         if !canonical.isEmpty { return canonical }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "Unassigned" : trimmed
+        return trimmed.isEmpty ? "" : trimmed
     }
 
     static func districtKey(_ raw: String) -> String {
         let value = HeartbeatMath.canonicalDistrict(raw)
         if !value.isEmpty { return value }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "Unassigned" : trimmed
+        return trimmed.isEmpty ? "" : trimmed
     }
 }

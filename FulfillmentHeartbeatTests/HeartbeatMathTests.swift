@@ -2141,7 +2141,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture381SeatPackContract() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.389")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.390")
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
         XCTAssertFalse(PulseSeatPack.shouldMergeSeatWithCompanyOnSwap())
         XCTAssertTrue(PulseSeatPack.shouldPaintHubFromActiveSeatSQLite())
@@ -2183,7 +2183,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture381bMacCookPublishesEverySeatSqlite() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.389")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.390")
         XCTAssertTrue(PulseSeatPack.shouldCookEveryStoreSeat())
         XCTAssertTrue(PulseSeatPack.shouldPublishSeatPlaneFromCook())
         XCTAssertFalse(PulseSeatPack.shouldMaterializeMissingSeatOnFieldDevice())
@@ -2251,7 +2251,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture382CommandCenterFillsViewportLikePulse() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.389")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.390")
         XCTAssertTrue(PulseLaunch.shouldUseCommandCenterHome())
         XCTAssertFalse(PulseLaunch.shouldMountDashCalloutTablesOnHome())
         XCTAssertTrue(PulseLaunch.shouldPinMacCommandCenterRails())
@@ -2326,7 +2326,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture383CompanyCommandCenterPickerChromeAndStoreTableScope() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.389")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.390")
         XCTAssertFalse(PulseLaunch.shouldStreamCompanyPickerForSeatFirstPaint())
         XCTAssertFalse(PulseLaunch.shouldPlaySeatLoadHalloween())
         XCTAssertFalse(PulseLaunch.shouldShowGroceryLoadQuips())
@@ -2558,7 +2558,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture384SeatSwapAndSectionOpenPlane() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.389")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.390")
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
         XCTAssertFalse(PulseSeatPack.shouldMergeSeatWithCompanyOnSwap())
         XCTAssertTrue(PulseSeatPack.shouldPaintHubFromActiveSeatSQLite())
@@ -2684,7 +2684,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture385CompanyColdOpenNoRoleGateNoToursFilterPaints() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.389")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.390")
         XCTAssertFalse(PulseLaunch.shouldPinMacCommandCenterAlertsRail())
         XCTAssertFalse(PulseLaunch.shouldOfferIPadCommandCenterAlertsDrawer())
         XCTAssertFalse(PulseLaunch.shouldRequireRoleGateOnColdOpen())
@@ -2735,7 +2735,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture387SectionPageTableMatrixAndNoIPadAlerts() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.389")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.390")
         XCTAssertFalse(PulseLaunch.shouldPinMacCommandCenterAlertsRail())
         XCTAssertFalse(PulseLaunch.shouldOfferIPadCommandCenterAlertsDrawer())
         XCTAssertTrue(PulseLaunch.shouldOfferIPadCommandCenterDrawers())
@@ -2787,7 +2787,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture389OMSeatPacksGlanceBannerPickerShoppersAndNoDashboardBack() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.389")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.390")
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
         XCTAssertFalse(PulseLaunch.shouldShowScorecardDashboardBackControl())
         XCTAssertTrue(CommandCenterLayout.glanceTitleUsesBlueBanner())
@@ -2917,6 +2917,91 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(omStores.intersection(["304", "667", "1"]), ["304", "667"])
         XCTAssertTrue(omPack.rows.contains { $0.section == .pickerScorecard })
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
+    }
+
+    func testArchitecture390PickerPhonePagesAssistUnassignedAndLabor() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.390")
+        XCTAssertTrue(PulseLaunch.shouldUsePickerPhoneCards(phone: true))
+        XCTAssertFalse(PulseLaunch.shouldUsePickerPhoneCards(phone: false))
+        XCTAssertTrue(PulseLaunch.shouldOpenPhonePagesOnFirstTap())
+        XCTAssertTrue(PulseLaunch.shouldTintPhonePagesIconsWithHealth())
+        XCTAssertEqual(PulseLaunch.phoneMinimumHitTarget(), 44)
+        XCTAssertEqual(HubLayout.phoneControlHeight, 44)
+        XCTAssertEqual(HubLayout.phoneHitTarget, 44)
+        XCTAssertTrue(PulseLaunch.shouldHideUnassignedMarketGrain())
+        XCTAssertTrue(PulseLaunch.shouldRosterGateRollupIdentities())
+        XCTAssertTrue(PulseLaunch.shouldUseAssistCoachShape())
+        XCTAssertEqual(
+            PulseLaunch.assistCoachHeadings(),
+            ["WHAT'S WRONG", "WHAT'S CAUSING IT", "SHOPPER SOP", "LABOR / SCHEDULE", "DIRECTION"]
+        )
+        XCTAssertFalse(PulseLaunch.shouldShowLaborTotalRowWarning(
+            filtersActive: false, hasMarketTotal: true, hasLiveTVA: true
+        ))
+        XCTAssertFalse(PulseLaunch.shouldShowLaborTotalRowWarning(
+            filtersActive: false, hasMarketTotal: false, hasLiveTVA: true
+        ))
+        XCTAssertFalse(PulseLaunch.shouldShowLaborTotalRowWarning(
+            filtersActive: true, hasMarketTotal: false, hasLiveTVA: false
+        ))
+        XCTAssertTrue(PulseLaunch.shouldShowLaborTotalRowWarning(
+            filtersActive: false, hasMarketTotal: false, hasLiveTVA: false
+        ))
+        XCTAssertTrue(PulseLaunch.shouldShowPickerIndividualPictures(filters: {
+            var f = DashboardFilters(); f.division = "NorCal"; return f
+        }()))
+        XCTAssertFalse(PulseLaunch.shouldShowPickerIndividualPictures(filters: DashboardFilters()))
+        XCTAssertFalse(PulseLaunch.shouldShowPickerAllShoppersEmpty(tableCount: 0, cohortCount: 4))
+        XCTAssertTrue(PulseLaunch.shouldShowPickerAllShoppersEmpty(tableCount: 0, cohortCount: 0))
+        XCTAssertTrue(PulseLaunch.shouldShowSalesDayWeekBlock(filters: DashboardFilters()))
+
+        XCTAssertTrue(WorkbookParser.isNonStoreFooter("Applied filters: Excluded (2) (Blank) (DIVISION)"))
+        XCTAssertNil(WorkbookParser.usableStoreNumber("Applied filters: WEEK_ID 202513"))
+        XCTAssertEqual(WorkbookParser.usableStoreNumber("17"), "17")
+        XCTAssertTrue(RollupMarketFill.hidesUnassignedMarket("Unassigned"))
+        XCTAssertTrue(RollupMarketFill.hidesUnassignedMarket(""))
+        XCTAssertEqual(RollupMarketFill.marketBucketKey(
+            MetricRow(section: .sales, division: "", operationsOM: "", storeNumber: "17", payload: ["sales_dollars": 10])
+        ), "")
+
+        let rosterRow = MetricRow(
+            section: .storeRoster,
+            division: "NorCal",
+            operationsOM: "Jino Arvin",
+            storeNumber: "12",
+            storeName: "12",
+            payload: ["roster": 1],
+            textPayload: ["roster": "1", "district": "03"]
+        )
+        let orphan = MetricRow(
+            section: .sales,
+            division: "",
+            operationsOM: "",
+            storeNumber: "17",
+            payload: ["sales_dollars": 100]
+        )
+        let roster = PulseCaches.storeRoster(from: [rosterRow, orphan])
+        XCTAssertNotNil(roster["12"])
+        XCTAssertNil(roster["17"])
+
+        let lostOrphan = MetricRow(
+            section: .lostRevenue,
+            division: "",
+            operationsOM: "",
+            storeNumber: "17",
+            payload: ["lost_revenue": 50]
+        )
+        XCTAssertNil(RollupMarketFill.acceptedGrainKey(lostOrphan, grain: .division))
+        XCTAssertNil(RollupMarketFill.acceptedGrainKey(orphan, grain: .division))
+        XCTAssertFalse(SalesRollupBuilder.rows(from: [orphan], grain: .division).contains { $0.label == "Unassigned" })
+        XCTAssertNil(HeartbeatMath.dashboardScopeKey(orphan, grain: .division))
+        XCTAssertNil(HeartbeatMath.dashboardScopeKey(lostOrphan, grain: .division))
+
+        let fallback = HeartbeatAssist.coachFallback(dest: .dashboard, filter: "Company", wrong: "Pack missing.")
+        for heading in PulseLaunch.assistCoachHeadings() {
+            XCTAssertTrue(fallback.contains(heading), heading)
+        }
+        XCTAssertEqual(HeartbeatAssist.intent(for: "What's wrong and what should we do first?", dest: .dashboard), .overview)
     }
 
     func testSeatPackDistrict03EverySectionStoresEqualsHeartbeatN() throws {

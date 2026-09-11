@@ -608,6 +608,7 @@ struct PulseCaches {
                 ? rows.filter { $0.section != .pickerScorecard && $0.section != .pickPathPicker }
                 : primary
         )
+        let gateOrphans = PulseLaunch.shouldRosterGateRollupIdentities() && !official.isEmpty
         guard !fallback.isEmpty else { return roster }
         let extra = HeartbeatMath.storeRoster(fallback)
         for (number, identity) in extra {
@@ -617,7 +618,7 @@ struct PulseCaches {
                 if current.om.isEmpty { current.om = identity.om }
                 if current.name == nil { current.name = identity.name }
                 roster[number] = current
-            } else {
+            } else if !gateOrphans {
                 roster[number] = identity
             }
         }
@@ -625,13 +626,15 @@ struct PulseCaches {
         for row in rows {
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
             guard !store.isEmpty, !HeartbeatMath.isIgnoredStore(store) else { continue }
+            let missing = roster[store] == nil
+            if missing, gateOrphans { continue }
             var identity = roster[store] ?? HeartbeatMath.StoreIdentity(
                 division: "",
                 district: "",
                 om: "",
                 name: row.storeName
             )
-            var changed = roster[store] == nil
+            var changed = missing
             if identity.district.isEmpty {
                 let district = HeartbeatMath.canonicalDistrict(row.district)
                 if !district.isEmpty {

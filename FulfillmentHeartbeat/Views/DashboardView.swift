@@ -1201,6 +1201,7 @@ private struct DashCardChrome: ViewModifier {
 
 struct PickerHighlightsPanel: View {
     @EnvironmentObject private var store: HeartbeatStore
+    @Environment(\.horizontalSizeClass) private var sizeClass
     var onSelectOpportunity: () -> Void = {}
     var onSelectStrong: () -> Void = {}
     @State private var expanded = true
@@ -1209,6 +1210,8 @@ struct PickerHighlightsPanel: View {
     private var board: HeartbeatMath.PickerBoard {
         store.pickerBoard
     }
+
+    private var phone: Bool { HubLayout.isPhone(sizeClass) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1226,12 +1229,12 @@ struct PickerHighlightsPanel: View {
 
             if expanded {
                 Group {
-                    if board.shopperCount == 0 {
+                    if board.shopperCount == 0 && board.opportunity.isEmpty && board.strong.isEmpty {
                         Text(store.pickerLoading ? "Loading shoppers…" : "Shoppers fill from the Heartbeat pack after ready.")
-                            .font(.subheadline)
+                            .font(phone ? .caption : .subheadline)
                             .foregroundStyle(AppTheme.textSecondary)
                     } else {
-                        VStack(alignment: .leading, spacing: 16) {
+                        VStack(alignment: .leading, spacing: phone ? 10 : 16) {
                             shopperColumn(
                                 title: "Top opportunity",
                                 subtitle: "Underperforming vs the metric mix",
@@ -1251,7 +1254,7 @@ struct PickerHighlightsPanel: View {
                         }
                     }
                 }
-                .padding(16)
+                .padding(phone ? 10 : 16)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(AppTheme.tableFill)
             }
@@ -1272,14 +1275,14 @@ struct PickerHighlightsPanel: View {
         tone: Health,
         action: @escaping () -> Void
     ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: phone ? 8 : 10) {
             Button(action: action) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                        .font(.title3.weight(.semibold))
+                        .font((phone ? Font.headline : Font.title3).weight(.semibold))
                         .foregroundStyle(tone == .risk ? AppTheme.bad : AppTheme.ok)
                     Text(subtitle)
-                        .font(.subheadline)
+                        .font(phone ? .caption : .subheadline)
                         .foregroundStyle(AppTheme.textSecondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1288,23 +1291,36 @@ struct PickerHighlightsPanel: View {
             .buttonStyle(.plain)
             if rows.isEmpty {
                 Text(empty)
-                    .font(.subheadline)
+                    .font(phone ? .caption : .subheadline)
                     .foregroundStyle(AppTheme.textSecondary)
-                    .padding(.vertical, 8)
+                    .padding(.vertical, phone ? 4 : 8)
             } else {
-                PickerMetricHeader(label: "Shopper")
-                ForEach(rows) { row in
-                    PickerStoreRow(
-                        snap: PickerLineSnap(row, division: divisionLabel(for: row)),
-                        expanded: openShopper == row.id.uuidString,
-                        onToggle: {
-                            openShopper = openShopper == row.id.uuidString ? nil : row.id.uuidString
-                        }
-                    )
+                ShopperPictureStrip(rows: rows)
+                if PulseLaunch.shouldUsePickerPhoneCards(phone: phone) {
+                    ForEach(rows) { row in
+                        PickerPhoneCard(
+                            snap: PickerLineSnap(row, division: divisionLabel(for: row)),
+                            expanded: openShopper == row.id.uuidString,
+                            onToggle: {
+                                openShopper = openShopper == row.id.uuidString ? nil : row.id.uuidString
+                            }
+                        )
+                    }
+                } else {
+                    PickerMetricHeader(label: "Shopper")
+                    ForEach(rows) { row in
+                        PickerStoreRow(
+                            snap: PickerLineSnap(row, division: divisionLabel(for: row)),
+                            expanded: openShopper == row.id.uuidString,
+                            onToggle: {
+                                openShopper = openShopper == row.id.uuidString ? nil : row.id.uuidString
+                            }
+                        )
+                    }
                 }
             }
         }
-        .padding(14)
+        .padding(phone ? 10 : 14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)

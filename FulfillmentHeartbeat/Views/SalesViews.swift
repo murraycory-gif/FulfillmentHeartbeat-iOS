@@ -3,6 +3,8 @@ import SwiftUI
 struct OverviewSalesBlock: View {
     @EnvironmentObject private var store: HeartbeatStore
     @Environment(\.horizontalSizeClass) private var sizeClass
+    /// Scorecard mounts week total + by day only. Mid grain tables are the rollup host.
+    var includeMidRollup: Bool = true
 
     private var phone: Bool { HubLayout.isPhone(sizeClass) }
 
@@ -14,11 +16,11 @@ struct OverviewSalesBlock: View {
             from: stores,
             company: store.filters.isActive ? nil : store.salesCompanyFact()
         )
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: phone ? 10 : 16) {
             overviewTable(title: scopeTitle, rows: [
                 SalesRollupRow(label: scopeTitle, storeCount: Set(stores.map(\.storeNumber)).count, pack: total)
             ], showCount: true)
-            if !mid.rows.isEmpty {
+            if includeMidRollup, !mid.rows.isEmpty {
                 overviewTable(title: mid.title, rows: mid.rows, showCount: mid.showCount)
             }
             if !days.isEmpty {
@@ -459,25 +461,11 @@ enum SalesRollupBuilder {
     static func rows(from stores: [MetricRow], grain: LaborRollupGrain) -> [SalesRollupRow] {
         var buckets: [String: [MetricRow]] = [:]
         for row in stores {
-            let key: String
-            switch grain {
-            case .region:
-                key = RollupMarketFill.bucketKey(row, grain: .region)
-                if key == "Unassigned" { continue }
-            case .division:
-                key = RollupMarketFill.divisionKey(row.division)
-                if key == "Unassigned" { continue }
-            case .district:
-                key = RollupMarketFill.districtKey(row.district)
-                if key == "Unassigned" { continue }
-            case .store:
-                key = HeartbeatMath.canonicalStore(row.storeNumber)
-            }
-            guard !key.isEmpty, HeartbeatMath.salesHeadlineDollars(row) > 0 || HeartbeatMath.salesOrders(row) > 0 else { continue }
+            guard let key = RollupMarketFill.acceptedGrainKey(row, grain: grain) else { continue }
+            guard HeartbeatMath.salesHeadlineDollars(row) > 0 || HeartbeatMath.salesOrders(row) > 0 else { continue }
             buckets[key, default: []].append(row)
         }
         return buckets.keys.sorted().compactMap { key in
-            if key == "Unassigned" { return nil }
             let packRows = buckets[key] ?? []
             let pack = SalesPack(rows: packRows)
             guard pack.sales != nil || pack.orders != nil else { return nil }

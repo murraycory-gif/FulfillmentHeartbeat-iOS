@@ -190,7 +190,7 @@ struct HubTableHeader: View {
         .foregroundStyle(Color.white)
         .padding(.horizontal, phone ? 10 : 14)
         .padding(.vertical, phone ? 7 : 9)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: phone ? HubLayout.phoneHitTarget : nil, alignment: .leading)
         .background(AppTheme.blue)
         .clipShape(
             UnevenRoundedRectangle(
@@ -445,20 +445,21 @@ struct EmptyHint: View {
     let symbol: String
     let title: String
     let detail: String
+    var compact: Bool = false
 
     var body: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: compact ? 6 : 10) {
             Image(systemName: symbol)
-                .font(.system(size: 28, weight: .medium))
+                .font(.system(size: compact ? 20 : 28, weight: .medium))
                 .foregroundStyle(AppTheme.blue)
-            Text(title).font(.headline)
+            Text(title).font(compact ? .subheadline.weight(.semibold) : .headline)
             Text(detail)
-                .font(.subheadline)
+                .font(compact ? .caption : .subheadline)
                 .foregroundStyle(AppTheme.textSecondary)
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 28)
+        .padding(.vertical, compact ? 10 : 28)
     }
 }
 
@@ -482,7 +483,7 @@ struct HubNavControl: View {
             .foregroundStyle(AppTheme.blue)
             .padding(.horizontal, phone ? 8 : 10)
             .padding(.vertical, phone ? 6 : 8)
-            .frame(minHeight: phone ? max(HubLayout.phoneControlHeight, 44) : 48)
+            .frame(minWidth: phone ? HubLayout.phoneHitTarget : nil, minHeight: phone ? HubLayout.phoneHitTarget : 48)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -503,7 +504,7 @@ struct HubIconButton: View {
             Image(systemName: symbol)
                 .font(.body.weight(.semibold))
                 .foregroundStyle(chrome || !emphasized ? AppTheme.blue : Color.white)
-                .frame(width: 40, height: chrome ? 40 : 36)
+                .frame(width: HubLayout.phoneHitTarget, height: HubLayout.phoneHitTarget)
                 .background {
                     if chrome {
                         Circle()
@@ -951,11 +952,11 @@ struct HubChromePill: View {
                         .font(.caption.weight(.semibold))
                 }
             }
-            .font((compactPills ? Font.caption2 : Font.subheadline).weight(.semibold))
+            .font((compactPills ? Font.caption : Font.subheadline).weight(.semibold))
             .foregroundStyle(prominent ? Color.white : AppTheme.blue)
-            .padding(.horizontal, compactPills ? 8 : 10)
-            .padding(.vertical, compactPills ? 5 : 8)
-            .frame(minHeight: compactPills ? HubLayout.phoneControlHeight : 44)
+            .padding(.horizontal, compactPills ? 10 : 10)
+            .padding(.vertical, compactPills ? 8 : 8)
+            .frame(minWidth: compactPills ? HubLayout.phoneHitTarget : nil, minHeight: HubLayout.phoneHitTarget)
             .background(
                 Capsule(style: .continuous)
                     .fill(prominent ? AppTheme.blue : (selected ? AppTheme.blueSoft : Color.clear))
@@ -982,14 +983,23 @@ struct FilterBar: View {
                     .foregroundStyle(AppTheme.blue)
                     .frame(minHeight: 44)
             }
-            ViewThatFits(in: .horizontal) {
-                pills
-                ScrollView(.horizontal, showsIndicators: false) {
-                    pills
+            Group {
+                if compactPills {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        pills
+                    }
+                } else {
+                    ViewThatFits(in: .horizontal) {
+                        pills
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            pills
+                        }
+                    }
                 }
             }
             .id(chromeKey)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .fullScreenCover(item: $sheetFocus) { focus in
             FilterSheet(initialFocus: focus)
                 .environmentObject(store)
@@ -1010,9 +1020,10 @@ struct FilterBar: View {
                 }
                 if store.filters.isActive {
                     Button("Clear") { clearNow() }
-                        .font(.caption2.weight(.semibold))
+                        .font(.body.weight(.semibold))
                         .foregroundStyle(AppTheme.blue)
-                        .frame(minHeight: HubLayout.phoneControlHeight)
+                        .frame(minWidth: HubLayout.phoneHitTarget, minHeight: HubLayout.phoneHitTarget)
+                        .contentShape(Rectangle())
                 }
             } else {
                 ForEach(FilterFocus.allCases) { focus in
@@ -1344,11 +1355,12 @@ struct FilterSheet: View {
                             options = store.filterChoices(focus: item, draft: draft)
                         } label: {
                             Text(item.chipTitle)
-                                .font((HubLayout.isPhone(sizeClass) ? Font.caption2 : Font.subheadline).weight(.semibold))
+                                .font((HubLayout.isPhone(sizeClass) ? Font.caption : Font.subheadline).weight(.semibold))
                                 .foregroundStyle(focus == item ? Color.white : AppTheme.blue)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, HubLayout.isPhone(sizeClass) ? 7 : 8)
+                                .frame(maxWidth: .infinity, minHeight: HubLayout.isPhone(sizeClass) ? HubLayout.phoneHitTarget : 36)
+                                .padding(.vertical, HubLayout.isPhone(sizeClass) ? 8 : 8)
                                 .background(focus == item ? AppTheme.blue : AppTheme.blueSoft, in: Capsule())
+                                .contentShape(Capsule())
                         }
                         .buttonStyle(.plain)
                     }
@@ -2000,19 +2012,7 @@ private enum PickPathRollupBuilder {
     static func rows(from stores: [MetricRow], grain: LaborRollupGrain) -> [PickPathRollupRow] {
         var buckets: [String: [MetricRow]] = [:]
         for row in stores {
-            let key: String
-            switch grain {
-            case .region:
-                key = RollupMarketFill.bucketKey(row, grain: .region)
-                if key == "Unassigned" { continue }
-            case .division:
-                key = RollupMarketFill.divisionKey(row.division)
-            case .district:
-                key = RollupMarketFill.districtKey(row.district)
-            case .store:
-                key = HeartbeatMath.canonicalStore(row.storeNumber)
-            }
-            guard !key.isEmpty else { continue }
+            guard let key = RollupMarketFill.acceptedGrainKey(row, grain: grain) else { continue }
             buckets[key, default: []].append(row)
         }
         var result: [PickPathRollupRow] = []
@@ -3115,19 +3115,7 @@ private enum DynacapRollupBuilder {
     static func rows(from stores: [MetricRow], grain: LaborRollupGrain, pphByStore: [String: Double]) -> [DynacapRollupRow] {
         var buckets: [String: [MetricRow]] = [:]
         for row in stores {
-            let key: String
-            switch grain {
-            case .region:
-                key = RollupMarketFill.bucketKey(row, grain: .region)
-                if key == "Unassigned" { continue }
-            case .division:
-                key = RollupMarketFill.divisionKey(row.division)
-            case .district:
-                key = RollupMarketFill.districtKey(row.district)
-            case .store:
-                key = HeartbeatMath.canonicalStore(row.storeNumber)
-            }
-            guard !key.isEmpty else { continue }
+            guard let key = RollupMarketFill.acceptedGrainKey(row, grain: grain) else { continue }
             buckets[key, default: []].append(row)
         }
         var result: [DynacapRollupRow] = []
@@ -3973,19 +3961,7 @@ private enum PrepRollupBuilder {
     static func rows(from stores: [MetricRow], grain: LaborRollupGrain) -> [PrepRollupRow] {
         var buckets: [String: [MetricRow]] = [:]
         for row in stores {
-            let key: String
-            switch grain {
-            case .region:
-                key = RollupMarketFill.bucketKey(row, grain: .region)
-                if key == "Unassigned" { continue }
-            case .division:
-                key = RollupMarketFill.divisionKey(row.division)
-            case .district:
-                key = RollupMarketFill.districtKey(row.district)
-            case .store:
-                key = HeartbeatMath.canonicalStore(row.storeNumber)
-            }
-            guard !key.isEmpty else { continue }
+            guard let key = RollupMarketFill.acceptedGrainKey(row, grain: grain) else { continue }
             buckets[key, default: []].append(row)
         }
         var result: [PrepRollupRow] = []
@@ -4691,19 +4667,7 @@ private enum FiveStarRollupBuilder {
     static func rows(from stores: [MetricRow], grain: LaborRollupGrain) -> [FiveStarRollupRow] {
         var buckets: [String: [MetricRow]] = [:]
         for row in stores {
-            let key: String
-            switch grain {
-            case .region:
-                key = RollupMarketFill.bucketKey(row, grain: .region)
-                if key == "Unassigned" { continue }
-            case .division:
-                key = RollupMarketFill.divisionKey(row.division)
-            case .district:
-                key = RollupMarketFill.districtKey(row.district)
-            case .store:
-                key = HeartbeatMath.canonicalStore(row.storeNumber)
-            }
-            guard !key.isEmpty else { continue }
+            guard let key = RollupMarketFill.acceptedGrainKey(row, grain: grain) else { continue }
             buckets[key, default: []].append(row)
         }
         var result: [FiveStarRollupRow] = []
@@ -5413,18 +5377,61 @@ enum LaborRollupGrain {
 }
 
 enum RollupMarketFill {
+    static let unassignedLabel = "Unassigned"
+
+    /// Exact roster / Excel market. Blank or ignored tokens stay empty — never invent Unassigned.
     static func divisionKey(_ raw: String) -> String {
         let canonical = MarketRegion.canonicalName(raw)
         if !canonical.isEmpty { return canonical }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "Unassigned" : trimmed
+        if trimmed.isEmpty { return "" }
+        let compact = HeartbeatMath.compactKey(trimmed)
+        if MarketRegion.ignoredDivisionKeys.contains(compact) { return "" }
+        return trimmed
+    }
+
+    static func isOrphanMarketStore(_ row: MetricRow) -> Bool {
+        let store = HeartbeatMath.canonicalStore(row.storeNumber)
+        guard !store.isEmpty, !HeartbeatMath.isIgnoredStore(store) else { return false }
+        if row.textPayload["lost_grain"] == "market" { return false }
+        if row.textPayload["labor_grain"] == "market" { return false }
+        if row.textPayload["sales_grain"] == "company" { return false }
+        return divisionKey(row.division).isEmpty
+    }
+
+    static func hidesUnassignedMarket(_ key: String) -> Bool {
+        if key.isEmpty { return true }
+        if key == unassignedLabel { return true }
+        return HeartbeatMath.compactKey(key) == "unassigned"
+    }
+
+    /// Markets grain never invents Unassigned. Blank / ignored / orphan → hidden.
+    static func marketBucketKey(_ row: MetricRow) -> String {
+        divisionKey(row.division)
+    }
+
+    static func acceptedGrainKey(_ row: MetricRow, grain: LaborRollupGrain) -> String? {
+        let key: String
+        switch grain {
+        case .region:
+            key = bucketKey(row, grain: .region)
+        case .division:
+            key = divisionKey(row.division)
+        case .district:
+            key = districtKey(row.district)
+        case .store:
+            key = HeartbeatMath.canonicalStore(row.storeNumber)
+        }
+        if PulseLaunch.shouldHideUnassignedMarketGrain(), hidesUnassignedMarket(key) { return nil }
+        if key.isEmpty { return nil }
+        return key
     }
 
     static func districtKey(_ raw: String) -> String {
         let value = HeartbeatMath.displayGrainLabel(HeartbeatMath.canonicalDistrict(raw))
         if !value.isEmpty { return value }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "Unassigned" : HeartbeatMath.displayGrainLabel(trimmed)
+        return trimmed.isEmpty ? "" : HeartbeatMath.displayGrainLabel(trimmed)
     }
 
     static func grain(for filters: DashboardFilters) -> LaborRollupGrain {
@@ -5444,7 +5451,7 @@ enum RollupMarketFill {
     static func bucketKey(_ row: MetricRow, grain: LaborRollupGrain) -> String {
         switch grain {
         case .region:
-            return MarketRegion.resolved(division: row.division, district: row.district)?.rawValue ?? "Unassigned"
+            return MarketRegion.resolved(division: row.division, district: row.district)?.rawValue ?? ""
         case .division:
             return divisionKey(row.division)
         case .district:
@@ -5579,19 +5586,7 @@ private enum LaborRollupBuilder {
         var buckets: [String: [MetricRow]] = [:]
         for row in stores {
             if row.textPayload["labor_grain"] == "market" { continue }
-            let key: String
-            switch grain {
-            case .region:
-                key = RollupMarketFill.bucketKey(row, grain: .region)
-                if key == "Unassigned" { continue }
-            case .division:
-                key = RollupMarketFill.divisionKey(row.division)
-            case .district:
-                key = RollupMarketFill.districtKey(row.district)
-            case .store:
-                key = HeartbeatMath.canonicalStore(row.storeNumber)
-            }
-            guard !key.isEmpty else { continue }
+            guard let key = RollupMarketFill.acceptedGrainKey(row, grain: grain) else { continue }
             buckets[key, default: []].append(row)
         }
         var result: [LaborRollupRow] = []
@@ -6747,30 +6742,16 @@ private enum LostRevenueRollupBuilder {
     }
 
     static func source(from all: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
-        if filters.isActive {
-            return all.filter {
-                $0.textPayload["lost_grain"] != "market" && !$0.storeNumber.isEmpty
-            }
+        _ = filters
+        return all.filter {
+            $0.textPayload["lost_grain"] != "market" && !$0.storeNumber.isEmpty
         }
-        return all
     }
 
     static func rows(from stores: [MetricRow], grain: LaborRollupGrain, fallbackGoal: Double? = nil) -> [LostRevenueRollupRow] {
         var buckets: [String: [MetricRow]] = [:]
         for row in stores {
-            let key: String
-            switch grain {
-            case .region:
-                key = RollupMarketFill.bucketKey(row, grain: .region)
-                if key == "Unassigned" { continue }
-            case .division:
-                key = RollupMarketFill.divisionKey(row.division)
-            case .district:
-                key = RollupMarketFill.districtKey(row.district)
-            case .store:
-                key = HeartbeatMath.canonicalStore(row.storeNumber)
-            }
-            guard !key.isEmpty else { continue }
+            guard let key = RollupMarketFill.acceptedGrainKey(row, grain: grain) else { continue }
             buckets[key, default: []].append(row)
         }
         var result: [LostRevenueRollupRow] = []
@@ -7785,19 +7766,7 @@ private enum ScheduleRollupBuilder {
     static func rows(from stores: [MetricRow], grain: LaborRollupGrain) -> [ScheduleRollupRow] {
         var buckets: [String: [MetricRow]] = [:]
         for row in stores {
-            let key: String
-            switch grain {
-            case .region:
-                key = RollupMarketFill.bucketKey(row, grain: .region)
-                if key == "Unassigned" { continue }
-            case .division:
-                key = RollupMarketFill.divisionKey(row.division)
-            case .district:
-                key = RollupMarketFill.districtKey(row.district)
-            case .store:
-                key = HeartbeatMath.canonicalStore(row.storeNumber)
-            }
-            guard !key.isEmpty else { continue }
+            guard let key = RollupMarketFill.acceptedGrainKey(row, grain: grain) else { continue }
             buckets[key, default: []].append(row)
         }
         var result: [ScheduleRollupRow] = []
@@ -8587,19 +8556,7 @@ private enum PPHRollupBuilder {
     static func rows(from stores: [MetricRow], grain: LaborRollupGrain, pickerCounts: [String: Int]) -> [PPHRollupRow] {
         var buckets: [String: [MetricRow]] = [:]
         for row in stores {
-            let key: String
-            switch grain {
-            case .region:
-                key = RollupMarketFill.bucketKey(row, grain: .region)
-                if key == "Unassigned" { continue }
-            case .division:
-                key = RollupMarketFill.divisionKey(row.division)
-            case .district:
-                key = RollupMarketFill.districtKey(row.district)
-            case .store:
-                key = HeartbeatMath.canonicalStore(row.storeNumber)
-            }
-            guard !key.isEmpty else { continue }
+            guard let key = RollupMarketFill.acceptedGrainKey(row, grain: grain) else { continue }
             buckets[key, default: []].append(row)
         }
         var result: [PPHRollupRow] = []
@@ -9195,31 +9152,39 @@ struct PickerScoreTable: View {
     private var expanded: Bool { headerPin.storesExpanded }
     private var total: Int { store.pickerCount(for: focus) }
 
+    private var cohortRendered: Int {
+        store.pickerBoard.opportunity.count + store.pickerBoard.strong.count
+    }
+
     var body: some View {
         if total == 0 {
-            Section {
-                Group {
-                    if store.pickerLoading {
-                        HStack(spacing: 10) {
-                            ProgressView()
-                                .tint(AppTheme.blue)
-                            Text("Loading shoppers…")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(AppTheme.textSecondary)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 12)
-                    } else {
-                        EmptyHint(
-                            symbol: "person.2",
-                            title: "No shoppers in \(focus.title.lowercased())",
-                            detail: "Shoppers fill from the Heartbeat pack after ready. Tap another callout, or wait for the stream."
-                        )
+            if store.pickerLoading {
+                Section {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                            .tint(AppTheme.blue)
+                        Text("Loading shoppers…")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(AppTheme.textSecondary)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, HubLayout.isPhone(sizeClass) ? 8 : 12)
+                    .listRowInsets(EdgeInsets(top: 8, leading: HubLayout.isPhone(sizeClass) ? 12 : 20, bottom: 12, trailing: HubLayout.isPhone(sizeClass) ? 12 : 20))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(AppTheme.bg)
                 }
-                .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 20, trailing: 20))
-                .listRowSeparator(.hidden)
-                .listRowBackground(AppTheme.bg)
+            } else if PulseLaunch.shouldShowPickerAllShoppersEmpty(tableCount: total, cohortCount: cohortRendered) {
+                Section {
+                    EmptyHint(
+                        symbol: "person.2",
+                        title: "No shoppers in \(focus.title.lowercased())",
+                        detail: "Shoppers fill from the Heartbeat pack after ready. Tap another callout, or wait for the stream.",
+                        compact: HubLayout.isPhone(sizeClass)
+                    )
+                    .listRowInsets(EdgeInsets(top: 4, leading: HubLayout.isPhone(sizeClass) ? 12 : 20, bottom: 8, trailing: HubLayout.isPhone(sizeClass) ? 12 : 20))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(AppTheme.bg)
+                }
             }
         } else {
             Section {
@@ -9270,7 +9235,7 @@ struct PickerScoreTable: View {
             }
             if expanded {
                 Section {
-                    if !HubLayout.isPhone(sizeClass) {
+                    if !PulseLaunch.shouldUsePickerPhoneCards(phone: HubLayout.isPhone(sizeClass)) {
                         PickerMetricHeader(
                             label: "Shopper",
                             active: sort.key,
@@ -9291,7 +9256,7 @@ struct PickerScoreTable: View {
                     }
                     ForEach(Array(snaps.prefix(limit))) { snap in
                         Group {
-                            if HubLayout.isPhone(sizeClass) {
+                            if PulseLaunch.shouldUsePickerPhoneCards(phone: HubLayout.isPhone(sizeClass)) {
                                 PickerPhoneCard(
                                     snap: snap,
                                     expanded: openShopper == snap.id.uuidString,
@@ -9369,6 +9334,7 @@ struct PickerScoreTable: View {
 struct PickerLineSnap: Identifiable, Equatable {
     let id: UUID
     let shopperKey: String
+    let shopperName: String
     let storeNumber: String
     let label: String
     let division: String
@@ -9398,6 +9364,7 @@ struct PickerLineSnap: Identifiable, Equatable {
     init(_ row: MetricRow, division: String) {
         id = row.id
         shopperKey = row.shopperKey
+        shopperName = row.shopperName
         storeNumber = row.storeNumber
         let store = row.storeNumber.isEmpty ? "" : "Store \(row.storeNumber)"
         label = store.isEmpty ? row.shopperName : "\(row.shopperName)  |  \(store)"
@@ -9569,34 +9536,85 @@ private struct PickerCheapLine: View, Equatable {
     }
 }
 
+struct ShopperPictureDot: View {
+    let name: String
+    let health: Health
+    var side: CGFloat = 36
+
+    var body: some View {
+        Text(HeartbeatMath.shopperInitials(name))
+            .font(.system(size: max(11, side * 0.36), weight: .heavy))
+            .foregroundStyle(Color.white)
+            .frame(width: side, height: side)
+            .background(AppTheme.healthInk(health == .none ? .none : health), in: Circle())
+            .overlay(Circle().stroke(Color.white.opacity(0.35), lineWidth: 1))
+            .accessibilityLabel(name)
+    }
+}
+
+struct ShopperPictureStrip: View {
+    let rows: [MetricRow]
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                ForEach(rows) { row in
+                    VStack(spacing: 4) {
+                        ShopperPictureDot(name: row.shopperName, health: HeartbeatMath.pickerHealth(row))
+                        Text(row.shopperName.split(whereSeparator: \.isWhitespace).first.map(String.init) ?? row.shopperName)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(AppTheme.text)
+                            .lineLimit(1)
+                    }
+                    .frame(width: 56)
+                }
+            }
+            .padding(.vertical, 2)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Shopper pictures")
+    }
+}
+
 struct PickerPhoneCard: View {
     let snap: PickerLineSnap
     let expanded: Bool
     let onToggle: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             Button(action: onToggle) {
-                HStack(alignment: .top, spacing: 8) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(snap.label)
-                            .font(.subheadline.weight(.bold))
+                HStack(alignment: .top, spacing: 10) {
+                    ShopperPictureDot(name: snap.shopperName, health: snap.health, side: 40)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(snap.shopperName)
+                            .font(.body.weight(.bold))
                             .foregroundStyle(AppTheme.text)
-                            .lineLimit(2)
+                            .lineLimit(3)
+                            .fixedSize(horizontal: false, vertical: true)
                         Text(placeLine)
-                            .font(.caption2.weight(.semibold))
+                            .font(.subheadline.weight(.semibold))
                             .foregroundStyle(AppTheme.textSecondary)
-                            .lineLimit(1)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    Spacer(minLength: 6)
-                    HealthBadge(health: snap.health, compact: true)
+                    Spacer(minLength: 8)
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text("STATUS")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(AppTheme.textTertiary)
+                        HealthBadge(health: snap.health, compact: false)
+                    }
                     Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                        .font(.caption2.weight(.bold))
+                        .font(.body.weight(.bold))
                         .foregroundStyle(AppTheme.textTertiary)
+                        .frame(width: 28, height: HubLayout.phoneHitTarget)
                 }
+                .frame(minHeight: HubLayout.phoneHitTarget)
+                .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
                 metric("Hours", snap.hours, .none)
                 metric("PPH", snap.pph, snap.pphHealth)
                 metric("Orders", snap.orders, .none)
@@ -9608,7 +9626,7 @@ struct PickerPhoneCard: View {
                 PickerStoreExpand(snap: snap)
             }
         }
-        .padding(10)
+        .padding(12)
         .tableRowCard(health: snap.health)
     }
 
@@ -10025,10 +10043,11 @@ struct HubBrandBar: View {
         } label: {
             if compact {
                 Image(systemName: "sparkles")
-                    .font(.caption.weight(.bold))
+                    .font(.body.weight(.bold))
                     .foregroundStyle(.white)
-                    .frame(width: 30, height: 30)
+                    .frame(width: HubLayout.phoneHitTarget, height: HubLayout.phoneHitTarget)
                     .background(AppTheme.blue, in: Circle())
+                    .contentShape(Circle())
             } else {
                 HStack(spacing: 8) {
                     Image(systemName: "sparkles")

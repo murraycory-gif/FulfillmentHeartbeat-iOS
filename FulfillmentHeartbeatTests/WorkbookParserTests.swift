@@ -176,6 +176,19 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertEqual(rows.first { $0.storeNumber == "1" }?.textPayload["presub_dept"], "1")
     }
 
+    func testDynacapAndSalesSkipAppliedFilterFooters() {
+        let dynacap = """
+        STORE_ID,DPA_DYNACAP,EOT Capacity,Total Pieces/Total Hrs
+        0001,17439,17499,75.657
+        Applied filters: Excluded (2) (Blank) (DIVISION),75,80,12
+        """
+        let rows = WorkbookParser.parseCSV(dynacap)
+        XCTAssertEqual(Set(rows.map(\.storeNumber).filter { !$0.isEmpty }), Set(["1"]))
+        XCTAssertFalse(rows.contains { WorkbookParser.isNonStoreFooter($0.storeNumber) })
+        XCTAssertTrue(WorkbookParser.isNonStoreFooter("Applied filters: Excluded (2) (Blank) (DIVISION)"))
+        XCTAssertNil(WorkbookParser.usableStoreNumber("Applied filters: WEEK_ID is 202513"))
+    }
+
     func testDynacapDailyReportHeadersMapRateAndStore() {
         let csv = """
         STORE_ID,DPA_DYNACAP,EOT Capacity,Total Pieces/Total Hrs,% Change,Used Capacity,Utilization%

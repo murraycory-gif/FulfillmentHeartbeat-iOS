@@ -787,10 +787,27 @@ enum WorkbookParser {
         raw.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("total") == .orderedSame
     }
 
+    static func isNonStoreFooter(_ raw: String) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return false }
+        let lower = trimmed.lowercased()
+        if lower.hasPrefix("applied") || lower.contains("applied filter") { return true }
+        if lower.hasPrefix("no filter") { return true }
+        if lower.contains("excluded") && lower.contains("blank") { return true }
+        return false
+    }
+
+    static func usableStoreNumber(_ raw: String) -> String? {
+        if isNonStoreFooter(raw) { return nil }
+        guard looksLikeStoreNumber(raw) else { return nil }
+        let store = HeartbeatMath.canonicalStore(raw)
+        return store.isEmpty ? nil : store
+    }
+
     private static func usableValue(_ raw: String) -> String? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty || isTotalCell(trimmed) { return nil }
-        if trimmed.lowercased().hasPrefix("applied filters") { return nil }
+        if isNonStoreFooter(trimmed) { return nil }
         return trimmed
     }
 
@@ -1372,9 +1389,8 @@ enum WorkbookParser {
                 }
                 continue
             }
-            if rawStore.isEmpty { continue }
-            let store = HeartbeatMath.canonicalStore(rawStore)
-            if store.isEmpty { continue }
+            if rawStore.isEmpty || isNonStoreFooter(rawStore) || isNonStoreFooter(rawDivision) { continue }
+            guard let store = usableStoreNumber(rawStore) else { continue }
             var payload: [String: Double] = [:]
             applySalesBlock(weekBlock, line: line, prefix: "sales_", payload: &payload)
             applySalesDayBlocks(dayBlocks, weekBlock: weekBlock, line: line, payload: &payload)
@@ -3933,6 +3949,8 @@ enum WorkbookParser {
         var out: [ParsedWorkbookRow] = []
         for line in matrix.dropFirst(headerIndex + 1) {
             if line.allSatisfy({ $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) { continue }
+            let blob = line.joined(separator: " ")
+            if isNonStoreFooter(blob) { continue }
             var division = ""
             var om = ""
             var store = ""
@@ -3963,7 +3981,7 @@ enum WorkbookParser {
                     continue
                 }
                 if storeKeys.contains(header) {
-                    store = HeartbeatMath.canonicalStore(raw)
+                    store = usableStoreNumber(raw) ?? ""
                     continue
                 }
                 if nameKeys.contains(header) {

@@ -433,18 +433,21 @@ struct CommandCenterAlertsRail: View {
 /// Scorecard chrome from the same pack card the Command Center tile used.
 struct CommandCenterSectionHero: View {
     let card: SectionSummary
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
+    private var phone: Bool { HubLayout.isPhone(sizeClass) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: phone ? 4 : 8) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(CommandCenterLayout.glanceTitle(card.section))
-                    .font(AppTheme.rounded(.headline, weight: .bold))
+                    .font(AppTheme.rounded(phone ? .subheadline : .headline, weight: .bold))
                     .foregroundStyle(Color.white.opacity(0.92))
                 Spacer(minLength: 8)
                 HealthBadge(health: CommandCenterLayout.displayedHealth(card), prominent: true, compact: true)
             }
             Text(CommandCenterLayout.compactValue(card))
-                .font(AppTheme.rounded(size: 34, weight: .bold).monospacedDigit())
+                .font(AppTheme.rounded(size: phone ? 26 : 34, weight: .bold).monospacedDigit())
                 .foregroundStyle(Color.white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.45)
@@ -453,14 +456,14 @@ struct CommandCenterSectionHero: View {
                     .fill(AppTheme.gold)
                     .frame(width: 7, height: 7)
                 Text("Stores \(card.storeCount)")
-                    .font(AppTheme.rounded(.subheadline, weight: .bold).monospacedDigit())
+                    .font(AppTheme.rounded(phone ? .caption : .subheadline, weight: .bold).monospacedDigit())
                     .foregroundStyle(AppTheme.gold)
                 Spacer(minLength: 0)
             }
         }
-        .padding(14)
+        .padding(phone ? 10 : 14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppTheme.blue, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(AppTheme.blue, in: RoundedRectangle(cornerRadius: phone ? 12 : 14, style: .continuous))
         .accessibilityLabel("\(CommandCenterLayout.glanceTitle(card.section)), \(CommandCenterLayout.compactValue(card)), \(CommandCenterLayout.displayedHealth(card).label), Stores \(card.storeCount)")
     }
 }

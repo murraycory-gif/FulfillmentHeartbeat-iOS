@@ -70,6 +70,8 @@ struct MissingItemsCategoryFilter: View {
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(AppTheme.blue)
                 .buttonStyle(.plain)
+                .frame(minWidth: HubLayout.phoneHitTarget, minHeight: HubLayout.phoneHitTarget)
+                .contentShape(Rectangle())
                 .opacity(allOn ? 0 : 1)
                 .disabled(allOn)
                 .accessibilityHidden(allOn)
@@ -513,19 +515,14 @@ private enum MissingItemsRollupBuilder {
     static func rows(from stores: [MetricRow], grain: MissingItemsGrain, depts: [MissingItemDept]) -> [MissingItemsRollupRow] {
         var buckets: [String: [MetricRow]] = [:]
         for row in stores {
-            let key: String
+            let laborGrain: LaborRollupGrain
             switch grain {
-            case .region:
-                key = RollupMarketFill.bucketKey(row, grain: .region)
-                if key == "Unassigned" { continue }
-            case .division:
-                key = RollupMarketFill.divisionKey(row.division)
-            case .district:
-                key = RollupMarketFill.districtKey(row.district)
-            case .store:
-                key = HeartbeatMath.canonicalStore(row.storeNumber)
+            case .region: laborGrain = .region
+            case .division: laborGrain = .division
+            case .district: laborGrain = .district
+            case .store: laborGrain = .store
             }
-            guard !key.isEmpty else { continue }
+            guard let key = RollupMarketFill.acceptedGrainKey(row, grain: laborGrain) else { continue }
             buckets[key, default: []].append(row)
         }
         var result: [MissingItemsRollupRow] = []

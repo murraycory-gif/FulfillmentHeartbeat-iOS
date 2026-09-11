@@ -1457,7 +1457,8 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func laborMarketRow() -> MetricRow? {
-        rows.first {
+        let pool = (latestBySection[.labor] ?? []) + (filteredLatest[.labor] ?? []) + rows
+        return pool.first {
             $0.section == .labor && (
                 $0.textPayload["labor_grain"] == "market"
                     || HeartbeatMath.canonicalStore($0.storeNumber).caseInsensitiveCompare("TOTAL") == .orderedSame
@@ -1515,13 +1516,13 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func laborNeedsReload() -> Bool {
-        let stores = rows.filter { $0.section == .labor && $0.textPayload["labor_grain"] == "store" }
-        guard !stores.isEmpty else { return false }
-        if laborMarketRow() == nil, laborWeekIds().isEmpty { return true }
-        return stores.contains {
-            let rev = $0.textPayload["parser_rev"] ?? ""
-            return rev != "7" && rev != "8" && rev != "9"
-        }
+        let hasMarket = laborMarketRow() != nil
+        let hasLiveTVA = summary(for: .labor).headline != nil
+        return PulseLaunch.shouldShowLaborTotalRowWarning(
+            filtersActive: filters.isActive,
+            hasMarketTotal: hasMarket,
+            hasLiveTVA: hasLiveTVA
+        )
     }
 
     static func importAudit(section: MetricSection, rows: [MetricRow]) -> String {

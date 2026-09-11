@@ -495,6 +495,61 @@ enum PulseLaunch {
         }
     }
 
+    /// Individual shopper picture strip / person cards. Division / District / OM / Store only.
+    /// Never on total Company (or Region).
+    static func shouldShowPickerIndividualPictures(filters: DashboardFilters) -> Bool {
+        switch sectionPageSeat(filters: filters) {
+        case .division, .district, .om, .store: return true
+        case .company, .region: return false
+        }
+    }
+
+    /// Empty “No shoppers in all shoppers” only when nothing already rendered in cohorts.
+    static func shouldShowPickerAllShoppersEmpty(tableCount: Int, cohortCount: Int) -> Bool {
+        tableCount == 0 && cohortCount == 0
+    }
+
+    /// Sales ScoreCard: week total + by-day above the grain rollup. Every filter seat.
+    static func shouldShowSalesDayWeekBlock(filters: DashboardFilters) -> Bool {
+        _ = filters
+        return true
+    }
+
+    /// iPhone Pages / Highlights: never squeeze the iPad shopper table onto a phone.
+    static func shouldUsePickerPhoneCards(phone: Bool = HubLayout.isPhoneDevice) -> Bool { phone }
+
+    /// iPhone Pages list opens the destination on the first tap.
+    static func shouldOpenPhonePagesOnFirstTap() -> Bool { true }
+
+    /// Phone Pages icons use section health (same paint as iPad / Mac).
+    static func shouldTintPhonePagesIconsWithHealth() -> Bool { true }
+
+    /// Apple HIG ~44×44pt minimum on phone chrome. Mac / iPad keep their own sizes.
+    static func phoneMinimumHitTarget() -> CGFloat { HubLayout.phoneHitTarget }
+
+    /// Markets grain never invents or shows Unassigned (Sales parity, every section).
+    static func shouldHideUnassignedMarketGrain() -> Bool { true }
+
+    /// StoreIdentity keys come from Excel Roster only when that sheet is present.
+    static func shouldRosterGateRollupIdentities() -> Bool { true }
+
+    /// Company Labor banner: only when the Power BI Total row is actually missing
+    /// and chrome has no live TVA. Seat filters never inherit the global Total.
+    static func shouldShowLaborTotalRowWarning(
+        filtersActive: Bool,
+        hasMarketTotal: Bool,
+        hasLiveTVA: Bool
+    ) -> Bool {
+        !filtersActive && !hasMarketTotal && !hasLiveTVA
+    }
+
+    /// Heartbeat Assist is an ops coach: What's wrong / cause / SOP / labor / direction.
+    static func shouldUseAssistCoachShape() -> Bool { true }
+
+    static func assistCoachHeadings() -> [String] {
+        ["WHAT'S WRONG", "WHAT'S CAUSING IT", "SHOPPER SOP", "LABOR / SCHEDULE", "DIRECTION"]
+    }
+
     /// Pages / filter chips only. No top-left Dashboard chevron on scorecards.
     static func shouldShowScorecardDashboardBackControl() -> Bool { false }
 
