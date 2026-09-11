@@ -8,9 +8,9 @@ See [SEAT-SCOPED-PACKS.md](SEAT-SCOPED-PACKS.md) for the Tip 1 contract.
 ## Layout
 
 ```
-current.sqlite                         # market — Who’s looking roster + Clear
+current.sqlite                         # LIVE root. Company seat (~21MB) when market ~56MB exceeds Storage ~50MB.
 packs/manifest.json
-packs/seat/company/all/current.sqlite  # thin company summary
+packs/seat/company/all/current.sqlite  # thin company summary (also copied to root when market is over the limit)
 packs/seat/district/03/current.sqlite
 packs/seat/om/Jino-Arvin/current.sqlite
 packs/seat/store/12/current.sqlite
@@ -24,4 +24,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.399 / 1.0 (725) — Cook-only publish: company `current.sqlite` + `packs/manifest.json` go LIVE first; ~2300 seats upload in parallel (`xargs -P 16`) with curl timeouts/retries. Company green even if some seats retry. Authenticated xlsx URL is `/storage/v1/object/authenticated/heartbeat-packs/Heartbeat Daily Report.xlsx` (≥1MB). Cook runs on `workflow_dispatch`, `repository_dispatch` (`cook-heartbeat-pack`), or when xlsx `updated_at` is newer than a usable sqlite. Kitchen still compiles tip Storage sources without SwiftUI/HubLayout. Phone Pages / filter-chip locks from .398 stay. Who’s looking stays locked off. Unassigned Markets/Regions stay hidden.
+HB-0828.399 / 1.0 (725) — Cook-only: Storage ~50MB TUS cap. Market pack ~56MB is never uploaded as root (that 413s and can bump `updated_at` on a stale file). Company seat ~21MB is published as `current.sqlite` + seat path LIVE first; seats upload `xargs -P 16` with retries. A company 413 fails the job loudly. Cory: Dashboard → Storage → Settings → Global file size limit → 60MB+. Authenticated xlsx URL; refuse under 1MB. Skip only if sqlite is newer and ≥1MB. Phone locks from .398 stay.

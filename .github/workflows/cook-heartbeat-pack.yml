@@ -85,7 +85,9 @@ jobs:
           print(f"xlsx {xlsx.get('updated_at')} sqlite { (pack or {}).get('updated_at')} sqlite_bytes={pack_bytes} force={force}")
           if xlsx_dt and pack_dt:
               print(f"xlsx_dt {xlsx_dt.isoformat()} sqlite_dt {pack_dt.isoformat()} newer={xlsx_dt > pack_dt}")
-          if not force and xlsx_dt and pack_dt and xlsx_dt <= pack_dt and pack_bytes >= 50_000:
+          # 1MB floor: a 413/TUS stub can bump updated_at with a tiny object.
+          # Never treat that as a fresh cook.
+          if not force and xlsx_dt and pack_dt and xlsx_dt <= pack_dt and pack_bytes >= 1_000_000:
               open("/tmp/skip", "w").write("1")
               print("Pack is already newer than the workbook. Skip.")
           PY
@@ -125,6 +127,13 @@ jobs:
           ls -l /tmp/current.sqlite
           test -f /tmp/packs/manifest.json
           test -f /tmp/packs/seat/company/all/current.sqlite
+          MARKET_BYTES=$(wc -c < /tmp/current.sqlite | tr -d ' ')
+          COMPANY_BYTES=$(wc -c < /tmp/packs/seat/company/all/current.sqlite | tr -d ' ')
+          echo "market=$MARKET_BYTES bytes company_seat=$COMPANY_BYTES bytes"
+          if [ "$COMPANY_BYTES" -lt 1048576 ]; then
+            echo "Company seat too small ($COMPANY_BYTES). Cook refused to publish."
+            exit 1
+          fi
           DISTRICT_N=$(find /tmp/packs/seat/district -name current.sqlite | wc -l | tr -d ' ')
           STORE_N=$(find /tmp/packs/seat/store -name current.sqlite | wc -l | tr -d ' ')
           echo "seat districts=$DISTRICT_N stores=$STORE_N"

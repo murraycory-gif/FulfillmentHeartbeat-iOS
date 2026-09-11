@@ -40,7 +40,7 @@ heartbeat-packs/
 
 Device cache mirrors the same relative paths under Application Support.
 
-GitHub Actions cook (`HeartbeatIngest`) always runs `cookPublished(includeStores: true)`. It publishes `current.sqlite` + `packs/manifest.json` + the company seat **LIVE first**, then uploads every district / OM person / store sqlite in parallel. A missing seat object on the field iPad **fails the hub**. `materializeSeatFromCompany` is Mac / DEBUG kitchen only. No Mac publish loop.
+GitHub Actions cook (`HeartbeatIngest`) always runs `cookPublished(includeStores: true)`. It publishes an **under-limit** company pack **LIVE first** (`packs/seat/company/all/current.sqlite` is also written as root `current.sqlite` when the ~56MB market file exceeds Storage’s ~50MB TUS cap), then uploads every district / OM person / store sqlite in parallel. A company **413** fails the job — it does not leave a stale root pack looking fresh. A missing seat object on the field iPad **fails the hub**. `materializeSeatFromCompany` is Mac / DEBUG kitchen only. No Mac publish loop.
 
 `WorkbookParser.parseStoreRoster` binds **OM_ID** with exact / longest-key match. Normalized `omarea` must not steal key `om`. `operations_om` is the person (Tonya Lane, Jino Arvin, …). Area codes stay in `text["om_area"]`. Existing packs baked before this bind are wrong — **recook + republish**.
 
