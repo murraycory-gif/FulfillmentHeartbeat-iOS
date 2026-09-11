@@ -641,6 +641,7 @@ enum PulseLaunch {
 
     /// Phone header matches iPad: Pages stays, Back goes. Destination
     /// switches are Pages / Command Center cards — not a chrome chevron.
+    /// `HubBrandBar.compactBar` must not mount a Back `HubNavControl`.
     static func shouldShowPhoneHeaderBack() -> Bool { false }
 
     /// One native vertical ScrollView. Nested UIPageViewController is off.
