@@ -243,7 +243,7 @@ struct MainHubView: View {
         }
     }
 
-    /// Mac Catalyst Option 8b: persistent Pages rail + dense center + alerts.
+    /// Mac Catalyst: persistent Pages rail + dense center. No Alerts column.
     private var macHub: some View {
         HStack(spacing: 0) {
             sidebar
@@ -257,7 +257,7 @@ struct MainHubView: View {
                 }
             detail
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            if router.current == .dashboard {
+            if PulseLaunch.shouldPinMacCommandCenterAlertsRail(), router.current == .dashboard {
                 CommandCenterAlertsRail(open: { router.open(section: $0) })
                     .frame(width: 248)
                     .frame(maxHeight: .infinity)

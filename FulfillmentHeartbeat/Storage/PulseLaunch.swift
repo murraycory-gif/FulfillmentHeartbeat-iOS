@@ -604,8 +604,11 @@ enum PulseLaunch {
     /// Home glance never mounts DashScopeStrip / store tables. Expand is a section open.
     static func shouldMountDashCalloutTablesOnHome() -> Bool { false }
 
-    /// Mac Catalyst Command Center keeps a persistent Pages rail + alerts column.
+    /// Mac Catalyst Command Center: pinned Pages sidebar + center only.
     static func shouldPinMacCommandCenterRails() -> Bool { true }
+
+    /// No right Alerts column on Mac. Simplifies chrome / heat.
+    static func shouldPinMacCommandCenterAlertsRail() -> Bool { false }
 
     /// iPad never pins Mac-style triple columns. Rails stay closed until opened.
     static func shouldPinCommandCenterRailsOnIPad() -> Bool { false }

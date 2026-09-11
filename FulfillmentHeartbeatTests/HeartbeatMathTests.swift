@@ -2133,7 +2133,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture381SeatPackContract() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.385")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.386")
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
         XCTAssertFalse(PulseSeatPack.shouldMergeSeatWithCompanyOnSwap())
         XCTAssertTrue(PulseSeatPack.shouldPaintHubFromActiveSeatSQLite())
@@ -2175,7 +2175,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture381bMacCookPublishesEverySeatSqlite() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.385")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.386")
         XCTAssertTrue(PulseSeatPack.shouldCookEveryStoreSeat())
         XCTAssertTrue(PulseSeatPack.shouldPublishSeatPlaneFromCook())
         XCTAssertFalse(PulseSeatPack.shouldMaterializeMissingSeatOnFieldDevice())
@@ -2241,10 +2241,11 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture382CommandCenterFillsViewportLikePulse() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.385")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.386")
         XCTAssertTrue(PulseLaunch.shouldUseCommandCenterHome())
         XCTAssertFalse(PulseLaunch.shouldMountDashCalloutTablesOnHome())
         XCTAssertTrue(PulseLaunch.shouldPinMacCommandCenterRails())
+        XCTAssertFalse(PulseLaunch.shouldPinMacCommandCenterAlertsRail())
         XCTAssertFalse(PulseLaunch.shouldPinCommandCenterRailsOnIPad())
         XCTAssertTrue(PulseLaunch.shouldOfferIPadCommandCenterDrawers())
         XCTAssertFalse(PulseLaunch.shouldShowGroceryLoadQuips())
@@ -2322,12 +2323,13 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture383CompanyCommandCenterPickerChromeAndStoreTableScope() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.385")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.386")
         XCTAssertFalse(PulseLaunch.shouldStreamCompanyPickerForSeatFirstPaint())
         XCTAssertFalse(PulseLaunch.shouldPlaySeatLoadHalloween())
         XCTAssertFalse(PulseLaunch.shouldShowGroceryLoadQuips())
         XCTAssertTrue(PulseLaunch.aisleQuips.isEmpty)
         XCTAssertTrue(PulseLaunch.shouldPinMacCommandCenterRails())
+        XCTAssertFalse(PulseLaunch.shouldPinMacCommandCenterAlertsRail())
         XCTAssertFalse(PulseLaunch.shouldPinCommandCenterRailsOnIPad())
         XCTAssertTrue(PulseLaunch.shouldOfferIPadCommandCenterDrawers())
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
@@ -2540,7 +2542,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture384SeatSwapAndSectionOpenPlane() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.385")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.386")
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
         XCTAssertFalse(PulseSeatPack.shouldMergeSeatWithCompanyOnSwap())
         XCTAssertTrue(PulseSeatPack.shouldPaintHubFromActiveSeatSQLite())
@@ -2653,6 +2655,7 @@ final class HeartbeatMathTests: XCTestCase {
         }
 
         XCTAssertTrue(PulseLaunch.shouldPinMacCommandCenterRails())
+        XCTAssertFalse(PulseLaunch.shouldPinMacCommandCenterAlertsRail())
         XCTAssertFalse(PulseLaunch.shouldPinCommandCenterRailsOnIPad())
         XCTAssertTrue(PulseLaunch.shouldOfferIPadCommandCenterDrawers())
         XCTAssertTrue(PulseLaunch.shouldUseCommandCenterHome())
@@ -2664,7 +2667,9 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture385CompanyColdOpenNoRoleGateNoToursFilterPaints() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.385")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.386")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.386")
+        XCTAssertFalse(PulseLaunch.shouldPinMacCommandCenterAlertsRail())
         XCTAssertFalse(PulseLaunch.shouldRequireRoleGateOnColdOpen())
         XCTAssertTrue(PulseLaunch.shouldOpenCompanyCommandCenterOnColdOpen())
         XCTAssertFalse(PulseLaunch.shouldShowRoleGatePill())
