@@ -943,27 +943,6 @@ final class HeartbeatStore: ObservableObject {
         )
     }
 
-    /// Company scope never materializes all `dashboardCards` grainTables into RAM.
-    private static func grainTablesSkippingCompanyPrefill(
-        latest: [MetricSection: [MetricRow]],
-        grain: DashScopeGrain?,
-        roster: [String: HeartbeatMath.StoreIdentity],
-        packs: [MetricSection: [DashScopePack]],
-        goalFallback: Double?,
-        filtersActive: Bool
-    ) -> [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] {
-        if !filtersActive, !PulseLaunch.shouldBuildCompanyGrainTablesOnWarehousePaint() {
-            return [:]
-        }
-        return PulseCaches.grainTables(
-            latest: latest,
-            grain: grain,
-            roster: roster,
-            packs: packs,
-            goalFallback: goalFallback
-        )
-    }
-
     private func cappedGrainTable(
         _ table: [HeartbeatMath.DashboardGrainTableRow]
     ) -> [HeartbeatMath.DashboardGrainTableRow] {
@@ -4115,7 +4094,7 @@ final class HeartbeatStore: ObservableObject {
             stores: cachedStores,
             roster: roster
         )
-        let tables = Self.grainTablesSkippingCompanyPrefill(
+        let tables = PulseLaunch.grainTablesSkippingCompanyPrefill(
             latest: latest,
             grain: grain,
             roster: roster,
@@ -4570,7 +4549,7 @@ final class HeartbeatStore: ObservableObject {
                 stores: stores,
                 roster: rosterCopy
             )
-            let tables = Self.grainTablesSkippingCompanyPrefill(
+            let tables = PulseLaunch.grainTablesSkippingCompanyPrefill(
                 latest: latest,
                 grain: grain,
                 roster: rosterCopy,
@@ -4637,7 +4616,7 @@ final class HeartbeatStore: ObservableObject {
                 stores: caches.cachedStores,
                 roster: rosterCopy
             )
-            let tables = Self.grainTablesSkippingCompanyPrefill(
+            let tables = PulseLaunch.grainTablesSkippingCompanyPrefill(
                 latest: caches.filteredLatest,
                 grain: grain,
                 roster: rosterCopy,
@@ -5739,7 +5718,7 @@ final class HeartbeatStore: ObservableObject {
                 stores: stores,
                 roster: rosterCopy
             )
-            let tables = Self.grainTablesSkippingCompanyPrefill(
+            let tables = PulseLaunch.grainTablesSkippingCompanyPrefill(
                 latest: latest,
                 grain: grain,
                 roster: rosterCopy,

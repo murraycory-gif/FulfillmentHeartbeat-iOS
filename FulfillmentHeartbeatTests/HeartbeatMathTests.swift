@@ -5077,6 +5077,16 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(PulseLaunch.shouldPrefillAllExpandTablesAtCompany(pad: false))
         XCTAssertFalse(PulseLaunch.shouldPrefillExpandTables(filtersActive: false))
         XCTAssertFalse(PulseLaunch.shouldBuildCompanyGrainTablesOnWarehousePaint())
+        XCTAssertTrue(
+            PulseLaunch.grainTablesSkippingCompanyPrefill(
+                latest: [:],
+                grain: .region,
+                roster: [:],
+                packs: [:],
+                goalFallback: nil,
+                filtersActive: false
+            ).isEmpty
+        )
         XCTAssertFalse(PulseLaunch.shouldScheduleLiveGrainPaint(filtersActive: false))
         XCTAssertGreaterThan(MetricSection.dashboardCards.count, 4)
         XCTAssertEqual(

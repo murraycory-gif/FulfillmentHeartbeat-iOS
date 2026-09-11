@@ -1694,6 +1694,28 @@ enum PulseLaunch {
     static func shouldInstallSeatExpandTablesAfterCloudPromote() -> Bool { true }
     static func shouldClearFactOwnershipAfterSeatPromote() -> Bool { true }
     static func shouldBuildCompanyGrainTablesOnWarehousePaint() -> Bool { false }
+
+    /// Not on HeartbeatStore — `Task.detached` cannot call a MainActor static.
+    /// Company scope returns empty so we never materialize all dashboardCards.
+    static func grainTablesSkippingCompanyPrefill(
+        latest: [MetricSection: [MetricRow]],
+        grain: DashScopeGrain?,
+        roster: [String: HeartbeatMath.StoreIdentity],
+        packs: [MetricSection: [DashScopePack]],
+        goalFallback: Double?,
+        filtersActive: Bool
+    ) -> [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] {
+        if !filtersActive, !shouldBuildCompanyGrainTablesOnWarehousePaint() {
+            return [:]
+        }
+        return PulseCaches.grainTables(
+            latest: latest,
+            grain: grain,
+            roster: roster,
+            packs: packs,
+            goalFallback: goalFallback
+        )
+    }
     static func isCompanyExpandScope(filtersActive: Bool, grain: DashScopeGrain) -> Bool {
         _ = grain
         return !filtersActive
