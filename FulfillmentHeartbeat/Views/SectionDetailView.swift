@@ -77,7 +77,7 @@ struct SectionDetailView: View {
                     .listRowSeparator(.hidden)
                     .listRowBackground(AppTheme.bg)
                 }
-                if showStoreTable {
+                if PulseLaunch.shouldShowPickerShoppersTable(filters: store.filters) {
                     PickerScoreTable(focus: pickerFocus)
                 }
             } else if section == .pickPath {

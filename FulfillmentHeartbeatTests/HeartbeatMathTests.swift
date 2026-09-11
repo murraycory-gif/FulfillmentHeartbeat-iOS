@@ -1020,6 +1020,14 @@ final class HeartbeatMathTests: XCTestCase {
         )
         let allowed = PulseCaches.allowedStores(roster: caches.roster, filters: filters) ?? []
         XCTAssertEqual(allowed, ["304", "667"])
+        let jino = rosterRows.first { $0.storeNumber == "304" }
+        XCTAssertEqual(jino?.operationsOM, "Jino Arvin")
+        XCTAssertEqual(jino?.textPayload["om_area"], "NorCal 04")
+        XCTAssertFalse(rosterRows.contains { $0.operationsOM.contains("NorCal") })
+        XCTAssertEqual(caches.roster["304"]?.om, "Jino Arvin")
+        var districtOM = DashboardFilters()
+        districtOM.district = "03"
+        XCTAssertEqual(PulseSeatPack.publishedOMNames(from: caches.roster, filters: districtOM), ["Jino Arvin"])
         let summary = caches.cachedSummaries.first { $0.section == .lostRevenue }
         XCTAssertEqual(summary?.headline ?? 0, 2_510, accuracy: 0.01)
         XCTAssertEqual(summary?.storeCount, 2, "seat card storeCount is Heartbeat N, not fact coverage")
@@ -2133,7 +2141,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture381SeatPackContract() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.388")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.389")
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
         XCTAssertFalse(PulseSeatPack.shouldMergeSeatWithCompanyOnSwap())
         XCTAssertTrue(PulseSeatPack.shouldPaintHubFromActiveSeatSQLite())
@@ -2175,7 +2183,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture381bMacCookPublishesEverySeatSqlite() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.388")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.389")
         XCTAssertTrue(PulseSeatPack.shouldCookEveryStoreSeat())
         XCTAssertTrue(PulseSeatPack.shouldPublishSeatPlaneFromCook())
         XCTAssertFalse(PulseSeatPack.shouldMaterializeMissingSeatOnFieldDevice())
@@ -2222,7 +2230,9 @@ final class HeartbeatMathTests: XCTestCase {
         )
         XCTAssertEqual(manifest.company.path, "packs/seat/company/all/current.sqlite")
         XCTAssertEqual(Set(manifest.districts.map(\.id)), ["03", "J1"])
+        XCTAssertEqual(Set(manifest.oms.map(\.id)), ["Jino-Arvin", "Shelly-Selof"])
         XCTAssertEqual(Set(manifest.stores.map(\.id)), ["12", "13", "9001"])
+        XCTAssertTrue(manifest.allEntries.contains { $0.path == "packs/seat/om/Jino-Arvin/current.sqlite" })
         let paths = PulseSeatPack.publishObjectPaths(from: manifest)
         XCTAssertTrue(paths.contains("packs/manifest.json"))
         XCTAssertTrue(paths.contains("packs/seat/company/all/current.sqlite"))
@@ -2241,7 +2251,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture382CommandCenterFillsViewportLikePulse() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.388")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.389")
         XCTAssertTrue(PulseLaunch.shouldUseCommandCenterHome())
         XCTAssertFalse(PulseLaunch.shouldMountDashCalloutTablesOnHome())
         XCTAssertTrue(PulseLaunch.shouldPinMacCommandCenterRails())
@@ -2316,7 +2326,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture383CompanyCommandCenterPickerChromeAndStoreTableScope() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.388")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.389")
         XCTAssertFalse(PulseLaunch.shouldStreamCompanyPickerForSeatFirstPaint())
         XCTAssertFalse(PulseLaunch.shouldPlaySeatLoadHalloween())
         XCTAssertFalse(PulseLaunch.shouldShowGroceryLoadQuips())
@@ -2548,7 +2558,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture384SeatSwapAndSectionOpenPlane() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.388")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.389")
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
         XCTAssertFalse(PulseSeatPack.shouldMergeSeatWithCompanyOnSwap())
         XCTAssertTrue(PulseSeatPack.shouldPaintHubFromActiveSeatSQLite())
@@ -2674,7 +2684,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture385CompanyColdOpenNoRoleGateNoToursFilterPaints() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.388")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.389")
         XCTAssertFalse(PulseLaunch.shouldPinMacCommandCenterAlertsRail())
         XCTAssertFalse(PulseLaunch.shouldOfferIPadCommandCenterAlertsDrawer())
         XCTAssertFalse(PulseLaunch.shouldRequireRoleGateOnColdOpen())
@@ -2725,7 +2735,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture387SectionPageTableMatrixAndNoIPadAlerts() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.388")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.389")
         XCTAssertFalse(PulseLaunch.shouldPinMacCommandCenterAlertsRail())
         XCTAssertFalse(PulseLaunch.shouldOfferIPadCommandCenterAlertsDrawer())
         XCTAssertTrue(PulseLaunch.shouldOfferIPadCommandCenterDrawers())
@@ -2774,6 +2784,139 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(SalesRollupBuilder.grain(for: region), .division)
         XCTAssertEqual(SalesRollupBuilder.grain(for: division), .district)
         XCTAssertFalse(PulseLaunch.shouldSkipStoreRowRebuild(filters: division, expanded: true))
+    }
+
+    func testArchitecture389OMSeatPacksGlanceBannerPickerShoppersAndNoDashboardBack() throws {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.389")
+        XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
+        XCTAssertFalse(PulseLaunch.shouldShowScorecardDashboardBackControl())
+        XCTAssertTrue(CommandCenterLayout.glanceTitleUsesBlueBanner())
+        XCTAssertTrue(CommandCenterLayout.glanceIconCentered())
+        XCTAssertFalse(PulseLaunch.shouldPinMacCommandCenterAlertsRail())
+        XCTAssertFalse(PulseLaunch.shouldOfferIPadCommandCenterAlertsDrawer())
+
+        XCTAssertEqual(
+            WorkbookParser.headerIndex(
+                in: ["division", "district", "omarea", "omid", "store"],
+                keys: ["omid", "om_id", "om"]
+            ),
+            3
+        )
+        XCTAssertNil(WorkbookParser.headerIndex(in: ["omarea"], keys: ["om"]))
+        XCTAssertEqual(WorkbookParser.headerIndex(in: ["omarea", "om"], keys: ["omid", "om"]), 1)
+
+        XCTAssertTrue(PulseSeatPack.isPublishedOMPerson("Jino Arvin"))
+        XCTAssertTrue(PulseSeatPack.isPublishedOMPerson("Tonya Lane"))
+        XCTAssertTrue(PulseSeatPack.isPublishedOMPerson("Asia Jackai"))
+        XCTAssertTrue(PulseSeatPack.isPublishedOMPerson("Mike Macdonald"))
+        XCTAssertTrue(PulseSeatPack.isPublishedOMPerson("Sharika Harris"))
+        XCTAssertFalse(PulseSeatPack.isPublishedOMPerson("NorCal 04"))
+        XCTAssertFalse(PulseSeatPack.isPublishedOMPerson("Chicago 1"))
+        XCTAssertFalse(PulseSeatPack.isPublishedOMPerson("04"))
+
+        var om = DashboardFilters()
+        om.om = "Jino Arvin"
+        XCTAssertEqual(
+            PulseSeatPack.Key.forSeat(filters: om, role: .om),
+            PulseSeatPack.Key(grain: .om, id: "Jino Arvin")
+        )
+        XCTAssertEqual(
+            PulseSeatPack.Key.forSeat(filters: om, role: .om).objectPath,
+            "packs/seat/om/Jino-Arvin/current.sqlite"
+        )
+        var districtAndOM = DashboardFilters()
+        districtAndOM.district = "03"
+        districtAndOM.om = "Jino Arvin"
+        XCTAssertEqual(
+            PulseSeatPack.Key.forSeat(filters: districtAndOM, role: nil).grain,
+            .om
+        )
+        var district = DashboardFilters()
+        district.district = "03"
+        XCTAssertEqual(PulseSeatPack.Key.forSeat(filters: district, role: nil).grain, .district)
+        XCTAssertEqual(PulseSeatPack.Key.forSeat(filters: DashboardFilters(), role: nil), .company)
+
+        var division = DashboardFilters()
+        division.division = "NorCal"
+        var store = DashboardFilters()
+        store.store = "12"
+        XCTAssertTrue(PulseLaunch.shouldShowPickerShoppersTable(filters: division))
+        XCTAssertTrue(PulseLaunch.shouldShowPickerShoppersTable(filters: district))
+        XCTAssertTrue(PulseLaunch.shouldShowPickerShoppersTable(filters: om))
+        XCTAssertTrue(PulseLaunch.shouldShowPickerShoppersTable(filters: store))
+        XCTAssertFalse(PulseLaunch.shouldShowPickerShoppersTable(filters: DashboardFilters()))
+        var region = DashboardFilters()
+        region.region = "West"
+        XCTAssertFalse(PulseLaunch.shouldShowPickerShoppersTable(filters: region))
+
+        var roster: [String: HeartbeatMath.StoreIdentity] = [:]
+        roster["304"] = HeartbeatMath.StoreIdentity(
+            division: "NorCal", district: "03", om: "Jino Arvin", name: "304"
+        )
+        roster["667"] = HeartbeatMath.StoreIdentity(
+            division: "NorCal", district: "03", om: "Jino Arvin", name: "667"
+        )
+        roster["1"] = HeartbeatMath.StoreIdentity(
+            division: "Jewel Osco", district: "J1", om: "Shelly Selof", name: "1"
+        )
+        roster["9001"] = HeartbeatMath.StoreIdentity(
+            division: "Jewel Osco", district: "J1", om: "NorCal 04", name: "9001"
+        )
+        XCTAssertEqual(
+            PulseSeatPack.publishedOMNames(from: roster),
+            ["Jino Arvin", "Shelly Selof"]
+        )
+        XCTAssertEqual(
+            PulseSeatPack.publishedOMNames(from: roster, filters: district),
+            ["Jino Arvin"]
+        )
+
+        func fact(
+            _ section: MetricSection,
+            _ store: String,
+            payload: [String: Double],
+            extra: [String: String] = [:]
+        ) -> MetricRow {
+            let identity = roster[store]!
+            var text = extra
+            if text["district"] == nil { text["district"] = identity.district }
+            return MetricRow(
+                section: section,
+                division: identity.division,
+                operationsOM: identity.om,
+                storeNumber: store,
+                storeName: identity.name,
+                payload: payload,
+                textPayload: text
+            )
+        }
+        let stores = ["304", "667", "1"]
+        var rows: [MetricRow] = []
+        rows.append(contentsOf: stores.map { fact(.storeRoster, $0, payload: ["roster": 1], extra: ["roster": "1"]) })
+        rows.append(contentsOf: stores.map { fact(.sales, $0, payload: ["sales_dollars": 100, "sales_orders": 4]) })
+        rows.append(contentsOf: stores.map {
+            fact(.pickerScorecard, $0, payload: ["pph": 82, "orders": 24], extra: ["shopper_id": "\($0)-A", "shopper_name": "\($0)-A"])
+        })
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("seat-pack-389-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let packRoot = tmp.appendingPathComponent("packs", isDirectory: true)
+        let manifest = try PulseSeatPack.cookPublished(
+            rows: rows,
+            uploads: [],
+            packRoot: packRoot,
+            includeStores: true
+        )
+        XCTAssertEqual(Set(manifest.oms.map(\.id)), ["Jino-Arvin", "Shelly-Selof"])
+        XCTAssertTrue(manifest.allEntries.contains { $0.path == "packs/seat/om/Jino-Arvin/current.sqlite" })
+        let omURL = PulseSeatPack.localURL(root: tmp, key: PulseSeatPack.Key(grain: .om, id: "Jino Arvin"))
+        XCTAssertTrue(PulseSeatPack.isUsable(at: omURL))
+        let omPack = try PulseSQLite.read(from: omURL)
+        let omStores = Set(omPack.rows.map(\.storeNumber).filter { !$0.isEmpty })
+        XCTAssertEqual(omStores.intersection(["304", "667", "1"]), ["304", "667"])
+        XCTAssertTrue(omPack.rows.contains { $0.section == .pickerScorecard })
+        XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
     }
 
     func testSeatPackDistrict03EverySectionStoresEqualsHeartbeatN() throws {

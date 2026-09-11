@@ -60,6 +60,30 @@ final class WorkbookParserTests: XCTestCase {
     func testNormHeaderStripsSymbols() {
         XCTAssertEqual(WorkbookParser.normHeader("OTP %"), "otppct")
         XCTAssertEqual(WorkbookParser.normHeader("Store #"), "store")
+        XCTAssertEqual(WorkbookParser.normHeader("OM_AREA"), "omarea")
+        XCTAssertEqual(WorkbookParser.normHeader("OM_ID"), "omid")
+    }
+
+    func testStoreRosterBindsOMIdNotOMArea() {
+        let csv = """
+        DIVISION,DISTRICT,OM_AREA,OM_ID,STORE
+        NorCal,03,NorCal 04,Jino Arvin,304
+        NorCal,03,NorCal 04,Jino Arvin,667
+        Jewel Osco,J1,Chicago 1,Shelly Selof,1
+        """
+        let parsed = WorkbookParser.parseCSV(csv)
+        XCTAssertEqual(parsed.count, 3)
+        XCTAssertEqual(Set(parsed.map(\.operationsOM)), ["Jino Arvin", "Shelly Selof"])
+        XCTAssertEqual(parsed.first { $0.storeNumber == "304" }?.textPayload["om_area"], "NorCal 04")
+        XCTAssertEqual(parsed.first { $0.storeNumber == "1" }?.textPayload["om_area"], "Chicago 1")
+        XCTAssertFalse(parsed.contains { $0.operationsOM == "NorCal 04" })
+        XCTAssertEqual(
+            WorkbookParser.headerIndex(
+                in: ["division", "district", "omarea", "omid", "store"],
+                keys: ["omid", "om"]
+            ),
+            3
+        )
     }
 
     func testMasterSheetNames() {

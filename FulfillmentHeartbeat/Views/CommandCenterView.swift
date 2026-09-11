@@ -141,6 +141,12 @@ enum CommandCenterLayout {
         section.symbol
     }
 
+    /// Tight brand-blue title strip across the top of each glance card.
+    static func glanceTitleUsesBlueBanner() -> Bool { true }
+
+    /// SF Symbol sits under the value, horizontally centered.
+    static func glanceIconCentered() -> Bool { true }
+
     static func alertRank(_ cards: [SectionSummary]) -> [SectionSummary] {
         cards.sorted { lhs, rhs in
             if lhs.health.dashboardRank != rhs.health.dashboardRank {
@@ -299,29 +305,41 @@ struct CommandCenterGlanceTile: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .center, spacing: 6) {
                     Text(CommandCenterLayout.glanceTitle(card.section))
-                        .font(AppTheme.rounded(.caption, weight: .bold))
-                        .foregroundStyle(AppTheme.textSecondary)
+                        .font(AppTheme.rounded(.subheadline, weight: .heavy))
+                        .foregroundStyle(Color.white)
                         .lineLimit(1)
+                        .minimumScaleFactor(0.7)
                     Spacer(minLength: 4)
                     HealthBadge(health: CommandCenterLayout.displayedHealth(card), compact: true)
                 }
-                Text(CommandCenterLayout.compactValue(card))
-                    .font(AppTheme.rounded(size: 24, weight: .bold).monospacedDigit())
-                    .foregroundStyle(AppTheme.text)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.5)
-                CommandCenterGlanceIcon(
-                    section: card.section,
-                    health: CommandCenterLayout.displayedHealth(card)
-                )
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(AppTheme.blue)
+
+                VStack(spacing: 6) {
+                    Text(CommandCenterLayout.compactValue(card))
+                        .font(AppTheme.rounded(size: 24, weight: .bold).monospacedDigit())
+                        .foregroundStyle(AppTheme.text)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.5)
+                    CommandCenterGlanceIcon(
+                        section: card.section,
+                        health: CommandCenterLayout.displayedHealth(card)
+                    )
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding(.horizontal, 8)
+                .padding(.top, 6)
+                .padding(.bottom, 8)
             }
-            .padding(8)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .background(Color.white)
+            .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .stroke(Color.black.opacity(0.07), lineWidth: 1)
@@ -342,7 +360,7 @@ struct CommandCenterGlanceIcon: View {
             Image(systemName: CommandCenterLayout.glanceSymbol(section))
                 .font(.system(size: side, weight: .semibold))
                 .foregroundStyle(AppTheme.healthInk(health))
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
         .accessibilityHidden(true)
     }

@@ -15,8 +15,8 @@ Heartbeat is a field iPad app. Production analytics mobile apps (Power BI Mobile
 
 | Rule | Must |
 |---|---|
-| Cook | `cookPublished(includeStores: true)` → `packs/manifest.json` + every company / district / store sqlite. `publishCloudPack` uploads that seat plane. Company thin **drops shopper tape** but still publishes picker `summary_cards` + `pickerShoppers` (summary-first). |
-| Grains this tip | `district`, `store`, `company` (market thin summary) |
+| Cook | `cookPublished(includeStores: true)` → `packs/manifest.json` + every company / district / **OM person** / store sqlite. `publishCloudPack` uploads that seat plane. Company thin **drops shopper tape** but still publishes picker `summary_cards` + `pickerShoppers` (summary-first). |
+| Grains this tip | `district`, `om`, `store`, `company` (market thin summary) |
 | Pre-roll in each seat sqlite | Card headlines, expand grain, Healthy/Watch/At Risk flags, seat store roster. Shoppers = **that seat’s stores only**. |
 | Device | Who’s looking → download **that** seat pack → hub paints from **that** sqlite. Missing object **fails** the hub. |
 | BAN | Market `current.sqlite` as primary under a seat |
@@ -34,18 +34,23 @@ heartbeat-packs/
   packs/manifest.json
   packs/seat/company/all/current.sqlite   # thin: store facts + chrome, no shopper tape
   packs/seat/district/03/current.sqlite
+  packs/seat/om/Jino-Arvin/current.sqlite  # one pack per OM_ID person
   packs/seat/store/12/current.sqlite
 ```
 
 Device cache mirrors the same relative paths under Application Support.
 
-Mac cook (`publishCloudPack` / HeartbeatIngest) always runs `cookPublished(includeStores: true)` and uploads `packs/manifest.json` plus **every** company / district / store sqlite. A missing seat object on the field iPad **fails the hub**. `materializeSeatFromCompany` is Mac / DEBUG kitchen only.
+Mac cook (`publishCloudPack` / HeartbeatIngest) always runs `cookPublished(includeStores: true)` and uploads `packs/manifest.json` plus **every** company / district / OM person / store sqlite. A missing seat object on the field iPad **fails the hub**. `materializeSeatFromCompany` is Mac / DEBUG kitchen only.
+
+`WorkbookParser.parseStoreRoster` binds **OM_ID** with exact / longest-key match. Normalized `omarea` must not steal key `om`. `operations_om` is the person (Tonya Lane, Jino Arvin, …). Area codes stay in `text["om_area"]`. Existing packs baked before this bind are wrong — **recook + republish**.
+
+`Key.forSeat` is store → **OM** (`filters.oms.first`) → district → company. OM filter chips read `publishedOMNames` (two-or-more letter tokens, no digits). `NorCal 04` is not an OM seat.
 
 ## Device state machine
 
 ```
 boot        → swapToSeatPack(.company) → Command Center (no Who’s looking wall)
-filter chip → swapToSeatPack(district|store|company) → paint or error
+filter chip → swapToSeatPack(district|om|store|company) → paint or error
 Clear       → swapToSeatPack(.company)
 missing     → FAIL hub (no silent no-op, no market slice)
 ```
@@ -76,5 +81,5 @@ Cook writes a fully indexed seat sqlite, `VACUUM`s it, then the device **atomica
 
 ## Later tips
 
-- Tip 2: Region / OM / Division published grains; UITableView / LazyVStack store lists
+- Tip 2: Region / Division published grains; UITableView / LazyVStack store lists. OM person seats pulled forward into `.389`.
 - Tip 3: Comedy polish

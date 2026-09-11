@@ -16,7 +16,7 @@ enum PulseSeatPack {
         PulseSQLite.exists(at: url) && PulseSQLite.fileBytes(at: url) >= minimumSeatBytes
     }
 
-    /// Mac cook always writes company + every district + every store.
+    /// Mac cook always writes company + every district + every OM person + every store.
     static func shouldCookEveryStoreSeat() -> Bool { true }
 
     /// `publishCloudPack` must upload the seat plane, not only `current.sqlite`.
@@ -55,6 +55,7 @@ enum PulseSeatPack {
     enum Grain: String, Codable, CaseIterable {
         case company
         case district
+        case om
         case store
     }
 
@@ -84,6 +85,8 @@ enum PulseSeatPack {
                 break
             case .district:
                 next.district = id
+            case .om:
+                next.om = id
             case .store:
                 next.store = id
             }
@@ -93,13 +96,16 @@ enum PulseSeatPack {
         var dashboardGrain: DashScopeGrain {
             switch grain {
             case .company: return .region
-            case .district, .store: return .store
+            case .district, .om, .store: return .store
             }
         }
 
         static func forSeat(filters: DashboardFilters, role _: HeartbeatRole?) -> Key {
             if let store = filters.stores.first, !store.isEmpty {
                 return Key(grain: .store, id: HeartbeatMath.canonicalStore(store))
+            }
+            if let om = filters.oms.first?.trimmingCharacters(in: .whitespacesAndNewlines), !om.isEmpty {
+                return Key(grain: .om, id: HeartbeatMath.canonicalOM(om))
             }
             if let district = filters.districts.first, !district.isEmpty {
                 return Key(grain: .district, id: HeartbeatMath.canonicalDistrict(district))
@@ -123,9 +129,43 @@ enum PulseSeatPack {
         var cookedAt: String
         var company: Entry
         var districts: [Entry]
+        var oms: [Entry]
         var stores: [Entry]
 
-        var allEntries: [Entry] { [company] + districts + stores }
+        var allEntries: [Entry] { [company] + districts + oms + stores }
+
+        enum CodingKeys: String, CodingKey {
+            case schema, stamp, cookedAt, company, districts, oms, stores
+        }
+
+        init(
+            schema: Int,
+            stamp: String,
+            cookedAt: String,
+            company: Entry,
+            districts: [Entry],
+            oms: [Entry] = [],
+            stores: [Entry]
+        ) {
+            self.schema = schema
+            self.stamp = stamp
+            self.cookedAt = cookedAt
+            self.company = company
+            self.districts = districts
+            self.oms = oms
+            self.stores = stores
+        }
+
+        init(from decoder: Decoder) throws {
+            let box = try decoder.container(keyedBy: CodingKeys.self)
+            schema = try box.decode(Int.self, forKey: .schema)
+            stamp = try box.decode(String.self, forKey: .stamp)
+            cookedAt = try box.decode(String.self, forKey: .cookedAt)
+            company = try box.decode(Entry.self, forKey: .company)
+            districts = try box.decodeIfPresent([Entry].self, forKey: .districts) ?? []
+            oms = try box.decodeIfPresent([Entry].self, forKey: .oms) ?? []
+            stores = try box.decodeIfPresent([Entry].self, forKey: .stores) ?? []
+        }
 
         func entry(for key: Key) -> Entry? {
             allEntries.first { $0.grain == key.grain.rawValue && $0.id == key.slug }
@@ -279,6 +319,39 @@ enum PulseSeatPack {
             .map { Key(grain: .store, id: $0) }
     }
 
+    /// Two-or-more letter tokens, no digits. `NorCal 04` / `Chicago 1` are areas.
+    static func isPublishedOMPerson(_ raw: String) -> Bool {
+        let name = HeartbeatMath.canonicalOM(raw)
+        guard !name.isEmpty else { return false }
+        if name.unicodeScalars.contains(where: { CharacterSet.decimalDigits.contains($0) }) {
+            return false
+        }
+        let tokens = name.split { $0.isWhitespace || $0 == "/" }.filter { token in
+            token.contains(where: \.isLetter)
+        }
+        return tokens.count >= 2
+    }
+
+    static func publishedOMNames(
+        from roster: [String: HeartbeatMath.StoreIdentity],
+        filters: DashboardFilters = DashboardFilters()
+    ) -> [String] {
+        var seen: [String: String] = [:]
+        for identity in roster.values {
+            if !filters.includesDivision(identity.division) { continue }
+            if !filters.includesDistrict(identity.district) { continue }
+            let om = HeartbeatMath.canonicalOM(identity.om)
+            guard isPublishedOMPerson(om) else { continue }
+            let key = om.lowercased()
+            if seen[key] == nil { seen[key] = om }
+        }
+        return seen.values.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+    }
+
+    static func publishedOMKeys(roster: [String: HeartbeatMath.StoreIdentity]) -> [Key] {
+        publishedOMNames(from: roster).map { Key(grain: .om, id: $0) }
+    }
+
     static func cookPublished(
         rows: [MetricRow],
         uploads: [UploadRecord],
@@ -302,6 +375,12 @@ enum PulseSeatPack {
             try FileManager.default.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
             districts.append(try writeCooked(rows: rows, uploads: uploads, key: key, roster: roster, to: dest))
         }
+        var oms: [Entry] = []
+        for key in publishedOMKeys(roster: roster) {
+            let dest = localURL(root: packRoot.deletingLastPathComponent(), key: key)
+            try FileManager.default.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+            oms.append(try writeCooked(rows: rows, uploads: uploads, key: key, roster: roster, to: dest))
+        }
         var stores: [Entry] = []
         if includeStores {
             for key in publishedStoreKeys(roster: roster) {
@@ -316,6 +395,7 @@ enum PulseSeatPack {
             cookedAt: ISO8601DateFormatter().string(from: Date()),
             company: company,
             districts: districts,
+            oms: oms,
             stores: stores
         )
         let manifestURL = packRoot.appendingPathComponent("manifest.json")

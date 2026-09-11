@@ -273,13 +273,7 @@ struct PulseCaches {
             .filter { !$0.isEmpty }
             .uniquedIgnoringCase()
             .sorted()
-        let oms = roster.values
-            .filter { filters.includesDivision($0.division) }
-            .filter { filters.includesDistrict($0.district) }
-            .map { HeartbeatMath.canonicalOM($0.om) }
-            .filter { value in !value.isEmpty && value.rangeOfCharacter(from: .letters) != nil }
-            .uniquedIgnoringCase()
-            .sorted()
+        let oms = PulseSeatPack.publishedOMNames(from: roster, filters: filters)
         var seen: [String: String?] = [:]
         for (number, identity) in roster {
             if let allowed, !allowed.contains(number) { continue }

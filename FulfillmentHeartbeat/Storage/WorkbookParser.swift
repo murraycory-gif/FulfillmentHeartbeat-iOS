@@ -884,13 +884,14 @@ enum WorkbookParser {
         }) else { return nil }
         let header = matrix[headerIndex].map(normHeader)
         func idx(_ keys: [String]) -> Int? {
-            header.firstIndex { name in keys.contains(where: { name == $0 || name.contains($0) }) }
+            Self.headerIndex(in: header, keys: keys)
         }
         let divisionIdx = idx(["division"]) ?? 0
         let districtIdx = idx(["district"]) ?? 1
-        let areaIdx = idx(["omarea", "om_area", "area"])
-        let omIdx = idx(["omid", "om_id", "om"]) ?? 3
-        let storeIdx = idx(["store", "storeid", "store_id"]) ?? 4
+        let areaIdx = idx(["omarea", "area"])
+        /// Exact / longest key only. `om` must not steal `omarea`.
+        let omIdx = idx(["omid", "om"])
+        let storeIdx = idx(["store", "storeid"]) ?? 4
         var division = ""
         var district = ""
         var area = ""
@@ -4021,6 +4022,21 @@ enum WorkbookParser {
         raw.lowercased()
             .replacingOccurrences(of: "[%#]", with: "", options: .regularExpression)
             .replacingOccurrences(of: "[^a-z0-9]+", with: "", options: .regularExpression)
+    }
+
+    /// Exact header match, longest key first. Substring match is banned —
+    /// normalized `omarea` must not bind the `om` key.
+    static func headerIndex(in header: [String], keys: [String]) -> Int? {
+        let ranked = keys.sorted { lhs, rhs in
+            if lhs.count != rhs.count { return lhs.count > rhs.count }
+            return lhs < rhs
+        }
+        for key in ranked {
+            if let match = header.firstIndex(where: { $0 == key }) {
+                return match
+            }
+        }
+        return nil
     }
 
     private static func cellNumber(_ raw: String) -> Double? {

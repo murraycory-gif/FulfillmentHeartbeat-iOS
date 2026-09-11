@@ -2044,17 +2044,7 @@ final class HeartbeatStore: ObservableObject {
                     .sorted()
             )
         case .om:
-            return pairs(
-                roster.values
-                    .filter { draft.includesDivision($0.division) }
-                    .filter { draft.includesDistrict($0.district) }
-                    .map { HeartbeatMath.canonicalOM($0.om) }
-                    .filter { value in
-                        !value.isEmpty && value.rangeOfCharacter(from: .letters) != nil
-                    }
-                    .uniquedIgnoringCase()
-                    .sorted()
-            )
+            return pairs(PulseSeatPack.publishedOMNames(from: roster, filters: draft))
         case .store:
             var seen: [String: String] = [:]
             for (number, identity) in roster {
@@ -4325,15 +4315,7 @@ final class HeartbeatStore: ObservableObject {
             .filter { !$0.isEmpty }
             .uniquedIgnoringCase()
             .sorted()
-        cachedOMs = roster.values
-            .filter { filters.includesDivision($0.division) }
-            .filter { filters.includesDistrict($0.district) }
-            .map { HeartbeatMath.canonicalOM($0.om) }
-            .filter { value in
-                !value.isEmpty && value.rangeOfCharacter(from: .letters) != nil
-            }
-            .uniquedIgnoringCase()
-            .sorted()
+        cachedOMs = PulseSeatPack.publishedOMNames(from: roster, filters: filters)
         var seen: [String: String?] = [:]
         for (number, identity) in roster {
             if !filters.includesDivision(identity.division) { continue }

@@ -487,6 +487,17 @@ enum PulseLaunch {
         }
     }
 
+    /// Picker ScoreCard: exactly one shoppers table on Division / District / OM / Store.
+    static func shouldShowPickerShoppersTable(filters: DashboardFilters) -> Bool {
+        switch sectionPageSeat(filters: filters) {
+        case .division, .district, .om, .store: return true
+        case .company, .region: return false
+        }
+    }
+
+    /// Pages / filter chips only. No top-left Dashboard chevron on scorecards.
+    static func shouldShowScorecardDashboardBackControl() -> Bool { false }
+
     /// Any higher-grain rollup on this scorecard (0–2 tables).
     static func shouldMountSectionRollup(filters: DashboardFilters) -> Bool {
         !sectionRollupGrains(filters: filters).isEmpty

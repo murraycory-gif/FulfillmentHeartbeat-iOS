@@ -459,7 +459,8 @@ struct MainHubView: View {
         }
         .background(AppTheme.bg)
         .hubChrome(
-            showBack: router.current != .dashboard,
+            showBack: PulseLaunch.shouldShowScorecardDashboardBackControl()
+                && router.current != .dashboard,
             showsFilters: true
         )
     }
