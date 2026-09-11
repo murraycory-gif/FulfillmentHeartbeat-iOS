@@ -5795,6 +5795,25 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(picker.contains { $0.value == "0" })
     }
 
+    /// MUST P: seat-repull / company-as-root / no-delete / expand gates stay
+    /// on KEEP 730 (`a9e2f68`). Tip must not re-arm promote / wipe / expand.
+    func testArchitecture407MustPSeatRepullUnchanged() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.407")
+        XCTAssertFalse(PulseLaunch.shouldRedownloadUsableCompanySeat())
+        XCTAssertFalse(PulseLaunch.shouldRedownloadUsableSeatOnFilterChange())
+        XCTAssertTrue(PulseLaunch.shouldForceRedownloadCompanySeatWhenRemoteNewer())
+        XCTAssertFalse(PulseLaunch.shouldWipeWarehouseBeforeCachedCompanyChrome())
+        XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
+        XCTAssertFalse(PulseLaunch.shouldPrefillAllExpandTablesAtCompany(pad: true))
+        XCTAssertFalse(PulseLaunch.shouldPrefillAllExpandTablesAtCompany(pad: false))
+        XCTAssertFalse(PulseLaunch.shouldBuildCompanyGrainTablesOnWarehousePaint())
+        XCTAssertEqual(PulseLaunch.companySeatMaxBytes, 28_000_000)
+        XCTAssertTrue(PulseLaunch.reloadInSessionAfterFetch(constrained: true, localRowsLoaded: 0))
+        XCTAssertTrue(
+            PulseSeatPack.expandTables(latest: [:], roster: [:], grain: .region).isEmpty
+        )
+    }
+
     func testPromotedPackReloadsInSessionEvenWhenConstrained() {
         XCTAssertTrue(PulseLaunch.reloadInSessionAfterFetch(constrained: true, localRowsLoaded: 400))
         XCTAssertTrue(PulseLaunch.reloadInSessionAfterFetch(constrained: true, localRowsLoaded: 0))
