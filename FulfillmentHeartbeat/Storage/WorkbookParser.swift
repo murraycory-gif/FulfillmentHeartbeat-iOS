@@ -427,13 +427,14 @@ enum WorkbookParser {
         return sample.contains(",") && !data.starts(with: [0x50, 0x4B])
     }
 
-    private static let divisionKeys = ["division", "div", "divn", "divnbr", "divisionnumber"]
+    private static let divisionKeys = ["division", "div", "divn", "divnbr", "divisionnumber", "market", "banner"]
+    private static let marketAsDivisionKeys: Set<String> = ["market", "banner"]
     private static let omKeys = [
         "operationsom", "operations_om", "opsom", "om", "omid", "marketmanager", "mm",
         "operationsmanager", "opsmgr",
     ]
     private static let districtKeys = ["district", "dist", "distid", "districtnbr", "districtnumber"]
-    private static let omAreaKeys = ["omarea", "om_area", "area", "market"]
+    private static let omAreaKeys = ["omarea", "om_area", "area"]
     private static let storeKeys = [
         "storenumber", "storenbr", "store", "storeid", "unit", "storenbr", "location", "loc", "locationid",
     ]
@@ -811,6 +812,16 @@ enum WorkbookParser {
         return trimmed
     }
 
+    /// Official Excel market only. MARKET leftovers stay blank — never Unassigned.
+    private static func boundDivision(header: String, raw: String) -> (division: String?, omArea: String?) {
+        guard let trimmed = usableValue(raw) else { return (nil, nil) }
+        let official = MarketRegion.canonicalName(trimmed)
+        if !official.isEmpty { return (official, nil) }
+        if MarketRegion.isIgnoredDivisionToken(trimmed) { return ("", nil) }
+        if marketAsDivisionKeys.contains(header) { return (nil, trimmed) }
+        return (trimmed, nil)
+    }
+
     private static func normalizeWeekID(_ raw: String) -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if let value = Double(trimmed), value >= 200_000, value == value.rounded() {
@@ -895,7 +906,9 @@ enum WorkbookParser {
     private static func parseStoreRoster(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {
         guard let headerIndex = matrix.firstIndex(where: { row in
             let names = row.map(normHeader)
-            return names.contains(where: { $0 == "division" || $0.contains("division") })
+            return names.contains(where: {
+                $0 == "division" || $0.contains("division") || $0 == "market" || $0 == "banner"
+            })
                 && names.contains(where: { $0 == "district" || $0.contains("district") })
                 && names.contains(where: { $0 == "store" || $0.contains("store") })
         }) else { return nil }
@@ -903,7 +916,8 @@ enum WorkbookParser {
         func idx(_ keys: [String]) -> Int? {
             Self.headerIndex(in: header, keys: keys)
         }
-        let divisionIdx = idx(["division"]) ?? 0
+        let divisionIdx = idx(["division", "market", "banner"]) ?? 0
+        let divisionHeader = divisionIdx < header.count ? header[divisionIdx] : "division"
         let districtIdx = idx(["district"]) ?? 1
         let areaIdx = idx(["omarea", "area"])
         /// Exact / longest key only. `om` must not steal `omarea`.
@@ -926,7 +940,9 @@ enum WorkbookParser {
             let omRaw = cell(omIdx)
             let storeRaw = cell(storeIdx)
             if !divRaw.isEmpty, !isTotalCell(divRaw), divRaw.uppercased() != "WEEK_ID" {
-                division = divRaw
+                let bound = boundDivision(header: divisionHeader, raw: divRaw)
+                if let next = bound.division { division = next }
+                if let nextArea = bound.omArea { area = nextArea }
             }
             if !distRaw.isEmpty, !isTotalCell(distRaw) {
                 district = distRaw
@@ -2287,7 +2303,8 @@ enum WorkbookParser {
             if isTotalCell(divRaw) {
                 division = ""
             } else if let value = usableValue(divRaw) {
-                division = value
+                let bound = boundDivision(header: "division", raw: value)
+                if let next = bound.division { division = next }
             }
             let distRaw = cell(idxDist)
             if isTotalCell(distRaw) {
@@ -2667,7 +2684,8 @@ enum WorkbookParser {
         if isTotalCell(divRaw) {
             division = ""
         } else if let value = usableValue(divRaw) {
-            division = value
+            let bound = boundDivision(header: "division", raw: value)
+            if let next = bound.division { division = next }
         }
         let distRaw = cell("district")
         if isTotalCell(distRaw) {
@@ -3537,7 +3555,9 @@ enum WorkbookParser {
             header.firstIndex { keys.contains($0) }
         }
 
-        let divIdx = firstIndex(divisionKeys)
+        let divIdx = firstIndex(["division", "div", "divn", "divnbr", "divisionnumber"])
+            ?? firstIndex(["market", "banner"])
+        let divHeader = divIdx.flatMap { $0 < header.count ? header[$0] : nil } ?? "division"
         let distIdx = firstIndex(districtKeys)
         let areaIdx = firstIndex(omAreaKeys)
         let omIdx = firstIndex(omKeys)
@@ -3584,7 +3604,11 @@ enum WorkbookParser {
                 return line[index]
             }
 
-            if let value = usableValue(cell(divIdx)) { carryDiv = value }
+            if let raw = usableValue(cell(divIdx)) {
+                let bound = boundDivision(header: divHeader, raw: raw)
+                if let next = bound.division { carryDiv = next }
+                if let nextArea = bound.omArea { carryArea = nextArea }
+            }
             if let value = usableValue(cell(distIdx)) { carryDist = value }
             if let value = usableValue(cell(areaIdx)) { carryArea = value }
             if let value = usableValue(cell(omIdx)) { carryOM = value }
@@ -3963,7 +3987,9 @@ enum WorkbookParser {
                 guard !header.isEmpty else { continue }
                 let raw = index < line.count ? line[index] : ""
                 if divisionKeys.contains(header) {
-                    division = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let bound = boundDivision(header: header, raw: raw)
+                    if let next = bound.division { division = next }
+                    if let nextArea = bound.omArea { text["om_area"] = nextArea }
                     continue
                 }
                 if districtKeys.contains(header) {

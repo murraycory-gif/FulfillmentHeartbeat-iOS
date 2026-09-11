@@ -1035,6 +1035,7 @@ struct MissingItemsRollupTable: View {
         guard let next else { summary = []; return }
         let source = MissingItemsRollupBuilder.source(from: store.rollupStores(for: section), filters: store.filters)
         var rows = MissingItemsRollupBuilder.rows(from: source, grain: next, depts: depts)
+        rows.removeAll { RollupMarketFill.hidesUnassignedMarket($0.label) }
         if next == .region {
             for name in RollupMarketFill.missingRegions(present: rows.map(\.label)) {
                 rows.append(
@@ -1056,6 +1057,21 @@ struct MissingItemsRollupTable: View {
                         id: extra.name,
                         label: extra.name,
                         storeCount: extra.storeCount,
+                        total: nil,
+                        values: [:],
+                        health: .none
+                    )
+                )
+            }
+            if let orphan = RollupMarketFill.unassignedIfRealOrphans(
+                markets: store.marketStores(),
+                isRoster: store.isOfficialRosterStore
+            ) {
+                rows.append(
+                    MissingItemsRollupRow(
+                        id: orphan.name,
+                        label: orphan.name,
+                        storeCount: orphan.storeCount,
                         total: nil,
                         values: [:],
                         health: .none

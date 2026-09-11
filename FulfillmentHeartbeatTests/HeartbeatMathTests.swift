@@ -2973,7 +2973,14 @@ final class HeartbeatMathTests: XCTestCase {
             RollupMarketFill.isRealRosterOrphan(storeNumber: "17", division: "", rosterContains: true)
         )
         XCTAssertTrue(
-            RollupMarketFill.isRealRosterOrphan(storeNumber: "12", division: "", rosterContains: true)
+            RollupMarketFill.isRealRosterOrphan(
+                storeNumber: "12", division: "", district: "03", om: "Jino Arvin", rosterContains: true
+            )
+        )
+        XCTAssertFalse(
+            RollupMarketFill.isRealRosterOrphan(
+                storeNumber: "12", division: "", district: "", om: "", rosterContains: true
+            )
         )
         let noiseMarkets = RollupMarketFill.proofNoiseStoreNumbers.map {
             HeartbeatMath.MarketStore(storeNumber: $0, division: "", district: "", om: "", pph: nil, compliance: nil)
@@ -3027,6 +3034,51 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(SalesRollupBuilder.rows(from: [orphan], grain: .division).contains { $0.label == "Unassigned" })
         XCTAssertNil(HeartbeatMath.dashboardScopeKey(orphan, grain: .division))
         XCTAssertNil(HeartbeatMath.dashboardScopeKey(lostOrphan, grain: .division))
+
+        // Cooked Excel roster (facts.json): 2162 stores, 0 blank MARKET, United = 70.
+        // The 21 Unassigned bucket is 20 non-roster store #s + one Applied-filters footer.
+        let listedNoise = [
+            "17", "137", "683", "797", "835", "862", "881", "879", "1038",
+            "1721", "1787", "1792", "2077", "2258", "2563", "2915", "3610", "3723",
+            "4187", "4799",
+        ]
+        XCTAssertEqual(Set(listedNoise), RollupMarketFill.proofNoiseStoreNumbers)
+        XCTAssertTrue(WorkbookParser.isNonStoreFooter("Applied filters: Excluded (2) (Blank) (DIVISION)"))
+        XCTAssertTrue(MarketRegion.isIgnoredDivisionToken("Unassigned"))
+        XCTAssertTrue(MarketRegion.isIgnoredDivisionToken("UN-ASSIGNED"))
+        XCTAssertFalse(MarketRegion.isIgnoredDivisionToken("United"))
+
+        let unitedRoster: [String: HeartbeatMath.StoreIdentity] = [
+            "22": HeartbeatMath.StoreIdentity(division: "United", district: "U1", om: "Jane", name: nil)
+        ]
+        let mislabeled = MetricRow(
+            section: .scheduleQuality,
+            division: "Southern",
+            operationsOM: "",
+            storeNumber: "22",
+            payload: ["schedule_efficiency_pct": 91, "staffing_efficiency_pct": 88]
+        )
+        let stamped = HeartbeatMath.stampRoster(mislabeled, roster: unitedRoster)
+        XCTAssertEqual(stamped.division, "United")
+        XCTAssertEqual(RollupMarketFill.acceptedGrainKey(stamped, grain: .division), "United")
+
+        let leftover = MetricRow(
+            section: .scheduleQuality,
+            division: "Unassigned",
+            operationsOM: "",
+            storeNumber: "17",
+            payload: ["schedule_efficiency_pct": 70]
+        )
+        XCTAssertNil(RollupMarketFill.acceptedGrainKey(leftover, grain: .division))
+        XCTAssertNil(RollupMarketFill.acceptedGrainKey(leftover, grain: .region))
+        XCTAssertTrue(RollupMarketFill.hidesUnassignedMarket("Unassigned"))
+
+        let hollowUnitedPad = HeartbeatMath.MarketStore(
+            storeNumber: "22", division: "United", district: "U1", om: "Jane", pph: nil, compliance: nil
+        )
+        XCTAssertNil(
+            RollupMarketFill.unassignedIfRealOrphans(markets: [hollowUnitedPad], isRoster: { $0 == "22" })
+        )
 
         let fallback = HeartbeatAssist.coachFallback(dest: .dashboard, filter: "Company", wrong: "Pack missing.")
         for heading in PulseLaunch.assistCoachHeadings() {

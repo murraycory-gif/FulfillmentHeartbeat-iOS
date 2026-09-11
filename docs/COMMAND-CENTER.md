@@ -19,7 +19,7 @@ Home is a **Pulse / Power BI Mobile briefing**: packed KPI tiles, tight gutters,
 | Expand | Tap opens the scorecard. No store tables on home. |
 | Mac | **Pinned** left Pages rail + dense center. **No right Alerts column.** |
 | iPad land + port | **Full-width center by default.** Pages opens as a drawer. **No Alerts drawer / rail.** Do not pin Mac triple columns. |
-| iPhone | Same glance-first density (2-col port / 3-col land). Picker Top Opportunity: **phone cards** (Cory shot — no `SHOPPER … STATUS` squeezed table, no `DRIV142 | Store…` truncate, labeled metrics + STATUS). Highlights on Company; picture strip Div/Dist/OM/Store only. 44pt hits; Pages first tap. Loss Markets: no Unassigned 21 noise. |
+| iPhone | Same glance-first density (2-col port / 3-col land). Picker Top Opportunity: **phone cards** (Cory shot — no `SHOPPER … STATUS` squeezed table, no `DRIV142 | Store…` truncate, labeled metrics + STATUS). Highlights on Company; picture strip Div/Dist/OM/Store only. 44pt hits; Pages first tap. Markets/Regions: no Unassigned 21 noise (20 non-roster #s + footer; cooked roster has 0 blank MARKET). United Week 27 uses roster market so live % can bind — never invent %. |
 | Load | Heart + progress + chrome. **No grocery one-liners.** |
 | Halloween | Off |
 

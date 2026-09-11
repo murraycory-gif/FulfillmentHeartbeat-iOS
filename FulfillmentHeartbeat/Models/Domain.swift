@@ -640,9 +640,13 @@ enum HeartbeatMath {
         }
         guard let identity else { return row }
         var next = row
-        let incomingCanon = MarketRegion.canonicalName(next.division)
-        if incomingCanon.isEmpty, !identity.division.isEmpty {
-            next.division = identity.division
+        let rosterCanon = MarketRegion.canonicalName(identity.division)
+        if !rosterCanon.isEmpty {
+            // Excel roster is the market source of truth. Do not keep a leftover
+            // scorecard carry-forward (Southern on a United store → hollow United 70).
+            next.division = rosterCanon
+        } else {
+            next.division = MarketRegion.canonicalName(next.division)
         }
         if (next.textPayload["district"] ?? "").isEmpty, !identity.district.isEmpty {
             next.textPayload["district"] = identity.district
@@ -1150,9 +1154,9 @@ enum HeartbeatMath {
             order: order,
             goalFallback: goalFallback
         )
-        if grain == .region { return table }
-        if grain == .division {
+        if grain == .region || grain == .division {
             let cleaned = table.filter { !RollupMarketFill.hidesUnassignedMarket($0.label) }
+            if grain == .region { return cleaned }
             if grainRowsAreLive(cleaned) { return cleaned }
             return cleaned
         }
@@ -2122,8 +2126,10 @@ enum HeartbeatMath {
 
     static func resolvedIdentity(_ row: MetricRow, roster: [String: StoreIdentity]) -> StoreIdentity {
         let known = roster[canonicalStore(row.storeNumber)]
+        let rosterCanon = MarketRegion.canonicalName(known?.division ?? "")
+        let incomingCanon = MarketRegion.canonicalName(row.division)
         return StoreIdentity(
-            division: row.division.isEmpty ? (known?.division ?? "") : row.division,
+            division: rosterCanon.isEmpty ? incomingCanon : rosterCanon,
             district: row.district.isEmpty ? (known?.district ?? "") : row.district,
             om: row.operationsOM.isEmpty ? (known?.om ?? "") : row.operationsOM,
             name: row.storeName ?? known?.name
@@ -4489,6 +4495,16 @@ enum MarketRegion: String, CaseIterable, Identifiable, Sendable {
         "total", "grandtotal", "all", "alldivisions", "allmarkets", "company",
         "na", "none", "null", "blank", "unassigned", "unknown",
     ]
+
+    /// Blank / filter leftovers / Unassigned tokens. Never a real Excel market.
+    static func isIgnoredDivisionToken(_ raw: String) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return true }
+        let compact = HeartbeatMath.compactKey(trimmed)
+        if ignoredDivisionKeys.contains(compact) { return true }
+        if compact.contains("unassigned") { return true }
+        return false
+    }
 
     static let regionKeys: Set<String> = [
         "east", "west", "south", "california",

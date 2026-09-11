@@ -2438,9 +2438,16 @@ struct PickPathRollupTable: View {
         guard let next else { summary = []; return }
         let source = PickPathRollupBuilder.source(from: store.rollupStores(for: .pickPath), filters: store.filters)
         var rows = PickPathRollupBuilder.rows(from: source, grain: next)
+        rows.removeAll { RollupMarketFill.hidesUnassignedMarket($0.label) }
         if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
                 rows.append(PickPathRollupRow(id: extra.name, label: extra.name, storeCount: extra.storeCount, path: nil, pph: nil, orders: nil))
+            }
+            if let orphan = RollupMarketFill.unassignedIfRealOrphans(
+                markets: store.marketStores(),
+                isRoster: store.isOfficialRosterStore
+            ) {
+                rows.append(PickPathRollupRow(id: orphan.name, label: orphan.name, storeCount: orphan.storeCount, path: nil, pph: nil, orders: nil))
             }
             rows.sort { ($0.path ?? 999) < ($1.path ?? 999) }
         }
@@ -3494,9 +3501,16 @@ struct DynacapRollupTable: View {
             }
         }
         var rows = DynacapRollupBuilder.rows(from: source, grain: next, pphByStore: pphByStore)
+        rows.removeAll { RollupMarketFill.hidesUnassignedMarket($0.label) }
         if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
                 rows.append(DynacapRollupRow(id: extra.name, label: extra.name, storeCount: extra.storeCount, rate: nil, pph: nil, util: nil))
+            }
+            if let orphan = RollupMarketFill.unassignedIfRealOrphans(
+                markets: store.marketStores(),
+                isRoster: store.isOfficialRosterStore
+            ) {
+                rows.append(DynacapRollupRow(id: orphan.name, label: orphan.name, storeCount: orphan.storeCount, rate: nil, pph: nil, util: nil))
             }
             rows.sort { ($0.rate ?? 999) < ($1.rate ?? 999) }
         }
@@ -4335,9 +4349,16 @@ struct PrepRollupTable: View {
         guard let next else { summary = []; return }
         let source = PrepRollupBuilder.source(from: store.rollupStores(for: .prepNotReady), filters: store.filters)
         var rows = PrepRollupBuilder.rows(from: source, grain: next)
+        rows.removeAll { RollupMarketFill.hidesUnassignedMarket($0.label) }
         if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
                 rows.append(PrepRollupRow(id: extra.name, label: extra.name, storeCount: extra.storeCount, pnr: nil))
+            }
+            if let orphan = RollupMarketFill.unassignedIfRealOrphans(
+                markets: store.marketStores(),
+                isRoster: store.isOfficialRosterStore
+            ) {
+                rows.append(PrepRollupRow(id: orphan.name, label: orphan.name, storeCount: orphan.storeCount, pnr: nil))
             }
             rows.sort { ($0.pnr ?? -1) > ($1.pnr ?? -1) }
         }
@@ -5085,6 +5106,7 @@ struct FiveStarRollupTable: View {
         guard let next else { summary = []; return }
         let source = FiveStarRollupBuilder.source(from: store.rollupStores(for: .fiveStar), filters: store.filters)
         var rows = FiveStarRollupBuilder.rows(from: source, grain: next)
+        rows.removeAll { RollupMarketFill.hidesUnassignedMarket($0.label) }
         if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
                 rows.append(
@@ -5092,6 +5114,24 @@ struct FiveStarRollupTable: View {
                         id: extra.name,
                         label: extra.name,
                         storeCount: extra.storeCount,
+                        rating: nil,
+                        flash: nil,
+                        presub: nil,
+                        coe: nil,
+                        ott: nil,
+                        oth: nil
+                    )
+                )
+            }
+            if let orphan = RollupMarketFill.unassignedIfRealOrphans(
+                markets: store.marketStores(),
+                isRoster: store.isOfficialRosterStore
+            ) {
+                rows.append(
+                    FiveStarRollupRow(
+                        id: orphan.name,
+                        label: orphan.name,
+                        storeCount: orphan.storeCount,
                         rating: nil,
                         flash: nil,
                         presub: nil,
@@ -5383,11 +5423,8 @@ enum RollupMarketFill {
     static func divisionKey(_ raw: String) -> String {
         let canonical = MarketRegion.canonicalName(raw)
         if !canonical.isEmpty { return canonical }
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty { return "" }
-        let compact = HeartbeatMath.compactKey(trimmed)
-        if MarketRegion.ignoredDivisionKeys.contains(compact) { return "" }
-        return trimmed
+        if MarketRegion.isIgnoredDivisionToken(raw) { return "" }
+        return raw.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     static func isOrphanMarketStore(_ row: MetricRow) -> Bool {
@@ -5400,26 +5437,36 @@ enum RollupMarketFill {
     }
 
     static func hidesUnassignedMarket(_ key: String) -> Bool {
-        if key.isEmpty { return true }
-        if key == unassignedLabel { return true }
-        return HeartbeatMath.compactKey(key) == "unassigned"
+        MarketRegion.isIgnoredDivisionToken(key)
     }
 
-    /// Cory Loss proof: these Sales/Labor store #s are not on the Excel Roster.
-    /// They must never seed a Markets Unassigned row (count 21 / NO DATA).
+    /// Cory Week-27 proof: these Sales/Labor store #s are not on the Excel Roster
+    /// (facts.json 2162 / 0 blank MARKET). Plus one Dynacap "Applied filters" footer.
+    /// They must never seed a Markets/Regions Unassigned row (count 21 / no %).
     static let proofNoiseStoreNumbers: Set<String> = [
         "17", "137", "683", "797", "835", "862", "881", "879", "1038",
         "1721", "1787", "1792", "2077", "2258", "2563", "2915", "3610", "3723",
         "4187", "4799",
     ]
+    static let proofNoiseFooterReason = "Dynacap/Sales Applied-filters footer — not a store"
 
     /// Roster store whose Excel MARKET/DIVISION is still blank after stamp.
-    static func isRealRosterOrphan(storeNumber: String, division: String, rosterContains: Bool) -> Bool {
+    /// Leaked Sales/Labor orphans have empty district+OM — they are not honest blanks.
+    static func isRealRosterOrphan(
+        storeNumber: String,
+        division: String,
+        district: String = "",
+        om: String = "",
+        rosterContains: Bool
+    ) -> Bool {
         guard rosterContains else { return false }
         let store = HeartbeatMath.canonicalStore(storeNumber)
         guard !store.isEmpty, !HeartbeatMath.isIgnoredStore(store) else { return false }
         if proofNoiseStoreNumbers.contains(store) { return false }
-        return divisionKey(division).isEmpty
+        guard divisionKey(division).isEmpty else { return false }
+        let hasSeat = !HeartbeatMath.canonicalDistrict(district).isEmpty
+            || !HeartbeatMath.canonicalOM(om).isEmpty
+        return hasSeat
     }
 
     static func unassignedIfRealOrphans(
@@ -5430,6 +5477,8 @@ enum RollupMarketFill {
             isRealRosterOrphan(
                 storeNumber: $0.storeNumber,
                 division: $0.division,
+                district: $0.district,
+                om: $0.om,
                 rosterContains: isRoster($0.storeNumber)
             )
         }
@@ -6097,6 +6146,7 @@ struct LaborRollupTable: View {
         guard let next else { summary = []; return }
         let source = LaborRollupBuilder.source(from: store.rollupStores(for: .labor), filters: store.filters)
         var rows = LaborRollupBuilder.rows(from: source, grain: next)
+        rows.removeAll { RollupMarketFill.hidesUnassignedMarket($0.label) }
         if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
                 rows.append(
@@ -6104,6 +6154,25 @@ struct LaborRollupTable: View {
                         id: extra.name,
                         label: extra.name,
                         storeCount: extra.storeCount,
+                        tva: nil,
+                        cost: nil,
+                        act: nil,
+                        efficiency: nil,
+                        uplh: nil,
+                        wage: nil,
+                        aiv: nil
+                    )
+                )
+            }
+            if let orphan = RollupMarketFill.unassignedIfRealOrphans(
+                markets: store.marketStores(),
+                isRoster: store.isOfficialRosterStore
+            ) {
+                rows.append(
+                    LaborRollupRow(
+                        id: orphan.name,
+                        label: orphan.name,
+                        storeCount: orphan.storeCount,
                         tva: nil,
                         cost: nil,
                         act: nil,
@@ -8234,6 +8303,7 @@ struct ScheduleRollupTable: View {
         guard let next else { summary = []; return }
         let source = ScheduleRollupBuilder.source(from: store.rollupStores(for: .scheduleQuality), filters: store.filters)
         var rows = ScheduleRollupBuilder.rows(from: source, grain: next)
+        rows.removeAll { RollupMarketFill.hidesUnassignedMarket($0.label) }
         if next == .region {
             for name in RollupMarketFill.missingRegions(present: rows.map(\.label)) {
                 rows.append(ScheduleRollupRow(id: name, label: name, storeCount: 0, efficiency: nil, staffing: nil, under: nil, over: nil))
@@ -8242,6 +8312,12 @@ struct ScheduleRollupTable: View {
         if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
                 rows.append(ScheduleRollupRow(id: extra.name, label: extra.name, storeCount: extra.storeCount, efficiency: nil, staffing: nil, under: nil, over: nil))
+            }
+            if let orphan = RollupMarketFill.unassignedIfRealOrphans(
+                markets: store.marketStores(),
+                isRoster: store.isOfficialRosterStore
+            ) {
+                rows.append(ScheduleRollupRow(id: orphan.name, label: orphan.name, storeCount: orphan.storeCount, efficiency: nil, staffing: nil, under: nil, over: nil))
             }
             rows.sort { ($0.efficiency ?? 999) < ($1.efficiency ?? 999) }
         }
@@ -8957,9 +9033,16 @@ struct PPHRollupTable: View {
         guard let next else { summary = []; return }
         let source = PPHRollupBuilder.source(from: store.rollupStores(for: .pph), filters: store.filters)
         var rows = PPHRollupBuilder.rows(from: source, grain: next, pickerCounts: store.pphPickerCounts())
+        rows.removeAll { RollupMarketFill.hidesUnassignedMarket($0.label) }
         if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
                 rows.append(PPHRollupRow(id: extra.name, label: extra.name, storeCount: extra.storeCount, pph: nil, pickers: 0))
+            }
+            if let orphan = RollupMarketFill.unassignedIfRealOrphans(
+                markets: store.marketStores(),
+                isRoster: store.isOfficialRosterStore
+            ) {
+                rows.append(PPHRollupRow(id: orphan.name, label: orphan.name, storeCount: orphan.storeCount, pph: nil, pickers: 0))
             }
             rows.sort { ($0.pph ?? 999) < ($1.pph ?? 999) }
         }

@@ -539,8 +539,9 @@ enum PulseLaunch {
     /// Apple HIG ~44×44pt minimum on phone chrome. Mac / iPad keep their own sizes.
     static func phoneMinimumHitTarget() -> CGFloat { HubLayout.phoneHitTarget }
 
-    /// Markets grain never invents Unassigned from non-roster noise (Loss proof: 21 / NO DATA).
-    /// Real Excel-roster orphans with blank MARKET may keep one Unassigned row.
+    /// Markets/Regions never invent Unassigned from non-roster noise (Week 27: 21 / no %).
+    /// Cooked Excel roster has 0 blank MARKET. Honest Unassigned only for roster stores
+    /// that still have district/OM and a blank market after stamp.
     static func shouldHideUnassignedMarketGrain() -> Bool { true }
 
     /// StoreIdentity keys come from Excel Roster only when that sheet is present.

@@ -5,8 +5,9 @@ enum RollupMarketFill {
     static func divisionKey(_ raw: String) -> String {
         let canonical = MarketRegion.canonicalName(raw)
         if !canonical.isEmpty { return canonical }
+        if MarketRegion.isIgnoredDivisionToken(raw) { return "" }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "" : trimmed
+        return trimmed
     }
 
     static func districtKey(_ raw: String) -> String {

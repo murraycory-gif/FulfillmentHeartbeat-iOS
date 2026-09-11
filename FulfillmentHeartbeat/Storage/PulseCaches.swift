@@ -647,12 +647,6 @@ struct PulseCaches {
                 if !division.isEmpty {
                     identity.division = division
                     changed = true
-                } else {
-                    let raw = row.division.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !raw.isEmpty {
-                        identity.division = raw
-                        changed = true
-                    }
                 }
             }
             if identity.om.isEmpty {

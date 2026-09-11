@@ -203,6 +203,29 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertEqual(rows.first { $0.storeNumber == "1" }?.payload["dpa_dynacap"] ?? 0, 17439, accuracy: 0.5)
     }
 
+    func testMarketColumnBindsOfficialBannerAndSkipsUnassignedCarry() {
+        let roster = """
+        MARKET,DISTRICT,OM_ID,STORE
+        United,U1,Jane Doe,22
+        Unassigned,U1,Jane Doe,17
+        Southern,S1,Pat,100
+        """
+        let rosterRows = WorkbookParser.parseCSV(roster)
+        XCTAssertEqual(rosterRows.first { $0.storeNumber == "22" }?.division, "United")
+        XCTAssertEqual(rosterRows.first { $0.storeNumber == "100" }?.division, "Southern")
+        XCTAssertEqual(rosterRows.first { $0.storeNumber == "17" }?.division ?? "", "")
+
+        let schedule = """
+        MARKET,STORE,Schedule Efficiency %,Staffing % (Pch vs Tgt)
+        United,22,91.5,88.0
+        Southern,100,84.0,80.0
+        """
+        let scheduleRows = WorkbookParser.parseCSV(schedule)
+        XCTAssertEqual(scheduleRows.first { $0.storeNumber == "22" }?.division, "United")
+        XCTAssertEqual(scheduleRows.first { $0.storeNumber == "22" }?.payload["schedule_efficiency_pct"] ?? 0, 91.5, accuracy: 0.01)
+        XCTAssertEqual(scheduleRows.first { $0.storeNumber == "100" }?.division, "Southern")
+    }
+
     func testClassifiesTemplateRows() throws {
         for section in MetricSection.uploadOrder {
             let csv = SampleMarket.templateCSV(for: section)

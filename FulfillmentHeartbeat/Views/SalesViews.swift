@@ -57,7 +57,9 @@ struct OverviewSalesBlock: View {
             return ("By District", SalesRollupBuilder.rows(from: stores, grain: .district), true)
         }
         if !filters.region.isEmpty {
-            return ("By Market", SalesRollupBuilder.rows(from: stores, grain: .division), true)
+            let markets = SalesRollupBuilder.rows(from: stores, grain: .division)
+                .filter { !RollupMarketFill.hidesUnassignedMarket($0.label) }
+            return ("By Market", markets, true)
         }
         return ("By Region", regionRows(from: stores), true)
     }
@@ -789,6 +791,7 @@ struct SalesRollupTable: View {
         grain = next
         guard let next else { summary = []; return }
         var rows = SalesRollupBuilder.rows(from: store.rollupStores(for: .sales), grain: next)
+        rows.removeAll { RollupMarketFill.hidesUnassignedMarket($0.label) }
         rows.sort { lhs, rhs in
             let result: ComparisonResult
             switch sortKey {

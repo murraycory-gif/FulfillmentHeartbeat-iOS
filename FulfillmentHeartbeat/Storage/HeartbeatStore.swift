@@ -634,6 +634,7 @@ final class HeartbeatStore: ObservableObject {
             let identity = roster[store]
             if var row = byStore[store] {
                 row = HeartbeatMath.stampRoster(row, roster: roster)
+                row.payload = HeartbeatMath.remapSchedulePayload(row.payload)
                 out.append(row)
             } else if let identity {
                 out.append(
