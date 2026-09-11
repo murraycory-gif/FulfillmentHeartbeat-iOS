@@ -751,16 +751,18 @@ struct PhoneScorecardRow: View {
     var onTap: (() -> Void)? = nil
 
     var body: some View {
+        let corner = CommandCenterLayout.phoneScorecardCorner()
+        let compact = PulseLaunch.shouldUseCompactPhoneCommandChrome()
         let card = HStack(alignment: .top, spacing: 0) {
             UnevenRoundedRectangle(
-                cornerRadii: RectangleCornerRadii(topLeading: 18, bottomLeading: 18, bottomTrailing: 0, topTrailing: 0),
+                cornerRadii: RectangleCornerRadii(topLeading: corner, bottomLeading: corner, bottomTrailing: 0, topTrailing: 0),
                 style: .continuous
             )
             .fill(AppTheme.healthInk(health == .none ? .good : health))
-            .frame(width: 8)
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .top, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 5) {
+            .frame(width: CommandCenterLayout.phoneScorecardAccentWidth())
+            VStack(alignment: .leading, spacing: CommandCenterLayout.phoneScorecardStackSpacing()) {
+                HStack(alignment: .top, spacing: compact ? 8 : 12) {
+                    VStack(alignment: .leading, spacing: compact ? 3 : 5) {
                         if let eyebrow, !eyebrow.isEmpty {
                             Text(eyebrow.uppercased())
                                 .font(.caption.weight(.heavy))
@@ -768,25 +770,25 @@ struct PhoneScorecardRow: View {
                                 .foregroundStyle(AppTheme.textTertiary)
                         }
                         Text(title)
-                            .font(AppTheme.rounded(.title3, weight: .bold))
+                            .font(AppTheme.rounded(compact ? .headline : .title3, weight: .bold))
                             .foregroundStyle(AppTheme.text)
                             .lineLimit(3)
                             .fixedSize(horizontal: false, vertical: true)
                         if let subtitle, !subtitle.isEmpty {
                             Text(subtitle)
-                                .font(.body.weight(.semibold))
+                                .font((compact ? Font.subheadline : Font.body).weight(.semibold))
                                 .foregroundStyle(AppTheme.textSecondary)
                                 .lineLimit(2)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }
                     Spacer(minLength: 8)
-                    VStack(alignment: .trailing, spacing: 6) {
+                    VStack(alignment: .trailing, spacing: compact ? 4 : 6) {
                         Text("STATUS")
                             .font(.caption.weight(.heavy))
                             .tracking(0.7)
                             .foregroundStyle(AppTheme.textTertiary)
-                        HealthBadge(health: health, prominent: true, compact: false)
+                        HealthBadge(health: health, prominent: true, compact: compact)
                         if let chevronExpanded {
                             Image(systemName: chevronExpanded ? "chevron.up" : "chevron.down")
                                 .font(.body.weight(.bold))
@@ -797,42 +799,45 @@ struct PhoneScorecardRow: View {
                 }
                 if !chips.isEmpty {
                     LazyVGrid(
-                        columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],
-                        spacing: 10
+                        columns: [
+                            GridItem(.flexible(), spacing: CommandCenterLayout.phoneScorecardChipSpacing()),
+                            GridItem(.flexible(), spacing: CommandCenterLayout.phoneScorecardChipSpacing()),
+                        ],
+                        spacing: CommandCenterLayout.phoneScorecardChipSpacing()
                     ) {
                         ForEach(chips) { chip in
-                            VStack(alignment: .leading, spacing: 4) {
+                            VStack(alignment: .leading, spacing: compact ? 2 : 4) {
                                 Text(chip.label.uppercased())
                                     .font(.caption.weight(.heavy))
                                     .tracking(0.5)
                                     .foregroundStyle(AppTheme.textSecondary)
                                 Text(chip.value)
-                                    .font(AppTheme.rounded(.title3, weight: .bold).monospacedDigit())
+                                    .font(AppTheme.rounded(compact ? .headline : .title3, weight: .bold).monospacedDigit())
                                     .foregroundStyle(chipInk(chip.health))
                                     .lineLimit(1)
                                     .minimumScaleFactor(0.85)
                             }
-                            .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
-                            .padding(12)
+                            .frame(maxWidth: .infinity, minHeight: CommandCenterLayout.phoneScorecardChipMinHeight(), alignment: .leading)
+                            .padding(CommandCenterLayout.phoneScorecardChipPadding())
                             .background(chipWash(chip.health), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                         }
                     }
                 }
             }
-            .padding(16)
+            .padding(CommandCenterLayout.phoneScorecardPadding())
         }
-        .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .frame(maxWidth: .infinity, minHeight: compact ? 64 : 72, alignment: .leading)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: corner, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: corner, style: .continuous)
                 .stroke(AppTheme.healthInk(health == .none ? .good : health).opacity(0.22), lineWidth: 1)
         )
-        .shadow(color: Color.black.opacity(0.07), radius: 10, y: 4)
+        .shadow(color: Color.black.opacity(0.07), radius: CommandCenterLayout.phoneScorecardShadowRadius(), y: compact ? 2 : 4)
 
         if let onTap {
             Button(action: onTap) {
                 card
-                    .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .contentShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
             }
             .buttonStyle(.plain)
         } else {

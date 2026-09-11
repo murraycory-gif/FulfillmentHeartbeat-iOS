@@ -47,9 +47,73 @@ enum CommandCenterLayout {
     }
 
     /// Readable navy hero on iPhone 13 (390) / 17 Pro. Not the 51pt leftover slice.
-    static func phoneHeroMinHeight() -> CGFloat { 124 }
+    static func phoneHeroMinHeight() -> CGFloat {
+        PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 100 : 124
+    }
 
-    static func phoneGlanceMinHeight() -> CGFloat { 96 }
+    static func phoneGlanceMinHeight() -> CGFloat {
+        PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 78 : 96
+    }
+
+    static func phoneHomeStackSpacing() -> CGFloat {
+        PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 8 : 12
+    }
+
+    static func phoneHomeHorizontalPadding() -> CGFloat {
+        PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 12 : 16
+    }
+
+    static func phoneHomeTopPadding() -> CGFloat {
+        PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 4 : 8
+    }
+
+    static func phoneHomeBottomPadding() -> CGFloat {
+        PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 16 : 28
+    }
+
+    static func phoneHeroValueSize() -> CGFloat {
+        PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 28 : 34
+    }
+
+    static func phoneHeroCardPadding() -> CGFloat {
+        PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 12 : 16
+    }
+
+    static func phoneHeroCorner() -> CGFloat {
+        PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 14 : 18
+    }
+
+    static func phoneScorecardAccentWidth() -> CGFloat {
+        PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 5 : 8
+    }
+
+    static func phoneScorecardStackSpacing() -> CGFloat {
+        PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 8 : 14
+    }
+
+    static func phoneScorecardPadding() -> CGFloat {
+        PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 12 : 16
+    }
+
+    static func phoneScorecardCorner() -> CGFloat {
+        PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 14 : 18
+    }
+
+    static func phoneScorecardChipMinHeight() -> CGFloat {
+        PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 44 : 56
+    }
+
+    static func phoneScorecardChipPadding() -> CGFloat {
+        PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 8 : 12
+    }
+
+    static func phoneScorecardChipSpacing() -> CGFloat {
+        PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 6 : 10
+    }
+
+    static func phoneScorecardShadowRadius() -> CGFloat {
+        PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 4 : 10
+    }
 
     /// Phone must scroll. Do not stretch tiles to consume leftover viewport.
     static func shouldFillPhoneViewport() -> Bool { false }
@@ -173,7 +237,7 @@ struct PhoneCommandCenterHome: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: CommandCenterLayout.phoneHomeStackSpacing()) {
                 ForEach(heroCards) { card in
                     PhoneCommandHeroCard(card: card) {
                         open(card.section)
@@ -183,16 +247,16 @@ struct PhoneCommandCenterHome: View {
                     .font(AppTheme.rounded(.caption, weight: .heavy))
                     .tracking(0.7)
                     .foregroundStyle(AppTheme.textTertiary)
-                    .padding(.top, 8)
+                    .padding(.top, PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 4 : 8)
                 ForEach(glanceCards) { card in
                     PhoneCommandGlanceCard(card: card) {
                         open(card.section)
                     }
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
-            .padding(.bottom, 28)
+            .padding(.horizontal, CommandCenterLayout.phoneHomeHorizontalPadding())
+            .padding(.top, CommandCenterLayout.phoneHomeTopPadding())
+            .padding(.bottom, CommandCenterLayout.phoneHomeBottomPadding())
             .frame(maxWidth: .infinity, alignment: .top)
         }
         .scrollIndicators(.hidden)
@@ -229,34 +293,38 @@ struct PhoneCommandHeroCard: View {
     }
 
     private var hero: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 6 : 10) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Text(CommandCenterLayout.glanceTitle(card.section))
-                    .font(AppTheme.rounded(.title3, weight: .bold))
+                    .font(AppTheme.rounded(PulseLaunch.shouldUseCompactPhoneCommandChrome() ? .headline : .title3, weight: .bold))
                     .foregroundStyle(Color.white.opacity(0.92))
                     .lineLimit(2)
                 Spacer(minLength: 8)
-                HealthBadge(health: CommandCenterLayout.displayedHealth(card), prominent: true, compact: false)
+                HealthBadge(
+                    health: CommandCenterLayout.displayedHealth(card),
+                    prominent: true,
+                    compact: PulseLaunch.shouldUseCompactPhoneCommandChrome()
+                )
             }
             Text(CommandCenterLayout.compactValue(card))
-                .font(AppTheme.rounded(size: 34, weight: .bold).monospacedDigit())
+                .font(AppTheme.rounded(size: CommandCenterLayout.phoneHeroValueSize(), weight: .bold).monospacedDigit())
                 .foregroundStyle(Color.white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
             HStack(spacing: 8) {
                 Circle()
                     .fill(AppTheme.gold)
-                    .frame(width: 8, height: 8)
+                    .frame(width: PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 6 : 8, height: PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 6 : 8)
                 Text("Stores \(card.storeCount)")
-                    .font(AppTheme.rounded(.body, weight: .bold).monospacedDigit())
+                    .font(AppTheme.rounded(PulseLaunch.shouldUseCompactPhoneCommandChrome() ? .subheadline : .body, weight: .bold).monospacedDigit())
                     .foregroundStyle(AppTheme.gold)
                 Spacer(minLength: 0)
             }
         }
-        .padding(16)
+        .padding(CommandCenterLayout.phoneHeroCardPadding())
         .frame(maxWidth: .infinity, minHeight: CommandCenterLayout.phoneHeroMinHeight(), alignment: .leading)
-        .background(AppTheme.blue, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(AppTheme.blue, in: RoundedRectangle(cornerRadius: CommandCenterLayout.phoneHeroCorner(), style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: CommandCenterLayout.phoneHeroCorner(), style: .continuous))
     }
 }
 

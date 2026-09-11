@@ -107,7 +107,7 @@ struct HubBanner: View {
         }
         .foregroundStyle(Color.white)
         .padding(.horizontal, compact ? 10 : 14)
-        .padding(.vertical, compact ? 6 : 10)
+        .padding(.vertical, compact ? HubLayout.phoneBannerVerticalPadding() : 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(AppTheme.blue)
 
@@ -952,9 +952,9 @@ struct HubChromePill: View {
                         .font(.subheadline.weight(.semibold))
                 }
             }
-            .font((compactPills ? Font.title3 : Font.subheadline).weight(.semibold))
+            .font((compactPills ? HubLayout.phoneChromePillFont() : Font.subheadline).weight(.semibold))
             .foregroundStyle(prominent ? Color.white : AppTheme.blue)
-            .padding(.horizontal, compactPills ? 10 : 10)
+            .padding(.horizontal, compactPills ? 12 : 10)
             .padding(.vertical, compactPills ? 8 : 8)
             .frame(minWidth: compactPills ? HubLayout.phoneHitTarget : nil, minHeight: HubLayout.phoneHitTarget)
             .background(
@@ -1009,7 +1009,7 @@ struct FilterBar: View {
     private var compactPills: Bool { HubLayout.usesPhoneScorecards(sizeClass: sizeClass) }
 
     private var pills: some View {
-        HStack(spacing: compactPills ? 10 : 8) {
+        HStack(spacing: compactPills ? HubLayout.phoneFilterPillSpacing() : 8) {
             if compactPills {
                 HubChromePill(
                     title: store.filters.isActive ? compactFilterTitle : "Filters",
@@ -1020,7 +1020,7 @@ struct FilterBar: View {
                 }
                 if store.filters.isActive {
                     Button("Clear") { clearNow() }
-                        .font(.body.weight(.semibold))
+                        .font(.subheadline.weight(.semibold))
                         .foregroundStyle(AppTheme.blue)
                         .frame(minWidth: HubLayout.phoneHitTarget, minHeight: HubLayout.phoneHitTarget)
                         .contentShape(Rectangle())
@@ -1353,12 +1353,26 @@ struct FilterSheet: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: HubLayout.isPhone(sizeClass) ? 10 : 16) {
+            VStack(spacing: HubLayout.isPhone(sizeClass) ? (PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? 8 : 10) : 16) {
                 Group {
                     if HubLayout.isPhone(sizeClass) {
-                        VStack(spacing: 8) {
-                            ForEach(FilterFocus.allCases) { item in
-                                filterFocusChip(item)
+                        if PulseLaunch.shouldUseCompactPhoneHeaderChrome() {
+                            LazyVGrid(
+                                columns: [
+                                    GridItem(.flexible(), spacing: 8),
+                                    GridItem(.flexible(), spacing: 8),
+                                ],
+                                spacing: 8
+                            ) {
+                                ForEach(FilterFocus.allCases) { item in
+                                    filterFocusChip(item)
+                                }
+                            }
+                        } else {
+                            VStack(spacing: 8) {
+                                ForEach(FilterFocus.allCases) { item in
+                                    filterFocusChip(item)
+                                }
                             }
                         }
                     } else {
@@ -1386,7 +1400,7 @@ struct FilterSheet: View {
                 )
                 .transaction { $0.animation = nil }
             }
-            .padding(20)
+            .padding(HubLayout.isPhone(sizeClass) && PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? 12 : 20)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(AppTheme.bg.ignoresSafeArea())
             .navigationTitle(focus.title)
@@ -1433,7 +1447,7 @@ struct FilterSheet: View {
         } label: {
             HStack {
                 Text(item.chipTitle)
-                    .font((phone ? Font.title3 : Font.subheadline).weight(.semibold))
+                    .font((phone ? HubLayout.phoneFilterFocusFont() : Font.subheadline).weight(.semibold))
                     .foregroundStyle(selected ? Color.white : AppTheme.blue)
                     .lineLimit(1)
                 Spacer(minLength: 0)
@@ -1443,9 +1457,9 @@ struct FilterSheet: View {
                         .foregroundStyle(Color.white)
                 }
             }
-            .padding(.horizontal, phone ? 16 : 10)
-            .frame(maxWidth: .infinity, minHeight: phone ? 52 : 36, alignment: .leading)
-            .background(selected ? AppTheme.blue : AppTheme.blueSoft, in: RoundedRectangle(cornerRadius: phone ? 14 : 20, style: .continuous))
+            .padding(.horizontal, phone ? (PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? 12 : 16) : 10)
+            .frame(maxWidth: .infinity, minHeight: phone ? HubLayout.phoneFilterFocusChipMinHeight() : 36, alignment: .leading)
+            .background(selected ? AppTheme.blue : AppTheme.blueSoft, in: RoundedRectangle(cornerRadius: phone ? 12 : 20, style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1481,6 +1495,7 @@ struct FilterColumn: View {
     let selection: [String]
     let options: [(id: String, label: String)]
     let onChange: (String) -> Void
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var query = ""
     @FocusState private var focused: Bool
 
@@ -1499,9 +1514,9 @@ struct FilterColumn: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: HubLayout.isPhone(sizeClass) && PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? 8 : 10) {
             Text(title)
-                .font(.title3.weight(.bold))
+                .font((HubLayout.isPhone(sizeClass) && PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? Font.headline : Font.title3).weight(.bold))
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(AppTheme.blue)
@@ -10314,10 +10329,10 @@ struct HubBrandBar: View {
     @State private var showAssist = false
 
     var body: some View {
-        VStack(spacing: compact ? 6 : 10) {
+        VStack(spacing: compact ? HubLayout.phoneBrandBarStackSpacing() : 10) {
             if compact {
                 compactBar
-                HStack(spacing: 6) {
+                HStack(spacing: HubLayout.phoneFilterPillSpacing()) {
                     if PulseLaunch.shouldShowRoleGatePill() {
                         rolePill
                     }
@@ -10359,8 +10374,8 @@ struct HubBrandBar: View {
             }
         }
         .padding(.horizontal, compact ? 12 : 20)
-        .padding(.top, compact ? 2 : 6)
-        .padding(.bottom, compact ? 6 : 12)
+        .padding(.top, compact ? HubLayout.phoneBrandBarTopPadding() : 6)
+        .padding(.bottom, compact ? HubLayout.phoneBrandBarBottomPadding() : 12)
         .frame(maxWidth: .infinity)
         .background(AppTheme.bg)
         .fullScreenCover(isPresented: $showAssist) {

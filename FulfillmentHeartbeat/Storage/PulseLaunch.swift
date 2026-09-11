@@ -796,6 +796,16 @@ enum PulseLaunch {
     /// like a squeezed pad briefing under the chrome).
     static func shouldUsePhoneNativeCommandCenter() -> Bool { true }
 
+    /// Phone Command Center / THIS SEAT / section pages: tighter cards without
+    /// shrinking iPad leftover-fill or Mac dashboard tables.
+    static func shouldUseCompactPhoneCommandChrome() -> Bool { true }
+
+    /// Compact phone header + Filters keep 44pt hits but drop title3 chrome.
+    static func shouldUseCompactPhoneHeaderChrome() -> Bool { true }
+
+    /// Pad leftover-fill + Mac dashboard tables stay on the existing density.
+    static func shouldLeavePadMacCommandChromeUnchanged() -> Bool { true }
+
     /// Every section ScoreCard on iPhone is a 1-column scroll of cards —
     /// same bar as PhoneCommandCenterHome. Pad List + tableFill leftover
     /// stretch is what left Sales as a giant empty white panel on 722.

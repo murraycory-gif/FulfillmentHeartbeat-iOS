@@ -969,7 +969,7 @@ struct PhoneSectionPage: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: CommandCenterLayout.phoneHomeStackSpacing()) {
                 if PulseLaunch.shouldParkHiddenPhoneSection(isVisible: isVisible) {
                     PhoneCommandHeroCard(card: store.summary(for: section))
                 } else {
@@ -984,9 +984,9 @@ struct PhoneSectionPage: View {
                     }
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
-            .padding(.bottom, 28)
+            .padding(.horizontal, CommandCenterLayout.phoneHomeHorizontalPadding())
+            .padding(.top, CommandCenterLayout.phoneHomeTopPadding())
+            .padding(.bottom, CommandCenterLayout.phoneHomeBottomPadding())
             .frame(maxWidth: .infinity, alignment: .top)
         }
         .scrollIndicators(.hidden)
@@ -1343,7 +1343,7 @@ private struct PhoneSectionHeading: View {
             .font(AppTheme.rounded(.caption, weight: .heavy))
             .tracking(0.7)
             .foregroundStyle(AppTheme.textTertiary)
-            .padding(.top, 8)
+            .padding(.top, PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 4 : 8)
     }
 }
 

@@ -400,8 +400,42 @@ enum HubLayout {
     static func calloutMinWidth(phone: Bool) -> CGFloat { phone ? 136 : 152 }
     static var calloutGridSpacing: CGFloat { 8 }
 
-    static func phoneBannerTitleFont() -> Font { AppTheme.rounded(.title3, weight: .bold) }
-    static func phoneBannerIconFont() -> Font { AppTheme.rounded(.title3, weight: .semibold) }
+    static func phoneBannerTitleFont() -> Font {
+        AppTheme.rounded(
+            PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? .headline : .title3,
+            weight: .bold
+        )
+    }
+    static func phoneBannerIconFont() -> Font {
+        AppTheme.rounded(
+            PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? .headline : .title3,
+            weight: .semibold
+        )
+    }
+    static func phoneChromePillFont() -> Font {
+        PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? .subheadline : .title3
+    }
+    static func phoneFilterFocusFont() -> Font {
+        PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? .subheadline : .title3
+    }
+    static func phoneFilterFocusChipMinHeight() -> CGFloat {
+        PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? 44 : 52
+    }
+    static func phoneBrandBarStackSpacing() -> CGFloat {
+        PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? 4 : 6
+    }
+    static func phoneBrandBarTopPadding() -> CGFloat {
+        PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? 0 : 2
+    }
+    static func phoneBrandBarBottomPadding() -> CGFloat {
+        PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? 4 : 6
+    }
+    static func phoneFilterPillSpacing() -> CGFloat {
+        PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? 8 : 10
+    }
+    static func phoneBannerVerticalPadding() -> CGFloat {
+        PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? 4 : 6
+    }
     /// Apple HIG minimum hit target on iPhone. Do not shrink Mac / iPad.
     static var phoneHitTarget: CGFloat { 44 }
     static var phoneControlHeight: CGFloat { phoneHitTarget }
