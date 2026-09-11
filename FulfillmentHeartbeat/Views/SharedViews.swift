@@ -11580,8 +11580,11 @@ final class MailShareActivity: UIActivity {
     }
 
     override func perform() {
+        let packet = self.packet
         activityDidFinish(true)
-        PulseShare.presentMail(packet)
+        Task { @MainActor in
+            PulseShare.presentMail(packet)
+        }
     }
 }
 
