@@ -2668,7 +2668,6 @@ final class HeartbeatMathTests: XCTestCase {
 
     func testArchitecture385CompanyColdOpenNoRoleGateNoToursFilterPaints() {
         XCTAssertEqual(BuildStamp.id, "HB-0828.386")
-        XCTAssertEqual(BuildStamp.id, "HB-0828.386")
         XCTAssertFalse(PulseLaunch.shouldPinMacCommandCenterAlertsRail())
         XCTAssertFalse(PulseLaunch.shouldRequireRoleGateOnColdOpen())
         XCTAssertTrue(PulseLaunch.shouldOpenCompanyCommandCenterOnColdOpen())
