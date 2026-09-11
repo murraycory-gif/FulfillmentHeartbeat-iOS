@@ -2961,16 +2961,8 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func replaceCompanySeatFromRoot() throws {
-        let dest = PulseSeatPack.localURL(root: rootURL, key: .company)
         guard PulseSQLite.isUsableFile(at: companySQLiteURL) else { return }
-        try fileManager.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let staging = dest.deletingLastPathComponent()
-            .appendingPathComponent("incoming-company-\(UUID().uuidString).sqlite")
-        if fileManager.fileExists(atPath: staging.path) {
-            try fileManager.removeItem(at: staging)
-        }
-        try fileManager.copyItem(at: companySQLiteURL, to: staging)
-        try PulseSeatPack.atomicReplace(from: staging, to: dest)
+        _ = try PulseSeatPack.promoteIncomingOverCompanySeat(incoming: companySQLiteURL, appRoot: rootURL)
     }
 
     private func invalidateCompanySeatCache() {

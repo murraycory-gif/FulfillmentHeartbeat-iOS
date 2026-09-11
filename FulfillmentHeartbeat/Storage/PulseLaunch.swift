@@ -1813,6 +1813,27 @@ enum PulseLaunch {
         downloadSucceeded && seatPromoted
     }
 
+    /// Usable local company seat is allowed for splash paint. Cloud still wins
+    /// when remote `updated_at` is newer than seat `written_at` — no app delete.
+    static func staleCompanySeatRequiresCloudSync(
+        remoteBytes: Int,
+        localSeatBytes: Int,
+        localRowsLoaded: Int,
+        remoteUpdated: String,
+        knownUpdated: String,
+        localWrittenAt: String
+    ) -> Bool {
+        shouldForceRedownloadCompanySeatWhenRemoteNewer()
+            && shouldFetchRemotePack(
+                remoteBytes: remoteBytes,
+                localBytes: localSeatBytes,
+                localRowsLoaded: localRowsLoaded,
+                remoteUpdated: remoteUpdated,
+                knownUpdated: knownUpdated,
+                localWrittenAt: localWrittenAt
+            )
+    }
+
     /// A promoted newer pack must paint in this session. iPad is `constrained`
     /// (skipExcel); skipping the reload left Wednesday on disk and old Sales on screen.
     static func reloadInSessionAfterFetch(constrained: Bool, localRowsLoaded: Int) -> Bool {

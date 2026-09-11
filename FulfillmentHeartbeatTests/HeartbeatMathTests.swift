@@ -5048,6 +5048,135 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(PulseSQLite.writtenAtString(at: tmp.appendingPathExtension("missing")), "")
     }
 
+    /// Given a usable Wednesday company seat on disk and a newer Thursday pack,
+    /// cold-open reuse would keep $49M — the no-delete path must replace the seat
+    /// file and repaint Sales with Thursday `sales_d4` / ~$58.4M.
+    func testStaleCompanySeatIsReplacedByNewerCloudPackWithoutDelete() throws {
+        let appRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("hb-stale-seat-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: appRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: appRoot) }
+
+        func companySales(
+            dollars: Double,
+            days: [Double],
+            weekdays: String
+        ) -> MetricRow {
+            var payload: [String: Double] = ["sales_dollars": dollars]
+            for (index, value) in days.enumerated() {
+                payload["sales_d\(index)_dollars"] = value
+            }
+            return MetricRow(
+                section: .sales,
+                division: "",
+                operationsOM: "",
+                storeNumber: "",
+                storeName: "Total Sales $",
+                payload: payload,
+                textPayload: [
+                    "sales_grain": "company",
+                    "sales_week": "2026-09-07",
+                    "sales_days": weekdays,
+                ]
+            )
+        }
+
+        func chrome(for rows: [MetricRow]) -> PulseDashChrome {
+            PulseDashChrome.from(
+                PulseCaches.build(
+                    rows: rows,
+                    filters: DashboardFilters(),
+                    uploads: [],
+                    heavy: false,
+                    grain: .region
+                ),
+                grain: .region
+            )
+        }
+
+        let wednesday = ISO8601DateFormatter().date(from: "2026-09-10T12:00:00Z")!
+        let thursday = ISO8601DateFormatter().date(from: "2026-09-11T19:10:00Z")!
+        let remoteUpdated = "2026-09-11T19:15:00.000Z"
+        let oldRow = companySales(
+            dollars: 49_000_000,
+            days: [10_000_000, 12_000_000, 13_000_000, 14_000_000],
+            weekdays: "Sunday,Monday,Tuesday,Wednesday"
+        )
+        let newRow = companySales(
+            dollars: 58_400_000,
+            days: [10_000_000, 12_000_000, 13_000_000, 14_000_000, 9_400_000],
+            weekdays: "Sunday,Monday,Tuesday,Wednesday,Thursday"
+        )
+
+        let seatURL = PulseSeatPack.localURL(root: appRoot, key: .company)
+        try FileManager.default.createDirectory(at: seatURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try PulseSQLite.write(
+            rows: [oldRow],
+            uploads: [],
+            seeded: true,
+            chrome: chrome(for: [oldRow]),
+            writtenAt: wednesday,
+            to: seatURL
+        )
+        let incoming = appRoot.appendingPathComponent("heartbeat.sqlite")
+        try PulseSQLite.write(
+            rows: [newRow],
+            uploads: [],
+            seeded: true,
+            chrome: chrome(for: [newRow]),
+            writtenAt: thursday,
+            to: incoming
+        )
+
+        XCTAssertTrue(PulseSeatPack.isUsable(at: seatURL), "Cold open treats this seat as usable")
+        let before = try PulseSQLite.read(from: seatURL)
+        XCTAssertEqual(HeartbeatMath.salesHeadlineDollars(before.rows[0]), 49_000_000, accuracy: 1)
+        XCTAssertNil(before.rows[0].number("sales_d4_dollars"))
+        XCTAssertEqual(
+            PulseLaunch.seatSwapPlan(localUsable: true, alreadyOnPack: true, hasCachedChrome: true),
+            .reuseInPlace,
+            "Usable local seat is the stuck path unless cloud force-reloads"
+        )
+        XCTAssertFalse(PulseLaunch.shouldRedownloadUsableSeatPack())
+
+        XCTAssertTrue(
+            PulseLaunch.staleCompanySeatRequiresCloudSync(
+                remoteBytes: 21_000_000,
+                localSeatBytes: 21_000_000,
+                localRowsLoaded: 400,
+                remoteUpdated: remoteUpdated,
+                knownUpdated: remoteUpdated,
+                localWrittenAt: PulseSQLite.writtenAtString(at: seatURL)
+            ),
+            "Same ~21MB + stamped UserDefaults must still sync when seat written_at is older"
+        )
+        XCTAssertEqual(
+            PulseLaunch.seatSwapPlan(
+                localUsable: true,
+                alreadyOnPack: true,
+                hasCachedChrome: true,
+                forceReload: true
+            ),
+            .installLocalPack
+        )
+        XCTAssertFalse(PulseLaunch.shouldStampCloudPackUpdated(downloadSucceeded: true, seatPromoted: false))
+
+        let promoted = try PulseSeatPack.promoteIncomingOverCompanySeat(incoming: incoming, appRoot: appRoot)
+        XCTAssertEqual(promoted.path, seatURL.path)
+
+        let after = try PulseSQLite.read(from: seatURL)
+        let company = after.rows.first { $0.textPayload["sales_grain"] == "company" }
+        XCTAssertEqual(HeartbeatMath.salesHeadlineDollars(company!), 58_400_000, accuracy: 1)
+        XCTAssertEqual(company?.number("sales_d4_dollars"), 9_400_000)
+        XCTAssertTrue(company?.textPayload["sales_days"]?.contains("Thursday") == true)
+        if let headline = after.chrome?.card(.sales)?.headline {
+            XCTAssertGreaterThan(headline, 50_000_000)
+        }
+        XCTAssertEqual(PulseSQLite.writtenAtString(at: incoming), PulseSQLite.writtenAtString(at: seatURL))
+        XCTAssertTrue(PulseLaunch.shouldStampCloudPackUpdated(downloadSucceeded: true, seatPromoted: true))
+        XCTAssertFalse(PulseLaunch.shouldRedownloadUsableCompanySeat(), "Clear still does not redownload")
+    }
+
     func testDashboardGrainTableKeepsFullMoneyAndColumnCounts() {
         for section in MetricSection.dashboardCards {
             let headers = HeartbeatMath.dashboardTableHeaders(section)

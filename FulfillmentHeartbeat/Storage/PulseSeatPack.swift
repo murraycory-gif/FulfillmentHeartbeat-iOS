@@ -432,6 +432,23 @@ enum PulseSeatPack {
         }
     }
 
+    /// Copy a newer incoming sqlite onto `packs/seat/company/all/current.sqlite`.
+    /// This is the no-delete path: replace the seat file Command Center reads.
+    @discardableResult
+    static func promoteIncomingOverCompanySeat(incoming: URL, appRoot: URL) throws -> URL {
+        let dest = localURL(root: appRoot, key: .company)
+        guard PulseSQLite.exists(at: incoming) else { return dest }
+        try FileManager.default.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let staging = dest.deletingLastPathComponent()
+            .appendingPathComponent("incoming-company-\(UUID().uuidString).sqlite")
+        if FileManager.default.fileExists(atPath: staging.path) {
+            try FileManager.default.removeItem(at: staging)
+        }
+        try FileManager.default.copyItem(at: incoming, to: staging)
+        try atomicReplace(from: staging, to: dest)
+        return dest
+    }
+
     static func atomicReplace(from staging: URL, to dest: URL) throws {
         let folder = dest.deletingLastPathComponent()
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)

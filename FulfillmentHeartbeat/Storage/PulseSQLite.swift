@@ -20,6 +20,7 @@ enum PulseSQLite {
         uploads: [UploadRecord],
         seeded: Bool,
         chrome: PulseDashChrome? = nil,
+        writtenAt: Date? = nil,
         to url: URL
     ) throws {
         let folder = url.deletingLastPathComponent()
@@ -81,7 +82,7 @@ enum PulseSQLite {
         }
         sqlite3_bind_int(meta, 1, Int32(schemaVersion))
         sqlite3_bind_int(meta, 2, seeded ? 1 : 0)
-        bind(meta, 3, ISO8601DateFormatter().string(from: Date()))
+        bind(meta, 3, ISO8601DateFormatter().string(from: writtenAt ?? Date()))
         bind(meta, 4, encodeUploads(uploads))
         bind(meta, 5, encodeText(counts.mapValues { String($0) }))
         guard sqlite3_step(meta) == SQLITE_DONE else {
