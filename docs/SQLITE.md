@@ -24,4 +24,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.401 / 1.0 (727) — Architecture confirm on a631428: `installSeatExpandTables` → `expandTables` → `grainTables` for every `dashboardCards` materialized full company grain into `cachedGrainTables` (~4GB Jetsam). Disk pack (~21MB) is not the kill. Company does not pre-expand all sections into RAM — chrome/page/stream only. `expandTables` at region grain with no `only` returns empty. `canonicalName` is cached (no regex-per-call). Thin seat + .400 freshness kept.
+HB-0828.402 / 1.0 (728) — Share Send dismisses SharePulseSheet first, then presents MFMailCompose from the key-window root (never over the active sheet). `canSendMail == false` copies the recap and offers Outlook / mailto with a clear alert. Jetsam Soft KEEP from .401: company does not pre-expand all sections into RAM — chrome/page/stream only. `expandTables` at region grain with no `only` returns empty. `canonicalName` is cached. Thin seat + .400 freshness kept.

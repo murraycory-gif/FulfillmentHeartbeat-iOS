@@ -1210,6 +1210,8 @@ struct ShareRecapCompose: View {
     let packet: PulseMail.Packet
     var htmlReady: Bool = true
     var onBack: () -> Void
+    @EnvironmentObject private var router: HubRouter
+    @Environment(\.dismiss) private var dismiss
     @State private var to = ""
 
     var body: some View {
@@ -1283,7 +1285,14 @@ struct ShareRecapCompose: View {
     }
 
     private func sendMail() {
-        PulseShare.presentMail(packet, to: emails)
+        let outgoing = packet
+        let recipients = emails
+        router.showShare = false
+        dismiss()
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: PulseLaunch.shareSheetDismissSettleNanoseconds)
+            PulseShare.presentMail(outgoing, to: recipients)
+        }
     }
 
     private var emails: [String] {
@@ -11553,7 +11562,6 @@ final class PulseImageItem: NSObject, UIActivityItemSource {
 
 final class MailShareActivity: UIActivity {
     private let packet: PulseMail.Packet
-    private var closer: MailShareCloser?
 
     init(packet: PulseMail.Packet) {
         self.packet = packet
@@ -11572,37 +11580,8 @@ final class MailShareActivity: UIActivity {
     }
 
     override func perform() {
-        guard let presenter = PulseShare.topController() else {
-            activityDidFinish(false)
-            return
-        }
-        let mail = MFMailComposeViewController()
-        PulseShare.configureMail(mail, packet: packet)
-        let closer = MailShareCloser(owner: self)
-        self.closer = closer
-        mail.mailComposeDelegate = closer
-        presenter.present(mail, animated: true)
-    }
-}
-
-private final class MailShareCloser: NSObject, MFMailComposeViewControllerDelegate {
-    let owner: MailShareActivity
-    init(owner: MailShareActivity) { self.owner = owner }
-
-    func mailComposeController(
-        _ controller: MFMailComposeViewController,
-        didFinishWith result: MFMailComposeResult,
-        error: Error?
-    ) {
-        controller.dismiss(animated: true) {
-            self.owner.finishFromMail(result != .failed)
-        }
-    }
-}
-
-extension MailShareActivity {
-    fileprivate func finishFromMail(_ success: Bool) {
-        activityDidFinish(success)
+        activityDidFinish(true)
+        PulseShare.presentMail(packet)
     }
 }
 
@@ -11718,8 +11697,62 @@ enum PulseShare {
 
     @MainActor
     static func presentMail(_ packet: PulseMail.Packet, to: [String] = []) {
-        guard MFMailComposeViewController.canSendMail(), let presenter = topController() else {
-            present(packet)
+        afterShareSheetDismissed { presenter in
+            presentMailOn(presenter: presenter, packet: packet, to: to)
+        }
+    }
+
+    @MainActor
+    private static func afterShareSheetDismissed(_ work: @escaping (UIViewController?) -> Void) {
+        guard PulseLaunch.shouldDismissShareSheetBeforePresentingMail() else {
+            work(topController())
+            return
+        }
+        guard let root = keyWindowRoot() else {
+            work(nil)
+            return
+        }
+        let run = {
+            work(keyWindowRoot() ?? root)
+        }
+        if let presented = root.presentedViewController {
+            presented.dismiss(animated: true) {
+                settleThen(run)
+            }
+            return
+        }
+        run()
+    }
+
+    @MainActor
+    private static func settleThen(_ work: @escaping () -> Void) {
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + Double(PulseLaunch.shareSheetDismissSettleNanoseconds) / 1_000_000_000,
+            execute: work
+        )
+    }
+
+    @MainActor
+    private static func presentMailOn(
+        presenter: UIViewController?,
+        packet: PulseMail.Packet,
+        to: [String]
+    ) {
+        guard MFMailComposeViewController.canSendMail() else {
+            presentUnavailableFallback(packet, to: to, on: presenter)
+            return
+        }
+        guard let presenter, presenter.view.window != nil else {
+            presentUnavailableFallback(packet, to: to, on: nil)
+            return
+        }
+        if presenter.presentedViewController != nil,
+           !PulseLaunch.shouldPresentMailOverActiveShareSheet() {
+            presenter.dismiss(animated: true) {
+                settleThen {
+                    presentMailOn(presenter: presenter, packet: packet, to: to)
+                }
+            }
             return
         }
         let mail = MFMailComposeViewController()
@@ -11729,6 +11762,43 @@ enum PulseShare {
         }
         mail.mailComposeDelegate = mailCloser
         presenter.present(mail, animated: true)
+    }
+
+    @MainActor
+    private static func presentUnavailableFallback(
+        _ packet: PulseMail.Packet,
+        to: [String],
+        on presenter: UIViewController?
+    ) {
+        UIPasteboard.general.string = packet.brief
+        if openMailto(packet, to: to) { return }
+        openOutlook(subject: packet.subject, jpegURLs: [])
+        afterShareSheetDismissed { host in
+            let host = host ?? presenter ?? keyWindowRoot()
+            guard let host, host.view.window != nil, host.presentedViewController == nil else { return }
+            let alert = UIAlertController(
+                title: "Couldn’t open Mail",
+                message: PulseLaunch.shareMailUnavailableCopy(),
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(title: "OK", style: .default))
+            host.present(alert, animated: true)
+        }
+    }
+
+    @MainActor
+    private static func openMailto(_ packet: PulseMail.Packet, to: [String]) -> Bool {
+        let subject = encode(packet.subject)
+        let body = encode(packet.brief)
+        let recipients = to.joined(separator: ",")
+        let urlString = to.isEmpty
+            ? "mailto:?subject=\(subject)&body=\(body)"
+            : "mailto:\(recipients)?subject=\(subject)&body=\(body)"
+        guard let url = URL(string: urlString), UIApplication.shared.canOpenURL(url) else {
+            return false
+        }
+        UIApplication.shared.open(url)
+        return true
     }
 
     /// Inline Mail-safe HTML in the message body when it fits. Never a duplicate giant attachment.
@@ -11762,38 +11832,44 @@ enum PulseShare {
     static func sendViaOutlook(_ packet: PulseMail.Packet, to: [String] = []) async {
         await prepareOutlook(packet)
         let images = recapImages
-        guard !images.isEmpty, let presenter = topController(), presenter.view.window != nil else {
+        guard !images.isEmpty else {
             presentMail(packet, to: to)
             return
         }
-        let items: [Any] = images.enumerated().map { index, image in
-            OutlookBodyItem(image: image, subject: packet.subject, primary: index == 0)
+        afterShareSheetDismissed { presenter in
+            guard let presenter, presenter.view.window != nil else {
+                presentMail(packet, to: to)
+                return
+            }
+            let items: [Any] = images.enumerated().map { index, image in
+                OutlookBodyItem(image: image, subject: packet.subject, primary: index == 0)
+            }
+            let sheet = UIActivityViewController(
+                activityItems: items,
+                applicationActivities: nil
+            )
+            sheet.excludedActivityTypes = [
+                .airDrop,
+                .mail,
+                .message,
+                .copyToPasteboard,
+                .print,
+                .saveToCameraRoll,
+                .addToReadingList,
+                .assignToContact,
+                .markupAsPDF,
+                UIActivity.ActivityType("com.apple.DocumentManagerUICore.SaveToFiles"),
+                UIActivity.ActivityType("com.apple.CloudDocsUI.AddToiCloudDrive"),
+                UIActivity.ActivityType("com.apple.sharing.ShareToReminders"),
+            ]
+            if let popover = sheet.popoverPresentationController {
+                let view = presenter.view!
+                popover.sourceView = view
+                popover.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.maxY - 72, width: 1, height: 1)
+                popover.permittedArrowDirections = []
+            }
+            presenter.present(sheet, animated: true)
         }
-        let sheet = UIActivityViewController(
-            activityItems: items,
-            applicationActivities: nil
-        )
-        sheet.excludedActivityTypes = [
-            .airDrop,
-            .mail,
-            .message,
-            .copyToPasteboard,
-            .print,
-            .saveToCameraRoll,
-            .addToReadingList,
-            .assignToContact,
-            .markupAsPDF,
-            UIActivity.ActivityType("com.apple.DocumentManagerUICore.SaveToFiles"),
-            UIActivity.ActivityType("com.apple.CloudDocsUI.AddToiCloudDrive"),
-            UIActivity.ActivityType("com.apple.sharing.ShareToReminders"),
-        ]
-        if let popover = sheet.popoverPresentationController {
-            let view = presenter.view!
-            popover.sourceView = view
-            popover.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.maxY - 72, width: 1, height: 1)
-            popover.permittedArrowDirections = []
-        }
-        presenter.present(sheet, animated: true)
     }
 
     @MainActor
@@ -11820,19 +11896,21 @@ enum PulseShare {
             .saveToCameraRoll,
             .markupAsPDF,
         ]
-        guard let presenter = topController(), presenter.view.window != nil else { return }
-        if let popover = sheet.popoverPresentationController {
-            let view = presenter.view!
-            popover.sourceView = view
-            popover.sourceRect = CGRect(
-                x: view.bounds.midX,
-                y: 72,
-                width: 1,
-                height: 1
-            )
-            popover.permittedArrowDirections = []
+        afterShareSheetDismissed { presenter in
+            guard let presenter, presenter.view.window != nil else { return }
+            if let popover = sheet.popoverPresentationController {
+                let view = presenter.view!
+                popover.sourceView = view
+                popover.sourceRect = CGRect(
+                    x: view.bounds.midX,
+                    y: 72,
+                    width: 1,
+                    height: 1
+                )
+                popover.permittedArrowDirections = []
+            }
+            presenter.present(sheet, animated: true)
         }
-        presenter.present(sheet, animated: true)
     }
 
     @MainActor
@@ -11881,14 +11959,24 @@ enum PulseShare {
         return PulseMail.writeHTMLStreaming(packet.html)
     }
 
-    static func topController() -> UIViewController? {
+    /// Key window root — do not walk presented controllers. Mail / activity
+    /// attach here after SharePulseSheet dismisses. `topController()` walks
+    /// into the share sheet and is the flash-dismiss loop.
+    static func keyWindowRoot() -> UIViewController? {
+        keyWindow()?.rootViewController
+    }
+
+    private static func keyWindow() -> UIWindow? {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
-        let window = scenes
+        return scenes
             .filter { $0.activationState == .foregroundActive }
             .flatMap(\.windows)
             .first(where: \.isKeyWindow)
             ?? scenes.flatMap(\.windows).first { !$0.isHidden }
-        var top = window?.rootViewController
+    }
+
+    static func topController() -> UIViewController? {
+        var top = keyWindowRoot()
         while let shown = top?.presentedViewController {
             top = shown
         }

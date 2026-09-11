@@ -1818,6 +1818,14 @@ enum PulseLaunch {
     /// Share needs filtered warehouse rows. Chrome-only District 03 would leak company grain.
     static func shouldAllowShare(warehouseHydrating: Bool) -> Bool { !warehouseHydrating }
 
+    /// Presenting MFMailCompose over SharePulseSheet flashes then auto-dismisses (phone/iPad/Mac).
+    static func shouldPresentMailOverActiveShareSheet() -> Bool { false }
+    static func shouldDismissShareSheetBeforePresentingMail() -> Bool { true }
+    static func shareMailUnavailableCopy() -> String {
+        "Mail isn’t set up. The recap was copied — paste it into Outlook or Mail."
+    }
+    static var shareSheetDismissSettleNanoseconds: UInt64 { 350_000_000 }
+
     /// Boot copy that must move. One spinner phrase for 15s fails the reliability bar.
     enum BootPhase: Int, CaseIterable {
         case openingFloor = 1
