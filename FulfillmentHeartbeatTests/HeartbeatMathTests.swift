@@ -5105,6 +5105,26 @@ final class HeartbeatMathTests: XCTestCase {
         )
         XCTAssertTrue(PulseLaunch.isCompanySeatSizeAllowed(21_000_000))
         XCTAssertFalse(PulseLaunch.isCompanySeatSizeAllowed(56_000_000))
+        XCTAssertTrue(PulseLaunch.isCompanyExpandScope(filtersActive: false, grain: .store))
+        XCTAssertTrue(PulseLaunch.isCompanyExpandScope(filtersActive: false, grain: .region))
+        XCTAssertTrue(
+            PulseSeatPack.expandTables(
+                latest: [:],
+                roster: [:],
+                grain: .region
+            ).isEmpty,
+            "Full-company expandTables must not build grainTables"
+        )
+        XCTAssertEqual(MarketRegion.containing("NorCal"), .california)
+        XCTAssertEqual(MarketRegion.resolved(division: "Jewel Osco", district: "J3"), .east)
+        XCTAssertNil(MarketRegion.containing("J3"))
+        XCTAssertNil(MarketRegion.resolved(division: "", district: "J3"))
+        XCTAssertTrue(MarketRegion.matchesDivision("California", "NorCal"))
+        XCTAssertFalse(MarketRegion.matchesDivision("California", "Jewel Osco"))
+        XCTAssertEqual(MarketRegion.canonicalName("Jewel-Osco"), MarketRegion.canonicalName("Jewel-Osco"))
+        XCTAssertEqual(MarketRegion.canonicalName("Nor Cal"), "NorCal")
+        XCTAssertEqual(MarketRegion.named("California Region"), .california)
+        XCTAssertNil(MarketRegion.named("NorCal"))
     }
 
     func testPromotedPackReloadsInSessionEvenWhenConstrained() {

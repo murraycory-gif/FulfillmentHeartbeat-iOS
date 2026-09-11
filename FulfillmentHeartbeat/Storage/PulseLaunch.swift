@@ -1695,7 +1695,8 @@ enum PulseLaunch {
     static func shouldClearFactOwnershipAfterSeatPromote() -> Bool { true }
     static func shouldBuildCompanyGrainTablesOnWarehousePaint() -> Bool { false }
     static func isCompanyExpandScope(filtersActive: Bool, grain: DashScopeGrain) -> Bool {
-        !filtersActive && grain == .region
+        _ = grain
+        return !filtersActive
     }
     /// Drop warehouse expand caches at company so a seat pull cannot keep ~4GB tables.
     static func shouldClearExpandCachesAtCompany(filtersActive: Bool, pad: Bool) -> Bool {

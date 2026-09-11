@@ -4618,69 +4618,59 @@ enum MarketRegion: String, CaseIterable, Identifiable, Sendable {
     }
 
     func contains(_ division: String) -> Bool {
-        divisions.contains { Self.matchesDivision(division, $0) }
-            || divisions.contains { Self.matchesDivision(Self.canonicalName(division), $0) }
+        Self.region(forMarketOrTitle: division) == self
     }
 
-    /// Region title ("California", "California Region") or a market inside it (NorCal / SoCal).
+    /// Region title only ("California", "California Region"). Markets use `containing`.
+    /// Map lookup — never `containing` / `matchesDivision` / regex.
     static func named(_ raw: String) -> MarketRegion? {
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        var compact = HeartbeatMath.normalize(
-            trimmed.replacingOccurrences(of: "[-'’./]", with: " ", options: .regularExpression)
-        )
-        compact = compact.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-        if compact.hasSuffix(" region") {
-            compact = String(compact.dropLast(" region".count)).trimmingCharacters(in: .whitespaces)
-        }
-        var key = HeartbeatMath.compactKey(compact)
+        let key = lookupKey(raw)
+        guard !key.isEmpty else { return nil }
+        if let hit = regionTitleKeys[key] { return hit }
         if key.hasSuffix("region"), key.count > 6 {
-            key.removeLast(6)
+            return regionTitleKeys[String(key.dropLast(6))]
         }
-        switch key {
-        case "california", "calif", "ca":
-            return .california
-        case "east":
-            return .east
-        case "south":
-            return .south
-        case "west":
-            return .west
-        default:
-            return nil
-        }
+        return nil
     }
 
+    /// Region title or a market inside it (NorCal / SoCal). Map only — never
+    /// `contains` → `matchesDivision` (that stack-overflowed and Jetsamed).
     static func containing(_ division: String) -> MarketRegion? {
-        let trimmed = division.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-        if let named = named(trimmed) { return named }
-        return allCases.first { $0.contains(trimmed) }
+        region(forMarketOrTitle: division)
     }
 
-    /// Map a store to East/South/California/West without calling `containing` on district codes.
-    /// `containing("J3")` is nil on purpose — that path used to recurse through `matchesDivision`.
+    /// Map a store to East/South/California/West. Never `containing` (or district codes).
+    /// `containing("J3")` is nil on purpose.
     static func resolved(division: String, district: String) -> MarketRegion? {
         if let named = named(division) { return named }
+        let key = lookupKey(division)
+        if let region = marketToRegion[key] { return region }
         let market = canonicalName(division)
-        if !market.isEmpty, let region = containing(market) { return region }
+        if !market.isEmpty, let region = marketToRegion[lookupKey(market)] { return region }
         if let named = named(district) { return named }
         return nil
     }
 
     static func matchesDivision(_ lhs: String, _ rhs: String) -> Bool {
-        let a = canonicalName(lhs)
-        let b = canonicalName(rhs)
-        if !a.isEmpty, !b.isEmpty { return HeartbeatMath.compactKey(a) == HeartbeatMath.compactKey(b) }
-        // Region title vs market inside it (California ↔ NorCal). Do not call
-        // containing() here — that walks contains() → matchesDivision again.
-        if let region = named(lhs), region.divisions.contains(where: { canonicalName($0) == b && !b.isEmpty }) {
-            return true
+        let aKey = lookupKey(lhs)
+        let bKey = lookupKey(rhs)
+        if aKey.isEmpty || bKey.isEmpty { return false }
+        if aKey == bKey { return true }
+        if let a = compactToOfficial[aKey], let b = compactToOfficial[bKey] {
+            return a == b
         }
-        if let region = named(rhs), region.divisions.contains(where: { canonicalName($0) == a && !a.isEmpty }) {
-            return true
-        }
-        return HeartbeatMath.compactKey(lhs) == HeartbeatMath.compactKey(rhs) && !HeartbeatMath.compactKey(lhs).isEmpty
+        let aRegion = regionTitleKeys[stripRegionSuffix(aKey)] ?? marketToRegion[aKey]
+        let bRegion = regionTitleKeys[stripRegionSuffix(bKey)] ?? marketToRegion[bKey]
+        if let aRegion, let bRegion { return aRegion == bRegion }
+        return false
+    }
+
+    /// Title or market → region. District codes (`J3`) are not in the maps → nil.
+    private static func region(forMarketOrTitle raw: String) -> MarketRegion? {
+        if let named = named(raw) { return named }
+        let key = lookupKey(raw)
+        if key.isEmpty || ignoredDivisionKeys.contains(key) { return nil }
+        return marketToRegion[key]
     }
 
     static let ignoredDivisionKeys: Set<String> = [
@@ -4707,8 +4697,63 @@ enum MarketRegion: String, CaseIterable, Identifiable, Sendable {
     private static let canonicalNameLock = NSLock()
     private static var canonicalNameCache: [String: String] = [:]
 
-    /// Cached. Regex + suffix stripping runs once per distinct raw string.
-    /// Do not call `canonicalName` from `computeCanonicalName` (recursion).
+    /// ASCII letters/digits only. No regex. Shared by name / region maps.
+    private static func lookupKey(_ raw: String) -> String {
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(raw.utf8.count)
+        for byte in raw.utf8 {
+            if byte >= 65 && byte <= 90 {
+                bytes.append(byte + 32)
+            } else if (byte >= 97 && byte <= 122) || (byte >= 48 && byte <= 57) {
+                bytes.append(byte)
+            }
+        }
+        return String(bytes: bytes, encoding: .utf8) ?? ""
+    }
+
+    private static func stripRegionSuffix(_ key: String) -> String {
+        if key.hasSuffix("region"), key.count > 6 { return String(key.dropLast(6)) }
+        return key
+    }
+
+    /// Region titles only. Markets are in `marketToRegion`.
+    private static let regionTitleKeys: [String: MarketRegion] = [
+        "east": .east, "eastregion": .east,
+        "south": .south, "southregion": .south,
+        "west": .west, "westregion": .west,
+        "california": .california, "californiaregion": .california,
+        "calif": .california, "ca": .california,
+    ]
+
+    private static let marketToRegion: [String: MarketRegion] = [
+        "shaws": .east, "midatlantic": .east, "jewelosco": .east,
+        "southern": .south, "united": .south, "southwest": .south,
+        "unitedtexas": .south, "unitedsupermarkets": .south,
+        "norcal": .california, "socal": .california, "nocal": .california,
+        "northerncalifornia": .california, "southerncalifornia": .california,
+        "southerncal": .california,
+        "mountainwest": .west, "seattle": .west, "haggen": .west, "portland": .west,
+    ]
+
+    private static let compactToOfficial: [String: String] = {
+        var map: [String: String] = [:]
+        for name in officialDivisions {
+            map[lookupKey(name)] = name
+        }
+        map["midatlantic"] = "Mid-Atlantic"
+        map["jewelosco"] = "Jewel Osco"
+        map["nocal"] = "NorCal"
+        map["northerncalifornia"] = "NorCal"
+        map["southerncalifornia"] = "SoCal"
+        map["southerncal"] = "SoCal"
+        map["mountainwest"] = "Mountain West"
+        map["unitedtexas"] = "United"
+        map["unitedsupermarkets"] = "United"
+        return map
+    }()
+
+    /// Cached map lookup. `computeCanonicalName` must not call `named` /
+    /// `containing` / `matchesDivision` / `canonicalName` (recursion / Jetsam).
     static func canonicalName(_ raw: String) -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "" }
@@ -4728,36 +4773,21 @@ enum MarketRegion: String, CaseIterable, Identifiable, Sendable {
     }
 
     private static func computeCanonicalName(_ trimmed: String) -> String {
-        var compact = HeartbeatMath.normalize(
-            trimmed.replacingOccurrences(of: "[-'’./]", with: " ", options: .regularExpression)
-        )
-        compact = compact.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
-        for suffix in [" division", " div", " market", " banner", " region"] {
-            if compact.hasSuffix(suffix) {
-                compact = String(compact.dropLast(suffix.count)).trimmingCharacters(in: .whitespaces)
-            }
-        }
-        var key = HeartbeatMath.compactKey(compact)
+        var key = lookupKey(trimmed)
         for suffix in ["division", "div", "market", "banner", "region"] where key.hasSuffix(suffix) && key.count > suffix.count {
             key.removeLast(suffix.count)
         }
         if ignoredDivisionKeys.contains(key) || regionKeys.contains(key) { return "" }
-        if key == "midatlantic" || compact.hasPrefix("mid atlantic") { return "Mid-Atlantic" }
+        if let official = compactToOfficial[key] { return official }
         if key.hasPrefix("united") { return "United" }
         if key.contains("jewel") { return "Jewel Osco" }
-        if key == "shaws" || key.hasPrefix("shaw") { return "Shaws" }
-        if key == "norcal" || key == "nocal" || key == "northerncalifornia" { return "NorCal" }
-        if key == "socal" || key == "southerncalifornia" || key == "southerncal" { return "SoCal" }
+        if key.hasPrefix("shaw") { return "Shaws" }
         if key.contains("mountainwest") { return "Mountain West" }
-        if key == "haggen" || key.hasPrefix("haggen") { return "Haggen" }
-        if key == "portland" || key.hasPrefix("portland") { return "Portland" }
-        if key == "seattle" || key.hasPrefix("seattle") { return "Seattle" }
-        if key == "southwest" || key.hasPrefix("southwest") { return "Southwest" }
-        if key == "southern" { return "Southern" }
-        for official in officialDivisions {
-            if key == HeartbeatMath.compactKey(official) { return official }
-        }
-        return ""
+        if key.hasPrefix("haggen") { return "Haggen" }
+        if key.hasPrefix("portland") { return "Portland" }
+        if key.hasPrefix("seattle") { return "Seattle" }
+        if key.hasPrefix("southwest") { return "Southwest" }
+        return compactToOfficial[key] ?? ""
     }
 
     static func uniqueNames(_ values: [String]) -> [String] {

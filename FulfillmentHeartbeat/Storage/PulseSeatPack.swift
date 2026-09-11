@@ -424,7 +424,10 @@ enum PulseSeatPack {
         only: Set<MetricSection>? = nil,
         rowCap: Int? = nil
     ) -> [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] {
-        PulseCaches.grainTables(
+        if grain == .region, only == nil {
+            return [:]
+        }
+        return PulseCaches.grainTables(
             latest: latest,
             grain: grain,
             roster: roster,

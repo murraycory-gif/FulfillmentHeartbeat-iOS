@@ -24,4 +24,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.402 / 1.0 (728) — JetsamEvent 2026-09-11 10:21:11 CT iPad13,10: FulfillmentHeartbeat rpages≈4.0GB frontmost. Thin company seat (≤28MB / ~21MB) kept from .401. Never promote 56MB market. Company grain expand is page/stream only — never prefill all `dashboardCards` grainTables. Drop company expand caches after seat promote. `canonicalName` is cached. keepLastGoodSeat still skips wipe; clear `factsOwned` and put `seatPaint` in `sectionSQLTaskToken` so `ensureSectionLoaded` re-runs.
+HB-0828.402 / 1.0 (728) — Disk pack (~21MB) is not the Jetsam. In-memory expand was: `installSeatExpandTables` → `expandTables` → `grainTables` → `dashboardGrainTable` → `MarketRegion.resolved`/`containing` → `canonicalName` + `matchesDivision` (regex + recursion; also 0x8BADF00D / EXC_BAD_ACCESS). Name lookup is map + cache; `containing` never walks `matchesDivision`. Company expand is chrome/page only. `expandTables` at region grain with no `only` returns empty. Drop company expand caches after promote. Thin seat + .400 freshness kept.

@@ -2636,10 +2636,10 @@ final class HeartbeatStore: ObservableObject {
         lockPickerDashboard()
     }
 
-    /// Page/stream only at company. Never `MetricSection.dashboardCards` into RAM.
+    /// Page/stream only at company. Never `expandTables` → `grainTables` →
+    /// `dashboardGrainTable` for all `dashboardCards` (that Jetsamed ~4GB).
     private func installSeatExpandTables() {
-        let company = isCompanyExpandScope
-        if company, !PulseLaunch.shouldPrefillAllExpandTablesAtCompany(pad: isPadDevice) {
+        if !filters.isActive {
             if let chrome = packChrome {
                 seedExpandTablesFromChrome(chrome)
             }
@@ -2650,7 +2650,7 @@ final class HeartbeatStore: ObservableObject {
         }
         let sections = PulseLaunch.expandTableSections(
             visible: visibleDestination,
-            companyScope: company
+            companyScope: false
         )
         let grain = effectiveDashboardGrain
         let latest = filteredLatest.isEmpty ? latestBySection : filteredLatest
@@ -2660,7 +2660,7 @@ final class HeartbeatStore: ObservableObject {
             grain: grain,
             packs: cachedGrainPacks,
             only: Set(sections),
-            rowCap: company ? PulseLaunch.companyExpandRowCap(pad: isPadDevice) : nil
+            rowCap: nil
         )
         for section in sections {
             if let rows = tables[section], HeartbeatMath.grainRowsAreLive(rows) {
