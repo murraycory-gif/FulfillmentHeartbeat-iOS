@@ -364,60 +364,22 @@ struct OverviewSalesPhoneCard: View {
 
     var body: some View {
         let cardHealth = pack.health == .none && (pack.sales ?? 0) > 0 ? Health.good : pack.health
-        return HStack(alignment: .top, spacing: 0) {
-            RoundedRectangle(cornerRadius: 3, style: .continuous)
-                .fill(AppTheme.healthInk(cardHealth == .none ? .good : cardHealth))
-                .frame(width: 6)
-            VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(label)
-                    .font(AppTheme.rounded(.body, weight: .bold))
-                    .foregroundStyle(AppTheme.text)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                if let count {
-                    Text("\(count) stores")
-                        .font(AppTheme.rounded(.subheadline, weight: .semibold))
-                        .foregroundStyle(AppTheme.textSecondary)
-                }
-                Spacer()
-                HealthBadge(health: cardHealth, prominent: true, compact: false)
-            }
-            HStack {
-                phoneMetric("Sales $", HeartbeatFormat.money(pack.sales))
-                phoneMetric("YoY", HeartbeatFormat.pct(pack.yoy))
-            }
-            HStack {
-                phoneMetric("Orders", HeartbeatFormat.num(pack.orders, digits: 0))
-                phoneMetric("Ord YoY", HeartbeatFormat.pct(pack.ordersYoy))
-            }
-            HStack {
-                phoneMetric("AOS", HeartbeatFormat.money(pack.aos))
-                phoneMetric("AIV", HeartbeatFormat.num(pack.aiv, digits: 2))
-            }
-            HStack {
-                phoneMetric("Items/Txn", HeartbeatFormat.num(pack.ipt, digits: 1))
-                phoneMetric("Items", HeartbeatFormat.num(pack.items, digits: 0))
-            }
-            }
-            .padding(12)
-        }
-        .frame(minHeight: HubLayout.phoneHitTarget)
-        .tableRowCard(health: pack.health)
-    }
-
-    private func phoneMetric(_ title: String, _ value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title.uppercased())
-                .font(AppTheme.rounded(.caption2, weight: .bold))
-                .foregroundStyle(AppTheme.textSecondary)
-            Text(value)
-                .font(AppTheme.rounded(.subheadline, weight: .bold))
-                .foregroundStyle(AppTheme.text)
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        return PhoneScorecardRow(
+            title: label,
+            eyebrow: "Sales",
+            subtitle: count.flatMap { $0 > 0 ? ($0 == 1 ? "1 store" : "\($0) stores") : nil },
+            chips: [
+                PhoneMetricChip(label: "Sales $", value: HeartbeatFormat.money(pack.sales), health: cardHealth),
+                PhoneMetricChip(label: "YoY", value: HeartbeatFormat.pct(pack.yoy), health: cardHealth),
+                PhoneMetricChip(label: "Orders", value: HeartbeatFormat.num(pack.orders, digits: 0)),
+                PhoneMetricChip(label: "Ord YoY", value: HeartbeatFormat.pct(pack.ordersYoy)),
+                PhoneMetricChip(label: "AOS", value: HeartbeatFormat.money(pack.aos)),
+                PhoneMetricChip(label: "AIV", value: HeartbeatFormat.num(pack.aiv, digits: 2)),
+                PhoneMetricChip(label: "Items/Txn", value: HeartbeatFormat.num(pack.ipt, digits: 1)),
+                PhoneMetricChip(label: "Items", value: HeartbeatFormat.num(pack.items, digits: 0))
+            ],
+            health: cardHealth
+        )
     }
 }
 

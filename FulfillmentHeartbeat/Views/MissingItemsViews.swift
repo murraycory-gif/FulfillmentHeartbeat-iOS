@@ -998,7 +998,8 @@ struct MissingItemsRollupTable: View {
                                     label: row.label,
                                     value: HeartbeatFormat.pct(row.total),
                                     count: grain == .store ? nil : row.storeCount,
-                                    health: row.health
+                                    health: row.health,
+                                    metricLabel: "Missing %"
                                 )
                             }
                         }

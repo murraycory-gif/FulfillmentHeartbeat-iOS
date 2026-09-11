@@ -1,6 +1,6 @@
 # Command Center (Tip 2 / Option 8b)
 
-Stamp **HB-0828.392** / 718. Data plane stays Tip 1 seat packs (`docs/SEAT-SCOPED-PACKS.md`) plus **OM person seats**. Mac and iPad have **no Alerts rail**. Glance tiles use a tight **blue title banner**, a bigger section title, and one **centered** health-tinted SF Symbol — no spark bars. No Dashboard back chevron on scorecards. iPhone 13+ Pages: compact OR phone idiom OR width < 600 forces cards (filters + every scorecard), never squeezed iPad tables. Who’s looking stays locked off.
+Stamp **HB-0828.393** / 719. Data plane stays Tip 1 seat packs (`docs/SEAT-SCOPED-PACKS.md`) plus **OM person seats**. Mac and iPad have **no Alerts rail**. Glance tiles use a tight **blue title banner**, a bigger section title, and one **centered** health-tinted SF Symbol — no spark bars. No Dashboard back chevron on scorecards. iPhone 13+ Pages use **PhoneScorecardRow** (labeled chips, STATUS). Pad shopper/rollup headers refuse to draw on phone. Who’s looking stays locked off.
 
 Cold open is **company Command Center** (`swapToSeatPack(.company)`). Who's looking is not a required wall. Seat changes are dashboard filter chips only (District / OM / Store / Clear→company). OM chip swaps `packs/seat/om/<slug>/current.sqlite`. No per-page tours. Every filter swap paints or errors — never a silent no-op.
 

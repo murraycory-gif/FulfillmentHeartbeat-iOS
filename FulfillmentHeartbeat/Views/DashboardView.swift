@@ -742,44 +742,145 @@ private struct OverviewMetricColumns: View {
     }
 }
 
+struct PhoneMetricChip: Identifiable, Hashable {
+    let label: String
+    let value: String
+    var health: Health = .none
+    var id: String { label }
+}
+
+/// Dedicated iPhone scorecard card. Used by every Pages row on phone — never a table line.
+struct PhoneScorecardRow: View {
+    let title: String
+    var eyebrow: String? = nil
+    var subtitle: String? = nil
+    var chips: [PhoneMetricChip] = []
+    var health: Health = .none
+    var chevronExpanded: Bool? = nil
+    var onTap: (() -> Void)? = nil
+
+    var body: some View {
+        let card = HStack(alignment: .top, spacing: 0) {
+            UnevenRoundedRectangle(
+                cornerRadii: RectangleCornerRadii(topLeading: 18, bottomLeading: 18, bottomTrailing: 0, topTrailing: 0),
+                style: .continuous
+            )
+            .fill(AppTheme.healthInk(health == .none ? .good : health))
+            .frame(width: 8)
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .top, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        if let eyebrow, !eyebrow.isEmpty {
+                            Text(eyebrow.uppercased())
+                                .font(.caption.weight(.heavy))
+                                .tracking(0.8)
+                                .foregroundStyle(AppTheme.textTertiary)
+                        }
+                        Text(title)
+                            .font(AppTheme.rounded(.title3, weight: .bold))
+                            .foregroundStyle(AppTheme.text)
+                            .lineLimit(3)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if let subtitle, !subtitle.isEmpty {
+                            Text(subtitle)
+                                .font(.body.weight(.semibold))
+                                .foregroundStyle(AppTheme.textSecondary)
+                                .lineLimit(2)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    Spacer(minLength: 8)
+                    VStack(alignment: .trailing, spacing: 6) {
+                        Text("STATUS")
+                            .font(.caption.weight(.heavy))
+                            .tracking(0.7)
+                            .foregroundStyle(AppTheme.textTertiary)
+                        HealthBadge(health: health, prominent: true, compact: false)
+                        if let chevronExpanded {
+                            Image(systemName: chevronExpanded ? "chevron.up" : "chevron.down")
+                                .font(.body.weight(.bold))
+                                .foregroundStyle(AppTheme.textSecondary)
+                                .frame(width: HubLayout.phoneHitTarget, height: HubLayout.phoneHitTarget)
+                        }
+                    }
+                }
+                if !chips.isEmpty {
+                    LazyVGrid(
+                        columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)],
+                        spacing: 10
+                    ) {
+                        ForEach(chips) { chip in
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(chip.label.uppercased())
+                                    .font(.caption.weight(.heavy))
+                                    .tracking(0.5)
+                                    .foregroundStyle(AppTheme.textSecondary)
+                                Text(chip.value)
+                                    .font(AppTheme.rounded(.title3, weight: .bold).monospacedDigit())
+                                    .foregroundStyle(chipInk(chip.health))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.85)
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+                            .padding(12)
+                            .background(chipWash(chip.health), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        }
+                    }
+                }
+            }
+            .padding(16)
+        }
+        .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(AppTheme.healthInk(health == .none ? .good : health).opacity(0.22), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.07), radius: 10, y: 4)
+
+        if let onTap {
+            Button(action: onTap) {
+                card
+                    .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
+            .buttonStyle(.plain)
+        } else {
+            card
+        }
+    }
+
+    private func chipInk(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.text
+        }
+    }
+
+    private func chipWash(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.okSoft
+        case .watch: return AppTheme.warnSoft
+        case .risk: return AppTheme.badSoft
+        case .none: return AppTheme.blueSoft.opacity(0.55)
+        }
+    }
+}
+
 struct PhoneGrainRow: View {
     let label: String
     let value: String
     let count: Int?
     let health: Health
+    var metricLabel: String = "Result"
 
     var body: some View {
-        HStack(spacing: 10) {
-            RoundedRectangle(cornerRadius: 3, style: .continuous)
-                .fill(AppTheme.healthInk(health == .none ? .good : health))
-                .frame(width: 5)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(label)
-                    .font(AppTheme.rounded(.body, weight: .bold))
-                    .foregroundStyle(AppTheme.text)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                if let count, count > 0 {
-                    Text(count == 1 ? "1 store" : "\(count) stores")
-                        .font(AppTheme.rounded(.subheadline, weight: .semibold))
-                        .foregroundStyle(AppTheme.textSecondary)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            Text(value)
-                .font(AppTheme.rounded(.body, weight: .bold).monospacedDigit())
-                .foregroundStyle(dashInk(health))
-                .lineLimit(1)
-                .minimumScaleFactor(0.85)
-            HealthBadge(health: health, prominent: true, compact: false)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .frame(minHeight: HubLayout.phoneHitTarget)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(AppTheme.healthInk(health == .none ? .good : health).opacity(0.35), lineWidth: 1.5)
+        PhoneScorecardRow(
+            title: label,
+            subtitle: count.flatMap { $0 > 0 ? ($0 == 1 ? "1 store" : "\($0) stores") : nil },
+            chips: [PhoneMetricChip(label: metricLabel, value: value, health: health)],
+            health: health
         )
     }
 }
@@ -1248,16 +1349,9 @@ struct PickerHighlightsPanel: View {
         store.pickerBoard
     }
 
-    private var phone: Bool { HubLayout.usesPhoneScorecards(sizeClass: sizeClass, width: panelWidth) }
+    private var phone: Bool { HubLayout.isPhone(sizeClass) }
 
-    private var usePhoneCards: Bool {
-        PulseLaunch.shouldUsePickerPhoneCards(
-            compact: sizeClass == .compact,
-            phoneIdiom: HubLayout.livePhoneIdiom,
-            phone: HubLayout.isPhone(sizeClass),
-            width: panelWidth
-        )
-    }
+    private var usePhoneCards: Bool { HubLayout.isPhone(sizeClass) }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1352,8 +1446,8 @@ struct PickerHighlightsPanel: View {
                 if showPictures {
                     ShopperPictureStrip(rows: rows)
                 }
-                if usePhoneCards {
-                    ForEach(rows) { row in
+                ForEach(rows) { row in
+                    if usePhoneCards {
                         PickerPhoneCard(
                             snap: PickerLineSnap(row, division: divisionLabel(for: row)),
                             expanded: openShopper == row.id.uuidString,
@@ -1361,10 +1455,7 @@ struct PickerHighlightsPanel: View {
                                 openShopper = openShopper == row.id.uuidString ? nil : row.id.uuidString
                             }
                         )
-                    }
-                } else {
-                    PickerMetricHeader(label: "Shopper")
-                    ForEach(rows) { row in
+                    } else {
                         PickerStoreRow(
                             snap: PickerLineSnap(row, division: divisionLabel(for: row)),
                             expanded: openShopper == row.id.uuidString,

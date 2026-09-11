@@ -85,14 +85,14 @@ struct HubBanner: View {
             VStack(alignment: .leading, spacing: compact ? 1 : 1) {
                 Text(title)
                     .font(compact ? HubLayout.phoneBannerTitleFont() : AppTheme.rounded(.title3, weight: .bold))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
                 if let accessory, !accessory.isEmpty {
                     Text(accessory)
-                        .font(compact ? .caption2.weight(.semibold) : .footnote.weight(.semibold))
+                        .font(compact ? .subheadline.weight(.semibold) : .footnote.weight(.semibold))
                         .opacity(0.9)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             Spacer(minLength: 6)
@@ -168,20 +168,20 @@ struct HubTableHeader: View {
 
     var body: some View {
         let phone = HubLayout.isPhone(sizeClass)
-        HStack(spacing: phone ? 8 : 10) {
+        HStack(spacing: phone ? 10 : 10) {
             Image(systemName: icon)
-                .font((phone ? Font.footnote : Font.headline).weight(.semibold))
-            VStack(alignment: .leading, spacing: 1) {
+                .font((phone ? Font.title3 : Font.headline).weight(.semibold))
+            VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font((phone ? Font.footnote : Font.headline).weight(.bold))
+                    .font((phone ? Font.title3 : Font.headline).weight(.bold))
                     .fontDesign(.rounded)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
                 Text(accessory)
-                    .font((phone ? Font.caption2 : Font.footnote).weight(.semibold))
+                    .font((phone ? Font.subheadline : Font.footnote).weight(.semibold))
                     .opacity(0.9)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 6)
             Image(systemName: expanded ? "chevron.up" : "chevron.down")
@@ -952,7 +952,7 @@ struct HubChromePill: View {
                         .font(.subheadline.weight(.semibold))
                 }
             }
-            .font((compactPills ? Font.body : Font.subheadline).weight(.semibold))
+            .font((compactPills ? Font.title3 : Font.subheadline).weight(.semibold))
             .foregroundStyle(prominent ? Color.white : AppTheme.blue)
             .padding(.horizontal, compactPills ? 10 : 10)
             .padding(.vertical, compactPills ? 8 : 8)
@@ -1345,30 +1345,22 @@ struct FilterSheet: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: HubLayout.isPhone(sizeClass) ? 10 : 16) {
-                LazyVGrid(
-                    columns: HubLayout.grid(
-                        HubLayout.usesPhoneScorecards(sizeClass: sizeClass) ? 2 : FilterFocus.allCases.count,
-                        spacing: 8,
-                        minWidth: HubLayout.usesPhoneScorecards(sizeClass: sizeClass) ? 140 : 72
-                    ),
-                    spacing: 8
-                ) {
-                    ForEach(FilterFocus.allCases) { item in
-                        Button {
-                            focus = item
-                            options = store.filterChoices(focus: item, draft: draft)
-                        } label: {
-                            Text(item.chipTitle)
-                                .font((HubLayout.usesPhoneScorecards(sizeClass: sizeClass) ? Font.body : Font.subheadline).weight(.semibold))
-                                .foregroundStyle(focus == item ? Color.white : AppTheme.blue)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.85)
-                                .frame(maxWidth: .infinity, minHeight: HubLayout.usesPhoneScorecards(sizeClass: sizeClass) ? HubLayout.phoneHitTarget : 36)
-                                .padding(.vertical, 8)
-                                .background(focus == item ? AppTheme.blue : AppTheme.blueSoft, in: Capsule())
-                                .contentShape(Capsule())
+                Group {
+                    if HubLayout.isPhone(sizeClass) {
+                        VStack(spacing: 8) {
+                            ForEach(FilterFocus.allCases) { item in
+                                filterFocusChip(item)
+                            }
                         }
-                        .buttonStyle(.plain)
+                    } else {
+                        LazyVGrid(
+                            columns: HubLayout.grid(FilterFocus.allCases.count, spacing: 8, minWidth: 72),
+                            spacing: 8
+                        ) {
+                            ForEach(FilterFocus.allCases) { item in
+                                filterFocusChip(item)
+                            }
+                        }
                     }
                 }
                 Text("Search or tap rows. Select more than one \(focus.chipTitle.lowercased()).")
@@ -1421,6 +1413,33 @@ struct FilterSheet: View {
             focus = initialFocus
             options = store.filterChoices(focus: initialFocus, draft: store.filters)
         }
+    }
+
+    private func filterFocusChip(_ item: FilterFocus) -> some View {
+        let phone = HubLayout.isPhone(sizeClass)
+        let selected = focus == item
+        return Button {
+            focus = item
+            options = store.filterChoices(focus: item, draft: draft)
+        } label: {
+            HStack {
+                Text(item.chipTitle)
+                    .font((phone ? Font.title3 : Font.subheadline).weight(.semibold))
+                    .foregroundStyle(selected ? Color.white : AppTheme.blue)
+                    .lineLimit(1)
+                Spacer(minLength: 0)
+                if selected {
+                    Image(systemName: "checkmark")
+                        .font(.body.weight(.bold))
+                        .foregroundStyle(Color.white)
+                }
+            }
+            .padding(.horizontal, phone ? 16 : 10)
+            .frame(maxWidth: .infinity, minHeight: phone ? 52 : 36, alignment: .leading)
+            .background(selected ? AppTheme.blue : AppTheme.blueSoft, in: RoundedRectangle(cornerRadius: phone ? 14 : 20, style: .continuous))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func saveAndClose() {
@@ -2419,7 +2438,8 @@ struct PickPathRollupTable: View {
                                     label: row.label,
                                     value: HeartbeatFormat.pct(row.path),
                                     count: grain == .store ? nil : row.storeCount,
-                                    health: PickPathMath.pathHealth(row.path)
+                                    health: PickPathMath.pathHealth(row.path),
+                                    metricLabel: "Path"
                                 )
                             }
                         }
@@ -2722,54 +2742,18 @@ private struct PathShopperTable: View {
     private func pickerPhoneCard(_ picker: PathShopperSnap) -> some View {
         let scores = columns.map { health(of: $0, in: picker) }
         let overall = worstHealth(scores)
-        return HStack(alignment: .top, spacing: 0) {
-            RoundedRectangle(cornerRadius: 3, style: .continuous)
-                .fill(AppTheme.healthInk(overall == .none ? .good : overall))
-                .frame(width: 6)
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .top, spacing: 10) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("SHOPPER")
-                            .font(.caption.weight(.bold))
-                            .foregroundStyle(AppTheme.textTertiary)
-                        Text(picker.name)
-                            .font(.body.weight(.bold))
-                            .foregroundStyle(AppTheme.text)
-                            .lineLimit(3)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer(minLength: 8)
-                    VStack(alignment: .trailing, spacing: 4) {
-                        Text("STATUS")
-                            .font(.caption.weight(.bold))
-                            .foregroundStyle(AppTheme.textTertiary)
-                        HealthBadge(health: overall, compact: false)
-                    }
-                }
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                    ForEach(columns, id: \.self) { metric in
-                        HStack {
-                            Text(metric.title)
-                                .font(.caption.weight(.bold))
-                                .foregroundStyle(AppTheme.textTertiary)
-                            Spacer(minLength: 4)
-                            Text(display(metric, picker))
-                                .font(.subheadline.weight(.bold).monospacedDigit())
-                                .foregroundStyle(ink(health(of: metric, in: picker)))
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.85)
-                        }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 8)
-                        .frame(minHeight: 36)
-                        .background(wash(health(of: metric, in: picker)), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    }
-                }
-            }
-            .padding(12)
-        }
-        .frame(minHeight: HubLayout.phoneHitTarget)
-        .tableRowCard(health: overall)
+        return PhoneScorecardRow(
+            title: picker.name,
+            eyebrow: "Shopper",
+            chips: columns.map { metric in
+                PhoneMetricChip(
+                    label: metric.title,
+                    value: display(metric, picker),
+                    health: health(of: metric, in: picker)
+                )
+            },
+            health: overall
+        )
     }
 
     private func pickerLine(_ picker: PathShopperSnap) -> some View {
@@ -3595,7 +3579,8 @@ struct DynacapRollupTable: View {
                                     label: row.label,
                                     value: HeartbeatFormat.num(row.rate, digits: 1),
                                     count: grain == .store ? nil : row.storeCount,
-                                    health: DynacapMath.rateHealth(row.rate)
+                                    health: DynacapMath.rateHealth(row.rate),
+                                    metricLabel: "Rate"
                                 )
                             }
                         }
@@ -4485,7 +4470,8 @@ struct PrepRollupTable: View {
                                     label: row.label,
                                     value: HeartbeatFormat.pct(row.pnr),
                                     count: grain == .store ? nil : row.storeCount,
-                                    health: row.health
+                                    health: row.health,
+                                    metricLabel: "PNR"
                                 )
                             }
                         }
@@ -5260,7 +5246,8 @@ struct FiveStarRollupTable: View {
                                     label: row.label,
                                     value: HeartbeatFormat.stars(row.rating),
                                     count: grain == .store ? nil : row.storeCount,
-                                    health: HeartbeatMath.band(row.presub, good: HeartbeatMath.missingItemsGoal, watch: HeartbeatMath.missingItemsWatch, invert: true)
+                                    health: HeartbeatMath.band(row.presub, good: HeartbeatMath.missingItemsGoal, watch: HeartbeatMath.missingItemsWatch, invert: true),
+                                    metricLabel: "Stars"
                                 )
                             }
                         }
@@ -6315,7 +6302,8 @@ struct LaborRollupTable: View {
                                     label: row.label,
                                     value: HeartbeatFormat.pct(row.tva),
                                     count: grain == .store ? nil : row.storeCount,
-                                    health: HeartbeatMath.laborHealth(row.tva)
+                                    health: HeartbeatMath.laborHealth(row.tva),
+                                    metricLabel: "TVA"
                                 )
                             }
                         }
@@ -7462,7 +7450,8 @@ struct LostRevenueRollupTable: View {
                                     label: row.label,
                                     value: HeartbeatFormat.moneyShort(row.lost),
                                     count: grain == .store ? nil : row.storeCount,
-                                    health: HeartbeatMath.lostRevenueHealth(pct: row.pct)
+                                    health: HeartbeatMath.lostRevenueHealth(pct: row.pct),
+                                    metricLabel: "Lost $"
                                 )
                             }
                         }
@@ -8560,7 +8549,8 @@ struct ScheduleRollupTable: View {
                                     label: row.label,
                                     value: HeartbeatFormat.pct(row.efficiency),
                                     count: grain == .store ? nil : row.storeCount,
-                                    health: row.health
+                                    health: row.health,
+                                    metricLabel: "Efficiency"
                                 )
                             }
                         }
@@ -9340,7 +9330,8 @@ struct PPHRollupTable: View {
                                     label: row.label,
                                     value: HeartbeatFormat.num(row.pph, digits: 1),
                                     count: grain == .store ? nil : row.storeCount,
-                                    health: PPHMath.pphHealth(row.pph)
+                                    health: PPHMath.pphHealth(row.pph),
+                                    metricLabel: "PPH"
                                 )
                             }
                         }
@@ -10074,107 +10065,34 @@ struct PickerPhoneCard: View {
     let onToggle: () -> Void
 
     var body: some View {
-        HStack(alignment: .top, spacing: 0) {
-            RoundedRectangle(cornerRadius: 3, style: .continuous)
-                .fill(AppTheme.healthInk(snap.health == .none ? .good : snap.health))
-                .frame(width: 6)
-            VStack(alignment: .leading, spacing: 10) {
-                Button(action: onToggle) {
-                    HStack(alignment: .top, spacing: 10) {
-                        ShopperPictureDot(name: snap.shopperName, health: snap.health, side: 44)
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("SHOPPER")
-                                .font(.caption.weight(.bold))
-                                .foregroundStyle(AppTheme.textTertiary)
-                            Text(snap.shopperName)
-                                .font(.body.weight(.bold))
-                                .foregroundStyle(AppTheme.text)
-                                .lineLimit(3)
-                                .fixedSize(horizontal: false, vertical: true)
-                            Text("STORE")
-                                .font(.caption.weight(.bold))
-                                .foregroundStyle(AppTheme.textTertiary)
-                                .padding(.top, 2)
-                            Text(placeLine)
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(AppTheme.textSecondary)
-                                .lineLimit(2)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        Spacer(minLength: 8)
-                        VStack(alignment: .trailing, spacing: 4) {
-                            Text("STATUS")
-                                .font(.caption.weight(.bold))
-                                .foregroundStyle(AppTheme.textTertiary)
-                            HealthBadge(health: snap.health, compact: false)
-                        }
-                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
-                            .font(.body.weight(.bold))
-                            .foregroundStyle(AppTheme.textTertiary)
-                            .frame(width: 28, height: HubLayout.phoneHitTarget)
-                    }
-                    .frame(minHeight: HubLayout.phoneHitTarget)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
-                    metric("Hours", snap.hours, .none)
-                    metric("PPH", snap.pph, snap.pphHealth)
-                    metric("Orders", snap.orders, .none)
-                    metric("Presub", snap.presub, snap.presubHealth)
-                    metric("OTT", snap.ott, snap.ottHealth)
-                    metric("COE", snap.coe, snap.coeHealth)
-                }
-                if expanded {
-                    PickerStoreExpand(snap: snap)
-                }
+        VStack(alignment: .leading, spacing: 10) {
+            PhoneScorecardRow(
+                title: snap.shopperName,
+                eyebrow: "Shopper",
+                subtitle: "Store \(placeLine)",
+                chips: [
+                    PhoneMetricChip(label: "Hours", value: snap.hours),
+                    PhoneMetricChip(label: "PPH", value: snap.pph, health: snap.pphHealth),
+                    PhoneMetricChip(label: "Orders", value: snap.orders),
+                    PhoneMetricChip(label: "Presub", value: snap.presub, health: snap.presubHealth),
+                    PhoneMetricChip(label: "OTT", value: snap.ott, health: snap.ottHealth),
+                    PhoneMetricChip(label: "COE", value: snap.coe, health: snap.coeHealth)
+                ],
+                health: snap.health,
+                chevronExpanded: expanded,
+                onTap: onToggle
+            )
+            if expanded {
+                PickerStoreExpand(snap: snap)
+                    .padding(.horizontal, 4)
             }
-            .padding(12)
         }
-        .frame(minHeight: HubLayout.phoneHitTarget)
-        .tableRowCard(health: snap.health)
     }
 
     private var placeLine: String {
         let store = snap.storeNumber.isEmpty ? "—" : snap.storeNumber
         let division = snap.division.isEmpty ? "" : " · \(snap.division)"
         return "\(store)\(division)"
-    }
-
-    private func metric(_ name: String, _ value: String, _ health: Health) -> some View {
-        HStack {
-            Text(name)
-                .font(.caption.weight(.bold))
-                .foregroundStyle(AppTheme.textTertiary)
-            Spacer(minLength: 4)
-            Text(value)
-                .font(.subheadline.weight(.bold).monospacedDigit())
-                .foregroundStyle(ink(health))
-                .lineLimit(1)
-                .minimumScaleFactor(0.85)
-        }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 8)
-        .frame(minHeight: 36)
-        .background(wash(health), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-    }
-
-    private func ink(_ health: Health) -> Color {
-        switch health {
-        case .good: return AppTheme.ok
-        case .watch: return AppTheme.warn
-        case .risk: return AppTheme.bad
-        case .none: return AppTheme.text
-        }
-    }
-
-    private func wash(_ health: Health) -> Color {
-        switch health {
-        case .good: return AppTheme.okSoft
-        case .watch: return AppTheme.warnSoft
-        case .risk: return AppTheme.badSoft
-        case .none: return AppTheme.card
-        }
     }
 }
 
@@ -10184,8 +10102,12 @@ struct PickerMetricHeader: View {
     var ascending: Bool = false
     var showRefund: Bool = false
     var onSelect: ((String) -> Void)? = nil
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
+        if HubLayout.refusesPadTable(sizeClass) {
+            EmptyView()
+        } else {
         HStack(spacing: 6) {
             head(label, key: "label", alignment: .leading)
                 .frame(minWidth: 148, maxWidth: 220, alignment: .leading)
@@ -10207,6 +10129,7 @@ struct PickerMetricHeader: View {
         .padding(.horizontal, 4)
         .padding(.top, 6)
         .padding(.bottom, 8)
+        }
     }
 
     private func head(_ title: String, key: String, alignment: Alignment = .trailing) -> some View {
@@ -10234,8 +10157,12 @@ struct PickerMetricHeader: View {
 
 struct PickerStickyStoreHeader: View {
     @EnvironmentObject private var pin: LaborHeaderPin
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
+        if HubLayout.refusesPadTable(sizeClass) {
+            EmptyView()
+        } else {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Text("Shopper")
@@ -10263,6 +10190,7 @@ struct PickerStickyStoreHeader: View {
                 .fill(AppTheme.cardBorder)
                 .frame(height: 1)
         }
+        }
     }
 }
 
@@ -10271,8 +10199,12 @@ struct PickerStoreRow: View {
     let expanded: Bool
     let onToggle: () -> Void
     var showRefund: Bool = false
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
+        if HubLayout.refusesPadTable(sizeClass) {
+            PickerPhoneCard(snap: snap, expanded: expanded, onToggle: onToggle)
+        } else {
         VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
             Button(action: onToggle) {
                 PickerCheapLine(snap: snap, expanded: expanded, showRefund: showRefund)
@@ -10285,6 +10217,7 @@ struct PickerStoreRow: View {
             }
         }
         .tableRowCard(health: snap.health)
+        }
     }
 }
 
@@ -10605,7 +10538,7 @@ private struct HubPhoneTableModifier: ViewModifier {
     @State private var available: CGFloat = 0
 
     func body(content: Content) -> some View {
-        let floor = max(minWidth, HubLayout.isPhone(sizeClass) ? 920 : minWidth)
+        let floor = HubLayout.isPhone(sizeClass) ? 0 : max(minWidth, minWidth)
         let span = HubLayout.tableSpan(available: available, floor: floor)
         Group {
             if available > 1, available + 0.5 >= floor {
@@ -10674,7 +10607,8 @@ struct HubAdaptiveHScroll<Content: View>: View {
     @State private var available: CGFloat = 0
 
     private var floor: CGFloat {
-        minWidth ?? (HubLayout.isPhone(sizeClass) ? 640 : 780)
+        if HubLayout.isPhone(sizeClass) { return 0 }
+        return minWidth ?? 780
     }
 
     private var span: CGFloat {

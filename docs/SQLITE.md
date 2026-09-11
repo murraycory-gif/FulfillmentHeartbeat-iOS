@@ -24,4 +24,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.392 / 1.0 (718) — iPhone 13+ phone chrome: compact / idiom / width < 600 forces filter chips + Pages scorecard cards (not squeezed iPad tables). PickerPhoneCard only on that path. Who’s looking stays locked off. First-tap Pages; 44pt hits; Assist ops-coach shape; hide Unassigned Markets/Regions; MARKET column binds official banners; roster market wins on stamp; Labor Total banner only when TVA/Total missing. Recook + republish still required for OM people packs.
+HB-0828.393 / 1.0 (719) — iPhone UX rewrite: PhoneScorecardRow on every Pages row; pad table headers/cheap lines refuse to mount when idiom==.phone or compact. Filters sheet full-width 52pt. Command Center readable density. Who’s looking stays locked off. Unassigned Markets/Regions stay hidden. Recook + republish still required for OM people packs.

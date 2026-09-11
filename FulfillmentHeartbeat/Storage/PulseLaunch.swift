@@ -529,18 +529,24 @@ enum PulseLaunch {
         return true
     }
 
-    /// iPhone 13+ / compact / idiom / width < 600: never squeeze the iPad SHOPPER … STATUS table.
-    /// Do not decide from cached `isPhoneDevice` alone — first paint width can be 0.
+    /// iPhone 13+ : idiom or compact always wins. Width < 600 only helps iPad split.
+    /// Cached device profile is not consulted — that left 718 painting pad tables.
     static func shouldUsePickerPhoneCards(
         compact: Bool = false,
         phoneIdiom: Bool = false,
-        phone: Bool = HubLayout.isPhoneDevice,
+        phone: Bool = false,
         width: CGFloat = 0
     ) -> Bool {
-        if compact { return true }
-        if phoneIdiom { return true }
-        if phone { return true }
+        if compact || phoneIdiom || phone { return true }
         return width > 0 && width < 600
+    }
+
+    /// Pad shopper/rollup headers must not exist in the phone view tree.
+    static func shouldRefusePadShopperTable(
+        compact: Bool = false,
+        phoneIdiom: Bool = false
+    ) -> Bool {
+        compact || phoneIdiom
     }
 
     /// iPhone Pages list opens the destination on the first tap.

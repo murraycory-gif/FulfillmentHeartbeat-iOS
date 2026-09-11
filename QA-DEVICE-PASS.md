@@ -1,6 +1,6 @@
 # CoS device PASS before TestFlight
 
-Stamp **HB-0828.392  1.0 (718)**. UDID `676FA816-88AE-59D9-A89D-5C17BFC2DA96`. Force-quit first (Mac: quit Heartbeat from the dock, don’t just close the window). No TF until every line is PASS. **Recook + republish first** — tip alone does not heal OM_AREA baked into existing sqlite.
+Stamp **HB-0828.393  1.0 (719)**. UDID `676FA816-88AE-59D9-A89D-5C17BFC2DA96`. Force-quit first (Mac: quit Heartbeat from the dock, don’t just close the window). No TF until every line is PASS. **Recook + republish first** — tip alone does not heal OM_AREA baked into existing sqlite.
 
 Tip 1 — seat-pack plane. Not a grain-gate patch.
 
@@ -10,13 +10,13 @@ Tip 1 — seat-pack plane. Not a grain-gate patch.
 3. **Every MetricSection** Stores footer live (same as Sales): Loss / 5 Star / Labor / Dynacap / PPH / Missing / Schedule / Pick Path / Picker — **not** grey empty “Stores”. HubStoreCard rows = Heartbeat **20**.
 4. Picker Healthy / Watch / At Risk tiles match the seat dropdown. Shoppers are District 03 only.
 5. Clear → `swapToSeatPack(.company)` / `packs/seat/company`. Cached chrome first. Filter pills same plane — snappy bounce, no remount. Regions **4**. New seat = swap again, no merge.
-6. iPad stays cool; dashboard scroll snappy. Stamp **HB-0828.392  1.0 (718)**. Mac + iPad: **no Alerts rail / pop-out**. Glance tiles: **blue title banner**, bigger title, **centered** health-tinted icon — no spark bars. No Dashboard back chevron. District (and OM / Store) section pages: **exactly one** "Store · N stores · tap to expand" — never two stacked.
+6. iPad stays cool; dashboard scroll snappy. Stamp **HB-0828.393  1.0 (719)**. Mac + iPad: **no Alerts rail / pop-out**. Glance tiles: **blue title banner**, bigger title, **centered** health-tinted icon — no spark bars. No Dashboard back chevron. District (and OM / Store) section pages: **exactly one** "Store · N stores · tap to expand" — never two stacked.
 7. Missing seat object (airplane / unpublished grain) **fails** the hub — does not invent a pack from `current.sqlite`.
 8. Command Center: 3 navy heroes + real glance tiles. Mac: pinned Pages + center, **no Alerts column**. iPad land/port: **full-width center**; Pages drawer only — **no Alerts button or rail**.
 9. Load screen: heart + progress. **No** rotisserie / grocery one-liners.
 10. Company Command Center: Picker headline is pack chrome / published shoppers — **not** 0 Healthy. Heroes share one roster gold Stores N.
 11. Section scorecards follow the filter matrix: Company = Regions + Markets; Region = Markets; Division = Districts + Stores; District / OM / Store = Stores **once**. Picker ScoreCard: **one shoppers table** + pictures on Division / District / OM / Store — **not** Company. Markets/Regions never show **Unassigned 21** (those 20 store #s are not on the Excel roster; 21st is an Applied-filters footer). United 70 may show **—** only when Week 27 has no live schedule facts — do not invent %. Sales week + by-day above rollup on every seat.
-14. iPhone 13 and up (390pt through 17 Pro): **first tap opens**. Icons health-tinted. Controls ≥ **44×44**. Filters are usable chips (body type, 44pt) — not squeezed iPad pills. Every Pages scorecard rollup is **phone cards** (health bar + readable type), never an ellipsis `SHOPPER … STATUS` table. Picker Top Opportunity / Doing well / shopper list = **PickerPhoneCard** only when compact OR `idiom == .phone` OR width < 600. No empty “all shoppers” when cohorts already rendered. Who’s looking stays off.
+14. iPhone 13–17 Pro: **PhoneScorecardRow** everywhere (large title, labeled metric chips, STATUS). `PickerMetricHeader` / `PickerCheapLine` / pad rollup headers are **EmptyView** when idiom==.phone or compact — no table fallback. Filters sheet is a full-width 52pt list. Command Center titles are title3, no 0.45 scale. Who’s looking stays off.
 15. Heartbeat Assist (phone / iPad / Mac): five-part coach — **WHAT'S WRONG / WHAT'S CAUSING IT / SHOPPER SOP / LABOR / SCHEDULE / DIRECTION**. Gold pack numbers only. Labor Total-row banner only when company TVA/Total is actually missing.
 12. Every Command Center tile opens a page with the **same seat-pack numbers** (Mac / iPad / iPhone). Phone push must load even while router stays on dashboard.
 13. One load screen only: **Loading Heartbeat**. No second splash / grocery / Halloween / building-tables theater.

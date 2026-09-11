@@ -3,9 +3,9 @@ import SwiftUI
 /// Pulse / Power BI Mobile briefing density. Layout math is testable off SwiftUI.
 enum CommandCenterLayout {
     static let heroSections: [MetricSection] = [.sales, .lostRevenue, .fiveStar]
-    static let gutter: CGFloat = 6
-    static let minGlanceHeight: CGFloat = 112
-    static let minHeroHeight: CGFloat = 96
+    static let gutter: CGFloat = 8
+    static let minGlanceHeight: CGFloat = 132
+    static let minHeroHeight: CGFloat = 120
 
     /// Every operational dashboard card that is not a navy hero — fills the leftover viewport.
     static var glanceSections: [MetricSection] {
@@ -68,7 +68,7 @@ enum CommandCenterLayout {
 
     static func heroBandHeight(phone: Bool, portrait: Bool, available: CGFloat) -> CGFloat {
         if phone {
-            return portrait ? 112 : 100
+            return portrait ? 168 : 128
         }
         let fraction = portrait ? 0.15 : 0.16
         return min(128, max(minHeroHeight, available * fraction))
@@ -269,16 +269,17 @@ struct CommandCenterHeroTile: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(CommandCenterLayout.glanceTitle(card.section))
-                        .font(AppTheme.rounded(.subheadline, weight: .bold))
+                        .font(AppTheme.rounded(.title3, weight: .bold))
                         .foregroundStyle(Color.white.opacity(0.92))
+                        .lineLimit(2)
                     Spacer(minLength: 4)
-                    HealthBadge(health: CommandCenterLayout.displayedHealth(card), prominent: true, compact: true)
+                    HealthBadge(health: CommandCenterLayout.displayedHealth(card), prominent: true, compact: false)
                 }
                 Text(CommandCenterLayout.compactValue(card))
-                    .font(AppTheme.rounded(size: 26, weight: .bold).monospacedDigit())
+                    .font(AppTheme.rounded(size: 28, weight: .bold).monospacedDigit())
                     .foregroundStyle(Color.white)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.45)
+                    .minimumScaleFactor(0.85)
                 Spacer(minLength: 0)
                 HStack(spacing: 6) {
                     Circle()
@@ -308,24 +309,24 @@ struct CommandCenterGlanceTile: View {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .center, spacing: 6) {
                     Text(CommandCenterLayout.glanceTitle(card.section))
-                        .font(AppTheme.rounded(.subheadline, weight: .heavy))
+                        .font(AppTheme.rounded(.headline, weight: .heavy))
                         .foregroundStyle(Color.white)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.85)
                     Spacer(minLength: 4)
-                    HealthBadge(health: CommandCenterLayout.displayedHealth(card), compact: true)
+                    HealthBadge(health: CommandCenterLayout.displayedHealth(card), compact: false)
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(AppTheme.blue)
 
                 VStack(spacing: 6) {
                     Text(CommandCenterLayout.compactValue(card))
-                        .font(AppTheme.rounded(size: 24, weight: .bold).monospacedDigit())
+                        .font(AppTheme.rounded(size: 26, weight: .bold).monospacedDigit())
                         .foregroundStyle(AppTheme.text)
                         .lineLimit(1)
-                        .minimumScaleFactor(0.5)
+                        .minimumScaleFactor(0.85)
                     CommandCenterGlanceIcon(
                         section: card.section,
                         health: CommandCenterLayout.displayedHealth(card)

@@ -281,14 +281,13 @@ enum HubLayout {
     /// Only the Mac builds the sqlite pack from Excel. Phones and iPads never unzip xlsx.
     static var ingestsWorkbook: Bool { isMac }
 
-    /// Compact, live phone idiom, or cached phone chrome. iPhone landscape (.regular) stays phone.
+    /// Live idiom or compact. Never cached `profile.phoneChrome` — that left 718 on iPad tables.
     static func isPhone(_ sizeClass: UserInterfaceSizeClass?) -> Bool {
-        if sizeClass == .compact { return true }
         if livePhoneIdiom { return true }
-        return profile.phoneChrome
+        return sizeClass == .compact
     }
 
-    /// Scorecards + shopper lists: compact OR phone idiom OR width < 600 (iPhone 13 = 390).
+    /// Scorecards + shopper lists: idiom == .phone OR compact. Width is only a split-view assist.
     static func usesPhoneScorecards(
         sizeClass: UserInterfaceSizeClass?,
         width: CGFloat = 0
@@ -299,6 +298,11 @@ enum HubLayout {
             phone: isPhone(sizeClass),
             width: width
         )
+    }
+
+    /// Pad table atoms call this and return EmptyView / a phone card. No fallback.
+    static func refusesPadTable(_ sizeClass: UserInterfaceSizeClass?) -> Bool {
+        isPhone(sizeClass)
     }
 
     static var grainCap: Int { profile.grainCap }
@@ -390,8 +394,8 @@ enum HubLayout {
     static func calloutMinWidth(phone: Bool) -> CGFloat { phone ? 136 : 152 }
     static var calloutGridSpacing: CGFloat { 8 }
 
-    static func phoneBannerTitleFont() -> Font { AppTheme.rounded(.footnote, weight: .bold) }
-    static func phoneBannerIconFont() -> Font { AppTheme.rounded(.footnote, weight: .semibold) }
+    static func phoneBannerTitleFont() -> Font { AppTheme.rounded(.title3, weight: .bold) }
+    static func phoneBannerIconFont() -> Font { AppTheme.rounded(.title3, weight: .semibold) }
     /// Apple HIG minimum hit target on iPhone. Do not shrink Mac / iPad.
     static var phoneHitTarget: CGFloat { 44 }
     static var phoneControlHeight: CGFloat { phoneHitTarget }
