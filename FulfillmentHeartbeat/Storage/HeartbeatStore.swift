@@ -486,6 +486,9 @@ final class HeartbeatStore: ObservableObject {
            PulseLaunch.shouldStartPickerStreamOnDestinationSwitch() {
             Task { await self.streamPicker(preferSnappy: dest == .pickerScorecard) }
         }
+        if isCompanyExpandScope, let section = dest.section {
+            Task { await self.prefetchExpand(section: section) }
+        }
     }
 
     func retryLaunch() {
@@ -839,7 +842,7 @@ final class HeartbeatStore: ObservableObject {
         // Live grain only. Placeholder packs must not land in cachedGrainTables.
         if HeartbeatMath.grainRowsAreLive(table) {
             let wasLive = HeartbeatMath.grainRowsAreLive(cachedGrainTables[section] ?? [])
-            cachedGrainTables[section] = table
+            cachedGrainTables[section] = cappedGrainTable(table)
             if !wasLive {
                 acknowledgeBackgroundFill(stampIfAllowed: PulseLaunch.shouldStampHubWhenExpandCacheFills())
             }
@@ -932,14 +935,50 @@ final class HeartbeatStore: ObservableObject {
             goalFallback: goalFallback
         )
         if section == .lostRevenue, let goalFallback, HeartbeatMath.grainTableNeedsGoalFill(table) {
-            return HeartbeatMath.fillingLostRevenueGoal(table, goal: goalFallback)
+            return cappedGrainTable(HeartbeatMath.fillingLostRevenueGoal(table, goal: goalFallback))
         }
-        if HeartbeatMath.grainRowsAreLive(table) { return table }
-        return HeartbeatMath.dashboardGrainRowsFromPacks(packs, section: section, goalFallback: goalFallback)
+        if HeartbeatMath.grainRowsAreLive(table) { return cappedGrainTable(table) }
+        return cappedGrainTable(
+            HeartbeatMath.dashboardGrainRowsFromPacks(packs, section: section, goalFallback: goalFallback)
+        )
+    }
+
+    /// Company scope never materializes all `dashboardCards` grainTables into RAM.
+    private static func grainTablesSkippingCompanyPrefill(
+        latest: [MetricSection: [MetricRow]],
+        grain: DashScopeGrain?,
+        roster: [String: HeartbeatMath.StoreIdentity],
+        packs: [MetricSection: [DashScopePack]],
+        goalFallback: Double?,
+        filtersActive: Bool
+    ) -> [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] {
+        if !filtersActive, !PulseLaunch.shouldBuildCompanyGrainTablesOnWarehousePaint() {
+            return [:]
+        }
+        return PulseCaches.grainTables(
+            latest: latest,
+            grain: grain,
+            roster: roster,
+            packs: packs,
+            goalFallback: goalFallback
+        )
+    }
+
+    private func cappedGrainTable(
+        _ table: [HeartbeatMath.DashboardGrainTableRow]
+    ) -> [HeartbeatMath.DashboardGrainTableRow] {
+        guard isCompanyExpandScope else { return table }
+        let cap = PulseLaunch.companyExpandRowCap(pad: isPadDevice)
+        guard table.count > cap else { return table }
+        return Array(table.prefix(cap))
     }
 
     private func fillExpandTablesSoon() {
         guard PulseLaunch.shouldPrefillExpandTables(filtersActive: filters.isActive) else { return }
+        let company = isCompanyExpandScope
+        if company, !PulseLaunch.shouldPrefillAllExpandTablesAtCompany(pad: isPadDevice) {
+            return
+        }
         let grain = effectiveDashboardGrain
         var latest = filteredLatest.isEmpty ? latestBySection : filteredLatest
         if let lost = latest[.lostRevenue] {
@@ -950,7 +989,11 @@ final class HeartbeatStore: ObservableObject {
         let goalFallback = lostRevenueGoalFallbackValue()
         let delay = grainTablePrefetchDelayNanoseconds()
         let salesRaw = latest[.sales] ?? []
-        let company = filters.isActive ? nil : salesCompanyFact()
+        let companyFact = filters.isActive ? nil : salesCompanyFact()
+        let only: Set<MetricSection>? = company
+            ? Set(PulseLaunch.expandTableSections(visible: visibleDestination, companyScope: true))
+            : nil
+        let rowCap: Int? = company ? PulseLaunch.companyExpandRowCap(pad: isPadDevice) : nil
         expandFillTask?.cancel()
         expandFillTask = Task.detached(priority: .background) {
             if delay > 0 {
@@ -962,7 +1005,9 @@ final class HeartbeatStore: ObservableObject {
                 grain: grain,
                 roster: rosterCopy,
                 packs: packs,
-                goalFallback: goalFallback
+                goalFallback: goalFallback,
+                only: only,
+                rowCap: rowCap
             )
             let salesSource = SalesRollupBuilder.source(
                 from: salesRaw,
@@ -970,7 +1015,7 @@ final class HeartbeatStore: ObservableObject {
                 roster: rosterCopy
             )
             let salesScope = SalesRollupBuilder.dashboardRows(from: salesSource, grain: grain)
-            let salesDays = SalesRollupBuilder.dayRows(from: salesSource, company: company)
+            let salesDays = SalesRollupBuilder.dayRows(from: salesSource, company: companyFact)
             await MainActor.run {
                 guard !Task.isCancelled else { return }
                 guard self.effectiveDashboardGrain == grain else { return }
@@ -1120,6 +1165,15 @@ final class HeartbeatStore: ObservableObject {
 
     var effectiveDashboardGrain: DashScopeGrain {
         PulseLaunch.dashboardGrain(filters: filters, sessionRole: sessionRole)
+    }
+
+    private var isPadDevice: Bool { HubLayout.isPadDevice }
+
+    private var isCompanyExpandScope: Bool {
+        PulseLaunch.isCompanyExpandScope(
+            filtersActive: filters.isActive,
+            grain: effectiveDashboardGrain
+        )
     }
 
     var pickerBoard: HeartbeatMath.PickerBoard { cachedPickerBoard }
@@ -2426,7 +2480,7 @@ final class HeartbeatStore: ObservableObject {
         if key == .company, !PulseLaunch.isCompanySeatSizeAllowed(PulseSQLite.fileBytes(at: dest)) {
             return false
         }
-        guard let pack = await Self.readSeatPack(at: dest) else { return false }
+        guard let pack = await Self.readSeatPack(at: dest, skipping: seatReadSkip(for: key)) else { return false }
         guard !Task.isCancelled else { return false }
         if let chrome = pack.chrome {
             applySeatChrome(chrome, key: key)
@@ -2444,6 +2498,13 @@ final class HeartbeatStore: ObservableObject {
         usingPackChrome = pack.chrome != nil
         seeded = true
         lockPickerDashboard()
+        rearmAfterSeatPromote(clearExpand: PulseLaunch.shouldClearExpandCachesAtCompany(
+            filtersActive: filters.isActive,
+            pad: isPadDevice
+        ))
+        if let chrome = packChrome {
+            seedExpandTablesFromChrome(chrome)
+        }
         if PulseLaunch.shouldInstallSeatExpandTablesOnFilterSwap() {
             installSeatExpandTables()
         } else {
@@ -2457,10 +2518,22 @@ final class HeartbeatStore: ObservableObject {
         return true
     }
 
-    private static func readSeatPack(at dest: URL) async -> PulseSQLite.Pack? {
+    private func seatReadSkip(for key: PulseSeatPack.Key) -> Set<MetricSection> {
+        guard key == .company,
+              PulseLaunch.shouldSkipShoppersOnCompanyPadRead(),
+              isPadDevice,
+              !filters.isActive
+        else { return [] }
+        return PulseLaunch.companyPadSkippedSections()
+    }
+
+    private static func readSeatPack(
+        at dest: URL,
+        skipping: Set<MetricSection> = []
+    ) async -> PulseSQLite.Pack? {
         let path = dest.path
         return await Task.detached(priority: .userInitiated) {
-            try? PulseSQLite.read(from: URL(fileURLWithPath: path))
+            try? PulseSQLite.read(from: URL(fileURLWithPath: path), skipping: skipping)
         }.value
     }
 
@@ -2563,18 +2636,33 @@ final class HeartbeatStore: ObservableObject {
         lockPickerDashboard()
     }
 
-    /// Seat pack plane: every dashboard card gets a live Stores footer + table.
-    /// Sales used a one-off prefetch in .380 — that left Loss / 5 Star / Labor grey.
+    /// Page/stream only at company. Never `MetricSection.dashboardCards` into RAM.
     private func installSeatExpandTables() {
+        let company = isCompanyExpandScope
+        if company, !PulseLaunch.shouldPrefillAllExpandTablesAtCompany(pad: isPadDevice) {
+            if let chrome = packChrome {
+                seedExpandTablesFromChrome(chrome)
+            }
+            if let section = visibleDestination.section {
+                Task { await prefetchExpand(section: section) }
+            }
+            return
+        }
+        let sections = PulseLaunch.expandTableSections(
+            visible: visibleDestination,
+            companyScope: company
+        )
         let grain = effectiveDashboardGrain
         let latest = filteredLatest.isEmpty ? latestBySection : filteredLatest
         let tables = PulseSeatPack.expandTables(
             latest: latest,
             roster: roster,
             grain: grain,
-            packs: cachedGrainPacks
+            packs: cachedGrainPacks,
+            only: Set(sections),
+            rowCap: company ? PulseLaunch.companyExpandRowCap(pad: isPadDevice) : nil
         )
-        for section in MetricSection.dashboardCards {
+        for section in sections {
             if let rows = tables[section], HeartbeatMath.grainRowsAreLive(rows) {
                 cachedGrainTables[section] = rows
             }
@@ -2583,6 +2671,27 @@ final class HeartbeatStore: ObservableObject {
         if let picker = cachedGrainTables[.pickerScorecard],
            !PulseLaunch.pickerExpandHasStatusBuckets(picker) {
             lockPickerDashboard()
+        }
+    }
+
+    private func clearCompanyExpandCaches() {
+        expandFillTask?.cancel()
+        expandFillTask = nil
+        cachedGrainTables = [:]
+        cachedSalesScopeRows = []
+        cachedSalesDayRows = []
+    }
+
+    /// keepLastGoodSeat skips wipe — still drop ownership so page SQL re-reads.
+    private func rearmAfterSeatPromote(clearExpand: Bool) {
+        if PulseLaunch.shouldClearFactOwnershipAfterSeatPromote()
+            || PulseLaunch.packSwapClearsFactOwnership() {
+            factsOwned = []
+            pickerStreamDone = false
+            didAdoptExcelFacts = false
+        }
+        if clearExpand {
+            clearCompanyExpandCaches()
         }
     }
 
@@ -3062,11 +3171,21 @@ final class HeartbeatStore: ObservableObject {
             }
         }
         if painted {
+            rearmAfterSeatPromote(clearExpand: PulseLaunch.shouldClearExpandCachesAtCompany(
+                filtersActive: filters.isActive,
+                pad: isPadDevice
+            ))
+            if let chrome = packChrome {
+                seedExpandTablesFromChrome(chrome)
+            }
             if PulseLaunch.shouldInstallSeatExpandTablesAfterCloudPromote() {
                 installSeatExpandTables()
+            } else {
+                fillExpandTablesSoon()
             }
             publishSeatPaint()
-            if reason != .boot {
+            if reason != .boot,
+               PulseLaunch.shouldScheduleLiveGrainPaint(filtersActive: filters.isActive) {
                 scheduleGrainPaint(generation: paintGeneration)
             }
         }
@@ -3996,12 +4115,13 @@ final class HeartbeatStore: ObservableObject {
             stores: cachedStores,
             roster: roster
         )
-        let tables = PulseCaches.grainTables(
+        let tables = Self.grainTablesSkippingCompanyPrefill(
             latest: latest,
             grain: grain,
             roster: roster,
             packs: packs,
-            goalFallback: lostRevenueGoalFallbackValue()
+            goalFallback: lostRevenueGoalFallbackValue(),
+            filtersActive: false
         )
         cachedGrainPacks = PulseLaunch.mergeDashboardPacks(
             incoming: packs,
@@ -4450,12 +4570,13 @@ final class HeartbeatStore: ObservableObject {
                 stores: stores,
                 roster: rosterCopy
             )
-            let tables = PulseCaches.grainTables(
+            let tables = Self.grainTablesSkippingCompanyPrefill(
                 latest: latest,
                 grain: grain,
                 roster: rosterCopy,
                 packs: packs,
-                goalFallback: HeartbeatMath.lostRevenueGoalFallback(latest[.lostRevenue] ?? [])
+                goalFallback: HeartbeatMath.lostRevenueGoalFallback(latest[.lostRevenue] ?? []),
+                filtersActive: false
             )
             await MainActor.run {
                 guard !self.filters.isActive else { return }
@@ -4516,12 +4637,13 @@ final class HeartbeatStore: ObservableObject {
                 stores: caches.cachedStores,
                 roster: rosterCopy
             )
-            let tables = PulseCaches.grainTables(
+            let tables = Self.grainTablesSkippingCompanyPrefill(
                 latest: caches.filteredLatest,
                 grain: grain,
                 roster: rosterCopy,
                 packs: packs,
-                goalFallback: HeartbeatMath.lostRevenueGoalFallback(caches.filteredLatest[.lostRevenue] ?? [])
+                goalFallback: HeartbeatMath.lostRevenueGoalFallback(caches.filteredLatest[.lostRevenue] ?? []),
+                filtersActive: false
             )
             guard !Task.isCancelled else { return }
             await MainActor.run {
@@ -4847,7 +4969,10 @@ final class HeartbeatStore: ObservableObject {
             return
         }
         setBootPhase(.readingPack)
-        let skipHeavy: Set<MetricSection> = HubLayout.lightLaunch || chromeFirst != nil ? Self.launchSkip : []
+        var skipHeavy: Set<MetricSection> = HubLayout.lightLaunch || chromeFirst != nil ? Self.launchSkip : []
+        if isCompanyExpandScope, PulseLaunch.shouldSkipShoppersOnCompanyPadRead(), isPadDevice {
+            skipHeavy.formUnion(PulseLaunch.companyPadSkippedSections())
+        }
         let priority = PulseLaunch.warehouseReadPriority(hubInteractive: isReady && !needsRolePick)
         let pack = await Task.detached(priority: priority) {
             try? PulseSQLite.read(from: url, skipping: skipHeavy)
@@ -5604,6 +5729,7 @@ final class HeartbeatStore: ObservableObject {
         let stores = cachedStores
         let rosterCopy = roster
         let laborMarket = laborMarketRow()
+        let filtersActive = filters.isActive
         Task.detached(priority: .utility) {
             let flags = PulseCaches.cardFlags(latest: latest, laborMarket: laborMarket)
             let packs = PulseCaches.grainPacks(
@@ -5613,12 +5739,13 @@ final class HeartbeatStore: ObservableObject {
                 stores: stores,
                 roster: rosterCopy
             )
-            let tables = PulseCaches.grainTables(
+            let tables = Self.grainTablesSkippingCompanyPrefill(
                 latest: latest,
                 grain: grain,
                 roster: rosterCopy,
                 packs: packs,
-                goalFallback: HeartbeatMath.lostRevenueGoalFallback(latest[.lostRevenue] ?? [])
+                goalFallback: HeartbeatMath.lostRevenueGoalFallback(latest[.lostRevenue] ?? []),
+                filtersActive: filtersActive
             )
             await MainActor.run {
                 if self.usingPackChrome, !self.filters.isActive { return }

@@ -74,7 +74,8 @@ struct SectionDetailView: View {
                 visible: router.current,
                 section: section,
                 pushed: router.pushedSection
-            )
+            ),
+            seatPaint: store.seatPaintStamp
         )) {
             guard PulseLaunch.shouldLoadSection(
                 visible: router.current,

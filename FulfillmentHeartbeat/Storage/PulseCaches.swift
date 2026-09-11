@@ -481,12 +481,15 @@ struct PulseCaches {
         grain: DashScopeGrain?,
         roster: [String: HeartbeatMath.StoreIdentity],
         packs: [MetricSection: [DashScopePack]],
-        goalFallback: Double? = nil
+        goalFallback: Double? = nil,
+        only: Set<MetricSection>? = nil,
+        rowCap: Int? = nil
     ) -> [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] {
         guard let grain else { return [:] }
         var out: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] = [:]
         let lostGoal = goalFallback ?? HeartbeatMath.lostRevenueGoalFallback(latest[.lostRevenue] ?? [])
         for (section, sectionPacks) in packs {
+            if let only, !only.contains(section) { continue }
             var rows = HeartbeatMath.rowsFillingRoster(latest[section] ?? [], roster: roster)
             if section == .dynacap {
                 rows = HeartbeatMath.overlayStorePPH(
@@ -504,6 +507,9 @@ struct PulseCaches {
             )
             if section == .lostRevenue, let lostGoal, HeartbeatMath.grainTableNeedsGoalFill(table) {
                 table = HeartbeatMath.fillingLostRevenueGoal(table, goal: lostGoal)
+            }
+            if let rowCap, table.count > rowCap {
+                table = Array(table.prefix(rowCap))
             }
             out[section] = table
         }

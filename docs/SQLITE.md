@@ -24,4 +24,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.401 / 1.0 (727) — iPad 12" Jetsamed after .400 pulled a ~57MB market file as the company seat (lower tables never finished; app closed). Company seat stays thin (≤28MB / ~21MB). Never promote 56MB market onto `packs/seat/company`. Expand tables install after cloud seat swap. Do not fetch remote packs over the thin-seat cap.
+HB-0828.402 / 1.0 (728) — JetsamEvent 2026-09-11 10:21:11 CT iPad13,10: FulfillmentHeartbeat rpages≈4.0GB frontmost. Thin company seat (≤28MB / ~21MB) kept from .401. Never promote 56MB market. Company grain expand is page/stream only — never prefill all `dashboardCards` grainTables. Drop company expand caches after seat promote. `canonicalName` is cached. keepLastGoodSeat still skips wipe; clear `factsOwned` and put `seatPaint` in `sectionSQLTaskToken` so `ensureSectionLoaded` re-runs.

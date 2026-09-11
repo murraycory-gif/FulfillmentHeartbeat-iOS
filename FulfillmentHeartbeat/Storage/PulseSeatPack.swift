@@ -414,20 +414,24 @@ enum PulseSeatPack {
         return manifest
     }
 
-    /// Grain tables for every dashboard card from the seat warehouse.
-    /// This is the Stores-footer plane — not a Sales-only prefetch.
+    /// Grain tables from the seat warehouse. Company callers must pass `only`
+    /// for the visible page — never all `dashboardCards` into RAM.
     static func expandTables(
         latest: [MetricSection: [MetricRow]],
         roster: [String: HeartbeatMath.StoreIdentity],
         grain: DashScopeGrain,
-        packs: [MetricSection: [DashScopePack]] = [:]
+        packs: [MetricSection: [DashScopePack]] = [:],
+        only: Set<MetricSection>? = nil,
+        rowCap: Int? = nil
     ) -> [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] {
         PulseCaches.grainTables(
             latest: latest,
             grain: grain,
             roster: roster,
             packs: packs,
-            goalFallback: HeartbeatMath.lostRevenueGoalFallback(latest[.lostRevenue] ?? [])
+            goalFallback: HeartbeatMath.lostRevenueGoalFallback(latest[.lostRevenue] ?? []),
+            only: only,
+            rowCap: rowCap
         )
     }
 

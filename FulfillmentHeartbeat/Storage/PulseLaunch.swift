@@ -449,11 +449,19 @@ enum PulseLaunch {
     /// Roster option rebuild is not Continue-turn work.
     static func shouldRefreshFilterOptionsOnSeatSlice() -> Bool { false }
 
-    /// Full `paintFromWarehouse(light: false)` under a seat fights the first scroll.
-    static func shouldScheduleLiveGrainPaint(filtersActive: Bool) -> Bool { !filtersActive }
+    /// Full `paintFromWarehouse(light: false)` rebuilt every card's grain table
+    /// and Jetsamed iPad ~4GB. Company expand is page/stream only.
+    static func shouldScheduleLiveGrainPaint(filtersActive: Bool) -> Bool {
+        _ = filtersActive
+        return false
+    }
 
-    /// 12-section expand prefill while they drag the District dashboard.
-    static func shouldPrefillExpandTables(filtersActive: Bool) -> Bool { !filtersActive }
+    /// Never prefill all `MetricSection.dashboardCards` grainTables into RAM.
+    /// Company is chrome + page SQL. District fills the open scorecard.
+    static func shouldPrefillExpandTables(filtersActive: Bool) -> Bool {
+        _ = filtersActive
+        return false
+    }
 
     /// LazyVStack card appear must not start 12 expand jobs while scrolling.
     static func shouldPrefetchExpandOnAppear() -> Bool { false }
@@ -844,8 +852,8 @@ enum PulseLaunch {
     /// PhoneCommandCenterHome / NavigationStack stay mounted across filter chips.
     static func shouldRemountPhoneHubOnFilterSwap() -> Bool { false }
 
-    /// Section SQL `.task` keys on the filter, not seatPaintStamp (stamp fires twice).
-    static func shouldReloadSectionSQLOnSeatPaintStamp() -> Bool { false }
+    /// keepLastGoodSeat skips wipe, so section SQL must re-run after seatPaint.
+    static func shouldReloadSectionSQLOnSeatPaintStamp() -> Bool { true }
 
     static var deferredSeatInstallDelayNanoseconds: UInt64 { 16_000_000 }
 
@@ -1331,13 +1339,19 @@ enum PulseLaunch {
     }
 
     /// `.task` id: load while this page is active, park (cancel) when it is not.
+    /// `seatPaint` re-arms `ensureSectionLoaded` after forceReload/promote when
+    /// keepLastGoodSeat skipped the warehouse wipe.
     static func sectionSQLTaskToken(
         section: MetricSection,
         filterSummary: String,
-        isActive: Bool
+        isActive: Bool,
+        seatPaint: Int = 0
     ) -> String {
         if shouldCancelInFlightSectionSQLOnPageSwitch(), !isActive {
             return "park-\(section.rawValue)"
+        }
+        if shouldReloadSectionSQLOnSeatPaintStamp() {
+            return "load-\(section.rawValue)-\(filterSummary)-seat\(seatPaint)"
         }
         return "load-\(section.rawValue)-\(filterSummary)"
     }
@@ -1676,7 +1690,32 @@ enum PulseLaunch {
     static func shouldPreferCompanySeatOverOversizedRoot(rootBytes: Int) -> Bool {
         rootBytes > companySeatMaxBytes
     }
+    /// Re-arm page-scoped expand after promote. Never all dashboardCards at company.
     static func shouldInstallSeatExpandTablesAfterCloudPromote() -> Bool { true }
+    static func shouldClearFactOwnershipAfterSeatPromote() -> Bool { true }
+    static func shouldBuildCompanyGrainTablesOnWarehousePaint() -> Bool { false }
+    static func isCompanyExpandScope(filtersActive: Bool, grain: DashScopeGrain) -> Bool {
+        !filtersActive && grain == .region
+    }
+    /// Drop warehouse expand caches at company so a seat pull cannot keep ~4GB tables.
+    static func shouldClearExpandCachesAtCompany(filtersActive: Bool, pad: Bool) -> Bool {
+        _ = pad
+        return !filtersActive
+    }
+    static func shouldPrefillAllExpandTablesAtCompany(pad: Bool) -> Bool {
+        _ = pad
+        return false
+    }
+    static func shouldSkipShoppersOnCompanyPadRead() -> Bool { true }
+    static func companyPadSkippedSections() -> Set<MetricSection> {
+        [.pickerScorecard, .pickPathPicker, .preSubOOSItem]
+    }
+    static func companyExpandRowCap(pad: Bool) -> Int { pad ? 8 : 32 }
+    static func expandTableSections(visible: HubDestination, companyScope: Bool) -> [MetricSection] {
+        if !companyScope { return MetricSection.dashboardCards }
+        if let section = visible.section { return [section] }
+        return [.sales, .lostRevenue, .missingItems, .fiveStar]
+    }
 
     static func shouldPullCloudOnForeground(secondsSinceReady: TimeInterval) -> Bool {
         _ = secondsSinceReady

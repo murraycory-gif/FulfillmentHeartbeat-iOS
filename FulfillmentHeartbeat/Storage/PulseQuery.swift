@@ -261,21 +261,27 @@ enum PulseQuery {
             stores: stores,
             roster: roster
         )
-        let goalFallback = HeartbeatMath.lostRevenueGoalFallback(
-            (warehouse[.lostRevenue] ?? []) + (filtered[.lostRevenue] ?? [])
-        )
-        return View(
-            filtered: filtered,
-            summaries: summaries,
-            flags: flags,
-            grains: grains,
-            tables: PulseCaches.grainTables(
+        let tables: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]]
+        if !filters.isActive, !PulseLaunch.shouldBuildCompanyGrainTablesOnWarehousePaint() {
+            tables = [:]
+        } else {
+            let goalFallback = HeartbeatMath.lostRevenueGoalFallback(
+                (warehouse[.lostRevenue] ?? []) + (filtered[.lostRevenue] ?? [])
+            )
+            tables = PulseCaches.grainTables(
                 latest: filtered,
                 grain: grain,
                 roster: roster,
                 packs: grains,
                 goalFallback: goalFallback
-            ),
+            )
+        }
+        return View(
+            filtered: filtered,
+            summaries: summaries,
+            flags: flags,
+            grains: grains,
+            tables: tables,
             pickers: hidePicker ? [] : (filtered[.pickerScorecard] ?? [])
         )
     }

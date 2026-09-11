@@ -4703,9 +4703,31 @@ enum MarketRegion: String, CaseIterable, Identifiable, Sendable {
         "eastregion", "westregion", "southregion", "californiaregion",
     ]
 
+    private static let officialExactNames = Set(officialDivisions)
+    private static let canonicalNameLock = NSLock()
+    private static var canonicalNameCache: [String: String] = [:]
+
+    /// Cached. Regex + suffix stripping runs once per distinct raw string.
+    /// Do not call `canonicalName` from `computeCanonicalName` (recursion).
     static func canonicalName(_ raw: String) -> String {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "" }
+        if officialExactNames.contains(trimmed) { return trimmed }
+        canonicalNameLock.lock()
+        let hit = canonicalNameCache[trimmed]
+        canonicalNameLock.unlock()
+        if let hit { return hit }
+        let value = computeCanonicalName(trimmed)
+        canonicalNameLock.lock()
+        if canonicalNameCache.count > 4_096 {
+            canonicalNameCache.removeAll(keepingCapacity: true)
+        }
+        canonicalNameCache[trimmed] = value
+        canonicalNameLock.unlock()
+        return value
+    }
+
+    private static func computeCanonicalName(_ trimmed: String) -> String {
         var compact = HeartbeatMath.normalize(
             trimmed.replacingOccurrences(of: "[-'’./]", with: " ", options: .regularExpression)
         )
