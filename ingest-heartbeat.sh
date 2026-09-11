@@ -2,7 +2,7 @@
 # Daily ingest. Excel never runs on iPhone/iPad.
 #
 # 1. Upload Heartbeat Daily Report.xlsx to the bucket.
-# 2. GitHub cooks current.sqlite (Mac does not need to be on).
+# 2. GitHub cooks current.sqlite and publishes company LIVE (no Mac).
 # 3. Testers open Heartbeat — they only download the pack.
 #
 # Usage:
@@ -26,7 +26,8 @@ fi
 
 BYTES=$(wc -c < "$XLSX" | tr -d ' ')
 echo "Uploading workbook ($BYTES bytes)…"
-CODE=$(curl -sS -o /tmp/heartbeat-xlsx-upload.txt -w "%{http_code}" \
+CODE=$(curl -sS --connect-timeout 20 --max-time 180 \
+  -o /tmp/heartbeat-xlsx-upload.txt -w "%{http_code}" \
   -X POST \
   -H "Authorization: Bearer $KEY" \
   -H "apikey: $KEY" \
@@ -35,7 +36,8 @@ CODE=$(curl -sS -o /tmp/heartbeat-xlsx-upload.txt -w "%{http_code}" \
   --data-binary @"$XLSX" \
   "$PROJECT/storage/v1/object/$BUCKET/Heartbeat%20Daily%20Report.xlsx")
 if [ "$CODE" != "200" ] && [ "$CODE" != "201" ]; then
-  CODE=$(curl -sS -o /tmp/heartbeat-xlsx-upload.txt -w "%{http_code}" \
+  CODE=$(curl -sS --connect-timeout 20 --max-time 180 \
+    -o /tmp/heartbeat-xlsx-upload.txt -w "%{http_code}" \
     -X PUT \
     -H "Authorization: Bearer $KEY" \
     -H "apikey: $KEY" \
@@ -53,9 +55,17 @@ fi
 echo "Workbook is in the bucket."
 if command -v gh >/dev/null 2>&1; then
   echo "Starting the cloud kitchen…"
-  gh workflow run cook-heartbeat-pack.yml --repo murraycory-gif/FulfillmentHeartbeat-iOS || true
+  if gh workflow run cook-heartbeat-pack.yml --repo murraycory-gif/FulfillmentHeartbeat-iOS; then
+    echo "Kicked cook-heartbeat-pack.yml (workflow_dispatch)."
+  else
+    echo "workflow_dispatch failed — trying repository_dispatch…"
+    gh api repos/murraycory-gif/FulfillmentHeartbeat-iOS/dispatches \
+      -f event_type=cook-heartbeat-pack || true
+  fi
 fi
 echo
-echo "GitHub is cooking current.sqlite. Usually a few minutes."
+echo "GitHub is cooking current.sqlite. Company pack goes LIVE in a few minutes."
 echo "Watch: https://github.com/murraycory-gif/FulfillmentHeartbeat-iOS/actions"
 echo "Testers: force-close Heartbeat, open it again. They never pick a file."
+echo "No Mac. Kick without gh workflow run:"
+echo "  gh api repos/murraycory-gif/FulfillmentHeartbeat-iOS/dispatches -f event_type=cook-heartbeat-pack"

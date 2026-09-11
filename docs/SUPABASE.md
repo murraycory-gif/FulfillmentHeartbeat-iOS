@@ -10,15 +10,27 @@ They never download or parse Excel. See [SEAT-SCOPED-PACKS.md](SEAT-SCOPED-PACKS
 ## Daily
 
 1. Export `Heartbeat Daily Report.xlsx` from Power BI.
-2. Open Heartbeat on *your* iPad once if this is a new file week (only you).
-3. Publish the pack:
+2. Upload it and kick GitHub cook (no Mac, no iPad):
 
 ```bash
 cd ~/Developer/FulfillmentHeartbeat-iOS
-DEVICE_UDID=676FA816-88AE-59D9-A89D-5C17BFC2DA96 ./build-pack.sh "/path/Heartbeat Daily Report.xlsx"
+./ingest-heartbeat.sh "/path/Heartbeat Daily Report.xlsx"
 ```
 
-The xlsx is archived in the bucket. Testers only get the sqlite pack.
+`ingest-heartbeat.sh` upserts the xlsx, then `gh workflow run cook-heartbeat-pack.yml`.
+Actions downloads the authenticated object, cooks, publishes **company LIVE**
+(`current.sqlite` + `packs/manifest.json` + company seat), then uploads seats
+in parallel. Testers force-close Heartbeat. They never pick a file.
+
+If `gh workflow run` is unavailable, kick the same cook with
+`repository_dispatch`:
+
+```bash
+gh api repos/murraycory-gif/FulfillmentHeartbeat-iOS/dispatches \
+  -f event_type=cook-heartbeat-pack
+```
+
+The 15-minute cron is a backup when the xlsx is newer than `current.sqlite`.
 
 ## First-time bucket
 
