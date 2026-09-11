@@ -319,6 +319,8 @@ enum PulseMail {
     }
 
     /// One section at a time so Share can stream the full filtered page to a file.
+    /// Dashboard cards and every selected SharePage use the same `dataTable` mail-stack
+    /// plus `dashboardFlagModels` / picker buckets — individual or multi-select.
     private static func writeHTML(_ snap: Snapshot, pages: Set<SharePage>, to sink: HTMLSink) {
         sink.append(htmlHead(snap))
         if pages.contains(.dashboard) {
@@ -360,7 +362,7 @@ enum PulseMail {
         table.data td.num,.num{text-align:right;font-variant-numeric:tabular-nums;font-weight:700;font-size:16px;padding:10px 14px}
         .dash-card{margin:0 0 14px;border-radius:16px;overflow:hidden}
         .page-banner{font-size:18px;font-weight:700;color:#003DA5;margin:0 0 12px}
-        table.data td.status{text-align:right;white-space:nowrap;width:108px}
+        table.data td.status{text-align:right}
         table.data th.num,table.data th.status{text-align:right}
         .nw{text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
         .pill{display:inline-block;padding:5px 12px;border-radius:999px;font-size:12px;line-height:1.2;font-weight:700;color:#fff;letter-spacing:.02em}
@@ -669,31 +671,33 @@ enum PulseMail {
         )
     }
 
+    /// Live `dashboardActionFlags` / picker buckets for every SharePage.
+    /// Stale Healthy / Watch / At Risk of 0 never win while the page has rows.
     private static func dashboardFlagModels(_ section: MetricSection, snap: Snapshot) -> [HeartbeatMath.FiveStarFlag] {
-        let scoped = snap.summaries.first { $0.section == section }?.storeCount
-            ?? (snap.rows[section] ?? []).filter { !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty }.count
         if section == .pickerScorecard {
             return pickerShareFlags(snap)
         }
-        if let cached = snap.flags[section], !cached.isEmpty,
-           PulseLaunch.flagsMatchFilter(flagStores: cached.map(\.stores), scopedStores: scoped) {
-            return cached
-        }
         let rows = snap.rows[section] ?? []
-        switch section {
-        case .fiveStar: return HeartbeatMath.fiveStarActionFlags(rows)
-        case .scheduleQuality: return HeartbeatMath.scheduleActionFlags(rows)
-        case .pickPath:
-            return HeartbeatMath.pickPathActionFlags(stores: rows, shoppers: snap.rows[.pickPathPicker] ?? [])
-        case .pph:
-            return HeartbeatMath.pphActionFlags(stores: rows, shoppers: snap.rows[.pickerScorecard] ?? [])
-        case .dynacap: return HeartbeatMath.dynacapActionFlags(rows)
-        case .labor: return HeartbeatMath.laborActionFlags(rows)
-        case .missingItems, .preSubOOS: return HeartbeatMath.missingItemsActionFlags(rows)
-        case .lostRevenue: return HeartbeatMath.lostRevenueActionFlags(rows)
-        case .sales: return HeartbeatMath.salesActionFlags(rows)
-        default: return []
+        let liveCount = max(
+            snap.summaries.first { $0.section == section }?.storeCount ?? 0,
+            rows.filter { !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty }.count
+        )
+        let cached = snap.flags[section] ?? []
+        if PulseLaunch.shouldShareLiveActionFlags(), !rows.isEmpty {
+            return HeartbeatMath.dashboardActionFlags(
+                section: section,
+                rows: rows,
+                pickers: snap.rows[.pickerScorecard] ?? [],
+                pathPickers: snap.rows[.pickPathPicker] ?? [],
+                items: snap.rows[.preSubOOSItem] ?? [],
+                pphRows: snap.rows[.pph] ?? [],
+                includeAll: true
+            )
         }
+        if PulseLaunch.shouldRejectZeroBandFlags(cached, liveCount: liveCount) {
+            return []
+        }
+        return cached
     }
 
     private static func dashboardFlags(_ section: MetricSection, snap: Snapshot) -> [(String, String, Health)] {
@@ -842,7 +846,7 @@ enum PulseMail {
 
     private static func kpiTiles(_ section: MetricSection, summary: SectionSummary?, rows: [MetricRow], snap: Snapshot) -> String {
         let scored = rows.filter { !$0.storeNumber.isEmpty }
-        let flags = snap.flags[section] ?? []
+        let flags = dashboardFlagModels(section, snap: snap)
         var items: [String] = []
         switch section {
         case .sales:

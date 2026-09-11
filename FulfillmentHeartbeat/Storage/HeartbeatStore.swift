@@ -6035,27 +6035,41 @@ final class HeartbeatStore: ObservableObject {
                PulseLaunch.grainTableMatchesCurrent(labels: table.map(\.label), grain: grain) {
                 grainTables[section] = table
             }
+            if section == .pickerScorecard {
+                let shoppers = max(
+                    cachedPickerBoard.shopperCount,
+                    packChrome?.pickerShoppers ?? 0,
+                    Int(summaries.first { $0.section == .pickerScorecard }?.headline ?? 0)
+                )
+                flags[section] = PulseLaunch.pickerShareActionFlags(
+                    rows: rows[section] ?? [],
+                    chromeShoppers: shoppers,
+                    chromeStrong: max(cachedPickerBoard.strongCount, packChrome?.pickerStrong ?? 0),
+                    chromeOpportunity: max(
+                        cachedPickerBoard.opportunityCount,
+                        packChrome?.pickerOpportunity ?? 0
+                    ),
+                    grain: grainTables[section] ?? []
+                )
+                continue
+            }
+            let sectionRows = rows[section] ?? []
+            if PulseLaunch.shouldShareLiveActionFlags(), !sectionRows.isEmpty {
+                flags[section] = HeartbeatMath.dashboardActionFlags(
+                    section: section,
+                    rows: sectionRows,
+                    pickers: rows[.pickerScorecard] ?? [],
+                    pathPickers: rows[.pickPathPicker] ?? [],
+                    items: rows[.preSubOOSItem] ?? [],
+                    pphRows: rows[.pph] ?? [],
+                    includeAll: true
+                )
+                continue
+            }
             if let card = cachedCardFlags[section], !card.isEmpty {
                 let scoped = summaries.first { $0.section == section }?.storeCount ?? 0
-                if section == .pickerScorecard {
-                    let shoppers = max(
-                        cachedPickerBoard.shopperCount,
-                        packChrome?.pickerShoppers ?? 0,
-                        Int(summaries.first { $0.section == .pickerScorecard }?.headline ?? 0)
-                    )
-                    if PulseLaunch.shouldRejectZeroPickerFlags(card, chromeShoppers: shoppers) {
-                        flags[section] = PulseLaunch.pickerShareActionFlags(
-                            rows: rows[section] ?? [],
-                            chromeShoppers: shoppers,
-                            chromeStrong: max(cachedPickerBoard.strongCount, packChrome?.pickerStrong ?? 0),
-                            chromeOpportunity: max(
-                                cachedPickerBoard.opportunityCount,
-                                packChrome?.pickerOpportunity ?? 0
-                            ),
-                            grain: grainTables[section] ?? []
-                        )
-                        continue
-                    }
+                if PulseLaunch.shouldRejectZeroBandFlags(card, liveCount: scoped) {
+                    continue
                 }
                 if PulseLaunch.flagsMatchFilter(flagStores: card.map(\.stores), scopedStores: scoped) {
                     flags[section] = card

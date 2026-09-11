@@ -1530,13 +1530,24 @@ enum PulseLaunch {
         _ flags: [HeartbeatMath.FiveStarFlag],
         chromeShoppers: Int
     ) -> Bool {
-        guard chromeShoppers > 0 else { return false }
+        shouldRejectZeroBandFlags(flags, liveCount: chromeShoppers)
+    }
+
+    /// Stale Healthy / Watch / At Risk of 0 while the page has stores/shoppers.
+    static func shouldRejectZeroBandFlags(
+        _ flags: [HeartbeatMath.FiveStarFlag],
+        liveCount: Int
+    ) -> Bool {
+        guard liveCount > 0 else { return false }
         let band = flags.filter {
             let name = $0.name.lowercased()
             return name == "healthy" || name == "watch" || name == "at risk"
         }
         return band.isEmpty || band.allSatisfy { $0.stores == 0 }
     }
+
+    /// Share tiles use live `dashboardActionFlags`, not cached zero bandFlags.
+    static func shouldShareLiveActionFlags() -> Bool { true }
 
     static func pickerShareActionFlags(
         rows: [MetricRow],

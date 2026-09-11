@@ -24,4 +24,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.403 / 1.0 (729) — Share HTML stacks grain/store rows as 100% Mail cards (Apple Mail clips wide Regions tables). Picker ScoreCard Healthy / Watch / At Risk use live shopper buckets or pack chrome, not zero flags. Dismiss-before-Mail Soft KEEP and Jetsam expand gates unchanged.
+HB-0828.404 / 1.0 (730) — Every SharePage (solo or multi-select) uses the same Mail stack tables. Live `dashboardActionFlags` / picker buckets win over stale zero bandFlags on Loss, Missing, Pre-Sub, Dashboard, and Picker. Dismiss-before-Mail Soft KEEP and Jetsam expand gates unchanged.
