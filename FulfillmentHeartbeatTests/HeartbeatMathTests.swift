@@ -2133,7 +2133,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture381SeatPackContract() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.386")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.387")
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
         XCTAssertFalse(PulseSeatPack.shouldMergeSeatWithCompanyOnSwap())
         XCTAssertTrue(PulseSeatPack.shouldPaintHubFromActiveSeatSQLite())
@@ -2175,7 +2175,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture381bMacCookPublishesEverySeatSqlite() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.386")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.387")
         XCTAssertTrue(PulseSeatPack.shouldCookEveryStoreSeat())
         XCTAssertTrue(PulseSeatPack.shouldPublishSeatPlaneFromCook())
         XCTAssertFalse(PulseSeatPack.shouldMaterializeMissingSeatOnFieldDevice())
@@ -2241,7 +2241,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture382CommandCenterFillsViewportLikePulse() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.386")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.387")
         XCTAssertTrue(PulseLaunch.shouldUseCommandCenterHome())
         XCTAssertFalse(PulseLaunch.shouldMountDashCalloutTablesOnHome())
         XCTAssertTrue(PulseLaunch.shouldPinMacCommandCenterRails())
@@ -2265,20 +2265,12 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(padLand, 5)
         let padPort = CommandCenterLayout.glanceColumns(width: 900, phone: false, portrait: true)
         XCTAssertEqual(padPort, 2)
-        XCTAssertEqual(CommandCenterLayout.sparkHeights(
-            SectionSummary(
-                section: .labor,
-                storeCount: 20,
-                headline: -0.1,
-                headlineLabel: "Labor",
-                secondary: "",
-                health: .good,
-                watchCount: 0,
-                riskCount: 0,
-                lastFilename: nil,
-                lastUploadedAt: nil
-            )
-        ).count, CommandCenterLayout.sparkBars)
+        let glanceGlyphs = CommandCenterLayout.glanceSections.map(CommandCenterLayout.glanceSymbol)
+        XCTAssertEqual(Set(glanceGlyphs).count, glanceGlyphs.count, "each glance metric needs its own SF Symbol")
+        for section in MetricSection.dashboardCards {
+            XCTAssertEqual(CommandCenterLayout.glanceSymbol(section), section.symbol)
+            XCTAssertFalse(CommandCenterLayout.glanceSymbol(section).isEmpty, section.rawValue)
+        }
         XCTAssertFalse(CommandCenterLayout.glanceSections.contains { section in
             ["otif", "cold_chain", "throughput", "fill_rate"].contains(section.rawValue)
         })
@@ -2323,7 +2315,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture383CompanyCommandCenterPickerChromeAndStoreTableScope() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.386")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.387")
         XCTAssertFalse(PulseLaunch.shouldStreamCompanyPickerForSeatFirstPaint())
         XCTAssertFalse(PulseLaunch.shouldPlaySeatLoadHalloween())
         XCTAssertFalse(PulseLaunch.shouldShowGroceryLoadQuips())
@@ -2351,6 +2343,18 @@ final class HeartbeatMathTests: XCTestCase {
         var store = DashboardFilters()
         store.store = "12"
         XCTAssertTrue(PulseLaunch.shouldShowStoreTable(filters: store))
+        XCTAssertTrue(PulseLaunch.shouldMountSectionRollup(filters: company))
+        XCTAssertTrue(PulseLaunch.shouldMountSectionRollup(filters: region))
+        XCTAssertTrue(PulseLaunch.shouldMountSectionRollup(filters: division))
+        XCTAssertFalse(PulseLaunch.shouldMountSectionRollup(filters: district))
+        XCTAssertFalse(PulseLaunch.shouldMountSectionRollup(filters: om))
+        XCTAssertFalse(PulseLaunch.shouldMountSectionRollup(filters: store))
+        XCTAssertNil(SalesRollupBuilder.grain(for: district))
+        XCTAssertNil(SalesRollupBuilder.grain(for: om))
+        XCTAssertNil(SalesRollupBuilder.grain(for: store))
+        XCTAssertEqual(SalesRollupBuilder.grain(for: company), .region)
+        XCTAssertEqual(SalesRollupBuilder.grain(for: region), .division)
+        XCTAssertEqual(SalesRollupBuilder.grain(for: division), .district)
         XCTAssertTrue(PulseLaunch.shouldSkipStoreRowRebuild(filters: company, expanded: true))
         XCTAssertFalse(PulseLaunch.shouldSkipStoreRowRebuild(filters: district, expanded: true))
 
@@ -2542,7 +2546,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture384SeatSwapAndSectionOpenPlane() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.386")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.387")
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
         XCTAssertFalse(PulseSeatPack.shouldMergeSeatWithCompanyOnSwap())
         XCTAssertTrue(PulseSeatPack.shouldPaintHubFromActiveSeatSQLite())
@@ -2667,7 +2671,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture385CompanyColdOpenNoRoleGateNoToursFilterPaints() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.386")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.387")
         XCTAssertFalse(PulseLaunch.shouldPinMacCommandCenterAlertsRail())
         XCTAssertFalse(PulseLaunch.shouldRequireRoleGateOnColdOpen())
         XCTAssertTrue(PulseLaunch.shouldOpenCompanyCommandCenterOnColdOpen())
@@ -3347,6 +3351,11 @@ final class HeartbeatMathTests: XCTestCase {
         region.region = MarketRegion.california.rawValue
         XCTAssertEqual(RollupMarketFill.grain(for: region), .division)
         XCTAssertEqual(RollupMarketFill.grain(for: DashboardFilters()), .region)
+        XCTAssertNil(SalesRollupBuilder.grain(for: district))
+        XCTAssertNil(SalesRollupBuilder.grain(for: store))
+        XCTAssertNil(SalesRollupBuilder.grain(for: om))
+        XCTAssertFalse(PulseLaunch.shouldMountSectionRollup(filters: district))
+        XCTAssertTrue(PulseLaunch.shouldMountSectionRollup(filters: DashboardFilters()))
     }
 
     func testUnfilteredMergeDropsSeatGrainAndSeatPacksRejectChrome() {

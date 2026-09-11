@@ -5553,7 +5553,8 @@ private struct LaborRollupRow: Identifiable {
 
 private enum LaborRollupBuilder {
     static func grain(for filters: DashboardFilters) -> LaborRollupGrain? {
-        RollupMarketFill.grain(for: filters)
+        guard PulseLaunch.shouldMountSectionRollup(filters: filters) else { return nil }
+        return RollupMarketFill.grain(for: filters)
     }
 
     static func source(from all: [MetricRow], filters: DashboardFilters) -> [MetricRow] {

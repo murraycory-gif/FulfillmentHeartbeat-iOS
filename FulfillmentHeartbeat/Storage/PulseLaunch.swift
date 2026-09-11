@@ -454,6 +454,13 @@ enum PulseLaunch {
         !filters.district.isEmpty || !filters.om.isEmpty || !filters.store.isEmpty
     }
 
+    /// Scorecard rollups (Regions / Markets / Districts) belong on Company /
+    /// Region / Division. District / OM / Store already mount the seat store
+    /// table — a `.store` rollup paints a second "Store · N · tap to expand".
+    static func shouldMountSectionRollup(filters: DashboardFilters) -> Bool {
+        !shouldShowStoreTable(filters: filters)
+    }
+
     static func shouldSkipStoreRowRebuild(filters: DashboardFilters, expanded: Bool) -> Bool {
         !shouldShowStoreTable(filters: filters) || shouldSkipCollapsedStoreRebuild(expanded: expanded)
     }

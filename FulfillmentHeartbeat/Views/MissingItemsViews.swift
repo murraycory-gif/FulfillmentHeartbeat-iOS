@@ -492,6 +492,7 @@ private enum MissingItemsGrain {
     }
 
     static func current(for filters: DashboardFilters) -> MissingItemsGrain? {
+        guard PulseLaunch.shouldMountSectionRollup(filters: filters) else { return nil }
         switch RollupMarketFill.grain(for: filters) {
         case .region: return .region
         case .division: return .division

@@ -417,7 +417,8 @@ struct SalesRollupRow: Identifiable {
 
 enum SalesRollupBuilder {
     static func grain(for filters: DashboardFilters) -> LaborRollupGrain? {
-        RollupMarketFill.grain(for: filters)
+        guard PulseLaunch.shouldMountSectionRollup(filters: filters) else { return nil }
+        return RollupMarketFill.grain(for: filters)
     }
 
     static func source(from rows: [MetricRow], filters: DashboardFilters, roster: [String: HeartbeatMath.StoreIdentity] = [:]) -> [MetricRow] {

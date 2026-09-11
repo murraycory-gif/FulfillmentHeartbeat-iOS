@@ -6,7 +6,6 @@ enum CommandCenterLayout {
     static let gutter: CGFloat = 6
     static let minGlanceHeight: CGFloat = 112
     static let minHeroHeight: CGFloat = 96
-    static let sparkBars = 8
 
     /// Every operational dashboard card that is not a navy hero — fills the leftover viewport.
     static var glanceSections: [MetricSection] {
@@ -137,24 +136,9 @@ enum CommandCenterLayout {
         return card.health
     }
 
-    static func barFraction(_ card: SectionSummary) -> CGFloat {
-        switch card.health {
-        case .good: return 0.92
-        case .watch: return 0.58
-        case .risk: return 0.30
-        case .none: return 0.10
-        }
-    }
-
-    /// Cheap Pulse-style spark. Heights come from this card's health / risk — not invented KPIs.
-    static func sparkHeights(_ card: SectionSummary) -> [CGFloat] {
-        let peak = barFraction(card)
-        let seed = card.storeCount + card.watchCount * 3 + card.riskCount * 5
-        let wave: [CGFloat] = [0.52, 0.64, 0.46, 0.72, 0.58, 0.84, 0.68, 1.0]
-        return wave.enumerated().map { index, step in
-            let wobble = CGFloat((seed + index * 7) % 11) / 80
-            return min(1, max(0.16, step * peak - wobble))
-        }
+    /// One SF Symbol per metric. Reuses the scorecard / sidebar glyph.
+    static func glanceSymbol(_ section: MetricSection) -> String {
+        section.symbol
     }
 
     static func alertRank(_ cards: [SectionSummary]) -> [SectionSummary] {
@@ -329,8 +313,8 @@ struct CommandCenterGlanceTile: View {
                     .foregroundStyle(AppTheme.text)
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)
-                CommandCenterSpark(
-                    heights: CommandCenterLayout.sparkHeights(card),
+                CommandCenterGlanceIcon(
+                    section: card.section,
                     health: CommandCenterLayout.displayedHealth(card)
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -348,35 +332,19 @@ struct CommandCenterGlanceTile: View {
     }
 }
 
-struct CommandCenterSpark: View {
-    var heights: [CGFloat]
-    var health: Health
+struct CommandCenterGlanceIcon: View {
+    let section: MetricSection
+    let health: Health
 
     var body: some View {
         GeometryReader { geo in
-            let bars = heights.isEmpty ? [0.55] : heights
-            let gap: CGFloat = 3
-            let width = max(3, (geo.size.width - gap * CGFloat(max(bars.count - 1, 0))) / CGFloat(max(bars.count, 1)))
-            HStack(alignment: .bottom, spacing: gap) {
-                ForEach(Array(bars.enumerated()), id: \.offset) { _, fraction in
-                    RoundedRectangle(cornerRadius: 2, style: .continuous)
-                        .fill(AppTheme.healthInk(health))
-                        .frame(width: width, height: max(6, geo.size.height * min(max(fraction, 0.12), 1)))
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            let side = min(max(22, min(geo.size.width * 0.38, geo.size.height * 0.82)), 40)
+            Image(systemName: CommandCenterLayout.glanceSymbol(section))
+                .font(.system(size: side, weight: .semibold))
+                .foregroundStyle(AppTheme.healthInk(health))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
         }
         .accessibilityHidden(true)
-    }
-}
-
-struct CommandCenterMeter: View {
-    var fraction: CGFloat
-    var health: Health
-
-    var body: some View {
-        CommandCenterSpark(heights: Array(repeating: fraction, count: 1), health: health)
-            .frame(height: 5)
     }
 }
 
