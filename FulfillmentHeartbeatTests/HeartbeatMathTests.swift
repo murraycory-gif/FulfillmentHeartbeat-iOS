@@ -5520,6 +5520,7 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(PulseLaunch.shouldUseGhostSeatChipKeys())
         XCTAssertTrue(PulseLaunch.shouldBanFalseZeroSeatChips())
         XCTAssertFalse(PulseLaunch.shouldAppendGhostSeatChipAliases())
+        XCTAssertFalse(PulseLaunch.shouldUseSeatChipDualMap())
         XCTAssertTrue(PulseLaunch.shouldUseCompactPhoneCommandChrome())
         XCTAssertTrue(PulseLaunch.shouldUseCompactPhoneHeaderChrome())
         XCTAssertTrue(PulseLaunch.shouldLeavePadMacCommandChromeUnchanged())
@@ -5731,6 +5732,7 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(PulseLaunch.shouldUseGhostSeatChipKeys())
         XCTAssertTrue(PulseLaunch.shouldBanFalseZeroSeatChips())
         XCTAssertFalse(PulseLaunch.shouldAppendGhostSeatChipAliases())
+        XCTAssertFalse(PulseLaunch.shouldUseSeatChipDualMap())
         XCTAssertTrue(PulseLaunch.shouldShareLiveActionFlags())
         XCTAssertTrue(PulseLaunch.shouldUseCompactPhoneCommandChrome())
         XCTAssertTrue(PulseLaunch.shouldUseCompactPhoneHeaderChrome())
@@ -5759,6 +5761,38 @@ final class HeartbeatMathTests: XCTestCase {
         )
         XCTAssertFalse(PulseLaunch.shouldRedownloadUsableCompanySeat())
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
+    }
+
+    /// HARDENED MUST 1: `336752c` HB-0828.397 PhoneSectionPage.seatChips
+    /// (~1380–1478; hypothesis ~1433–1530) was a second key table. Deleted.
+    func testArchitecture407SeatChipsDualMapDeleted() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.407")
+        XCTAssertFalse(PulseLaunch.shouldUseSeatChipDualMap())
+        XCTAssertFalse(PulseLaunch.shouldUseGhostSeatChipKeys())
+        XCTAssertFalse(PulseLaunch.shouldAppendGhostSeatChipAliases())
+        XCTAssertTrue(PulseLaunch.shouldPaintSeatChipsFromDashboardTableValues())
+        XCTAssertTrue(PulseLaunch.shouldBanFalseZeroSeatChips())
+        for section in MetricSection.dashboardCards where section != .pickerScorecard {
+            let chips = PulseLaunch.seatChipValues(
+                section: section,
+                rows: [],
+                displayedHealth: .none
+            )
+            XCTAssertEqual(
+                chips.map(\.label),
+                HeartbeatMath.dashboardTableHeaders(section),
+                "\(section.rawValue) must match dashboardTableHeaders — no ghost alias chips"
+            )
+            XCTAssertFalse(chips.contains { $0.label == "On-time" || $0.label == "Exceptions" || $0.label == "Not Ready" })
+        }
+        let picker = PulseLaunch.seatChipValues(
+            section: .pickerScorecard,
+            rows: [],
+            displayedHealth: .risk,
+            pickerChrome: (shoppers: 10, opportunity: 2, strong: 8)
+        )
+        XCTAssertEqual(picker.map(\.label), ["Shoppers", "Opportunity", "Doing Well"])
+        XCTAssertFalse(picker.contains { $0.value == "0" })
     }
 
     func testPromotedPackReloadsInSessionEvenWhenConstrained() {

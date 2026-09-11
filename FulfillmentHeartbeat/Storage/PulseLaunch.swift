@@ -1579,6 +1579,9 @@ enum PulseLaunch {
     /// or invent extra alias chips on top of `dashboardTableValues`.
     static func shouldBanFalseZeroSeatChips() -> Bool { true }
     static func shouldAppendGhostSeatChipAliases() -> Bool { false }
+    /// `336752c` dual map is dead. Do not restore `PhoneSectionPage.seatChips`
+    /// switch-on-section ghost keys.
+    static func shouldUseSeatChipDualMap() -> Bool { false }
 
     /// Same pack keys as the section hero + region `dashboardTableValues`.
     static func seatChipValues(
