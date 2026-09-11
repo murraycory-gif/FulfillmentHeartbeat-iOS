@@ -411,11 +411,13 @@ private struct MissingItemsStoreGrid: View {
     let shown: Int
     let total: Int
     let onMore: () -> Void
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
         let metrics = MILayout.metrics(depts: depts.count, showCount: false, available: available)
+        let pinHeaders = !HubLayout.isPhone(sizeClass)
         ScrollView([.horizontal, .vertical], showsIndicators: true) {
-            LazyVStack(alignment: .leading, spacing: 6, pinnedViews: [.sectionHeaders]) {
+            LazyVStack(alignment: .leading, spacing: 6, pinnedViews: pinHeaders ? [.sectionHeaders] : []) {
                 Section {
                     ForEach(snaps) { snap in
                         MissingItemsStoreRow(

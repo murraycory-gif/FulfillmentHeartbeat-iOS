@@ -173,9 +173,10 @@ struct CommandCenterHome: View {
             let heroH = CommandCenterLayout.heroBandHeight(phone: phone, portrait: portrait, available: geo.size.height)
             let header: CGFloat = phone ? 18 : 20
             let pad: CGFloat = phone ? 10 : 12
+            let topPad: CGFloat = phone ? 8 : 0
             let leftover = max(
                 CommandCenterLayout.minGlanceHeight,
-                geo.size.height - heroH - header - pad - CommandCenterLayout.gutter
+                geo.size.height - heroH - header - pad - topPad - CommandCenterLayout.gutter
             )
             let tileH = CommandCenterLayout.glanceTileHeight(
                 remaining: leftover,
@@ -188,18 +189,24 @@ struct CommandCenterHome: View {
                 glanceGrid(cards: cards, columns: cols, tileHeight: tileH)
             }
             .padding(.horizontal, phone ? 10 : 12)
+            .padding(.top, phone ? 8 : 0)
             .padding(.bottom, phone ? 6 : 8)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
-            if phone, leftover < CommandCenterLayout.minGlanceHeight * 3 {
-                ScrollView {
+            Group {
+                if phone, leftover < CommandCenterLayout.minGlanceHeight * 3 {
+                    ScrollView {
+                        content
+                    }
+                    .scrollIndicators(.hidden)
+                } else {
                     content
                 }
-                .scrollIndicators(.hidden)
-            } else {
-                content
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .clipped()
         }
+        .clipped()
     }
 
     private var heroCards: [SectionSummary] {

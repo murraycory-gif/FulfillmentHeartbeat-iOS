@@ -10286,15 +10286,21 @@ struct HubChromeModifier: ViewModifier {
     func body(content: Content) -> some View {
         Group {
             if PulseLaunch.shouldPinHubChromeAboveContent() || HubLayout.isPhone(sizeClass) {
+                // HB-0828.394: bar owns the notch. Combined VStack.safeAreaPadding
+                // left List using the window safe area — first cards drew under
+                // Pages + FilterBar + compactPageBanner.
                 VStack(spacing: 0) {
                     HubBrandBar(showBack: showBack, showsFilters: showsFilters)
+                        .background(AppTheme.bg.ignoresSafeArea(edges: .top))
+                        .safeAreaPadding(.top)
                     content
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                        .clipped()
                 }
-                .safeAreaPadding(.top)
             } else {
                 content
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipped()
                     .safeAreaInset(edge: .top, spacing: 0) {
                         HubBrandBar(showBack: showBack, showsFilters: showsFilters)
                             .background(AppTheme.bg)
@@ -10525,10 +10531,31 @@ extension View {
         self
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(AppTheme.bg.ignoresSafeArea(edges: .bottom))
+            .clipped()
+    }
+
+    /// Phone Lists sit in a slot already below chrome. Drop the window-top
+    /// scroll margin so cells cannot travel back under the brand bar.
+    func phoneListClearsWindowTopInset(_ enabled: Bool) -> some View {
+        modifier(PhoneListClearsWindowTopInset(enabled: enabled))
     }
 
     func hubPhoneTable(minWidth: CGFloat = 720) -> some View {
         modifier(HubPhoneTableModifier(minWidth: minWidth))
+    }
+}
+
+private struct PhoneListClearsWindowTopInset: ViewModifier {
+    var enabled: Bool
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content
+                .contentMargins(.top, 0, for: .scrollContent)
+                .contentMargins(.top, 0, for: .scrollIndicators)
+        } else {
+            content
+        }
     }
 }
 

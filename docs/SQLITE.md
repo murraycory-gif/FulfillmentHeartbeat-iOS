@@ -24,4 +24,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.393 / 1.0 (719) — iPhone UX rewrite: PhoneScorecardRow on every Pages row; pad table headers/cheap lines refuse to mount when idiom==.phone or compact. Filters sheet full-width 52pt. Command Center readable density. Who’s looking stays locked off. Unassigned Markets/Regions stay hidden. Recook + republish still required for OM people packs.
+HB-0828.394 / 1.0 (720) — iPhone chrome: HubBrandBar owns the notch; page Lists and Command Center are clipped to the slot below Pages + Filters + the scorecard banner. PhoneScorecardRow path from .393 stays. Who’s looking stays locked off. Unassigned Markets/Regions stay hidden. Recook + republish still required for OM people packs.

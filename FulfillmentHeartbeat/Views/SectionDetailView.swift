@@ -176,8 +176,9 @@ struct SectionDetailView: View {
             .scrollContentBackground(.hidden)
             .environment(\.defaultMinListRowHeight, 1)
             .transaction { $0.animation = nil }
+            .phoneListClearsWindowTopInset(HubLayout.zerosPhoneListTopSafeArea(sizeClass))
             .background {
-                if sizeClass == .regular {
+                if HubLayout.pinsStickyStoreHeader(sizeClass) {
                     GeometryReader { geo in
                         Color.clear.preference(
                             key: LaborListTopKey.self,
@@ -187,11 +188,11 @@ struct SectionDetailView: View {
                 }
             }
             .onPreferenceChange(LaborHeaderMinYKey.self) { minY in
-                guard sizeClass == .regular else { return }
+                guard HubLayout.pinsStickyStoreHeader(sizeClass) else { return }
                 laborHeaderPin.updatePin(headerMinY: minY)
             }
             .overlay(alignment: .top) {
-                if showStoreTable, sizeClass == .regular, laborHeaderPin.storesExpanded && laborHeaderPin.pinned {
+                if showStoreTable, HubLayout.pinsStickyStoreHeader(sizeClass), laborHeaderPin.storesExpanded && laborHeaderPin.pinned {
                     if section == .labor {
                         LaborStickyStoreHeader()
                             .environmentObject(laborHeaderPin)

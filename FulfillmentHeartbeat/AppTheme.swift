@@ -305,6 +305,18 @@ enum HubLayout {
         isPhone(sizeClass)
     }
 
+    /// Pad-only sticky store header. iPhone landscape is `.regular` width —
+    /// that must not re-pin a second header over the brand / filter / banner stack.
+    static func pinsStickyStoreHeader(_ sizeClass: UserInterfaceSizeClass?) -> Bool {
+        sizeClass == .regular && !isPhone(sizeClass)
+    }
+
+    /// Phone Lists already sit below HubBrandBar. Zero the window-top content
+    /// margin so cells do not jump back under the notch / chrome.
+    static func zerosPhoneListTopSafeArea(_ sizeClass: UserInterfaceSizeClass?) -> Bool {
+        isPhone(sizeClass)
+    }
+
     static var grainCap: Int { profile.grainCap }
     static var storeGrainCap: Int { profile.storeGrainCap }
 

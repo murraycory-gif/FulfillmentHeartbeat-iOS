@@ -472,6 +472,7 @@ struct MainHubView: View {
             .clipped()
             .animation(nil, value: router.current)
         }
+        .clipped()
         .background(AppTheme.bg)
         .hubChrome(
             showBack: PulseLaunch.shouldShowScorecardDashboardBackControl()
