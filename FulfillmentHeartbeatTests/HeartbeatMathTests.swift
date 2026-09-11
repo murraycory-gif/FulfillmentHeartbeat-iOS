@@ -685,20 +685,11 @@ final class HeartbeatMathTests: XCTestCase {
     func testApplyLaunchRoleKeepsWhoIsLookingUntilSeatPaint() async {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         let store = HeartbeatStore(rootURL: root)
-        XCTAssertTrue(store.needsRolePick)
+        XCTAssertFalse(PulseLaunch.shouldMountRoleGate(needsRolePick: true))
+        XCTAssertFalse(store.needsRolePick)
         store.applyLaunchRole(.districtManager, district: "03")
         XCTAssertEqual(store.filters.district, "03")
-        var revealed = !store.needsRolePick
-        if !revealed {
-            for _ in 0..<80 {
-                try? await Task.sleep(nanoseconds: 25_000_000)
-                if !store.needsRolePick {
-                    revealed = true
-                    break
-                }
-            }
-        }
-        XCTAssertTrue(revealed, "Who's looking should dismiss after the seat paint lands")
+        XCTAssertFalse(store.needsRolePick)
         XCTAssertEqual(store.filters.district, "03")
         XCTAssertEqual(store.effectiveDashboardGrain, .store)
     }
@@ -2141,7 +2132,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture381SeatPackContract() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.390")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.391")
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
         XCTAssertFalse(PulseSeatPack.shouldMergeSeatWithCompanyOnSwap())
         XCTAssertTrue(PulseSeatPack.shouldPaintHubFromActiveSeatSQLite())
@@ -2183,7 +2174,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture381bMacCookPublishesEverySeatSqlite() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.390")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.391")
         XCTAssertTrue(PulseSeatPack.shouldCookEveryStoreSeat())
         XCTAssertTrue(PulseSeatPack.shouldPublishSeatPlaneFromCook())
         XCTAssertFalse(PulseSeatPack.shouldMaterializeMissingSeatOnFieldDevice())
@@ -2251,7 +2242,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture382CommandCenterFillsViewportLikePulse() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.390")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.391")
         XCTAssertTrue(PulseLaunch.shouldUseCommandCenterHome())
         XCTAssertFalse(PulseLaunch.shouldMountDashCalloutTablesOnHome())
         XCTAssertTrue(PulseLaunch.shouldPinMacCommandCenterRails())
@@ -2326,7 +2317,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture383CompanyCommandCenterPickerChromeAndStoreTableScope() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.390")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.391")
         XCTAssertFalse(PulseLaunch.shouldStreamCompanyPickerForSeatFirstPaint())
         XCTAssertFalse(PulseLaunch.shouldPlaySeatLoadHalloween())
         XCTAssertFalse(PulseLaunch.shouldShowGroceryLoadQuips())
@@ -2558,7 +2549,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture384SeatSwapAndSectionOpenPlane() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.390")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.391")
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
         XCTAssertFalse(PulseSeatPack.shouldMergeSeatWithCompanyOnSwap())
         XCTAssertTrue(PulseSeatPack.shouldPaintHubFromActiveSeatSQLite())
@@ -2683,8 +2674,25 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseSeatPack.shouldPublishSeatPlaneFromCook())
     }
 
+    func testArchitecture391ColdOpenCannotMountWhoIsLooking() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.391")
+        XCTAssertFalse(PulseLaunch.shouldRequireRoleGateOnColdOpen())
+        XCTAssertTrue(PulseLaunch.shouldOpenCompanyCommandCenterOnColdOpen())
+        XCTAssertFalse(PulseLaunch.shouldShowRoleGatePill())
+        XCTAssertFalse(PulseLaunch.shouldMountRoleGate(needsRolePick: true))
+        XCTAssertFalse(PulseLaunch.shouldMountRoleGate(needsRolePick: false))
+        XCTAssertTrue(PulseLaunch.shouldSkipRoleGateOnRelaunch(role: nil, filtersActive: false))
+        let store = HeartbeatStore(
+            rootURL: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        )
+        store.reopenRoleGate()
+        XCTAssertFalse(store.needsRolePick)
+        store.dismissBlockedRoleGate()
+        XCTAssertFalse(store.needsRolePick)
+    }
+
     func testArchitecture385CompanyColdOpenNoRoleGateNoToursFilterPaints() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.390")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.391")
         XCTAssertFalse(PulseLaunch.shouldPinMacCommandCenterAlertsRail())
         XCTAssertFalse(PulseLaunch.shouldOfferIPadCommandCenterAlertsDrawer())
         XCTAssertFalse(PulseLaunch.shouldRequireRoleGateOnColdOpen())
@@ -2735,7 +2743,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture387SectionPageTableMatrixAndNoIPadAlerts() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.390")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.391")
         XCTAssertFalse(PulseLaunch.shouldPinMacCommandCenterAlertsRail())
         XCTAssertFalse(PulseLaunch.shouldOfferIPadCommandCenterAlertsDrawer())
         XCTAssertTrue(PulseLaunch.shouldOfferIPadCommandCenterDrawers())
@@ -2787,7 +2795,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture389OMSeatPacksGlanceBannerPickerShoppersAndNoDashboardBack() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.390")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.391")
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
         XCTAssertFalse(PulseLaunch.shouldShowScorecardDashboardBackControl())
         XCTAssertTrue(CommandCenterLayout.glanceTitleUsesBlueBanner())
@@ -2920,7 +2928,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture390PickerPhonePagesAssistUnassignedAndLabor() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.390")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.391")
         XCTAssertTrue(PulseLaunch.shouldUsePickerPhoneCards(phone: true))
         XCTAssertFalse(PulseLaunch.shouldUsePickerPhoneCards(phone: false))
         XCTAssertTrue(PulseLaunch.shouldUsePickerPhoneCards(phone: false, width: 390))

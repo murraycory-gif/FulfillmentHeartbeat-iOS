@@ -17,6 +17,17 @@ struct RoleGateView: View {
     }
 
     var body: some View {
+        Group {
+            if PulseLaunch.shouldMountRoleGate(needsRolePick: store.needsRolePick) {
+                gateBody
+            } else {
+                Color.clear
+                    .onAppear { store.dismissBlockedRoleGate() }
+            }
+        }
+    }
+
+    private var gateBody: some View {
         ZStack {
             AppTheme.bg.ignoresSafeArea()
             if showsSeatLoadStage {

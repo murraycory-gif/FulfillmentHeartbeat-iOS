@@ -260,14 +260,14 @@ final class HeartbeatStore: ObservableObject {
         isReady = true
         becameReadyAt = Date()
         lastCloudPullAt = Date()
-        if PulseLaunch.shouldRequireRoleGateOnColdOpen(),
-           !PulseLaunch.shouldSkipRoleGateOnRelaunch(
-            role: sessionRole,
-            filtersActive: pendingLaunchFilters?.isActive == true
-           ) {
-            needsRolePick = true
-        } else {
-            needsRolePick = false
+        setNeedsRolePick(
+            PulseLaunch.shouldRequireRoleGateOnColdOpen()
+                && !PulseLaunch.shouldSkipRoleGateOnRelaunch(
+                    role: sessionRole,
+                    filtersActive: pendingLaunchFilters?.isActive == true
+                )
+        )
+        if !needsRolePick {
             noteHubInteractive()
             startCloudHydrateIfNeeded()
         }
@@ -2127,7 +2127,7 @@ final class HeartbeatStore: ObservableObject {
 
     private func revealHubAfterSeat() {
         guard needsRolePick else { return }
-        needsRolePick = false
+        setNeedsRolePick(false)
         noteHubInteractive()
         if let chrome = packChrome {
             seedPickerGrainFromChrome(chrome)
@@ -2140,7 +2140,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func finishRoleGate() {
-        needsRolePick = false
+        setNeedsRolePick(false)
         noteHubInteractive()
         let decision = PulseLaunch.consumePendingLaunchFilters(
             pending: pendingLaunchFilters,
@@ -2169,9 +2169,22 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func reopenRoleGate() {
-        guard PulseLaunch.shouldRequireRoleGateOnColdOpen(),
-              PulseLaunch.shouldShowRoleGatePill() else { return }
-        needsRolePick = true
+        setNeedsRolePick(
+            PulseLaunch.shouldRequireRoleGateOnColdOpen()
+                && PulseLaunch.shouldShowRoleGatePill()
+        )
+    }
+
+    /// Product lock: needsRolePick can never stick true while Who's looking is off.
+    func dismissBlockedRoleGate() {
+        setNeedsRolePick(false)
+    }
+
+    private func setNeedsRolePick(_ value: Bool) {
+        let next = value && PulseLaunch.shouldMountRoleGate(needsRolePick: true)
+        if needsRolePick != next {
+            needsRolePick = next
+        }
     }
 
     private func restoreSessionRole() {
@@ -2732,7 +2745,7 @@ final class HeartbeatStore: ObservableObject {
                     filename: name,
                     fallbackToPicker: false,
                     alreadyOpen: true,
-                    presentRoleGate: true
+                    presentRoleGate: false
                 )
                 if ok {
                     UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
@@ -2862,7 +2875,7 @@ final class HeartbeatStore: ObservableObject {
                 filename: remoteName,
                 fallbackToPicker: false,
                 alreadyOpen: hasPack,
-                presentRoleGate: !hasPack
+                presentRoleGate: false
             )
             if ok {
                 UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
@@ -3045,7 +3058,7 @@ final class HeartbeatStore: ObservableObject {
                 filename: file.name,
                 fallbackToPicker: false,
                 alreadyOpen: true,
-                presentRoleGate: !silent
+                presentRoleGate: false
             )
             if ok {
                 rememberMasterFile(url: url, filename: file.name)
@@ -3200,10 +3213,10 @@ final class HeartbeatStore: ObservableObject {
         }.value
         guard token == masterApplyToken else { return }
         hydrating = true
-        if presentRoleGate, sessionRole == nil, PulseLaunch.shouldRequireRoleGateOnColdOpen() {
+        if presentRoleGate, sessionRole == nil, PulseLaunch.shouldMountRoleGate(needsRolePick: true) {
             filters = DashboardFilters()
             sessionRole = nil
-            needsRolePick = true
+            setNeedsRolePick(true)
         }
         rebuildLaborWeekIndex()
         install(caches)
@@ -3266,7 +3279,7 @@ final class HeartbeatStore: ObservableObject {
         }
     }
 
-    private func runMasterImport(data: Data, filename: String, fallbackToPicker: Bool, alreadyOpen: Bool = false, presentRoleGate: Bool = true) async -> Bool {
+    private func runMasterImport(data: Data, filename: String, fallbackToPicker: Bool, alreadyOpen: Bool = false, presentRoleGate: Bool = false) async -> Bool {
         do {
             let sheets = try await parseMasterOffMain(data: data, filename: filename)
             masterApplyToken += 1
@@ -4606,9 +4619,7 @@ final class HeartbeatStore: ObservableObject {
             if !isReady {
                 filters = DashboardFilters()
                 sessionRole = nil
-                if PulseLaunch.shouldRequireRoleGateOnColdOpen() {
-                    needsRolePick = true
-                }
+                setNeedsRolePick(false)
             }
             packPickerFactCount = max(
                 packPickerFactCount,

@@ -9,8 +9,8 @@ struct DashboardView: View {
 
     var body: some View {
         dashboardBody
-            .opacity(store.needsRolePick && PulseLaunch.shouldRequireRoleGateOnColdOpen() ? 0 : 1)
-            .allowsHitTesting(!(store.needsRolePick && PulseLaunch.shouldRequireRoleGateOnColdOpen()))
+            .opacity(PulseLaunch.shouldMountRoleGate(needsRolePick: store.needsRolePick) ? 0 : 1)
+            .allowsHitTesting(!PulseLaunch.shouldMountRoleGate(needsRolePick: store.needsRolePick))
     }
 
     private var dashboardBody: some View {

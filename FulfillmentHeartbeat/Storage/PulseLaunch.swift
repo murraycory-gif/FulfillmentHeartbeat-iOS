@@ -215,6 +215,14 @@ enum PulseLaunch {
     /// Who's looking is not a required cold-open wall.
     static func shouldRequireRoleGateOnColdOpen() -> Bool { false }
 
+    /// Single presenter lock. Cold open is company Command Center — RoleGateView
+    /// must not mount from RootView, hub overlay, import, or a stuck needsRolePick.
+    static func shouldMountRoleGate(needsRolePick: Bool) -> Bool {
+        guard shouldRequireRoleGateOnColdOpen() else { return false }
+        guard !shouldOpenCompanyCommandCenterOnColdOpen() else { return false }
+        return needsRolePick
+    }
+
     /// Cold open paints Command Center from the published company seat pack.
     static func shouldOpenCompanyCommandCenterOnColdOpen() -> Bool { true }
 

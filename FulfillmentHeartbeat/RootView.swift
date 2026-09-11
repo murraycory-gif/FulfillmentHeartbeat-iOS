@@ -7,8 +7,7 @@ struct RootView: View {
         ZStack {
             AppTheme.bg.ignoresSafeArea()
             if store.isReady {
-                if PulseLaunch.shouldRequireRoleGateOnColdOpen(),
-                   store.needsRolePick,
+                if PulseLaunch.shouldMountRoleGate(needsRolePick: store.needsRolePick),
                    !PulseLaunch.shouldMountHubUnderRoleGate() {
                     RoleGateView()
                         .zIndex(20)
@@ -17,8 +16,7 @@ struct RootView: View {
                     MainHubView()
                         .transition(.opacity)
                         .overlay {
-                            if PulseLaunch.shouldRequireRoleGateOnColdOpen(),
-                               store.needsRolePick,
+                            if PulseLaunch.shouldMountRoleGate(needsRolePick: store.needsRolePick),
                                PulseLaunch.shouldMountHubUnderRoleGate() {
                                 RoleGateView()
                                     .zIndex(20)
@@ -35,6 +33,9 @@ struct RootView: View {
         .background(AppTheme.bg.ignoresSafeArea())
         .onOpenURL { url in
             store.receiveExternalFile(url: url)
+        }
+        .onAppear {
+            store.dismissBlockedRoleGate()
         }
         .sheet(isPresented: Binding(
             get: { store.pendingExternalName != nil },
