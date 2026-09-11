@@ -67,9 +67,6 @@ struct DashboardView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationDestination(item: phonePushedSection) { section in
-            SectionDetailView(section: section)
-        }
     }
 
     private var legacyCalloutScroll: some View {
@@ -131,9 +128,6 @@ struct DashboardView: View {
                 cardWidth = value
             }
         }
-        .navigationDestination(item: phonePushedSection) { section in
-            SectionDetailView(section: section)
-        }
     }
 
     private var briefingCards: [SectionSummary] {
@@ -141,13 +135,6 @@ struct DashboardView: View {
             store.summaries,
             role: store.sessionRole,
             storeScoped: !store.filters.store.isEmpty
-        )
-    }
-
-    private var phonePushedSection: Binding<MetricSection?> {
-        Binding(
-            get: { router.pushedSection },
-            set: { router.pushedSection = $0 }
         )
     }
 

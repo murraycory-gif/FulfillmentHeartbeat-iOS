@@ -10277,42 +10277,22 @@ struct PickerStoreExpand: View {
 }
 
 struct HubChromeModifier: ViewModifier {
-    @EnvironmentObject private var router: HubRouter
-    @EnvironmentObject private var store: HeartbeatStore
-    @Environment(\.horizontalSizeClass) private var sizeClass
     var showBack: Bool
     var showsFilters: Bool
 
     func body(content: Content) -> some View {
-        Group {
-            if PulseLaunch.shouldPinHubChromeAboveContent() || HubLayout.isPhone(sizeClass) {
-                // HB-0828.394: bar owns the notch. Combined VStack.safeAreaPadding
-                // left List using the window safe area — first cards drew under
-                // Pages + FilterBar + compactPageBanner.
-                VStack(spacing: 0) {
-                    HubBrandBar(showBack: showBack, showsFilters: showsFilters)
-                        .background(AppTheme.bg.ignoresSafeArea(edges: .top))
-                        .safeAreaPadding(.top)
-                    content
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                        .clipped()
-                }
-            } else {
-                content
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .clipped()
-                    .safeAreaInset(edge: .top, spacing: 0) {
-                        HubBrandBar(showBack: showBack, showsFilters: showsFilters)
-                            .background(AppTheme.bg)
-                    }
+        content
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .safeAreaInset(edge: .top, spacing: 0) {
+                HubBrandBar(showBack: showBack, showsFilters: showsFilters)
+                    .background(AppTheme.bg.ignoresSafeArea(edges: .top))
             }
-        }
-        .background(AppTheme.bg.ignoresSafeArea(edges: .bottom))
-        .navigationBarTitleDisplayMode(.inline)
-        .navigationTitle("")
-        .tint(AppTheme.blue)
-        .toolbar(.hidden, for: .navigationBar)
-        .toolbar(removing: .sidebarToggle)
+            .background(AppTheme.bg.ignoresSafeArea(edges: .bottom))
+            .navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("")
+            .tint(AppTheme.blue)
+            .toolbar(.hidden, for: .navigationBar)
+            .toolbar(removing: .sidebarToggle)
     }
 }
 
@@ -10383,13 +10363,23 @@ struct HubBrandBar: View {
 
     private var compactPageBanner: some View {
         HubBanner(
-            icon: router.current.symbol,
+            icon: compactBannerDestination.symbol,
             title: compactBannerTitle,
             accessory: compactBannerAccessory,
             trailing: compactBannerWindow,
             clipped: false
         )
         .clipShape(RoundedRectangle(cornerRadius: compact ? 10 : 14, style: .continuous))
+    }
+
+    private var compactBannerDestination: HubDestination {
+        if let section = PulseLaunch.activeScorecardSection(
+            visible: router.current,
+            pushed: router.pushedSection
+        ) {
+            return .from(section: section)
+        }
+        return .dashboard
     }
 
     private var compactBannerAccessory: String {
@@ -10399,14 +10389,14 @@ struct HubBrandBar: View {
     }
 
     private var compactBannerTitle: String {
-        switch router.current {
+        switch compactBannerDestination {
         case .dashboard: return "Operational Heartbeat"
-        default: return router.current.title
+        default: return compactBannerDestination.title
         }
     }
 
     private var compactBannerWindow: String? {
-        if let section = router.current.section {
+        if let section = compactBannerDestination.section {
             return store.dataWindow(for: section)
         }
         return store.sharedDataWindow()
@@ -10531,31 +10521,10 @@ extension View {
         self
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(AppTheme.bg.ignoresSafeArea(edges: .bottom))
-            .clipped()
-    }
-
-    /// Phone Lists sit in a slot already below chrome. Drop the window-top
-    /// scroll margin so cells cannot travel back under the brand bar.
-    func phoneListClearsWindowTopInset(_ enabled: Bool) -> some View {
-        modifier(PhoneListClearsWindowTopInset(enabled: enabled))
     }
 
     func hubPhoneTable(minWidth: CGFloat = 720) -> some View {
         modifier(HubPhoneTableModifier(minWidth: minWidth))
-    }
-}
-
-private struct PhoneListClearsWindowTopInset: ViewModifier {
-    var enabled: Bool
-
-    func body(content: Content) -> some View {
-        if enabled {
-            content
-                .contentMargins(.top, 0, for: .scrollContent)
-                .contentMargins(.top, 0, for: .scrollIndicators)
-        } else {
-            content
-        }
     }
 }
 

@@ -256,7 +256,7 @@ struct MainHubView: View {
             store.setVisibleDestination(dest)
             rememberWarm(dest)
         }
-        .background(AppTheme.bg.ignoresSafeArea())
+        .background(AppTheme.bg.ignoresSafeArea(edges: .bottom))
         .overlay {
             ImportProgressOverlay()
         }
@@ -450,35 +450,49 @@ struct MainHubView: View {
     @ViewBuilder
     private var detail: some View {
         NavigationStack {
-            Group {
-                if PulseLaunch.shouldUsePagingScroll() {
-                    ScorecardPager(router: router) { dest in
-                        AnyView(
-                            page(for: dest)
-                                .environmentObject(store)
-                                .environmentObject(router)
-                        )
-                    }
-                    .equatable()
-                } else if PulseLaunch.shouldRemountPageOnDestinationChange() {
-                    page(for: router.current)
-                        .id(router.current)
-                } else if PulseLaunch.shouldKeepDashboardHostWarm() {
-                    warmDetail
-                } else {
-                    page(for: router.current)
-                }
-            }
-            .clipped()
-            .animation(nil, value: router.current)
+            hubPages
+                .animation(nil, value: router.current)
+                .hubChrome(
+                    showBack: HubLayout.isPhone(sizeClass)
+                        ? phoneShowsBack
+                        : (PulseLaunch.shouldShowScorecardDashboardBackControl()
+                            && router.current != .dashboard),
+                    showsFilters: true
+                )
         }
-        .clipped()
         .background(AppTheme.bg)
-        .hubChrome(
-            showBack: PulseLaunch.shouldShowScorecardDashboardBackControl()
-                && router.current != .dashboard,
-            showsFilters: true
-        )
+    }
+
+    /// Phone back: push or Pages destination. System nav bar is gone; no swipe-pop stack.
+    private var phoneShowsBack: Bool {
+        router.pushedSection != nil || router.current != .dashboard
+    }
+
+    /// Dashboard only when no scorecard is up — including a phone push that
+    /// leaves `destination` on dashboard.
+    private var showingPhoneDashboard: Bool {
+        router.current == .dashboard && router.pushedSection == nil
+    }
+
+    @ViewBuilder
+    private var hubPages: some View {
+        if PulseLaunch.shouldUsePagingScroll() {
+            ScorecardPager(router: router) { dest in
+                AnyView(
+                    page(for: dest)
+                        .environmentObject(store)
+                        .environmentObject(router)
+                )
+            }
+            .equatable()
+        } else if PulseLaunch.shouldRemountPageOnDestinationChange() {
+            page(for: router.current)
+                .id(router.current)
+        } else if PulseLaunch.shouldKeepDashboardHostWarm() {
+            warmDetail
+        } else {
+            page(for: router.current)
+        }
     }
 
     /// Dashboard stays mounted. Last scorecards stay mounted so a sidebar
@@ -488,9 +502,9 @@ struct MainHubView: View {
         ZStack {
             DashboardView()
                 .hubPageCanvas()
-                .opacity(router.current == .dashboard ? 1 : 0)
-                .allowsHitTesting(router.current == .dashboard)
-                .accessibilityHidden(router.current != .dashboard)
+                .opacity(showingPhoneDashboard ? 1 : 0)
+                .allowsHitTesting(showingPhoneDashboard)
+                .accessibilityHidden(!showingPhoneDashboard)
             ForEach(
                 PulseLaunch.visibleScorecardSections(
                     current: router.current,
@@ -501,11 +515,19 @@ struct MainHubView: View {
             ) { section in
                 SectionDetailView(section: section)
                     .hubPageCanvas()
-                    .opacity(router.current.section == section ? 1 : 0)
-                    .allowsHitTesting(router.current.section == section)
-                    .accessibilityHidden(router.current.section != section)
+                    .opacity(isVisibleScorecard(section) ? 1 : 0)
+                    .allowsHitTesting(isVisibleScorecard(section))
+                    .accessibilityHidden(!isVisibleScorecard(section))
             }
         }
+    }
+
+    private func isVisibleScorecard(_ section: MetricSection) -> Bool {
+        PulseLaunch.isActiveScorecardPage(
+            visible: router.current,
+            section: section,
+            pushed: router.pushedSection
+        )
     }
 
     private func rememberWarm(_ dest: HubDestination) {

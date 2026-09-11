@@ -176,7 +176,6 @@ struct SectionDetailView: View {
             .scrollContentBackground(.hidden)
             .environment(\.defaultMinListRowHeight, 1)
             .transaction { $0.animation = nil }
-            .phoneListClearsWindowTopInset(HubLayout.zerosPhoneListTopSafeArea(sizeClass))
             .background {
                 if HubLayout.pinsStickyStoreHeader(sizeClass) {
                     GeometryReader { geo in

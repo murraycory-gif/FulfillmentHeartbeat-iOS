@@ -1507,22 +1507,21 @@ enum PulseLaunch {
     /// Who's looking wait is the safe time to swap a newer cloud pack (hub is not mounted).
     static func shouldCheckCloudPackDuringSeatWait() -> Bool { true }
 
-    /// Pin the brand / greeting / filter bar in flow above the page.
-    /// HB-0828.394: HubBrandBar owns `.safeAreaPadding(.top)`. The page List is
-    /// clipped to the remaining slot. Do not put safeAreaPadding on the VStack
-    /// that also wraps the List — List then paints into the window safe area
-    /// under Pages / Filters / the scorecard banner.
-    static func shouldPinHubChromeAboveContent() -> Bool { true }
+    /// HB-0828.395 lock: the VStack pin path is dead. Chrome owns the top
+    /// safe area via `content.safeAreaInset` in HubChromeModifier only.
+    static func shouldPinHubChromeAboveContent() -> Bool { false }
 
-    /// Notch inset lives on HubBrandBar only — never on the chrome+page stack.
+    /// Notch wash lives on the inset HubBrandBar background, not the page.
     static func shouldGiveHubChromeItsOwnTopSafeArea() -> Bool { true }
 
-    /// Phone / flow pages cannot paint above the chrome slot.
-    static func shouldClipPhoneContentBelowHubChrome() -> Bool { true }
+    static func shouldClipPhoneContentBelowHubChrome() -> Bool { false }
 
     /// iPhone never mounts a second sticky store-header overlay (landscape
     /// `.regular` used to re-enable pad pins on top of the brand bar).
     static func shouldPinPhoneStickyStoreHeader() -> Bool { false }
+
+    /// HubBrandBar is a safeAreaInset owner of the page, not a VStack sibling.
+    static func shouldInsetHubChromeIntoContentSafeArea() -> Bool { true }
 
     /// Cloud facts/pack after Who's looking — not on splash, not in the first breath.
     static let cloudHydrateDelayNanoseconds: UInt64 = 12_000_000_000

@@ -311,12 +311,6 @@ enum HubLayout {
         sizeClass == .regular && !isPhone(sizeClass)
     }
 
-    /// Phone Lists already sit below HubBrandBar. Zero the window-top content
-    /// margin so cells do not jump back under the notch / chrome.
-    static func zerosPhoneListTopSafeArea(_ sizeClass: UserInterfaceSizeClass?) -> Bool {
-        isPhone(sizeClass)
-    }
-
     static var grainCap: Int { profile.grainCap }
     static var storeGrainCap: Int { profile.storeGrainCap }
 

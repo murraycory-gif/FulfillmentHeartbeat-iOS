@@ -117,7 +117,7 @@ struct ScorecardPager: UIViewControllerRepresentable, Equatable {
             let host = host(for: dest)
             let root = page(dest)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(AppTheme.bg.ignoresSafeArea())
+                .background(AppTheme.bg.ignoresSafeArea(edges: .bottom))
             host.rootView = AnyView(root)
             host.hydrated = true
         }
