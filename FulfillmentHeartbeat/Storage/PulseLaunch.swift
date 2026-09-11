@@ -639,6 +639,13 @@ enum PulseLaunch {
     /// Pages / filter chips only. No top-left Dashboard chevron on scorecards.
     static func shouldShowScorecardDashboardBackControl() -> Bool { false }
 
+    /// Phone header matches iPad: Pages stays, Back goes. Destination
+    /// switches are Pages / Command Center cards — not a chrome chevron.
+    static func shouldShowPhoneHeaderBack() -> Bool { false }
+
+    /// One native vertical ScrollView. Nested UIPageViewController is off.
+    static func shouldUseOneNativeVerticalHubScroll() -> Bool { !shouldUsePagingScroll() }
+
     /// Any higher-grain rollup on this scorecard (0–2 tables).
     static func shouldMountSectionRollup(filters: DashboardFilters) -> Bool {
         !sectionRollupGrains(filters: filters).isEmpty

@@ -363,7 +363,7 @@ struct MainHubView: View {
                 .animation(nil, value: router.current)
                 .hubChrome(
                     showBack: HubLayout.isPhone(sizeClass)
-                        ? phoneShowsBack
+                        ? (PulseLaunch.shouldShowPhoneHeaderBack() && phoneShowsBack)
                         : (PulseLaunch.shouldShowScorecardDashboardBackControl()
                             && router.current != .dashboard),
                     showsFilters: true
