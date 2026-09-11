@@ -1,6 +1,6 @@
 # Command Center (Tip 2 / Option 8b)
 
-Stamp **HB-0828.387** / 713. Data plane stays Tip 1 seat packs (`docs/SEAT-SCOPED-PACKS.md`). Mac and iPad have **no Alerts rail**. Glance tiles use one health-tinted SF Symbol — no spark bars.
+Stamp **HB-0828.388** / 714. Data plane stays Tip 1 seat packs (`docs/SEAT-SCOPED-PACKS.md`). Mac and iPad have **no Alerts rail**. Glance tiles use one health-tinted SF Symbol — no spark bars.
 
 Cold open is **company Command Center** (`swapToSeatPack(.company)`). Who's looking is not a required wall. Seat changes are dashboard filter chips only (District / OM / Store / Clear→company). No per-page tours. Every filter swap paints or errors — never a silent no-op.
 

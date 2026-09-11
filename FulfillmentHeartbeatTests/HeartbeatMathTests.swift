@@ -2133,7 +2133,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture381SeatPackContract() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.387")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.388")
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
         XCTAssertFalse(PulseSeatPack.shouldMergeSeatWithCompanyOnSwap())
         XCTAssertTrue(PulseSeatPack.shouldPaintHubFromActiveSeatSQLite())
@@ -2175,7 +2175,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture381bMacCookPublishesEverySeatSqlite() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.387")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.388")
         XCTAssertTrue(PulseSeatPack.shouldCookEveryStoreSeat())
         XCTAssertTrue(PulseSeatPack.shouldPublishSeatPlaneFromCook())
         XCTAssertFalse(PulseSeatPack.shouldMaterializeMissingSeatOnFieldDevice())
@@ -2241,7 +2241,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture382CommandCenterFillsViewportLikePulse() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.387")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.388")
         XCTAssertTrue(PulseLaunch.shouldUseCommandCenterHome())
         XCTAssertFalse(PulseLaunch.shouldMountDashCalloutTablesOnHome())
         XCTAssertTrue(PulseLaunch.shouldPinMacCommandCenterRails())
@@ -2316,7 +2316,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture383CompanyCommandCenterPickerChromeAndStoreTableScope() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.387")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.388")
         XCTAssertFalse(PulseLaunch.shouldStreamCompanyPickerForSeatFirstPaint())
         XCTAssertFalse(PulseLaunch.shouldPlaySeatLoadHalloween())
         XCTAssertFalse(PulseLaunch.shouldShowGroceryLoadQuips())
@@ -2548,7 +2548,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture384SeatSwapAndSectionOpenPlane() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.387")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.388")
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
         XCTAssertFalse(PulseSeatPack.shouldMergeSeatWithCompanyOnSwap())
         XCTAssertTrue(PulseSeatPack.shouldPaintHubFromActiveSeatSQLite())
@@ -2674,7 +2674,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture385CompanyColdOpenNoRoleGateNoToursFilterPaints() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.387")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.388")
         XCTAssertFalse(PulseLaunch.shouldPinMacCommandCenterAlertsRail())
         XCTAssertFalse(PulseLaunch.shouldOfferIPadCommandCenterAlertsDrawer())
         XCTAssertFalse(PulseLaunch.shouldRequireRoleGateOnColdOpen())
@@ -2725,7 +2725,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture387SectionPageTableMatrixAndNoIPadAlerts() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.387")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.388")
         XCTAssertFalse(PulseLaunch.shouldPinMacCommandCenterAlertsRail())
         XCTAssertFalse(PulseLaunch.shouldOfferIPadCommandCenterAlertsDrawer())
         XCTAssertTrue(PulseLaunch.shouldOfferIPadCommandCenterDrawers())

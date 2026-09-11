@@ -1,6 +1,6 @@
 # CoS device PASS before TestFlight
 
-Stamp **HB-0828.387  1.0 (713)**. UDID `676FA816-88AE-59D9-A89D-5C17BFC2DA96`. Force-quit first. No TF until every line is PASS.
+Stamp **HB-0828.388  1.0 (714)**. UDID `676FA816-88AE-59D9-A89D-5C17BFC2DA96`. Force-quit first. No TF until every line is PASS.
 
 Tip 1 — seat-pack plane. Not a grain-gate patch.
 
@@ -9,7 +9,7 @@ Tip 1 — seat-pack plane. Not a grain-gate patch.
 3. **Every MetricSection** Stores footer live (same as Sales): Loss / 5 Star / Labor / Dynacap / PPH / Missing / Schedule / Pick Path / Picker — **not** grey empty “Stores”. HubStoreCard rows = Heartbeat **20**.
 4. Picker Healthy / Watch / At Risk tiles match the seat dropdown. Shoppers are District 03 only.
 5. Clear → `swapToSeatPack(.company)` / `packs/seat/company`. Cached chrome first. Filter pills same plane — snappy bounce, no remount. Regions **4**. New seat = swap again, no merge.
-6. iPad stays cool; dashboard scroll snappy. Stamp **HB-0828.387  1.0 (713)**. Mac + iPad: **no Alerts rail / pop-out**. Glance tiles: **one health-tinted icon**, no spark bars. District (and OM / Store) section pages: **exactly one** "Store · N stores · tap to expand" — never two stacked.
+6. iPad stays cool; dashboard scroll snappy. Stamp **HB-0828.388  1.0 (714)**. Mac + iPad: **no Alerts rail / pop-out**. Glance tiles: **one health-tinted icon**, no spark bars. District (and OM / Store) section pages: **exactly one** "Store · N stores · tap to expand" — never two stacked.
 7. Missing seat object (airplane / unpublished grain) **fails** the hub — does not invent a pack from `current.sqlite`.
 8. Command Center: 3 navy heroes + real glance tiles. Mac: pinned Pages + center, **no Alerts column**. iPad land/port: **full-width center**; Pages drawer only — **no Alerts button or rail**.
 9. Load screen: heart + progress. **No** rotisserie / grocery one-liners.

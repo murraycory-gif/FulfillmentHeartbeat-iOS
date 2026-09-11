@@ -1,5 +1,23 @@
 import SwiftUI
 
+/// Stored content closure so ForEach can call it without capturing a
+/// non-escaping `@ViewBuilder` parameter (compile fail on 75e8f60).
+private struct SectionRollupHost<Content: View>: View {
+    let grains: [DashScopeGrain]
+    let content: (LaborRollupGrain) -> Content
+
+    var body: some View {
+        ForEach(grains, id: \.self) { grain in
+            Section {
+                content(LaborRollupGrain(grain))
+                    .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(AppTheme.bg)
+            }
+        }
+    }
+}
+
 struct SectionDetailView: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var router: HubRouter
@@ -63,47 +81,47 @@ struct SectionDetailView: View {
                     PickerScoreTable(focus: pickerFocus)
                 }
             } else if section == .pickPath {
-                rollupHost { PickPathRollupTable(forcedGrain: $0) }
+                SectionRollupHost(grains: rollupGrains) { PickPathRollupTable(forcedGrain: $0) }
                 if showStoreTable {
                     PickPathTable(rows: pickPathRows)
                 }
             } else if section == .dynacap {
-                rollupHost { DynacapRollupTable(forcedGrain: $0) }
+                SectionRollupHost(grains: rollupGrains) { DynacapRollupTable(forcedGrain: $0) }
                 if showStoreTable {
                     DynacapTable(rows: dynacapRows)
                 }
             } else if section == .pph {
-                rollupHost { PPHRollupTable(forcedGrain: $0) }
+                SectionRollupHost(grains: rollupGrains) { PPHRollupTable(forcedGrain: $0) }
                 if showStoreTable {
                     PPHTable(rows: pphRows)
                 }
             } else if section == .scheduleQuality {
-                rollupHost { ScheduleRollupTable(forcedGrain: $0) }
+                SectionRollupHost(grains: rollupGrains) { ScheduleRollupTable(forcedGrain: $0) }
                 if showStoreTable {
                     ScheduleTable(rows: scheduleRows)
                 }
             } else if section == .prepNotReady {
-                rollupHost { PrepRollupTable(forcedGrain: $0) }
+                SectionRollupHost(grains: rollupGrains) { PrepRollupTable(forcedGrain: $0) }
                 if showStoreTable {
                     PrepTable(rows: prepRows)
                 }
             } else if section == .fiveStar {
-                rollupHost { FiveStarRollupTable(forcedGrain: $0) }
+                SectionRollupHost(grains: rollupGrains) { FiveStarRollupTable(forcedGrain: $0) }
                 if showStoreTable {
                     FiveStarTable(rows: fiveStarRows)
                 }
             } else if section == .labor {
-                rollupHost { LaborRollupTable(forcedGrain: $0) }
+                SectionRollupHost(grains: rollupGrains) { LaborRollupTable(forcedGrain: $0) }
                 if showStoreTable {
                     LaborTable(rows: laborRows)
                 }
             } else if section == .lostRevenue {
-                rollupHost { LostRevenueRollupTable(forcedGrain: $0) }
+                SectionRollupHost(grains: rollupGrains) { LostRevenueRollupTable(forcedGrain: $0) }
                 if showStoreTable {
                     LostRevenueTable(rows: lostRevenueRows)
                 }
             } else if section == .sales {
-                rollupHost { SalesRollupTable(forcedGrain: $0) }
+                SectionRollupHost(grains: rollupGrains) { SalesRollupTable(forcedGrain: $0) }
                 if showStoreTable {
                     SalesTable(rows: snapshots)
                 }
@@ -234,18 +252,6 @@ struct SectionDetailView: View {
             section: section,
             pushed: router.pushedSection
         )
-    }
-
-    @ViewBuilder
-    private func rollupHost<Content: View>(@ViewBuilder content: (LaborRollupGrain) -> Content) -> some View {
-        ForEach(rollupGrains, id: \.self) { grain in
-            Section {
-                content(LaborRollupGrain(grain))
-                    .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(AppTheme.bg)
-            }
-        }
     }
 
     private func armPage() {
