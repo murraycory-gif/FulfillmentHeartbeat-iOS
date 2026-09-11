@@ -1,6 +1,6 @@
 # HB-0828.400 / 726 — verify (one page)
 
-**SHA** `b960f08` · branch `cursor/command-center-8b-3389` · [PR #5](https://github.com/murraycory-gif/FulfillmentHeartbeat-iOS/pull/5)  
+**SHA** `36e3bc0` (product fix `b960f08`) · branch `cursor/command-center-8b-3389` · [PR #5](https://github.com/murraycory-gif/FulfillmentHeartbeat-iOS/pull/5)  
 **Stamp** `HB-0828.400  1.0 (726)` · bundle `com.corymurray.FulfillmentHeartbeat`  
 **No TestFlight until this PASSes.** Do not delete the app. Cloud Linux cannot `xcodebuild` or talk to a Mac/iPad (no self-hosted worker registered).
 
@@ -29,7 +29,7 @@ Keep the **old local company seat**. Install tip **over** the current build.
 cd ~/Developer/FulfillmentHeartbeat-iOS
 git fetch origin cursor/command-center-8b-3389
 git checkout cursor/command-center-8b-3389
-git reset --hard b960f08
+git reset --hard 36e3bc0
 SKIP_PULL=1 ./install-ipad.sh                 # iPad
 # SKIP_PULL=1 ALLOW_PHONE=1 ./install-ipad.sh  # iPhone
 ```

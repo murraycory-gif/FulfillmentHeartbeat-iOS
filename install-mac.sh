@@ -1,6 +1,6 @@
 #!/bin/sh
 # Build and open Heartbeat on this Mac (Mac Catalyst). Does not delete the app.
-# Does not pull main. Tip: cursor/command-center-8b-3389 @ b960f08 (HB-0828.400 / 726).
+# Does not pull main. Tip: cursor/command-center-8b-3389 @ 36e3bc0 (HB-0828.400 / 726).
 #   ./install-mac.sh
 #   CONFIGURATION=Release ./install-mac.sh
 set -eu

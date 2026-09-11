@@ -2,13 +2,7 @@
 
 Stamp **HB-0828.400  1.0 (726)**. UDID `676FA816-88AE-59D9-A89D-5C17BFC2DA96`. Force-quit first (Mac: quit Heartbeat from the dock, don’t just close the window). **Do not delete the app.** Open / foreground must pull a newer cloud pack onto the company seat so Sales shows Thursday / `sales_d4` / ~$58M. **No TestFlight until this PASSes.** Layout KEEP: PhoneCommandCenterHome + PhoneSectionPage + compact HStack brand bar. **Recook + republish first** — tip alone does not heal OM_AREA baked into existing sqlite.
 
-**Mac regression (no delete):**
-
-```
-./Tools/HeartbeatIngest/verify-stale-seat-refresh.sh
-```
-
-That runs `testStaleCompanySeatIsReplacedByNewerCloudPackWithoutDelete`: usable Wednesday company seat + newer Thursday pack → force-reload seat → Sales $58.4M + `sales_d4`.
+**One-page verify:** [docs/VERIFY-HB-0828.400.md](docs/VERIFY-HB-0828.400.md). CoS: `./install-mac.sh` then `./Tools/HeartbeatIngest/verify-stale-seat-refresh.sh`. QC: `SKIP_PULL=1 ./install-ipad.sh` over the old seat. **No TestFlight until PASS.**
 
 Tip 1 — seat-pack plane. Not a grain-gate patch.
 
