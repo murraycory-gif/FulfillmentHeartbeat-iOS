@@ -1,6 +1,6 @@
 # HB-0828.402 / 728 — verify (one page)
 
-**Tip** `origin/cursor/command-center-8b-3389` · product fix `8f3949d` · [PR #5](https://github.com/murraycory-gif/FulfillmentHeartbeat-iOS/pull/5)  
+**Tip** `origin/cursor/command-center-8b-3389` · [PR #5](https://github.com/murraycory-gif/FulfillmentHeartbeat-iOS/pull/5)  
 **Stamp** `HB-0828.402  1.0 (728)` · bundle `com.corymurray.FulfillmentHeartbeat`  
 **No TestFlight until this PASSes.** Do not delete the app. Cloud Linux cannot `xcodebuild` or talk to a Mac/iPad (no self-hosted worker registered).
 
