@@ -2259,9 +2259,16 @@ final class HeartbeatStore: ObservableObject {
         let dest = PulseSeatPack.localURL(root: rootURL, key: key)
         try? fileManager.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
         var localUsable = PulseSeatPack.isUsable(at: dest)
+        if key == .company, !PulseLaunch.isCompanySeatSizeAllowed(PulseSQLite.fileBytes(at: dest)) {
+            localUsable = false
+        }
         if !localUsable {
             _ = await downloadSeatPack(key, to: dest)
             localUsable = PulseSeatPack.isUsable(at: dest)
+            if key == .company {
+                localUsable = localUsable
+                    && PulseLaunch.isCompanySeatSizeAllowed(PulseSQLite.fileBytes(at: dest))
+            }
         }
         if !localUsable, PulseSeatPack.shouldMaterializeMissingSeat() {
             _ = materializeSeatFromCompany(key, to: dest)
@@ -2416,6 +2423,9 @@ final class HeartbeatStore: ObservableObject {
         }
         activeSeatKey = key
         activePackURL = dest
+        if key == .company, !PulseLaunch.isCompanySeatSizeAllowed(PulseSQLite.fileBytes(at: dest)) {
+            return false
+        }
         guard let pack = await Self.readSeatPack(at: dest) else { return false }
         guard !Task.isCancelled else { return false }
         if let chrome = pack.chrome {
@@ -2591,6 +2601,10 @@ final class HeartbeatStore: ObservableObject {
                 return false
             }
             try PulseSeatPack.atomicReplace(from: staging, to: dest)
+            if key == .company, !PulseLaunch.isCompanySeatSizeAllowed(PulseSQLite.fileBytes(at: dest)) {
+                try? fileManager.removeItem(at: dest)
+                return false
+            }
             return PulseSeatPack.isUsable(at: dest)
         } catch {
             return false
@@ -2887,6 +2901,18 @@ final class HeartbeatStore: ObservableObject {
                     }
                     return false
                 }
+                guard PulseLaunch.isCompanySeatSizeAllowed(size) else {
+                    try? fileManager.removeItem(at: staging)
+                    if healedSeat {
+                        return await reloadCompanySeatAfterCloudPromote(
+                            reason: reason,
+                            alreadyLoaded: alreadyLoaded,
+                            stampUpdated: "",
+                            stampBytes: 0
+                        )
+                    }
+                    return false
+                }
                 try promoteCompanyStagingPack(staging)
                 downloadedUpdated = chosen.updated
                 downloadedSize = size
@@ -2924,26 +2950,22 @@ final class HeartbeatStore: ObservableObject {
         root: (size: Int, updated: String),
         seat: (size: Int, updated: String)
     ) -> CloudPackChoice {
-        if PulseLaunch.shouldPreferCompanySeatOverOversizedRoot(rootBytes: root.size),
-           PulseLaunch.isUsableFileSize(seat.size) {
+        if PulseLaunch.isCompanySeatSizeAllowed(seat.size) {
             return CloudPackChoice(
                 path: PulseSeatPack.Key.company.objectPath,
                 size: seat.size,
                 updated: seat.updated
             )
         }
-        if PulseLaunch.isUsableFileSize(root.size) {
+        if PulseLaunch.isCompanySeatSizeAllowed(root.size) {
             return CloudPackChoice(path: PulseCloud.object, size: root.size, updated: root.updated)
         }
-        return CloudPackChoice(
-            path: PulseSeatPack.Key.company.objectPath,
-            size: seat.size,
-            updated: seat.updated
-        )
+        return CloudPackChoice(path: PulseCloud.object, size: 0, updated: "")
     }
 
     private func promoteOnDiskRootOverStaleSeatIfNeeded() -> Bool {
-        guard PulseLaunch.shouldReplaceCompanySeatFromDownloadedRoot() else { return false }
+        let rootBytes = PulseSQLite.fileBytes(at: companySQLiteURL)
+        guard PulseLaunch.shouldCopyRootOntoCompanySeat(rootBytes: rootBytes) else { return false }
         let seatURL = PulseSeatPack.localURL(root: rootURL, key: .company)
         let rootWritten = PulseSQLite.writtenAtString(at: companySQLiteURL)
         let seatWritten = PulseSQLite.writtenAtString(at: seatURL)
@@ -2961,7 +2983,8 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func replaceCompanySeatFromRoot() throws {
-        guard PulseSQLite.isUsableFile(at: companySQLiteURL) else { return }
+        let rootBytes = PulseSQLite.fileBytes(at: companySQLiteURL)
+        guard PulseLaunch.shouldCopyRootOntoCompanySeat(rootBytes: rootBytes) else { return }
         _ = try PulseSeatPack.promoteIncomingOverCompanySeat(incoming: companySQLiteURL, appRoot: rootURL)
     }
 
@@ -2989,13 +3012,15 @@ final class HeartbeatStore: ObservableObject {
         if PulseLaunch.shouldForceRedownloadCompanySeatWhenRemoteNewer() {
             let downloaded = await downloadSeatPack(.company, to: dest, timeout: timeout)
             if downloaded {
-                seatPromoted = true
-            } else if PulseLaunch.shouldReplaceCompanySeatFromDownloadedRoot() {
+                seatPromoted = PulseLaunch.isCompanySeatSizeAllowed(PulseSQLite.fileBytes(at: dest))
+            } else if PulseLaunch.shouldCopyRootOntoCompanySeat(
+                rootBytes: PulseSQLite.fileBytes(at: companySQLiteURL)
+            ) {
                 try? replaceCompanySeatFromRoot()
                 let seatWritten = PulseSQLite.writtenAtString(at: dest)
                 let rootWritten = PulseSQLite.writtenAtString(at: companySQLiteURL)
                 seatPromoted = !seatWritten.isEmpty && seatWritten == rootWritten
-                    && PulseSeatPack.isUsable(at: dest)
+                    && PulseLaunch.isCompanySeatSizeAllowed(PulseSQLite.fileBytes(at: dest))
             }
             if let activeKey, activeKey != .company {
                 let activeDest = PulseSeatPack.localURL(root: rootURL, key: activeKey)
@@ -3004,12 +3029,14 @@ final class HeartbeatStore: ObservableObject {
                     _ = materializeSeatFromCompany(activeKey, to: activeDest)
                 }
             }
-        } else if PulseLaunch.shouldReplaceCompanySeatFromDownloadedRoot() {
+        } else if PulseLaunch.shouldCopyRootOntoCompanySeat(
+            rootBytes: PulseSQLite.fileBytes(at: companySQLiteURL)
+        ) {
             try? replaceCompanySeatFromRoot()
             let seatWritten = PulseSQLite.writtenAtString(at: dest)
             let rootWritten = PulseSQLite.writtenAtString(at: companySQLiteURL)
             seatPromoted = !seatWritten.isEmpty && seatWritten == rootWritten
-                && PulseSeatPack.isUsable(at: dest)
+                && PulseLaunch.isCompanySeatSizeAllowed(PulseSQLite.fileBytes(at: dest))
         }
         invalidateCompanySeatCache()
         if alreadyLoaded > 0 {
@@ -3035,6 +3062,9 @@ final class HeartbeatStore: ObservableObject {
             }
         }
         if painted {
+            if PulseLaunch.shouldInstallSeatExpandTablesAfterCloudPromote() {
+                installSeatExpandTables()
+            }
             publishSeatPaint()
             if reason != .boot {
                 scheduleGrainPaint(generation: paintGeneration)

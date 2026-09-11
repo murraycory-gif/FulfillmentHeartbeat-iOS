@@ -1660,13 +1660,23 @@ enum PulseLaunch {
     static let foregroundPackCheckQuietSeconds: TimeInterval = 12
     /// This project's TUS cap. Prefer the company seat over a 56MB market root.
     static let storageFileLimitBytes = 50_000_000
+    /// Thin company Command Center. Market ~56MB Jetsams the 12" iPad.
+    static let companySeatMaxBytes = 28_000_000
 
     static func shouldPullCloudPackOnColdOpen() -> Bool { true }
     static func shouldPullCloudPackOnForeground() -> Bool { true }
     static func shouldReplaceCompanySeatFromDownloadedRoot() -> Bool { true }
-    static func shouldPreferCompanySeatOverOversizedRoot(rootBytes: Int) -> Bool {
-        rootBytes > storageFileLimitBytes
+    static func isCompanySeatSizeAllowed(_ bytes: Int) -> Bool {
+        bytes >= minimumPackBytes && bytes <= companySeatMaxBytes
     }
+    /// Never copy the 56MB market root onto `packs/seat/company`.
+    static func shouldCopyRootOntoCompanySeat(rootBytes: Int) -> Bool {
+        shouldReplaceCompanySeatFromDownloadedRoot() && isCompanySeatSizeAllowed(rootBytes)
+    }
+    static func shouldPreferCompanySeatOverOversizedRoot(rootBytes: Int) -> Bool {
+        rootBytes > companySeatMaxBytes
+    }
+    static func shouldInstallSeatExpandTablesAfterCloudPromote() -> Bool { true }
 
     static func shouldPullCloudOnForeground(secondsSinceReady: TimeInterval) -> Bool {
         _ = secondsSinceReady
@@ -1795,6 +1805,7 @@ enum PulseLaunch {
         localWrittenAt: String = ""
     ) -> Bool {
         guard isUsableFileSize(remoteBytes) else { return false }
+        if remoteBytes > companySeatMaxBytes { return false }
         if localBytes < minimumPackBytes || localRowsLoaded == 0 { return true }
         if !localWrittenAt.isEmpty,
            remoteTimestampIsNewer(remoteUpdated, than: localWrittenAt, slack: packTimestampMatchSlack) {

@@ -11,6 +11,12 @@ enum PulseSeatPack {
     static let districtTargetBytes = 10_000_000
     /// Device cache hard ceiling for `packs/seat/**` (Power BI Mobile is 250 MB).
     static let deviceCacheCeilingBytes = 250_000_000
+    /// Company hub must stay thin. Market ~56MB is not a company seat.
+    static var companySeatMaxBytes: Int { PulseLaunch.companySeatMaxBytes }
+
+    static func shouldPromoteIncomingAsCompanySeat(bytes: Int) -> Bool {
+        PulseLaunch.isCompanySeatSizeAllowed(bytes)
+    }
 
     static func isUsable(at url: URL) -> Bool {
         PulseSQLite.exists(at: url) && PulseSQLite.fileBytes(at: url) >= minimumSeatBytes
@@ -264,6 +270,9 @@ enum PulseSeatPack {
         try PulseSQLite.write(rows: scoped, uploads: uploads, seeded: true, chrome: chrome, to: dest)
         PulseSQLite.compact(at: dest)
         let bytes = PulseSQLite.fileBytes(at: dest)
+        if key == .company, !shouldPromoteIncomingAsCompanySeat(bytes: bytes) {
+            throw PulseSQLError.schema
+        }
         return Entry(
             grain: key.grain.rawValue,
             id: key.slug,
@@ -438,6 +447,8 @@ enum PulseSeatPack {
     static func promoteIncomingOverCompanySeat(incoming: URL, appRoot: URL) throws -> URL {
         let dest = localURL(root: appRoot, key: .company)
         guard PulseSQLite.exists(at: incoming) else { return dest }
+        let incomingBytes = PulseSQLite.fileBytes(at: incoming)
+        guard shouldPromoteIncomingAsCompanySeat(bytes: incomingBytes) else { return dest }
         try FileManager.default.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
         let staging = dest.deletingLastPathComponent()
             .appendingPathComponent("incoming-company-\(UUID().uuidString).sqlite")

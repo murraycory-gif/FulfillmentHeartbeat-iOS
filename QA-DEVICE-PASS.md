@@ -1,6 +1,6 @@
 # CoS device PASS before TestFlight
 
-Stamp **HB-0828.400  1.0 (726)**. UDID `676FA816-88AE-59D9-A89D-5C17BFC2DA96`. Force-quit first (Mac: quit Heartbeat from the dock, don’t just close the window). **Do not delete the app.** Open / foreground must pull a newer cloud pack onto the company seat so Sales shows Thursday / `sales_d4` / ~$58M. **No TestFlight until this PASSes.** Layout KEEP: PhoneCommandCenterHome + PhoneSectionPage + compact HStack brand bar. **Recook + republish first** — tip alone does not heal OM_AREA baked into existing sqlite.
+Stamp **HB-0828.401  1.0 (727)**. UDID `676FA816-88AE-59D9-A89D-5C17BFC2DA96`. Force-quit first (Mac: quit Heartbeat from the dock, don’t just close the window). **Do not delete the app.** Company seat stays thin (~21MB). Never promote a ~56MB market pack as company — that Jetsams iPad 12" (tables die, app closes). Open / foreground must pull a **thin** newer cloud seat so Sales shows Thursday / `sales_d4` / ~$58M **and lower tables load**. **No TestFlight until this PASSes.** Layout KEEP: PhoneCommandCenterHome + PhoneSectionPage + compact HStack brand bar. **Recook + republish first** — tip alone does not heal OM_AREA baked into existing sqlite.
 
 **One-page verify:** [docs/VERIFY-HB-0828.400.md](docs/VERIFY-HB-0828.400.md). CoS: `./install-mac.sh` then `./Tools/HeartbeatIngest/verify-stale-seat-refresh.sh`. QC: `SKIP_PULL=1 ./install-ipad.sh` over the old seat. **No TestFlight until PASS.**
 
@@ -12,7 +12,7 @@ Tip 1 — seat-pack plane. Not a grain-gate patch.
 3. **Every MetricSection** Stores footer live (same as Sales): Loss / 5 Star / Labor / Dynacap / PPH / Missing / Schedule / Pick Path / Picker — **not** grey empty “Stores”. HubStoreCard rows = Heartbeat **20**.
 4. Picker Healthy / Watch / At Risk tiles match the seat dropdown. Shoppers are District 03 only.
 5. Clear → `swapToSeatPack(.company)` / `packs/seat/company`. Cached chrome first. Filter pills same plane — snappy bounce, no remount. Regions **4**. New seat = swap again, no merge.
-6. iPad stays cool; dashboard scroll snappy. Stamp **HB-0828.400  1.0 (726)**. Mac + iPad: **no Alerts rail / pop-out**. Glance tiles: **blue title banner**, bigger title, **centered** health-tinted icon — no spark bars. No Dashboard back chevron. District (and OM / Store) section pages: **exactly one** "Store · N stores · tap to expand" — never two stacked.
+6. iPad stays cool; dashboard scroll snappy. Stamp **HB-0828.401  1.0 (727)**. Never load a ~56MB market file as the company seat. Mac + iPad: **no Alerts rail / pop-out**. Glance tiles: **blue title banner**, bigger title, **centered** health-tinted icon — no spark bars. No Dashboard back chevron. District (and OM / Store) section pages: **exactly one** "Store · N stores · tap to expand" — never two stacked.
 7. Missing seat object (airplane / unpublished grain) **fails** the hub — does not invent a pack from `current.sqlite`.
 8. Command Center: 3 navy heroes + real glance tiles. Mac: pinned Pages + center, **no Alerts column**. iPad land/port: **full-width center**; Pages drawer only — **no Alerts button or rail**.
 9. Load screen: heart + progress. **No** rotisserie / grocery one-liners.
