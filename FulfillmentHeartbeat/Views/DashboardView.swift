@@ -749,34 +749,69 @@ struct PhoneGrainRow: View {
     let health: Health
 
     var body: some View {
-        HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 1) {
+        HStack(spacing: 10) {
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .fill(AppTheme.healthInk(health == .none ? .good : health))
+                .frame(width: 5)
+            VStack(alignment: .leading, spacing: 2) {
                 Text(label)
-                    .font(AppTheme.rounded(.subheadline, weight: .bold))
+                    .font(AppTheme.rounded(.body, weight: .bold))
                     .foregroundStyle(AppTheme.text)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
                 if let count, count > 0 {
                     Text(count == 1 ? "1 store" : "\(count) stores")
-                        .font(AppTheme.rounded(.caption2, weight: .semibold))
+                        .font(AppTheme.rounded(.subheadline, weight: .semibold))
                         .foregroundStyle(AppTheme.textSecondary)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             Text(value)
-                .font(AppTheme.rounded(.subheadline, weight: .bold).monospacedDigit())
+                .font(AppTheme.rounded(.body, weight: .bold).monospacedDigit())
                 .foregroundStyle(dashInk(health))
                 .lineLimit(1)
-                .minimumScaleFactor(0.6)
-            HealthBadge(health: health, prominent: true, compact: true)
+                .minimumScaleFactor(0.85)
+            HealthBadge(health: health, prominent: true, compact: false)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(minHeight: HubLayout.phoneHitTarget)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color.black.opacity(0.08), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(AppTheme.healthInk(health == .none ? .good : health).opacity(0.35), lineWidth: 1.5)
         )
+    }
+}
+
+struct PhoneStoreScoreStack<Item: Identifiable>: View {
+    let items: [Item]
+    let label: (Item) -> String
+    let value: (Item) -> String
+    let health: (Item) -> Health
+    var moreTitle: String? = nil
+    var onMore: (() -> Void)? = nil
+
+    var body: some View {
+        VStack(spacing: 6) {
+            ForEach(items) { item in
+                PhoneGrainRow(
+                    label: label(item),
+                    value: value(item),
+                    count: nil,
+                    health: health(item)
+                )
+            }
+            if let moreTitle, let onMore {
+                Button(action: onMore) {
+                    Text(moreTitle)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(AppTheme.blue)
+                        .frame(maxWidth: .infinity, minHeight: HubLayout.phoneHitTarget, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+            }
+        }
     }
 }
 
@@ -826,7 +861,7 @@ struct DashScopeGrainCard: View {
 
     private var header: some View {
         Group {
-            if HubLayout.isPhone(sizeClass) {
+            if HubLayout.usesPhoneScorecards(sizeClass: sizeClass) {
                 phoneHeader
             } else {
                 wideHeader
@@ -1213,10 +1248,15 @@ struct PickerHighlightsPanel: View {
         store.pickerBoard
     }
 
-    private var phone: Bool { HubLayout.isPhone(sizeClass) || HubLayout.isPhoneDevice }
+    private var phone: Bool { HubLayout.usesPhoneScorecards(sizeClass: sizeClass, width: panelWidth) }
 
     private var usePhoneCards: Bool {
-        PulseLaunch.shouldUsePickerPhoneCards(phone: phone, width: panelWidth)
+        PulseLaunch.shouldUsePickerPhoneCards(
+            compact: sizeClass == .compact,
+            phoneIdiom: HubLayout.livePhoneIdiom,
+            phone: HubLayout.isPhone(sizeClass),
+            width: panelWidth
+        )
     }
 
     var body: some View {

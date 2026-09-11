@@ -6,7 +6,7 @@ struct OverviewSalesBlock: View {
     /// Scorecard mounts week total + by day only. Mid grain tables are the rollup host.
     var includeMidRollup: Bool = true
 
-    private var phone: Bool { HubLayout.isPhone(sizeClass) }
+    private var phone: Bool { HubLayout.usesPhoneScorecards(sizeClass: sizeClass) }
 
     var body: some View {
         let stores = store.salesStores()
@@ -114,7 +114,7 @@ struct OverviewSalesAlignedTable: View {
     var district: Bool = false
     @Environment(\.horizontalSizeClass) private var sizeClass
 
-    private var phone: Bool { HubLayout.isPhone(sizeClass) }
+    private var phone: Bool { HubLayout.usesPhoneScorecards(sizeClass: sizeClass) }
     private var valueMin: CGFloat { HubLayout.dashboardValueMin(phone: phone, columns: 8) }
     private var floor: CGFloat {
         HubLayout.readableTableFloor(
@@ -363,19 +363,25 @@ struct OverviewSalesPhoneCard: View {
     let pack: SalesPack
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        let cardHealth = pack.health == .none && (pack.sales ?? 0) > 0 ? Health.good : pack.health
+        return HStack(alignment: .top, spacing: 0) {
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .fill(AppTheme.healthInk(cardHealth == .none ? .good : cardHealth))
+                .frame(width: 6)
+            VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text(label)
-                    .font(AppTheme.rounded(.subheadline, weight: .bold))
+                    .font(AppTheme.rounded(.body, weight: .bold))
                     .foregroundStyle(AppTheme.text)
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
                 if let count {
                     Text("\(count) stores")
-                        .font(AppTheme.rounded(.caption, weight: .semibold))
+                        .font(AppTheme.rounded(.subheadline, weight: .semibold))
                         .foregroundStyle(AppTheme.textSecondary)
                 }
                 Spacer()
-                HealthBadge(health: pack.health == .none && (pack.sales ?? 0) > 0 ? .good : pack.health, prominent: true, compact: true)
+                HealthBadge(health: cardHealth, prominent: true, compact: false)
             }
             HStack {
                 phoneMetric("Sales $", HeartbeatFormat.money(pack.sales))
@@ -393,7 +399,10 @@ struct OverviewSalesPhoneCard: View {
                 phoneMetric("Items/Txn", HeartbeatFormat.num(pack.ipt, digits: 1))
                 phoneMetric("Items", HeartbeatFormat.num(pack.items, digits: 0))
             }
+            }
+            .padding(12)
         }
+        .frame(minHeight: HubLayout.phoneHitTarget)
         .tableRowCard(health: pack.health)
     }
 
@@ -724,6 +733,7 @@ private struct SalesMetricLine: View {
 struct SalesRollupTable: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var headerPin: LaborHeaderPin
+    @Environment(\.horizontalSizeClass) private var sizeClass
     var forcedGrain: LaborRollupGrain? = nil
     @State private var grain: LaborRollupGrain? = .division
     @State private var summary: [SalesRollupRow] = []
@@ -748,6 +758,19 @@ struct SalesRollupTable: View {
                     }
                     .buttonStyle(.plain)
                     if expanded {
+                        if HubLayout.usesPhoneScorecards(sizeClass: sizeClass) {
+                            VStack(spacing: 8) {
+                                ForEach(summary.prefix(40)) { row in
+                                    OverviewSalesPhoneCard(
+                                        label: row.label,
+                                        count: grain == .store ? nil : row.storeCount,
+                                        pack: row.pack
+                                    )
+                                }
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.bottom, 10)
+                        } else {
                         HubAdaptiveHScroll {
                             VStack(alignment: .leading, spacing: 10) {
                                 SalesMetricHeader(
@@ -770,6 +793,7 @@ struct SalesRollupTable: View {
                         .padding(.horizontal, 16)
                         .padding(.top, 8)
                         .padding(.bottom, 14)
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -831,6 +855,7 @@ private struct SalesLineSnap: Identifiable {
 struct SalesTable: View {
     @EnvironmentObject private var headerPin: LaborHeaderPin
     @EnvironmentObject private var store: HeartbeatStore
+    @Environment(\.horizontalSizeClass) private var sizeClass
     let rows: [MetricRow]
     @State private var sortKey = "yoy"
     @State private var sortAscending = true
@@ -862,6 +887,20 @@ struct SalesTable: View {
                     if !next { headerPin.pinned = false }
                     if next { rebuild() }
                 } content: {
+                    if HubLayout.usesPhoneScorecards(sizeClass: sizeClass) {
+                        PhoneStoreScoreStack(
+                            items: Array(snaps.prefix(limit)),
+                            label: { $0.label },
+                            value: { HeartbeatFormat.money($0.pack.sales) },
+                            health: { $0.pack.health == .none && ($0.pack.sales ?? 0) > 0 ? .good : $0.pack.health },
+                            moreTitle: orderedCount > snaps.count
+                                ? "Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))"
+                                : nil,
+                            onMore: orderedCount > snaps.count
+                                ? { limit += 50; rebuild() }
+                                : nil
+                        )
+                    } else {
                     HubAdaptiveHScroll {
                         VStack(spacing: 0) {
                             SalesMetricHeader(
@@ -908,6 +947,7 @@ struct SalesTable: View {
                                 .buttonStyle(.plain)
                             }
                         }
+                    }
                     }
                 }
                 .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 20, trailing: 20))

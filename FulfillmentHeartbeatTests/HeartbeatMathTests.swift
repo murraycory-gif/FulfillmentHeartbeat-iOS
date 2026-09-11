@@ -2132,7 +2132,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture381SeatPackContract() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.391")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.392")
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
         XCTAssertFalse(PulseSeatPack.shouldMergeSeatWithCompanyOnSwap())
         XCTAssertTrue(PulseSeatPack.shouldPaintHubFromActiveSeatSQLite())
@@ -2174,7 +2174,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture381bMacCookPublishesEverySeatSqlite() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.391")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.392")
         XCTAssertTrue(PulseSeatPack.shouldCookEveryStoreSeat())
         XCTAssertTrue(PulseSeatPack.shouldPublishSeatPlaneFromCook())
         XCTAssertFalse(PulseSeatPack.shouldMaterializeMissingSeatOnFieldDevice())
@@ -2242,7 +2242,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture382CommandCenterFillsViewportLikePulse() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.391")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.392")
         XCTAssertTrue(PulseLaunch.shouldUseCommandCenterHome())
         XCTAssertFalse(PulseLaunch.shouldMountDashCalloutTablesOnHome())
         XCTAssertTrue(PulseLaunch.shouldPinMacCommandCenterRails())
@@ -2317,7 +2317,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture383CompanyCommandCenterPickerChromeAndStoreTableScope() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.391")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.392")
         XCTAssertFalse(PulseLaunch.shouldStreamCompanyPickerForSeatFirstPaint())
         XCTAssertFalse(PulseLaunch.shouldPlaySeatLoadHalloween())
         XCTAssertFalse(PulseLaunch.shouldShowGroceryLoadQuips())
@@ -2549,7 +2549,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture384SeatSwapAndSectionOpenPlane() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.391")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.392")
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
         XCTAssertFalse(PulseSeatPack.shouldMergeSeatWithCompanyOnSwap())
         XCTAssertTrue(PulseSeatPack.shouldPaintHubFromActiveSeatSQLite())
@@ -2674,8 +2674,23 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseSeatPack.shouldPublishSeatPlaneFromCook())
     }
 
+    func testArchitecture392PhoneChromeCardsNotSqueezedTable() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.392")
+        XCTAssertEqual(HubLayout.SupportedCanvas.phonePortrait, 390)
+        XCTAssertEqual(HubLayout.phoneHitTarget, 44)
+        XCTAssertEqual(HubLayout.phoneControlHeight, 44)
+        XCTAssertTrue(PulseLaunch.shouldUsePickerPhoneCards(compact: true, phone: false, width: 0))
+        XCTAssertTrue(PulseLaunch.shouldUsePickerPhoneCards(phoneIdiom: true, phone: false, width: 0))
+        XCTAssertTrue(PulseLaunch.shouldUsePickerPhoneCards(phone: false, width: 390))
+        XCTAssertTrue(PulseLaunch.shouldUsePickerPhoneCards(phone: false, width: 599))
+        XCTAssertFalse(PulseLaunch.shouldUsePickerPhoneCards(phone: false, width: 0))
+        XCTAssertFalse(PulseLaunch.shouldUsePickerPhoneCards(phone: false, width: 980))
+        XCTAssertFalse(PulseLaunch.shouldMountRoleGate(needsRolePick: true))
+        XCTAssertFalse(PulseLaunch.shouldRequireRoleGateOnColdOpen())
+    }
+
     func testArchitecture391ColdOpenCannotMountWhoIsLooking() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.391")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.392")
         XCTAssertFalse(PulseLaunch.shouldRequireRoleGateOnColdOpen())
         XCTAssertTrue(PulseLaunch.shouldOpenCompanyCommandCenterOnColdOpen())
         XCTAssertFalse(PulseLaunch.shouldShowRoleGatePill())
@@ -2692,7 +2707,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture385CompanyColdOpenNoRoleGateNoToursFilterPaints() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.391")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.392")
         XCTAssertFalse(PulseLaunch.shouldPinMacCommandCenterAlertsRail())
         XCTAssertFalse(PulseLaunch.shouldOfferIPadCommandCenterAlertsDrawer())
         XCTAssertFalse(PulseLaunch.shouldRequireRoleGateOnColdOpen())
@@ -2743,7 +2758,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture387SectionPageTableMatrixAndNoIPadAlerts() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.391")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.392")
         XCTAssertFalse(PulseLaunch.shouldPinMacCommandCenterAlertsRail())
         XCTAssertFalse(PulseLaunch.shouldOfferIPadCommandCenterAlertsDrawer())
         XCTAssertTrue(PulseLaunch.shouldOfferIPadCommandCenterDrawers())
@@ -2795,7 +2810,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture389OMSeatPacksGlanceBannerPickerShoppersAndNoDashboardBack() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.391")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.392")
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
         XCTAssertFalse(PulseLaunch.shouldShowScorecardDashboardBackControl())
         XCTAssertTrue(CommandCenterLayout.glanceTitleUsesBlueBanner())
@@ -2928,11 +2943,15 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture390PickerPhonePagesAssistUnassignedAndLabor() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.391")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.392")
         XCTAssertTrue(PulseLaunch.shouldUsePickerPhoneCards(phone: true))
         XCTAssertFalse(PulseLaunch.shouldUsePickerPhoneCards(phone: false))
         XCTAssertTrue(PulseLaunch.shouldUsePickerPhoneCards(phone: false, width: 390))
         XCTAssertFalse(PulseLaunch.shouldUsePickerPhoneCards(phone: false, width: 980))
+        XCTAssertTrue(PulseLaunch.shouldUsePickerPhoneCards(compact: true, phone: false, width: 980))
+        XCTAssertTrue(PulseLaunch.shouldUsePickerPhoneCards(phoneIdiom: true, phone: false, width: 980))
+        XCTAssertTrue(PulseLaunch.shouldUsePickerPhoneCards(phone: false, width: 599))
+        XCTAssertFalse(PulseLaunch.shouldUsePickerPhoneCards(phone: false, width: 600))
         XCTAssertTrue(PulseLaunch.shouldShowPickerHighlights(filters: DashboardFilters()))
         XCTAssertTrue(PulseLaunch.shouldOpenPhonePagesOnFirstTap())
         XCTAssertTrue(PulseLaunch.shouldTintPhonePagesIconsWithHealth())

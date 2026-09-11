@@ -529,13 +529,18 @@ enum PulseLaunch {
         return true
     }
 
-    /// iPhone / narrow width: never squeeze the iPad SHOPPER … STATUS table (Cory shot).
+    /// iPhone 13+ / compact / idiom / width < 600: never squeeze the iPad SHOPPER … STATUS table.
+    /// Do not decide from cached `isPhoneDevice` alone — first paint width can be 0.
     static func shouldUsePickerPhoneCards(
+        compact: Bool = false,
+        phoneIdiom: Bool = false,
         phone: Bool = HubLayout.isPhoneDevice,
         width: CGFloat = 0
     ) -> Bool {
-        if phone || HubLayout.isPhoneDevice { return true }
-        return width > 0 && width < 720
+        if compact { return true }
+        if phoneIdiom { return true }
+        if phone { return true }
+        return width > 0 && width < 600
     }
 
     /// iPhone Pages list opens the destination on the first tap.

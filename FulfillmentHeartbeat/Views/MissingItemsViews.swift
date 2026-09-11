@@ -180,6 +180,7 @@ struct MissingItemsCategoryFilter: View {
 struct MissingItemsTable: View {
     @EnvironmentObject private var headerPin: LaborHeaderPin
     @EnvironmentObject private var store: HeartbeatStore
+    @Environment(\.horizontalSizeClass) private var sizeClass
     let rows: [MetricRow]
     let depts: [MissingItemDept]
     var pageWidth: CGFloat = 1000
@@ -236,6 +237,14 @@ struct MissingItemsTable: View {
                         showCount: false,
                         available: max(pageWidth - 48, 320)
                     )
+                    if HubLayout.usesPhoneScorecards(sizeClass: sizeClass) {
+                        PhoneStoreScoreStack(
+                            items: snaps,
+                            label: { $0.label },
+                            value: { $0.total },
+                            health: { $0.health }
+                        )
+                    } else {
                     HubAdaptiveHScroll(
                         minWidth: metrics.tableWidth,
                         minHeight: CGFloat(max(snaps.count, 1)) * 52 + 64
@@ -280,6 +289,7 @@ struct MissingItemsTable: View {
                             }
                         }
                         .frame(minWidth: metrics.tableWidth, alignment: .leading)
+                    }
                     }
                 }
                 .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 20, trailing: 20))
@@ -947,6 +957,7 @@ struct MissingItemsStickyStoreHeader: View {
 struct MissingItemsRollupTable: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var headerPin: LaborHeaderPin
+    @Environment(\.horizontalSizeClass) private var sizeClass
     let depts: [MissingItemDept]
     var pageWidth: CGFloat = 1000
     var section: MetricSection = .missingItems
@@ -980,6 +991,20 @@ struct MissingItemsRollupTable: View {
                 }
                 .buttonStyle(.plain)
                 if expanded {
+                    if HubLayout.usesPhoneScorecards(sizeClass: sizeClass) {
+                        VStack(spacing: 6) {
+                            ForEach(summary.prefix(40)) { row in
+                                PhoneGrainRow(
+                                    label: row.label,
+                                    value: HeartbeatFormat.pct(row.total),
+                                    count: grain == .store ? nil : row.storeCount,
+                                    health: row.health
+                                )
+                            }
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.bottom, 10)
+                    } else {
                     HubAdaptiveHScroll(
                         minWidth: metrics.tableWidth,
                         minHeight: CGFloat(max(summary.count, 1)) * 48 + 64
@@ -1013,6 +1038,7 @@ struct MissingItemsRollupTable: View {
                     }
                     .padding(.horizontal, 12)
                     .padding(.bottom, 12)
+                    }
                 }
             }
             .background(AppTheme.tableFill)

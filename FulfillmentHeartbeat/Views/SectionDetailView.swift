@@ -361,7 +361,7 @@ struct SectionDetailView: View {
 
             if section == .labor { LaborWeekFilterBar() }
             if showStoreTable {
-                if HubLayout.isPhone(sizeClass) {
+                if HubLayout.usesPhoneScorecards(sizeClass: sizeClass) {
                     pageCallouts
                     if section == .missingItems || section == .preSubOOS {
                         MissingItemsCategoryFilter(selected: $miCategories, width: pageWidth)

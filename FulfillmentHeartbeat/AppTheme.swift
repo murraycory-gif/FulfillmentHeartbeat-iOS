@@ -263,8 +263,16 @@ enum HubLayout {
     static let profile: Profile = makeProfile()
 
     static var kind: Kind { profile.kind }
-    static var isPhoneDevice: Bool { profile.kind == .phone }
-    static var isPadDevice: Bool { profile.kind == .pad }
+    /// Live idiom — never trust a cached profile alone (iPhone 13…17 Pro).
+    static var livePhoneIdiom: Bool {
+        #if targetEnvironment(macCatalyst)
+        return false
+        #else
+        return UIDevice.current.userInterfaceIdiom == .phone
+        #endif
+    }
+    static var isPhoneDevice: Bool { profile.kind == .phone || livePhoneIdiom }
+    static var isPadDevice: Bool { profile.kind == .pad && !livePhoneIdiom }
     static var isMac: Bool { profile.kind == .mac }
     static var lowMemory: Bool { profile.ramGB < 6 }
     static var lightLaunch: Bool { profile.lightLaunch }
@@ -273,9 +281,24 @@ enum HubLayout {
     /// Only the Mac builds the sqlite pack from Excel. Phones and iPads never unzip xlsx.
     static var ingestsWorkbook: Bool { isMac }
 
+    /// Compact, live phone idiom, or cached phone chrome. iPhone landscape (.regular) stays phone.
     static func isPhone(_ sizeClass: UserInterfaceSizeClass?) -> Bool {
-        _ = sizeClass
+        if sizeClass == .compact { return true }
+        if livePhoneIdiom { return true }
         return profile.phoneChrome
+    }
+
+    /// Scorecards + shopper lists: compact OR phone idiom OR width < 600 (iPhone 13 = 390).
+    static func usesPhoneScorecards(
+        sizeClass: UserInterfaceSizeClass?,
+        width: CGFloat = 0
+    ) -> Bool {
+        PulseLaunch.shouldUsePickerPhoneCards(
+            compact: sizeClass == .compact,
+            phoneIdiom: livePhoneIdiom,
+            phone: isPhone(sizeClass),
+            width: width
+        )
     }
 
     static var grainCap: Int { profile.grainCap }

@@ -24,4 +24,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.391 / 1.0 (717) — Cold open cannot mount Who’s looking (RoleGate locked off). iPhone Picker cards; first-tap Pages; 44pt hits; Assist ops-coach shape; hide Unassigned Markets/Regions; MARKET column binds official banners; roster market wins on stamp; Labor Total banner only when TVA/Total missing. Recook + republish still required for OM people packs.
+HB-0828.392 / 1.0 (718) — iPhone 13+ phone chrome: compact / idiom / width < 600 forces filter chips + Pages scorecard cards (not squeezed iPad tables). PickerPhoneCard only on that path. Who’s looking stays locked off. First-tap Pages; 44pt hits; Assist ops-coach shape; hide Unassigned Markets/Regions; MARKET column binds official banners; roster market wins on stamp; Labor Total banner only when TVA/Total missing. Recook + republish still required for OM people packs.
