@@ -1572,6 +1572,9 @@ enum PulseLaunch {
                 ("At Risk", HeartbeatFormat.num(Double(buckets.risk)), buckets.risk == 0 ? .good : .risk),
             ]
         }
+        if section == .labor {
+            return laborSeatChips(rows: rows, displayedHealth: displayedHealth)
+        }
         let scored = HeartbeatMath.dashboardTableValues(section, rows: rows)
         let fallback: Health
         if displayedHealth != .none {
@@ -1606,6 +1609,45 @@ enum PulseLaunch {
     static func isZeroChipValue(_ value: String) -> Bool {
         let trimmed = value.replacingOccurrences(of: ",", with: "")
         return trimmed == "0" || trimmed == "0.0" || trimmed == "—" || trimmed.isEmpty
+    }
+
+    /// Labor THIS SEAT: same keys as Regions (`dashboardTableValues`). Weeks
+    /// comes from pack `week` / `recordedOn` on those rows — never an empty
+    /// `laborWeeksByStore` dash while Cost Target is live.
+    static func laborSeatChips(
+        rows: [MetricRow],
+        displayedHealth: Health
+    ) -> [(label: String, value: String, health: Health)] {
+        let scored = HeartbeatMath.dashboardTableValues(.labor, rows: rows)
+        let fallback: Health
+        if displayedHealth != .none {
+            fallback = displayedHealth
+        } else if scored.health != .none {
+            fallback = scored.health
+        } else if scored.values.contains(where: { $0 != "—" }) {
+            fallback = .good
+        } else {
+            fallback = .none
+        }
+        var chips = zip(HeartbeatMath.dashboardTableHeaders(.labor), scored.values).map { header, value in
+            (header, value, seatChipHealth(header: header, value: value, fallback: fallback))
+        }
+        if let span = laborSeatWeekSpan(rows: rows) {
+            chips.insert(("Weeks", span, fallback), at: 0)
+        }
+        return chips
+    }
+
+    /// Pack week ids on the same Labor rows that paint Cost Target / TVA.
+    static func laborSeatWeekSpan(rows: [MetricRow]) -> String? {
+        let ids = Set(rows.compactMap { row -> String? in
+            for raw in [row.textPayload["week"], row.recordedOn] {
+                if let value = raw, value.hasPrefix("20") { return value }
+            }
+            return nil
+        }).sorted()
+        guard let first = ids.first, let last = ids.last else { return nil }
+        return first == last ? first : "\(first) thru \(last)"
     }
 
     static func pickerShareActionFlags(

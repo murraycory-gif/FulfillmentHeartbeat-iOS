@@ -21,7 +21,7 @@ Quit Heartbeat from the **Dock** (not just the window). Reopen.
 | Sales | **~$58M** and **Thursday / `sales_d4`** (not ~$49M / Wednesday) |
 | Automated test | `testArchitecture405SeatChipsUseDashboardKeysNotGhosts` green |
 | Company tables | Visible page / chrome only — not all 12 cards rebuilt into RAM |
-| THIS SEAT | 5 Star / Pick Path / Prep / Picker chips live when the hero is live. No dashes/zeros from ghost keys. Chips use Healthy/Watch/At Risk washes like Regions. |
+| THIS SEAT | 5 Star / Pick Path / Prep / Picker / Labor chips live when the hero is live. No dashes/zeros from ghost keys. Labor Weeks never dashes while Cost Target is live. Chips use Healthy/Watch/At Risk washes like Regions. |
 | Share Mail | Share pulse → one page **or** multi-select → Send → **Mail stays up**. |
 
 ## QC — iPhone (THIS SEAT)
@@ -42,7 +42,8 @@ SKIP_PULL=1 ALLOW_PHONE=1 ./install-ipad.sh
 4. Pick Path: THIS SEAT shows Path % (~79.7%) and AVG PPH — not Exceptions 0.
 5. Prep Not Ready: THIS SEAT shows PNR % (~2.8%), Goal, Watch — not Not Ready 0 / Orders Due 0 / Avg Late dash. Chips pink/red when At Risk (same as Regions).
 6. Picker: THIS SEAT Shoppers / Healthy / Watch / At Risk match the 27,458 hero — not 0/0/0.
-7. Share Send still presents Mail after the sheet dismisses.
+7. Labor: THIS SEAT Target vs Actual / Cost Tgt / Act Cost match the -0.10% hero. Weeks is a real week id or omitted — never "—".
+8. Share Send still presents Mail after the sheet dismisses.
 
 UDID `676FA816-88AE-59D9-A89D-5C17BFC2DA96` if you target that iPad.
 

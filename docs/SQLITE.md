@@ -24,4 +24,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.405 / 1.0 (731) — Phone THIS SEAT chips use the same pack keys as the section hero and region `dashboardTableValues` (not ghost otp/fill/quality, exception_count, pnr_count). Picker chips chrome-lift when shopper tape is omitted. Chip washes follow Healthy/Watch/At Risk. Share Mail Soft KEEP and Jetsam expand gates unchanged.
+HB-0828.405 / 1.0 (731) — Phone THIS SEAT chips use the same pack keys as the section hero and region `dashboardTableValues` (not ghost otp/fill/quality, exception_count, pnr_count). Labor Weeks reads pack `week` / `recordedOn` on those rows — never an empty week-index dash. Picker chips chrome-lift when shopper tape is omitted. Chip washes follow Healthy/Watch/At Risk. Share Mail Soft KEEP and Jetsam expand gates unchanged.

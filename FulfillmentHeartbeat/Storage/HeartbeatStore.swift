@@ -1512,8 +1512,10 @@ final class HeartbeatStore: ObservableObject {
 
     func laborWeekSpan() -> String {
         let ids = laborWeekIds()
-        guard let first = ids.first, let last = ids.last else { return "—" }
-        return first == last ? first : "\(first) thru \(last)"
+        if let first = ids.first, let last = ids.last {
+            return first == last ? first : "\(first) thru \(last)"
+        }
+        return PulseLaunch.laborSeatWeekSpan(rows: seatRows(for: .labor)) ?? "—"
     }
 
     func laborMarketRow() -> MetricRow? {

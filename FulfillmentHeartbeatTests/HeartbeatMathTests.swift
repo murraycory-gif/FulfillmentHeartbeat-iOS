@@ -5598,6 +5598,54 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(pickerChips.first { $0.label == "At Risk" }?.health, .risk)
         XCTAssertEqual(pickerChips.first { $0.label == "Shoppers" }?.health, .risk)
         XCTAssertFalse(pickerChips.contains { $0.value == "0" || $0.value == "—" })
+
+        let laborLive = MetricRow(
+            section: .labor,
+            division: "California",
+            operationsOM: "A",
+            storeNumber: "12",
+            recordedOn: "202624",
+            payload: [
+                "target_vs_actual_pct": -0.10,
+                "act_cost_pct": 14.0,
+                "cost_trgt_pct": 14.04,
+                "act_cost_dollar": 104_636,
+                "schedule_efficiency_pct": 91,
+            ],
+            textPayload: ["labor_grain": "store", "week": "202624"]
+        )
+        let laborNoWeek = MetricRow(
+            section: .labor,
+            division: "California",
+            operationsOM: "A",
+            storeNumber: "13",
+            payload: [
+                "target_vs_actual_pct": -0.10,
+                "act_cost_pct": 14.0,
+                "cost_trgt_pct": 14.04,
+            ],
+            textPayload: ["labor_grain": "store"]
+        )
+        XCTAssertEqual(PulseLaunch.laborSeatWeekSpan(rows: [laborLive]), "202624")
+        XCTAssertNil(PulseLaunch.laborSeatWeekSpan(rows: [laborNoWeek]))
+        let laborChips = PulseLaunch.seatChipValues(
+            section: .labor,
+            rows: [laborLive],
+            displayedHealth: .good
+        )
+        XCTAssertEqual(laborChips.first { $0.label == "Weeks" }?.value, "202624")
+        XCTAssertEqual(laborChips.first { $0.label == "Cost Tgt" }?.value, "14.04%")
+        XCTAssertEqual(laborChips.first { $0.label == "Target Vs Actual" }?.value, "-0.10%")
+        XCTAssertEqual(laborChips.first { $0.label == "Target Vs Actual" }?.health, .good)
+        XCTAssertFalse(laborChips.contains { $0.label == "Weeks" && $0.value == "—" })
+        let laborDashless = PulseLaunch.seatChipValues(
+            section: .labor,
+            rows: [laborNoWeek],
+            displayedHealth: .good
+        )
+        XCTAssertFalse(laborDashless.contains { $0.label == "Weeks" })
+        XCTAssertEqual(laborDashless.map(\.label), HeartbeatMath.dashboardTableHeaders(.labor))
+        XCTAssertFalse(laborDashless.contains { $0.value == "—" })
     }
 
     func testPromotedPackReloadsInSessionEvenWhenConstrained() {
