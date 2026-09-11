@@ -670,6 +670,25 @@ final class HeartbeatStore: ObservableObject {
         return displayRows(for: section)
     }
 
+    /// Company seat omits shopper tape. Same chrome lift as Share picker buckets.
+    func seatPickerBuckets() -> (shoppers: Int, healthy: Int, watch: Int, risk: Int) {
+        PulseLaunch.pickerShareBuckets(
+            rows: seatRows(for: .pickerScorecard),
+            chromeShoppers: max(
+                cachedPickerBoard.shopperCount,
+                packChrome?.pickerShoppers ?? 0,
+                Int(summary(for: .pickerScorecard).headline ?? 0)
+            ),
+            chromeStrong: max(cachedPickerBoard.strongCount, packChrome?.pickerStrong ?? 0),
+            chromeOpportunity: max(
+                cachedPickerBoard.opportunityCount,
+                packChrome?.pickerOpportunity ?? 0,
+                summary(for: .pickerScorecard).riskCount
+            ),
+            grain: dashboardGrainRows(for: .pickerScorecard)
+        )
+    }
+
     func displayRows(for section: MetricSection) -> [MetricRow] {
         if filters.isActive {
             return rollupStores(for: section)

@@ -1,6 +1,6 @@
 #!/bin/sh
 # Build and open Heartbeat on this Mac (Mac Catalyst). Does not delete the app.
-# Does not pull main. Tip: cursor/command-center-8b-3389 (HB-0828.404 / 730).
+# Does not pull main. Tip: cursor/command-center-8b-3389 (HB-0828.405 / 731).
 #   ./install-mac.sh
 #   CONFIGURATION=Release ./install-mac.sh
 set -eu
@@ -63,6 +63,6 @@ fi
 echo "Opening $APP (replaces the running Mac build; does not delete Documents/Pulse)."
 open -n "$APP" --args || open "$APP"
 echo ""
-echo "Sidebar stamp must read $STAMP  1.0 (730). SHA $SHA."
+echo "Sidebar stamp must read $STAMP  1.0 (731). SHA $SHA."
 echo "If Sales is still ~\$49M / Wednesday, quit Heartbeat from the Dock and reopen — do not delete the app."
 echo "Bundle $BUNDLE_ID"

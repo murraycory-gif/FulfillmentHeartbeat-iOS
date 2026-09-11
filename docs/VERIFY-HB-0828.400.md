@@ -1,7 +1,7 @@
-# HB-0828.404 / 730 — verify (every SharePage)
+# HB-0828.405 / 731 — verify (THIS SEAT chips)
 
 **Tip** `origin/cursor/command-center-8b-3389` · [PR #5](https://github.com/murraycory-gif/FulfillmentHeartbeat-iOS/pull/5)  
-**Stamp** `HB-0828.404  1.0 (730)` · bundle `com.corymurray.FulfillmentHeartbeat`  
+**Stamp** `HB-0828.405  1.0 (731)` · bundle `com.corymurray.FulfillmentHeartbeat`  
 **No TestFlight until this PASSes.** Do not delete the app. Cloud Linux cannot `xcodebuild` or talk to a Mac/iPad (no self-hosted worker registered).
 
 ## CoS first — Mac Catalyst (over existing app)
@@ -17,13 +17,14 @@ Quit Heartbeat from the **Dock** (not just the window). Reopen.
 
 | Check | Pass |
 |---|---|
-| Sidebar stamp | `HB-0828.404  1.0 (730)` |
+| Sidebar stamp | `HB-0828.405  1.0 (731)` |
 | Sales | **~$58M** and **Thursday / `sales_d4`** (not ~$49M / Wednesday) |
-| Automated test | `testStaleCompanySeatIsReplacedByNewerCloudPackWithoutDelete` green |
+| Automated test | `testArchitecture405SeatChipsUseDashboardKeysNotGhosts` green |
 | Company tables | Visible page / chrome only — not all 12 cards rebuilt into RAM |
-| Share Mail | Share pulse → one page **or** multi-select → Send → **Mail stays up**. iPhone Mail: Regions stacked on every page (not clipped). Loss / Missing / Pre-Sub / Picker Healthy / Watch / At Risk match the app, not 0. |
+| THIS SEAT | 5 Star / Pick Path / Prep / Picker chips live when the hero is live. No dashes/zeros from ghost keys. Chips use Healthy/Watch/At Risk washes like Regions. |
+| Share Mail | Share pulse → one page **or** multi-select → Send → **Mail stays up**. |
 
-## QC — iPhone / iPad (primary E2E)
+## QC — iPhone (THIS SEAT)
 
 Keep the **old local company seat**. Install tip **over** the current build.
 
@@ -32,17 +33,16 @@ cd ~/Developer/FulfillmentHeartbeat-iOS
 git fetch origin cursor/command-center-8b-3389
 git checkout cursor/command-center-8b-3389
 git reset --hard origin/cursor/command-center-8b-3389
-SKIP_PULL=1 ./install-ipad.sh                 # iPad
-# SKIP_PULL=1 ALLOW_PHONE=1 ./install-ipad.sh  # iPhone
+SKIP_PULL=1 ALLOW_PHONE=1 ./install-ipad.sh
 ```
 
-1. Confirm stamp **HB-0828.404  1.0 (730)**.
+1. Confirm stamp **HB-0828.405  1.0 (731)**.
 2. **Force-quit.** Reopen. Do **not** delete.
-3. Sales must move **~$49M / Wednesday → ~$58M / Thursday `sales_d4`**.
-4. Lower tables on the **visible** page load. App stays up (no Jetsam / no close).
-5. Background → foreground: Sales stays Thursday.
-6. Clear / District 03 still paint from seat files.
-7. **P0 Share Send:** Mail stays up. Open the recap on **iPhone Mail**: Loss / 5 Star / Missing / Picker Regions cards must be readable (not clipped off the right) whether you sent one page or several. Healthy / Watch / At Risk must match the app.
+3. 5 Star: THIS SEAT shows Rating / Flash / COE / OTT / Pre-Sub / OTH — not On-time / Fill rate / Quality dashes.
+4. Pick Path: THIS SEAT shows Path % (~79.7%) and AVG PPH — not Exceptions 0.
+5. Prep Not Ready: THIS SEAT shows PNR % (~2.8%), Goal, Watch — not Not Ready 0 / Orders Due 0 / Avg Late dash. Chips pink/red when At Risk (same as Regions).
+6. Picker: THIS SEAT Shoppers / Healthy / Watch / At Risk match the 27,458 hero — not 0/0/0.
+7. Share Send still presents Mail after the sheet dismisses.
 
 UDID `676FA816-88AE-59D9-A89D-5C17BFC2DA96` if you target that iPad.
 

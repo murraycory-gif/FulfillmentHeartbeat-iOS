@@ -1549,6 +1549,65 @@ enum PulseLaunch {
     /// Share tiles use live `dashboardActionFlags`, not cached zero bandFlags.
     static func shouldShareLiveActionFlags() -> Bool { true }
 
+    /// Phone THIS SEAT chips use `dashboardTableValues` / picker buckets — never
+    /// ghost keys (`otp_pct`, `fill_rate_pct`, `quality_score`, `exception_count`,
+    /// `pnr_count`, `orders_due`, `avg_late_min`).
+    static func shouldPaintSeatChipsFromDashboardTableValues() -> Bool { true }
+    static func shouldUseGhostSeatChipKeys() -> Bool { false }
+
+    /// Same labels and pack keys as region chips + the section hero.
+    static func seatChipValues(
+        section: MetricSection,
+        rows: [MetricRow],
+        displayedHealth: Health,
+        pickerBuckets: (shoppers: Int, healthy: Int, watch: Int, risk: Int)? = nil
+    ) -> [(label: String, value: String, health: Health)] {
+        if section == .pickerScorecard {
+            let buckets = pickerBuckets ?? HeartbeatMath.pickerStatusCounts(rows)
+            let seat = displayedHealth == .none ? Health.watch : displayedHealth
+            return [
+                ("Shoppers", HeartbeatFormat.num(Double(buckets.shoppers)), seat),
+                ("Healthy", HeartbeatFormat.num(Double(buckets.healthy)), .good),
+                ("Watch", HeartbeatFormat.num(Double(buckets.watch)), buckets.watch == 0 ? .good : .watch),
+                ("At Risk", HeartbeatFormat.num(Double(buckets.risk)), buckets.risk == 0 ? .good : .risk),
+            ]
+        }
+        let scored = HeartbeatMath.dashboardTableValues(section, rows: rows)
+        let fallback: Health
+        if displayedHealth != .none {
+            fallback = displayedHealth
+        } else if scored.health != .none {
+            fallback = scored.health
+        } else if scored.values.contains(where: { $0 != "—" }) {
+            fallback = .good
+        } else {
+            fallback = .none
+        }
+        return zip(HeartbeatMath.dashboardTableHeaders(section), scored.values).map { header, value in
+            (header, value, seatChipHealth(header: header, value: value, fallback: fallback))
+        }
+    }
+
+    /// Healthy / Watch / At Risk counts keep band colors. Other chips follow
+    /// the hero / region tone so THIS SEAT is never flat grey when the page is live.
+    static func seatChipHealth(header: String, value: String, fallback: Health) -> Health {
+        switch header.lowercased() {
+        case "healthy":
+            return .good
+        case "at risk", "below 74":
+            return isZeroChipValue(value) ? .good : .risk
+        case "watch" where !value.contains("%") && !value.contains("–") && !value.contains("-"):
+            return isZeroChipValue(value) ? .good : .watch
+        default:
+            return fallback
+        }
+    }
+
+    static func isZeroChipValue(_ value: String) -> Bool {
+        let trimmed = value.replacingOccurrences(of: ",", with: "")
+        return trimmed == "0" || trimmed == "0.0" || trimmed == "—" || trimmed.isEmpty
+    }
+
     static func pickerShareActionFlags(
         rows: [MetricRow],
         chromeShoppers: Int,
