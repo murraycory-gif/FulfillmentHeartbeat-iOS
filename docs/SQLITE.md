@@ -23,4 +23,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.387 / 1.0 (713) — glance tiles use one health-tinted SF Symbol; District/OM/Store section pages mount exactly one store table
+HB-0828.387 / 1.0 (713) — glance icons; filter→table matrix; no iPad Alerts rail; District stores table once

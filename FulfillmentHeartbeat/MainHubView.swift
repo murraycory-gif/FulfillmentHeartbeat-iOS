@@ -171,6 +171,10 @@ final class HubRouter: ObservableObject {
     }
 
     func toggleAlerts() {
+        guard PulseLaunch.shouldOfferIPadCommandCenterAlertsDrawer() else {
+            alertsOpen = false
+            return
+        }
         var transaction = Transaction()
         transaction.animation = nil
         withTransaction(transaction) {
@@ -271,9 +275,9 @@ struct MainHubView: View {
         .tint(AppTheme.blue)
     }
 
-    /// Full-width Command Center. Pages + Alerts stay hidden until opened.
+    /// Full-width Command Center. Pages drawer on demand. No Alerts rail.
     private var padHub: some View {
-        let drawersOpen = router.sidebarOpen || router.alertsOpen
+        let drawersOpen = router.sidebarOpen
         return detail
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .toolbar(removing: .sidebarToggle)
@@ -301,20 +305,22 @@ struct MainHubView: View {
                     .accessibilityHidden(!router.sidebarOpen)
             }
             .overlay(alignment: .trailing) {
-                CommandCenterAlertsRail(open: { router.open(section: $0) })
-                    .frame(width: 280)
-                    .frame(maxHeight: .infinity)
-                    .background(AppTheme.bg.ignoresSafeArea())
-                    .overlay(alignment: .leading) {
-                        Rectangle()
-                            .fill(AppTheme.cardBorder)
-                            .frame(width: 1)
-                    }
-                    .compositingGroup()
-                    .shadow(color: .black.opacity(router.alertsOpen ? 0.18 : 0), radius: 18, x: -6, y: 0)
-                    .offset(x: router.alertsOpen ? 0 : 300)
-                    .allowsHitTesting(router.alertsOpen)
-                    .accessibilityHidden(!router.alertsOpen)
+                if PulseLaunch.shouldOfferIPadCommandCenterAlertsDrawer() {
+                    CommandCenterAlertsRail(open: { router.open(section: $0) })
+                        .frame(width: 280)
+                        .frame(maxHeight: .infinity)
+                        .background(AppTheme.bg.ignoresSafeArea())
+                        .overlay(alignment: .leading) {
+                            Rectangle()
+                                .fill(AppTheme.cardBorder)
+                                .frame(width: 1)
+                        }
+                        .compositingGroup()
+                        .shadow(color: .black.opacity(router.alertsOpen ? 0.18 : 0), radius: 18, x: -6, y: 0)
+                        .offset(x: router.alertsOpen ? 0 : 300)
+                        .allowsHitTesting(router.alertsOpen)
+                        .accessibilityHidden(!router.alertsOpen)
+                }
             }
             .tint(AppTheme.blue)
     }

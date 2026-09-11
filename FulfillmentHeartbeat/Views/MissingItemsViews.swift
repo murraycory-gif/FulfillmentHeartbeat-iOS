@@ -491,14 +491,17 @@ private enum MissingItemsGrain {
         HubLayout.scopeLabelWidth(district: self == .district)
     }
 
-    static func current(for filters: DashboardFilters) -> MissingItemsGrain? {
-        guard PulseLaunch.shouldMountSectionRollup(filters: filters) else { return nil }
-        switch RollupMarketFill.grain(for: filters) {
-        case .region: return .region
-        case .division: return .division
-        case .district: return .district
-        case .store: return .store
+    init(_ grain: DashScopeGrain) {
+        switch grain {
+        case .region: self = .region
+        case .division: self = .division
+        case .district: self = .district
+        case .store: self = .store
         }
+    }
+
+    static func current(for filters: DashboardFilters) -> MissingItemsGrain? {
+        PulseLaunch.sectionRollupGrains(filters: filters).first.map(MissingItemsGrain.init)
     }
 }
 
@@ -950,6 +953,7 @@ struct MissingItemsRollupTable: View {
     let depts: [MissingItemDept]
     var pageWidth: CGFloat = 1000
     var section: MetricSection = .missingItems
+    var forcedGrain: DashScopeGrain? = nil
     @State private var grain: MissingItemsGrain? = .division
     @State private var summary: [MissingItemsRollupRow] = []
     @State private var sortKey = MissingItemDept.totalKey
@@ -1029,7 +1033,7 @@ struct MissingItemsRollupTable: View {
     }
 
     private func rebuild() {
-        let next = MissingItemsGrain.current(for: store.filters)
+        let next = forcedGrain.map(MissingItemsGrain.init) ?? MissingItemsGrain.current(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
         let source = MissingItemsRollupBuilder.source(from: store.rollupStores(for: section), filters: store.filters)

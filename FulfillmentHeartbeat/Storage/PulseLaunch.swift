@@ -448,17 +448,48 @@ enum PulseLaunch {
         !expanded && !shouldBuildStoreSnapsWhileCollapsed()
     }
 
-    /// Store-row tables / snap rebuilds belong on District, OM, and Store only.
-    /// Company + Region (and division-only) stay summary / higher-grain.
-    static func shouldShowStoreTable(filters: DashboardFilters) -> Bool {
-        !filters.district.isEmpty || !filters.om.isEmpty || !filters.store.isEmpty
+    /// Scorecard seat from the active filter. Most specific chip wins.
+    enum SectionPageSeat: String, Equatable {
+        case company
+        case region
+        case division
+        case district
+        case om
+        case store
     }
 
-    /// Scorecard rollups (Regions / Markets / Districts) belong on Company /
-    /// Region / Division. District / OM / Store already mount the seat store
-    /// table — a `.store` rollup paints a second "Store · N · tap to expand".
+    static func sectionPageSeat(filters: DashboardFilters) -> SectionPageSeat {
+        if !filters.store.isEmpty { return .store }
+        if !filters.om.isEmpty { return .om }
+        if !filters.district.isEmpty { return .district }
+        if !filters.division.isEmpty { return .division }
+        if !filters.region.isEmpty { return .region }
+        return .company
+    }
+
+    /// Filter → tables on every MetricSection detail page.
+    /// Company: Regions + Markets. Region: Markets. Division: Districts + Stores.
+    /// District / OM / Store: Stores once. Never a .store-grain rollup on top.
+    static func sectionRollupGrains(filters: DashboardFilters) -> [DashScopeGrain] {
+        switch sectionPageSeat(filters: filters) {
+        case .company: return [.region, .division]
+        case .region: return [.division]
+        case .division: return [.district]
+        case .district, .om, .store: return []
+        }
+    }
+
+    /// Store-row tables: Division + District + OM + Store. Never Company / Region.
+    static func shouldShowStoreTable(filters: DashboardFilters) -> Bool {
+        switch sectionPageSeat(filters: filters) {
+        case .division, .district, .om, .store: return true
+        case .company, .region: return false
+        }
+    }
+
+    /// Any higher-grain rollup on this scorecard (0–2 tables).
     static func shouldMountSectionRollup(filters: DashboardFilters) -> Bool {
-        !shouldShowStoreTable(filters: filters)
+        !sectionRollupGrains(filters: filters).isEmpty
     }
 
     static func shouldSkipStoreRowRebuild(filters: DashboardFilters, expanded: Bool) -> Bool {
@@ -620,8 +651,11 @@ enum PulseLaunch {
     /// iPad never pins Mac-style triple columns. Rails stay closed until opened.
     static func shouldPinCommandCenterRailsOnIPad() -> Bool { false }
 
-    /// iPad land + port: Pages / Alerts are overlay drawers, not pinned columns.
+    /// iPad land + port: Pages is an overlay drawer. Alerts stay off.
     static func shouldOfferIPadCommandCenterDrawers() -> Bool { true }
+
+    /// No iPad Alerts pop-out / rail — same intent as Mac Alerts off.
+    static func shouldOfferIPadCommandCenterAlertsDrawer() -> Bool { false }
 
     /// Halloween parade removed from Who's looking. Comedy copy + readiness stay.
     static func shouldPlaySeatLoadHalloween() -> Bool { false }

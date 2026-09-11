@@ -417,8 +417,7 @@ struct SalesRollupRow: Identifiable {
 
 enum SalesRollupBuilder {
     static func grain(for filters: DashboardFilters) -> LaborRollupGrain? {
-        guard PulseLaunch.shouldMountSectionRollup(filters: filters) else { return nil }
-        return RollupMarketFill.grain(for: filters)
+        PulseLaunch.sectionRollupGrains(filters: filters).first.map(LaborRollupGrain.init)
     }
 
     static func source(from rows: [MetricRow], filters: DashboardFilters, roster: [String: HeartbeatMath.StoreIdentity] = [:]) -> [MetricRow] {
@@ -735,6 +734,7 @@ private struct SalesMetricLine: View {
 struct SalesRollupTable: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var headerPin: LaborHeaderPin
+    var forcedGrain: LaborRollupGrain? = nil
     @State private var grain: LaborRollupGrain? = .division
     @State private var summary: [SalesRollupRow] = []
     @State private var sortKey = "yoy"
@@ -797,7 +797,7 @@ struct SalesRollupTable: View {
     }
 
     private func rebuild() {
-        let next = SalesRollupBuilder.grain(for: store.filters)
+        let next = forcedGrain ?? SalesRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
         var rows = SalesRollupBuilder.rows(from: store.rollupStores(for: .sales), grain: next)

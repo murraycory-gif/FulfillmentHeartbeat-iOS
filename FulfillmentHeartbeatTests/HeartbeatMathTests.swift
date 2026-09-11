@@ -2248,6 +2248,7 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(PulseLaunch.shouldPinMacCommandCenterAlertsRail())
         XCTAssertFalse(PulseLaunch.shouldPinCommandCenterRailsOnIPad())
         XCTAssertTrue(PulseLaunch.shouldOfferIPadCommandCenterDrawers())
+        XCTAssertFalse(PulseLaunch.shouldOfferIPadCommandCenterAlertsDrawer())
         XCTAssertFalse(PulseLaunch.shouldShowGroceryLoadQuips())
         XCTAssertFalse(PulseLaunch.shouldPlaySeatLoadHalloween())
         XCTAssertTrue(CommandCenterLayout.coversEveryDashboardSection())
@@ -2324,6 +2325,7 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(PulseLaunch.shouldPinMacCommandCenterAlertsRail())
         XCTAssertFalse(PulseLaunch.shouldPinCommandCenterRailsOnIPad())
         XCTAssertTrue(PulseLaunch.shouldOfferIPadCommandCenterDrawers())
+        XCTAssertFalse(PulseLaunch.shouldOfferIPadCommandCenterAlertsDrawer())
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
 
         var company = DashboardFilters()
@@ -2333,7 +2335,7 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(PulseLaunch.shouldShowStoreTable(filters: region))
         var division = DashboardFilters()
         division.division = "NorCal"
-        XCTAssertFalse(PulseLaunch.shouldShowStoreTable(filters: division))
+        XCTAssertTrue(PulseLaunch.shouldShowStoreTable(filters: division))
         var district = DashboardFilters()
         district.district = "03"
         XCTAssertTrue(PulseLaunch.shouldShowStoreTable(filters: district))
@@ -2662,6 +2664,7 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(PulseLaunch.shouldPinMacCommandCenterAlertsRail())
         XCTAssertFalse(PulseLaunch.shouldPinCommandCenterRailsOnIPad())
         XCTAssertTrue(PulseLaunch.shouldOfferIPadCommandCenterDrawers())
+        XCTAssertFalse(PulseLaunch.shouldOfferIPadCommandCenterAlertsDrawer())
         XCTAssertTrue(PulseLaunch.shouldUseCommandCenterHome())
         XCTAssertFalse(PulseLaunch.shouldKeepVisitedScorecardHostsWarm())
         XCTAssertTrue(PulseLaunch.shouldKeepDashboardHostWarm())
@@ -2673,6 +2676,7 @@ final class HeartbeatMathTests: XCTestCase {
     func testArchitecture385CompanyColdOpenNoRoleGateNoToursFilterPaints() {
         XCTAssertEqual(BuildStamp.id, "HB-0828.387")
         XCTAssertFalse(PulseLaunch.shouldPinMacCommandCenterAlertsRail())
+        XCTAssertFalse(PulseLaunch.shouldOfferIPadCommandCenterAlertsDrawer())
         XCTAssertFalse(PulseLaunch.shouldRequireRoleGateOnColdOpen())
         XCTAssertTrue(PulseLaunch.shouldOpenCompanyCommandCenterOnColdOpen())
         XCTAssertFalse(PulseLaunch.shouldShowRoleGatePill())
@@ -2718,6 +2722,58 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseSeatPack.shouldPaintCompanyHubFromPublishedCompanySeat())
         XCTAssertTrue(PulseLaunch.shouldShowStoreTable(filters: district))
         XCTAssertFalse(PulseLaunch.shouldShowStoreTable(filters: DashboardFilters()))
+    }
+
+    func testArchitecture387SectionPageTableMatrixAndNoIPadAlerts() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.387")
+        XCTAssertFalse(PulseLaunch.shouldPinMacCommandCenterAlertsRail())
+        XCTAssertFalse(PulseLaunch.shouldOfferIPadCommandCenterAlertsDrawer())
+        XCTAssertTrue(PulseLaunch.shouldOfferIPadCommandCenterDrawers())
+
+        var company = DashboardFilters()
+        var region = DashboardFilters()
+        region.region = "West"
+        var division = DashboardFilters()
+        division.division = "NorCal"
+        var district = DashboardFilters()
+        district.district = "03"
+        var om = DashboardFilters()
+        om.om = "Jino Arvin"
+        var store = DashboardFilters()
+        store.store = "12"
+
+        XCTAssertEqual(PulseLaunch.sectionPageSeat(filters: company), .company)
+        XCTAssertEqual(PulseLaunch.sectionPageSeat(filters: region), .region)
+        XCTAssertEqual(PulseLaunch.sectionPageSeat(filters: division), .division)
+        XCTAssertEqual(PulseLaunch.sectionPageSeat(filters: district), .district)
+        XCTAssertEqual(PulseLaunch.sectionPageSeat(filters: om), .om)
+        XCTAssertEqual(PulseLaunch.sectionPageSeat(filters: store), .store)
+
+        XCTAssertEqual(PulseLaunch.sectionRollupGrains(filters: company), [.region, .division])
+        XCTAssertEqual(PulseLaunch.sectionRollupGrains(filters: region), [.division])
+        XCTAssertEqual(PulseLaunch.sectionRollupGrains(filters: division), [.district])
+        XCTAssertEqual(PulseLaunch.sectionRollupGrains(filters: district), [])
+        XCTAssertEqual(PulseLaunch.sectionRollupGrains(filters: om), [])
+        XCTAssertEqual(PulseLaunch.sectionRollupGrains(filters: store), [])
+
+        XCTAssertFalse(PulseLaunch.shouldShowStoreTable(filters: company))
+        XCTAssertFalse(PulseLaunch.shouldShowStoreTable(filters: region))
+        XCTAssertTrue(PulseLaunch.shouldShowStoreTable(filters: division))
+        XCTAssertTrue(PulseLaunch.shouldShowStoreTable(filters: district))
+        XCTAssertTrue(PulseLaunch.shouldShowStoreTable(filters: om))
+        XCTAssertTrue(PulseLaunch.shouldShowStoreTable(filters: store))
+
+        XCTAssertTrue(PulseLaunch.shouldMountSectionRollup(filters: company))
+        XCTAssertTrue(PulseLaunch.shouldMountSectionRollup(filters: region))
+        XCTAssertTrue(PulseLaunch.shouldMountSectionRollup(filters: division))
+        XCTAssertFalse(PulseLaunch.shouldMountSectionRollup(filters: district))
+        XCTAssertFalse(PulseLaunch.shouldMountSectionRollup(filters: om))
+        XCTAssertFalse(PulseLaunch.shouldMountSectionRollup(filters: store))
+        XCTAssertNil(SalesRollupBuilder.grain(for: district))
+        XCTAssertEqual(SalesRollupBuilder.grain(for: company), .region)
+        XCTAssertEqual(SalesRollupBuilder.grain(for: region), .division)
+        XCTAssertEqual(SalesRollupBuilder.grain(for: division), .district)
+        XCTAssertFalse(PulseLaunch.shouldSkipStoreRowRebuild(filters: division, expanded: true))
     }
 
     func testSeatPackDistrict03EverySectionStoresEqualsHeartbeatN() throws {

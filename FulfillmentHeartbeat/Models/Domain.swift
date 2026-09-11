@@ -4165,7 +4165,7 @@ enum HeartbeatRole: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
-enum DashScopeGrain: String, Sendable, Equatable {
+enum DashScopeGrain: String, Sendable, Equatable, Hashable {
     case region
     case division
     case district

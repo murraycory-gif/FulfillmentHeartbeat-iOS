@@ -2362,6 +2362,7 @@ struct PickPathStickyStoreHeader: View {
 struct PickPathRollupTable: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var headerPin: LaborHeaderPin
+    var forcedGrain: LaborRollupGrain? = nil
     @State private var grain: LaborRollupGrain? = .division
     @State private var summary: [PickPathRollupRow] = []
     @State private var sortKey = "path"
@@ -2432,7 +2433,7 @@ struct PickPathRollupTable: View {
     }
 
     private func rebuild() {
-        let next = PickPathRollupBuilder.grain(for: store.filters)
+        let next = forcedGrain ?? PickPathRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
         let source = PickPathRollupBuilder.source(from: store.rollupStores(for: .pickPath), filters: store.filters)
@@ -3433,6 +3434,7 @@ struct DynacapStickyStoreHeader: View {
 struct DynacapRollupTable: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var headerPin: LaborHeaderPin
+    var forcedGrain: LaborRollupGrain? = nil
     @State private var grain: LaborRollupGrain? = .division
     @State private var summary: [DynacapRollupRow] = []
     @State private var sortKey = "rate"
@@ -3493,7 +3495,7 @@ struct DynacapRollupTable: View {
     }
 
     private func rebuild() {
-        let next = DynacapRollupBuilder.grain(for: store.filters)
+        let next = forcedGrain ?? DynacapRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
         let source = DynacapRollupBuilder.source(from: store.rollupStores(for: .dynacap), filters: store.filters)
@@ -4289,6 +4291,7 @@ struct PrepStickyStoreHeader: View {
 struct PrepRollupTable: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var headerPin: LaborHeaderPin
+    var forcedGrain: LaborRollupGrain? = nil
     @State private var grain: LaborRollupGrain? = .division
     @State private var summary: [PrepRollupRow] = []
     @State private var sortKey = "pnr"
@@ -4351,7 +4354,7 @@ struct PrepRollupTable: View {
     }
 
     private func rebuild() {
-        let next = PrepRollupBuilder.grain(for: store.filters)
+        let next = forcedGrain ?? PrepRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
         let source = PrepRollupBuilder.source(from: store.rollupStores(for: .prepNotReady), filters: store.filters)
@@ -5034,6 +5037,7 @@ struct FiveStarRollupTable: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var headerPin: LaborHeaderPin
     @Environment(\.horizontalSizeClass) private var sizeClass
+    var forcedGrain: LaborRollupGrain? = nil
     @State private var grain: LaborRollupGrain? = .division
     @State private var summary: [FiveStarRollupRow] = []
     @State private var sortKey = "presub"
@@ -5112,7 +5116,7 @@ struct FiveStarRollupTable: View {
     }
 
     private func rebuild() {
-        let next = FiveStarRollupBuilder.grain(for: store.filters)
+        let next = forcedGrain ?? FiveStarRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
         let source = FiveStarRollupBuilder.source(from: store.rollupStores(for: .fiveStar), filters: store.filters)
@@ -5367,6 +5371,15 @@ struct FiveStarStoreCard: View {
 enum LaborRollupGrain {
     case region, division, district, store
 
+    init(_ grain: DashScopeGrain) {
+        switch grain {
+        case .region: self = .region
+        case .division: self = .division
+        case .district: self = .district
+        case .store: self = .store
+        }
+    }
+
     var title: String {
         switch self {
         case .region: return "Regions"
@@ -5553,8 +5566,7 @@ private struct LaborRollupRow: Identifiable {
 
 private enum LaborRollupBuilder {
     static func grain(for filters: DashboardFilters) -> LaborRollupGrain? {
-        guard PulseLaunch.shouldMountSectionRollup(filters: filters) else { return nil }
-        return RollupMarketFill.grain(for: filters)
+        PulseLaunch.sectionRollupGrains(filters: filters).first.map(LaborRollupGrain.init)
     }
 
     static func source(from all: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
@@ -5987,6 +5999,7 @@ struct LaborMetricHeader: View {
 struct LaborRollupTable: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var headerPin: LaborHeaderPin
+    var forcedGrain: LaborRollupGrain? = nil
     @State private var grain: LaborRollupGrain? = .division
     @State private var summary: [LaborRollupRow] = []
     @State private var sortKey = "tva"
@@ -6051,7 +6064,7 @@ struct LaborRollupTable: View {
     }
 
     private func rebuild() {
-        let next = LaborRollupBuilder.grain(for: store.filters)
+        let next = forcedGrain ?? LaborRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
         let source = LaborRollupBuilder.source(from: store.rollupStores(for: .labor), filters: store.filters)
@@ -7089,6 +7102,7 @@ struct LostRevenueStickyStoreHeader: View {
 struct LostRevenueRollupTable: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var headerPin: LaborHeaderPin
+    var forcedGrain: LaborRollupGrain? = nil
     @State private var grain: LaborRollupGrain? = .division
     @State private var summary: [LostRevenueRollupRow] = []
     @State private var sortKey = "lost"
@@ -7153,7 +7167,7 @@ struct LostRevenueRollupTable: View {
     }
 
     private func rebuild() {
-        let next = LostRevenueRollupBuilder.grain(for: store.filters)
+        let next = forcedGrain ?? LostRevenueRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
         let source = LostRevenueRollupBuilder.source(from: store.rollupStores(for: .lostRevenue), filters: store.filters)
@@ -8121,6 +8135,7 @@ struct ScheduleStickyStoreHeader: View {
 struct ScheduleRollupTable: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var headerPin: LaborHeaderPin
+    var forcedGrain: LaborRollupGrain? = nil
     @State private var grain: LaborRollupGrain? = .division
     @State private var summary: [ScheduleRollupRow] = []
     @State private var sortKey = "efficiency"
@@ -8192,7 +8207,7 @@ struct ScheduleRollupTable: View {
     }
 
     private func rebuild() {
-        let next = ScheduleRollupBuilder.grain(for: store.filters)
+        let next = forcedGrain ?? ScheduleRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
         let source = ScheduleRollupBuilder.source(from: store.rollupStores(for: .scheduleQuality), filters: store.filters)
@@ -8867,6 +8882,7 @@ struct PPHStickyStoreHeader: View {
 struct PPHRollupTable: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var headerPin: LaborHeaderPin
+    var forcedGrain: LaborRollupGrain? = nil
     @State private var grain: LaborRollupGrain? = .division
     @State private var summary: [PPHRollupRow] = []
     @State private var sortKey = "pph"
@@ -8926,7 +8942,7 @@ struct PPHRollupTable: View {
     }
 
     private func rebuild() {
-        let next = PPHRollupBuilder.grain(for: store.filters)
+        let next = forcedGrain ?? PPHRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
         let source = PPHRollupBuilder.source(from: store.rollupStores(for: .pph), filters: store.filters)
@@ -9951,7 +9967,7 @@ struct HubBrandBar: View {
                     }
                 }
                 Spacer(minLength: 8)
-                if PulseLaunch.shouldOfferIPadCommandCenterDrawers(), !HubLayout.isMac {
+                if PulseLaunch.shouldOfferIPadCommandCenterAlertsDrawer(), !HubLayout.isMac {
                     HubNavControl(symbol: "bell.badge", title: "Alerts") {
                         var transaction = Transaction()
                         transaction.animation = nil
