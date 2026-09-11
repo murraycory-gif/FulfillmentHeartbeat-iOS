@@ -743,6 +743,30 @@ enum PulseLaunch {
     /// like a squeezed pad briefing under the chrome).
     static func shouldUsePhoneNativeCommandCenter() -> Bool { true }
 
+    /// HB-0828.397: filter swap paints cached/last-good chrome on the tap,
+    /// then a cancellable thin pack install. Full heavy caches on MainActor
+    /// after every District / OM / Store chip is why phone felt frozen.
+    static func shouldDeferHeavySeatInstallAfterCachedChrome() -> Bool { true }
+
+    /// Keep heroes / glance / last rows until the incoming pack is ready.
+    static func shouldKeepLastGoodSeatUntilIncomingPackReady() -> Bool { true }
+
+    static func shouldUseHeavySeatCachesOnFilterSwap() -> Bool { false }
+
+    static func shouldInstallSeatExpandTablesOnFilterSwap() -> Bool { false }
+
+    /// PhoneCommandCenterHome / NavigationStack stay mounted across filter chips.
+    static func shouldRemountPhoneHubOnFilterSwap() -> Bool { false }
+
+    /// Section SQL `.task` keys on the filter, not seatPaintStamp (stamp fires twice).
+    static func shouldReloadSectionSQLOnSeatPaintStamp() -> Bool { false }
+
+    static var deferredSeatInstallDelayNanoseconds: UInt64 { 16_000_000 }
+
+    static func shouldDelaySectionSQL(seatAlreadyPainted: Bool) -> Bool {
+        shouldDeferSectionSQLUntilAfterChrome() && !seatAlreadyPainted
+    }
+
     /// Home glance never mounts DashScopeStrip / store tables. Expand is a section open.
     static func shouldMountDashCalloutTablesOnHome() -> Bool { false }
 

@@ -1,6 +1,6 @@
 # CoS device PASS before TestFlight
 
-Stamp **HB-0828.396  1.0 (722)**. UDID `676FA816-88AE-59D9-A89D-5C17BFC2DA96`. Force-quit first (Mac: quit Heartbeat from the dock, don’t just close the window). No TF until every line is PASS — **phone dashboard first**: Command Center is a 1-column scroll of readable cards below Pages + Filters + banner, not a squeezed iPad grid. **Recook + republish first** — tip alone does not heal OM_AREA baked into existing sqlite.
+Stamp **HB-0828.397  1.0 (723)**. UDID `676FA816-88AE-59D9-A89D-5C17BFC2DA96`. Force-quit first (Mac: quit Heartbeat from the dock, don’t just close the window). No TF until every line is PASS — **phone dashboard first**: Command Center is a 1-column scroll of readable cards below Pages + Filters + banner. Filter chips (Clear / Region / Market / District / OM / Store) must paint fast — cached chrome first, no long blank. **Recook + republish first** — tip alone does not heal OM_AREA baked into existing sqlite.
 
 Tip 1 — seat-pack plane. Not a grain-gate patch.
 
@@ -10,7 +10,7 @@ Tip 1 — seat-pack plane. Not a grain-gate patch.
 3. **Every MetricSection** Stores footer live (same as Sales): Loss / 5 Star / Labor / Dynacap / PPH / Missing / Schedule / Pick Path / Picker — **not** grey empty “Stores”. HubStoreCard rows = Heartbeat **20**.
 4. Picker Healthy / Watch / At Risk tiles match the seat dropdown. Shoppers are District 03 only.
 5. Clear → `swapToSeatPack(.company)` / `packs/seat/company`. Cached chrome first. Filter pills same plane — snappy bounce, no remount. Regions **4**. New seat = swap again, no merge.
-6. iPad stays cool; dashboard scroll snappy. Stamp **HB-0828.396  1.0 (722)**. Mac + iPad: **no Alerts rail / pop-out**. Glance tiles: **blue title banner**, bigger title, **centered** health-tinted icon — no spark bars. No Dashboard back chevron. District (and OM / Store) section pages: **exactly one** "Store · N stores · tap to expand" — never two stacked.
+6. iPad stays cool; dashboard scroll snappy. Stamp **HB-0828.397  1.0 (723)**. Mac + iPad: **no Alerts rail / pop-out**. Glance tiles: **blue title banner**, bigger title, **centered** health-tinted icon — no spark bars. No Dashboard back chevron. District (and OM / Store) section pages: **exactly one** "Store · N stores · tap to expand" — never two stacked.
 7. Missing seat object (airplane / unpublished grain) **fails** the hub — does not invent a pack from `current.sqlite`.
 8. Command Center: 3 navy heroes + real glance tiles. Mac: pinned Pages + center, **no Alerts column**. iPad land/port: **full-width center**; Pages drawer only — **no Alerts button or rail**.
 9. Load screen: heart + progress. **No** rotisserie / grocery one-liners.

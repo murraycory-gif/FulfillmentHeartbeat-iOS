@@ -236,13 +236,15 @@ struct SectionDetailView: View {
             visible: router.current,
             pushed: router.pushedSection,
             section: section
-        ) + "-\(store.filters.summary)-\(store.seatPaintStamp)") {
+        ) + (PulseLaunch.shouldReloadSectionSQLOnSeatPaintStamp()
+             ? "-\(store.filters.summary)-\(store.seatPaintStamp)"
+             : "-\(store.filters.summary)")) {
             guard PulseLaunch.shouldLoadSection(
                 visible: router.current,
                 section: section,
                 pushed: router.pushedSection
             ) else { return }
-            if PulseLaunch.shouldDeferSectionSQLUntilAfterChrome() {
+            if PulseLaunch.shouldDelaySectionSQL(seatAlreadyPainted: store.seatPaintStamp > 0) {
                 await Task.yield()
                 try? await Task.sleep(nanoseconds: PulseLaunch.pageSectionLoadDelayNanoseconds)
                 guard PulseLaunch.shouldLoadSection(

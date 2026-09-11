@@ -97,6 +97,7 @@ final class HeartbeatStore: ObservableObject {
     private var laborWeeksByStore: [String: [MetricRow]] = [:]
     private var unfilteredPulse: FilterPulse?
     private var refilterTask: Task<Void, Never>?
+    private var seatInstallTask: Task<Void, Never>?
     private var grainPaintTask: Task<Void, Never>?
     private var expandFillTask: Task<Void, Never>?
     private var pageOnlyTask: Task<Void, Never>?
@@ -2241,6 +2242,7 @@ final class HeartbeatStore: ObservableObject {
     /// Always paints Command Center or sets `errorMessage`. Never silent no-op.
     @discardableResult
     private func swapToSeatPack(_ key: PulseSeatPack.Key) async -> Bool {
+        seatInstallTask?.cancel()
         guard PulseSeatPack.shouldPaintHubFromActiveSeatSQLite() else {
             failSeatSwap(key)
             return false
@@ -2277,11 +2279,18 @@ final class HeartbeatStore: ObservableObject {
         case .paintCachedThenSwap:
             if let chrome = cached {
                 applySeatChrome(chrome, key: key)
+                activeSeatKey = key
+                activePackURL = dest
+                rememberSeatChrome(key)
                 publishSeatPaint()
             }
             guard localUsable else {
                 failSeatSwap(key)
                 return false
+            }
+            if PulseLaunch.shouldDeferHeavySeatInstallAfterCachedChrome() {
+                scheduleDeferredSeatInstall(key, dest: dest)
+                return true
             }
             installed = await installPublishedSeatPack(key, dest: dest, keepChrome: true)
         case .installLocalPack:
@@ -2289,7 +2298,11 @@ final class HeartbeatStore: ObservableObject {
                 failSeatSwap(key)
                 return false
             }
-            installed = await installPublishedSeatPack(key, dest: dest, keepChrome: false)
+            installed = await installPublishedSeatPack(
+                key,
+                dest: dest,
+                keepChrome: PulseLaunch.shouldKeepLastGoodSeatUntilIncomingPackReady()
+            )
         case .downloadMissingPack:
             if !PulseLaunch.shouldRedownloadUsableSeatPack(), localUsable {
                 installed = await installPublishedSeatPack(key, dest: dest, keepChrome: cached != nil)
@@ -2306,7 +2319,11 @@ final class HeartbeatStore: ObservableObject {
                     failSeatSwap(key)
                     return false
                 }
-                installed = await installPublishedSeatPack(key, dest: dest, keepChrome: false)
+                installed = await installPublishedSeatPack(
+                    key,
+                    dest: dest,
+                    keepChrome: PulseLaunch.shouldKeepLastGoodSeatUntilIncomingPackReady()
+                )
             }
         }
         guard installed else {
@@ -2330,7 +2347,20 @@ final class HeartbeatStore: ObservableObject {
     private func publishSeatPaint() {
         guard PulseLaunch.shouldPublishCommandCenterAfterSeatSwap() else { return }
         seatPaintStamp += 1
-        objectWillChange.send()
+    }
+
+    private func scheduleDeferredSeatInstall(_ key: PulseSeatPack.Key, dest: URL) {
+        seatInstallTask?.cancel()
+        let generation = paintGeneration
+        seatInstallTask = Task { @MainActor in
+            await Task.yield()
+            try? await Task.sleep(nanoseconds: PulseLaunch.deferredSeatInstallDelayNanoseconds)
+            guard !Task.isCancelled, self.acceptPaint(generation) else { return }
+            let ok = await self.installPublishedSeatPack(key, dest: dest, keepChrome: true)
+            guard ok, !Task.isCancelled, self.acceptPaint(generation) else { return }
+            self.publishSeatPaint()
+            self.refreshFilterOptions()
+        }
     }
 
     /// Retired Clear primary. Company is a seat pack like District.
@@ -2369,34 +2399,68 @@ final class HeartbeatStore: ObservableObject {
         dest: URL,
         keepChrome: Bool
     ) async -> Bool {
-        if !PulseSeatPack.shouldMergeSeatWithCompanyOnSwap() {
+        if !PulseSeatPack.shouldMergeSeatWithCompanyOnSwap(),
+           !PulseLaunch.shouldKeepLastGoodSeatUntilIncomingPackReady() {
             wipeWarehouseForPackSwap(keepChrome: keepChrome)
         }
         activeSeatKey = key
         activePackURL = dest
-        guard let pack = try? PulseSQLite.read(from: dest) else { return false }
+        guard let pack = await Self.readSeatPack(at: dest) else { return false }
+        guard !Task.isCancelled else { return false }
         if let chrome = pack.chrome {
             applySeatChrome(chrome, key: key)
-            publishSeatPaint()
         }
         guard !Task.isCancelled else { return false }
-        let caches = PulseCaches.build(
-            rows: pack.rows,
-            filters: key.filters,
-            uploads: pack.uploads,
-            heavy: true,
-            grain: key.dashboardGrain
+        let caches = await Self.buildSeatCaches(
+            pack: pack,
+            key: key,
+            heavy: PulseLaunch.shouldUseHeavySeatCachesOnFilterSwap()
         )
+        guard !Task.isCancelled else { return false }
         hydrating = true
         install(caches)
         hydrating = false
         usingPackChrome = pack.chrome != nil
         seeded = true
         lockPickerDashboard()
-        installSeatExpandTables()
+        if PulseLaunch.shouldInstallSeatExpandTablesOnFilterSwap() {
+            installSeatExpandTables()
+        } else {
+            fillExpandTablesSoon()
+        }
         rememberSeatChrome(key)
-        PulseSeatPack.evictSeatCache(root: rootURL, keeping: key)
+        let root = rootURL
+        Task.detached(priority: .utility) {
+            PulseSeatPack.evictSeatCache(root: root, keeping: key)
+        }
         return true
+    }
+
+    private static func readSeatPack(at dest: URL) async -> PulseSQLite.Pack? {
+        let path = dest.path
+        return await Task.detached(priority: .userInitiated) {
+            try? PulseSQLite.read(from: URL(fileURLWithPath: path))
+        }.value
+    }
+
+    private static func buildSeatCaches(
+        pack: PulseSQLite.Pack,
+        key: PulseSeatPack.Key,
+        heavy: Bool
+    ) async -> PulseCaches {
+        let rows = pack.rows
+        let uploads = pack.uploads
+        let filters = key.filters
+        let grain = key.dashboardGrain
+        return await Task.detached(priority: .userInitiated) {
+            PulseCaches.build(
+                rows: rows,
+                filters: filters,
+                uploads: uploads,
+                heavy: heavy,
+                grain: grain
+            )
+        }.value
     }
 
     /// Field iPad and Mac both read the published company seat object.
@@ -3486,6 +3550,7 @@ final class HeartbeatStore: ObservableObject {
 
     private func applyFilters() {
         refilterTask?.cancel()
+        seatInstallTask?.cancel()
         grainPaintTask?.cancel()
         pageOnlyTask?.cancel()
         expandFillTask?.cancel()
