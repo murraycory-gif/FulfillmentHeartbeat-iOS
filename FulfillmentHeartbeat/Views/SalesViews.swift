@@ -270,93 +270,6 @@ private struct OverviewSalesColumns: View {
     }
 }
 
-struct SalesPack {
-    let sales: Double?
-    let yoy: Double?
-    let orders: Double?
-    let ordersYoy: Double?
-    let aos: Double?
-    let aiv: Double?
-    let items: Double?
-    let ipt: Double?
-    let hd: Double?
-    let dug: Double?
-    let health: Health
-
-    init(_ row: MetricRow, prefix: String = "sales_") {
-        if prefix == "sales_" {
-            let week = row.number("sales_dollars")
-            let days = HeartbeatMath.salesHeadlineDollars(row)
-            sales = max(week ?? 0, days) == 0 ? week : max(week ?? 0, days)
-        } else {
-            sales = row.number(prefix + "dollars")
-        }
-        yoy = row.number(prefix + "yoy_pct")
-        orders = row.number(prefix + "orders")
-        ordersYoy = row.number(prefix + "orders_yoy_pct")
-        aos = row.number(prefix + "aos") ?? row.number(prefix + "aov")
-        aiv = row.number(prefix + "aiv")
-        items = row.number(prefix + "items")
-        ipt = row.number(prefix + "ipt")
-        hd = row.number(prefix + "hd_orders")
-        dug = row.number(prefix + "dug_orders")
-        health = HeartbeatMath.salesHealth(planPct: nil, yoy: yoy)
-    }
-
-    /// Company math: sum $, sum orders, sum items. YoY is this-year vs last-year, not an average of store %.
-    /// AOS = $/orders. AIV = $/items. Items/txn = items/orders.
-    init(rows: [MetricRow]) {
-        let sales = rows.reduce(0) { $0 + HeartbeatMath.salesHeadlineDollars($1) }
-        let orders = rows.reduce(0) { $0 + HeartbeatMath.salesOrders($1) }
-        let items = rows.reduce(0) { $0 + HeartbeatMath.salesItems($1) }
-        let hd = rows.compactMap { $0.number("sales_hd_orders") }.reduce(0, +)
-        let dug = rows.compactMap { $0.number("sales_dug_orders") }.reduce(0, +)
-        self.sales = sales
-        self.orders = orders
-        self.items = items
-        self.hd = hd
-        self.dug = dug
-        self.yoy = HeartbeatMath.salesRollupYoY(
-            current: rows.map { HeartbeatMath.salesHeadlineDollars($0) },
-            yoyPct: rows.map { $0.number("sales_yoy_pct") }
-        )
-        self.aos = orders > 0 ? sales / orders : nil
-        self.aiv = items > 0 ? sales / items : nil
-        self.ipt = orders > 0 ? items / orders : nil
-        self.ordersYoy = HeartbeatMath.salesRollupYoY(
-            current: rows.map { HeartbeatMath.salesOrders($0) },
-            yoyPct: rows.map { $0.number("sales_orders_yoy_pct") }
-        )
-        self.health = HeartbeatMath.salesHealth(planPct: nil, yoy: yoy)
-    }
-
-    init(
-        sales: Double?,
-        yoy: Double?,
-        orders: Double?,
-        ordersYoy: Double?,
-        aos: Double?,
-        aiv: Double?,
-        items: Double?,
-        ipt: Double?,
-        hd: Double?,
-        dug: Double?,
-        health: Health
-    ) {
-        self.sales = sales
-        self.yoy = yoy
-        self.orders = orders
-        self.ordersYoy = ordersYoy
-        self.aos = aos
-        self.aiv = aiv
-        self.items = items
-        self.ipt = ipt
-        self.hd = hd
-        self.dug = dug
-        self.health = health
-    }
-}
-
 struct OverviewSalesPhoneCard: View {
     let label: String
     var count: Int? = nil
@@ -381,13 +294,6 @@ struct OverviewSalesPhoneCard: View {
             health: cardHealth
         )
     }
-}
-
-struct SalesRollupRow: Identifiable {
-    var id: String { label }
-    let label: String
-    let storeCount: Int
-    let pack: SalesPack
 }
 
 enum SalesRollupBuilder {

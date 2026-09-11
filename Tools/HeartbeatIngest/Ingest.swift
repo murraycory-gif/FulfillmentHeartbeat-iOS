@@ -11,8 +11,8 @@ enum HeartbeatIngest {
         let xlsx = URL(fileURLWithPath: args[1])
         let sqlite = URL(fileURLWithPath: args[2])
         let data = try Data(contentsOf: xlsx)
-        guard data.count > 1_000 else {
-            fputs("Workbook is empty.\n", stderr)
+        guard data.count >= 1_000_000 else {
+            fputs("Workbook is too small (\(data.count) bytes). Need Heartbeat Daily Report.xlsx >= 1MB.\n", stderr)
             exit(1)
         }
         print("Cooking \(xlsx.lastPathComponent) (\(data.count) bytes)…")

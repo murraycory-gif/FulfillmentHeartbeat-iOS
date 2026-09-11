@@ -114,14 +114,14 @@ struct PulseDashChrome: Codable {
 
 enum PulseLayoutCap {
     static var grainCap: Int {
-        #if canImport(UIKit)
+        #if canImport(UIKit) && !HEARTBEAT_INGEST
         return HubLayout.grainCap
         #else
         return 24
         #endif
     }
     static var storeGrainCap: Int {
-        #if canImport(UIKit)
+        #if canImport(UIKit) && !HEARTBEAT_INGEST
         return HubLayout.storeGrainCap
         #else
         return 50

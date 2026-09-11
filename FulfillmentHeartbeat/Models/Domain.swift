@@ -221,6 +221,198 @@ enum MetricSection: String, CaseIterable, Identifiable, Codable, Hashable {
     }
 }
 
+/// Hub pages. Lives here so the kitchen can compile PulseLaunch without SwiftUI.
+enum HubDestination: String, CaseIterable, Identifiable, Hashable {
+    case dashboard
+    case fiveStar
+    case pickPath
+    case prepNotReady
+    case dynacap
+    case scheduleQuality
+    case pph
+    case labor
+    case pickerScorecard
+    case sales
+    case lostRevenue
+    case missingItems
+    case preSubOOS
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .dashboard: return "Dashboard"
+        case .fiveStar: return MetricSection.fiveStar.title
+        case .pickPath: return MetricSection.pickPath.title
+        case .prepNotReady: return MetricSection.prepNotReady.title
+        case .dynacap: return MetricSection.dynacap.title
+        case .scheduleQuality: return MetricSection.scheduleQuality.title
+        case .pph: return MetricSection.pph.title
+        case .labor: return MetricSection.labor.title
+        case .pickerScorecard: return MetricSection.pickerScorecard.title
+        case .sales: return MetricSection.sales.bannerTitle
+        case .lostRevenue: return "Loss Revenue ScoreCard"
+        case .missingItems: return MetricSection.missingItems.bannerTitle
+        case .preSubOOS: return MetricSection.preSubOOS.bannerTitle
+        }
+    }
+
+    var symbol: String {
+        switch self {
+        case .dashboard: return "square.grid.2x2.fill"
+        case .fiveStar: return MetricSection.fiveStar.symbol
+        case .pickPath: return MetricSection.pickPath.symbol
+        case .prepNotReady: return MetricSection.prepNotReady.symbol
+        case .dynacap: return MetricSection.dynacap.symbol
+        case .scheduleQuality: return MetricSection.scheduleQuality.symbol
+        case .pph: return MetricSection.pph.symbol
+        case .labor: return MetricSection.labor.symbol
+        case .pickerScorecard: return MetricSection.pickerScorecard.symbol
+        case .sales: return MetricSection.sales.symbol
+        case .lostRevenue: return MetricSection.lostRevenue.symbol
+        case .missingItems: return MetricSection.missingItems.symbol
+        case .preSubOOS: return MetricSection.preSubOOS.symbol
+        }
+    }
+
+    var section: MetricSection? {
+        switch self {
+        case .fiveStar: return .fiveStar
+        case .pickPath: return .pickPath
+        case .prepNotReady: return .prepNotReady
+        case .dynacap: return .dynacap
+        case .scheduleQuality: return .scheduleQuality
+        case .pph: return .pph
+        case .labor: return .labor
+        case .pickerScorecard: return .pickerScorecard
+        case .sales: return .sales
+        case .lostRevenue: return .lostRevenue
+        case .missingItems: return .missingItems
+        case .preSubOOS: return .preSubOOS
+        case .dashboard: return nil
+        }
+    }
+
+    static func from(section: MetricSection) -> HubDestination {
+        switch section {
+        case .fiveStar: return .fiveStar
+        case .pickPath, .pickPathPicker: return .pickPath
+        case .prepNotReady: return .prepNotReady
+        case .dynacap: return .dynacap
+        case .scheduleQuality: return .scheduleQuality
+        case .pph: return .pph
+        case .labor: return .labor
+        case .pickerScorecard: return .pickerScorecard
+        case .sales: return .sales
+        case .lostRevenue: return .lostRevenue
+        case .missingItems: return .missingItems
+        case .preSubOOS, .preSubOOSItem: return .preSubOOS
+        case .aisleMapper: return .pickPath
+        case .storeRoster: return .dashboard
+        }
+    }
+
+    static var sectionItems: [HubDestination] { [.dashboard, .sales, .lostRevenue, .missingItems, .fiveStar, .preSubOOS, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pickerScorecard, .pph, .labor] }
+    static var settingsItems: [HubDestination] { [] }
+    static var primaryTabs: [HubDestination] { [.dashboard] }
+    static var metricItems: [HubDestination] { [.sales, .lostRevenue, .missingItems, .fiveStar, .preSubOOS, .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pickerScorecard, .pph, .labor] }
+}
+
+/// Sales expand math. Lives here so the kitchen can compile PulseLaunch without SwiftUI.
+struct SalesPack {
+    let sales: Double?
+    let yoy: Double?
+    let orders: Double?
+    let ordersYoy: Double?
+    let aos: Double?
+    let aiv: Double?
+    let items: Double?
+    let ipt: Double?
+    let hd: Double?
+    let dug: Double?
+    let health: Health
+
+    init(_ row: MetricRow, prefix: String = "sales_") {
+        if prefix == "sales_" {
+            let week = row.number("sales_dollars")
+            let days = HeartbeatMath.salesHeadlineDollars(row)
+            sales = max(week ?? 0, days) == 0 ? week : max(week ?? 0, days)
+        } else {
+            sales = row.number(prefix + "dollars")
+        }
+        yoy = row.number(prefix + "yoy_pct")
+        orders = row.number(prefix + "orders")
+        ordersYoy = row.number(prefix + "orders_yoy_pct")
+        aos = row.number(prefix + "aos") ?? row.number(prefix + "aov")
+        aiv = row.number(prefix + "aiv")
+        items = row.number(prefix + "items")
+        ipt = row.number(prefix + "ipt")
+        hd = row.number(prefix + "hd_orders")
+        dug = row.number(prefix + "dug_orders")
+        health = HeartbeatMath.salesHealth(planPct: nil, yoy: yoy)
+    }
+
+    /// Company math: sum $, sum orders, sum items. YoY is this-year vs last-year, not an average of store %.
+    /// AOS = $/orders. AIV = $/items. Items/txn = items/orders.
+    init(rows: [MetricRow]) {
+        let sales = rows.reduce(0) { $0 + HeartbeatMath.salesHeadlineDollars($1) }
+        let orders = rows.reduce(0) { $0 + HeartbeatMath.salesOrders($1) }
+        let items = rows.reduce(0) { $0 + HeartbeatMath.salesItems($1) }
+        let hd = rows.compactMap { $0.number("sales_hd_orders") }.reduce(0, +)
+        let dug = rows.compactMap { $0.number("sales_dug_orders") }.reduce(0, +)
+        self.sales = sales
+        self.orders = orders
+        self.items = items
+        self.hd = hd
+        self.dug = dug
+        self.yoy = HeartbeatMath.salesRollupYoY(
+            current: rows.map { HeartbeatMath.salesHeadlineDollars($0) },
+            yoyPct: rows.map { $0.number("sales_yoy_pct") }
+        )
+        self.aos = orders > 0 ? sales / orders : nil
+        self.aiv = items > 0 ? sales / items : nil
+        self.ipt = orders > 0 ? items / orders : nil
+        self.ordersYoy = HeartbeatMath.salesRollupYoY(
+            current: rows.map { HeartbeatMath.salesOrders($0) },
+            yoyPct: rows.map { $0.number("sales_orders_yoy_pct") }
+        )
+        self.health = HeartbeatMath.salesHealth(planPct: nil, yoy: yoy)
+    }
+
+    init(
+        sales: Double?,
+        yoy: Double?,
+        orders: Double?,
+        ordersYoy: Double?,
+        aos: Double?,
+        aiv: Double?,
+        items: Double?,
+        ipt: Double?,
+        hd: Double?,
+        dug: Double?,
+        health: Health
+    ) {
+        self.sales = sales
+        self.yoy = yoy
+        self.orders = orders
+        self.ordersYoy = ordersYoy
+        self.aos = aos
+        self.aiv = aiv
+        self.items = items
+        self.ipt = ipt
+        self.hd = hd
+        self.dug = dug
+        self.health = health
+    }
+}
+
+struct SalesRollupRow: Identifiable {
+    var id: String { label }
+    let label: String
+    let storeCount: Int
+    let pack: SalesPack
+}
+
 enum MissingItemDept: String, CaseIterable, Identifiable, Hashable {
     case grocery = "mi_grocery"
     case alcohol = "mi_alcohol"

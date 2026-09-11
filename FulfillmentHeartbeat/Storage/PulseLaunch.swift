@@ -592,7 +592,8 @@ enum PulseLaunch {
     static func shouldTintPhonePagesIconsWithHealth() -> Bool { true }
 
     /// Apple HIG ~44×44pt minimum on phone chrome. Mac / iPad keep their own sizes.
-    static func phoneMinimumHitTarget() -> CGFloat { HubLayout.phoneHitTarget }
+    /// Literal 44 — kitchen copies this file and must not import HubLayout / SwiftUI.
+    static func phoneMinimumHitTarget() -> CGFloat { 44 }
 
     /// Markets/Regions never invent Unassigned from non-roster noise (Week 27: 21 / no %).
     /// Cooked Excel roster has 0 blank MARKET. Honest Unassigned only for roster stores

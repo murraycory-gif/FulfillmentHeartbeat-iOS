@@ -45,28 +45,27 @@ jobs:
             echo "skip=1" >> "$GITHUB_ENV"
             exit 0
           fi
-          curl -sS -L -o /tmp/daily.xlsx \
+          # Authenticated object URL — public path can return an empty/tiny file.
+          CODE=$(curl -sS -L -o /tmp/daily.xlsx -w "%{http_code}" \
             -H "Authorization: Bearer $KEY" -H "apikey: $KEY" \
-            "$PROJECT/storage/v1/object/public/heartbeat-packs/Heartbeat%20Daily%20Report.xlsx"
+            "$PROJECT/storage/v1/object/heartbeat-packs/Heartbeat%20Daily%20Report.xlsx")
+          if [ "$CODE" != "200" ]; then
+            echo "Workbook download failed ($CODE)."
+            exit 1
+          fi
+          BYTES=$(wc -c < /tmp/daily.xlsx | tr -d ' ')
           ls -l /tmp/daily.xlsx
+          if [ "$BYTES" -lt 1048576 ]; then
+            echo "Workbook too small ($BYTES bytes). Need authenticated Heartbeat Daily Report.xlsx >= 1MB."
+            exit 1
+          fi
 
       - name: Build kitchen
         if: env.skip != '1'
         run: |
           set -euo pipefail
-          INGEST=Tools/HeartbeatIngest
-          mkdir -p "$INGEST/Sources"
-          cp FulfillmentHeartbeat/Models/Domain.swift "$INGEST/Sources/"
-          cp FulfillmentHeartbeat/Storage/WorkbookParser.swift "$INGEST/Sources/"
-          cp FulfillmentHeartbeat/Storage/PulseSQLite.swift "$INGEST/Sources/"
-          cp FulfillmentHeartbeat/Storage/PulseCaches.swift "$INGEST/Sources/"
-          cp FulfillmentHeartbeat/Storage/PulseQuery.swift "$INGEST/Sources/"
-          cp FulfillmentHeartbeat/Storage/PulseLaunch.swift "$INGEST/Sources/"
-          cp FulfillmentHeartbeat/Storage/PulseSeatPack.swift "$INGEST/Sources/"
-          cp FulfillmentHeartbeat/BuildStamp.swift "$INGEST/Sources/"
-          cp Tools/HeartbeatIngest/Ingest.swift "$INGEST/Sources/"
-          cp Tools/HeartbeatIngest/RollupMarketFill.swift "$INGEST/Sources/"
-          cd "$INGEST"
+          Tools/HeartbeatIngest/prepare-sources.sh
+          cd Tools/HeartbeatIngest
           swift build -c release
 
       - name: Cook sqlite pack

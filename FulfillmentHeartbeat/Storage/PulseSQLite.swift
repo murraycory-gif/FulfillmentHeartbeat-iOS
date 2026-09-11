@@ -106,7 +106,7 @@ enum PulseSQLite {
         }
         defer { sqlite3_close(db) }
 
-        #if canImport(UIKit)
+        #if canImport(UIKit) && !HEARTBEAT_INGEST
         let lowMemory = HubLayout.lightLaunch
         #else
         let lowMemory = false

@@ -16,4 +16,9 @@ enum RollupMarketFill {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? "" : trimmed
     }
+
+    /// Same rule as the app helper. Domain.swift hides ignored / Unassigned at cook.
+    static func hidesUnassignedMarket(_ key: String) -> Bool {
+        MarketRegion.isIgnoredDivisionToken(key)
+    }
 }
