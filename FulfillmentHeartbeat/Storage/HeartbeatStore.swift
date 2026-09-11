@@ -644,8 +644,14 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func summary(for section: MetricSection) -> SectionSummary {
-        cachedSummaries.first { $0.section == section }
+        let painted = cachedSummaries.first { $0.section == section }
             ?? HeartbeatMath.summarize(section, rows: displayRows(for: section), upload: upload(for: section))
+        guard !filters.isActive else { return painted }
+        return PulseLaunch.companyCommandCenterCard(
+            painted,
+            chrome: packChrome,
+            rosterStores: roster.count
+        )
     }
 
     func upload(for section: MetricSection) -> UploadRecord? {
@@ -4515,6 +4521,15 @@ final class HeartbeatStore: ObservableObject {
         }
         fillExpandTablesSoon()
         lockPickerDashboard()
+        pinCompanyCommandCenterChrome()
+    }
+
+    /// Company Command Center reads pack chrome + roster gold. No picker stream.
+    private func pinCompanyCommandCenterChrome() {
+        guard !filters.isActive else { return }
+        cachedSummaries = cachedSummaries.map {
+            PulseLaunch.companyCommandCenterCard($0, chrome: packChrome, rosterStores: roster.count)
+        }
     }
 
     /// Pack chrome already has live expand numbers. Seed them on the first
@@ -4668,6 +4683,7 @@ final class HeartbeatStore: ObservableObject {
            let chrome = packChrome {
             seedPickerGrainFromChrome(chrome)
         }
+        pinCompanyCommandCenterChrome()
     }
 
     private func upsertPickerSummary(_ summary: SectionSummary) {

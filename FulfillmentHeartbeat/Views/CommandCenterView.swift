@@ -108,6 +108,18 @@ enum CommandCenterLayout {
         return card.headlineText
     }
 
+    /// Empty chrome stays empty. Never paint `.none` as Healthy when the
+    /// headline or store count is still 0 (company Picker 0 / Healthy reject).
+    static func displayedHealth(_ card: SectionSummary) -> Health {
+        if card.health == .none, (card.headline ?? 0) == 0 || card.storeCount == 0 {
+            return .none
+        }
+        if card.health == .none {
+            return .none
+        }
+        return card.health
+    }
+
     static func barFraction(_ card: SectionSummary) -> CGFloat {
         switch card.health {
         case .good: return 0.92
@@ -251,7 +263,7 @@ struct CommandCenterHeroTile: View {
                         .font(AppTheme.rounded(.subheadline, weight: .bold))
                         .foregroundStyle(Color.white.opacity(0.92))
                     Spacer(minLength: 4)
-                    HealthBadge(health: card.health == .none ? .good : card.health, prominent: true, compact: true)
+                    HealthBadge(health: CommandCenterLayout.displayedHealth(card), prominent: true, compact: true)
                 }
                 Text(CommandCenterLayout.compactValue(card))
                     .font(AppTheme.rounded(size: 26, weight: .bold).monospacedDigit())
@@ -274,7 +286,7 @@ struct CommandCenterHeroTile: View {
             .background(AppTheme.blue, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(CommandCenterLayout.glanceTitle(card.section)), \(CommandCenterLayout.compactValue(card)), \(card.health.label), Stores \(card.storeCount)")
+        .accessibilityLabel("\(CommandCenterLayout.glanceTitle(card.section)), \(CommandCenterLayout.compactValue(card)), \(CommandCenterLayout.displayedHealth(card).label), Stores \(card.storeCount)")
     }
 }
 
@@ -291,7 +303,7 @@ struct CommandCenterGlanceTile: View {
                         .foregroundStyle(AppTheme.textSecondary)
                         .lineLimit(1)
                     Spacer(minLength: 4)
-                    HealthBadge(health: card.health == .none ? .good : card.health, compact: true)
+                    HealthBadge(health: CommandCenterLayout.displayedHealth(card), compact: true)
                 }
                 Text(CommandCenterLayout.compactValue(card))
                     .font(AppTheme.rounded(size: 24, weight: .bold).monospacedDigit())
@@ -300,7 +312,7 @@ struct CommandCenterGlanceTile: View {
                     .minimumScaleFactor(0.5)
                 CommandCenterSpark(
                     heights: CommandCenterLayout.sparkHeights(card),
-                    health: card.health
+                    health: CommandCenterLayout.displayedHealth(card)
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -313,7 +325,7 @@ struct CommandCenterGlanceTile: View {
             )
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(CommandCenterLayout.glanceTitle(card.section)), \(CommandCenterLayout.compactValue(card)), \(card.health.label)")
+        .accessibilityLabel("\(CommandCenterLayout.glanceTitle(card.section)), \(CommandCenterLayout.compactValue(card)), \(CommandCenterLayout.displayedHealth(card).label)")
     }
 }
 
@@ -329,7 +341,7 @@ struct CommandCenterSpark: View {
             HStack(alignment: .bottom, spacing: gap) {
                 ForEach(Array(bars.enumerated()), id: \.offset) { _, fraction in
                     RoundedRectangle(cornerRadius: 2, style: .continuous)
-                        .fill(AppTheme.healthInk(health == .none ? .good : health))
+                        .fill(AppTheme.healthInk(health))
                         .frame(width: width, height: max(6, geo.size.height * min(max(fraction, 0.12), 1)))
                 }
             }
@@ -379,7 +391,7 @@ struct CommandCenterAlertsRail: View {
                         } label: {
                             HStack(spacing: 8) {
                                 Circle()
-                                    .fill(AppTheme.healthInk(card.health == .none ? .good : card.health))
+                                    .fill(AppTheme.healthInk(CommandCenterLayout.displayedHealth(card)))
                                     .frame(width: 8, height: 8)
                                 VStack(alignment: .leading, spacing: 1) {
                                     Text(CommandCenterLayout.glanceTitle(card.section))
@@ -390,10 +402,10 @@ struct CommandCenterAlertsRail: View {
                                         .foregroundStyle(AppTheme.textSecondary)
                                 }
                                 Spacer(minLength: 4)
-                                HealthBadge(health: card.health == .none ? .good : card.health, compact: true)
+                                HealthBadge(health: CommandCenterLayout.displayedHealth(card), compact: true)
                             }
                             .padding(8)
-                            .background(AppTheme.healthWash(card.health == .none ? .good : card.health), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .background(AppTheme.healthWash(CommandCenterLayout.displayedHealth(card)), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                         }
                         .buttonStyle(.plain)
                     }

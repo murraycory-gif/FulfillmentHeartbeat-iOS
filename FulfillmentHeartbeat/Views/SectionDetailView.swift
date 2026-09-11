@@ -22,6 +22,7 @@ struct SectionDetailView: View {
 
     private var summary: SectionSummary { store.summary(for: section) }
     private var snapshots: [MetricRow] { store.seatRows(for: section) }
+    private var showStoreTable: Bool { PulseLaunch.shouldShowStoreTable(filters: store.filters) }
     private var missingInFile: Bool {
         store.latest(for: section).isEmpty && !store.marketStores().isEmpty
     }
@@ -55,7 +56,9 @@ struct SectionDetailView: View {
                     .listRowSeparator(.hidden)
                     .listRowBackground(AppTheme.bg)
                 }
-                PickerScoreTable(focus: pickerFocus)
+                if showStoreTable {
+                    PickerScoreTable(focus: pickerFocus)
+                }
             } else if section == .pickPath {
                 Section {
                     PickPathRollupTable()
@@ -63,7 +66,9 @@ struct SectionDetailView: View {
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.bg)
                 }
-                PickPathTable(rows: pickPathRows)
+                if showStoreTable {
+                    PickPathTable(rows: pickPathRows)
+                }
             } else if section == .dynacap {
                 Section {
                     DynacapRollupTable()
@@ -71,7 +76,9 @@ struct SectionDetailView: View {
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.bg)
                 }
-                DynacapTable(rows: dynacapRows)
+                if showStoreTable {
+                    DynacapTable(rows: dynacapRows)
+                }
             } else if section == .pph {
                 Section {
                     PPHRollupTable()
@@ -79,7 +86,9 @@ struct SectionDetailView: View {
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.bg)
                 }
-                PPHTable(rows: pphRows)
+                if showStoreTable {
+                    PPHTable(rows: pphRows)
+                }
             } else if section == .scheduleQuality {
                 Section {
                     ScheduleRollupTable()
@@ -87,7 +96,9 @@ struct SectionDetailView: View {
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.bg)
                 }
-                ScheduleTable(rows: scheduleRows)
+                if showStoreTable {
+                    ScheduleTable(rows: scheduleRows)
+                }
             } else if section == .prepNotReady {
                 Section {
                     PrepRollupTable()
@@ -95,7 +106,9 @@ struct SectionDetailView: View {
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.bg)
                 }
-                PrepTable(rows: prepRows)
+                if showStoreTable {
+                    PrepTable(rows: prepRows)
+                }
             } else if section == .fiveStar {
                 Section {
                     FiveStarRollupTable()
@@ -103,7 +116,9 @@ struct SectionDetailView: View {
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.bg)
                 }
-                FiveStarTable(rows: fiveStarRows)
+                if showStoreTable {
+                    FiveStarTable(rows: fiveStarRows)
+                }
             } else if section == .labor {
                 Section {
                     LaborRollupTable()
@@ -111,7 +126,9 @@ struct SectionDetailView: View {
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.bg)
                 }
-                LaborTable(rows: laborRows)
+                if showStoreTable {
+                    LaborTable(rows: laborRows)
+                }
             } else if section == .lostRevenue {
                 Section {
                     LostRevenueRollupTable()
@@ -119,7 +136,9 @@ struct SectionDetailView: View {
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.bg)
                 }
-                LostRevenueTable(rows: lostRevenueRows)
+                if showStoreTable {
+                    LostRevenueTable(rows: lostRevenueRows)
+                }
             } else if section == .sales {
                 Section {
                     SalesRollupTable()
@@ -127,7 +146,9 @@ struct SectionDetailView: View {
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.bg)
                 }
-                SalesTable(rows: snapshots)
+                if showStoreTable {
+                    SalesTable(rows: snapshots)
+                }
             } else if section == .missingItems || section == .preSubOOS {
                 Section {
                     MissingItemsRollupTable(depts: visibleMIDepts, pageWidth: pageWidth, section: section)
@@ -135,11 +156,13 @@ struct SectionDetailView: View {
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.bg)
                 }
-                MissingItemsTable(rows: missingItemsRows, depts: visibleMIDepts, pageWidth: pageWidth, section: section)
-                if section == .preSubOOS {
-                    PreSubItemTable(rows: store.seatRows(for: .preSubOOSItem), pageWidth: pageWidth)
+                if showStoreTable {
+                    MissingItemsTable(rows: missingItemsRows, depts: visibleMIDepts, pageWidth: pageWidth, section: section)
+                    if section == .preSubOOS {
+                        PreSubItemTable(rows: store.seatRows(for: .preSubOOSItem), pageWidth: pageWidth)
+                    }
                 }
-            } else {
+            } else if showStoreTable {
                 StoreTable(section: section, rows: snapshots)
             }
             }
@@ -164,7 +187,7 @@ struct SectionDetailView: View {
                 laborHeaderPin.updatePin(headerMinY: minY)
             }
             .overlay(alignment: .top) {
-                if sizeClass == .regular, laborHeaderPin.storesExpanded && laborHeaderPin.pinned {
+                if showStoreTable, sizeClass == .regular, laborHeaderPin.storesExpanded && laborHeaderPin.pinned {
                     if section == .labor {
                         LaborStickyStoreHeader()
                             .environmentObject(laborHeaderPin)

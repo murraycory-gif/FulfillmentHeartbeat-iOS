@@ -1,13 +1,14 @@
 # Command Center (Tip 2 / Option 8b)
 
-Stamp **HB-0828.383** / 708. Data plane stays Tip 1 seat packs (`docs/SEAT-SCOPED-PACKS.md`).
+Stamp **HB-0828.383** / 709. Data plane stays Tip 1 seat packs (`docs/SEAT-SCOPED-PACKS.md`).
 
 Home is a **Pulse / Power BI Mobile briefing**: packed KPI tiles, tight gutters, expand on demand. Not always-open ScoreCard tables.
 
 | Surface | Must |
 |---|---|
-| Heroes | Sales / Loss / 5 Star navy tiles. Gold **Stores N** from the seat pack. Live, never grey. |
-| Glance | Every other **real** `dashboardCards` tile only: value + status + spark bars that fill the tile |
+| Heroes | Sales / Loss / 5 Star navy tiles. Gold **Stores N** is one roster pin (`pinSeatStoreCount`) at company and district. No 2189/2160/2159 split. |
+| Glance | Every other **real** `dashboardCards` tile only: value + status + spark bars that fill the tile. Picker headline is pack chrome / `pickerShoppers` (summary-first). Empty cards stay No data — never `.none` → Healthy. |
+| Scorecard | Store tables only in **District / OM / Store**. Company + Region = rollup / higher grain (no store-row rebuild). |
 | Density | Tiles stretch to leftover height. Zero dead white. |
 | Expand | Tap opens the scorecard. No store tables on home. |
 | Mac | **Pinned** left Pages rail + dense center + right Alerts. |

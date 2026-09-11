@@ -2320,6 +2320,224 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseSeatPack.shouldPaintHubFromActiveSeatSQLite())
     }
 
+    func testArchitecture383CompanyCommandCenterPickerChromeAndStoreTableScope() throws {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.383")
+        XCTAssertFalse(PulseLaunch.shouldStreamCompanyPickerForSeatFirstPaint())
+        XCTAssertFalse(PulseLaunch.shouldPlaySeatLoadHalloween())
+        XCTAssertFalse(PulseLaunch.shouldShowGroceryLoadQuips())
+        XCTAssertTrue(PulseLaunch.aisleQuips.isEmpty)
+        XCTAssertTrue(PulseLaunch.shouldPinMacCommandCenterRails())
+        XCTAssertFalse(PulseLaunch.shouldPinCommandCenterRailsOnIPad())
+        XCTAssertTrue(PulseLaunch.shouldOfferIPadCommandCenterDrawers())
+        XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
+
+        var company = DashboardFilters()
+        XCTAssertFalse(PulseLaunch.shouldShowStoreTable(filters: company))
+        var region = DashboardFilters()
+        region.region = "West"
+        XCTAssertFalse(PulseLaunch.shouldShowStoreTable(filters: region))
+        var division = DashboardFilters()
+        division.division = "NorCal"
+        XCTAssertFalse(PulseLaunch.shouldShowStoreTable(filters: division))
+        var district = DashboardFilters()
+        district.district = "03"
+        XCTAssertTrue(PulseLaunch.shouldShowStoreTable(filters: district))
+        var om = DashboardFilters()
+        om.om = "Jino Arvin"
+        XCTAssertTrue(PulseLaunch.shouldShowStoreTable(filters: om))
+        var store = DashboardFilters()
+        store.store = "12"
+        XCTAssertTrue(PulseLaunch.shouldShowStoreTable(filters: store))
+        XCTAssertTrue(PulseLaunch.shouldSkipStoreRowRebuild(filters: company, expanded: true))
+        XCTAssertFalse(PulseLaunch.shouldSkipStoreRowRebuild(filters: district, expanded: true))
+
+        let emptyPicker = SectionSummary(
+            section: .pickerScorecard,
+            storeCount: 0,
+            headline: 0,
+            headlineLabel: "Shoppers",
+            secondary: "No shoppers in view",
+            health: .none,
+            watchCount: 0,
+            riskCount: 0,
+            lastFilename: nil,
+            lastUploadedAt: nil
+        )
+        XCTAssertEqual(CommandCenterLayout.displayedHealth(emptyPicker), .none)
+        XCTAssertNotEqual(CommandCenterLayout.displayedHealth(emptyPicker), .good)
+        let liveLabor = SectionSummary(
+            section: .labor,
+            storeCount: 2189,
+            headline: -0.04,
+            headlineLabel: "Labor",
+            secondary: "",
+            health: .good,
+            watchCount: 0,
+            riskCount: 0,
+            lastFilename: nil,
+            lastUploadedAt: nil
+        )
+        XCTAssertEqual(CommandCenterLayout.displayedHealth(liveLabor), .good)
+
+        let chrome = PulseDashChrome(
+            summaries: [
+                SectionSummary(
+                    section: .pickerScorecard,
+                    storeCount: 2189,
+                    headline: 0,
+                    headlineLabel: "Shoppers",
+                    secondary: "No shoppers in view",
+                    health: .none,
+                    watchCount: 0,
+                    riskCount: 0,
+                    lastFilename: nil,
+                    lastUploadedAt: nil
+                ),
+            ],
+            flags: [:],
+            packs: [:],
+            pickerShoppers: 26_349,
+            pickerOpportunity: 4_200,
+            pickerStrong: 18_000
+        )
+        let lifted = PulseLaunch.pickerSummaryFromChrome(chrome)
+        XCTAssertEqual(lifted?.headline, 26_349)
+        XCTAssertNotEqual(CommandCenterLayout.displayedHealth(lifted!), .none)
+        let painted = PulseLaunch.companyCommandCenterCard(
+            emptyPicker,
+            chrome: chrome,
+            rosterStores: 2189
+        )
+        XCTAssertEqual(painted.headline, 26_349)
+        XCTAssertEqual(painted.storeCount, 2189)
+        let sales2160 = SectionSummary(
+            section: .sales,
+            storeCount: 2160,
+            headline: 49_000_000,
+            headlineLabel: "Sales",
+            secondary: "",
+            health: .good,
+            watchCount: 0,
+            riskCount: 0,
+            lastFilename: nil,
+            lastUploadedAt: nil
+        )
+        let loss2159 = SectionSummary(
+            section: .lostRevenue,
+            storeCount: 2159,
+            headline: 80_000,
+            headlineLabel: "Loss",
+            secondary: "",
+            health: .watch,
+            watchCount: 0,
+            riskCount: 0,
+            lastFilename: nil,
+            lastUploadedAt: nil
+        )
+        let five2189 = SectionSummary(
+            section: .fiveStar,
+            storeCount: 2189,
+            headline: 4.8,
+            headlineLabel: "5 Star",
+            secondary: "",
+            health: .good,
+            watchCount: 0,
+            riskCount: 0,
+            lastFilename: nil,
+            lastUploadedAt: nil
+        )
+        let pinned = PulseLaunch.pinCompanyRosterStoreCounts(
+            [sales2160, loss2159, five2189],
+            rosterStores: 2189
+        )
+        XCTAssertTrue(pinned.allSatisfy { $0.storeCount == 2189 })
+
+        var roster: [String: HeartbeatMath.StoreIdentity] = [:]
+        for n in 1...5 {
+            roster[String(n)] = HeartbeatMath.StoreIdentity(
+                division: "NorCal", district: "03", om: "Jino Arvin", name: String(n)
+            )
+        }
+        roster["9001"] = HeartbeatMath.StoreIdentity(
+            division: "Jewel Osco", district: "J1", om: "Shelly Selof", name: "9001"
+        )
+        func fact(
+            _ section: MetricSection,
+            _ store: String,
+            payload: [String: Double],
+            extra: [String: String] = [:]
+        ) -> MetricRow {
+            let identity = roster[store]!
+            var text = extra
+            if text["district"] == nil { text["district"] = identity.district }
+            return MetricRow(
+                section: section,
+                division: identity.division,
+                operationsOM: identity.om,
+                storeNumber: store,
+                storeName: identity.name,
+                payload: payload,
+                textPayload: text
+            )
+        }
+        let all = ["1", "2", "3", "4", "5", "9001"]
+        var rows: [MetricRow] = []
+        rows.append(contentsOf: all.map { fact(.storeRoster, $0, payload: ["roster": 1], extra: ["roster": "1"]) })
+        rows.append(contentsOf: all.map { fact(.sales, $0, payload: ["sales_dollars": 100, "sales_orders": 4], extra: ["sales_grain": "store"]) })
+        rows.append(contentsOf: all.prefix(5).map { fact(.lostRevenue, $0, payload: ["lost_revenue": 10], extra: ["lost_grain": "store"]) })
+        rows.append(contentsOf: all.prefix(4).map { fact(.fiveStar, $0, payload: ["star_rating": 4.8]) })
+        rows.append(contentsOf: all.map { fact(.labor, $0, payload: ["target_vs_actual_pct": -1], extra: ["labor_grain": "store"]) })
+        for storeNumber in all {
+            rows.append(
+                fact(
+                    .pickerScorecard,
+                    storeNumber,
+                    payload: ["pph": 82, "orders": 24],
+                    extra: ["shopper_id": "\(storeNumber)-A", "shopper_name": "\(storeNumber)-A"]
+                )
+            )
+        }
+        let tmp = FileManager.default.temporaryDirectory
+            .appendingPathComponent("company-cc-383-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let packRoot = tmp.appendingPathComponent("packs", isDirectory: true)
+        let manifest = try PulseSeatPack.cookPublished(
+            rows: rows,
+            uploads: [],
+            packRoot: packRoot,
+            includeStores: false
+        )
+        let companyURL = tmp.appendingPathComponent(manifest.company.path)
+        let companyPack = try PulseSQLite.read(from: companyURL)
+        XCTAssertFalse(
+            companyPack.rows.contains { PulseSeatPack.shopperSections().contains($0.section) },
+            "company thin pack must not write shopper tape"
+        )
+        let companyChrome = companyPack.chrome
+        XCTAssertGreaterThan(companyChrome?.pickerShoppers ?? 0, 0)
+        XCTAssertGreaterThan(companyChrome?.card(.pickerScorecard)?.headline ?? 0, 0)
+        XCTAssertEqual(companyChrome?.card(.sales)?.storeCount, 6)
+        XCTAssertEqual(companyChrome?.card(.lostRevenue)?.storeCount, 6)
+        XCTAssertEqual(companyChrome?.card(.fiveStar)?.storeCount, 6)
+        let glance = PulseLaunch.companyCommandCenterCard(
+            companyChrome?.card(.pickerScorecard) ?? emptyPicker,
+            chrome: companyChrome,
+            rosterStores: 6
+        )
+        XCTAssertGreaterThan(glance.headline ?? 0, 0)
+        XCTAssertEqual(glance.storeCount, 6)
+        XCTAssertNotEqual(CommandCenterLayout.displayedHealth(glance), .none)
+
+        let districtURL = PulseSeatPack.localURL(root: tmp, key: PulseSeatPack.Key(grain: .district, id: "03"))
+        let districtPack = try PulseSQLite.read(from: districtURL)
+        let districtShoppers = districtPack.rows.filter { $0.section == .pickerScorecard }
+        XCTAssertFalse(districtShoppers.isEmpty, "District shoppers stay on the seat plane")
+        XCTAssertTrue(districtShoppers.allSatisfy { $0.storeNumber != "9001" })
+        XCTAssertEqual(districtPack.chrome?.card(.sales)?.storeCount, 5)
+        XCTAssertGreaterThan(districtPack.chrome?.card(.pickerScorecard)?.headline ?? 0, 0)
+    }
+
     func testSeatPackDistrict03EverySectionStoresEqualsHeartbeatN() throws {
         let districtStores = (1...20).map { String($0) }
         var roster: [String: HeartbeatMath.StoreIdentity] = [:]

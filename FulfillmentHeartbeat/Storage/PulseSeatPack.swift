@@ -207,8 +207,15 @@ enum PulseSeatPack {
             roster: caches.roster.isEmpty ? roster : caches.roster,
             filters: key.filters
         ) ?? Set((caches.roster.isEmpty ? roster : caches.roster).keys)).count
-        if key.grain != .company, seatN > 0 {
-            chrome.summaries = chrome.summaries.map { PulseLaunch.pinSeatStoreCount($0, seatStores: seatN) }
+        if key.grain == .company {
+            PulseLaunch.overlayCompanyPickerChrome(
+                onto: &chrome,
+                marketRows: rows,
+                uploads: uploads
+            )
+        }
+        if seatN > 0 {
+            chrome.summaries = PulseLaunch.pinCompanyRosterStoreCounts(chrome.summaries, rosterStores: seatN)
         }
         try PulseSQLite.write(rows: scoped, uploads: uploads, seeded: true, chrome: chrome, to: dest)
         PulseSQLite.compact(at: dest)

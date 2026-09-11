@@ -334,6 +334,16 @@ enum PulseLaunch {
         !expanded && !shouldBuildStoreSnapsWhileCollapsed()
     }
 
+    /// Store-row tables / snap rebuilds belong on District, OM, and Store only.
+    /// Company + Region (and division-only) stay summary / higher-grain.
+    static func shouldShowStoreTable(filters: DashboardFilters) -> Bool {
+        !filters.district.isEmpty || !filters.om.isEmpty || !filters.store.isEmpty
+    }
+
+    static func shouldSkipStoreRowRebuild(filters: DashboardFilters, expanded: Bool) -> Bool {
+        !shouldShowStoreTable(filters: filters) || shouldSkipCollapsedStoreRebuild(expanded: expanded)
+    }
+
     /// Picker SQL must not start on the sidebar tap turn.
     static func shouldStartPickerStreamOnDestinationSwitch() -> Bool { false }
 
@@ -569,11 +579,38 @@ enum PulseLaunch {
     }
 
     /// Card storeCount under a seat is Heartbeat Stores N, not fact coverage.
+    /// Company heroes use the same pin against the published roster gold.
     static func pinSeatStoreCount(_ summary: SectionSummary, seatStores: Int) -> SectionSummary {
         guard seatStores > 0 else { return summary }
         var next = summary
         next.storeCount = seatStores
         return next
+    }
+
+    /// Company Command Center: one roster gold on every tile (no 2189/2160/2159).
+    static func pinCompanyRosterStoreCounts(
+        _ summaries: [SectionSummary],
+        rosterStores: Int
+    ) -> [SectionSummary] {
+        guard rosterStores > 0 else { return summaries }
+        return summaries.map { pinSeatStoreCount($0, seatStores: rosterStores) }
+    }
+
+    /// Company glance / hero card from pack chrome. Summary-first — never a
+    /// special picker stream. Lifts published `pickerShoppers` when the thin
+    /// company pack dropped shopper tape.
+    static func companyCommandCenterCard(
+        _ card: SectionSummary,
+        chrome: PulseDashChrome?,
+        rosterStores: Int
+    ) -> SectionSummary {
+        var next = card
+        if card.section == .pickerScorecard, (card.headline ?? 0) == 0, let chrome {
+            if let lifted = pickerSummaryFromChrome(chrome) {
+                next = lifted
+            }
+        }
+        return pinSeatStoreCount(next, seatStores: rosterStores)
     }
 
     /// Sales Regions/Stores expand uses the sales rollup cache, not grain packs.
@@ -1046,11 +1083,21 @@ enum PulseLaunch {
     }
 
     static func pickerSummaryFromChrome(_ chrome: PulseDashChrome) -> SectionSummary? {
-        if let card = chrome.card(.pickerScorecard), (card.headline ?? 0) > 0 || card.storeCount > 0 {
+        let shoppers = max(chrome.pickerShoppers, Int(chrome.card(.pickerScorecard)?.headline ?? 0))
+        guard shoppers > 0 else { return nil }
+        if let card = chrome.card(.pickerScorecard), (card.headline ?? 0) > 0 {
             return card
         }
-        guard chrome.pickerShoppers > 0 else { return nil }
-        let shoppers = chrome.pickerShoppers
+        if var card = chrome.card(.pickerScorecard) {
+            card.headline = Double(shoppers)
+            card.headlineLabel = "Shoppers"
+            if card.health == .none {
+                card.secondary = "\(chrome.pickerOpportunity) opportunity · \(chrome.pickerStrong) doing well"
+                card.health = .watch
+                card.riskCount = max(card.riskCount, chrome.pickerOpportunity)
+            }
+            return card
+        }
         return SectionSummary(
             section: .pickerScorecard,
             storeCount: shoppers,
@@ -1063,6 +1110,32 @@ enum PulseLaunch {
             lastFilename: nil,
             lastUploadedAt: nil
         )
+    }
+
+    /// Company cook keeps shopper tape out of sqlite and still publishes the
+    /// picker summary card + `pickerShoppers` so Command Center is not 0.
+    static func overlayCompanyPickerChrome(
+        onto chrome: inout PulseDashChrome,
+        marketRows: [MetricRow],
+        uploads: [UploadRecord]
+    ) {
+        let pickerRows = marketRows.filter { $0.section == .pickerScorecard }
+        guard !pickerRows.isEmpty else { return }
+        let latest = HeartbeatMath.latestPerShopper(pickerRows)
+        let summarized = HeartbeatMath.summarize(
+            .pickerScorecard,
+            rows: latest,
+            upload: uploads.first { $0.section == .pickerScorecard }
+        )
+        let board = HeartbeatMath.pickerBoard(latest)
+        chrome.pickerShoppers = max(chrome.pickerShoppers, board.shopperCount, Int(summarized.headline ?? 0))
+        chrome.pickerOpportunity = max(chrome.pickerOpportunity, board.opportunityCount, summarized.riskCount)
+        chrome.pickerStrong = max(chrome.pickerStrong, board.strongCount)
+        if let idx = chrome.summaries.firstIndex(where: { $0.section == .pickerScorecard }) {
+            chrome.summaries[idx] = summarized
+        } else {
+            chrome.summaries.append(summarized)
+        }
     }
 
     static func pickerPacksAreLive(_ packs: [DashScopePack]) -> Bool {
