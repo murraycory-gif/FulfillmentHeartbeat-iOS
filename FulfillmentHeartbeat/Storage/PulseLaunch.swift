@@ -1628,7 +1628,6 @@ enum PulseLaunch {
         let total = rows.reduce(0) { $0 + ($1.number("picks_total") ?? 0) }
         let compliant = rows.reduce(0) { $0 + ($1.number("picks_compliant") ?? 0) }
         let stored = rows.reduce(0) { $0 + ($1.number("exception_count") ?? 0) }
-        let derived = max(0, total - compliant)
         let exceptions = pickPathExceptions(stored: stored, total: total, compliant: compliant)
         if total > 0 || compliant > 0 {
             chips.append(("Compliant", HeartbeatFormat.num(compliant), fallback))
