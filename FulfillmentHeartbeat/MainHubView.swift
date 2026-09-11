@@ -132,7 +132,7 @@ final class HubRouter: ObservableObject {
         transaction.animation = nil
         withTransaction(transaction) {
             destination = dest
-            if dest == .dashboard {
+            if dest == .dashboard || PulseLaunch.shouldClearPhonePushOnPagesOpen() {
                 pushedSection = nil
             }
             sidebarOpen = false
@@ -146,7 +146,7 @@ final class HubRouter: ObservableObject {
         transaction.animation = nil
         withTransaction(transaction) {
             destination = dest
-            if dest == .dashboard {
+            if dest == .dashboard || PulseLaunch.shouldClearPhonePushOnPagesOpen() {
                 pushedSection = nil
             }
             sidebarOpen = false
@@ -255,6 +255,11 @@ struct MainHubView: View {
         .onChange(of: router.destination) { _, dest in
             store.setVisibleDestination(dest)
             rememberWarm(dest)
+        }
+        .onChange(of: router.pushedSection) { _, section in
+            if let section {
+                rememberWarmSection(section)
+            }
         }
         .background(AppTheme.bg.ignoresSafeArea(edges: .bottom))
         .overlay {
@@ -531,10 +536,15 @@ struct MainHubView: View {
     }
 
     private func rememberWarm(_ dest: HubDestination) {
-        guard PulseLaunch.shouldKeepVisitedScorecardHostsWarm() else { return }
+        rememberWarmSection(dest.section)
+    }
+
+    private func rememberWarmSection(_ section: MetricSection?) {
+        guard PulseLaunch.shouldKeepVisitedScorecardHostsWarm(phone: HubLayout.isPhone(sizeClass)) else { return }
         warmScorecards = PulseLaunch.warmScorecardList(
             existing: warmScorecards,
-            incoming: dest.section
+            incoming: section,
+            cap: PulseLaunch.maxWarmScorecardHosts(phone: HubLayout.isPhone(sizeClass))
         )
     }
 

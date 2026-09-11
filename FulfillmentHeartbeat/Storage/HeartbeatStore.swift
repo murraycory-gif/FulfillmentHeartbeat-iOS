@@ -5278,6 +5278,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func ensureSectionLoaded(_ section: MetricSection) async {
+        if Task.isCancelled { return }
         let seatFirst = PulseLaunch.sectionPageFirstPaint(
             section: section,
             filtersActive: filters.isActive
@@ -5325,6 +5326,7 @@ final class HeartbeatStore: ObservableObject {
             }
         }
         guard PulseSQLite.exists(at: sqliteURL) else { return }
+        if Task.isCancelled { return }
         let url = sqliteURL
         let rosterCopy = roster
         let readPriority: TaskPriority = isReady ? .utility : .userInitiated
@@ -5332,6 +5334,7 @@ final class HeartbeatStore: ObservableObject {
             guard let pack = try? PulseSQLite.read(from: url, only: [section]) else { return [] }
             return PulseLaunch.materializeSectionRows(pack.rows, section: section, roster: rosterCopy)
         }.value
+        if Task.isCancelled { return }
         adoptSectionWarehouse(section, incoming)
     }
 

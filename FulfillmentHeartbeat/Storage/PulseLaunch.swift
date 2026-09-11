@@ -303,7 +303,41 @@ enum PulseLaunch {
     /// Keep the last N scorecard hosts mounted so sidebar switches are not a List teardown.
     /// Hidden scorecard Lists remounted on every EnvironmentObject ping and
     /// cooked the iPad after District Continue. Dashboard host stays warm.
+    /// iPad / Mac stay off. iPhone Pages switches keep visited PhoneSectionPage hosts.
     static func shouldKeepVisitedScorecardHostsWarm() -> Bool { false }
+
+    static func shouldKeepVisitedScorecardHostsWarmOnPhone() -> Bool { true }
+
+    static func shouldKeepVisitedScorecardHostsWarm(phone: Bool) -> Bool {
+        phone ? shouldKeepVisitedScorecardHostsWarmOnPhone() : shouldKeepVisitedScorecardHostsWarm()
+    }
+
+    /// Hidden phone scorecards keep the host; they must not rebuild grain/store
+    /// cards on every HeartbeatStore ping (that is the old iPad cook).
+    static func shouldRenderHiddenPhoneSectionHeavy() -> Bool { false }
+
+    /// First phone section frame is hero + seat chips only. Grain / stores /
+    /// picker lists wait one turn so Pages → Sales paints immediately.
+    static func shouldDeferPhoneSectionHeavyUntilAfterChrome() -> Bool { true }
+
+    /// Leaving a scorecard parks SQL (cancels in-flight). Returning reloads
+    /// only if the warehouse still needs it.
+    static func shouldCancelInFlightSectionSQLOnPageSwitch() -> Bool { true }
+
+    /// Pages / sidebar destination wins over a leftover Command Center push.
+    static func shouldPreferVisibleSectionOverPush() -> Bool { true }
+
+    /// Pages / sidebar open is destination-based. Drop a leftover CC push so
+    /// Labor is not still Sales after Pages → Labor.
+    static func shouldClearPhonePushOnPagesOpen() -> Bool { true }
+
+    /// Filter chip on a phone section: hero/chips from new chrome first,
+    /// then grain / stores / picker on the next frame.
+    static func shouldProgressivePaintPhoneSectionOnFilterSwap() -> Bool { true }
+
+    static func shouldParkHiddenPhoneSection(isVisible: Bool) -> Bool {
+        !isVisible && !shouldRenderHiddenPhoneSectionHeavy()
+    }
 
     /// Warm dashboard + empty `warmScorecards` left Mac/iPad section taps blank.
     /// Always paint the opened scorecard — every platform, same host.
@@ -433,7 +467,9 @@ enum PulseLaunch {
         visibleCount > 0 && indexedAll == visibleCount
     }
 
-    static func maxWarmScorecardHosts() -> Int { 2 }
+    static func maxWarmScorecardHosts(phone: Bool = false) -> Int {
+        phone ? 12 : 2
+    }
 
     static func warmScorecardList(
         existing: [MetricSection],
@@ -783,9 +819,10 @@ enum PulseLaunch {
         !showBack
     }
 
-    /// HB-0828.397: filter swap paints cached/last-good chrome on the tap,
-    /// then a cancellable thin pack install. Full heavy caches on MainActor
-    /// after every District / OM / Store chip is why phone felt frozen.
+    /// HB-0828.398: filter swap paints cached/last-good chrome on the tap,
+    /// then a cancellable thin pack install. Same speed bar as Pages nav.
+    /// Full heavy caches on MainActor after every District / OM / Store chip
+    /// is why phone felt frozen.
     static func shouldDeferHeavySeatInstallAfterCachedChrome() -> Bool { true }
 
     /// Keep heroes / glance / last rows until the incoming pack is ready.
@@ -1278,7 +1315,22 @@ enum PulseLaunch {
         visible: HubDestination,
         pushed: MetricSection?
     ) -> MetricSection? {
-        pushed ?? visible.section
+        if shouldPreferVisibleSectionOverPush(), let section = visible.section {
+            return section
+        }
+        return pushed ?? visible.section
+    }
+
+    /// `.task` id: load while this page is active, park (cancel) when it is not.
+    static func sectionSQLTaskToken(
+        section: MetricSection,
+        filterSummary: String,
+        isActive: Bool
+    ) -> String {
+        if shouldCancelInFlightSectionSQLOnPageSwitch(), !isActive {
+            return "park-\(section.rawValue)"
+        }
+        return "load-\(section.rawValue)-\(filterSummary)"
     }
 
     static func isActiveScorecardPage(

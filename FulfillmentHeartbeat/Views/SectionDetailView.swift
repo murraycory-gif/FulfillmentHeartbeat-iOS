@@ -67,13 +67,15 @@ struct SectionDetailView: View {
         .onAppear {
             armPage()
         }
-        .task(id: PulseLaunch.sectionOpenToken(
-            visible: router.current,
-            pushed: router.pushedSection,
-            section: section
-        ) + (PulseLaunch.shouldReloadSectionSQLOnSeatPaintStamp()
-             ? "-\(store.filters.summary)-\(store.seatPaintStamp)"
-             : "-\(store.filters.summary)")) {
+        .task(id: PulseLaunch.sectionSQLTaskToken(
+            section: section,
+            filterSummary: store.filters.summary,
+            isActive: PulseLaunch.shouldLoadSection(
+                visible: router.current,
+                section: section,
+                pushed: router.pushedSection
+            )
+        )) {
             guard PulseLaunch.shouldLoadSection(
                 visible: router.current,
                 section: section,
@@ -82,13 +84,16 @@ struct SectionDetailView: View {
             if PulseLaunch.shouldDelaySectionSQL(seatAlreadyPainted: store.seatPaintStamp > 0) {
                 await Task.yield()
                 try? await Task.sleep(nanoseconds: PulseLaunch.pageSectionLoadDelayNanoseconds)
+                guard !Task.isCancelled else { return }
                 guard PulseLaunch.shouldLoadSection(
                     visible: self.router.current,
                     section: section,
                     pushed: self.router.pushedSection
                 ) else { return }
             }
+            guard !Task.isCancelled else { return }
             await store.ensureSectionLoaded(section)
+            if Task.isCancelled { return }
             if section == .preSubOOS {
                 await store.ensureSectionLoaded(.preSubOOSItem)
             }
@@ -1045,47 +1050,43 @@ struct SectionDetailView: View {
 /// Never mounts List / *RollupTable / *Table / OverviewSalesBlock.
 struct PhoneSectionPage: View {
     @EnvironmentObject private var store: HeartbeatStore
+    @EnvironmentObject private var router: HubRouter
     let section: MetricSection
     @State private var storeLimit = 40
     @State private var pickerLimit = 24
     @State private var itemLimit = 24
     @State private var openShopper: String?
     @State private var miCategories: Set<MissingItemDept> = []
+    @State private var showHeavy = false
+
+    private var isVisible: Bool {
+        PulseLaunch.isActiveScorecardPage(
+            visible: router.current,
+            section: section,
+            pushed: router.pushedSection
+        )
+    }
+
+    private var shouldPaintHeavy: Bool {
+        guard showHeavy else { return false }
+        if isVisible { return true }
+        return PulseLaunch.shouldRenderHiddenPhoneSectionHeavy()
+    }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                PhoneCommandHeroCard(card: store.summary(for: section))
-                seatMetricCard
-                warningNotes
-                if section == .labor {
-                    LaborWeekFilterBar()
-                }
-                if section == .sales, PulseLaunch.shouldShowSalesDayWeekBlock(filters: store.filters) {
-                    salesWeekAndDays
-                }
-                if section == .pickerScorecard,
-                   PulseLaunch.shouldShowPickerHighlights(filters: store.filters) {
-                    PickerHighlightsPanel(
-                        showPictures: PulseLaunch.shouldShowPickerIndividualPictures(filters: store.filters)
-                    )
-                }
-                ForEach(PulseLaunch.sectionRollupGrains(filters: store.filters), id: \.self) { grain in
-                    grainBlock(grain)
-                }
-                if PulseLaunch.shouldShowStoreTable(filters: store.filters) {
-                    if section == .missingItems || section == .preSubOOS {
-                        MissingItemsCategoryFilter(selected: $miCategories, width: 390)
+                if PulseLaunch.shouldParkHiddenPhoneSection(isVisible: isVisible) {
+                    PhoneCommandHeroCard(card: store.summary(for: section))
+                } else {
+                    PhoneCommandHeroCard(card: store.summary(for: section))
+                    seatMetricCard
+                    warningNotes
+                    if section == .labor {
+                        LaborWeekFilterBar()
                     }
-                    if section == .pickerScorecard {
-                        if PulseLaunch.shouldShowPickerShoppersTable(filters: store.filters) {
-                            pickerShoppers
-                        }
-                    } else {
-                        storeCards
-                    }
-                    if section == .preSubOOS {
-                        preSubItems
+                    if shouldPaintHeavy {
+                        heavyBlocks
                     }
                 }
             }
@@ -1097,6 +1098,57 @@ struct PhoneSectionPage: View {
         .scrollIndicators(.hidden)
         .scrollBounceBehavior(.basedOnSize)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .onAppear { armHeavy() }
+        .onChange(of: isVisible) { _, visible in
+            if visible { armHeavy() }
+        }
+        .onChange(of: store.filters.summary) { _, _ in
+            guard isVisible, PulseLaunch.shouldProgressivePaintPhoneSectionOnFilterSwap() else { return }
+            showHeavy = false
+            armHeavy()
+        }
+    }
+
+    private func armHeavy() {
+        guard isVisible else { return }
+        if !PulseLaunch.shouldDeferPhoneSectionHeavyUntilAfterChrome() {
+            showHeavy = true
+            return
+        }
+        DispatchQueue.main.async {
+            showHeavy = true
+        }
+    }
+
+    @ViewBuilder
+    private var heavyBlocks: some View {
+        if section == .sales, PulseLaunch.shouldShowSalesDayWeekBlock(filters: store.filters) {
+            salesWeekAndDays
+        }
+        if section == .pickerScorecard,
+           PulseLaunch.shouldShowPickerHighlights(filters: store.filters) {
+            PickerHighlightsPanel(
+                showPictures: PulseLaunch.shouldShowPickerIndividualPictures(filters: store.filters)
+            )
+        }
+        ForEach(PulseLaunch.sectionRollupGrains(filters: store.filters), id: \.self) { grain in
+            grainBlock(grain)
+        }
+        if PulseLaunch.shouldShowStoreTable(filters: store.filters) {
+            if section == .missingItems || section == .preSubOOS {
+                MissingItemsCategoryFilter(selected: $miCategories, width: 390)
+            }
+            if section == .pickerScorecard {
+                if PulseLaunch.shouldShowPickerShoppersTable(filters: store.filters) {
+                    pickerShoppers
+                }
+            } else {
+                storeCards
+            }
+            if section == .preSubOOS {
+                preSubItems
+            }
+        }
     }
 
     private var seatMetricCard: some View {
