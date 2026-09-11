@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Mac-only. Proves a usable OLD local company seat is replaced by a newer
-# cloud pack without deleting the app (HB-0828.405 / 731).
+# cloud pack without deleting the app (HB-0828.406 / 732).
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"

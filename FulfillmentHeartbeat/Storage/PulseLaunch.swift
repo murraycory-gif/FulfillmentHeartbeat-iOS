@@ -1549,46 +1549,140 @@ enum PulseLaunch {
     /// Share tiles use live `dashboardActionFlags`, not cached zero bandFlags.
     static func shouldShareLiveActionFlags() -> Bool { true }
 
-    /// Phone THIS SEAT chips use `dashboardTableValues` / picker buckets — never
-    /// ghost keys (`otp_pct`, `fill_rate_pct`, `quality_score`, `exception_count`,
-    /// `pnr_count`, `orders_due`, `avg_late_min`).
+    /// Phone THIS SEAT chips use `dashboardTableValues` / hero pack keys — never
+    /// ghost keys (`otp_pct`, `fill_rate_pct`, `quality_score`).
     static func shouldPaintSeatChipsFromDashboardTableValues() -> Bool { true }
     static func shouldUseGhostSeatChipKeys() -> Bool { false }
+    /// Ghost 0 is banned when a live sibling pack key exists (Exceptions, Prep).
+    static func shouldBanFalseZeroSeatChips() -> Bool { true }
 
-    /// Same labels and pack keys as region chips + the section hero.
+    /// Same pack keys as the section hero + region `dashboardTableValues`.
     static func seatChipValues(
         section: MetricSection,
         rows: [MetricRow],
         displayedHealth: Health,
-        pickerBuckets: (shoppers: Int, healthy: Int, watch: Int, risk: Int)? = nil
+        pickerBuckets: (shoppers: Int, healthy: Int, watch: Int, risk: Int)? = nil,
+        pickerChrome: (shoppers: Int, opportunity: Int, strong: Int)? = nil
     ) -> [(label: String, value: String, health: Health)] {
         if section == .pickerScorecard {
-            let buckets = pickerBuckets ?? HeartbeatMath.pickerStatusCounts(rows)
-            let seat = displayedHealth == .none ? Health.watch : displayedHealth
-            return [
-                ("Shoppers", HeartbeatFormat.num(Double(buckets.shoppers)), seat),
-                ("Healthy", HeartbeatFormat.num(Double(buckets.healthy)), .good),
-                ("Watch", HeartbeatFormat.num(Double(buckets.watch)), buckets.watch == 0 ? .good : .watch),
-                ("At Risk", HeartbeatFormat.num(Double(buckets.risk)), buckets.risk == 0 ? .good : .risk),
-            ]
+            return pickerSeatChips(
+                rows: rows,
+                displayedHealth: displayedHealth,
+                buckets: pickerBuckets,
+                chrome: pickerChrome
+            )
         }
         if section == .labor {
             return laborSeatChips(rows: rows, displayedHealth: displayedHealth)
         }
-        let scored = HeartbeatMath.dashboardTableValues(section, rows: rows)
-        let fallback: Health
-        if displayedHealth != .none {
-            fallback = displayedHealth
-        } else if scored.health != .none {
-            fallback = scored.health
-        } else if scored.values.contains(where: { $0 != "—" }) {
-            fallback = .good
-        } else {
-            fallback = .none
+        if section == .pickPath || section == .pickPathPicker {
+            return pickPathSeatChips(rows: rows, displayedHealth: displayedHealth)
         }
+        if section == .prepNotReady {
+            return prepSeatChips(rows: rows, displayedHealth: displayedHealth)
+        }
+        let scored = HeartbeatMath.dashboardTableValues(section, rows: rows)
+        let fallback = seatChipFallback(displayedHealth, scored: scored)
         return zip(HeartbeatMath.dashboardTableHeaders(section), scored.values).map { header, value in
             (header, value, seatChipHealth(header: header, value: value, fallback: fallback))
         }
+    }
+
+    static func seatChipFallback(
+        _ displayedHealth: Health,
+        scored: (values: [String], health: Health)
+    ) -> Health {
+        if displayedHealth != .none { return displayedHealth }
+        if scored.health != .none { return scored.health }
+        if scored.values.contains(where: { $0 != "—" }) { return .good }
+        return .none
+    }
+
+    static func pickerSeatChips(
+        rows: [MetricRow],
+        displayedHealth: Health,
+        buckets: (shoppers: Int, healthy: Int, watch: Int, risk: Int)?,
+        chrome: (shoppers: Int, opportunity: Int, strong: Int)?
+    ) -> [(label: String, value: String, health: Health)] {
+        let fromRows = HeartbeatMath.pickerStatusCounts(rows)
+        let shoppers = max(chrome?.shoppers ?? 0, buckets?.shoppers ?? 0, fromRows.shoppers)
+        let opportunity = max(chrome?.opportunity ?? 0, buckets?.risk ?? 0, fromRows.risk)
+        let strong = max(chrome?.strong ?? 0, buckets?.healthy ?? 0, fromRows.healthy)
+        let seat = displayedHealth == .none ? Health.watch : displayedHealth
+        return [
+            ("Shoppers", HeartbeatFormat.num(Double(shoppers)), seat),
+            ("Opportunity", HeartbeatFormat.num(Double(opportunity)), opportunity == 0 ? .good : .risk),
+            ("Doing Well", HeartbeatFormat.num(Double(strong)), .good),
+        ]
+    }
+
+    static func pickPathSeatChips(
+        rows: [MetricRow],
+        displayedHealth: Health
+    ) -> [(label: String, value: String, health: Health)] {
+        let scored = HeartbeatMath.dashboardTableValues(.pickPath, rows: rows)
+        let fallback = seatChipFallback(displayedHealth, scored: scored)
+        var chips = zip(HeartbeatMath.dashboardTableHeaders(.pickPath), scored.values).map { header, value in
+            (header, value, seatChipHealth(header: header, value: value, fallback: fallback))
+        }
+        let total = rows.reduce(0) { $0 + ($1.number("picks_total") ?? 0) }
+        let compliant = rows.reduce(0) { $0 + ($1.number("picks_compliant") ?? 0) }
+        let stored = rows.reduce(0) { $0 + ($1.number("exception_count") ?? 0) }
+        let derived = max(0, total - compliant)
+        let exceptions = pickPathExceptions(stored: stored, total: total, compliant: compliant)
+        if total > 0 || compliant > 0 {
+            chips.append(("Compliant", HeartbeatFormat.num(compliant), fallback))
+            chips.append(("Total picks", HeartbeatFormat.num(total), fallback))
+        }
+        if total > 0 || compliant > 0 || stored > 0 {
+            chips.append((
+                "Exceptions",
+                HeartbeatFormat.num(exceptions),
+                exceptions == 0 ? .good : .risk
+            ))
+        }
+        return chips
+    }
+
+    /// Live `exception_count`, else `picks_total − picks_compliant`. Ghost 0 banned.
+    static func pickPathExceptions(stored: Double, total: Double, compliant: Double) -> Double {
+        if stored > 0 { return stored }
+        let derived = max(0, total - compliant)
+        if shouldBanFalseZeroSeatChips(), total > 0 || compliant > 0 {
+            return derived
+        }
+        return stored
+    }
+
+    static func prepSeatChips(
+        rows: [MetricRow],
+        displayedHealth: Health
+    ) -> [(label: String, value: String, health: Health)] {
+        let scored = HeartbeatMath.dashboardTableValues(.prepNotReady, rows: rows)
+        let fallback = seatChipFallback(displayedHealth, scored: scored)
+        var chips = zip(HeartbeatMath.dashboardTableHeaders(.prepNotReady), scored.values).map { header, value in
+            (header, value, seatChipHealth(header: header, value: value, fallback: fallback))
+        }
+        let rateLive = rows.contains { $0.number("pnr_rate_pct", "pnr_hours", "prep_not_ready_pct") != nil }
+        let storedReady = rows.reduce(0) { $0 + ($1.number("pnr_count") ?? 0) }
+        let derivedReady = Double(rows.filter {
+            ($0.number("pnr_rate_pct", "pnr_hours", "prep_not_ready_pct") ?? 0) > HeartbeatMath.pnrGoal
+        }.count)
+        let notReady = (storedReady > 0 || !rateLive) ? storedReady : derivedReady
+        if storedReady > 0 || rateLive {
+            chips.append(("Not Ready", HeartbeatFormat.num(notReady), notReady == 0 ? .good : fallback))
+        }
+        let storedDue = rows.reduce(0) { $0 + ($1.number("orders_due") ?? 0) }
+        let derivedDue = rows.reduce(0) { $0 + ($1.number("orders") ?? $1.number("picks_total") ?? 0) }
+        let due = storedDue > 0 ? storedDue : (rateLive ? derivedDue : 0)
+        if storedDue > 0 || (rateLive && derivedDue > 0) {
+            chips.append(("Orders Due", HeartbeatFormat.num(due), fallback))
+        }
+        let late = HeartbeatMath.average(rows.compactMap { $0.number("avg_late_min") })
+        if let late {
+            chips.append(("Avg Late", "\(HeartbeatFormat.num(late, digits: 1)) min", fallback))
+        }
+        return chips
     }
 
     /// Healthy / Watch / At Risk counts keep band colors. Other chips follow
@@ -1641,7 +1735,7 @@ enum PulseLaunch {
     /// Pack week ids on the same Labor rows that paint Cost Target / TVA.
     static func laborSeatWeekSpan(rows: [MetricRow]) -> String? {
         let ids = Set(rows.compactMap { row -> String? in
-            for raw in [row.textPayload["week"], row.recordedOn] {
+            for raw in [row.textPayload["week"], row.textPayload["week_id"], row.recordedOn] {
                 if let value = raw, value.hasPrefix("20") { return value }
             }
             return nil

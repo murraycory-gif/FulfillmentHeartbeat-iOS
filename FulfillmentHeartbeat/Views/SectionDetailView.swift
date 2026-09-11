@@ -1325,12 +1325,12 @@ struct PhoneSectionPage: View {
 
     private var seatChips: [PhoneMetricChip] {
         let health = CommandCenterLayout.displayedHealth(store.summary(for: section))
-        let picker = section == .pickerScorecard ? store.seatPickerBuckets() : nil
+        let picker = section == .pickerScorecard ? store.seatPickerChrome() : nil
         return PulseLaunch.seatChipValues(
             section: section,
             rows: store.seatRows(for: section),
             displayedHealth: health,
-            pickerBuckets: picker
+            pickerChrome: picker
         ).map { PhoneMetricChip(label: $0.label, value: $0.value, health: $0.health) }
     }
 }

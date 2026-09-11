@@ -689,6 +689,16 @@ final class HeartbeatStore: ObservableObject {
         )
     }
 
+    /// Architecture: Shoppers / Opportunity / Doing Well = chrome fields, not 0.
+    func seatPickerChrome() -> (shoppers: Int, opportunity: Int, strong: Int) {
+        let buckets = seatPickerBuckets()
+        return (
+            max(buckets.shoppers, packChrome?.pickerShoppers ?? 0, cachedPickerBoard.shopperCount),
+            max(buckets.risk, packChrome?.pickerOpportunity ?? 0, cachedPickerBoard.opportunityCount),
+            max(buckets.healthy, packChrome?.pickerStrong ?? 0, cachedPickerBoard.strongCount)
+        )
+    }
+
     func displayRows(for section: MetricSection) -> [MetricRow] {
         if filters.isActive {
             return rollupStores(for: section)

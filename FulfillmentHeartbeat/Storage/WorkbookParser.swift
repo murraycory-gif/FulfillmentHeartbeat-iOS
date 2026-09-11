@@ -3806,8 +3806,14 @@ enum WorkbookParser {
         if (key == "act_cost_pct" || key == "cost_trgt_pct"), abs(number) > 1, abs(number) <= 5 {
             number *= 100
         }
-        if key == "over_scheduled" { key = "over_schedule_pct" }
-        if key == "under_scheduled" { key = "under_schedule_pct" }
+        if key == "over_scheduled" {
+            payload["over_scheduled"] = number
+            key = "over_schedule_pct"
+        }
+        if key == "under_scheduled" {
+            payload["under_scheduled"] = number
+            key = "under_schedule_pct"
+        }
         payload[key] = number
         if key == "orders" {
             payload["picks_total"] = number
