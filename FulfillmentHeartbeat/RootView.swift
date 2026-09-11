@@ -7,7 +7,9 @@ struct RootView: View {
         ZStack {
             AppTheme.bg.ignoresSafeArea()
             if store.isReady {
-                if store.needsRolePick, !PulseLaunch.shouldMountHubUnderRoleGate() {
+                if PulseLaunch.shouldRequireRoleGateOnColdOpen(),
+                   store.needsRolePick,
+                   !PulseLaunch.shouldMountHubUnderRoleGate() {
                     RoleGateView()
                         .zIndex(20)
                         .transition(.opacity)
@@ -15,7 +17,9 @@ struct RootView: View {
                     MainHubView()
                         .transition(.opacity)
                         .overlay {
-                            if store.needsRolePick, PulseLaunch.shouldMountHubUnderRoleGate() {
+                            if PulseLaunch.shouldRequireRoleGateOnColdOpen(),
+                               store.needsRolePick,
+                               PulseLaunch.shouldMountHubUnderRoleGate() {
                                 RoleGateView()
                                     .zIndex(20)
                                     .transition(.opacity)

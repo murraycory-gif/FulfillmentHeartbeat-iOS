@@ -1952,7 +1952,7 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseLaunch.shouldDeferDestinationWorkOnNav())
         XCTAssertTrue(PulseLaunch.shouldPaintScorecardTablesAfterChrome())
         XCTAssertTrue(PulseLaunch.shouldDeferSectionSQLUntilAfterChrome())
-        XCTAssertTrue(PulseLaunch.shouldHoldSeatPickerUntilWarehouseReady())
+        XCTAssertFalse(PulseLaunch.shouldHoldSeatPickerUntilWarehouseReady())
         XCTAssertTrue(PulseLaunch.shouldKeepDashboardHostWarm())
         XCTAssertFalse(PulseLaunch.shouldKeepVisitedScorecardHostsWarm())
         XCTAssertFalse(PulseLaunch.shouldRebuildHiddenWarmHostsOnHubPing())
@@ -1993,7 +1993,7 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(PulseLaunch.shouldLeaveSplashForSeatLoad())
         XCTAssertFalse(PulseLaunch.shouldKeepHydratingThroughFinishLocalLaunch())
         XCTAssertFalse(PulseLaunch.shouldPlaySeatLoadHalloween())
-        XCTAssertTrue(PulseLaunch.shouldHoldSeatPickerUntilWarehouseReady())
+        XCTAssertFalse(PulseLaunch.shouldHoldSeatPickerUntilWarehouseReady())
         XCTAssertFalse(PulseLaunch.shouldMountSeatLoadHalloween(warehouseHydrating: true))
         XCTAssertFalse(PulseLaunch.shouldMountSeatLoadHalloween(warehouseHydrating: false))
         XCTAssertLessThanOrEqual(PulseLaunch.halloweenParadeFPS, 15)
@@ -2022,7 +2022,7 @@ final class HeartbeatMathTests: XCTestCase {
             PulseLaunch.seatLoadHalloweenMinDwellNanoseconds()
         )
         XCTAssertEqual(PulseLaunch.halloweenDwellRemainingNanoseconds(elapsedNanoseconds: 2_000_000_000), 0)
-        XCTAssertTrue(PulseLaunch.shouldHoldSeatPickerUntilWarehouseReady())
+        XCTAssertFalse(PulseLaunch.shouldHoldSeatPickerUntilWarehouseReady())
         XCTAssertFalse(PulseLaunch.shouldPlaySeatLoadHalloween())
         XCTAssertFalse(PulseLaunch.shouldMountSeatLoadHalloween(warehouseHydrating: true))
         XCTAssertFalse(PulseLaunch.shouldMountSeatLoadHalloween(warehouseHydrating: false))
@@ -2093,7 +2093,7 @@ final class HeartbeatMathTests: XCTestCase {
         )
         XCTAssertTrue(PulseLaunch.shouldPresentSeatBeforeWarehouse())
         XCTAssertFalse(PulseLaunch.shouldLeaveSplashForSeatLoad())
-        XCTAssertTrue(PulseLaunch.shouldHoldSeatPickerUntilWarehouseReady())
+        XCTAssertFalse(PulseLaunch.shouldHoldSeatPickerUntilWarehouseReady())
         XCTAssertFalse(PulseLaunch.shouldPlaySeatLoadHalloween())
         XCTAssertFalse(PulseLaunch.shouldMountSeatLoadHalloween(warehouseHydrating: true))
         XCTAssertFalse(PulseLaunch.shouldMountSeatLoadHalloween(warehouseHydrating: false))
@@ -2133,7 +2133,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture381SeatPackContract() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.384")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.385")
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
         XCTAssertFalse(PulseSeatPack.shouldMergeSeatWithCompanyOnSwap())
         XCTAssertTrue(PulseSeatPack.shouldPaintHubFromActiveSeatSQLite())
@@ -2175,7 +2175,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture381bMacCookPublishesEverySeatSqlite() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.384")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.385")
         XCTAssertTrue(PulseSeatPack.shouldCookEveryStoreSeat())
         XCTAssertTrue(PulseSeatPack.shouldPublishSeatPlaneFromCook())
         XCTAssertFalse(PulseSeatPack.shouldMaterializeMissingSeatOnFieldDevice())
@@ -2241,7 +2241,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture382CommandCenterFillsViewportLikePulse() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.384")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.385")
         XCTAssertTrue(PulseLaunch.shouldUseCommandCenterHome())
         XCTAssertFalse(PulseLaunch.shouldMountDashCalloutTablesOnHome())
         XCTAssertTrue(PulseLaunch.shouldPinMacCommandCenterRails())
@@ -2322,7 +2322,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture383CompanyCommandCenterPickerChromeAndStoreTableScope() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.384")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.385")
         XCTAssertFalse(PulseLaunch.shouldStreamCompanyPickerForSeatFirstPaint())
         XCTAssertFalse(PulseLaunch.shouldPlaySeatLoadHalloween())
         XCTAssertFalse(PulseLaunch.shouldShowGroceryLoadQuips())
@@ -2540,7 +2540,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture384SeatSwapAndSectionOpenPlane() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.384")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.385")
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
         XCTAssertFalse(PulseSeatPack.shouldMergeSeatWithCompanyOnSwap())
         XCTAssertTrue(PulseSeatPack.shouldPaintHubFromActiveSeatSQLite())
@@ -2661,6 +2661,55 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(PulseSeatPack.shouldMaterializeMissingSeatOnFieldDevice())
         XCTAssertTrue(PulseSeatPack.shouldCookEveryStoreSeat())
         XCTAssertTrue(PulseSeatPack.shouldPublishSeatPlaneFromCook())
+    }
+
+    func testArchitecture385CompanyColdOpenNoRoleGateNoToursFilterPaints() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.385")
+        XCTAssertFalse(PulseLaunch.shouldRequireRoleGateOnColdOpen())
+        XCTAssertTrue(PulseLaunch.shouldOpenCompanyCommandCenterOnColdOpen())
+        XCTAssertFalse(PulseLaunch.shouldShowRoleGatePill())
+        XCTAssertTrue(PulseLaunch.shouldSkipRoleGateOnRelaunch(role: nil, filtersActive: false))
+        XCTAssertFalse(PulseLaunch.shouldPresentCoachTours())
+        XCTAssertFalse(PulseLaunch.shouldHoldSeatPickerUntilWarehouseReady())
+        XCTAssertFalse(PulseLaunch.shouldRevealHubAfterSeatPaint())
+        XCTAssertTrue(PulseLaunch.shouldLeaveRoleGateBeforeSeatWarehouse())
+        XCTAssertTrue(PulseLaunch.shouldPublishCommandCenterAfterSeatSwap())
+        XCTAssertFalse(PulseLaunch.shouldSilentNoOpOnSeatSwapFailure())
+        XCTAssertFalse(PulseLaunch.shouldCacheCompanySeatChromeOnBootCriticalPath())
+        XCTAssertTrue(PulseLaunch.shouldClearCompanyViaSwapToSeatPack())
+        XCTAssertFalse(PulseLaunch.shouldUseDualWaveMarketRestoreAsClearPrimary())
+        XCTAssertTrue(PulseLaunch.packSwapClearsFactOwnership())
+        XCTAssertFalse(PulseLaunch.shouldEarlyReturnOwnedSection(owned: true, rowCount: 0))
+        XCTAssertTrue(PulseLaunch.shouldLoadSection(visible: .dashboard, section: .sales, pushed: .sales))
+        XCTAssertFalse(PulseLaunch.shouldPlaySeatLoadHalloween())
+        XCTAssertFalse(PulseLaunch.shouldShowGroceryLoadQuips())
+        XCTAssertFalse(PulseLaunch.shouldLeaveSplashForSeatLoad())
+        XCTAssertEqual(PulseLaunch.displayLoadStatus("Building store tables"), PulseLaunch.seatLoadTitle)
+        XCTAssertEqual(PulseSeatPack.Key.company.objectPath, "packs/seat/company/all/current.sqlite")
+        var district = DashboardFilters()
+        district.district = "03"
+        XCTAssertEqual(
+            PulseSeatPack.Key.forSeat(filters: district, role: nil),
+            PulseSeatPack.Key(grain: .district, id: "03")
+        )
+        var store = DashboardFilters()
+        store.store = "12"
+        XCTAssertEqual(
+            PulseSeatPack.Key.forSeat(filters: store, role: nil).objectPath,
+            "packs/seat/store/12/current.sqlite"
+        )
+        XCTAssertEqual(
+            PulseLaunch.seatSwapPlan(localUsable: true, alreadyOnPack: true, hasCachedChrome: true),
+            .reuseInPlace
+        )
+        XCTAssertEqual(
+            PulseLaunch.seatSwapPlan(localUsable: false, alreadyOnPack: false, hasCachedChrome: false),
+            .downloadMissingPack
+        )
+        XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
+        XCTAssertTrue(PulseSeatPack.shouldPaintCompanyHubFromPublishedCompanySeat())
+        XCTAssertTrue(PulseLaunch.shouldShowStoreTable(filters: district))
+        XCTAssertFalse(PulseLaunch.shouldShowStoreTable(filters: DashboardFilters()))
     }
 
     func testSeatPackDistrict03EverySectionStoresEqualsHeartbeatN() throws {
@@ -4236,10 +4285,10 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseLaunch.shouldPresentSeatBeforeWarehouse())
         XCTAssertTrue(PulseLaunch.shouldKeepLastSeatOnPackLoad(seatPresented: true))
         XCTAssertFalse(PulseLaunch.shouldKeepLastSeatOnPackLoad(seatPresented: false))
-        XCTAssertFalse(PulseLaunch.shouldSkipRoleGateOnRelaunch(role: .districtManager, filtersActive: true))
-        XCTAssertFalse(PulseLaunch.shouldSkipRoleGateOnRelaunch(role: .backstage, filtersActive: false))
-        XCTAssertFalse(PulseLaunch.shouldSkipRoleGateOnRelaunch(role: .districtManager, filtersActive: false))
-        XCTAssertFalse(PulseLaunch.shouldSkipRoleGateOnRelaunch(role: nil, filtersActive: true))
+        XCTAssertTrue(PulseLaunch.shouldSkipRoleGateOnRelaunch(role: .districtManager, filtersActive: true))
+        XCTAssertTrue(PulseLaunch.shouldSkipRoleGateOnRelaunch(role: .backstage, filtersActive: false))
+        XCTAssertTrue(PulseLaunch.shouldSkipRoleGateOnRelaunch(role: .districtManager, filtersActive: false))
+        XCTAssertTrue(PulseLaunch.shouldSkipRoleGateOnRelaunch(role: nil, filtersActive: true))
         var lastSeat = DashboardFilters()
         lastSeat.district = "03"
         XCTAssertEqual(
@@ -4594,7 +4643,7 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseLaunch.shouldPaintDestinationChromeImmediately())
         XCTAssertTrue(PulseLaunch.shouldPaintScorecardTablesAfterChrome())
         XCTAssertTrue(PulseLaunch.shouldDeferDestinationWorkOnNav())
-        XCTAssertTrue(PulseLaunch.shouldHoldSeatPickerUntilWarehouseReady())
+        XCTAssertFalse(PulseLaunch.shouldHoldSeatPickerUntilWarehouseReady())
         XCTAssertFalse(PulseLaunch.shouldMountHubUnderRoleGate())
         XCTAssertFalse(PulseLaunch.shouldUsePagingScroll())
         XCTAssertFalse(PulseLaunch.shouldRemountPageOnDestinationChange())
@@ -4602,7 +4651,7 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseLaunch.shouldBuildExpandTableOffMain())
         XCTAssertFalse(PulseLaunch.shouldStampHubWhenExpandCacheFills())
         XCTAssertTrue(PulseLaunch.shouldPrefetchSalesExpandWithGrainTables())
-        XCTAssertTrue(PulseLaunch.shouldRevealHubAfterSeatPaint())
+        XCTAssertFalse(PulseLaunch.shouldRevealHubAfterSeatPaint())
         XCTAssertTrue(PulseLaunch.shouldCheckCloudPackDuringSeatWait())
         XCTAssertTrue(PulseLaunch.shouldPinHubChromeAboveContent())
         XCTAssertTrue(PulseLaunch.reloadInSessionAfterFetch(constrained: true, localRowsLoaded: 400))
@@ -4618,14 +4667,14 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(PulseLaunch.seatLoadTitle.localizedCaseInsensitiveContains("rotisserie"))
         XCTAssertEqual(PulseLaunch.seatLoadQuip(at: 1), PulseLaunch.BootPhase.openingFloor.label)
         XCTAssertEqual(PulseLaunch.loadStatus(at: 5), PulseLaunch.BootPhase.buildingTables.label)
-        XCTAssertTrue(PulseLaunch.shouldHoldSeatPickerUntilWarehouseReady())
+        XCTAssertFalse(PulseLaunch.shouldHoldSeatPickerUntilWarehouseReady())
         XCTAssertFalse(PulseLaunch.shouldInvalidateHubOnBackgroundFill())
         XCTAssertFalse(PulseLaunch.shouldRemountPageOnDestinationChange())
         XCTAssertFalse(PulseLaunch.shouldMountHubUnderRoleGate())
         XCTAssertFalse(PulseLaunch.shouldUsePagingScroll())
         XCTAssertFalse(PulseLaunch.shouldStampHubWhenExpandCacheFills())
         XCTAssertFalse(PulseLaunch.shouldStreamPickerOnDashboard())
-        XCTAssertFalse(PulseLaunch.shouldSkipRoleGateOnRelaunch(role: .districtManager, filtersActive: true))
+        XCTAssertTrue(PulseLaunch.shouldSkipRoleGateOnRelaunch(role: .districtManager, filtersActive: true))
         XCTAssertFalse(PulseLaunch.shouldKeepNeighborPagesHydrated())
         XCTAssertFalse(PulseLaunch.shouldLoadSection(visible: .dashboard, section: .pph))
         XCTAssertTrue(PulseLaunch.shouldLoadSection(visible: .dashboard, section: .pph, pushed: .pph))

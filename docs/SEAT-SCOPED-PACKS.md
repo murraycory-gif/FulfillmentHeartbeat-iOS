@@ -44,13 +44,10 @@ Mac cook (`publishCloudPack` / HeartbeatIngest) always runs `cookPublished(inclu
 ## Device state machine
 
 ```
-boot        → company sqlite (roster / Who’s looking only)
-Continue    → resolve SeatPack.Key → download that object → activePackURL = seat file
-              missing object → FAIL hub (no silent company materialize)
-hub paint   → chrome + facts from active seat sqlite only
-Clear       → swapToSeatPack(.company) → packs/seat/company/all/current.sqlite
-              (cached chrome first; no dual-wave market restore; no filterStamp remount)
-new seat    → same swapToSeatPack(key) → wipe ownership → swap file → paint
+boot        → swapToSeatPack(.company) → Command Center (no Who’s looking wall)
+filter chip → swapToSeatPack(district|store|company) → paint or error
+Clear       → swapToSeatPack(.company)
+missing     → FAIL hub (no silent no-op, no market slice)
 ```
 
 `HeartbeatStore.sqliteURL` is the **active** pack. Cloud fetch of `current.sqlite` always lands on the company file, never on a seat file.

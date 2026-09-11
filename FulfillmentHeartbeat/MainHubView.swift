@@ -201,7 +201,6 @@ struct MainHubView: View {
     @EnvironmentObject private var store: HeartbeatStore
     @Environment(\.horizontalSizeClass) private var sizeClass
     @StateObject private var router = HubRouter()
-    @StateObject private var coach = CoachGuide()
     @State private var warmScorecards: [MetricSection] = []
 
     var body: some View {
@@ -215,7 +214,6 @@ struct MainHubView: View {
             }
         }
         .environmentObject(router)
-        .environmentObject(coach)
         .sheet(isPresented: $router.showCompactMenu) {
             CompactNavSheet()
                 .environmentObject(store)
@@ -229,10 +227,6 @@ struct MainHubView: View {
         .onAppear {
             store.setVisibleDestination(router.current)
             rememberWarm(router.current)
-            guard !store.needsRolePick else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                coach.presentIfNeeded(for: router.current)
-            }
         }
         .onChange(of: store.needsRolePick) { _, needs in
             if !needs, router.destination != .dashboard {
@@ -242,17 +236,8 @@ struct MainHubView: View {
         .onChange(of: router.destination) { _, dest in
             store.setVisibleDestination(dest)
             rememberWarm(dest)
-            guard !store.needsRolePick else { return }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
-                coach.presentIfNeeded(for: dest)
-            }
         }
         .background(AppTheme.bg.ignoresSafeArea())
-        .overlay {
-            if coach.active != nil, !store.isImporting, !store.needsRolePick {
-                CoachOverlay(guide: coach)
-            }
-        }
         .overlay {
             ImportProgressOverlay()
         }

@@ -1,8 +1,8 @@
 # Command Center (Tip 2 / Option 8b)
 
-Stamp **HB-0828.384** / 710. Data plane stays Tip 1 seat packs (`docs/SEAT-SCOPED-PACKS.md`).
+Stamp **HB-0828.385** / 711. Data plane stays Tip 1 seat packs (`docs/SEAT-SCOPED-PACKS.md`).
 
-`.384` rewrites seat-swap + section-open as one plane: Clear/Company/`swapToSeatPack(.company)`, filter bounce caches packs, scorecard hosts paint from `pushedSection` **or** `router.section` (phone push must not require `router != dashboard`), and `factsOwned` never skips an empty warehouse.
+Cold open is **company Command Center** (`swapToSeatPack(.company)`). Who's looking is not a required wall. Seat changes are dashboard filter chips only (District / OM / Store / Clear→company). No per-page tours. Every filter swap paints or errors — never a silent no-op.
 
 Home is a **Pulse / Power BI Mobile briefing**: packed KPI tiles, tight gutters, expand on demand. Not always-open ScoreCard tables.
 

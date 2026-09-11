@@ -240,6 +240,7 @@ final class CoachGuide: ObservableObject {
     }
 
     func presentIfNeeded(for dest: HubDestination) {
+        guard PulseLaunch.shouldPresentCoachTours() else { return }
         guard active == nil else { return }
         if !welcomeDone {
             active = .welcome

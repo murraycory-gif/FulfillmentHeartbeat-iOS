@@ -36,9 +36,11 @@ final class HeartbeatStore: ObservableObject {
     @Published var waitingForFileSection: MetricSection?
     @Published private(set) var isReady = false
     @Published private(set) var filterStamp = 0
+    /// Pack chrome landed. Command Center reads this — not `filterStamp` remount.
+    @Published private(set) var seatPaintStamp = 0
     @Published private(set) var linkedMasterName: String?
     @Published private(set) var linkedMasterLoadedAt: Date?
-    @Published var needsRolePick = true
+    @Published var needsRolePick = false
     @Published private(set) var usingDatabasePack = false
     @Published private(set) var warehouseHydrating = false
     @Published private(set) var sessionRole: HeartbeatRole?
@@ -165,6 +167,24 @@ final class HeartbeatStore: ObservableObject {
         errorMessage = nil
         setBootPhase(.openingFloor)
         let chrome = await loadChromeIfPresent()
+        if PulseLaunch.shouldOpenCompanyCommandCenterOnColdOpen() {
+            setBootPhase(.readingPack)
+            let painted = await swapToSeatPack(.company)
+            if painted {
+                finishLocalLaunch()
+                Task { await self.fillAfterReady() }
+                if HubLayout.ingestsWorkbook {
+                    Task { await self.ingestWorkbookOnMacIfNeeded() }
+                }
+                return
+            }
+            isImporting = false
+            importLabel = nil
+            if errorMessage == nil {
+                errorMessage = PulseSeatPack.missingSeatMessage(.company)
+            }
+            return
+        }
         if PulseLaunch.shouldRevealRoleGateDuringWarehouseLoad(),
            PulseLaunch.shouldPresentSeatBeforeWarehouse(),
            PulseLaunch.shouldLeaveSplashForSeatLoad()
@@ -176,7 +196,9 @@ final class HeartbeatStore: ObservableObject {
         }
         setBootPhase(.readingPack)
         await loadWarehousePack(chromeFirst: chrome)
-        await cachePublishedCompanySeatChrome()
+        if PulseLaunch.shouldCacheCompanySeatChromeOnBootCriticalPath() {
+            await cachePublishedCompanySeatChrome()
+        }
         await paintFromWarehouse(light: true, adoptFacts: true)
         if canLeaveSplash() {
             finishLocalLaunch()
@@ -238,15 +260,16 @@ final class HeartbeatStore: ObservableObject {
         isReady = true
         becameReadyAt = Date()
         lastCloudPullAt = Date()
-        if PulseLaunch.shouldSkipRoleGateOnRelaunch(
+        if PulseLaunch.shouldRequireRoleGateOnColdOpen(),
+           !PulseLaunch.shouldSkipRoleGateOnRelaunch(
             role: sessionRole,
             filtersActive: pendingLaunchFilters?.isActive == true
-        ) {
+           ) {
+            needsRolePick = true
+        } else {
             needsRolePick = false
             noteHubInteractive()
             startCloudHydrateIfNeeded()
-        } else {
-            needsRolePick = true
         }
         setBootPhase(.presentingSeat)
         if PulseLaunch.shouldPlaySeatLoadHalloween() {
@@ -395,7 +418,9 @@ final class HeartbeatStore: ObservableObject {
             warehouseHydrating = false
         }
         setBootPhase(.ready)
-        if !needsRolePick, pendingLaunchFilters?.isActive != true {
+        if PulseLaunch.shouldOpenCompanyCommandCenterOnColdOpen(),
+           activeSeatKey != .company,
+           pendingLaunchFilters?.isActive != true {
             Task { await self.swapToSeatPack(.company) }
         }
     }
@@ -2082,9 +2107,25 @@ final class HeartbeatStore: ObservableObject {
             pendingLaunchFilters = nil
         }
         let key = PulseSeatPack.Key.forSeat(filters: next, role: role)
+        hydrating = true
+        filters = next
+        persistFilters()
+        hydrating = false
+        if let chrome = cachedChrome(for: key) {
+            applySeatChrome(chrome, key: key)
+            publishSeatPaint()
+        }
+        if PulseLaunch.shouldLeaveRoleGateBeforeSeatWarehouse() {
+            revealHubAfterSeat()
+        }
         Task { @MainActor in
-            await self.activateSeatPack(key, filters: next)
-            self.revealHubAfterSeat()
+            let ok = await self.swapToSeatPack(key)
+            if !ok, self.errorMessage == nil, !PulseLaunch.shouldSilentNoOpOnSeatSwapFailure() {
+                self.errorMessage = PulseSeatPack.missingSeatMessage(key)
+            }
+            if !PulseLaunch.shouldLeaveRoleGateBeforeSeatWarehouse() {
+                self.revealHubAfterSeat()
+            }
         }
     }
 
@@ -2132,6 +2173,8 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func reopenRoleGate() {
+        guard PulseLaunch.shouldRequireRoleGateOnColdOpen(),
+              PulseLaunch.shouldShowRoleGatePill() else { return }
         needsRolePick = true
     }
 
@@ -2184,11 +2227,15 @@ final class HeartbeatStore: ObservableObject {
         }
     }
 
-    /// One plane for Clear, filter pills, and Continue — including `.company`.
+    /// One plane for Clear, filter chips, cold open, and any leftover Continue.
     /// Progressive: cached / disk chrome (heroes + glance) then warehouse.
-    /// Never dual-wave market restore. Never remount via `filterStamp`.
-    private func swapToSeatPack(_ key: PulseSeatPack.Key) async {
-        guard PulseSeatPack.shouldPaintHubFromActiveSeatSQLite() else { return }
+    /// Always paints Command Center or sets `errorMessage`. Never silent no-op.
+    @discardableResult
+    private func swapToSeatPack(_ key: PulseSeatPack.Key) async -> Bool {
+        guard PulseSeatPack.shouldPaintHubFromActiveSeatSQLite() else {
+            failSeatSwap(key)
+            return false
+        }
         let dest = PulseSeatPack.localURL(root: rootURL, key: key)
         try? fileManager.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
         var localUsable = PulseSeatPack.isUsable(at: dest)
@@ -2209,32 +2256,34 @@ final class HeartbeatStore: ObservableObject {
             alreadyOnPack: alreadyOn,
             hasCachedChrome: cached != nil
         )
+        var installed = false
         switch plan {
         case .reuseInPlace:
             if let chrome = cached {
                 applySeatChrome(chrome, key: key)
             }
             rememberSeatChrome(key)
-            return
+            publishSeatPaint()
+            return true
         case .paintCachedThenSwap:
             if let chrome = cached {
                 applySeatChrome(chrome, key: key)
-                objectWillChange.send()
+                publishSeatPaint()
             }
             guard localUsable else {
-                errorMessage = PulseSeatPack.missingSeatMessage(key)
-                return
+                failSeatSwap(key)
+                return false
             }
-            await installPublishedSeatPack(key, dest: dest, keepChrome: true)
+            installed = await installPublishedSeatPack(key, dest: dest, keepChrome: true)
         case .installLocalPack:
             guard localUsable else {
-                errorMessage = PulseSeatPack.missingSeatMessage(key)
-                return
+                failSeatSwap(key)
+                return false
             }
-            await installPublishedSeatPack(key, dest: dest, keepChrome: false)
+            installed = await installPublishedSeatPack(key, dest: dest, keepChrome: false)
         case .downloadMissingPack:
             if !PulseLaunch.shouldRedownloadUsableSeatPack(), localUsable {
-                await installPublishedSeatPack(key, dest: dest, keepChrome: cached != nil)
+                installed = await installPublishedSeatPack(key, dest: dest, keepChrome: cached != nil)
             } else {
                 if !localUsable {
                     _ = await downloadSeatPack(key, to: dest)
@@ -2245,16 +2294,33 @@ final class HeartbeatStore: ObservableObject {
                     localUsable = PulseSeatPack.isUsable(at: dest)
                 }
                 guard localUsable else {
-                    errorMessage = PulseSeatPack.missingSeatMessage(key)
-                    return
+                    failSeatSwap(key)
+                    return false
                 }
-                await installPublishedSeatPack(key, dest: dest, keepChrome: false)
+                installed = await installPublishedSeatPack(key, dest: dest, keepChrome: false)
             }
         }
-        guard !Task.isCancelled else { return }
+        guard installed else {
+            failSeatSwap(key)
+            return false
+        }
+        guard !Task.isCancelled else { return false }
         if PulseLaunch.shouldStampHubOnSeatSwap(clearingToCompany: key == .company && !filters.isActive) {
             filterStamp += 1
         }
+        publishSeatPaint()
+        return true
+    }
+
+    private func failSeatSwap(_ key: PulseSeatPack.Key) {
+        guard !PulseLaunch.shouldSilentNoOpOnSeatSwapFailure() else { return }
+        errorMessage = PulseSeatPack.missingSeatMessage(key)
+        publishSeatPaint()
+    }
+
+    private func publishSeatPaint() {
+        guard PulseLaunch.shouldPublishCommandCenterAfterSeatSwap() else { return }
+        seatPaintStamp += 1
         objectWillChange.send()
     }
 
@@ -2288,22 +2354,23 @@ final class HeartbeatStore: ObservableObject {
         seatChromeByKey[key] = chrome
     }
 
+    @discardableResult
     private func installPublishedSeatPack(
         _ key: PulseSeatPack.Key,
         dest: URL,
         keepChrome: Bool
-    ) async {
+    ) async -> Bool {
         if !PulseSeatPack.shouldMergeSeatWithCompanyOnSwap() {
             wipeWarehouseForPackSwap(keepChrome: keepChrome)
         }
         activeSeatKey = key
         activePackURL = dest
-        guard let pack = try? PulseSQLite.read(from: dest) else { return }
+        guard let pack = try? PulseSQLite.read(from: dest) else { return false }
         if let chrome = pack.chrome {
             applySeatChrome(chrome, key: key)
-            objectWillChange.send()
+            publishSeatPaint()
         }
-        guard !Task.isCancelled else { return }
+        guard !Task.isCancelled else { return false }
         let caches = PulseCaches.build(
             rows: pack.rows,
             filters: key.filters,
@@ -2320,6 +2387,7 @@ final class HeartbeatStore: ObservableObject {
         installSeatExpandTables()
         rememberSeatChrome(key)
         PulseSeatPack.evictSeatCache(root: rootURL, keeping: key)
+        return true
     }
 
     /// Field iPad and Mac both read the published company seat object.
@@ -3136,7 +3204,7 @@ final class HeartbeatStore: ObservableObject {
         }.value
         guard token == masterApplyToken else { return }
         hydrating = true
-        if presentRoleGate, sessionRole == nil {
+        if presentRoleGate, sessionRole == nil, PulseLaunch.shouldRequireRoleGateOnColdOpen() {
             filters = DashboardFilters()
             sessionRole = nil
             needsRolePick = true
@@ -4550,7 +4618,9 @@ final class HeartbeatStore: ObservableObject {
             if !isReady {
                 filters = DashboardFilters()
                 sessionRole = nil
-                needsRolePick = true
+                if PulseLaunch.shouldRequireRoleGateOnColdOpen() {
+                    needsRolePick = true
+                }
             }
             packPickerFactCount = max(
                 packPickerFactCount,

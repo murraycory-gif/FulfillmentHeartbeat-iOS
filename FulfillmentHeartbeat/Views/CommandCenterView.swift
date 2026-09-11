@@ -213,11 +213,13 @@ struct CommandCenterHome: View {
     }
 
     private var heroCards: [SectionSummary] {
-        CommandCenterLayout.heroSections.map { store.summary(for: $0) }
+        _ = store.seatPaintStamp
+        return CommandCenterLayout.heroSections.map { store.summary(for: $0) }
     }
 
     private var glanceCards: [SectionSummary] {
-        CommandCenterLayout.glanceSections.map { store.summary(for: $0) }
+        _ = store.seatPaintStamp
+        return CommandCenterLayout.glanceSections.map { store.summary(for: $0) }
     }
 
     private func heroBand(height: CGFloat, portrait: Bool, width: CGFloat) -> some View {

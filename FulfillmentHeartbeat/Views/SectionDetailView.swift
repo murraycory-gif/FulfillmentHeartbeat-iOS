@@ -232,7 +232,7 @@ struct SectionDetailView: View {
             visible: router.current,
             pushed: router.pushedSection,
             section: section
-        )) {
+        ) + "-\(store.filters.summary)-\(store.seatPaintStamp)") {
             guard PulseLaunch.shouldLoadSection(
                 visible: router.current,
                 section: section,

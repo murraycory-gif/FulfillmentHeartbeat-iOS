@@ -9849,7 +9849,9 @@ struct HubBrandBar: View {
             if compact {
                 compactBar
                 HStack(spacing: 6) {
-                    rolePill
+                    if PulseLaunch.shouldShowRoleGatePill() {
+                        rolePill
+                    }
                     if showsFilters {
                         FilterBar()
                     }
@@ -9864,7 +9866,9 @@ struct HubBrandBar: View {
                             .minimumScaleFactor(0.7)
                             .layoutPriority(1)
                         Spacer(minLength: 8)
-                        rolePill
+                        if PulseLaunch.shouldShowRoleGatePill() {
+                            rolePill
+                        }
                         if showsFilters {
                             FilterBar()
                         }
@@ -9874,7 +9878,9 @@ struct HubBrandBar: View {
                             .lineLimit(1)
                             .minimumScaleFactor(0.75)
                         HStack(spacing: 10) {
-                            rolePill
+                            if PulseLaunch.shouldShowRoleGatePill() {
+                                rolePill
+                            }
                             if showsFilters {
                                 FilterBar()
                             }

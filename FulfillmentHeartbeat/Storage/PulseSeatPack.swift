@@ -132,7 +132,7 @@ enum PulseSeatPack {
         }
     }
 
-    /// Market `current.sqlite` may feed Who's looking / Clear. Never the hub under a seat.
+    /// Market `current.sqlite` is roster-only. Never the hub primary. Company hub is the company seat pack.
     static func shouldUseMarketPackAsPrimary(seatActive: Bool) -> Bool { !seatActive }
 
     /// `.380` data plane. Banned — seat sqlite is the warehouse.

@@ -208,8 +208,34 @@ enum PulseLaunch {
     /// Grain paint / picker stream wait until the destination's first paint has committed.
     static func shouldDeferDestinationWorkOnNav() -> Bool { true }
 
-    /// Who's looking is the directed start. Seats stay locked until the warehouse is on the floor.
-    static func shouldHoldSeatPickerUntilWarehouseReady() -> Bool { true }
+    /// Seats are pickable from dashboard filter chips. Do not lock the hub
+    /// behind a warehouse / company-pack read on a role gate.
+    static func shouldHoldSeatPickerUntilWarehouseReady() -> Bool { false }
+
+    /// Who's looking is not a required cold-open wall.
+    static func shouldRequireRoleGateOnColdOpen() -> Bool { false }
+
+    /// Cold open paints Command Center from the published company seat pack.
+    static func shouldOpenCompanyCommandCenterOnColdOpen() -> Bool { true }
+
+    /// Hide the header "Who's looking" pill. Seat changes are filter chips only.
+    static func shouldShowRoleGatePill() -> Bool { false }
+
+    /// Boot must not download/read the company seat object before the hub.
+    /// Company install *is* the cold-open paint, via `swapToSeatPack(.company)`.
+    static func shouldCacheCompanySeatChromeOnBootCriticalPath() -> Bool { false }
+
+    /// If a role gate is ever shown, leave it before warehouse work.
+    static func shouldLeaveRoleGateBeforeSeatWarehouse() -> Bool { true }
+
+    /// A finished swap must publish Command Center chrome. Silent reuse is a no-op.
+    static func shouldPublishCommandCenterAfterSeatSwap() -> Bool { true }
+
+    /// Missing / unreadable seat pack is an error, not "keep the last tiles."
+    static func shouldSilentNoOpOnSeatSwapFailure() -> Bool { false }
+
+    /// Per-page Walkthrough / coach marks are gone — they blocked page open.
+    static func shouldPresentCoachTours() -> Bool { false }
 
     /// One load only. No hub "building tables" banner after splash.
     static func shouldShowHubFillBanner(needsRolePick: Bool, warehouseHydrating: Bool) -> Bool {
@@ -949,9 +975,8 @@ enum PulseLaunch {
         return rows
     }
 
-    /// Apply the seat filter while Who's looking is still up, then mount the hub
-    /// so Continue does not land on a mid-paint dashboard.
-    static func shouldRevealHubAfterSeatPaint() -> Bool { true }
+    /// Continue must leave Who's looking immediately. Seat warehouse paints after.
+    static func shouldRevealHubAfterSeatPaint() -> Bool { false }
 
     /// Horizontal page swipe must not steal vertical dashboard drags.
     /// Kept for the unused pager path; paging itself is off.
@@ -1370,9 +1395,11 @@ enum PulseLaunch {
     /// Keep the seat they just picked when the pack finishes after the hub is already up.
     static func shouldKeepLastSeatOnPackLoad(seatPresented: Bool) -> Bool { seatPresented }
 
-    /// Cold open always presents Who's looking. Never auto-restore last dashboard.
+    /// Cold open is company Command Center. Never wall on Who's looking.
     static func shouldSkipRoleGateOnRelaunch(role: HeartbeatRole?, filtersActive: Bool) -> Bool {
-        false
+        _ = role
+        _ = filtersActive
+        return !shouldRequireRoleGateOnColdOpen()
     }
 
     /// After they pick a seat, offer last book for that seat. They still tap Continue.

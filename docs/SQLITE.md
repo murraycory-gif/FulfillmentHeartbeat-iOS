@@ -23,4 +23,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.384 / 1.0 (710) — Tip 1 seat packs + Option 8b Command Center; company picker chrome; store tables District/OM/Store only; Clear/filter = swapToSeatPack; section-open from phone push or router
+HB-0828.385 / 1.0 (711) — Cold open company Command Center; no Who's looking wall; filter chips swap+paint; Tip 1 seat packs; store tables District/OM/Store only
