@@ -1442,6 +1442,9 @@ struct PickerHighlightsPanel: View {
                 if showPictures {
                     ShopperPictureStrip(rows: rows)
                 }
+                if PulseLaunch.shouldShowPickerHighlightColumnHeaders(phone: usePhoneCards) {
+                    PickerMetricHeader(label: "Shopper")
+                }
                 ForEach(rows) { row in
                     if usePhoneCards {
                         PickerPhoneCard(

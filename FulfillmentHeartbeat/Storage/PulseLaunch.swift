@@ -561,6 +561,10 @@ enum PulseLaunch {
         return true
     }
 
+    /// Pad / Mac Top Opportunity Pickers table keeps Hours / PPH / … headers.
+    /// Phone uses PickerPhoneCard — no table header row.
+    static func shouldShowPickerHighlightColumnHeaders(phone: Bool) -> Bool { !phone }
+
     /// Individual shopper picture strip / person cards. Division / District / OM / Store only.
     /// Never on total Company (or Region).
     static func shouldShowPickerIndividualPictures(filters: DashboardFilters) -> Bool {
