@@ -319,6 +319,25 @@ enum PulseSQLite {
             && PulseLaunch.isUsableFileSize(fileBytes(at: url))
     }
 
+    /// ISO-8601 `pack_meta.written_at` from a local sqlite. Empty if missing or unreadable.
+    static func writtenAtString(at url: URL) -> String {
+        guard FileManager.default.fileExists(atPath: url.path) else { return "" }
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
+            return ""
+        }
+        defer { sqlite3_close(db) }
+        var statement: OpaquePointer?
+        let sql = "SELECT written_at FROM pack_meta WHERE id = 1 LIMIT 1;"
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK, let statement else {
+            return ""
+        }
+        defer { sqlite3_finalize(statement) }
+        guard sqlite3_step(statement) == SQLITE_ROW else { return "" }
+        guard let cString = sqlite3_column_text(statement, 0) else { return "" }
+        return String(cString: cString)
+    }
+
     static func sectionCount(from url: URL, section: MetricSection) -> Int {
         var db: OpaquePointer?
         guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK, let db else {

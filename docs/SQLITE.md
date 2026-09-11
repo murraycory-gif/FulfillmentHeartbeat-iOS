@@ -24,4 +24,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.399 / 1.0 (725) — Cook-only: Storage ~50MB TUS cap. Market pack ~56MB is never uploaded as root (that 413s and can bump `updated_at` on a stale file). Company seat ~21MB is published as `current.sqlite` + seat path LIVE first; seats upload `xargs -P 16` with retries. A company 413 fails the job loudly. Cory: Dashboard → Storage → Settings → Global file size limit → 60MB+. Authenticated xlsx URL; refuse under 1MB. Skip only if sqlite is newer and ≥1MB. Phone locks from .398 stay.
+HB-0828.400 / 1.0 (726) — Open/foreground replaces a stale local pack. Cold open painted the cached company seat and stamped `hb.cloudPackUpdated` after downloading `current.sqlite` into `heartbeat.sqlite`, then `loadPack()` read the old seat file — same ~21MB size skipped the next fetch. Now compare storage `updated_at` vs `pack_meta.written_at`, copy root onto the company seat, invalidate seat chrome, stamp UserDefaults only after reload. Cook-only 50MB / company-as-root from .399 stay.

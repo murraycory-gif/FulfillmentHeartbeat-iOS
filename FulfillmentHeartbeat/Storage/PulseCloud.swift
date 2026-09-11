@@ -44,10 +44,23 @@ enum PulseCloud {
         return info.size
     }
 
+    /// Targeted list for one object. Do not use the cached 200-row root listing
+    /// for pack freshness — nested seats are not in that snapshot.
     static func objectInfo(_ name: String) async -> (size: Int, updated: String) {
-        let map = await snapshot()
-        let stat = map[name]
-        return (stat?.size ?? 0, stat?.updated ?? "")
+        if let hit = await listedObject(named: name, useCache: false) {
+            return (hit.size, hit.updated)
+        }
+        return (0, "")
+    }
+
+    /// Authenticated first — public / bare object can 403 or return a stub.
+    static func objectDownloadURLs(_ name: String) -> [URL] {
+        let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
+        return [
+            URL(string: "https://pcnjujfmlsklhrosxzlt.supabase.co/storage/v1/object/authenticated/\(bucket)/\(encoded)"),
+            URL(string: "https://pcnjujfmlsklhrosxzlt.supabase.co/storage/v1/object/public/\(bucket)/\(encoded)"),
+            URL(string: "https://pcnjujfmlsklhrosxzlt.supabase.co/storage/v1/object/\(bucket)/\(encoded)"),
+        ].compactMap { $0 }
     }
 
     private static var listedAt: Date?
@@ -71,31 +84,50 @@ enum PulseCloud {
         return nil
     }
 
-    private static func listObjects() async -> [[String: Any]] {
-        if let listedAt, Date().timeIntervalSince(listedAt) < 20, !listedRows.isEmpty {
+    private static func listedObject(named name: String, useCache: Bool) async -> ObjectStat? {
+        let prefix: String
+        if let slash = name.lastIndex(of: "/") {
+            prefix = String(name[..<slash]) + "/"
+        } else {
+            prefix = ""
+        }
+        let leaf = name.split(separator: "/").map(String.init).last ?? name
+        let rows = await listObjects(prefix: prefix, useCache: useCache && prefix.isEmpty)
+        for row in rows {
+            guard let listed = row["name"] as? String else { continue }
+            if listed != leaf, listed != name { continue }
+            let meta = row["metadata"] as? [String: Any]
+            let size = objectByteCount(from: meta)
+            let updated = (row["updated_at"] as? String) ?? (row["created_at"] as? String) ?? ""
+            return ObjectStat(size: size, updated: updated)
+        }
+        return nil
+    }
+
+    private static func listObjects(prefix: String = "", useCache: Bool = true) async -> [[String: Any]] {
+        let cacheRoot = useCache && prefix.isEmpty
+        if cacheRoot, let listedAt, Date().timeIntervalSince(listedAt) < 20, !listedRows.isEmpty {
             return listedRows
         }
         var request = URLRequest(url: projectURL.appendingPathComponent("storage/v1/object/list/\(bucket)"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         applyAuth(&request)
-        request.httpBody = try? JSONSerialization.data(withJSONObject: ["prefix": "", "limit": 200])
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["prefix": prefix, "limit": 200])
         request.timeoutInterval = 20
         guard let (data, response) = try? await URLSession.shared.data(for: request),
               let http = response as? HTTPURLResponse, http.statusCode == 200,
               let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
-        else { return listedRows }
-        listedAt = Date()
-        listedRows = rows
+        else { return cacheRoot ? listedRows : [] }
+        if cacheRoot {
+            listedAt = Date()
+            listedRows = rows
+        }
         return rows
     }
 
     static func downloadNamed(_ name: String) async throws -> Data {
-        let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
-        let urls = [
-            URL(string: "https://pcnjujfmlsklhrosxzlt.supabase.co/storage/v1/object/public/\(bucket)/\(encoded)"),
-            URL(string: "https://pcnjujfmlsklhrosxzlt.supabase.co/storage/v1/object/\(bucket)/\(encoded)"),
-        ].compactMap { $0 }
+        let urls = objectDownloadURLs(name)
         var last: Error = PulseCloudError.missing
         for url in urls {
             var request = URLRequest(url: url)
@@ -124,11 +156,7 @@ enum PulseCloud {
 
     /// Seat object path, e.g. `packs/seat/district/03/current.sqlite`.
     static func downloadObject(_ name: String, to dest: URL, timeout: TimeInterval = 180) async throws -> Int {
-        let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
-        let urls = [
-            URL(string: "https://pcnjujfmlsklhrosxzlt.supabase.co/storage/v1/object/public/\(bucket)/\(encoded)"),
-            URL(string: "https://pcnjujfmlsklhrosxzlt.supabase.co/storage/v1/object/\(bucket)/\(encoded)"),
-        ].compactMap { $0 }
+        let urls = objectDownloadURLs(name)
         var last: Error = PulseCloudError.missing
         for url in urls {
             var request = URLRequest(url: url)
@@ -173,7 +201,7 @@ enum PulseCloud {
     /// while it may still be memory-mapped.
     static func downloadPack(to dest: URL, timeout: TimeInterval = 180) async throws -> Int {
         var last: Error = PulseCloudError.missing
-        for url in [packURL, publicPackURL] {
+        for url in objectDownloadURLs(object) {
             var request = URLRequest(url: url)
             request.httpMethod = "GET"
             request.timeoutInterval = timeout

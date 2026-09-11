@@ -5,7 +5,7 @@ import Foundation
 enum PulseLaunch {
     static let minimumPackBytes = 50_000
     static let stagingFileName = "heartbeat-cloud.sqlite"
-    static let bootDownloadTimeout: TimeInterval = 25
+    static let bootDownloadTimeout: TimeInterval = 60
     /// Let the hub settle before expanding grains. Cards already painted.
     static let grainPaintDelayNanoseconds: UInt64 = 2_800_000_000
     /// First scroll / nav after Dashboard lands must not fight pack/grain/picker work.
@@ -368,6 +368,8 @@ enum PulseLaunch {
     typealias CompanyClearPlan = SeatSwapPlan
 
     static func shouldReuseCachedCompanySeatOnClear() -> Bool { true }
+    /// After a newer cloud pack lands, drop in-memory company chrome so Clear cannot paint Wednesday.
+    static func shouldInvalidateCachedCompanySeatAfterCloudPromote() -> Bool { true }
     static func shouldRedownloadUsableCompanySeat() -> Bool { false }
     static func shouldWipeWarehouseBeforeCachedCompanyChrome() -> Bool { false }
     static func shouldStampHubOnClearToCompany() -> Bool { false }
@@ -1648,9 +1650,52 @@ enum PulseLaunch {
     /// Cloud facts/pack after Who's looking — not on splash, not in the first breath.
     static let cloudHydrateDelayNanoseconds: UInt64 = 12_000_000_000
     static let foregroundCloudQuietSeconds: TimeInterval = 90
+    /// Pack freshness check may run again after this. Metadata only until a newer file exists.
+    static let foregroundPackCheckQuietSeconds: TimeInterval { 12 }
+    /// This project's TUS cap. Prefer the company seat over a 56MB market root.
+    static let storageFileLimitBytes = 50_000_000
+
+    static func shouldPullCloudPackOnColdOpen() -> Bool { true }
+    static func shouldPullCloudPackOnForeground() -> Bool { true }
+    static func shouldReplaceCompanySeatFromDownloadedRoot() -> Bool { true }
+    static func shouldPreferCompanySeatOverOversizedRoot(rootBytes: Int) -> Bool {
+        rootBytes > storageFileLimitBytes
+    }
 
     static func shouldPullCloudOnForeground(secondsSinceReady: TimeInterval) -> Bool {
-        secondsSinceReady >= foregroundCloudQuietSeconds
+        _ = secondsSinceReady
+        return shouldPullCloudPackOnForeground()
+    }
+
+    static func parsePackTimestamp(_ raw: String) -> Date? {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = fractional.date(from: trimmed) { return date }
+        let basic = ISO8601DateFormatter()
+        basic.formatOptions = [.withInternetDateTime]
+        if let date = basic.date(from: trimmed) { return date }
+        let normalized = trimmed.replacingOccurrences(of: "Z", with: "+00:00")
+        return fractional.date(from: normalized) ?? basic.date(from: normalized)
+    }
+
+    /// Cook `written_at` vs Storage `updated_at` for the same file is seconds to a few minutes.
+    /// Slack keeps that from looping a refetch after a successful promote.
+    static let packTimestampMatchSlack: TimeInterval = 15 * 60
+
+    /// Storage `updated_at` / pack_meta.written_at. Empty local means the remote wins.
+    static func remoteTimestampIsNewer(_ remote: String, than local: String, slack: TimeInterval = 0) -> Bool {
+        if remote.isEmpty { return false }
+        if local.isEmpty { return true }
+        if let remoteDate = parsePackTimestamp(remote), let localDate = parsePackTimestamp(local) {
+            return remoteDate > localDate.addingTimeInterval(slack)
+        }
+        return remote != local
+    }
+
+    static func shouldReplaceSeatFromNewerOnDiskRoot(rootWrittenAt: String, seatWrittenAt: String) -> Bool {
+        remoteTimestampIsNewer(rootWrittenAt, than: seatWrittenAt)
     }
 
     /// Skip another facts.json parse when the warehouse already has the store tables.
@@ -1730,21 +1775,36 @@ enum PulseLaunch {
         summaries.filter { $0.storeCount >= 8 || ($0.headline ?? 0) > 0 }.count
     }
 
-    /// Fetch when the device has nothing usable, the cloud file is a different
-    /// size, or storage `updated_at` moved. SQLite page alignment often keeps
-    /// the same byte length after Wednesday lands — size-only compare skipped it.
-    /// A new app stamp must not force a download by itself (jetsam on 4GB).
+    /// Fetch when the device has nothing usable, storage `updated_at` is newer
+    /// than pack_meta.written_at / UserDefaults, or the cloud file size moved.
+    /// Same ~21MB company seat after Thursday cook must still refetch.
+    /// Do not trust `hb.cloudPackUpdated` alone — a partial promote stamped it
+    /// while Command Center kept reading the old seat sqlite.
     static func shouldFetchRemotePack(
         remoteBytes: Int,
         localBytes: Int,
         localRowsLoaded: Int,
         remoteUpdated: String = "",
-        knownUpdated: String = ""
+        knownUpdated: String = "",
+        localWrittenAt: String = ""
     ) -> Bool {
         guard isUsableFileSize(remoteBytes) else { return false }
-        if localRowsLoaded == 0 { return true }
+        if localBytes < minimumPackBytes || localRowsLoaded == 0 { return true }
+        if !localWrittenAt.isEmpty,
+           remoteTimestampIsNewer(remoteUpdated, than: localWrittenAt, slack: packTimestampMatchSlack) {
+            return true
+        }
+        if remoteTimestampIsNewer(remoteUpdated, than: knownUpdated) { return true }
+        if !knownUpdated.isEmpty, !localWrittenAt.isEmpty,
+           remoteTimestampIsNewer(knownUpdated, than: localWrittenAt, slack: packTimestampMatchSlack) {
+            return true
+        }
         if !remoteUpdated.isEmpty, remoteUpdated != knownUpdated { return true }
         return remoteBytes != localBytes
+    }
+
+    static func shouldStampCloudPackUpdated(downloadSucceeded: Bool) -> Bool {
+        downloadSucceeded
     }
 
     /// A promoted newer pack must paint in this session. iPad is `constrained`

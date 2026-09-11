@@ -173,7 +173,14 @@ final class HeartbeatStore: ObservableObject {
             let painted = await swapToSeatPack(.company)
             if painted {
                 finishLocalLaunch()
-                Task { await self.fillAfterReady() }
+                if PulseLaunch.shouldPullCloudPackOnColdOpen() {
+                    Task {
+                        _ = await self.importCloudSQLiteIfPresent(reason: .boot)
+                        await self.fillAfterReady()
+                    }
+                } else {
+                    Task { await self.fillAfterReady() }
+                }
                 if HubLayout.ingestsWorkbook {
                     Task { await self.ingestWorkbookOnMacIfNeeded() }
                 }
@@ -260,7 +267,6 @@ final class HeartbeatStore: ObservableObject {
         importLabel = nil
         isReady = true
         becameReadyAt = Date()
-        lastCloudPullAt = Date()
         setNeedsRolePick(
             PulseLaunch.shouldRequireRoleGateOnColdOpen()
                 && !PulseLaunch.shouldSkipRoleGateOnRelaunch(
@@ -2733,11 +2739,11 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func pullLatestWorkbookIfNeeded() {
-        guard isReady, !needsRolePick, !isImporting else { return }
-        if let ready = becameReadyAt, !PulseLaunch.shouldPullCloudOnForeground(secondsSinceReady: Date().timeIntervalSince(ready)) {
+        guard isReady, !isImporting else { return }
+        if let last = lastCloudPullAt,
+           Date().timeIntervalSince(last) < PulseLaunch.foregroundPackCheckQuietSeconds {
             return
         }
-        if let last = lastCloudPullAt, Date().timeIntervalSince(last) < 300 { return }
         lastCloudPullAt = Date()
         pullCloudPackIfNeeded()
         guard HubLayout.ingestsWorkbook else { return }
@@ -2756,24 +2762,8 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func syncCloudPackIfChanged(_ snap: [String: PulseCloud.ObjectStat]? = nil) async {
-        let info: PulseCloud.ObjectStat
-        if let hit = snap?[PulseCloud.object] {
-            info = hit
-        } else {
-            let remote = await PulseCloud.objectInfo(PulseCloud.object)
-            info = PulseCloud.ObjectStat(size: remote.size, updated: remote.updated)
-        }
-        let localBytes = PulseSQLite.fileBytes(at: companySQLiteURL)
-        let knownUpdated = UserDefaults.standard.string(forKey: "hb.cloudPackUpdated") ?? ""
-        if PulseLaunch.shouldFetchRemotePack(
-            remoteBytes: info.size,
-            localBytes: localBytes,
-            localRowsLoaded: warehouseRowCount,
-            remoteUpdated: info.updated,
-            knownUpdated: knownUpdated
-        ) {
-            await importCloudSQLiteIfPresent(reason: .refresh)
-        }
+        _ = snap
+        await importCloudSQLiteIfPresent(reason: .refresh)
         await importCloudCardsIfPresent()
     }
 
@@ -2841,59 +2831,184 @@ final class HeartbeatStore: ObservableObject {
     @discardableResult
     private func importCloudSQLiteIfPresent(reason: PackFetchReason) async -> Bool {
         guard !packFetchInFlight else { return false }
-        let remote = await PulseCloud.objectInfo(PulseCloud.object)
-        let localBytes = PulseSQLite.fileBytes(at: companySQLiteURL)
-        let alreadyLoaded = warehouseRowCount
-        let knownUpdated = UserDefaults.standard.string(forKey: "hb.cloudPackUpdated") ?? ""
-        guard PulseLaunch.shouldFetchRemotePack(
-            remoteBytes: remote.size,
-            localBytes: localBytes,
-            localRowsLoaded: alreadyLoaded,
-            remoteUpdated: remote.updated,
-            knownUpdated: knownUpdated
-        ) else { return false }
         packFetchInFlight = true
         defer { packFetchInFlight = false }
-        let staging = companySQLiteURL.deletingLastPathComponent().appendingPathComponent(PulseLaunch.stagingFileName)
-        let timeout = reason == .boot ? PulseLaunch.bootDownloadTimeout : 180
-        do {
-            let size = try await PulseCloud.downloadPack(to: staging, timeout: timeout)
-            guard PulseSQLite.isUsableFile(at: staging) else {
+        lastCloudPullAt = Date()
+        let healedSeat = promoteOnDiskRootOverStaleSeatIfNeeded()
+        PulseCloud.invalidateObjectList()
+        let rootRemote = await PulseCloud.objectInfo(PulseCloud.object)
+        let seatRemote = await PulseCloud.objectInfo(PulseSeatPack.Key.company.objectPath)
+        let chosen = chooseCloudPackObject(root: rootRemote, seat: seatRemote)
+        let companySeatURL = PulseSeatPack.localURL(root: rootURL, key: .company)
+        let localSeatBytes = PulseSQLite.fileBytes(at: companySeatURL)
+        let alreadyLoaded = warehouseRowCount
+        let knownUpdated = UserDefaults.standard.string(forKey: "hb.cloudPackUpdated") ?? ""
+        let localWrittenAt = PulseSQLite.writtenAtString(at: companySeatURL)
+        let shouldDownload = PulseLaunch.shouldFetchRemotePack(
+            remoteBytes: chosen.size,
+            localBytes: localSeatBytes,
+            localRowsLoaded: alreadyLoaded,
+            remoteUpdated: chosen.updated,
+            knownUpdated: knownUpdated,
+            localWrittenAt: localWrittenAt
+        )
+        var downloadedUpdated = ""
+        var downloadedSize = 0
+        if shouldDownload {
+            let staging = companySQLiteURL.deletingLastPathComponent()
+                .appendingPathComponent(PulseLaunch.stagingFileName)
+            let timeout = reason == .boot ? PulseLaunch.bootDownloadTimeout : 180
+            do {
+                let size: Int
+                if chosen.path != PulseCloud.object {
+                    size = try await PulseCloud.downloadObject(chosen.path, to: staging, timeout: timeout)
+                } else {
+                    size = try await PulseCloud.downloadPack(to: staging, timeout: timeout)
+                }
+                guard PulseSQLite.isUsableFile(at: staging) else {
+                    try? fileManager.removeItem(at: staging)
+                    if healedSeat {
+                        return await reloadCompanySeatAfterCloudPromote(reason: reason, alreadyLoaded: alreadyLoaded)
+                    }
+                    return false
+                }
+                try promoteCompanyStagingPack(staging)
+                if PulseLaunch.shouldReplaceCompanySeatFromDownloadedRoot() {
+                    try replaceCompanySeatFromRoot()
+                }
+                downloadedUpdated = chosen.updated
+                downloadedSize = size
+            } catch {
                 try? fileManager.removeItem(at: staging)
+                if healedSeat {
+                    return await reloadCompanySeatAfterCloudPromote(reason: reason, alreadyLoaded: alreadyLoaded)
+                }
                 return false
             }
-            try promoteCompanyStagingPack(staging)
-            UserDefaults.standard.set(size, forKey: "hb.cloudPackBytes")
-            if !remote.updated.isEmpty {
-                UserDefaults.standard.set(remote.updated, forKey: "hb.cloudPackUpdated")
-            } else {
-                let stamp = await PulseCloud.objectInfo(PulseCloud.object)
-                if !stamp.updated.isEmpty {
-                    UserDefaults.standard.set(stamp.updated, forKey: "hb.cloudPackUpdated")
-                }
-            }
-            guard PulseLaunch.reloadInSessionAfterFetch(
-                constrained: HubLayout.constrained,
-                localRowsLoaded: alreadyLoaded
-            ) else {
-                applyLocalCards()
-                return true
-            }
-            if alreadyLoaded > 0 {
-                rows = []
-                latestBySection = [:]
-            }
-            await loadPack()
-            guard seeded, warehouseRowCount > 0 else { return true }
+        } else if !healedSeat {
+            return false
+        }
+
+        let reloaded = await reloadCompanySeatAfterCloudPromote(reason: reason, alreadyLoaded: alreadyLoaded)
+        guard shouldDownload else { return reloaded }
+        guard PulseLaunch.shouldStampCloudPackUpdated(downloadSucceeded: reloaded) else {
+            return reloaded
+        }
+        if downloadedSize > 0 {
+            UserDefaults.standard.set(downloadedSize, forKey: "hb.cloudPackBytes")
+        }
+        if !downloadedUpdated.isEmpty {
+            UserDefaults.standard.set(downloadedUpdated, forKey: "hb.cloudPackUpdated")
+        }
+        return reloaded
+    }
+
+    private struct CloudPackChoice {
+        var path: String
+        var size: Int
+        var updated: String
+    }
+
+    private func chooseCloudPackObject(
+        root: (size: Int, updated: String),
+        seat: (size: Int, updated: String)
+    ) -> CloudPackChoice {
+        if PulseLaunch.shouldPreferCompanySeatOverOversizedRoot(rootBytes: root.size),
+           PulseLaunch.isUsableFileSize(seat.size) {
+            return CloudPackChoice(
+                path: PulseSeatPack.Key.company.objectPath,
+                size: seat.size,
+                updated: seat.updated
+            )
+        }
+        if PulseLaunch.isUsableFileSize(root.size) {
+            return CloudPackChoice(path: PulseCloud.object, size: root.size, updated: root.updated)
+        }
+        return CloudPackChoice(
+            path: PulseSeatPack.Key.company.objectPath,
+            size: seat.size,
+            updated: seat.updated
+        )
+    }
+
+    private func promoteOnDiskRootOverStaleSeatIfNeeded() -> Bool {
+        guard PulseLaunch.shouldReplaceCompanySeatFromDownloadedRoot() else { return false }
+        let seatURL = PulseSeatPack.localURL(root: rootURL, key: .company)
+        let rootWritten = PulseSQLite.writtenAtString(at: companySQLiteURL)
+        let seatWritten = PulseSQLite.writtenAtString(at: seatURL)
+        guard PulseLaunch.shouldReplaceSeatFromNewerOnDiskRoot(
+            rootWrittenAt: rootWritten,
+            seatWrittenAt: seatWritten
+        ) else { return false }
+        guard PulseSQLite.isUsableFile(at: companySQLiteURL) else { return false }
+        do {
+            try replaceCompanySeatFromRoot()
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    private func replaceCompanySeatFromRoot() throws {
+        let dest = PulseSeatPack.localURL(root: rootURL, key: .company)
+        guard PulseSQLite.isUsableFile(at: companySQLiteURL) else { return }
+        try fileManager.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let staging = dest.deletingLastPathComponent()
+            .appendingPathComponent("incoming-company-\(UUID().uuidString).sqlite")
+        if fileManager.fileExists(atPath: staging.path) {
+            try fileManager.removeItem(at: staging)
+        }
+        try fileManager.copyItem(at: companySQLiteURL, to: staging)
+        try PulseSeatPack.atomicReplace(from: staging, to: dest)
+    }
+
+    private func invalidateCompanySeatCache() {
+        guard PulseLaunch.shouldInvalidateCachedCompanySeatAfterCloudPromote() else { return }
+        companySeatChrome = nil
+        seatChromeByKey[.company] = nil
+        if activeSeatKey == .company || activeSeatKey == nil {
+            packChrome = nil
+            usingPackChrome = false
+        }
+    }
+
+    @discardableResult
+    private func reloadCompanySeatAfterCloudPromote(
+        reason: PackFetchReason,
+        alreadyLoaded: Int
+    ) async -> Bool {
+        invalidateCompanySeatCache()
+        let dest = PulseSeatPack.localURL(root: rootURL, key: .company)
+        activeSeatKey = .company
+        activePackURL = dest
+        guard PulseLaunch.reloadInSessionAfterFetch(
+            constrained: HubLayout.constrained,
+            localRowsLoaded: alreadyLoaded
+        ) else {
+            applyLocalCards()
+            return PulseSeatPack.isUsable(at: dest)
+        }
+        if alreadyLoaded > 0 {
+            rows = []
+            latestBySection = [:]
+        }
+        let installed = await installPublishedSeatPack(.company, dest: dest, keepChrome: false)
+        if installed {
             await paintFromWarehouse(light: true)
+            publishSeatPaint()
             if reason != .boot {
                 scheduleGrainPaint(generation: paintGeneration)
             }
-            return true
-        } catch {
-            try? fileManager.removeItem(at: staging)
-            return false
+            return warehouseRowCount > 0 || seeded
         }
+        await loadPack()
+        guard seeded, warehouseRowCount > 0 else { return PulseSeatPack.isUsable(at: dest) }
+        await paintFromWarehouse(light: true)
+        publishSeatPaint()
+        if reason != .boot {
+            scheduleGrainPaint(generation: paintGeneration)
+        }
+        return true
     }
 
     private func promoteCompanyStagingPack(_ staging: URL) throws {
