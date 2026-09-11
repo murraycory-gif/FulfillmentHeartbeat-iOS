@@ -495,6 +495,12 @@ enum PulseLaunch {
         }
     }
 
+    /// Top Opportunity / Doing well panel. Every seat, including Company (Cory iPhone shot).
+    static func shouldShowPickerHighlights(filters: DashboardFilters) -> Bool {
+        _ = filters
+        return true
+    }
+
     /// Individual shopper picture strip / person cards. Division / District / OM / Store only.
     /// Never on total Company (or Region).
     static func shouldShowPickerIndividualPictures(filters: DashboardFilters) -> Bool {
@@ -515,8 +521,14 @@ enum PulseLaunch {
         return true
     }
 
-    /// iPhone Pages / Highlights: never squeeze the iPad shopper table onto a phone.
-    static func shouldUsePickerPhoneCards(phone: Bool = HubLayout.isPhoneDevice) -> Bool { phone }
+    /// iPhone / narrow width: never squeeze the iPad SHOPPER … STATUS table (Cory shot).
+    static func shouldUsePickerPhoneCards(
+        phone: Bool = HubLayout.isPhoneDevice,
+        width: CGFloat = 0
+    ) -> Bool {
+        if phone || HubLayout.isPhoneDevice { return true }
+        return width > 0 && width < 720
+    }
 
     /// iPhone Pages list opens the destination on the first tap.
     static func shouldOpenPhonePagesOnFirstTap() -> Bool { true }

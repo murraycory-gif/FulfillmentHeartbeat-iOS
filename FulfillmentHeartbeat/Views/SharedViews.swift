@@ -9288,7 +9288,7 @@ struct PickerScoreTable: View {
             }
             if expanded {
                 Section {
-                    if !PulseLaunch.shouldUsePickerPhoneCards(phone: HubLayout.isPhone(sizeClass)) {
+                    if !PulseLaunch.shouldUsePickerPhoneCards(phone: HubLayout.isPhone(sizeClass) || HubLayout.isPhoneDevice) {
                         PickerMetricHeader(
                             label: "Shopper",
                             active: sort.key,
@@ -9309,7 +9309,7 @@ struct PickerScoreTable: View {
                     }
                     ForEach(Array(snaps.prefix(limit))) { snap in
                         Group {
-                            if PulseLaunch.shouldUsePickerPhoneCards(phone: HubLayout.isPhone(sizeClass)) {
+                            if PulseLaunch.shouldUsePickerPhoneCards(phone: HubLayout.isPhone(sizeClass) || HubLayout.isPhoneDevice) {
                                 PickerPhoneCard(
                                     snap: snap,
                                     expanded: openShopper == snap.id.uuidString,

@@ -68,9 +68,10 @@ struct SectionDetailView: View {
 
             if showTables {
             if section == .pickerScorecard {
-                if PulseLaunch.shouldShowPickerIndividualPictures(filters: store.filters) {
+                if PulseLaunch.shouldShowPickerHighlights(filters: store.filters) {
                     Section {
                         PickerHighlightsPanel(
+                            showPictures: PulseLaunch.shouldShowPickerIndividualPictures(filters: store.filters),
                             onSelectOpportunity: { pickerFocus = .opportunity },
                             onSelectStrong: { pickerFocus = .strong }
                         )

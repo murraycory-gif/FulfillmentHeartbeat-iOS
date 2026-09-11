@@ -1202,16 +1202,22 @@ private struct DashCardChrome: ViewModifier {
 struct PickerHighlightsPanel: View {
     @EnvironmentObject private var store: HeartbeatStore
     @Environment(\.horizontalSizeClass) private var sizeClass
+    var showPictures: Bool = false
     var onSelectOpportunity: () -> Void = {}
     var onSelectStrong: () -> Void = {}
     @State private var expanded = true
     @State private var openShopper: String?
+    @State private var panelWidth: CGFloat = 0
 
     private var board: HeartbeatMath.PickerBoard {
         store.pickerBoard
     }
 
-    private var phone: Bool { HubLayout.isPhone(sizeClass) }
+    private var phone: Bool { HubLayout.isPhone(sizeClass) || HubLayout.isPhoneDevice }
+
+    private var usePhoneCards: Bool {
+        PulseLaunch.shouldUsePickerPhoneCards(phone: phone, width: panelWidth)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1257,7 +1263,15 @@ struct PickerHighlightsPanel: View {
                 .padding(phone ? 10 : 16)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(AppTheme.tableFill)
+                .background(
+                    GeometryReader { geo in
+                        Color.clear.preference(key: HubWidthKey.self, value: geo.size.width)
+                    }
+                )
             }
+        }
+        .onPreferenceChange(HubWidthKey.self) { value in
+            if value > 0 { panelWidth = value }
         }
         .background(AppTheme.tableFill)
         .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
@@ -1295,8 +1309,10 @@ struct PickerHighlightsPanel: View {
                     .foregroundStyle(AppTheme.textSecondary)
                     .padding(.vertical, phone ? 4 : 8)
             } else {
-                ShopperPictureStrip(rows: rows)
-                if PulseLaunch.shouldUsePickerPhoneCards(phone: phone) {
+                if showPictures {
+                    ShopperPictureStrip(rows: rows)
+                }
+                if usePhoneCards {
                     ForEach(rows) { row in
                         PickerPhoneCard(
                             snap: PickerLineSnap(row, division: divisionLabel(for: row)),
