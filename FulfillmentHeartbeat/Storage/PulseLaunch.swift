@@ -743,6 +743,46 @@ enum PulseLaunch {
     /// like a squeezed pad briefing under the chrome).
     static func shouldUsePhoneNativeCommandCenter() -> Bool { true }
 
+    /// Every section ScoreCard on iPhone is a 1-column scroll of cards —
+    /// same bar as PhoneCommandCenterHome. Pad List + tableFill leftover
+    /// stretch is what left Sales as a giant empty white panel on 722.
+    static func shouldUsePhoneNativeSectionPages() -> Bool { true }
+
+    /// FILE ROOT: when usesPhoneScorecards, SectionDetail must not mount
+    /// List + *RollupTable / *Table hosts. Per-atom phone cards inside
+    /// those pad shells is a reject (Sales white panel + By Day smash).
+    static func shouldMountPadSectionListHost(usesPhoneScorecards: Bool) -> Bool {
+        !(usesPhoneScorecards && shouldUsePhoneNativeSectionPages())
+    }
+
+    /// Every HubDestination metric page gets the same phone ScrollView shell.
+    static func phoneNativeSectionPages() -> [MetricSection] {
+        [
+            .sales,
+            .lostRevenue,
+            .missingItems,
+            .fiveStar,
+            .preSubOOS,
+            .pickPath,
+            .prepNotReady,
+            .dynacap,
+            .scheduleQuality,
+            .pickerScorecard,
+            .pph,
+            .labor,
+        ]
+    }
+
+    /// Compact HubBrandBar is an HStack. ZStack overlay of Pages/Dashboard
+    /// on BeatingHeartbeatMark is what collided on 722.
+    static func shouldStackCompactHubBrandHorizontally() -> Bool { true }
+
+    static func shouldOverlayCompactHeartbeatMark() -> Bool { false }
+
+    static func shouldShowCompactHeartbeatWordmark(showBack: Bool) -> Bool {
+        !showBack
+    }
+
     /// HB-0828.397: filter swap paints cached/last-good chrome on the tap,
     /// then a cancellable thin pack install. Full heavy caches on MainActor
     /// after every District / OM / Store chip is why phone felt frozen.

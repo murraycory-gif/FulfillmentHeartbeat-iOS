@@ -2745,6 +2745,17 @@ final class HeartbeatMathTests: XCTestCase {
     func testArchitecture397PhoneFilterSwapPaintsCachedSeat() {
         XCTAssertEqual(BuildStamp.id, "HB-0828.397")
         XCTAssertTrue(PulseLaunch.shouldUsePhoneNativeCommandCenter())
+        XCTAssertTrue(PulseLaunch.shouldUsePhoneNativeSectionPages())
+        XCTAssertFalse(PulseLaunch.shouldMountPadSectionListHost(usesPhoneScorecards: true))
+        XCTAssertTrue(PulseLaunch.shouldMountPadSectionListHost(usesPhoneScorecards: false))
+        XCTAssertEqual(
+            Set(PulseLaunch.phoneNativeSectionPages()),
+            Set(HubDestination.metricItems.compactMap(\.section))
+        )
+        XCTAssertTrue(PulseLaunch.shouldStackCompactHubBrandHorizontally())
+        XCTAssertFalse(PulseLaunch.shouldOverlayCompactHeartbeatMark())
+        XCTAssertTrue(PulseLaunch.shouldShowCompactHeartbeatWordmark(showBack: false))
+        XCTAssertFalse(PulseLaunch.shouldShowCompactHeartbeatWordmark(showBack: true))
         XCTAssertTrue(PulseLaunch.shouldDeferHeavySeatInstallAfterCachedChrome())
         XCTAssertTrue(PulseLaunch.shouldKeepLastGoodSeatUntilIncomingPackReady())
         XCTAssertFalse(PulseLaunch.shouldUseHeavySeatCachesOnFilterSwap())
@@ -2765,6 +2776,9 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
         XCTAssertFalse(PulseLaunch.shouldMountRoleGate(needsRolePick: true))
         XCTAssertTrue(PulseLaunch.shouldHideUnassignedMarketGrain())
+        XCTAssertFalse(CommandCenterLayout.shouldFillPhoneViewport())
+        XCTAssertEqual(CommandCenterLayout.glanceColumns(width: 390, phone: true, portrait: true), 1)
+        XCTAssertTrue(PulseLaunch.shouldRefusePadShopperTable(compact: true, phoneIdiom: true))
     }
 
     func testArchitecture396PhoneNativeCommandCenter() {

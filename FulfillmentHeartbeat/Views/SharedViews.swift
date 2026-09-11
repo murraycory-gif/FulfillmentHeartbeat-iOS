@@ -10439,25 +10439,35 @@ struct HubBrandBar: View {
     }
 
     private var compactBar: some View {
-        ZStack {
-            HStack(spacing: 8) {
-                HubNavControl(symbol: "line.3.horizontal", title: "Pages") {
-                    router.showCompactMenu = true
-                }
-                if showBack {
-                    HubNavControl(symbol: "chevron.left", title: "Dashboard") {
-                        router.open(.dashboard)
-                    }
-                }
-                Spacer(minLength: 4)
-                assistButton
+        HStack(spacing: 6) {
+            HubNavControl(symbol: "line.3.horizontal", title: "Pages") {
+                router.showCompactMenu = true
             }
-            .zIndex(2)
-            BeatingHeartbeatMark(height: 30, showsTrace: true, showsWordmark: true, forceTrace: true)
-                .padding(.horizontal, 78)
+            .layoutPriority(1)
+            if showBack {
+                HubNavControl(symbol: "chevron.left", title: "Back") {
+                    router.open(.dashboard)
+                }
+                .layoutPriority(1)
+            }
+            Spacer(minLength: 4)
+            if PulseLaunch.shouldStackCompactHubBrandHorizontally(),
+               !PulseLaunch.shouldOverlayCompactHeartbeatMark() {
+                BeatingHeartbeatMark(
+                    height: 28,
+                    showsTrace: true,
+                    showsWordmark: PulseLaunch.shouldShowCompactHeartbeatWordmark(showBack: showBack),
+                    forceTrace: true
+                )
                 .allowsHitTesting(false)
+                .accessibilityHidden(true)
+                .layoutPriority(0)
+            }
+            Spacer(minLength: 4)
+            assistButton
+                .layoutPriority(1)
         }
-        .frame(minHeight: 36)
+        .frame(minHeight: HubLayout.phoneHitTarget)
     }
 
     private var rolePill: some View {

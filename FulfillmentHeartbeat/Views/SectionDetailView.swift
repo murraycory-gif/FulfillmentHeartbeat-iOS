@@ -49,6 +49,62 @@ struct SectionDetailView: View {
     }
 
     var body: some View {
+        Group {
+            if PulseLaunch.shouldMountPadSectionListHost(
+                usesPhoneScorecards: HubLayout.usesPhoneScorecards(sizeClass: sizeClass)
+            ) {
+                padSectionPage
+            } else {
+                PhoneSectionPage(section: section)
+            }
+        }
+        .background(AppTheme.bg.ignoresSafeArea(edges: .bottom))
+        .environmentObject(laborHeaderPin)
+        .readWidth($pageWidth)
+        .onPreferenceChange(LaborListTopKey.self) { top in
+            laborHeaderPin.listTop = top
+        }
+        .onAppear {
+            armPage()
+        }
+        .task(id: PulseLaunch.sectionOpenToken(
+            visible: router.current,
+            pushed: router.pushedSection,
+            section: section
+        ) + (PulseLaunch.shouldReloadSectionSQLOnSeatPaintStamp()
+             ? "-\(store.filters.summary)-\(store.seatPaintStamp)"
+             : "-\(store.filters.summary)")) {
+            guard PulseLaunch.shouldLoadSection(
+                visible: router.current,
+                section: section,
+                pushed: router.pushedSection
+            ) else { return }
+            if PulseLaunch.shouldDelaySectionSQL(seatAlreadyPainted: store.seatPaintStamp > 0) {
+                await Task.yield()
+                try? await Task.sleep(nanoseconds: PulseLaunch.pageSectionLoadDelayNanoseconds)
+                guard PulseLaunch.shouldLoadSection(
+                    visible: self.router.current,
+                    section: section,
+                    pushed: self.router.pushedSection
+                ) else { return }
+            }
+            await store.ensureSectionLoaded(section)
+            if section == .preSubOOS {
+                await store.ensureSectionLoaded(.preSubOOSItem)
+            }
+            if section == .pickPath {
+                await store.ensureSectionLoaded(.pickPathPicker)
+            }
+        }
+        .onChange(of: router.current) { _, _ in
+            armPage()
+        }
+        .onChange(of: router.pushedSection) { _, _ in
+            armPage()
+        }
+    }
+
+    private var padSectionPage: some View {
         VStack(spacing: 0) {
             if !HubLayout.isPhone(sizeClass) {
                 HubStickyPageBanner(
@@ -222,50 +278,6 @@ struct SectionDetailView: View {
                     }
                 }
             }
-        }
-        .background(AppTheme.bg.ignoresSafeArea(edges: .bottom))
-        .environmentObject(laborHeaderPin)
-        .readWidth($pageWidth)
-        .onPreferenceChange(LaborListTopKey.self) { top in
-            laborHeaderPin.listTop = top
-        }
-        .onAppear {
-            armPage()
-        }
-        .task(id: PulseLaunch.sectionOpenToken(
-            visible: router.current,
-            pushed: router.pushedSection,
-            section: section
-        ) + (PulseLaunch.shouldReloadSectionSQLOnSeatPaintStamp()
-             ? "-\(store.filters.summary)-\(store.seatPaintStamp)"
-             : "-\(store.filters.summary)")) {
-            guard PulseLaunch.shouldLoadSection(
-                visible: router.current,
-                section: section,
-                pushed: router.pushedSection
-            ) else { return }
-            if PulseLaunch.shouldDelaySectionSQL(seatAlreadyPainted: store.seatPaintStamp > 0) {
-                await Task.yield()
-                try? await Task.sleep(nanoseconds: PulseLaunch.pageSectionLoadDelayNanoseconds)
-                guard PulseLaunch.shouldLoadSection(
-                    visible: self.router.current,
-                    section: section,
-                    pushed: self.router.pushedSection
-                ) else { return }
-            }
-            await store.ensureSectionLoaded(section)
-            if section == .preSubOOS {
-                await store.ensureSectionLoaded(.preSubOOSItem)
-            }
-            if section == .pickPath {
-                await store.ensureSectionLoaded(.pickPathPicker)
-            }
-        }
-        .onChange(of: router.current) { _, _ in
-            armPage()
-        }
-        .onChange(of: router.pushedSection) { _, _ in
-            armPage()
         }
     }
 
@@ -1026,6 +1038,455 @@ struct SectionDetailView: View {
         case .risk: return .risk
         case .none: return .plain
         }
+    }
+}
+
+/// iPhone ScoreCard shell — same bar as PhoneCommandCenterHome.
+/// Never mounts List / *RollupTable / *Table / OverviewSalesBlock.
+struct PhoneSectionPage: View {
+    @EnvironmentObject private var store: HeartbeatStore
+    let section: MetricSection
+    @State private var storeLimit = 40
+    @State private var pickerLimit = 24
+    @State private var itemLimit = 24
+    @State private var openShopper: String?
+    @State private var miCategories: Set<MissingItemDept> = []
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                PhoneCommandHeroCard(card: store.summary(for: section))
+                seatMetricCard
+                warningNotes
+                if section == .labor {
+                    LaborWeekFilterBar()
+                }
+                if section == .sales, PulseLaunch.shouldShowSalesDayWeekBlock(filters: store.filters) {
+                    salesWeekAndDays
+                }
+                if section == .pickerScorecard,
+                   PulseLaunch.shouldShowPickerHighlights(filters: store.filters) {
+                    PickerHighlightsPanel(
+                        showPictures: PulseLaunch.shouldShowPickerIndividualPictures(filters: store.filters)
+                    )
+                }
+                ForEach(PulseLaunch.sectionRollupGrains(filters: store.filters), id: \.self) { grain in
+                    grainBlock(grain)
+                }
+                if PulseLaunch.shouldShowStoreTable(filters: store.filters) {
+                    if section == .missingItems || section == .preSubOOS {
+                        MissingItemsCategoryFilter(selected: $miCategories, width: 390)
+                    }
+                    if section == .pickerScorecard {
+                        if PulseLaunch.shouldShowPickerShoppersTable(filters: store.filters) {
+                            pickerShoppers
+                        }
+                    } else {
+                        storeCards
+                    }
+                    if section == .preSubOOS {
+                        preSubItems
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 28)
+            .frame(maxWidth: .infinity, alignment: .top)
+        }
+        .scrollIndicators(.hidden)
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private var seatMetricCard: some View {
+        PhoneScorecardRow(
+            title: CommandCenterLayout.glanceTitle(section),
+            eyebrow: "This seat",
+            subtitle: store.filters.isActive ? store.filters.summary : "Total Company",
+            chips: seatChips,
+            health: CommandCenterLayout.displayedHealth(store.summary(for: section))
+        )
+    }
+
+    @ViewBuilder
+    private var warningNotes: some View {
+        if section == .labor, store.laborNeedsReload() {
+            phoneNote(
+                "The Labor pack is missing the Power BI Total row, so company tiles cannot match -0.04% Target vs Actual.",
+                tone: .watch
+            )
+        }
+        if section == .dynacap, let coverage = store.dynacapCoverageNote() {
+            phoneNote(coverage, tone: .watch)
+        }
+        if PulseLaunch.shouldShowStoreTable(filters: store.filters),
+           store.latest(for: section).isEmpty,
+           !store.marketStores().isEmpty {
+            phoneNote(
+                "\(store.filters.division.isEmpty ? "This filter" : store.filters.division) isn’t in the \(section.short) workbook. Stores below come from PPH so the same division still shows across the app.",
+                tone: .none
+            )
+        }
+        if PulseLaunch.shouldShowStoreTable(filters: store.filters),
+           section == .preSubOOS,
+           store.seatRows(for: section).isEmpty {
+            phoneNote(
+                "No Pre-Sub OOS rows loaded. The Heartbeat pack should include a Pre-Sub OOS tab (DEPARTMENT_NM + STORE_ID).",
+                tone: .watch
+            )
+        }
+    }
+
+    private func phoneNote(_ text: String, tone: Health) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: tone == .none ? "info.circle.fill" : "exclamationmark.triangle.fill")
+                .foregroundStyle(tone == .none ? AppTheme.blue : AppTheme.warn)
+            Text(text)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(AppTheme.text)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            (tone == .none ? AppTheme.blueSoft : AppTheme.warnSoft),
+            in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
+        )
+    }
+
+    @ViewBuilder
+    private var salesWeekAndDays: some View {
+        let stores = store.salesStores()
+        let total = SalesPack(rows: stores)
+        PhoneSectionHeading(title: "This week")
+        OverviewSalesPhoneCard(
+            label: salesScopeTitle,
+            count: Set(stores.map(\.storeNumber)).count,
+            pack: total
+        )
+        let days = SalesRollupBuilder.dayRows(
+            from: stores,
+            company: store.filters.isActive ? nil : store.salesCompanyFact()
+        )
+        if !days.isEmpty {
+            PhoneSectionHeading(title: "By Day")
+            ForEach(days) { row in
+                OverviewSalesPhoneCard(label: row.label, pack: row.pack)
+            }
+        }
+    }
+
+    private var salesScopeTitle: String {
+        let filters = store.filters
+        if !filters.store.isEmpty { return "Store \(filters.store)" }
+        if !filters.om.isEmpty { return filters.om }
+        if !filters.district.isEmpty { return filters.district }
+        if !filters.division.isEmpty { return filters.division }
+        if !filters.region.isEmpty { return filters.region }
+        return "Total Company"
+    }
+
+    @ViewBuilder
+    private func grainBlock(_ grain: DashScopeGrain) -> some View {
+        if section == .sales {
+            let rows = salesGrainRows(for: grain)
+            if !rows.isEmpty {
+                PhoneSectionHeading(title: grain.title)
+                ForEach(rows) { row in
+                    OverviewSalesPhoneCard(
+                        label: HeartbeatMath.displayGrainLabel(row.label),
+                        count: grain == .store ? nil : row.storeCount,
+                        pack: row.pack
+                    )
+                }
+            }
+        } else {
+            let rows = metricGrainRows(for: grain)
+            if !rows.isEmpty {
+                PhoneSectionHeading(title: grain.title)
+                ForEach(rows) { row in
+                    PhoneScorecardRow(
+                        title: HeartbeatMath.displayGrainLabel(row.label),
+                        subtitle: row.storeCount > 0
+                            ? (row.storeCount == 1 ? "1 store" : "\(row.storeCount) stores")
+                            : nil,
+                        chips: metricChips(values: row.values, health: row.health),
+                        health: row.health == .none && row.storeCount > 0 ? .good : row.health
+                    )
+                }
+            }
+        }
+    }
+
+    private func salesGrainRows(for grain: DashScopeGrain) -> [SalesRollupRow] {
+        var rows = SalesRollupBuilder.rows(
+            from: store.rollupStores(for: .sales),
+            grain: LaborRollupGrain(grain)
+        )
+        rows.removeAll { RollupMarketFill.hidesUnassignedMarket($0.label) }
+        return rows
+    }
+
+    private func metricGrainRows(for grain: DashScopeGrain) -> [HeartbeatMath.DashboardGrainTableRow] {
+        let labor = LaborRollupGrain(grain)
+        let stores = store.seatRows(for: section)
+        var buckets: [String: [MetricRow]] = [:]
+        for row in stores {
+            guard let key = RollupMarketFill.acceptedGrainKey(row, grain: labor) else { continue }
+            buckets[key, default: []].append(row)
+        }
+        return buckets.keys.sorted {
+            HeartbeatMath.displayGrainLabel($0).localizedStandardCompare(
+                HeartbeatMath.displayGrainLabel($1)
+            ) == .orderedAscending
+        }.map { key in
+            let slice = buckets[key] ?? []
+            let scored = HeartbeatMath.dashboardTableValues(section, rows: slice)
+            let storeCount = Set(slice.map { HeartbeatMath.canonicalStore($0.storeNumber) }.filter { !$0.isEmpty }).count
+            return HeartbeatMath.DashboardGrainTableRow(
+                label: key,
+                storeCount: storeCount,
+                values: scored.values,
+                health: scored.health
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var storeCards: some View {
+        let all = visibleStores
+        PhoneSectionHeading(title: "Stores · \(all.count)")
+        if all.isEmpty {
+            PhoneScorecardRow(
+                title: "No stores in this view",
+                subtitle: "Adjust filters or wait for the Heartbeat pack.",
+                health: .none
+            )
+        } else {
+            ForEach(Array(all.prefix(storeLimit))) { row in
+                storeCard(row)
+            }
+            if all.count > storeLimit {
+                Button {
+                    storeLimit += 40
+                } label: {
+                    Text("Show more · \(storeLimit) of \(all.count)")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(AppTheme.blue)
+                        .frame(maxWidth: .infinity, minHeight: HubLayout.phoneHitTarget, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func storeCard(_ row: MetricRow) -> some View {
+        let scored = HeartbeatMath.dashboardTableValues(section, rows: [row])
+        let health = HeartbeatMath.health(for: section, row: row)
+        return PhoneScorecardRow(
+            title: HeartbeatMath.storeDisplayLabel(row),
+            subtitle: row.district.isEmpty ? nil : HeartbeatMath.canonicalDistrict(row.district),
+            chips: metricChips(values: scored.values, health: scored.health),
+            health: health == .none ? (scored.health == .none && scored.values.contains(where: { $0 != "—" }) ? .good : scored.health) : health
+        )
+    }
+
+    private var visibleStores: [MetricRow] {
+        store.seatRows(for: section).filter { !$0.storeNumber.isEmpty }
+    }
+
+    @ViewBuilder
+    private var pickerShoppers: some View {
+        let rows = store.pickerPage(focus: .all, sort: .pph, ascending: false, limit: pickerLimit)
+        let total = store.pickerCount(for: .all)
+        PhoneSectionHeading(title: "Shoppers · \(total)")
+        if rows.isEmpty {
+            PhoneScorecardRow(
+                title: store.pickerLoading ? "Loading shoppers…" : "No shoppers in this view",
+                subtitle: "Shoppers fill from the Heartbeat pack after ready.",
+                health: .none
+            )
+        } else {
+            ForEach(rows) { row in
+                PickerPhoneCard(
+                    snap: PickerLineSnap(row, division: divisionLabel(for: row)),
+                    expanded: openShopper == row.id.uuidString,
+                    onToggle: {
+                        openShopper = openShopper == row.id.uuidString ? nil : row.id.uuidString
+                    }
+                )
+            }
+            if total > pickerLimit {
+                Button {
+                    pickerLimit += 24
+                } label: {
+                    Text("Show more · \(pickerLimit) of \(total)")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(AppTheme.blue)
+                        .frame(maxWidth: .infinity, minHeight: HubLayout.phoneHitTarget, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var preSubItems: some View {
+        let rows = store.seatRows(for: .preSubOOSItem)
+        PhoneSectionHeading(title: "Pre-Sub items · \(rows.count)")
+        if rows.isEmpty {
+            EmptyView()
+        } else {
+            ForEach(Array(rows.prefix(itemLimit))) { row in
+                PhoneScorecardRow(
+                    title: row.textPayload["bpn"] ?? "Item",
+                    subtitle: HeartbeatMath.storeDisplayLabel(row),
+                    chips: [
+                        PhoneMetricChip(label: "Pre-Sub %", value: HeartbeatFormat.pct(row.number("presub_pct"))),
+                        PhoneMetricChip(label: "Units", value: HeartbeatFormat.num(row.number("presub_count"), digits: 0)),
+                        PhoneMetricChip(label: "$ Pre-Sub", value: HeartbeatFormat.money(row.number("presub_dollars"))),
+                    ],
+                    health: HeartbeatMath.health(for: .preSubOOSItem, row: row)
+                )
+            }
+            if rows.count > itemLimit {
+                Button {
+                    itemLimit += 24
+                } label: {
+                    Text("Show more · \(itemLimit) of \(rows.count)")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(AppTheme.blue)
+                        .frame(maxWidth: .infinity, minHeight: HubLayout.phoneHitTarget, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func divisionLabel(for row: MetricRow) -> String {
+        if !row.division.isEmpty { return row.division }
+        let division = store.identity(forStore: row.storeNumber).division
+        return division.isEmpty ? "Store" : division
+    }
+
+    private func metricChips(values: [String], health: Health) -> [PhoneMetricChip] {
+        let headers = HeartbeatMath.dashboardTableHeaders(section)
+        return zip(headers, values).map { header, value in
+            PhoneMetricChip(label: header, value: value, health: health)
+        }
+    }
+
+    private var seatChips: [PhoneMetricChip] {
+        let rows = store.seatRows(for: section)
+        func avg(_ key: String) -> Double? {
+            HeartbeatMath.average(rows.compactMap { $0.number(key) })
+        }
+        let health = CommandCenterLayout.displayedHealth(store.summary(for: section))
+        switch section {
+        case .sales:
+            let dollars = rows.compactMap { $0.number("sales_dollars") }.reduce(0, +)
+            let orders = rows.compactMap { $0.number("sales_orders") }.reduce(0, +)
+            return [
+                PhoneMetricChip(label: "eComm sales", value: HeartbeatFormat.money(dollars), health: health),
+                PhoneMetricChip(label: "Orders", value: HeartbeatFormat.num(orders, digits: 0)),
+                PhoneMetricChip(label: "AOV", value: HeartbeatFormat.money(orders > 0 ? dollars / orders : nil)),
+            ]
+        case .lostRevenue:
+            let dollars = rows.compactMap { $0.number("lost_revenue") }.reduce(0, +)
+            let sales = rows.compactMap { $0.number("ecomm_sales") }.reduce(0, +)
+            return [
+                PhoneMetricChip(label: "Lost revenue", value: HeartbeatFormat.money(dollars), health: health),
+                PhoneMetricChip(label: "Lost %", value: HeartbeatFormat.pct(sales > 0 ? dollars / sales * 100 : store.summary(for: section).lostRevenuePct), health: health),
+                PhoneMetricChip(label: "eComm sales", value: HeartbeatFormat.money(sales)),
+            ]
+        case .missingItems, .preSubOOS:
+            let healthy = rows.filter { HeartbeatMath.missingItemsHealth($0) == .good }.count
+            let watch = rows.filter { HeartbeatMath.missingItemsHealth($0) == .watch }.count
+            let risk = rows.filter { HeartbeatMath.missingItemsHealth($0) == .risk }.count
+            return [
+                PhoneMetricChip(label: "Goal", value: "5%"),
+                PhoneMetricChip(label: "Healthy", value: HeartbeatFormat.num(Double(healthy)), health: .good),
+                PhoneMetricChip(label: "Watch", value: HeartbeatFormat.num(Double(watch)), health: watch == 0 ? .good : .watch),
+                PhoneMetricChip(label: "At risk", value: HeartbeatFormat.num(Double(risk)), health: risk == 0 ? .good : .risk),
+            ]
+        case .fiveStar:
+            return [
+                PhoneMetricChip(label: "On-time", value: HeartbeatFormat.pct(avg("otp_pct"))),
+                PhoneMetricChip(label: "Fill rate", value: HeartbeatFormat.pct(avg("fill_rate_pct"))),
+                PhoneMetricChip(label: "Quality", value: HeartbeatFormat.pct(avg("quality_score"))),
+            ]
+        case .pickPath, .pickPathPicker:
+            return [
+                PhoneMetricChip(label: "Compliant", value: HeartbeatFormat.num(rows.reduce(0) { $0 + ($1.number("picks_compliant") ?? 0) })),
+                PhoneMetricChip(label: "Total picks", value: HeartbeatFormat.num(rows.reduce(0) { $0 + ($1.number("picks_total") ?? 0) })),
+                PhoneMetricChip(label: "Exceptions", value: HeartbeatFormat.num(rows.reduce(0) { $0 + ($1.number("exception_count") ?? 0) })),
+            ]
+        case .prepNotReady:
+            return [
+                PhoneMetricChip(label: "Not ready", value: HeartbeatFormat.num(rows.reduce(0) { $0 + ($1.number("pnr_count") ?? 0) })),
+                PhoneMetricChip(label: "Orders due", value: HeartbeatFormat.num(rows.reduce(0) { $0 + ($1.number("orders_due") ?? 0) })),
+                PhoneMetricChip(label: "Avg late", value: "\(HeartbeatFormat.num(avg("avg_late_min"), digits: 1)) min"),
+            ]
+        case .dynacap:
+            let aligned = rows.filter { HeartbeatMath.dynacapAligned($0) == true }.count
+            return [
+                PhoneMetricChip(label: "Aligned", value: HeartbeatFormat.num(Double(aligned))),
+                PhoneMetricChip(label: "Pickup util", value: HeartbeatFormat.pct(avg("pickup_util_pct"))),
+                PhoneMetricChip(label: "Delivery util", value: HeartbeatFormat.pct(avg("delivery_util_pct"))),
+            ]
+        case .scheduleQuality:
+            return [
+                PhoneMetricChip(label: "Efficiency", value: HeartbeatFormat.pct(avg("schedule_efficiency_pct"))),
+                PhoneMetricChip(label: "Staffing %", value: HeartbeatFormat.pct(avg("staffing_efficiency_pct"))),
+                PhoneMetricChip(label: "Over", value: HeartbeatFormat.num(rows.reduce(0) { $0 + ($1.number("over_scheduled") ?? 0) })),
+                PhoneMetricChip(label: "Under", value: HeartbeatFormat.num(rows.reduce(0) { $0 + ($1.number("under_scheduled") ?? 0) })),
+            ]
+        case .pph:
+            let atGoal = rows.filter { ($0.number("pph") ?? 0) >= HeartbeatMath.pphGoal }.count
+            let atRisk = rows.filter { ($0.number("pph") ?? .greatestFiniteMagnitude) < HeartbeatMath.pphRisk }.count
+            return [
+                PhoneMetricChip(label: "Goal", value: "80.0"),
+                PhoneMetricChip(label: "At goal", value: HeartbeatFormat.num(Double(atGoal)), health: .good),
+                PhoneMetricChip(label: "Below 74", value: HeartbeatFormat.num(Double(atRisk)), health: atRisk == 0 ? .good : .risk),
+            ]
+        case .labor:
+            let risk = rows.filter { ($0.number("target_vs_actual_pct") ?? 0) > HeartbeatMath.laborWatch }.count
+            let dollars = rows.compactMap { $0.number("act_cost_dollar") }.reduce(0, +)
+            return [
+                PhoneMetricChip(label: "Weeks", value: store.laborWeekSpan()),
+                PhoneMetricChip(label: "Cost target", value: HeartbeatFormat.pct(avg("cost_trgt_pct"))),
+                PhoneMetricChip(label: "Act cost", value: HeartbeatFormat.money(dollars)),
+                PhoneMetricChip(label: "At risk", value: HeartbeatFormat.num(Double(risk)), health: risk == 0 ? .good : .risk),
+            ]
+        case .pickerScorecard:
+            let board = HeartbeatMath.pickerBoard(rows)
+            return [
+                PhoneMetricChip(label: "Shoppers", value: HeartbeatFormat.num(Double(rows.count))),
+                PhoneMetricChip(label: "Opportunity", value: HeartbeatFormat.num(Double(board.opportunity.count)), health: .risk),
+                PhoneMetricChip(label: "Doing well", value: HeartbeatFormat.num(Double(board.strong.count)), health: .good),
+            ]
+        default:
+            return [
+                PhoneMetricChip(
+                    label: "Result",
+                    value: CommandCenterLayout.compactValue(store.summary(for: section)),
+                    health: health
+                )
+            ]
+        }
+    }
+}
+
+private struct PhoneSectionHeading: View {
+    let title: String
+
+    var body: some View {
+        Text(title.uppercased())
+            .font(AppTheme.rounded(.caption, weight: .heavy))
+            .tracking(0.7)
+            .foregroundStyle(AppTheme.textTertiary)
+            .padding(.top, 8)
     }
 }
 

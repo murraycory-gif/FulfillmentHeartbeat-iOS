@@ -213,42 +213,50 @@ struct PhoneCommandCenterHome: View {
 
 struct PhoneCommandHeroCard: View {
     let card: SectionSummary
-    let action: () -> Void
+    var action: (() -> Void)? = nil
 
     var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(alignment: .firstTextBaseline, spacing: 10) {
-                    Text(CommandCenterLayout.glanceTitle(card.section))
-                        .font(AppTheme.rounded(.title3, weight: .bold))
-                        .foregroundStyle(Color.white.opacity(0.92))
-                        .lineLimit(2)
-                    Spacer(minLength: 8)
-                    HealthBadge(health: CommandCenterLayout.displayedHealth(card), prominent: true, compact: false)
-                }
-                Text(CommandCenterLayout.compactValue(card))
-                    .font(AppTheme.rounded(size: 34, weight: .bold).monospacedDigit())
-                    .foregroundStyle(Color.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(AppTheme.gold)
-                        .frame(width: 8, height: 8)
-                    Text("Stores \(card.storeCount)")
-                        .font(AppTheme.rounded(.body, weight: .bold).monospacedDigit())
-                        .foregroundStyle(AppTheme.gold)
-                    Spacer(minLength: 0)
-                }
+        Group {
+            if let action {
+                Button(action: action) { hero }
+                    .buttonStyle(.plain)
+            } else {
+                hero
             }
-            .padding(16)
-            .frame(maxWidth: .infinity, minHeight: CommandCenterLayout.phoneHeroMinHeight(), alignment: .leading)
-            .background(AppTheme.blue, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
-        .buttonStyle(.plain)
         .frame(minHeight: HubLayout.phoneHitTarget)
         .accessibilityLabel("\(CommandCenterLayout.glanceTitle(card.section)), \(CommandCenterLayout.compactValue(card)), \(CommandCenterLayout.displayedHealth(card).label), Stores \(card.storeCount)")
+    }
+
+    private var hero: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(CommandCenterLayout.glanceTitle(card.section))
+                    .font(AppTheme.rounded(.title3, weight: .bold))
+                    .foregroundStyle(Color.white.opacity(0.92))
+                    .lineLimit(2)
+                Spacer(minLength: 8)
+                HealthBadge(health: CommandCenterLayout.displayedHealth(card), prominent: true, compact: false)
+            }
+            Text(CommandCenterLayout.compactValue(card))
+                .font(AppTheme.rounded(size: 34, weight: .bold).monospacedDigit())
+                .foregroundStyle(Color.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(AppTheme.gold)
+                    .frame(width: 8, height: 8)
+                Text("Stores \(card.storeCount)")
+                    .font(AppTheme.rounded(.body, weight: .bold).monospacedDigit())
+                    .foregroundStyle(AppTheme.gold)
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, minHeight: CommandCenterLayout.phoneHeroMinHeight(), alignment: .leading)
+        .background(AppTheme.blue, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 }
 

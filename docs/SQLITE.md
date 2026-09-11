@@ -24,4 +24,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.397 / 1.0 (723) — Phone filter swaps paint cached seat chrome immediately; heavy sqlite/cache install is deferred, cancellable, and off MainActor. PhoneCommandCenterHome 1-col scroll stays. Who’s looking stays locked off. Unassigned Markets/Regions stay hidden. Recook + republish still required for OM people packs.
+HB-0828.397 / 1.0 (723) — Phone section ScoreCards are PhoneSectionPage (1-col ScrollView), not pad List leftover-fill. Compact HubBrandBar is an HStack (Pages/Back do not overlay the heartbeat mark). Filter swaps still paint cached seat chrome immediately; heavy sqlite/cache install is deferred, cancellable, and off MainActor. PhoneCommandCenterHome 1-col scroll stays. Who’s looking stays locked off. Unassigned Markets/Regions stay hidden. Recook + republish still required for OM people packs.
