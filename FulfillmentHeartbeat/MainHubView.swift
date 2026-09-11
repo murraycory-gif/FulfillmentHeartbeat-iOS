@@ -111,6 +111,7 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
 final class HubRouter: ObservableObject {
     @Published var destination: HubDestination
     @Published var sidebarOpen = false
+    @Published var alertsOpen = false
     @Published var showCompactMenu = false
     @Published var showShare = false
 
@@ -125,6 +126,8 @@ final class HubRouter: ObservableObject {
         transaction.animation = nil
         withTransaction(transaction) {
             destination = dest
+            sidebarOpen = false
+            alertsOpen = false
         }
     }
 
@@ -137,6 +140,16 @@ final class HubRouter: ObservableObject {
         transaction.animation = nil
         withTransaction(transaction) {
             sidebarOpen.toggle()
+            if sidebarOpen { alertsOpen = false }
+        }
+    }
+
+    func toggleAlerts() {
+        var transaction = Transaction()
+        transaction.animation = nil
+        withTransaction(transaction) {
+            alertsOpen.toggle()
+            if alertsOpen { sidebarOpen = false }
         }
     }
 
@@ -145,6 +158,15 @@ final class HubRouter: ObservableObject {
         transaction.animation = nil
         withTransaction(transaction) {
             sidebarOpen = false
+        }
+    }
+
+    func closeDrawers() {
+        var transaction = Transaction()
+        transaction.animation = nil
+        withTransaction(transaction) {
+            sidebarOpen = false
+            alertsOpen = false
         }
     }
 }
@@ -238,42 +260,52 @@ struct MainHubView: View {
         .tint(AppTheme.blue)
     }
 
-    /// Pages drawer overlays the hub so opening it does not reflow dashboard tables.
+    /// Full-width Command Center. Pages + Alerts stay hidden until opened.
     private var padHub: some View {
-        ZStack(alignment: .leading) {
-            detail
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .toolbar(removing: .sidebarToggle)
-            Color.black.opacity(router.sidebarOpen ? 0.2 : 0)
-                .ignoresSafeArea()
-                .allowsHitTesting(router.sidebarOpen)
-                .onTapGesture { closeSidebarNow() }
-                .accessibilityHidden(!router.sidebarOpen)
-            sidebar
-                .frame(width: 272)
-                .frame(maxHeight: .infinity, alignment: .top)
-                .background(AppTheme.bg.ignoresSafeArea())
-                .overlay(alignment: .trailing) {
-                    Rectangle()
-                        .fill(AppTheme.cardBorder)
-                        .frame(width: 1)
-                }
-                .compositingGroup()
-                .shadow(color: .black.opacity(router.sidebarOpen ? 0.18 : 0), radius: 18, x: 6, y: 0)
-                .offset(x: router.sidebarOpen ? 0 : -280)
-                .allowsHitTesting(router.sidebarOpen)
-                .accessibilityHidden(!router.sidebarOpen)
-                .zIndex(2)
-        }
-        .tint(AppTheme.blue)
-    }
-
-    private func closeSidebarNow() {
-        var transaction = Transaction()
-        transaction.animation = nil
-        withTransaction(transaction) {
-            router.closeSidebar()
-        }
+        let drawersOpen = router.sidebarOpen || router.alertsOpen
+        return detail
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .toolbar(removing: .sidebarToggle)
+            .overlay {
+                Color.black.opacity(drawersOpen ? 0.2 : 0)
+                    .ignoresSafeArea()
+                    .allowsHitTesting(drawersOpen)
+                    .onTapGesture { router.closeDrawers() }
+                    .accessibilityHidden(!drawersOpen)
+            }
+            .overlay(alignment: .leading) {
+                sidebar
+                    .frame(width: 272)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .background(AppTheme.bg.ignoresSafeArea())
+                    .overlay(alignment: .trailing) {
+                        Rectangle()
+                            .fill(AppTheme.cardBorder)
+                            .frame(width: 1)
+                    }
+                    .compositingGroup()
+                    .shadow(color: .black.opacity(router.sidebarOpen ? 0.18 : 0), radius: 18, x: 6, y: 0)
+                    .offset(x: router.sidebarOpen ? 0 : -280)
+                    .allowsHitTesting(router.sidebarOpen)
+                    .accessibilityHidden(!router.sidebarOpen)
+            }
+            .overlay(alignment: .trailing) {
+                CommandCenterAlertsRail(open: { router.open(section: $0) })
+                    .frame(width: 280)
+                    .frame(maxHeight: .infinity)
+                    .background(AppTheme.bg.ignoresSafeArea())
+                    .overlay(alignment: .leading) {
+                        Rectangle()
+                            .fill(AppTheme.cardBorder)
+                            .frame(width: 1)
+                    }
+                    .compositingGroup()
+                    .shadow(color: .black.opacity(router.alertsOpen ? 0.18 : 0), radius: 18, x: -6, y: 0)
+                    .offset(x: router.alertsOpen ? 0 : 300)
+                    .allowsHitTesting(router.alertsOpen)
+                    .accessibilityHidden(!router.alertsOpen)
+            }
+            .tint(AppTheme.blue)
     }
 
     private var sidebar: some View {

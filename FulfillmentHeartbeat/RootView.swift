@@ -57,10 +57,6 @@ struct RootView: View {
 struct LaunchSplashView: View {
     @EnvironmentObject private var store: HeartbeatStore
     @Environment(\.horizontalSizeClass) private var sizeClass
-    @State private var quipIndex = 0
-
-    private static let quips = PulseLaunch.aisleQuips
-
     var body: some View {
         let phone = HubLayout.isPhone(sizeClass)
         ZStack {
@@ -90,7 +86,7 @@ struct LaunchSplashView: View {
                         ProgressView()
                             .controlSize(.regular)
                             .tint(AppTheme.blue)
-                        Text(PulseLaunch.displayLoadStatus(store.importProgress.label, tick: quipIndex))
+                        Text(PulseLaunch.displayLoadStatus(store.importProgress.label, tick: store.importProgress.loaded))
                             .font(.system(size: phone ? 16 : 18, weight: .semibold))
                             .foregroundStyle(AppTheme.text)
                             .multilineTextAlignment(.center)
@@ -115,12 +111,6 @@ struct LaunchSplashView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityLabel("Fulfillment")
-        .onAppear {
-            quipIndex = Int.random(in: 0..<Self.quips.count)
-        }
-        .onReceive(Timer.publish(every: 2.2, on: .main, in: .common).autoconnect()) { _ in
-            quipIndex += 1
-        }
     }
 }
 

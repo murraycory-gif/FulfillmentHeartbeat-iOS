@@ -9944,6 +9944,15 @@ struct HubBrandBar: View {
                     }
                 }
                 Spacer(minLength: 8)
+                if PulseLaunch.shouldOfferIPadCommandCenterDrawers(), !HubLayout.isMac {
+                    HubNavControl(symbol: "bell.badge", title: "Alerts") {
+                        var transaction = Transaction()
+                        transaction.animation = nil
+                        withTransaction(transaction) {
+                            router.toggleAlerts()
+                        }
+                    }
+                }
                 assistButton
             }
             .zIndex(2)

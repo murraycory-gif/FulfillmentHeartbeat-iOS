@@ -1998,10 +1998,12 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(PulseLaunch.shouldMountSeatLoadHalloween(warehouseHydrating: false))
         XCTAssertLessThanOrEqual(PulseLaunch.halloweenParadeFPS, 15)
         XCTAssertGreaterThanOrEqual(PulseLaunch.halloweenParadeFPS, 8)
-        XCTAssertTrue(PulseLaunch.aisleQuips.contains(PulseLaunch.seatLoadTitle))
+        XCTAssertFalse(PulseLaunch.shouldShowGroceryLoadQuips())
+        XCTAssertTrue(PulseLaunch.aisleQuips.isEmpty)
+        XCTAssertEqual(PulseLaunch.seatLoadTitle, "Loading Heartbeat")
         XCTAssertTrue(PulseLaunch.seatLoadDirective.localizedCaseInsensitiveContains("unlock"))
-        XCTAssertFalse(PulseLaunch.seatLoadTitle.localizedCaseInsensitiveContains("setting the floor"))
-        XCTAssertFalse(PulseLaunch.seatLoadTitle.localizedCaseInsensitiveContains("ice cream aisle"))
+        XCTAssertFalse(PulseLaunch.seatLoadTitle.localizedCaseInsensitiveContains("rotisserie"))
+        XCTAssertFalse(PulseLaunch.seatLoadTitle.localizedCaseInsensitiveContains("scooter"))
         XCTAssertFalse(PulseLaunch.aisleQuips.contains(where: { $0.localizedCaseInsensitiveContains("runaway lime") }))
         XCTAssertFalse(PulseLaunch.aisleQuips.contains(where: { $0.localizedCaseInsensitiveContains("ice cream aisle") }))
         XCTAssertFalse(PulseLaunch.seatLoadDirective.localizedCaseInsensitiveContains("choosing a seat"))
@@ -2037,18 +2039,19 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseLaunch.shouldWipePickerIndexOnSeatClear())
         XCTAssertTrue(PulseLaunch.shouldRebuildPickerIndexOnSeatPaint(filtersActive: true, seatRowCount: 4))
         for phase in PulseLaunch.BootPhase.allCases {
-            XCTAssertFalse(PulseLaunch.isBlandBootStatus(phase.label), phase.label)
+            XCTAssertFalse(PulseLaunch.isGroceryLoadQuip(phase.label), phase.label)
         }
         XCTAssertTrue(PulseLaunch.isBlandBootStatus("Building store tables"))
         XCTAssertTrue(PulseLaunch.isBlandBootStatus("Loading store facts"))
         XCTAssertEqual(
             PulseLaunch.displayLoadStatus("Building store tables", tick: 0),
-            PulseLaunch.seatLoadQuip(at: 0)
+            "Building store tables"
         )
-        XCTAssertEqual(
-            PulseLaunch.displayLoadStatus("The avocados unionized. They want bubble wrap…", tick: 9),
-            "The avocados unionized. They want bubble wrap…"
+        XCTAssertFalse(
+            PulseLaunch.displayLoadStatus("The avocados unionized. They want bubble wrap…", tick: 9)
+                .localizedCaseInsensitiveContains("avocado")
         )
+        XCTAssertTrue(PulseLaunch.isGroceryLoadQuip("The rotisserie chicken just stole a scooter…"))
         XCTAssertFalse(PulseLaunch.shouldInvalidateHubOnBackgroundFill())
         XCTAssertFalse(PulseLaunch.shouldStampHubWhenExpandCacheFills())
         XCTAssertFalse(PulseLaunch.shouldStreamCompanyPickerForSeatFirstPaint())
@@ -2106,10 +2109,10 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseLaunch.pickerIndexMatchesSeat(visibleCount: 40, indexedAll: 40))
         XCTAssertFalse(PulseLaunch.pickerIndexMatchesSeat(visibleCount: 40, indexedAll: 26349))
         XCTAssertFalse(PulseLaunch.pickerIndexMatchesSeat(visibleCount: 0, indexedAll: 0))
-        XCTAssertFalse(PulseLaunch.isBlandBootStatus(PulseLaunch.BootPhase.buildingTables.label))
+        XCTAssertTrue(PulseLaunch.isBlandBootStatus(PulseLaunch.BootPhase.buildingTables.label))
         XCTAssertEqual(
             PulseLaunch.displayLoadStatus("Building store tables"),
-            PulseLaunch.seatLoadQuip(at: 0)
+            "Building store tables"
         )
         XCTAssertFalse(PulseLaunch.shouldBuildGrainTablesOnSeatSlice())
         XCTAssertFalse(PulseLaunch.shouldBuildCardFlagsOnSeatSlice())
@@ -2129,7 +2132,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture381SeatPackContract() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.382")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.383")
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
         XCTAssertFalse(PulseSeatPack.shouldMergeSeatWithCompanyOnSwap())
         XCTAssertTrue(PulseSeatPack.shouldPaintHubFromActiveSeatSQLite())
@@ -2171,7 +2174,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture381bMacCookPublishesEverySeatSqlite() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.382")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.383")
         XCTAssertTrue(PulseSeatPack.shouldCookEveryStoreSeat())
         XCTAssertTrue(PulseSeatPack.shouldPublishSeatPlaneFromCook())
         XCTAssertFalse(PulseSeatPack.shouldMaterializeMissingSeatOnFieldDevice())
@@ -2237,10 +2240,13 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture382CommandCenterFillsViewportLikePulse() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.382")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.383")
         XCTAssertTrue(PulseLaunch.shouldUseCommandCenterHome())
         XCTAssertFalse(PulseLaunch.shouldMountDashCalloutTablesOnHome())
         XCTAssertTrue(PulseLaunch.shouldPinMacCommandCenterRails())
+        XCTAssertFalse(PulseLaunch.shouldPinCommandCenterRailsOnIPad())
+        XCTAssertTrue(PulseLaunch.shouldOfferIPadCommandCenterDrawers())
+        XCTAssertFalse(PulseLaunch.shouldShowGroceryLoadQuips())
         XCTAssertFalse(PulseLaunch.shouldPlaySeatLoadHalloween())
         XCTAssertTrue(CommandCenterLayout.coversEveryDashboardSection())
         XCTAssertEqual(CommandCenterLayout.heroSections, [.sales, .lostRevenue, .fiveStar])
@@ -2283,7 +2289,7 @@ final class HeartbeatMathTests: XCTestCase {
         let tile = CommandCenterLayout.glanceTileHeight(
             remaining: leftover,
             cards: CommandCenterLayout.glanceSections.count,
-            columns: 3
+            columns: 5
         )
         XCTAssertGreaterThanOrEqual(tile, CommandCenterLayout.minGlanceHeight)
         XCTAssertTrue(
@@ -2291,7 +2297,7 @@ final class HeartbeatMathTests: XCTestCase {
                 remaining: leftover,
                 tileHeight: tile,
                 cards: CommandCenterLayout.glanceSections.count,
-                columns: 3
+                columns: 5
             ),
             "glance grid must consume leftover height — no Pulse-empty white band"
         )
@@ -4263,10 +4269,11 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseLaunch.shouldLockPagerScrollDirection())
         XCTAssertFalse(PulseLaunch.seatLoadTitle.isEmpty)
         XCTAssertFalse(PulseLaunch.seatLoadDirective.isEmpty)
-        XCTAssertFalse(PulseLaunch.aisleQuips.isEmpty)
-        XCTAssertTrue(PulseLaunch.aisleQuips.contains(where: { $0.localizedCaseInsensitiveContains("rotisserie") }))
-        XCTAssertEqual(PulseLaunch.seatLoadQuip(at: 0), PulseLaunch.aisleQuips[0])
-        XCTAssertEqual(PulseLaunch.seatLoadQuip(at: PulseLaunch.aisleQuips.count), PulseLaunch.aisleQuips[0])
+        XCTAssertTrue(PulseLaunch.aisleQuips.isEmpty)
+        XCTAssertFalse(PulseLaunch.shouldShowGroceryLoadQuips())
+        XCTAssertFalse(PulseLaunch.seatLoadTitle.localizedCaseInsensitiveContains("rotisserie"))
+        XCTAssertEqual(PulseLaunch.seatLoadQuip(at: 1), PulseLaunch.BootPhase.openingFloor.label)
+        XCTAssertEqual(PulseLaunch.loadStatus(at: 5), PulseLaunch.BootPhase.buildingTables.label)
         XCTAssertTrue(PulseLaunch.shouldHoldSeatPickerUntilWarehouseReady())
         XCTAssertFalse(PulseLaunch.shouldInvalidateHubOnBackgroundFill())
         XCTAssertFalse(PulseLaunch.shouldRemountPageOnDestinationChange())

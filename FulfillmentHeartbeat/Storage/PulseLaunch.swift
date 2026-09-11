@@ -481,6 +481,12 @@ enum PulseLaunch {
     /// Mac Catalyst Command Center keeps a persistent Pages rail + alerts column.
     static func shouldPinMacCommandCenterRails() -> Bool { true }
 
+    /// iPad never pins Mac-style triple columns. Rails stay closed until opened.
+    static func shouldPinCommandCenterRailsOnIPad() -> Bool { false }
+
+    /// iPad land + port: Pages / Alerts are overlay drawers, not pinned columns.
+    static func shouldOfferIPadCommandCenterDrawers() -> Bool { true }
+
     /// Halloween parade removed from Who's looking. Comedy copy + readiness stay.
     static func shouldPlaySeatLoadHalloween() -> Bool { false }
 
@@ -824,30 +830,15 @@ enum PulseLaunch {
     /// Kept for the unused pager path; paging itself is off.
     static func shouldLockPagerScrollDirection() -> Bool { true }
 
-    static let aisleQuips: [String] = [
-        "The rotisserie chicken just stole a scooter…",
-        "A pumpkin is holding the bananas hostage…",
-        "The avocados unionized. They want bubble wrap…",
-        "Grapes on the roof. They learned parkour…",
-        "The frozen pizza started a TED talk…",
-        "Kale filed for witness protection…",
-        "Oat milk started a leftover support group…",
-        "A witch is price-checking the candy corn…",
-        "Blueberries posted bail for the strawberries…",
-        "The pickles are in mediation with the relish…",
-        "A ghost asked if we price-match Costco…",
-        "The baguettes clocked in and unionized…",
-        "Cart 14 is doing donuts in produce…",
-        "The deli turkey requested a lawyer…",
-        "We're negotiating with a stubborn watermelon…"
-    ]
+    /// Grocery one-liners are banned on load. Keep the array empty.
+    static let aisleQuips: [String] = []
 
-    static var seatLoadTitle: String { "The rotisserie chicken just stole a scooter…" }
+    static func shouldShowGroceryLoadQuips() -> Bool { false }
+
+    static var seatLoadTitle: String { "Loading Heartbeat" }
 
     static func seatLoadQuip(at index: Int) -> String {
-        guard !aisleQuips.isEmpty else { return seatLoadTitle }
-        let i = index % aisleQuips.count
-        return aisleQuips[i >= 0 ? i : 0]
+        loadStatus(at: index)
     }
 
     static var seatLoadDirective: String {
@@ -883,20 +874,43 @@ enum PulseLaunch {
     }
 
     static func bootPhaseComedy(_ phase: BootPhase) -> String {
-        seatLoadQuip(at: max(phase.rawValue - 1, 0))
+        phase.label
     }
 
-    /// Every load-status line the user can see. Bland copy becomes a grocery quip.
+    /// Load status the user can see. Never swap bland copy for a grocery joke.
     static func displayLoadStatus(_ raw: String?, tick: Int = 0) -> String {
         let text = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if text.isEmpty || isBlandBootStatus(text) {
-            return seatLoadQuip(at: tick)
+        if text.isEmpty {
+            return loadStatus(at: tick)
+        }
+        if isGroceryLoadQuip(text) {
+            return loadStatus(at: tick)
         }
         return text
     }
 
     static func comedyLoadStatus(at tick: Int) -> String {
-        seatLoadQuip(at: tick)
+        loadStatus(at: tick)
+    }
+
+    static func loadStatus(at tick: Int) -> String {
+        let raw = max(tick, 1)
+        if let phase = BootPhase(rawValue: min(raw, BootPhase.ready.rawValue)) {
+            return phase.label
+        }
+        return seatLoadTitle
+    }
+
+    static func isGroceryLoadQuip(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        let banned = [
+            "rotisserie", "scooter", "avocados unionized", "parkour",
+            "ted talk", "kale filed", "oat milk", "candy corn",
+            "blueberries posted", "pickles are in mediation", "price-match costco",
+            "baguettes", "donuts in produce", "deli turkey", "watermelon",
+            "pumpkin is holding", "bananas hostage"
+        ]
+        return banned.contains { lower.contains($0) }
     }
 
     /// Neighbor scorecards stay blank. Hydrating them makes filterStamp rebuild two extra full tables.
@@ -1204,7 +1218,15 @@ enum PulseLaunch {
         case ready = 7
 
         var label: String {
-            PulseLaunch.bootPhaseComedy(self)
+            switch self {
+            case .openingFloor: return "Opening Heartbeat"
+            case .readingChrome: return "Reading dashboard"
+            case .presentingSeat: return "Getting seats ready"
+            case .readingPack: return "Reading the pack"
+            case .buildingTables: return "Building store tables"
+            case .paintingAisle: return "Painting the floor"
+            case .ready: return "Ready"
+            }
         }
 
         var fraction: Double {

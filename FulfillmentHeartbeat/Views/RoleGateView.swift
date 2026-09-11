@@ -493,12 +493,11 @@ private struct FlexibleChipWrap: View {
     }
 }
 
-/// Centered Fulfillment mark + heart + comedy. Hydrating-only.
-/// Halloween parade is removed. No Lottie / video / GIF.
+/// Centered Fulfillment mark + heart + progress. Hydrating-only.
+/// Halloween parade is removed. No grocery one-liners.
 private struct SeatLoadStage: View {
     @ObservedObject var progress: ImportProgress
     @Environment(\.horizontalSizeClass) private var sizeClass
-    @State private var quipIndex = 0
 
     var body: some View {
         let phone = HubLayout.isPhone(sizeClass)
@@ -518,7 +517,7 @@ private struct SeatLoadStage: View {
                     .font((phone ? Font.title3 : Font.title2).weight(.bold))
                     .foregroundStyle(AppTheme.text)
                     .multilineTextAlignment(.center)
-                Text(PulseLaunch.seatLoadQuip(at: quipIndex))
+                Text(PulseLaunch.displayLoadStatus(progress.label, tick: progress.loaded))
                     .font(phone ? .body : .title3)
                     .foregroundStyle(AppTheme.textSecondary)
                     .multilineTextAlignment(.center)
@@ -535,14 +534,8 @@ private struct SeatLoadStage: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear {
-            quipIndex = Int.random(in: 0..<max(PulseLaunch.aisleQuips.count, 1))
-        }
-        .onReceive(Timer.publish(every: 2.2, on: .main, in: .common).autoconnect()) { _ in
-            quipIndex += 1
-        }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(PulseLaunch.seatLoadTitle). \(PulseLaunch.seatLoadQuip(at: quipIndex)). \(PulseLaunch.seatLoadDirective)")
+        .accessibilityLabel("\(PulseLaunch.seatLoadTitle). \(PulseLaunch.displayLoadStatus(progress.label, tick: progress.loaded)). \(PulseLaunch.seatLoadDirective)")
     }
 }
 
