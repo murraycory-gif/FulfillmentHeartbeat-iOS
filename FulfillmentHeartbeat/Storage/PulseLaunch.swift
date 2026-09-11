@@ -1657,7 +1657,7 @@ enum PulseLaunch {
     static let cloudHydrateDelayNanoseconds: UInt64 = 12_000_000_000
     static let foregroundCloudQuietSeconds: TimeInterval = 90
     /// Pack freshness check may run again after this. Metadata only until a newer file exists.
-    static let foregroundPackCheckQuietSeconds: TimeInterval { 12 }
+    static let foregroundPackCheckQuietSeconds: TimeInterval = 12
     /// This project's TUS cap. Prefer the company seat over a 56MB market root.
     static let storageFileLimitBytes = 50_000_000
 
