@@ -3,9 +3,10 @@ import SwiftUI
 /// Pulse / Power BI Mobile briefing density. Layout math is testable off SwiftUI.
 enum CommandCenterLayout {
     static let heroSections: [MetricSection] = [.sales, .lostRevenue, .fiveStar]
-    static let gutter: CGFloat = 8
-    static let minGlanceHeight: CGFloat = 88
-    static let minHeroHeight: CGFloat = 104
+    static let gutter: CGFloat = 6
+    static let minGlanceHeight: CGFloat = 112
+    static let minHeroHeight: CGFloat = 96
+    static let sparkBars = 8
 
     /// Every operational dashboard card that is not a navy hero — fills the leftover viewport.
     static var glanceSections: [MetricSection] {
@@ -35,11 +36,11 @@ enum CommandCenterLayout {
             return width >= 700 ? 3 : 2
         }
         if portrait {
-            return width >= 820 ? 3 : 2
+            return 2
         }
-        if width >= 1100 { return 4 }
-        if width >= 720 { return 3 }
-        return 2
+        if width >= 980 { return 5 }
+        if width >= 820 { return 4 }
+        return 3
     }
 
     static func heroColumns(width: CGFloat, phone: Bool, portrait: Bool) -> Int {
@@ -68,10 +69,10 @@ enum CommandCenterLayout {
 
     static func heroBandHeight(phone: Bool, portrait: Bool, available: CGFloat) -> CGFloat {
         if phone {
-            return portrait ? 118 : 108
+            return portrait ? 112 : 100
         }
-        let fraction = portrait ? 0.22 : 0.26
-        return min(168, max(minHeroHeight, available * fraction))
+        let fraction = portrait ? 0.15 : 0.16
+        return min(128, max(minHeroHeight, available * fraction))
     }
 
     static func fillsViewport(
@@ -116,6 +117,17 @@ enum CommandCenterLayout {
         }
     }
 
+    /// Cheap Pulse-style spark. Heights come from this card's health / risk — not invented KPIs.
+    static func sparkHeights(_ card: SectionSummary) -> [CGFloat] {
+        let peak = barFraction(card)
+        let seed = card.storeCount + card.watchCount * 3 + card.riskCount * 5
+        let wave: [CGFloat] = [0.52, 0.64, 0.46, 0.72, 0.58, 0.84, 0.68, 1.0]
+        return wave.enumerated().map { index, step in
+            let wobble = CGFloat((seed + index * 7) % 11) / 80
+            return min(1, max(0.16, step * peak - wobble))
+        }
+    }
+
     static func alertRank(_ cards: [SectionSummary]) -> [SectionSummary] {
         cards.sorted { lhs, rhs in
             if lhs.health.dashboardRank != rhs.health.dashboardRank {
@@ -140,8 +152,8 @@ struct CommandCenterHome: View {
             let cards = glanceCards
             let cols = CommandCenterLayout.glanceColumns(width: geo.size.width, phone: phone, portrait: portrait)
             let heroH = CommandCenterLayout.heroBandHeight(phone: phone, portrait: portrait, available: geo.size.height)
-            let header: CGFloat = phone ? 22 : 26
-            let pad: CGFloat = phone ? 12 : 16
+            let header: CGFloat = phone ? 18 : 20
+            let pad: CGFloat = phone ? 10 : 12
             let leftover = max(
                 CommandCenterLayout.minGlanceHeight,
                 geo.size.height - heroH - header - pad - CommandCenterLayout.gutter
@@ -156,8 +168,8 @@ struct CommandCenterHome: View {
                 glanceHeader
                 glanceGrid(cards: cards, columns: cols, tileHeight: tileH)
             }
-            .padding(.horizontal, phone ? 12 : 16)
-            .padding(.bottom, phone ? 8 : 10)
+            .padding(.horizontal, phone ? 10 : 12)
+            .padding(.bottom, phone ? 6 : 8)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
             if phone, leftover < CommandCenterLayout.minGlanceHeight * 3 {
@@ -202,13 +214,13 @@ struct CommandCenterHome: View {
 
     private var glanceHeader: some View {
         HStack {
-            Text("AT-A-GLANCE SCORECARDS")
+            Text("AT-A-GLANCE · ALL SECTIONS")
                 .font(AppTheme.rounded(.caption2, weight: .bold))
-                .tracking(0.8)
+                .tracking(0.7)
                 .foregroundStyle(AppTheme.textTertiary)
             Spacer(minLength: 0)
         }
-        .frame(height: phone ? 16 : 18)
+        .frame(height: phone ? 14 : 16)
     }
 
     private func glanceGrid(cards: [SectionSummary], columns: Int, tileHeight: CGFloat) -> some View {
@@ -233,7 +245,7 @@ struct CommandCenterHeroTile: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(CommandCenterLayout.glanceTitle(card.section))
                         .font(AppTheme.rounded(.subheadline, weight: .bold))
@@ -242,7 +254,7 @@ struct CommandCenterHeroTile: View {
                     HealthBadge(health: card.health == .none ? .good : card.health, prominent: true, compact: true)
                 }
                 Text(CommandCenterLayout.compactValue(card))
-                    .font(AppTheme.rounded(size: 28, weight: .bold).monospacedDigit())
+                    .font(AppTheme.rounded(size: 26, weight: .bold).monospacedDigit())
                     .foregroundStyle(Color.white)
                     .lineLimit(1)
                     .minimumScaleFactor(0.45)
@@ -257,7 +269,7 @@ struct CommandCenterHeroTile: View {
                     Spacer(minLength: 0)
                 }
             }
-            .padding(12)
+            .padding(10)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .background(AppTheme.blue, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
@@ -272,27 +284,31 @@ struct CommandCenterGlanceTile: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 5) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text(CommandCenterLayout.glanceTitle(card.section))
                         .font(AppTheme.rounded(.caption, weight: .bold))
                         .foregroundStyle(AppTheme.textSecondary)
+                        .lineLimit(1)
                     Spacer(minLength: 4)
                     HealthBadge(health: card.health == .none ? .good : card.health, compact: true)
                 }
                 Text(CommandCenterLayout.compactValue(card))
-                    .font(AppTheme.rounded(size: 26, weight: .bold).monospacedDigit())
+                    .font(AppTheme.rounded(size: 24, weight: .bold).monospacedDigit())
                     .foregroundStyle(AppTheme.text)
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)
-                Spacer(minLength: 4)
-                CommandCenterMeter(fraction: CommandCenterLayout.barFraction(card), health: card.health)
+                CommandCenterSpark(
+                    heights: CommandCenterLayout.sparkHeights(card),
+                    health: card.health
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .padding(10)
+            .padding(8)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .background(Color.white, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .background(Color.white, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .stroke(Color.black.opacity(0.07), lineWidth: 1)
             )
         }
@@ -301,22 +317,35 @@ struct CommandCenterGlanceTile: View {
     }
 }
 
+struct CommandCenterSpark: View {
+    var heights: [CGFloat]
+    var health: Health
+
+    var body: some View {
+        GeometryReader { geo in
+            let bars = heights.isEmpty ? [0.55] : heights
+            let gap: CGFloat = 3
+            let width = max(3, (geo.size.width - gap * CGFloat(max(bars.count - 1, 0))) / CGFloat(max(bars.count, 1)))
+            HStack(alignment: .bottom, spacing: gap) {
+                ForEach(Array(bars.enumerated()), id: \.offset) { _, fraction in
+                    RoundedRectangle(cornerRadius: 2, style: .continuous)
+                        .fill(AppTheme.healthInk(health == .none ? .good : health))
+                        .frame(width: width, height: max(6, geo.size.height * min(max(fraction, 0.12), 1)))
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        }
+        .accessibilityHidden(true)
+    }
+}
+
 struct CommandCenterMeter: View {
     var fraction: CGFloat
     var health: Health
 
     var body: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                Capsule()
-                    .fill(AppTheme.healthWash(health == .none ? .good : health))
-                Capsule()
-                    .fill(AppTheme.healthInk(health == .none ? .good : health))
-                    .frame(width: max(8, geo.size.width * min(max(fraction, 0.08), 1)))
-            }
-        }
-        .frame(height: 5)
-        .accessibilityHidden(true)
+        CommandCenterSpark(heights: Array(repeating: fraction, count: 1), health: health)
+            .frame(height: 5)
     }
 }
 

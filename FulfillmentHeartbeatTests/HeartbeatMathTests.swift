@@ -2254,9 +2254,26 @@ final class HeartbeatMathTests: XCTestCase {
         )
 
         let padLand = CommandCenterLayout.glanceColumns(width: 1366, phone: false, portrait: false)
-        XCTAssertGreaterThanOrEqual(padLand, 3)
+        XCTAssertEqual(padLand, 5)
         let padPort = CommandCenterLayout.glanceColumns(width: 900, phone: false, portrait: true)
-        XCTAssertGreaterThanOrEqual(padPort, 2)
+        XCTAssertEqual(padPort, 2)
+        XCTAssertEqual(CommandCenterLayout.sparkHeights(
+            SectionSummary(
+                section: .labor,
+                storeCount: 20,
+                headline: -0.1,
+                headlineLabel: "Labor",
+                secondary: "",
+                health: .good,
+                watchCount: 0,
+                riskCount: 0,
+                lastFilename: nil,
+                lastUploadedAt: nil
+            )
+        ).count, CommandCenterLayout.sparkBars)
+        XCTAssertFalse(CommandCenterLayout.glanceSections.contains { section in
+            ["otif", "cold_chain", "throughput", "fill_rate"].contains(section.rawValue)
+        })
         let phoneLand = CommandCenterLayout.glanceColumns(width: 844, phone: true, portrait: false)
         XCTAssertEqual(phoneLand, 3)
         let phonePort = CommandCenterLayout.glanceColumns(width: 390, phone: true, portrait: true)

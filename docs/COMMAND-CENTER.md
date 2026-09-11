@@ -7,8 +7,8 @@ Home is a **Pulse / Power BI Mobile briefing**: packed KPI tiles, tight gutters,
 | Surface | Must |
 |---|---|
 | Heroes | Sales / Loss / 5 Star navy tiles. Gold **Stores N** from the seat pack. Live, never grey. |
-| Glance | Every other `MetricSection.dashboardCards` tile: value + status pill + thin bar only |
-| Density | Tiles **stretch** to fill leftover viewport height. No blank lower half. |
+| Glance | Every other **real** `dashboardCards` tile only (no invented OTIF / Cold Chain / etc.): value + status + spark bars that fill the tile |
+| Density | iPad/Mac land **5** glance cols, port **2**. Tiles stretch to leftover height. Zero dead white. |
 | Expand | Tap opens the scorecard. No `DashScopeStrip` / store tables on home. |
 | iPad | Adaptive land (3–4 glance cols) vs port (2–3). Pages drawer unchanged. |
 | Mac | Persistent left Pages rail + dense center + right alerts. |
