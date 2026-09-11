@@ -1,7 +1,7 @@
-# HB-0828.402 / 728 — verify (one page)
+# HB-0828.401 / 727 — verify (one page)
 
 **Tip** `origin/cursor/command-center-8b-3389` · [PR #5](https://github.com/murraycory-gif/FulfillmentHeartbeat-iOS/pull/5)  
-**Stamp** `HB-0828.402  1.0 (728)` · bundle `com.corymurray.FulfillmentHeartbeat`  
+**Stamp** `HB-0828.401  1.0 (727)` · bundle `com.corymurray.FulfillmentHeartbeat`  
 **No TestFlight until this PASSes.** Do not delete the app. Cloud Linux cannot `xcodebuild` or talk to a Mac/iPad (no self-hosted worker registered).
 
 ## CoS first — Mac Catalyst (over existing app)
@@ -17,7 +17,7 @@ Quit Heartbeat from the **Dock** (not just the window). Reopen.
 
 | Check | Pass |
 |---|---|
-| Sidebar stamp | `HB-0828.402  1.0 (728)` |
+| Sidebar stamp | `HB-0828.401  1.0 (727)` |
 | Sales | **~$58M** and **Thursday / `sales_d4`** (not ~$49M / Wednesday) |
 | Automated test | `testStaleCompanySeatIsReplacedByNewerCloudPackWithoutDelete` green |
 | Company tables | Visible page / chrome only — not all 12 cards rebuilt into RAM |
@@ -35,7 +35,7 @@ SKIP_PULL=1 ./install-ipad.sh                 # iPad
 # SKIP_PULL=1 ALLOW_PHONE=1 ./install-ipad.sh  # iPhone
 ```
 
-1. Confirm stamp **HB-0828.402  1.0 (728)**.
+1. Confirm stamp **HB-0828.401  1.0 (727)**.
 2. **Force-quit.** Reopen. Do **not** delete.
 3. Sales must move **~$49M / Wednesday → ~$58M / Thursday `sales_d4`**.
 4. Lower tables on the **visible** page load. App stays up (no Jetsam / no close).

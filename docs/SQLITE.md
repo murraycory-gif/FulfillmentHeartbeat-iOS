@@ -24,4 +24,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.402 / 1.0 (728) — Disk pack (~21MB) is not the Jetsam. In-memory expand was: `installSeatExpandTables` → `expandTables` → `grainTables` → `dashboardGrainTable` → `MarketRegion.resolved`/`containing` → `canonicalName` + `matchesDivision` (regex + recursion; also 0x8BADF00D / EXC_BAD_ACCESS). Name lookup is map + cache; `containing` never walks `matchesDivision`. Company expand is chrome/page only. `expandTables` at region grain with no `only` returns empty. Drop company expand caches after promote. Thin seat + .400 freshness kept.
+HB-0828.401 / 1.0 (727) — Architecture confirm on a631428: `installSeatExpandTables` → `expandTables` → `grainTables` for every `dashboardCards` materialized full company grain into `cachedGrainTables` (~4GB Jetsam). Disk pack (~21MB) is not the kill. Company does not pre-expand all sections into RAM — chrome/page/stream only. `expandTables` at region grain with no `only` returns empty. `canonicalName` is cached (no regex-per-call). Thin seat + .400 freshness kept.
