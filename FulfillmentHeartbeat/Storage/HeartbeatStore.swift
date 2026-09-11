@@ -5174,6 +5174,7 @@ final class HeartbeatStore: ObservableObject {
                 cachedPickerBoard = HeartbeatMath.pickerBoard(latest)
             } else if let chrome = packChrome, let card = PulseLaunch.pickerSummaryFromChrome(chrome) {
                 upsertPickerSummary(card)
+                seedPickerFlagsFromChrome(chrome)
             }
             let table = PulseLaunch.pickerExpandTable(
                 seatRows: latest,
@@ -5198,6 +5199,7 @@ final class HeartbeatStore: ObservableObject {
             if let card = PulseLaunch.pickerSummaryFromChrome(chrome) {
                 upsertPickerSummary(card)
             }
+            seedPickerFlagsFromChrome(chrome)
             seedPickerGrainFromChrome(chrome)
             if let packs = chrome.packs[MetricSection.pickerScorecard.rawValue],
                PulseLaunch.pickerPacksAreLive(packs) {
@@ -5209,6 +5211,22 @@ final class HeartbeatStore: ObservableObject {
             seedPickerGrainFromChrome(chrome)
         }
         pinCompanyCommandCenterChrome()
+    }
+
+    /// Chrome-lift must seed Healthy / Watch / At Risk, same keys as live tiles.
+    private func seedPickerFlagsFromChrome(_ chrome: PulseDashChrome) {
+        let flags = PulseLaunch.pickerChromeActionFlags(chrome)
+        let shoppers = max(chrome.pickerShoppers, Int(chrome.card(.pickerScorecard)?.headline ?? 0))
+        guard !PulseLaunch.shouldRejectZeroPickerFlags(flags, chromeShoppers: shoppers) else { return }
+        cachedCardFlags[.pickerScorecard] = flags
+        let buckets = PulseLaunch.pickerChromeBuckets(chrome)
+        cachedPickerBoard = HeartbeatMath.PickerBoard(
+            shopperCount: max(buckets.shoppers, cachedPickerBoard.shopperCount),
+            opportunityCount: max(buckets.risk, cachedPickerBoard.opportunityCount),
+            strongCount: max(buckets.healthy, cachedPickerBoard.strongCount),
+            opportunity: cachedPickerBoard.opportunity,
+            strong: cachedPickerBoard.strong
+        )
     }
 
     private func upsertPickerSummary(_ summary: SectionSummary) {
@@ -6019,6 +6037,26 @@ final class HeartbeatStore: ObservableObject {
             }
             if let card = cachedCardFlags[section], !card.isEmpty {
                 let scoped = summaries.first { $0.section == section }?.storeCount ?? 0
+                if section == .pickerScorecard {
+                    let shoppers = max(
+                        cachedPickerBoard.shopperCount,
+                        packChrome?.pickerShoppers ?? 0,
+                        Int(summaries.first { $0.section == .pickerScorecard }?.headline ?? 0)
+                    )
+                    if PulseLaunch.shouldRejectZeroPickerFlags(card, chromeShoppers: shoppers) {
+                        flags[section] = PulseLaunch.pickerShareActionFlags(
+                            rows: rows[section] ?? [],
+                            chromeShoppers: shoppers,
+                            chromeStrong: max(cachedPickerBoard.strongCount, packChrome?.pickerStrong ?? 0),
+                            chromeOpportunity: max(
+                                cachedPickerBoard.opportunityCount,
+                                packChrome?.pickerOpportunity ?? 0
+                            ),
+                            grain: grainTables[section] ?? []
+                        )
+                        continue
+                    }
+                }
                 if PulseLaunch.flagsMatchFilter(flagStores: card.map(\.stores), scopedStores: scoped) {
                     flags[section] = card
                 }

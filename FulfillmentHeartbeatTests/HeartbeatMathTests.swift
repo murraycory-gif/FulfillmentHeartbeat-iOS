@@ -2419,7 +2419,15 @@ final class HeartbeatMathTests: XCTestCase {
         )
         let lifted = PulseLaunch.pickerSummaryFromChrome(chrome)
         XCTAssertEqual(lifted?.headline, 26_349)
+        XCTAssertEqual(lifted?.watchCount, 4_149)
+        XCTAssertEqual(lifted?.riskCount, 4_200)
+        XCTAssertTrue(lifted?.secondary.contains("18,000") == true || lifted?.secondary.contains("18000") == true, lifted?.secondary ?? "")
         XCTAssertNotEqual(CommandCenterLayout.displayedHealth(lifted!), .none)
+        let chromeFlags = PulseLaunch.pickerChromeActionFlags(chrome)
+        XCTAssertFalse(PulseLaunch.shouldRejectZeroPickerFlags(chromeFlags, chromeShoppers: 26_349))
+        XCTAssertEqual(chromeFlags.first { $0.name == "Healthy" }?.stores, 18_000)
+        XCTAssertEqual(chromeFlags.first { $0.name == "Watch" }?.stores, 4_149)
+        XCTAssertEqual(chromeFlags.first { $0.name == "At Risk" }?.stores, 4_200)
         let painted = PulseLaunch.companyCommandCenterCard(
             emptyPicker,
             chrome: chrome,
@@ -4403,11 +4411,14 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(packet.html.contains("mail-stack"), packet.html)
         XCTAssertTrue(packet.html.contains("width:100%;max-width:100%"), packet.html)
         XCTAssertFalse(packet.html.contains("overflow-x:auto"), packet.html)
-        XCTAssertTrue(packet.html.contains("width=\"108\"") || packet.html.contains("width:108px"), packet.html)
+        XCTAssertFalse(packet.html.contains("width:auto"), packet.html)
+        XCTAssertFalse(packet.html.contains("width:168px"), packet.html)
+        XCTAssertFalse(packet.html.contains("width=\"168\""), packet.html)
         XCTAssertTrue(packet.html.contains("border-right:1px solid"), packet.html)
         XCTAssertFalse(packet.html.contains("width:25%"), packet.html)
         XCTAssertTrue(PulseLaunch.shouldStackShareTablesForMailClients())
         XCTAssertFalse(PulseLaunch.shouldClipShareTablesInMailClients())
+        XCTAssertFalse(PulseLaunch.shouldUseFixedNowrapShareTableColumns())
         XCTAssertTrue(packet.plain.contains("Lost $"), packet.plain)
         XCTAssertTrue(packet.plain.contains("East Region"), packet.plain)
         XCTAssertTrue(packet.plain.contains("  "), packet.plain)
@@ -5182,6 +5193,7 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(BuildStamp.id, "HB-0828.403")
         XCTAssertTrue(PulseLaunch.shouldStackShareTablesForMailClients())
         XCTAssertFalse(PulseLaunch.shouldClipShareTablesInMailClients())
+        XCTAssertFalse(PulseLaunch.shouldUseFixedNowrapShareTableColumns())
         XCTAssertFalse(PulseLaunch.shouldPresentMailOverActiveShareSheet())
         XCTAssertTrue(PulseLaunch.shouldDismissShareSheetBeforePresentingMail())
         XCTAssertFalse(PulseLaunch.shouldPrefillAllExpandTablesAtCompany(pad: true))
@@ -5230,6 +5242,22 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(html.contains(">80<") || html.contains("80"), html)
         XCTAssertTrue(html.contains(">15<") || html.contains("15"), html)
         XCTAssertTrue(html.contains(">25<") || html.contains("25"), html)
+        XCTAssertTrue(
+            PulseLaunch.shouldRejectZeroPickerFlags(
+                HeartbeatMath.bandFlags(healthy: 0, watch: 0, risk: 0, unit: "shoppers"),
+                chromeShoppers: 120
+            )
+        )
+        let rebuilt = PulseLaunch.pickerShareActionFlags(
+            rows: [],
+            chromeShoppers: 120,
+            chromeStrong: 80,
+            chromeOpportunity: 25,
+            grain: []
+        )
+        XCTAssertEqual(rebuilt.first { $0.name == "Healthy" }?.stores, 80)
+        XCTAssertEqual(rebuilt.first { $0.name == "Watch" }?.stores, 15)
+        XCTAssertEqual(rebuilt.first { $0.name == "At Risk" }?.stores, 25)
         XCTAssertFalse(html.contains("overflow-x:auto"), html)
         XCTAssertTrue(
             PulseLaunch.grainTablesSkippingCompanyPrefill(

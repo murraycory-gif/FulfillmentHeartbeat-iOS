@@ -1505,31 +1505,92 @@ enum PulseLaunch {
         }
     }
 
-    static func pickerSummaryFromChrome(_ chrome: PulseDashChrome) -> SectionSummary? {
-        let shoppers = max(chrome.pickerShoppers, Int(chrome.card(.pickerScorecard)?.headline ?? 0))
-        guard shoppers > 0 else { return nil }
-        if let card = chrome.card(.pickerScorecard), (card.headline ?? 0) > 0 {
-            return card
+    static func pickerChromeBuckets(_ chrome: PulseDashChrome) -> (shoppers: Int, healthy: Int, watch: Int, risk: Int) {
+        pickerShareBuckets(
+            rows: [],
+            chromeShoppers: max(chrome.pickerShoppers, Int(chrome.card(.pickerScorecard)?.headline ?? 0)),
+            chromeStrong: chrome.pickerStrong,
+            chromeOpportunity: max(chrome.pickerOpportunity, chrome.card(.pickerScorecard)?.riskCount ?? 0),
+            grain: chrome.tables[MetricSection.pickerScorecard.rawValue] ?? []
+        )
+    }
+
+    /// Same Healthy / Watch / At Risk keys as `dashboardActionFlags` / live tiles.
+    static func pickerChromeActionFlags(_ chrome: PulseDashChrome) -> [HeartbeatMath.FiveStarFlag] {
+        let buckets = pickerChromeBuckets(chrome)
+        return HeartbeatMath.bandFlags(
+            healthy: buckets.healthy,
+            watch: buckets.watch,
+            risk: buckets.risk,
+            unit: "shoppers"
+        )
+    }
+
+    static func shouldRejectZeroPickerFlags(
+        _ flags: [HeartbeatMath.FiveStarFlag],
+        chromeShoppers: Int
+    ) -> Bool {
+        guard chromeShoppers > 0 else { return false }
+        let band = flags.filter {
+            let name = $0.name.lowercased()
+            return name == "healthy" || name == "watch" || name == "at risk"
         }
-        if var card = chrome.card(.pickerScorecard) {
-            card.headline = Double(shoppers)
-            card.headlineLabel = "Shoppers"
-            if card.health == .none {
-                card.secondary = "\(chrome.pickerOpportunity) opportunity · \(chrome.pickerStrong) doing well"
-                card.health = .watch
-                card.riskCount = max(card.riskCount, chrome.pickerOpportunity)
+        return band.isEmpty || band.allSatisfy { $0.stores == 0 }
+    }
+
+    static func pickerShareActionFlags(
+        rows: [MetricRow],
+        chromeShoppers: Int,
+        chromeStrong: Int,
+        chromeOpportunity: Int,
+        grain: [HeartbeatMath.DashboardGrainTableRow]
+    ) -> [HeartbeatMath.FiveStarFlag] {
+        if !rows.isEmpty {
+            let flags = HeartbeatMath.dashboardActionFlags(
+                section: .pickerScorecard,
+                rows: rows,
+                includeAll: true
+            )
+            if !shouldRejectZeroPickerFlags(flags, chromeShoppers: chromeShoppers) {
+                return flags
             }
+        }
+        let buckets = pickerShareBuckets(
+            rows: rows,
+            chromeShoppers: chromeShoppers,
+            chromeStrong: chromeStrong,
+            chromeOpportunity: chromeOpportunity,
+            grain: grain
+        )
+        return HeartbeatMath.bandFlags(
+            healthy: buckets.healthy,
+            watch: buckets.watch,
+            risk: buckets.risk,
+            unit: "shoppers"
+        )
+    }
+
+    static func pickerSummaryFromChrome(_ chrome: PulseDashChrome) -> SectionSummary? {
+        let buckets = pickerChromeBuckets(chrome)
+        guard buckets.shoppers > 0 else { return nil }
+        if var card = chrome.card(.pickerScorecard) {
+            card.headline = Double(buckets.shoppers)
+            card.headlineLabel = "Shoppers"
+            card.watchCount = buckets.watch
+            card.riskCount = buckets.risk
+            card.secondary = "\(buckets.risk) opportunity · \(buckets.healthy) doing well"
+            if card.health == .none { card.health = .watch }
             return card
         }
         return SectionSummary(
             section: .pickerScorecard,
-            storeCount: shoppers,
-            headline: Double(shoppers),
+            storeCount: buckets.shoppers,
+            headline: Double(buckets.shoppers),
             headlineLabel: "Shoppers",
-            secondary: "\(chrome.pickerOpportunity) opportunity · \(chrome.pickerStrong) doing well",
+            secondary: "\(buckets.risk) opportunity · \(buckets.healthy) doing well",
             health: .watch,
-            watchCount: 0,
-            riskCount: chrome.pickerOpportunity,
+            watchCount: buckets.watch,
+            riskCount: buckets.risk,
             lastFilename: nil,
             lastUploadedAt: nil
         )
@@ -1830,6 +1891,8 @@ enum PulseLaunch {
     /// as a 100% card so Regions columns stay readable on phone width.
     static func shouldStackShareTablesForMailClients() -> Bool { true }
     static func shouldClipShareTablesInMailClients() -> Bool { false }
+    /// Old dataTable used nowrap 168/108/120 + width:auto (~1368px Loss, ~1044px 5 Star).
+    static func shouldUseFixedNowrapShareTableColumns() -> Bool { false }
 
     /// Share Picker Healthy / Watch / At Risk. Live shopper rows first, then
     /// grain totals, then pack chrome. Does not expand company grainTables.

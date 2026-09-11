@@ -354,10 +354,10 @@ enum PulseMail {
         table.layout td{vertical-align:top}
         .mail-stack{width:100%;max-width:100%;margin:0 0 22px}
         table.data{width:100%;max-width:100%;border-collapse:separate;border-spacing:0;font-size:15px;line-height:1.45}
-        table.data th{text-align:left;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#003DA5;background:#EEF3FB;padding:10px 14px;border-bottom:2px solid #003DA5;border-right:1px solid #D6E2F5;white-space:nowrap;font-weight:700}
+        table.data th{text-align:left;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#003DA5;background:#EEF3FB;padding:10px 14px;border-bottom:2px solid #003DA5;border-right:1px solid #D6E2F5;font-weight:700}
         table.data td{padding:10px 14px;border-bottom:1px solid #E4E9F4;border-right:1px solid #EEF1F6;vertical-align:middle}
-        table.data td.name{font-weight:700;font-size:16px;white-space:nowrap;padding:10px 16px 10px 14px}
-        table.data td.num,.num{text-align:right;font-variant-numeric:tabular-nums;font-weight:700;font-size:16px;white-space:nowrap;padding:10px 14px}
+        table.data td.name{font-weight:700;font-size:16px;padding:10px 16px 10px 14px}
+        table.data td.num,.num{text-align:right;font-variant-numeric:tabular-nums;font-weight:700;font-size:16px;padding:10px 14px}
         .dash-card{margin:0 0 14px;border-radius:16px;overflow:hidden}
         .page-banner{font-size:18px;font-weight:700;color:#003DA5;margin:0 0 12px}
         table.data td.status{text-align:right;white-space:nowrap;width:108px}
@@ -717,12 +717,27 @@ enum PulseMail {
     }
 
     private static func pickerShareFlags(_ snap: Snapshot) -> [HeartbeatMath.FiveStarFlag] {
-        let buckets = pickerShareBuckets(snap)
-        return HeartbeatMath.bandFlags(
-            healthy: buckets.healthy,
-            watch: buckets.watch,
-            risk: buckets.risk,
-            unit: "shoppers"
+        let cached = snap.flags[.pickerScorecard] ?? []
+        let shoppers = max(
+            snap.pickerShoppers,
+            Int(snap.summaries.first { $0.section == .pickerScorecard }?.headline ?? 0)
+        )
+        if !PulseLaunch.shouldRejectZeroPickerFlags(cached, chromeShoppers: shoppers),
+           cached.contains(where: { $0.stores > 0 }) {
+            let names = Set(cached.map { $0.name.lowercased() })
+            if names.contains("healthy"), names.contains("watch"), names.contains("at risk") {
+                return cached
+            }
+        }
+        return PulseLaunch.pickerShareActionFlags(
+            rows: snap.rows[.pickerScorecard] ?? [],
+            chromeShoppers: shoppers,
+            chromeStrong: snap.pickerStrong,
+            chromeOpportunity: max(
+                snap.pickerOpportunity,
+                snap.summaries.first { $0.section == .pickerScorecard }?.riskCount ?? 0
+            ),
+            grain: snap.grainTables[.pickerScorecard] ?? []
         )
     }
 
@@ -1376,7 +1391,10 @@ enum PulseMail {
         default:
             color = "#141A29"
         }
-        return "<td class=\"\(cls)\" width=\"108\" style=\"width:108px;text-align:right;font-variant-numeric:tabular-nums;font-weight:700;font-size:16px;white-space:nowrap;padding:12px 14px;border-bottom:1px solid #E4E9F4;border-right:1px solid #EEF1F6;\(fill)color:\(color)\">\(esc(text))</td>"
+        let width = PulseLaunch.shouldUseFixedNowrapShareTableColumns()
+            ? "width=\"108\" style=\"width:108px;text-align:right;font-variant-numeric:tabular-nums;font-weight:700;font-size:16px;white-space:nowrap;padding:12px 14px;border-bottom:1px solid #E4E9F4;border-right:1px solid #EEF1F6;\(fill)color:\(color)\""
+            : "style=\"width:50%;text-align:right;font-variant-numeric:tabular-nums;font-weight:700;font-size:16px;padding:12px 14px;border-bottom:1px solid #E4E9F4;border-right:1px solid #EEF1F6;\(fill)color:\(color)\""
+        return "<td class=\"\(cls)\" \(width)>\(esc(text))</td>"
     }
 
     private static func pill(_ health: Health) -> String {
@@ -1398,7 +1416,8 @@ enum PulseMail {
         banner: Bool = false
     ) -> String {
         guard PulseLaunch.shouldStackShareTablesForMailClients(),
-              !PulseLaunch.shouldClipShareTablesInMailClients() else {
+              !PulseLaunch.shouldClipShareTablesInMailClients(),
+              !PulseLaunch.shouldUseFixedNowrapShareTableColumns() else {
             return ""
         }
         let heading = banner
@@ -1413,7 +1432,7 @@ enum PulseMail {
                 let tone = index < row.tones.count ? row.tones[index] : nil
                 lines += """
                 <tr>
-                <th bgcolor="#EEF3FB" style="text-align:left;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#003DA5;background:#EEF3FB;padding:12px 14px;border-bottom:2px solid #003DA5;border-right:1px solid #D6E2F5;font-weight:700;width:50%">\(esc(header))</th>
+                <th bgcolor="#EEF3FB" style="text-align:left;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#003DA5;background:#EEF3FB;padding:12px 14px;border-bottom:2px solid #003DA5;border-right:1px solid #D6E2F5;font-weight:700;width:50%;white-space:normal">\(esc(header))</th>
                 \(numCell(value, health: tone))
                 </tr>
                 """
@@ -1425,7 +1444,7 @@ enum PulseMail {
             <table class="data mail-stack" width="100%" cellspacing="0" cellpadding="12" bgcolor="#FFFFFF" style="width:100%;max-width:100%;border-collapse:separate;border-spacing:0;font-size:15px;line-height:1.45;background:#FFFFFF;border:1px solid #E4E9F4;margin:0 0 12px">
             <tr>
             <td class="name" style="font-weight:700;font-size:16px;padding:12px 14px;border-bottom:1px solid #E4E9F4;border-right:1px solid #EEF1F6">\(esc(row.label))\(extra)</td>
-            <td class="status" width="108" style="width:108px;text-align:right;white-space:nowrap;padding:12px 14px;border-bottom:1px solid #E4E9F4">\(pill(row.health))</td>
+            <td class="status" style="width:30%;text-align:right;padding:12px 14px;border-bottom:1px solid #E4E9F4">\(pill(row.health))</td>
             </tr>
             \(lines)
             </table>
