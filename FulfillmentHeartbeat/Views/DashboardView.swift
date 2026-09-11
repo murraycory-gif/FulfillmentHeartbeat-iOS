@@ -1347,7 +1347,12 @@ struct PickerHighlightsPanel: View {
 
     private var phone: Bool { HubLayout.isPhone(sizeClass) }
 
-    private var usePhoneCards: Bool { HubLayout.isPhone(sizeClass) }
+    private var usePhoneCards: Bool {
+        PulseLaunch.shouldUsePickerHighlightPhoneCards(
+            phone: HubLayout.isPhone(sizeClass),
+            mac: HubLayout.isMac
+        )
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1442,7 +1447,10 @@ struct PickerHighlightsPanel: View {
                 if showPictures {
                     ShopperPictureStrip(rows: rows)
                 }
-                if PulseLaunch.shouldShowPickerHighlightColumnHeaders(phone: usePhoneCards) {
+                if PulseLaunch.shouldShowPickerHighlightColumnHeaders(
+                    phone: usePhoneCards,
+                    mac: HubLayout.isMac
+                ) {
                     PickerMetricHeader(label: "Shopper")
                 }
                 ForEach(rows) { row in

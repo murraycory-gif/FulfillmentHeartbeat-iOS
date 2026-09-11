@@ -10129,9 +10129,10 @@ struct PickerMetricHeader: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
-        if HubLayout.refusesPadTable(sizeClass) {
-            EmptyView()
-        } else {
+        if PulseLaunch.shouldShowPickerHighlightColumnHeaders(
+            phone: HubLayout.refusesPadTable(sizeClass),
+            mac: HubLayout.isMac
+        ) {
         HStack(spacing: 6) {
             head(label, key: "label", alignment: .leading)
                 .frame(minWidth: 148, maxWidth: 220, alignment: .leading)

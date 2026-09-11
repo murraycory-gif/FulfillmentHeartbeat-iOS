@@ -561,9 +561,16 @@ enum PulseLaunch {
         return true
     }
 
-    /// Pad / Mac Top Opportunity Pickers table keeps Hours / PPH / … headers.
-    /// Phone uses PickerPhoneCard — no table header row.
-    static func shouldShowPickerHighlightColumnHeaders(phone: Bool) -> Bool { !phone }
+    /// MUST H: Mac Catalyst Top Opportunity Pickers always keeps column headers.
+    /// Phone cards stay headerless. iPad regular tables also keep headers.
+    static func shouldShowPickerHighlightColumnHeaders(phone: Bool, mac: Bool = false) -> Bool {
+        mac || !phone
+    }
+
+    /// Mac never uses phone picker cards for Top Opportunity — table + headers.
+    static func shouldUsePickerHighlightPhoneCards(phone: Bool, mac: Bool = false) -> Bool {
+        !mac && phone
+    }
 
     /// Individual shopper picture strip / person cards. Division / District / OM / Store only.
     /// Never on total Company (or Region).

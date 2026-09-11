@@ -5814,6 +5814,10 @@ final class HeartbeatMathTests: XCTestCase {
         )
         XCTAssertTrue(PulseLaunch.shouldShowPickerHighlightColumnHeaders(phone: false))
         XCTAssertFalse(PulseLaunch.shouldShowPickerHighlightColumnHeaders(phone: true))
+        XCTAssertTrue(PulseLaunch.shouldShowPickerHighlightColumnHeaders(phone: false, mac: true))
+        XCTAssertTrue(PulseLaunch.shouldShowPickerHighlightColumnHeaders(phone: true, mac: true))
+        XCTAssertFalse(PulseLaunch.shouldUsePickerHighlightPhoneCards(phone: true, mac: true))
+        XCTAssertTrue(PulseLaunch.shouldUsePickerHighlightPhoneCards(phone: true, mac: false))
     }
 
     func testPromotedPackReloadsInSessionEvenWhenConstrained() {
