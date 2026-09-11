@@ -738,6 +738,11 @@ enum PulseLaunch {
     /// Option 8b: Pulse / Power BI Mobile briefing home. Not always-open ScoreCard tables.
     static func shouldUseCommandCenterHome() -> Bool { true }
 
+    /// iPhone Command Center is a 1-column scroll of phone cards — not the
+    /// iPad leftover-fill GeometryReader (that is why .392–.395 still looked
+    /// like a squeezed pad briefing under the chrome).
+    static func shouldUsePhoneNativeCommandCenter() -> Bool { true }
+
     /// Home glance never mounts DashScopeStrip / store tables. Expand is a section open.
     static func shouldMountDashCalloutTablesOnHome() -> Bool { false }
 

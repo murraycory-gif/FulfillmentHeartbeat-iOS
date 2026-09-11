@@ -52,7 +52,11 @@ struct DashboardView: View {
 
     private var commandCenterBody: some View {
         ZStack {
-            CommandCenterHome(open: open)
+            if HubLayout.isPhone(sizeClass), PulseLaunch.shouldUsePhoneNativeCommandCenter() {
+                PhoneCommandCenterHome(open: open)
+            } else {
+                CommandCenterHome(open: open)
+            }
             if !store.seeded {
                 HubCard {
                     VStack(alignment: .leading, spacing: 8) {

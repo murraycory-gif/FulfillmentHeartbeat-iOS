@@ -30,10 +30,9 @@ enum CommandCenterLayout {
         Set(heroes + glance) == Set(MetricSection.dashboardCards)
     }
 
+    /// Phone home is a 1-column scroll. Pad/Mac keep leftover-fill grids.
     static func glanceColumns(width: CGFloat, phone: Bool, portrait: Bool) -> Int {
-        if phone {
-            return width >= 700 ? 3 : 2
-        }
+        if phone { return 1 }
         if portrait {
             return 2
         }
@@ -43,10 +42,17 @@ enum CommandCenterLayout {
     }
 
     static func heroColumns(width: CGFloat, phone: Bool, portrait: Bool) -> Int {
-        if phone, !portrait, width >= 700 { return 3 }
-        if phone, portrait { return 1 }
+        if phone { return 1 }
         return 3
     }
+
+    /// Readable navy hero on iPhone 13 (390) / 17 Pro. Not the 51pt leftover slice.
+    static func phoneHeroMinHeight() -> CGFloat { 124 }
+
+    static func phoneGlanceMinHeight() -> CGFloat { 96 }
+
+    /// Phone must scroll. Do not stretch tiles to consume leftover viewport.
+    static func shouldFillPhoneViewport() -> Bool { false }
 
     static func rowCount(cards: Int, columns: Int) -> Int {
         let cols = max(columns, 1)
@@ -158,6 +164,117 @@ enum CommandCenterLayout {
     }
 }
 
+/// iPhone 13+ / 17 Pro dashboard. Portrait-first 1-column scroll.
+/// No GeometryReader leftover-fill — that packed 3 navy heroes into 168pt
+/// (~51pt each) and a 2-col glance grid under Pages + Filters + banner.
+struct PhoneCommandCenterHome: View {
+    @EnvironmentObject private var store: HeartbeatStore
+    var open: (MetricSection) -> Void
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(heroCards) { card in
+                    PhoneCommandHeroCard(card: card) {
+                        open(card.section)
+                    }
+                }
+                Text("AT-A-GLANCE · ALL SECTIONS")
+                    .font(AppTheme.rounded(.caption, weight: .heavy))
+                    .tracking(0.7)
+                    .foregroundStyle(AppTheme.textTertiary)
+                    .padding(.top, 8)
+                ForEach(glanceCards) { card in
+                    PhoneCommandGlanceCard(card: card) {
+                        open(card.section)
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 28)
+            .frame(maxWidth: .infinity, alignment: .top)
+        }
+        .scrollIndicators(.hidden)
+        .scrollBounceBehavior(.basedOnSize)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private var heroCards: [SectionSummary] {
+        _ = store.seatPaintStamp
+        return CommandCenterLayout.heroSections.map { store.summary(for: $0) }
+    }
+
+    private var glanceCards: [SectionSummary] {
+        _ = store.seatPaintStamp
+        return CommandCenterLayout.glanceSections.map { store.summary(for: $0) }
+    }
+}
+
+struct PhoneCommandHeroCard: View {
+    let card: SectionSummary
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text(CommandCenterLayout.glanceTitle(card.section))
+                        .font(AppTheme.rounded(.title3, weight: .bold))
+                        .foregroundStyle(Color.white.opacity(0.92))
+                        .lineLimit(2)
+                    Spacer(minLength: 8)
+                    HealthBadge(health: CommandCenterLayout.displayedHealth(card), prominent: true, compact: false)
+                }
+                Text(CommandCenterLayout.compactValue(card))
+                    .font(AppTheme.rounded(size: 34, weight: .bold).monospacedDigit())
+                    .foregroundStyle(Color.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(AppTheme.gold)
+                        .frame(width: 8, height: 8)
+                    Text("Stores \(card.storeCount)")
+                        .font(AppTheme.rounded(.body, weight: .bold).monospacedDigit())
+                        .foregroundStyle(AppTheme.gold)
+                    Spacer(minLength: 0)
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, minHeight: CommandCenterLayout.phoneHeroMinHeight(), alignment: .leading)
+            .background(AppTheme.blue, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .frame(minHeight: HubLayout.phoneHitTarget)
+        .accessibilityLabel("\(CommandCenterLayout.glanceTitle(card.section)), \(CommandCenterLayout.compactValue(card)), \(CommandCenterLayout.displayedHealth(card).label), Stores \(card.storeCount)")
+    }
+}
+
+struct PhoneCommandGlanceCard: View {
+    let card: SectionSummary
+    let action: () -> Void
+
+    var body: some View {
+        PhoneScorecardRow(
+            title: CommandCenterLayout.glanceTitle(card.section),
+            subtitle: card.storeCount > 0 ? "\(card.storeCount) stores" : nil,
+            chips: [
+                PhoneMetricChip(
+                    label: "Result",
+                    value: CommandCenterLayout.compactValue(card),
+                    health: CommandCenterLayout.displayedHealth(card)
+                ),
+            ],
+            health: CommandCenterLayout.displayedHealth(card),
+            onTap: action
+        )
+        .frame(minHeight: CommandCenterLayout.phoneGlanceMinHeight())
+    }
+}
+
+/// iPad / Mac leftover-fill briefing. Phone uses PhoneCommandCenterHome.
 struct CommandCenterHome: View {
     @EnvironmentObject private var store: HeartbeatStore
     @Environment(\.horizontalSizeClass) private var sizeClass
@@ -166,38 +283,33 @@ struct CommandCenterHome: View {
     private var phone: Bool { HubLayout.isPhone(sizeClass) }
 
     var body: some View {
-        GeometryReader { geo in
-            let portrait = geo.size.height > geo.size.width
-            let cards = glanceCards
-            let cols = CommandCenterLayout.glanceColumns(width: geo.size.width, phone: phone, portrait: portrait)
-            let heroH = CommandCenterLayout.heroBandHeight(phone: phone, portrait: portrait, available: geo.size.height)
-            let header: CGFloat = phone ? 18 : 20
-            let pad: CGFloat = phone ? 10 : 12
-            let leftover = max(
-                CommandCenterLayout.minGlanceHeight,
-                geo.size.height - heroH - header - pad - CommandCenterLayout.gutter
-            )
-            let tileH = CommandCenterLayout.glanceTileHeight(
-                remaining: leftover,
-                cards: max(cards.count, 1),
-                columns: cols
-            )
-            let content = VStack(spacing: CommandCenterLayout.gutter) {
-                heroBand(height: heroH, portrait: portrait, width: geo.size.width)
-                glanceHeader
-                glanceGrid(cards: cards, columns: cols, tileHeight: tileH)
-            }
-            .padding(.horizontal, phone ? 10 : 12)
-            .padding(.bottom, phone ? 6 : 8)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-
-            if phone, leftover < CommandCenterLayout.minGlanceHeight * 3 {
-                ScrollView {
-                    content
+        if phone, PulseLaunch.shouldUsePhoneNativeCommandCenter() {
+            PhoneCommandCenterHome(open: open)
+        } else {
+            GeometryReader { geo in
+                let portrait = geo.size.height > geo.size.width
+                let cards = glanceCards
+                let cols = CommandCenterLayout.glanceColumns(width: geo.size.width, phone: phone, portrait: portrait)
+                let heroH = CommandCenterLayout.heroBandHeight(phone: phone, portrait: portrait, available: geo.size.height)
+                let header: CGFloat = 20
+                let pad: CGFloat = 12
+                let leftover = max(
+                    CommandCenterLayout.minGlanceHeight,
+                    geo.size.height - heroH - header - pad - CommandCenterLayout.gutter
+                )
+                let tileH = CommandCenterLayout.glanceTileHeight(
+                    remaining: leftover,
+                    cards: max(cards.count, 1),
+                    columns: cols
+                )
+                VStack(spacing: CommandCenterLayout.gutter) {
+                    heroBand(height: heroH, portrait: portrait, width: geo.size.width)
+                    glanceHeader
+                    glanceGrid(cards: cards, columns: cols, tileHeight: tileH)
                 }
-                .scrollIndicators(.hidden)
-            } else {
-                content
+                .padding(.horizontal, 12)
+                .padding(.bottom, 8)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
         }
     }

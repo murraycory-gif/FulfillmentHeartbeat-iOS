@@ -24,4 +24,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.395 / 1.0 (721) — Hub chrome is content.safeAreaInset(HubBrandBar). shouldPinHubChromeAboveContent is false; the VStack pin path is gone. PhoneScorecardRow path stays. Who’s looking stays locked off. Unassigned Markets/Regions stay hidden. Recook + republish still required for OM people packs.
+HB-0828.396 / 1.0 (722) — iPhone Command Center rewrite: PhoneCommandCenterHome 1-column scroll (full-width heroes + PhoneScorecardRow glance). iPad/Mac leftover-fill grid unchanged. Who’s looking stays locked off. Unassigned Markets/Regions stay hidden. Recook + republish still required for OM people packs.
