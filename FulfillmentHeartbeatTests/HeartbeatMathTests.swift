@@ -5511,11 +5511,15 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(pickerHTML.contains("mail-stack"), pickerHTML)
     }
 
+    /// Regression `336752c` HB-0828.397: PhoneSectionPage.seatChips dual-mapped
+    /// ghost keys (`otp_pct`, `exception_count`, `pnr_count`, `rows.count`)
+    /// while the hero used `dashboardTableValues`. Dual map deleted.
     func testArchitecture406SeatChipsFalseZeroBanAndLiveKeys() {
         XCTAssertEqual(BuildStamp.id, "HB-0828.407")
         XCTAssertTrue(PulseLaunch.shouldPaintSeatChipsFromDashboardTableValues())
         XCTAssertFalse(PulseLaunch.shouldUseGhostSeatChipKeys())
         XCTAssertTrue(PulseLaunch.shouldBanFalseZeroSeatChips())
+        XCTAssertFalse(PulseLaunch.shouldAppendGhostSeatChipAliases())
         XCTAssertTrue(PulseLaunch.shouldUseCompactPhoneCommandChrome())
         XCTAssertTrue(PulseLaunch.shouldUseCompactPhoneHeaderChrome())
         XCTAssertTrue(PulseLaunch.shouldLeavePadMacCommandChromeUnchanged())
@@ -5590,8 +5594,9 @@ final class HeartbeatMathTests: XCTestCase {
             rows: [pick],
             displayedHealth: .risk
         )
+        XCTAssertEqual(pathChips.map(\.label), HeartbeatMath.dashboardTableHeaders(.pickPath))
         XCTAssertEqual(pathChips.first { $0.label == "Path %" }?.value, "79.70%")
-        XCTAssertEqual(pathChips.first { $0.label == "Exceptions" }?.value, HeartbeatFormat.num(746_294 - 597_903))
+        XCTAssertFalse(pathChips.contains { $0.label == "Exceptions" || $0.label == "On-time" })
         XCTAssertEqual(
             PulseLaunch.pickPathExceptions(stored: 0, total: 746_294, compliant: 597_903),
             148_391
@@ -5614,9 +5619,9 @@ final class HeartbeatMathTests: XCTestCase {
             rows: [prep],
             displayedHealth: .risk
         )
+        XCTAssertEqual(prepChips.map(\.label), HeartbeatMath.dashboardTableHeaders(.prepNotReady))
         XCTAssertEqual(prepChips.first { $0.label == "PNR %" }?.value, "2.80%")
-        XCTAssertEqual(prepChips.first { $0.label == "Not Ready" }?.value, "1")
-        XCTAssertFalse(prepChips.contains { $0.value == "—" })
+        XCTAssertFalse(prepChips.contains { $0.label == "Not Ready" || $0.label == "Orders Due" || $0.value == "—" })
         XCTAssertEqual(prepChips.first { $0.label == "PNR %" }?.health, .risk)
         XCTAssertEqual(prepChips.first { $0.label == "Watch" }?.health, .risk)
 
@@ -5725,6 +5730,7 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseLaunch.shouldPaintSeatChipsFromDashboardTableValues())
         XCTAssertFalse(PulseLaunch.shouldUseGhostSeatChipKeys())
         XCTAssertTrue(PulseLaunch.shouldBanFalseZeroSeatChips())
+        XCTAssertFalse(PulseLaunch.shouldAppendGhostSeatChipAliases())
         XCTAssertTrue(PulseLaunch.shouldShareLiveActionFlags())
         XCTAssertTrue(PulseLaunch.shouldUseCompactPhoneCommandChrome())
         XCTAssertTrue(PulseLaunch.shouldUseCompactPhoneHeaderChrome())

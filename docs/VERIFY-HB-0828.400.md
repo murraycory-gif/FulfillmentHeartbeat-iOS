@@ -39,8 +39,8 @@ SKIP_PULL=1 ALLOW_PHONE=1 ./install-ipad.sh
 1. Confirm stamp **HB-0828.407  1.0 (733)**. Pages only — no phone Back chevron. Tighter CC / section cards.
 2. **Force-quit.** Reopen. Do **not** delete.
 3. 5 Star: Rating / Flash / COE / OTT / Pre-Sub / OTH — not On-time / Fill / Quality dashes.
-4. Pick Path: Path % live. Exceptions = total − compliant (not 0) when Compliant / Total are live.
-5. Prep: PNR % live. Not Ready is not a ghost 0 when the hero is 2.8%.
+4. Pick Path THIS SEAT = Path % / AVG PPH (same as Regions). No ghost Exceptions 0 from `exception_count`.
+5. Prep THIS SEAT = PNR % / Goal / Watch (same as Regions). No ghost Not Ready / Orders Due 0.
 6. Picker: Shoppers / Opportunity / Doing Well match chrome 27,458 — not 0/0/0.
 7. Labor: Weeks is a real week id or omitted — never "—". Cost Tgt / TVA match -0.10%.
 8. Dynacap Util % and Schedule Over / Under live from `utilization_pct` / `over_scheduled` / `under_scheduled`.

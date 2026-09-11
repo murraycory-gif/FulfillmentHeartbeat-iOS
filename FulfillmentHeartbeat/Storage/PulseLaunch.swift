@@ -1569,10 +1569,16 @@ enum PulseLaunch {
 
     /// Phone THIS SEAT chips use `dashboardTableValues` / hero pack keys — never
     /// ghost keys (`otp_pct`, `fill_rate_pct`, `quality_score`).
+    ///
+    /// FILE ROOT / regression: `336752c` HB-0828.397 added
+    /// `PhoneSectionPage.seatChips` as a second key table (copied from pad
+    /// `tiles`). Hero stayed live. Dual map deleted — one path only.
     static func shouldPaintSeatChipsFromDashboardTableValues() -> Bool { true }
     static func shouldUseGhostSeatChipKeys() -> Bool { false }
-    /// Ghost 0 is banned when a live sibling pack key exists (Exceptions, Prep).
+    /// Ghost 0 is banned. Do not paint `exception_count` / `pnr_count` zeros
+    /// or invent extra alias chips on top of `dashboardTableValues`.
     static func shouldBanFalseZeroSeatChips() -> Bool { true }
+    static func shouldAppendGhostSeatChipAliases() -> Bool { false }
 
     /// Same pack keys as the section hero + region `dashboardTableValues`.
     static func seatChipValues(
@@ -1592,12 +1598,6 @@ enum PulseLaunch {
         }
         if section == .labor {
             return laborSeatChips(rows: rows, displayedHealth: displayedHealth)
-        }
-        if section == .pickPath || section == .pickPathPicker {
-            return pickPathSeatChips(rows: rows, displayedHealth: displayedHealth)
-        }
-        if section == .prepNotReady {
-            return prepSeatChips(rows: rows, displayedHealth: displayedHealth)
         }
         let scored = HeartbeatMath.dashboardTableValues(section, rows: rows)
         let fallback = seatChipFallback(displayedHealth, scored: scored)
@@ -1634,34 +1634,8 @@ enum PulseLaunch {
         ]
     }
 
-    static func pickPathSeatChips(
-        rows: [MetricRow],
-        displayedHealth: Health
-    ) -> [(label: String, value: String, health: Health)] {
-        let scored = HeartbeatMath.dashboardTableValues(.pickPath, rows: rows)
-        let fallback = seatChipFallback(displayedHealth, scored: scored)
-        var chips = zip(HeartbeatMath.dashboardTableHeaders(.pickPath), scored.values).map { header, value in
-            (header, value, seatChipHealth(header: header, value: value, fallback: fallback))
-        }
-        let total = rows.reduce(0) { $0 + ($1.number("picks_total") ?? 0) }
-        let compliant = rows.reduce(0) { $0 + ($1.number("picks_compliant") ?? 0) }
-        let stored = rows.reduce(0) { $0 + ($1.number("exception_count") ?? 0) }
-        let exceptions = pickPathExceptions(stored: stored, total: total, compliant: compliant)
-        if total > 0 || compliant > 0 {
-            chips.append(("Compliant", HeartbeatFormat.num(compliant), fallback))
-            chips.append(("Total picks", HeartbeatFormat.num(total), fallback))
-        }
-        if total > 0 || compliant > 0 || stored > 0 {
-            chips.append((
-                "Exceptions",
-                HeartbeatFormat.num(exceptions),
-                exceptions == 0 ? .good : .risk
-            ))
-        }
-        return chips
-    }
-
     /// Live `exception_count`, else `picks_total − picks_compliant`. Ghost 0 banned.
+    /// Not a THIS SEAT chip — Pick Path chips are `dashboardTableHeaders` only.
     static func pickPathExceptions(stored: Double, total: Double, compliant: Double) -> Double {
         if stored > 0 { return stored }
         let derived = max(0, total - compliant)
@@ -1669,37 +1643,6 @@ enum PulseLaunch {
             return derived
         }
         return stored
-    }
-
-    static func prepSeatChips(
-        rows: [MetricRow],
-        displayedHealth: Health
-    ) -> [(label: String, value: String, health: Health)] {
-        let scored = HeartbeatMath.dashboardTableValues(.prepNotReady, rows: rows)
-        let fallback = seatChipFallback(displayedHealth, scored: scored)
-        var chips = zip(HeartbeatMath.dashboardTableHeaders(.prepNotReady), scored.values).map { header, value in
-            (header, value, seatChipHealth(header: header, value: value, fallback: fallback))
-        }
-        let rateLive = rows.contains { $0.number("pnr_rate_pct", "pnr_hours", "prep_not_ready_pct") != nil }
-        let storedReady = rows.reduce(0) { $0 + ($1.number("pnr_count") ?? 0) }
-        let derivedReady = Double(rows.filter {
-            ($0.number("pnr_rate_pct", "pnr_hours", "prep_not_ready_pct") ?? 0) > HeartbeatMath.pnrGoal
-        }.count)
-        let notReady = (storedReady > 0 || !rateLive) ? storedReady : derivedReady
-        if storedReady > 0 || rateLive {
-            chips.append(("Not Ready", HeartbeatFormat.num(notReady), notReady == 0 ? .good : fallback))
-        }
-        let storedDue = rows.reduce(0) { $0 + ($1.number("orders_due") ?? 0) }
-        let derivedDue = rows.reduce(0) { $0 + ($1.number("orders") ?? $1.number("picks_total") ?? 0) }
-        let due = storedDue > 0 ? storedDue : (rateLive ? derivedDue : 0)
-        if storedDue > 0 || (rateLive && derivedDue > 0) {
-            chips.append(("Orders Due", HeartbeatFormat.num(due), fallback))
-        }
-        let late = HeartbeatMath.average(rows.compactMap { $0.number("avg_late_min") })
-        if let late {
-            chips.append(("Avg Late", "\(HeartbeatFormat.num(late, digits: 1)) min", fallback))
-        }
-        return chips
     }
 
     /// Healthy / Watch / At Risk counts keep band colors. Other chips follow
