@@ -10,11 +10,16 @@ struct RoleGateView: View {
     @State private var committingSeat = false
 
     private var phone: Bool { HubLayout.isPhone(sizeClass) }
+    private var showsSeatLoadStage: Bool {
+        store.warehouseHydrating
+            && PulseLaunch.shouldShowSeatLoadStageOnRoleGate()
+            && PulseLaunch.shouldHoldSeatPickerUntilWarehouseReady()
+    }
 
     var body: some View {
         ZStack {
             AppTheme.bg.ignoresSafeArea()
-            if store.warehouseHydrating, PulseLaunch.shouldHoldSeatPickerUntilWarehouseReady() {
+            if showsSeatLoadStage {
                 SeatLoadStage(progress: store.importProgress)
             } else {
                 ScrollView {
@@ -38,7 +43,7 @@ struct RoleGateView: View {
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if role != nil, !(store.warehouseHydrating && PulseLaunch.shouldHoldSeatPickerUntilWarehouseReady()) {
+            if role != nil, !showsSeatLoadStage {
                 continueBar
             }
         }
@@ -53,7 +58,7 @@ struct RoleGateView: View {
                 .font(phone ? .largeTitle.weight(.bold) : .largeTitle.weight(.bold))
                 .foregroundStyle(AppTheme.text)
             Text(
-                store.warehouseHydrating && PulseLaunch.shouldHoldSeatPickerUntilWarehouseReady()
+                showsSeatLoadStage
                     ? PulseLaunch.seatLoadDirective
                     : "Pick a seat. The dashboard only includes that book of business."
             )
@@ -61,7 +66,7 @@ struct RoleGateView: View {
                 .foregroundStyle(AppTheme.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
             if store.sessionRole != nil,
-               !(store.warehouseHydrating && PulseLaunch.shouldHoldSeatPickerUntilWarehouseReady()) {
+               !showsSeatLoadStage {
                 Button("Stay in this view") {
                     store.finishRoleGate()
                 }
@@ -69,7 +74,7 @@ struct RoleGateView: View {
                 .foregroundStyle(AppTheme.blue)
                 .padding(.top, 2)
             }
-            if !(store.warehouseHydrating && PulseLaunch.shouldHoldSeatPickerUntilWarehouseReady()) {
+            if !showsSeatLoadStage {
                 Text("Choose a seat")
                     .font(.subheadline.weight(.bold))
                     .foregroundStyle(AppTheme.textSecondary)
@@ -211,7 +216,7 @@ struct RoleGateView: View {
         let noun = role.map { count == 1 ? $0.pickNoun : "\($0.pickNoun)s" } ?? "items"
         return VStack(spacing: 10) {
             Button(action: continueIntoDashboard) {
-                Text(count == 0 ? "Select at least one" : committingSeat ? "Opening the aisle…" : "Continue with \(count) \(noun)")
+                Text(count == 0 ? "Select at least one" : committingSeat ? PulseLaunch.seatLoadTitle : "Continue with \(count) \(noun)")
                     .font(.headline.weight(.bold))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 16)

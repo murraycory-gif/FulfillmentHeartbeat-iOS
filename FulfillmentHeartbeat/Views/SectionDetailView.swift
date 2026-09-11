@@ -228,12 +228,24 @@ struct SectionDetailView: View {
         .onAppear {
             armPage()
         }
-        .task(id: router.current) {
-            guard PulseLaunch.shouldLoadSection(visible: router.current, section: section) else { return }
+        .task(id: PulseLaunch.sectionOpenToken(
+            visible: router.current,
+            pushed: router.pushedSection,
+            section: section
+        )) {
+            guard PulseLaunch.shouldLoadSection(
+                visible: router.current,
+                section: section,
+                pushed: router.pushedSection
+            ) else { return }
             if PulseLaunch.shouldDeferSectionSQLUntilAfterChrome() {
                 await Task.yield()
                 try? await Task.sleep(nanoseconds: PulseLaunch.pageSectionLoadDelayNanoseconds)
-                guard PulseLaunch.shouldLoadSection(visible: self.router.current, section: section) else { return }
+                guard PulseLaunch.shouldLoadSection(
+                    visible: self.router.current,
+                    section: section,
+                    pushed: self.router.pushedSection
+                ) else { return }
             }
             await store.ensureSectionLoaded(section)
             if section == .preSubOOS {
@@ -246,10 +258,17 @@ struct SectionDetailView: View {
         .onChange(of: router.current) { _, _ in
             armPage()
         }
+        .onChange(of: router.pushedSection) { _, _ in
+            armPage()
+        }
     }
 
     private var isActivePage: Bool {
-        router.current.section == section
+        PulseLaunch.isActiveScorecardPage(
+            visible: router.current,
+            section: section,
+            pushed: router.pushedSection
+        )
     }
 
     private func armPage() {
@@ -281,23 +300,8 @@ struct SectionDetailView: View {
     @ViewBuilder
     private var pageIntro: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if HubLayout.isPhone(sizeClass) {
-                PhonePulseCard(
-                    card: summary,
-                    flags: store.dashboardFlags(for: section),
-                    grains: [],
-                    grain: nil,
-                    extraPct: section == .lostRevenue ? summary.lostRevenuePct : nil,
-                    tappable: false,
-                    action: {}
-                )
-            } else {
-                Text(section.blurb)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(AppTheme.textTertiary)
-                    .lineLimit(1)
-                    .padding(.horizontal, 2)
-            }
+            CommandCenterSectionHero(card: summary)
+            CommandCenterStatusPills(card: summary, flags: store.dashboardFlags(for: section))
 
             if section == .labor, store.laborNeedsReload() {
                 HStack(alignment: .top, spacing: 10) {
@@ -325,7 +329,7 @@ struct SectionDetailView: View {
                 .background(AppTheme.warnSoft, in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous))
             }
 
-            if missingInFile {
+            if showStoreTable, missingInFile {
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: "info.circle.fill")
                         .foregroundStyle(AppTheme.blue)
@@ -338,7 +342,7 @@ struct SectionDetailView: View {
                 .background(AppTheme.blueSoft, in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous))
             }
 
-            if section == .preSubOOS, snapshots.isEmpty {
+            if showStoreTable, section == .preSubOOS, snapshots.isEmpty {
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(AppTheme.warn)
@@ -351,24 +355,25 @@ struct SectionDetailView: View {
                 .background(AppTheme.warnSoft, in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous))
             }
 
-            if HubLayout.isPhone(sizeClass) {
-                if section == .labor { LaborWeekFilterBar() }
-                pageCallouts
-                if section == .missingItems || section == .preSubOOS {
+            if section == .labor { LaborWeekFilterBar() }
+            if showStoreTable {
+                if HubLayout.isPhone(sizeClass) {
+                    pageCallouts
+                    if section == .missingItems || section == .preSubOOS {
+                        MissingItemsCategoryFilter(selected: $miCategories, width: pageWidth)
+                    }
+                } else if section == .labor {
+                    laborStatusTiles
+                } else if section == .sales {
+                    salesStatusTiles
+                } else if section == .lostRevenue {
+                    lostRevenueStatusTiles
+                } else if section == .missingItems || section == .preSubOOS {
+                    missingItemsStatusTiles
                     MissingItemsCategoryFilter(selected: $miCategories, width: pageWidth)
+                } else {
+                    pageCallouts
                 }
-            } else if section == .labor {
-                LaborWeekFilterBar()
-                laborStatusTiles
-            } else if section == .sales {
-                salesStatusTiles
-            } else if section == .lostRevenue {
-                lostRevenueStatusTiles
-            } else if section == .missingItems || section == .preSubOOS {
-                missingItemsStatusTiles
-                MissingItemsCategoryFilter(selected: $miCategories, width: pageWidth)
-            } else {
-                pageCallouts
             }
         }
     }

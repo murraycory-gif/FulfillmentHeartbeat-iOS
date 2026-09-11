@@ -4,7 +4,6 @@ struct DashboardView: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var router: HubRouter
     @Environment(\.horizontalSizeClass) private var sizeClass
-    @State private var pushedSection: MetricSection?
     @State private var showError = false
     @State private var cardWidth: CGFloat = 980
 
@@ -43,7 +42,7 @@ struct DashboardView: View {
         }
         .onChange(of: router.destination) { _, dest in
             if dest == .dashboard {
-                pushedSection = nil
+                router.clearPushedSection()
             }
         }
         .onChange(of: showError) { _, presented in
@@ -68,7 +67,7 @@ struct DashboardView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationDestination(item: $pushedSection) { section in
+        .navigationDestination(item: phonePushedSection) { section in
             SectionDetailView(section: section)
         }
     }
@@ -132,7 +131,7 @@ struct DashboardView: View {
                 cardWidth = value
             }
         }
-        .navigationDestination(item: $pushedSection) { section in
+        .navigationDestination(item: phonePushedSection) { section in
             SectionDetailView(section: section)
         }
     }
@@ -145,9 +144,16 @@ struct DashboardView: View {
         )
     }
 
+    private var phonePushedSection: Binding<MetricSection?> {
+        Binding(
+            get: { router.pushedSection },
+            set: { router.pushedSection = $0 }
+        )
+    }
+
     private func open(_ section: MetricSection) {
         if HubLayout.isPhone(sizeClass) {
-            pushedSection = section
+            router.pushPhone(section: section)
         } else {
             router.open(section: section)
         }

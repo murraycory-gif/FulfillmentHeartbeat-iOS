@@ -211,10 +211,15 @@ enum PulseLaunch {
     /// Who's looking is the directed start. Seats stay locked until the warehouse is on the floor.
     static func shouldHoldSeatPickerUntilWarehouseReady() -> Bool { true }
 
-    /// Hub fill banner is for post-seat hydrate only. Who's looking owns the centered load UI.
+    /// One load only. No hub "building tables" banner after splash.
     static func shouldShowHubFillBanner(needsRolePick: Bool, warehouseHydrating: Bool) -> Bool {
-        warehouseHydrating && !needsRolePick
+        _ = needsRolePick
+        _ = warehouseHydrating
+        return false
     }
+
+    /// RoleGate is Who's looking — never a second full-screen load.
+    static func shouldShowSeatLoadStageOnRoleGate() -> Bool { false }
 
     /// Dashboard under Who's looking must not rebuild on every wave paint.
     static func shouldStampUIDuringRolePick() -> Bool { false }
@@ -265,6 +270,89 @@ enum PulseLaunch {
     /// Hidden scorecard Lists remounted on every EnvironmentObject ping and
     /// cooked the iPad after District Continue. Dashboard host stays warm.
     static func shouldKeepVisitedScorecardHostsWarm() -> Bool { false }
+
+    /// Warm dashboard + empty `warmScorecards` left Mac/iPad section taps blank.
+    /// Always paint the opened scorecard — every platform, same host.
+    static func shouldPaintVisibleScorecardOverWarmDashboard() -> Bool { true }
+
+    static func visibleScorecardSections(
+        current: HubDestination,
+        warmed: [MetricSection],
+        pushed: MetricSection? = nil
+    ) -> [MetricSection] {
+        guard shouldPaintVisibleScorecardOverWarmDashboard() else { return warmed }
+        guard let section = activeScorecardSection(visible: current, pushed: pushed) else { return warmed }
+        if warmed.contains(section) { return warmed }
+        var next = warmed
+        next.append(section)
+        return next
+    }
+
+    /// One seat-swap plane for Clear, filter pills, and Continue.
+    /// Cached chrome first. Never re-download a usable file. Never remount.
+    enum SeatSwapPlan: Equatable {
+        case reuseInPlace
+        case paintCachedThenSwap
+        case installLocalPack
+        case downloadMissingPack
+    }
+
+    typealias CompanyClearPlan = SeatSwapPlan
+
+    static func shouldReuseCachedCompanySeatOnClear() -> Bool { true }
+    static func shouldRedownloadUsableCompanySeat() -> Bool { false }
+    static func shouldWipeWarehouseBeforeCachedCompanyChrome() -> Bool { false }
+    static func shouldStampHubOnClearToCompany() -> Bool { false }
+
+    /// Filter pills use the same seat-swap rewrite as Clear.
+    static func shouldReuseCachedSeatPackOnFilterChange() -> Bool { true }
+    static func shouldRedownloadUsableSeatOnFilterChange() -> Bool { false }
+    static func shouldStampHubOnFilterSwap() -> Bool { false }
+
+    /// Clear / Company must call `swapToSeatPack(.company)` — never dual-wave
+    /// market `restoreCompanyPack` as the primary.
+    static func shouldClearCompanyViaSwapToSeatPack() -> Bool { true }
+    static func shouldUseDualWaveMarketRestoreAsClearPrimary() -> Bool { false }
+
+    static func shouldStampHubOnSeatSwap(clearingToCompany: Bool) -> Bool {
+        clearingToCompany ? shouldStampHubOnClearToCompany() : shouldStampHubOnFilterSwap()
+    }
+
+    static func shouldRedownloadUsableSeatPack() -> Bool {
+        shouldRedownloadUsableCompanySeat() || shouldRedownloadUsableSeatOnFilterChange()
+    }
+
+    static func seatSwapPlan(
+        localUsable: Bool,
+        alreadyOnPack: Bool,
+        hasCachedChrome: Bool
+    ) -> SeatSwapPlan {
+        if !localUsable { return .downloadMissingPack }
+        if alreadyOnPack, hasCachedChrome { return .reuseInPlace }
+        if hasCachedChrome { return .paintCachedThenSwap }
+        return .installLocalPack
+    }
+
+    static func companyClearPlan(
+        localCompanyUsable: Bool,
+        alreadyOnCompany: Bool,
+        hasCompanyChrome: Bool
+    ) -> CompanyClearPlan {
+        seatSwapPlan(
+            localUsable: localCompanyUsable,
+            alreadyOnPack: alreadyOnCompany,
+            hasCachedChrome: hasCompanyChrome
+        )
+    }
+
+    /// `factsOwned` may stay true after a pack wipe left `latestBySection` empty.
+    /// Early-return only when the owned warehouse actually has rows.
+    static func shouldEarlyReturnOwnedSection(owned: Bool, rowCount: Int) -> Bool {
+        owned && rowCount > 0
+    }
+
+    /// Wipe on pack swap must drop ownership so the next sqlite read is allowed.
+    static func packSwapClearsFactOwnership() -> Bool { true }
 
     /// Warm / hidden pages must not rebuild Lists on hub pings.
     static func shouldRebuildHiddenWarmHostsOnHubPing() -> Bool { false }
@@ -435,15 +523,17 @@ enum PulseLaunch {
     /// filter turn; a 12-card prefetch is the residual iPad scroll hitch.
     static func shouldPrefetchExpandOnFilterStamp() -> Bool { false }
 
-    /// Cold open must leave splash for Who's looking load even when chrome
-    /// cards are 0. Waiting on chrome left RoleGate opening after
-    /// `finishLocalLaunch` had already cleared hydrating.
-    static func shouldLeaveSplashForSeatLoad() -> Bool { true }
+    /// One load screen. Do not leave splash early just to show SeatLoadStage.
+    static func shouldLeaveSplashForSeatLoad() -> Bool { false }
 
-    /// `finishLocalLaunch` must keep hydrating so RoleGate can hold seats
-    /// until the warehouse / seat pack is ready.
+    /// Who's looking waits until the single load finishes — no second splash.
+    static func shouldRevealRoleGateDuringWarehouseLoad() -> Bool { false }
+
+    /// `finishLocalLaunch` must not keep hydrating into a second load stage.
     static func shouldKeepHydratingThroughFinishLocalLaunch() -> Bool {
-        shouldPresentSeatBeforeWarehouse() && shouldHoldSeatPickerUntilWarehouseReady()
+        shouldRevealRoleGateDuringWarehouseLoad()
+            && shouldPresentSeatBeforeWarehouse()
+            && shouldHoldSeatPickerUntilWarehouseReady()
     }
 
     /// Off-actor. `HeartbeatStore` is `@MainActor`; detached pack reads must not hop back.
@@ -914,16 +1004,11 @@ enum PulseLaunch {
         phase.label
     }
 
-    /// Load status the user can see. Never swap bland copy for a grocery joke.
+    /// Load status the user can see. One phrase — never boot-phase theater.
     static func displayLoadStatus(_ raw: String?, tick: Int = 0) -> String {
-        let text = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if text.isEmpty {
-            return loadStatus(at: tick)
-        }
-        if isGroceryLoadQuip(text) {
-            return loadStatus(at: tick)
-        }
-        return text
+        _ = raw
+        _ = tick
+        return seatLoadTitle
     }
 
     static func comedyLoadStatus(at tick: Int) -> String {
@@ -931,10 +1016,7 @@ enum PulseLaunch {
     }
 
     static func loadStatus(at tick: Int) -> String {
-        let raw = max(tick, 1)
-        if let phase = BootPhase(rawValue: min(raw, BootPhase.ready.rawValue)) {
-            return phase.label
-        }
+        _ = tick
         return seatLoadTitle
     }
 
@@ -953,12 +1035,41 @@ enum PulseLaunch {
     /// Neighbor scorecards stay blank. Hydrating them makes filterStamp rebuild two extra full tables.
     static func shouldKeepNeighborPagesHydrated() -> Bool { false }
 
+    /// Phone push keeps `router` on dashboard. Pushed section OR router.section
+    /// is the active scorecard — never require `router != .dashboard`.
+    static func activeScorecardSection(
+        visible: HubDestination,
+        pushed: MetricSection?
+    ) -> MetricSection? {
+        pushed ?? visible.section
+    }
+
+    static func isActiveScorecardPage(
+        visible: HubDestination,
+        section: MetricSection,
+        pushed: MetricSection?
+    ) -> Bool {
+        activeScorecardSection(visible: visible, pushed: pushed) == section
+    }
+
+    static func sectionOpenToken(
+        visible: HubDestination,
+        pushed: MetricSection?,
+        section: MetricSection
+    ) -> String {
+        "\(visible)-\(pushed?.rawValue ?? "")-\(section.rawValue)"
+    }
+
     /// SQLite / picker stream only for the page the user actually landed on — never mid-swipe.
-    static func shouldLoadSection(visible: HubDestination, section: MetricSection) -> Bool {
-        if visible == .dashboard { return false }
-        if visible.section == section { return true }
-        if visible == .preSubOOS, section == .preSubOOSItem { return true }
-        if visible == .pickPath, section == .pickPathPicker { return true }
+    static func shouldLoadSection(
+        visible: HubDestination,
+        section: MetricSection,
+        pushed: MetricSection? = nil
+    ) -> Bool {
+        guard let active = activeScorecardSection(visible: visible, pushed: pushed) else { return false }
+        if active == section { return true }
+        if active == .preSubOOS, section == .preSubOOSItem { return true }
+        if active == .pickPath, section == .pickPathPicker { return true }
         return false
     }
 
@@ -1291,15 +1402,7 @@ enum PulseLaunch {
         case ready = 7
 
         var label: String {
-            switch self {
-            case .openingFloor: return "Opening Heartbeat"
-            case .readingChrome: return "Reading dashboard"
-            case .presentingSeat: return "Getting seats ready"
-            case .readingPack: return "Reading the pack"
-            case .buildingTables: return "Building store tables"
-            case .paintingAisle: return "Painting the floor"
-            case .ready: return "Ready"
-            }
+            PulseLaunch.seatLoadTitle
         }
 
         var fraction: Double {

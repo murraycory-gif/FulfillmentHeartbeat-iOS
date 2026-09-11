@@ -25,6 +25,10 @@ enum PulseSeatPack {
     /// Field iPad Release never invents a seat file from the market pack.
     static func shouldMaterializeMissingSeatOnFieldDevice() -> Bool { false }
 
+    /// Company Command Center reads `packs/seat/company/all/current.sqlite`
+    /// on iPad and Mac — never market `current.sqlite` picker tape.
+    static func shouldPaintCompanyHubFromPublishedCompanySeat() -> Bool { true }
+
     /// Kitchen (Mac cook / DEBUG) may materialize while iterating. Device Release must fail.
     static func shouldMaterializeMissingSeat(isKitchen: Bool) -> Bool { isKitchen }
 

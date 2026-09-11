@@ -110,6 +110,23 @@ enum CommandCenterLayout {
 
     /// Empty chrome stays empty. Never paint `.none` as Healthy when the
     /// headline or store count is still 0 (company Picker 0 / Healthy reject).
+    static func sectionPills(
+        card: SectionSummary,
+        flags: [HeartbeatMath.FiveStarFlag]
+    ) -> [HeartbeatMath.FiveStarFlag] {
+        let named = flags.filter { !$0.value.isEmpty && $0.value != "—" }
+        if displayedHealth(card) == .none || ((card.headline ?? 0) == 0 && card.storeCount == 0) {
+            return Array(named.prefix(6))
+        }
+        if !named.isEmpty { return Array(named.prefix(6)) }
+        let healthy = max(0, card.storeCount - card.watchCount - card.riskCount)
+        return [
+            HeartbeatMath.FiveStarFlag(name: "Healthy", value: HeartbeatFormat.num(Double(healthy)), health: .good, stores: healthy),
+            HeartbeatMath.FiveStarFlag(name: "Watch", value: HeartbeatFormat.num(Double(card.watchCount)), health: card.watchCount == 0 ? .good : .watch, stores: card.watchCount),
+            HeartbeatMath.FiveStarFlag(name: "At Risk", value: HeartbeatFormat.num(Double(card.riskCount)), health: card.riskCount == 0 ? .good : .risk, stores: card.riskCount),
+        ]
+    }
+
     static func displayedHealth(_ card: SectionSummary) -> Health {
         if card.health == .none, (card.headline ?? 0) == 0 || card.storeCount == 0 {
             return .none
@@ -422,5 +439,67 @@ struct CommandCenterAlertsRail: View {
         .padding(12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(AppTheme.bg)
+    }
+}
+
+/// Scorecard chrome from the same pack card the Command Center tile used.
+struct CommandCenterSectionHero: View {
+    let card: SectionSummary
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(CommandCenterLayout.glanceTitle(card.section))
+                    .font(AppTheme.rounded(.headline, weight: .bold))
+                    .foregroundStyle(Color.white.opacity(0.92))
+                Spacer(minLength: 8)
+                HealthBadge(health: CommandCenterLayout.displayedHealth(card), prominent: true, compact: true)
+            }
+            Text(CommandCenterLayout.compactValue(card))
+                .font(AppTheme.rounded(size: 34, weight: .bold).monospacedDigit())
+                .foregroundStyle(Color.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.45)
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(AppTheme.gold)
+                    .frame(width: 7, height: 7)
+                Text("Stores \(card.storeCount)")
+                    .font(AppTheme.rounded(.subheadline, weight: .bold).monospacedDigit())
+                    .foregroundStyle(AppTheme.gold)
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppTheme.blue, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .accessibilityLabel("\(CommandCenterLayout.glanceTitle(card.section)), \(CommandCenterLayout.compactValue(card)), \(CommandCenterLayout.displayedHealth(card).label), Stores \(card.storeCount)")
+    }
+}
+
+struct CommandCenterStatusPills: View {
+    let card: SectionSummary
+    let flags: [HeartbeatMath.FiveStarFlag]
+
+    var body: some View {
+        let pills = CommandCenterLayout.sectionPills(card: card, flags: flags)
+        if !pills.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(pills, id: \.name) { pill in
+                        HStack(spacing: 6) {
+                            Text(pill.name)
+                                .font(AppTheme.rounded(.caption2, weight: .bold))
+                            Text(pill.value)
+                                .font(AppTheme.rounded(.caption, weight: .bold).monospacedDigit())
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .foregroundStyle(AppTheme.healthInk(pill.health == .none ? .none : pill.health))
+                        .background(AppTheme.healthWash(pill.health), in: Capsule(style: .continuous))
+                    }
+                }
+            }
+        }
     }
 }

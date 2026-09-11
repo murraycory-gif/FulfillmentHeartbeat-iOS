@@ -21,7 +21,7 @@ Heartbeat is a field iPad app. Production analytics mobile apps (Power BI Mobile
 | Device | Who’s looking → download **that** seat pack → hub paints from **that** sqlite. Missing object **fails** the hub. |
 | BAN | Market `current.sqlite` as primary under a seat |
 | BAN | `applySeatSlice` of the full market as the data plane |
-| Clear / new seat | **Swap** the active sqlite. No seat+company merge |
+| Clear / new seat | **`swapToSeatPack`** — Clear/Company uses the same path as District (`packs/seat/company/all/current.sqlite`). No dual-wave market restore. No seat+company merge |
 | Halloween | **Removed** from load |
 | District 03 | Every `MetricSection` Stores N = Heartbeat seat N |
 | Out of Tip 1 | Full UITableView virtualize, comedy polish |
@@ -30,7 +30,7 @@ Heartbeat is a field iPad app. Production analytics mobile apps (Power BI Mobile
 
 ```
 heartbeat-packs/
-  current.sqlite                          # market file for Who’s looking roster + Clear
+  current.sqlite                          # market file for Who’s looking roster only
   packs/manifest.json
   packs/seat/company/all/current.sqlite   # thin: store facts + chrome, no shopper tape
   packs/seat/district/03/current.sqlite
@@ -48,8 +48,9 @@ boot        → company sqlite (roster / Who’s looking only)
 Continue    → resolve SeatPack.Key → download that object → activePackURL = seat file
               missing object → FAIL hub (no silent company materialize)
 hub paint   → chrome + facts from active seat sqlite only
-Clear       → activePackURL = company sqlite, wipe seat caches, no merge
-new seat    → wipe → swap file → paint
+Clear       → swapToSeatPack(.company) → packs/seat/company/all/current.sqlite
+              (cached chrome first; no dual-wave market restore; no filterStamp remount)
+new seat    → same swapToSeatPack(key) → wipe ownership → swap file → paint
 ```
 
 `HeartbeatStore.sqliteURL` is the **active** pack. Cloud fetch of `current.sqlite` always lands on the company file, never on a seat file.

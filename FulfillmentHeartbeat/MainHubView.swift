@@ -110,12 +110,18 @@ enum HubDestination: String, CaseIterable, Identifiable, Hashable {
 
 final class HubRouter: ObservableObject {
     @Published var destination: HubDestination
+    /// Phone NavigationStack push. Dashboard stays `destination` so back works.
+    @Published var pushedSection: MetricSection?
     @Published var sidebarOpen = false
     @Published var alertsOpen = false
     @Published var showCompactMenu = false
     @Published var showShare = false
 
     var current: HubDestination { destination }
+
+    var activeSection: MetricSection? {
+        PulseLaunch.activeScorecardSection(visible: destination, pushed: pushedSection)
+    }
 
     init() {
         destination = .dashboard
@@ -126,8 +132,28 @@ final class HubRouter: ObservableObject {
         transaction.animation = nil
         withTransaction(transaction) {
             destination = dest
+            if dest == .dashboard {
+                pushedSection = nil
+            }
             sidebarOpen = false
             alertsOpen = false
+        }
+    }
+
+    func pushPhone(section: MetricSection) {
+        var transaction = Transaction()
+        transaction.animation = nil
+        withTransaction(transaction) {
+            pushedSection = section
+        }
+    }
+
+    func clearPushedSection() {
+        guard pushedSection != nil else { return }
+        var transaction = Transaction()
+        transaction.animation = nil
+        withTransaction(transaction) {
+            pushedSection = nil
         }
     }
 
@@ -457,7 +483,14 @@ struct MainHubView: View {
                 .opacity(router.current == .dashboard ? 1 : 0)
                 .allowsHitTesting(router.current == .dashboard)
                 .accessibilityHidden(router.current != .dashboard)
-            ForEach(warmScorecards, id: \.self) { section in
+            ForEach(
+                PulseLaunch.visibleScorecardSections(
+                    current: router.current,
+                    warmed: warmScorecards,
+                    pushed: router.pushedSection
+                ),
+                id: \.self
+            ) { section in
                 SectionDetailView(section: section)
                     .hubPageCanvas()
                     .opacity(router.current.section == section ? 1 : 0)
