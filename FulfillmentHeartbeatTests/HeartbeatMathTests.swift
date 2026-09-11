@@ -5756,11 +5756,52 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(CommandCenterLayout.minGlanceHeight, 132)
         XCTAssertEqual(CommandCenterLayout.minHeroHeight, 120)
         XCTAssertEqual(CommandCenterLayout.heroBandHeight(phone: true, portrait: true, available: 700), 168)
+        XCTAssertEqual(CommandCenterLayout.leftoverGlanceFloor(mac: false), 132)
+        XCTAssertEqual(CommandCenterLayout.heroBandHeight(phone: false, portrait: true, available: 1000), 128)
+        XCTAssertTrue(PulseLaunch.shouldUseExpandedMacReadableChrome())
+        XCTAssertFalse(PulseLaunch.shouldApplyPhoneCompactChromeOnMac())
+        XCTAssertTrue(PulseLaunch.shouldPaintMacHubDynamicType())
         XCTAssertTrue(
             PulseSeatPack.expandTables(latest: [:], roster: [:], grain: .region).isEmpty
         )
         XCTAssertFalse(PulseLaunch.shouldRedownloadUsableCompanySeat())
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
+    }
+
+    /// MUST M: Mac Catalyst / MacBook whole-app readable chrome. Phone D1–D5
+    /// shrink never applies on Mac, including compact Catalyst windows.
+    func testArchitecture407MacReadableSoftKeep() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.407")
+        XCTAssertTrue(PulseLaunch.shouldUseExpandedMacReadableChrome())
+        XCTAssertFalse(PulseLaunch.shouldApplyPhoneCompactChromeOnMac())
+        XCTAssertTrue(PulseLaunch.shouldPaintMacHubDynamicType())
+        XCTAssertEqual(PulseLaunch.macReadableDynamicTypeName(), "xxxLarge")
+        XCTAssertEqual(HubLayout.MacReadable.glanceFloor, 184)
+        XCTAssertEqual(HubLayout.MacReadable.heroBandMax, 184)
+        XCTAssertEqual(HubLayout.MacReadable.sidebarWidth, 292)
+        XCTAssertEqual(HubLayout.MacReadable.controlMin, 56)
+        XCTAssertEqual(CommandCenterLayout.leftoverGlanceFloor(mac: false), 132)
+        XCTAssertEqual(CommandCenterLayout.leftoverGlanceFloor(mac: true), 184)
+        XCTAssertEqual(CommandCenterLayout.minGlanceHeight, 132)
+        XCTAssertEqual(CommandCenterLayout.minHeroHeight, 120)
+        XCTAssertEqual(CommandCenterLayout.heroBandHeight(phone: false, portrait: true, available: 1000), 128)
+        XCTAssertEqual(CommandCenterLayout.heroBandHeight(phone: false, portrait: true, available: 1000, mac: true), 180)
+        XCTAssertEqual(CommandCenterLayout.heroBandHeight(phone: true, portrait: true, available: 700), 168)
+        XCTAssertFalse(PulseLaunch.shouldUsePickerPhoneCards(compact: true, phone: true, width: 390, mac: true))
+        XCTAssertFalse(PulseLaunch.shouldRefusePadShopperTable(compact: true, phoneIdiom: true, mac: true))
+        XCTAssertTrue(PulseLaunch.shouldUsePickerPhoneCards(compact: true, phone: true, width: 390, mac: false))
+        XCTAssertTrue(PulseLaunch.shouldRefusePadShopperTable(compact: true, phoneIdiom: true, mac: false))
+        XCTAssertTrue(PulseLaunch.shouldShowPickerHighlightColumnHeaders(phone: true, mac: true))
+        XCTAssertFalse(PulseLaunch.shouldUsePickerHighlightPhoneCards(phone: true, mac: true))
+        XCTAssertTrue(PulseLaunch.shouldLeavePadMacCommandChromeUnchanged())
+        XCTAssertTrue(PulseLaunch.shouldUseCompactPhoneCommandChrome())
+        XCTAssertTrue(PulseLaunch.shouldUseCompactPhoneHeaderChrome())
+        XCTAssertFalse(PulseLaunch.shouldUseGhostSeatChipKeys())
+        XCTAssertFalse(PulseLaunch.shouldUseSeatChipDualMap())
+        XCTAssertTrue(PulseLaunch.shouldBanFalseZeroSeatChips())
+        XCTAssertFalse(PulseLaunch.shouldRedownloadUsableCompanySeat())
+        XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
+        XCTAssertEqual(PulseLaunch.companySeatMaxBytes, 28_000_000)
     }
 
     /// HARDENED MUST 1: `336752c` HB-0828.397 PhoneSectionPage.seatChips

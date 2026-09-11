@@ -861,7 +861,7 @@ struct MissingItemsMetricHeader: View {
             head("Status", key: "status", alignment: .trailing)
                 .frame(width: MILayout.statusW, alignment: .trailing)
         }
-        .font(.caption.weight(.bold))
+        .font(HubLayout.MacReadable.metricHeaderFont)
         .lineLimit(2)
         .minimumScaleFactor(0.75)
         .fixedSize(horizontal: false, vertical: true)
@@ -1399,7 +1399,7 @@ private struct PreSubItemHeader: View {
             head("Status", key: "status", alignment: .trailing)
                 .frame(width: PreSubItemLayout.statusW, alignment: .trailing)
         }
-        .font(.caption.weight(.bold))
+        .font(HubLayout.MacReadable.metricHeaderFont)
         .tracking(0.3)
         .lineLimit(1)
         .minimumScaleFactor(0.65)

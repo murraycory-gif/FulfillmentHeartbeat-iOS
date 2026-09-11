@@ -171,11 +171,11 @@ struct MainHubView: View {
         }
     }
 
-    /// Mac Catalyst: persistent Pages rail + dense center. No Alerts column.
+    /// Mac Catalyst: persistent Pages rail + readable center. No Alerts column.
     private var macHub: some View {
         HStack(spacing: 0) {
             sidebar
-                .frame(width: 220)
+                .frame(width: HubLayout.MacReadable.sidebarWidth)
                 .frame(maxHeight: .infinity, alignment: .top)
                 .background(AppTheme.bg.ignoresSafeArea())
                 .overlay(alignment: .trailing) {
@@ -197,6 +197,11 @@ struct MainHubView: View {
             }
         }
         .tint(AppTheme.blue)
+        .dynamicTypeSize(
+            PulseLaunch.shouldPaintMacHubDynamicType()
+                ? HubLayout.MacReadable.dynamicTypeSize
+                : .large
+        )
     }
 
     /// Full-width Command Center. Pages drawer on demand. No Alerts rail.
@@ -307,25 +312,28 @@ struct MainHubView: View {
                 router.open(item)
             }
         } label: {
-            HStack(spacing: 10) {
+            HStack(spacing: HubLayout.MacReadable.enabled ? 12 : 10) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(iconWash)
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .stroke(iconInk.opacity(selected ? 0.45 : 0.18), lineWidth: selected ? 1.5 : 1)
                     Image(systemName: item.symbol)
-                        .font(.subheadline.weight(.semibold))
+                        .font((HubLayout.MacReadable.enabled ? Font.body : Font.subheadline).weight(.semibold))
                         .foregroundStyle(iconInk)
                 }
-                .frame(width: 28, height: 28)
+                .frame(
+                    width: HubLayout.MacReadable.enabled ? HubLayout.MacReadable.sidebarIcon : 28,
+                    height: HubLayout.MacReadable.enabled ? HubLayout.MacReadable.sidebarIcon : 28
+                )
                 Text(item.title)
-                    .font(.body.weight(selected ? .semibold : .regular))
+                    .font((HubLayout.MacReadable.enabled ? Font.title3 : Font.body).weight(selected ? .semibold : .regular))
                     .foregroundStyle(selected ? AppTheme.blue : AppTheme.text)
                     .lineLimit(1)
                 Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.vertical, 6)
+            .padding(.vertical, HubLayout.MacReadable.enabled ? 10 : 6)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -333,7 +341,12 @@ struct MainHubView: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(selected ? AppTheme.blue.opacity(0.12) : Color.clear)
         )
-        .listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
+        .listRowInsets(EdgeInsets(
+            top: HubLayout.MacReadable.enabled ? 6 : 4,
+            leading: HubLayout.MacReadable.enabled ? 14 : 12,
+            bottom: HubLayout.MacReadable.enabled ? 6 : 4,
+            trailing: HubLayout.MacReadable.enabled ? 14 : 12
+        ))
     }
 
     private func navHealth(for dest: HubDestination) -> Health {

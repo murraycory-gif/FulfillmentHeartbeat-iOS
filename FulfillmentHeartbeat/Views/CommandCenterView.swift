@@ -136,9 +136,19 @@ enum CommandCenterLayout {
         return max(minGlanceHeight, raw)
     }
 
-    static func heroBandHeight(phone: Bool, portrait: Bool, available: CGFloat) -> CGFloat {
+    static func leftoverGlanceFloor(mac: Bool) -> CGFloat {
+        mac && PulseLaunch.shouldUseExpandedMacReadableChrome()
+            ? HubLayout.MacReadable.glanceFloor
+            : minGlanceHeight
+    }
+
+    static func heroBandHeight(phone: Bool, portrait: Bool, available: CGFloat, mac: Bool = false) -> CGFloat {
         if phone {
             return portrait ? 168 : 128
+        }
+        if mac, PulseLaunch.shouldUseExpandedMacReadableChrome() {
+            let fraction = portrait ? 0.18 : 0.19
+            return min(HubLayout.MacReadable.heroBandMax, max(140, available * fraction))
         }
         let fraction = portrait ? 0.15 : 0.16
         return min(128, max(minHeroHeight, available * fraction))
@@ -366,11 +376,16 @@ struct CommandCenterHome: View {
                 let portrait = geo.size.height > geo.size.width
                 let cards = glanceCards
                 let cols = CommandCenterLayout.glanceColumns(width: geo.size.width, phone: phone, portrait: portrait)
-                let heroH = CommandCenterLayout.heroBandHeight(phone: phone, portrait: portrait, available: geo.size.height)
-                let header: CGFloat = 20
-                let pad: CGFloat = 12
+                let heroH = CommandCenterLayout.heroBandHeight(
+                    phone: phone,
+                    portrait: portrait,
+                    available: geo.size.height,
+                    mac: HubLayout.isMac
+                )
+                let header: CGFloat = HubLayout.MacReadable.enabled ? 24 : 20
+                let pad: CGFloat = HubLayout.MacReadable.enabled ? 16 : 12
                 let leftover = max(
-                    CommandCenterLayout.minGlanceHeight,
+                    CommandCenterLayout.leftoverGlanceFloor(mac: HubLayout.isMac),
                     geo.size.height - heroH - header - pad - CommandCenterLayout.gutter
                 )
                 let tileH = CommandCenterLayout.glanceTileHeight(
@@ -424,12 +439,12 @@ struct CommandCenterHome: View {
     private var glanceHeader: some View {
         HStack {
             Text("AT-A-GLANCE · ALL SECTIONS")
-                .font(AppTheme.rounded(.caption2, weight: .bold))
+                .font(AppTheme.rounded(HubLayout.MacReadable.enabled ? .subheadline : .caption2, weight: .bold))
                 .tracking(0.7)
                 .foregroundStyle(AppTheme.textTertiary)
             Spacer(minLength: 0)
         }
-        .frame(height: phone ? 14 : 16)
+        .frame(height: phone ? 14 : (HubLayout.MacReadable.enabled ? 20 : 16))
     }
 
     private func glanceGrid(cards: [SectionSummary], columns: Int, tileHeight: CGFloat) -> some View {
@@ -457,14 +472,14 @@ struct CommandCenterHeroTile: View {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(CommandCenterLayout.glanceTitle(card.section))
-                        .font(AppTheme.rounded(.title3, weight: .bold))
+                        .font(AppTheme.rounded(HubLayout.MacReadable.enabled ? .title2 : .title3, weight: .bold))
                         .foregroundStyle(Color.white.opacity(0.92))
                         .lineLimit(2)
                     Spacer(minLength: 4)
                     HealthBadge(health: CommandCenterLayout.displayedHealth(card), prominent: true, compact: false)
                 }
                 Text(CommandCenterLayout.compactValue(card))
-                    .font(AppTheme.rounded(size: 28, weight: .bold).monospacedDigit())
+                    .font(AppTheme.rounded(size: HubLayout.MacReadable.enabled ? HubLayout.MacReadable.heroValue : 28, weight: .bold).monospacedDigit())
                     .foregroundStyle(Color.white)
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
@@ -474,12 +489,12 @@ struct CommandCenterHeroTile: View {
                         .fill(AppTheme.gold)
                         .frame(width: 7, height: 7)
                     Text("Stores \(card.storeCount)")
-                        .font(AppTheme.rounded(.caption, weight: .bold).monospacedDigit())
+                        .font(AppTheme.rounded(HubLayout.MacReadable.enabled ? .subheadline : .caption, weight: .bold).monospacedDigit())
                         .foregroundStyle(AppTheme.gold)
                     Spacer(minLength: 0)
                 }
             }
-            .padding(10)
+            .padding(HubLayout.MacReadable.enabled ? 14 : 10)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .background(AppTheme.blue, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
@@ -497,21 +512,21 @@ struct CommandCenterGlanceTile: View {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .center, spacing: 6) {
                     Text(CommandCenterLayout.glanceTitle(card.section))
-                        .font(AppTheme.rounded(.headline, weight: .heavy))
+                        .font(AppTheme.rounded(HubLayout.MacReadable.enabled ? .title3 : .headline, weight: .heavy))
                         .foregroundStyle(Color.white)
                         .lineLimit(2)
                         .minimumScaleFactor(0.85)
                     Spacer(minLength: 4)
                     HealthBadge(health: CommandCenterLayout.displayedHealth(card), compact: false)
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
+                .padding(.horizontal, HubLayout.MacReadable.enabled ? 12 : 10)
+                .padding(.vertical, HubLayout.MacReadable.enabled ? 10 : 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(AppTheme.blue)
 
                 VStack(spacing: 6) {
                     Text(CommandCenterLayout.compactValue(card))
-                        .font(AppTheme.rounded(size: 26, weight: .bold).monospacedDigit())
+                        .font(AppTheme.rounded(size: HubLayout.MacReadable.enabled ? HubLayout.MacReadable.glanceValue : 26, weight: .bold).monospacedDigit())
                         .foregroundStyle(AppTheme.text)
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)

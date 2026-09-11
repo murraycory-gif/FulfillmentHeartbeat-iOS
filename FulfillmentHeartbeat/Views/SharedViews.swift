@@ -79,17 +79,18 @@ struct HubBanner: View {
 
     var body: some View {
         let compact = HubLayout.isPhone(sizeClass)
-        let bar = HStack(spacing: compact ? 8 : 10) {
+        let mac = HubLayout.MacReadable.enabled
+        let bar = HStack(spacing: compact ? 8 : (mac ? 12 : 10)) {
             Image(systemName: icon)
-                .font(compact ? HubLayout.phoneBannerIconFont() : .title3.weight(.semibold))
-            VStack(alignment: .leading, spacing: compact ? 1 : 1) {
+                .font(compact ? HubLayout.phoneBannerIconFont() : (mac ? Font.title2 : Font.title3).weight(.semibold))
+            VStack(alignment: .leading, spacing: compact ? 1 : 2) {
                 Text(title)
-                    .font(compact ? HubLayout.phoneBannerTitleFont() : AppTheme.rounded(.title3, weight: .bold))
+                    .font(compact ? HubLayout.phoneBannerTitleFont() : AppTheme.rounded(mac ? .title2 : .title3, weight: .bold))
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
                 if let accessory, !accessory.isEmpty {
                     Text(accessory)
-                        .font(compact ? .subheadline.weight(.semibold) : .footnote.weight(.semibold))
+                        .font(compact ? .subheadline.weight(.semibold) : (mac ? Font.body : Font.footnote).weight(.semibold))
                         .opacity(0.9)
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
@@ -98,7 +99,7 @@ struct HubBanner: View {
             Spacer(minLength: 6)
             if let trailing, !trailing.isEmpty {
                 Text(trailing)
-                    .font(compact ? .caption2.weight(.bold) : .caption2.weight(.bold))
+                    .font((compact ? Font.caption2 : (mac ? Font.caption : Font.caption2)).weight(.bold))
                     .lineLimit(2)
                     .minimumScaleFactor(0.65)
                     .multilineTextAlignment(.trailing)
@@ -106,8 +107,8 @@ struct HubBanner: View {
             }
         }
         .foregroundStyle(Color.white)
-        .padding(.horizontal, compact ? 10 : 14)
-        .padding(.vertical, compact ? HubLayout.phoneBannerVerticalPadding() : 10)
+        .padding(.horizontal, compact ? 10 : (mac ? 18 : 14))
+        .padding(.vertical, compact ? HubLayout.phoneBannerVerticalPadding() : (mac ? 14 : 10))
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(AppTheme.blue)
 
@@ -170,15 +171,15 @@ struct HubTableHeader: View {
         let phone = HubLayout.isPhone(sizeClass)
         HStack(spacing: phone ? 10 : 10) {
             Image(systemName: icon)
-                .font((phone ? Font.title3 : Font.headline).weight(.semibold))
+                .font((phone ? Font.title3 : (HubLayout.MacReadable.enabled ? Font.title2 : Font.headline)).weight(.semibold))
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font((phone ? Font.title3 : Font.headline).weight(.bold))
+                    .font((phone ? Font.title3 : (HubLayout.MacReadable.enabled ? Font.title2 : Font.headline)).weight(.bold))
                     .fontDesign(.rounded)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
                 Text(accessory)
-                    .font((phone ? Font.subheadline : Font.footnote).weight(.semibold))
+                    .font((phone ? Font.subheadline : (HubLayout.MacReadable.enabled ? Font.body : Font.footnote)).weight(.semibold))
                     .opacity(0.9)
                     .lineLimit(2)
                     .fixedSize(horizontal: false, vertical: true)
@@ -188,8 +189,8 @@ struct HubTableHeader: View {
                 .font((phone ? Font.caption2 : Font.subheadline).weight(.semibold))
         }
         .foregroundStyle(Color.white)
-        .padding(.horizontal, phone ? 10 : 14)
-        .padding(.vertical, phone ? 7 : 9)
+        .padding(.horizontal, phone ? 10 : (HubLayout.MacReadable.enabled ? 16 : 14))
+        .padding(.vertical, phone ? 7 : (HubLayout.MacReadable.enabled ? 12 : 9))
         .frame(maxWidth: .infinity, minHeight: phone ? HubLayout.phoneHitTarget : nil, alignment: .leading)
         .background(AppTheme.blue)
         .clipShape(
@@ -298,14 +299,17 @@ struct HealthBadge: View {
             .lineLimit(1)
             .minimumScaleFactor(0.7)
             .fixedSize(horizontal: true, vertical: true)
-            .padding(.horizontal, compact ? 8 : (prominent ? 14 : 10))
-            .padding(.vertical, compact ? 5 : (prominent ? 8 : 5))
+            .padding(.horizontal, compact ? (HubLayout.MacReadable.enabled ? 12 : 8) : (HubLayout.MacReadable.enabled ? 16 : (prominent ? 14 : 10)))
+            .padding(.vertical, compact ? (HubLayout.MacReadable.enabled ? 6 : 5) : (HubLayout.MacReadable.enabled ? 8 : (prominent ? 8 : 5)))
             .foregroundStyle(prominent ? Color.white : foreground)
             .background(prominent ? solid : background, in: Capsule(style: .continuous))
             .shadow(color: prominent && !compact ? solid.opacity(0.35) : .clear, radius: compact ? 0 : 6, y: 2)
     }
 
     private var badgeFont: Font {
+        if HubLayout.MacReadable.enabled {
+            return compact ? .subheadline.weight(.heavy) : HubLayout.MacReadable.badgeFont
+        }
         if compact { return .caption.weight(.heavy) }
         return prominent ? .subheadline.weight(.heavy) : .caption.weight(.semibold)
     }
@@ -475,15 +479,15 @@ struct HubNavControl: View {
         Button(action: action) {
             HStack(spacing: phone ? 4 : 6) {
                 Image(systemName: symbol)
-                    .font((phone ? Font.caption : Font.subheadline).weight(.semibold))
+                    .font((phone ? Font.caption : (HubLayout.MacReadable.enabled ? Font.body : Font.subheadline)).weight(.semibold))
                 Text(title)
-                    .font((phone ? Font.caption2 : Font.subheadline).weight(.semibold))
+                    .font((phone ? Font.caption2 : (HubLayout.MacReadable.enabled ? Font.body : Font.subheadline)).weight(.semibold))
                     .lineLimit(1)
             }
             .foregroundStyle(AppTheme.blue)
-            .padding(.horizontal, phone ? 8 : 10)
-            .padding(.vertical, phone ? 6 : 8)
-            .frame(minWidth: phone ? HubLayout.phoneHitTarget : nil, minHeight: phone ? HubLayout.phoneHitTarget : 48)
+            .padding(.horizontal, phone ? 8 : (HubLayout.MacReadable.enabled ? 12 : 10))
+            .padding(.vertical, phone ? 6 : (HubLayout.MacReadable.enabled ? 10 : 8))
+            .frame(minWidth: phone ? HubLayout.phoneHitTarget : nil, minHeight: phone ? HubLayout.phoneHitTarget : (HubLayout.MacReadable.enabled ? HubLayout.MacReadable.controlMin : 48))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -952,11 +956,11 @@ struct HubChromePill: View {
                         .font(.subheadline.weight(.semibold))
                 }
             }
-            .font((compactPills ? HubLayout.phoneChromePillFont() : Font.subheadline).weight(.semibold))
+            .font((compactPills ? HubLayout.phoneChromePillFont() : (HubLayout.MacReadable.enabled ? HubLayout.MacReadable.chromeFont : Font.subheadline.weight(.semibold))))
             .foregroundStyle(prominent ? Color.white : AppTheme.blue)
-            .padding(.horizontal, compactPills ? 12 : 10)
-            .padding(.vertical, compactPills ? 8 : 8)
-            .frame(minWidth: compactPills ? HubLayout.phoneHitTarget : nil, minHeight: HubLayout.phoneHitTarget)
+            .padding(.horizontal, compactPills ? 12 : (HubLayout.MacReadable.enabled ? 14 : 10))
+            .padding(.vertical, compactPills ? 8 : (HubLayout.MacReadable.enabled ? 10 : 8))
+            .frame(minWidth: compactPills ? HubLayout.phoneHitTarget : nil, minHeight: HubLayout.MacReadable.enabled ? HubLayout.MacReadable.controlMin : HubLayout.phoneHitTarget)
             .background(
                 Capsule(style: .continuous)
                     .fill(prominent ? AppTheme.blue : (selected ? AppTheme.blueSoft : Color.clear))
@@ -979,9 +983,9 @@ struct FilterBar: View {
         HStack(spacing: 8) {
             if !compactPills, store.filters.isActive {
                 Button("Clear") { clearNow() }
-                    .font(.subheadline.weight(.semibold))
+                    .font((HubLayout.MacReadable.enabled ? Font.body : Font.subheadline).weight(.semibold))
                     .foregroundStyle(AppTheme.blue)
-                    .frame(minHeight: 44)
+                    .frame(minHeight: HubLayout.MacReadable.enabled ? HubLayout.MacReadable.controlMin : 44)
             }
             Group {
                 if compactPills {
@@ -1009,7 +1013,7 @@ struct FilterBar: View {
     private var compactPills: Bool { HubLayout.usesPhoneScorecards(sizeClass: sizeClass) }
 
     private var pills: some View {
-        HStack(spacing: compactPills ? HubLayout.phoneFilterPillSpacing() : 8) {
+        HStack(spacing: compactPills ? HubLayout.phoneFilterPillSpacing() : (HubLayout.MacReadable.enabled ? 10 : 8)) {
             if compactPills {
                 HubChromePill(
                     title: store.filters.isActive ? compactFilterTitle : "Filters",
@@ -1400,7 +1404,11 @@ struct FilterSheet: View {
                 )
                 .transaction { $0.animation = nil }
             }
-            .padding(HubLayout.isPhone(sizeClass) && PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? 12 : 20)
+            .padding(
+                HubLayout.isPhone(sizeClass) && PulseLaunch.shouldUseCompactPhoneHeaderChrome()
+                    ? 12
+                    : (HubLayout.MacReadable.enabled ? 24 : 20)
+            )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(AppTheme.bg.ignoresSafeArea())
             .navigationTitle(focus.title)
@@ -1447,7 +1455,7 @@ struct FilterSheet: View {
         } label: {
             HStack {
                 Text(item.chipTitle)
-                    .font((phone ? HubLayout.phoneFilterFocusFont() : Font.subheadline).weight(.semibold))
+                    .font((phone ? HubLayout.phoneFilterFocusFont() : (HubLayout.MacReadable.enabled ? Font.body : Font.subheadline)).weight(.semibold))
                     .foregroundStyle(selected ? Color.white : AppTheme.blue)
                     .lineLimit(1)
                 Spacer(minLength: 0)
@@ -1457,8 +1465,8 @@ struct FilterSheet: View {
                         .foregroundStyle(Color.white)
                 }
             }
-            .padding(.horizontal, phone ? (PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? 12 : 16) : 10)
-            .frame(maxWidth: .infinity, minHeight: phone ? HubLayout.phoneFilterFocusChipMinHeight() : 36, alignment: .leading)
+            .padding(.horizontal, phone ? (PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? 12 : 16) : (HubLayout.MacReadable.enabled ? 16 : 10))
+            .frame(maxWidth: .infinity, minHeight: phone ? HubLayout.phoneFilterFocusChipMinHeight() : (HubLayout.MacReadable.enabled ? HubLayout.MacReadable.controlMin : 36), alignment: .leading)
             .background(selected ? AppTheme.blue : AppTheme.blueSoft, in: RoundedRectangle(cornerRadius: phone ? 12 : 20, style: .continuous))
             .contentShape(Rectangle())
         }
@@ -1615,9 +1623,9 @@ struct FilterColumn: View {
                     .font(.title3)
                     .foregroundStyle(selected ? AppTheme.blue : AppTheme.cardBorder)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 14)
-            .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
+            .padding(.horizontal, HubLayout.MacReadable.enabled ? 16 : 14)
+            .padding(.vertical, HubLayout.MacReadable.enabled ? 16 : 14)
+            .frame(maxWidth: .infinity, minHeight: HubLayout.MacReadable.enabled ? 60 : 52, alignment: .leading)
             .background(
                 selected ? AppTheme.blueSoft : AppTheme.bg,
                 in: RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -2359,7 +2367,7 @@ struct PickPathMetricHeader: View {
             head("Status", key: "status", alignment: .trailing)
                 .frame(width: PickPathMath.statusW, alignment: .trailing)
         }
-        .font(.caption.weight(.bold))
+        .font(HubLayout.MacReadable.metricHeaderFont)
         .tracking(0.3)
         .lineLimit(1)
         .minimumScaleFactor(0.65)
@@ -3501,7 +3509,7 @@ struct DynacapMetricHeader: View {
             head("Status", key: "status", alignment: .trailing)
                 .frame(width: 88, alignment: .trailing)
         }
-        .font(.caption.weight(.bold))
+        .font(HubLayout.MacReadable.metricHeaderFont)
         .tracking(0.3)
         .lineLimit(1)
         .minimumScaleFactor(0.65)
@@ -4392,7 +4400,7 @@ struct PrepMetricHeader: View {
             head("Status", key: "status", alignment: .trailing)
                 .frame(width: PrepMath.statusW, alignment: .trailing)
         }
-        .font(.caption.weight(.bold))
+        .font(HubLayout.MacReadable.metricHeaderFont)
         .tracking(0.3)
         .lineLimit(1)
         .minimumScaleFactor(0.65)
@@ -5168,7 +5176,7 @@ struct FiveStarMetricHeader: View {
             head("Status", key: "status", alignment: .trailing)
                 .frame(width: 88, alignment: .trailing)
         }
-        .font(.caption.weight(.bold))
+        .font(HubLayout.MacReadable.metricHeaderFont)
         .tracking(0.3)
         .lineLimit(1)
         .minimumScaleFactor(0.65)
@@ -6262,7 +6270,7 @@ struct LaborMetricHeader: View {
             head("Status", key: "status", alignment: .trailing)
                 .frame(width: 88, alignment: .trailing)
         }
-        .font(.caption.weight(.bold))
+        .font(HubLayout.MacReadable.metricHeaderFont)
         .tracking(0.3)
         .lineLimit(1)
         .minimumScaleFactor(0.7)
@@ -7372,7 +7380,7 @@ struct LostRevenueMetricHeader: View {
             head("Status", key: "status", alignment: .trailing)
                 .frame(width: 88, alignment: .trailing)
         }
-        .font(.caption.weight(.bold))
+        .font(HubLayout.MacReadable.metricHeaderFont)
         .tracking(0.3)
         .lineLimit(1)
         .minimumScaleFactor(0.65)
@@ -8475,7 +8483,7 @@ struct ScheduleMetricHeader: View {
             head("Status", key: "status", alignment: .trailing)
                 .frame(width: 88, alignment: .trailing)
         }
-        .font(.caption.weight(.bold))
+        .font(HubLayout.MacReadable.metricHeaderFont)
         .tracking(0.3)
         .lineLimit(2)
         .minimumScaleFactor(0.5)
@@ -9252,7 +9260,7 @@ struct PPHMetricHeader: View {
             head("Status", key: "status", alignment: .trailing)
                 .frame(width: 88, alignment: .trailing)
         }
-        .font(.caption.weight(.bold))
+        .font(HubLayout.MacReadable.metricHeaderFont)
         .tracking(0.3)
         .lineLimit(1)
         .minimumScaleFactor(0.65)
@@ -9974,7 +9982,7 @@ private struct PickerCheapLine: View, Equatable {
         HStack(spacing: 6) {
             HStack(spacing: 4) {
                 Text(snap.label)
-                    .font(.subheadline.weight(.semibold))
+                    .font((HubLayout.MacReadable.enabled ? Font.body : Font.subheadline).weight(.semibold))
                     .foregroundStyle(AppTheme.text)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -9982,7 +9990,7 @@ private struct PickerCheapLine: View, Equatable {
                     .font(.caption.weight(.bold))
                     .foregroundStyle(AppTheme.blue)
             }
-            .frame(minWidth: 148, maxWidth: 220, alignment: .leading)
+            .frame(minWidth: HubLayout.MacReadable.enabled ? 176 : 148, maxWidth: HubLayout.MacReadable.enabled ? 260 : 220, alignment: .leading)
             cell(snap.hours, .none)
             cell(snap.pph, snap.pphHealth)
             cell(snap.orders, .none)
@@ -9991,27 +9999,27 @@ private struct PickerCheapLine: View, Equatable {
             cell(snap.oth5, snap.oth5Health)
             cell(snap.coe, snap.coeHealth)
             Text(snap.health.label.uppercased())
-                .font(.caption.weight(.heavy))
+                .font((HubLayout.MacReadable.enabled ? Font.subheadline : Font.caption).weight(.heavy))
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
+                .padding(.horizontal, HubLayout.MacReadable.enabled ? 10 : 8)
+                .padding(.vertical, HubLayout.MacReadable.enabled ? 6 : 5)
                 .foregroundStyle(Color.white)
                 .background(pill(snap.health), in: Capsule())
-                .frame(width: 88, alignment: .trailing)
+                .frame(width: HubLayout.MacReadable.enabled ? 104 : 88, alignment: .trailing)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, HubLayout.MacReadable.enabled ? 6 : 4)
     }
 
     private func cell(_ value: String, _ health: Health) -> some View {
         Text(value)
-            .font(.subheadline.weight(.bold).monospacedDigit())
+            .font((HubLayout.MacReadable.enabled ? Font.body : Font.subheadline).weight(.bold).monospacedDigit())
             .foregroundStyle(ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
             .frame(maxWidth: .infinity, alignment: .trailing)
-            .padding(.vertical, 6)
-            .padding(.horizontal, 6)
+            .padding(.vertical, HubLayout.MacReadable.enabled ? 8 : 6)
+            .padding(.horizontal, HubLayout.MacReadable.enabled ? 8 : 6)
             .background(wash(health), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
@@ -10135,7 +10143,11 @@ struct PickerMetricHeader: View {
         ) {
         HStack(spacing: 6) {
             head(label, key: "label", alignment: .leading)
-                .frame(minWidth: 148, maxWidth: 220, alignment: .leading)
+                .frame(
+                    minWidth: HubLayout.MacReadable.enabled ? 176 : 148,
+                    maxWidth: HubLayout.MacReadable.enabled ? 260 : 220,
+                    alignment: .leading
+                )
             head("Hours", key: "hours")
             head("PPH", key: "pph")
             head("Orders", key: "orders")
@@ -10144,16 +10156,16 @@ struct PickerMetricHeader: View {
             head("OTH5", key: "oth5")
             head("COE", key: "coe")
             head("Status", key: "status", alignment: .trailing)
-                .frame(width: 88, alignment: .trailing)
+                .frame(width: HubLayout.MacReadable.enabled ? 104 : 88, alignment: .trailing)
         }
-        .font(.caption.weight(.bold))
+        .font(HubLayout.MacReadable.enabled ? HubLayout.MacReadable.headerFont : .caption.weight(.bold))
         .tracking(0.3)
         .lineLimit(1)
         .minimumScaleFactor(0.65)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 4)
-        .padding(.top, 6)
-        .padding(.bottom, 8)
+        .padding(.horizontal, HubLayout.MacReadable.enabled ? 6 : 4)
+        .padding(.top, HubLayout.MacReadable.enabled ? 8 : 6)
+        .padding(.bottom, HubLayout.MacReadable.enabled ? 10 : 8)
         }
     }
 
@@ -10374,9 +10386,9 @@ struct HubBrandBar: View {
                 }
             }
         }
-        .padding(.horizontal, compact ? 12 : 20)
-        .padding(.top, compact ? HubLayout.phoneBrandBarTopPadding() : 6)
-        .padding(.bottom, compact ? HubLayout.phoneBrandBarBottomPadding() : 12)
+        .padding(.horizontal, compact ? 12 : (HubLayout.MacReadable.enabled ? 24 : 20))
+        .padding(.top, compact ? HubLayout.phoneBrandBarTopPadding() : (HubLayout.MacReadable.enabled ? 8 : 6))
+        .padding(.bottom, compact ? HubLayout.phoneBrandBarBottomPadding() : (HubLayout.MacReadable.enabled ? 16 : 12))
         .frame(maxWidth: .infinity)
         .background(AppTheme.bg)
         .fullScreenCover(isPresented: $showAssist) {
@@ -10519,13 +10531,13 @@ struct HubBrandBar: View {
                     Image(systemName: "sparkles")
                         .font(.body.weight(.bold))
                     Text("Heartbeat Assist")
-                        .font(.subheadline.weight(.bold))
+                        .font((HubLayout.MacReadable.enabled ? Font.body : Font.subheadline).weight(.bold))
                         .lineLimit(1)
                 }
                 .foregroundStyle(.white)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 11)
-                .frame(minHeight: 44)
+                .padding(.horizontal, HubLayout.MacReadable.enabled ? 18 : 16)
+                .padding(.vertical, HubLayout.MacReadable.enabled ? 13 : 11)
+                .frame(minHeight: HubLayout.MacReadable.enabled ? HubLayout.MacReadable.controlMin : 44)
                 .background(AppTheme.blue, in: Capsule(style: .continuous))
                 .shadow(color: AppTheme.blue.opacity(0.35), radius: 8, y: 3)
             }
@@ -10535,7 +10547,8 @@ struct HubBrandBar: View {
     }
 
     private var markHeight: CGFloat {
-        sizeClass == .regular ? 48 : 36
+        if HubLayout.MacReadable.enabled { return 58 }
+        return sizeClass == .regular ? 48 : 36
     }
 
     private var greetingFont: Font {
@@ -11360,9 +11373,9 @@ struct FulfillmentChecklistCard: View {
     private func statusChip(_ status: ChecklistStatus, selected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(status.label)
-                .font(.subheadline.weight(.semibold))
-                .padding(.horizontal, 14)
-                .frame(minHeight: 44)
+                .font((HubLayout.MacReadable.enabled ? Font.body : Font.subheadline).weight(.semibold))
+                .padding(.horizontal, HubLayout.MacReadable.enabled ? 18 : 14)
+                .frame(minHeight: HubLayout.MacReadable.enabled ? HubLayout.MacReadable.controlMin : 44)
                 .foregroundStyle(selected ? .white : chipColor(status))
                 .background(
                     Capsule(style: .continuous)

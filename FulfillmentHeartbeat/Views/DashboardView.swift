@@ -1428,10 +1428,10 @@ struct PickerHighlightsPanel: View {
             Button(action: action) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                        .font((phone ? Font.headline : Font.title3).weight(.semibold))
+                        .font((phone ? Font.headline : (HubLayout.MacReadable.enabled ? Font.title2 : Font.title3)).weight(.semibold))
                         .foregroundStyle(tone == .risk ? AppTheme.bad : AppTheme.ok)
                     Text(subtitle)
-                        .font(phone ? .caption : .subheadline)
+                        .font(phone ? .caption : (HubLayout.MacReadable.enabled ? Font.body : Font.subheadline))
                         .foregroundStyle(AppTheme.textSecondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

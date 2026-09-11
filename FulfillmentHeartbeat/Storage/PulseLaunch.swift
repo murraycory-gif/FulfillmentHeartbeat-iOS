@@ -598,18 +598,23 @@ enum PulseLaunch {
         compact: Bool = false,
         phoneIdiom: Bool = false,
         phone: Bool = false,
-        width: CGFloat = 0
+        width: CGFloat = 0,
+        mac: Bool = false
     ) -> Bool {
+        if mac && !shouldApplyPhoneCompactChromeOnMac() { return false }
         if compact || phoneIdiom || phone { return true }
         return width > 0 && width < 600
     }
 
     /// Pad shopper/rollup headers must not exist in the phone view tree.
+    /// Mac Catalyst compact windows still keep pad tables (MUST H / MUST M).
     static func shouldRefusePadShopperTable(
         compact: Bool = false,
-        phoneIdiom: Bool = false
+        phoneIdiom: Bool = false,
+        mac: Bool = false
     ) -> Bool {
-        compact || phoneIdiom
+        if mac && !shouldApplyPhoneCompactChromeOnMac() { return false }
+        return compact || phoneIdiom
     }
 
     /// iPhone Pages list opens the destination on the first tap.
@@ -822,8 +827,16 @@ enum PulseLaunch {
     /// Compact phone header + Filters keep 44pt hits but drop title3 chrome.
     static func shouldUseCompactPhoneHeaderChrome() -> Bool { true }
 
-    /// Pad leftover-fill + Mac dashboard tables stay on the existing density.
+    /// Pad leftover-fill stays on the existing density. Mac uses expanded readable chrome.
     static func shouldLeavePadMacCommandChromeUnchanged() -> Bool { true }
+
+    /// Mac Catalyst / MacBook: bigger type, cards, tables, chips, filter chrome.
+    /// Must not apply phone compact shrink. Whole-app scale, not one page.
+    static func shouldUseExpandedMacReadableChrome() -> Bool { true }
+    static func shouldApplyPhoneCompactChromeOnMac() -> Bool { false }
+    static func shouldPaintMacHubDynamicType() -> Bool { true }
+    /// Kitchen-safe lock for Mac hub Dynamic Type (HubLayout.MacReadable.dynamicTypeSize).
+    static func macReadableDynamicTypeName() -> String { "xxxLarge" }
 
     /// Every section ScoreCard on iPhone is a 1-column scroll of cards —
     /// same bar as PhoneCommandCenterHome. Pad List + tableFill leftover

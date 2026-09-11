@@ -24,6 +24,7 @@ Quit Heartbeat from the **Dock** (not just the window). Reopen.
 | THIS SEAT | Every section live when the hero is live. No ghost dashes/zeros. Healthy/Watch/At Risk washes like Regions. |
 | Share Mail | Share pulse → one page **or** multi-select → Send → **Mail stays up**. |
 | Mac Picker | Top Opportunity Pickers table shows Shopper / Hours / PPH / Orders / Presub / OTT / OTH5 / COE / Status headers (MUST H — Mac FAIL, not iPad). |
+| Mac readability | Command Center + every section is **bigger / easier** (type, cards, tables, status chips, filter chrome). Not phone-dense. Phone D1–D5 stay phone-only. |
 
 ## QC — iPhone (THIS SEAT)
 
@@ -48,6 +49,7 @@ SKIP_PULL=1 ALLOW_PHONE=1 ./install-ipad.sh
 9. Share Send still presents Mail after the sheet dismisses.
 10. Phone header is Pages + Filters + banner only — **no Back**. Command Center / section cards are the denser 407 chrome. iPad leftover-fill unchanged.
 11. **Mac Catalyst:** Picker ScoreCard → Top Opportunity Pickers has column headers above live rows. Phone cards stay headerless.
+12. **Mac Catalyst readability (MUST M):** Pages, Command Center heroes/glance, section tables, status chips, and Filters are larger than iPad/phone. A narrow Mac window must **not** flip to phone compact chrome. iPhone stays the tighter 407 density.
 
 UDID `676FA816-88AE-59D9-A89D-5C17BFC2DA96` if you target that iPad.
 

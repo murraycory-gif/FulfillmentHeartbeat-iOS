@@ -455,17 +455,18 @@ enum SalesRollupBuilder {
 }
 
 private enum SalesCols {
-    static let label: CGFloat = 200
-    static let count: CGFloat = 64
-    static let sales: CGFloat = 128
-    static let yoy: CGFloat = 80
-    static let orders: CGFloat = 80
-    static let ordersYoy: CGFloat = 80
-    static let aos: CGFloat = 84
-    static let aiv: CGFloat = 60
-    static let ipt: CGFloat = 76
-    static let items: CGFloat = 96
-    static let status: CGFloat = 92
+    static var bump: CGFloat { HubLayout.MacReadable.enabled ? HubLayout.MacReadable.columnScale : 1 }
+    static var label: CGFloat { 200 * bump }
+    static var count: CGFloat { 64 * bump }
+    static var sales: CGFloat { 128 * bump }
+    static var yoy: CGFloat { 80 * bump }
+    static var orders: CGFloat { 80 * bump }
+    static var ordersYoy: CGFloat { 80 * bump }
+    static var aos: CGFloat { 84 * bump }
+    static var aiv: CGFloat { 60 * bump }
+    static var ipt: CGFloat { 76 * bump }
+    static var items: CGFloat { 96 * bump }
+    static var status: CGFloat { 92 * bump }
 }
 
 struct SalesMetricHeader: View {
@@ -494,7 +495,7 @@ struct SalesMetricHeader: View {
             head("Status", key: "status", alignment: .trailing)
                 .frame(width: SalesCols.status, alignment: .trailing)
         }
-        .font(.caption.weight(.bold))
+        .font(HubLayout.MacReadable.metricHeaderFont)
         .tracking(0.3)
         .lineLimit(1)
         .minimumScaleFactor(0.65)
@@ -544,7 +545,7 @@ private struct SalesMetricLine: View {
                         .frame(width: 12)
                 }
                 Text(label)
-                    .font(.subheadline.weight(.semibold))
+                    .font(HubLayout.MacReadable.metricLineFont)
                     .foregroundStyle(AppTheme.text)
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
@@ -552,7 +553,7 @@ private struct SalesMetricLine: View {
             .frame(width: SalesCols.label, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
-                    .font(.subheadline.weight(.semibold).monospacedDigit())
+                    .font(HubLayout.MacReadable.metricLineFont.monospacedDigit())
                     .foregroundStyle(AppTheme.textSecondary)
                     .frame(width: SalesCols.count, alignment: .trailing)
             }
@@ -572,7 +573,7 @@ private struct SalesMetricLine: View {
 
     private func cell(_ value: String, _ health: Health, brand: Bool = false, width: CGFloat) -> some View {
         Text(value)
-            .font(.subheadline.weight(.bold).monospacedDigit())
+            .font(HubLayout.MacReadable.metricValueFont)
             .foregroundStyle(brand ? AppTheme.blue : ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.8)
