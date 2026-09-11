@@ -370,6 +370,10 @@ enum PulseLaunch {
     static func shouldReuseCachedCompanySeatOnClear() -> Bool { true }
     /// After a newer cloud pack lands, drop in-memory company chrome so Clear cannot paint Wednesday.
     static func shouldInvalidateCachedCompanySeatAfterCloudPromote() -> Bool { true }
+    /// Clear / filter chips stay local. A newer cloud pack must replace the seat file anyway.
+    static func shouldForceRedownloadCompanySeatWhenRemoteNewer() -> Bool { true }
+    static func shouldSwapToCompanySeatAfterCloudPromote() -> Bool { true }
+    static func shouldSyncCompanySeatAfterCloudHydrate() -> Bool { true }
     static func shouldRedownloadUsableCompanySeat() -> Bool { false }
     static func shouldWipeWarehouseBeforeCachedCompanyChrome() -> Bool { false }
     static func shouldStampHubOnClearToCompany() -> Bool { false }
@@ -395,9 +399,11 @@ enum PulseLaunch {
     static func seatSwapPlan(
         localUsable: Bool,
         alreadyOnPack: Bool,
-        hasCachedChrome: Bool
+        hasCachedChrome: Bool,
+        forceReload: Bool = false
     ) -> SeatSwapPlan {
         if !localUsable { return .downloadMissingPack }
+        if forceReload { return .installLocalPack }
         if alreadyOnPack, hasCachedChrome { return .reuseInPlace }
         if hasCachedChrome { return .paintCachedThenSwap }
         return .installLocalPack
@@ -1803,8 +1809,8 @@ enum PulseLaunch {
         return remoteBytes != localBytes
     }
 
-    static func shouldStampCloudPackUpdated(downloadSucceeded: Bool) -> Bool {
-        downloadSucceeded
+    static func shouldStampCloudPackUpdated(downloadSucceeded: Bool, seatPromoted: Bool = true) -> Bool {
+        downloadSucceeded && seatPromoted
     }
 
     /// A promoted newer pack must paint in this session. iPad is `constrained`

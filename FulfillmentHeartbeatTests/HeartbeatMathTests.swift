@@ -2562,6 +2562,9 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(PulseLaunch.shouldUseDualWaveMarketRestoreAsClearPrimary())
         XCTAssertTrue(PulseLaunch.shouldReuseCachedCompanySeatOnClear())
         XCTAssertTrue(PulseLaunch.shouldInvalidateCachedCompanySeatAfterCloudPromote())
+        XCTAssertTrue(PulseLaunch.shouldForceRedownloadCompanySeatWhenRemoteNewer())
+        XCTAssertTrue(PulseLaunch.shouldSwapToCompanySeatAfterCloudPromote())
+        XCTAssertTrue(PulseLaunch.shouldSyncCompanySeatAfterCloudHydrate())
         XCTAssertTrue(PulseLaunch.shouldReuseCachedSeatPackOnFilterChange())
         XCTAssertFalse(PulseLaunch.shouldRedownloadUsableCompanySeat())
         XCTAssertFalse(PulseLaunch.shouldRedownloadUsableSeatOnFilterChange())
@@ -2588,6 +2591,15 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(
             PulseLaunch.seatSwapPlan(localUsable: false, alreadyOnPack: false, hasCachedChrome: false),
             .downloadMissingPack
+        )
+        XCTAssertEqual(
+            PulseLaunch.seatSwapPlan(
+                localUsable: true,
+                alreadyOnPack: true,
+                hasCachedChrome: true,
+                forceReload: true
+            ),
+            .installLocalPack
         )
         XCTAssertEqual(
             PulseLaunch.companyClearPlan(localCompanyUsable: true, alreadyOnCompany: true, hasCompanyChrome: true),
@@ -4979,9 +4991,12 @@ final class HeartbeatMathTests: XCTestCase {
         )
         XCTAssertFalse(PulseLaunch.shouldStampCloudPackUpdated(downloadSucceeded: false))
         XCTAssertTrue(PulseLaunch.shouldStampCloudPackUpdated(downloadSucceeded: true))
+        XCTAssertFalse(PulseLaunch.shouldStampCloudPackUpdated(downloadSucceeded: true, seatPromoted: false))
         XCTAssertTrue(PulseLaunch.shouldPullCloudPackOnColdOpen())
         XCTAssertTrue(PulseLaunch.shouldPullCloudPackOnForeground())
         XCTAssertTrue(PulseLaunch.shouldReplaceCompanySeatFromDownloadedRoot())
+        XCTAssertTrue(PulseLaunch.shouldForceRedownloadCompanySeatWhenRemoteNewer())
+        XCTAssertTrue(PulseLaunch.shouldSwapToCompanySeatAfterCloudPromote())
         XCTAssertTrue(PulseLaunch.shouldInvalidateCachedCompanySeatAfterCloudPromote())
         XCTAssertTrue(
             PulseLaunch.shouldReplaceSeatFromNewerOnDiskRoot(

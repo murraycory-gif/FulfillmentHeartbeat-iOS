@@ -24,4 +24,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.400 / 1.0 (726) — Open/foreground replaces a stale local pack. Cold open painted the cached company seat and stamped `hb.cloudPackUpdated` after downloading `current.sqlite` into `heartbeat.sqlite`, then `loadPack()` read the old seat file — same ~21MB size skipped the next fetch. Now compare storage `updated_at` vs `pack_meta.written_at`, copy root onto the company seat, invalidate seat chrome, stamp UserDefaults only after reload. Cook-only 50MB / company-as-root from .399 stay.
+HB-0828.400 / 1.0 (726) — Open/foreground replaces a stale local pack. Cold open painted the cached company seat (`shouldRedownloadUsableSeatPack` false) and stamped `hb.cloudPackUpdated` after downloading root `current.sqlite` into `heartbeat.sqlite` — Command Center kept reading Wednesday `packs/seat/company/...`. Now: when remote is newer, force-redownload the company seat (and active seat), `swapToSeatPack(.company)` again, stamp UserDefaults only after that promote. No 300s throttle. Cook-only 50MB / company-as-root from .399 stay.
