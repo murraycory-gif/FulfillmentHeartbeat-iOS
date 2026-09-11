@@ -10468,19 +10468,15 @@ struct HubBrandBar: View {
                 router.showCompactMenu = true
             }
             .layoutPriority(1)
-            if showBack {
-                HubNavControl(symbol: "chevron.left", title: "Back") {
-                    router.open(.dashboard)
-                }
-                .layoutPriority(1)
-            }
             Spacer(minLength: 4)
             if PulseLaunch.shouldStackCompactHubBrandHorizontally(),
                !PulseLaunch.shouldOverlayCompactHeartbeatMark() {
                 BeatingHeartbeatMark(
                     height: 28,
                     showsTrace: true,
-                    showsWordmark: PulseLaunch.shouldShowCompactHeartbeatWordmark(showBack: showBack),
+                    showsWordmark: PulseLaunch.shouldShowCompactHeartbeatWordmark(
+                        showBack: PulseLaunch.shouldShowPhoneHeaderBack()
+                    ),
                     forceTrace: true
                 )
                 .allowsHitTesting(false)
