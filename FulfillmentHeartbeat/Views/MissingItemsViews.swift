@@ -67,7 +67,7 @@ struct MissingItemsCategoryFilter: View {
                     txn.animation = nil
                     withTransaction(txn) { selected = [] }
                 }
-                .font(.subheadline.weight(.semibold))
+                .font(HubLayout.MacReadable.metricLineFont)
                 .foregroundStyle(AppTheme.blue)
                 .buttonStyle(.plain)
                 .frame(minWidth: HubLayout.phoneHitTarget, minHeight: HubLayout.phoneHitTarget)
@@ -279,7 +279,7 @@ struct MissingItemsTable: View {
                                     rebuildOrder(sort: sort, ascending: ascending)
                                 } label: {
                                     Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
-                                        .font(.subheadline.weight(.semibold))
+                                        .font(HubLayout.MacReadable.metricLineFont)
                                         .foregroundStyle(AppTheme.blue)
                                         .frame(maxWidth: .infinity)
                                         .padding(.vertical, 12)
@@ -435,7 +435,7 @@ private struct MissingItemsStoreGrid: View {
                     if shown < total {
                         Button(action: onMore) {
                             Text("Show more · \(HeartbeatFormat.num(Double(shown))) of \(HeartbeatFormat.num(Double(total)))")
-                                .font(.subheadline.weight(.semibold))
+                                .font(HubLayout.MacReadable.metricLineFont)
                                 .foregroundStyle(AppTheme.blue)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 12)
@@ -644,7 +644,7 @@ private struct MissingItemsCheapLine: View, Equatable {
         HStack(spacing: MILayout.gutter) {
             HStack(spacing: 4) {
                 Text(snap.label)
-                    .font(.subheadline.weight(.semibold))
+                    .font(HubLayout.MacReadable.metricLineFont)
                     .foregroundStyle(AppTheme.text)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -659,7 +659,7 @@ private struct MissingItemsCheapLine: View, Equatable {
             }
             cell(snap.total, snap.health, width: cellW)
             Text(snap.health.label.uppercased())
-                .font(.caption.weight(.heavy))
+                .font(HubLayout.MacReadable.metricStatusFont)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .padding(.horizontal, 8)
@@ -673,7 +673,7 @@ private struct MissingItemsCheapLine: View, Equatable {
 
     private func cell(_ value: String, _ health: Health, width: CGFloat) -> some View {
         Text(value)
-            .font(.subheadline.weight(.bold).monospacedDigit())
+            .font(HubLayout.MacReadable.metricValueFont)
             .foregroundStyle(ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.7)
@@ -741,7 +741,7 @@ private struct MissingItemsStoreExpand: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
             Text(value)
-                .font(.subheadline.weight(.bold).monospacedDigit())
+                .font(HubLayout.MacReadable.metricValueFont)
                 .foregroundStyle(ink(health))
                 .lineLimit(1)
         }
@@ -783,14 +783,14 @@ private struct MissingItemsMetricLine: View {
         let health = MissingItemsMath.health(total)
         HStack(spacing: MILayout.gutter) {
             Text(label)
-                .font(.subheadline.weight(.semibold))
+                .font(HubLayout.MacReadable.metricLineFont)
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .frame(width: storeW, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
-                    .font(.subheadline.weight(.semibold).monospacedDigit())
+                    .font(HubLayout.MacReadable.metricLineFont.monospacedDigit())
                     .foregroundStyle(AppTheme.textSecondary)
                     .frame(width: MILayout.countW, alignment: .center)
             }
@@ -806,7 +806,7 @@ private struct MissingItemsMetricLine: View {
 
     private func cell(_ value: String, _ health: Health) -> some View {
         Text(value)
-            .font(.subheadline.weight(.bold).monospacedDigit())
+            .font(HubLayout.MacReadable.metricValueFont)
             .foregroundStyle(ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.7)
@@ -1213,7 +1213,7 @@ struct PreSubItemTable: View {
                                         rebuild()
                                     } label: {
                                         Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
-                                            .font(.subheadline.weight(.semibold))
+                                            .font(HubLayout.MacReadable.metricLineFont)
                                             .foregroundStyle(AppTheme.blue)
                                             .frame(maxWidth: .infinity)
                                             .padding(.vertical, 12)
@@ -1439,7 +1439,7 @@ private struct PreSubItemLine: View, Equatable {
         HStack(spacing: 6) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(snap.store)
-                    .font(.subheadline.weight(.semibold).monospacedDigit())
+                    .font(HubLayout.MacReadable.metricLineFont.monospacedDigit())
                     .foregroundStyle(AppTheme.text)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -1471,7 +1471,7 @@ private struct PreSubItemLine: View, Equatable {
 
     private func cell(_ value: String, _ health: Health) -> some View {
         Text(value)
-            .font(.subheadline.weight(.bold).monospacedDigit())
+            .font(HubLayout.MacReadable.metricValueFont)
             .foregroundStyle(ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)

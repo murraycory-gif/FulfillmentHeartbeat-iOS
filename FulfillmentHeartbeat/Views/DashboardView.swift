@@ -83,7 +83,7 @@ struct DashboardView: View {
                             ProgressView()
                                 .tint(AppTheme.blue)
                             Text(store.aisleFillCaption)
-                                .font(.subheadline.weight(.semibold))
+                                .font(HubLayout.MacReadable.metricLineFont)
                                 .foregroundStyle(AppTheme.textSecondary)
                         }
                         .padding(.top, 40)
@@ -386,7 +386,7 @@ struct DashLostBanner: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)
                 Text("Dollars")
-                    .font(.subheadline.weight(.semibold))
+                    .font(HubLayout.MacReadable.metricLineFont)
                     .foregroundStyle(AppTheme.textSecondary)
             }
             VStack(alignment: .trailing, spacing: 2) {
@@ -396,7 +396,7 @@ struct DashLostBanner: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)
                 Text("Lost %")
-                    .font(.subheadline.weight(.semibold))
+                    .font(HubLayout.MacReadable.metricLineFont)
                     .foregroundStyle(AppTheme.textSecondary)
             }
             HealthBadge(health: summary.health, prominent: true)
@@ -416,7 +416,7 @@ struct DashLostBanner: View {
                         .foregroundStyle(AppTheme.text)
                         .fixedSize(horizontal: false, vertical: true)
                     Text("Total Lost Revenue (Total Opportunity)")
-                        .font(.subheadline.weight(.semibold))
+                        .font(HubLayout.MacReadable.metricLineFont)
                         .foregroundStyle(AppTheme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -451,7 +451,7 @@ struct DashLostBanner: View {
                 HealthBadge(health: summary.health, prominent: true)
             }
             Text(riskLine)
-                .font(.subheadline.weight(.semibold))
+                .font(HubLayout.MacReadable.metricLineFont)
                 .foregroundStyle(dashInk(summary.riskCount == 0 ? .good : summary.health))
         }
     }
@@ -1024,12 +1024,12 @@ struct DashScopeGrainCard: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
                 Text(HeartbeatMath.displayGrainLabel(child.label))
-                    .font(.subheadline.weight(.semibold))
+                    .font(HubLayout.MacReadable.metricLineFont)
                     .foregroundStyle(AppTheme.text)
                     .lineLimit(1)
                 Spacer(minLength: 4)
                 Text(child.value)
-                    .font(.subheadline.weight(.bold).monospacedDigit())
+                    .font(HubLayout.MacReadable.metricValueFont)
                     .foregroundStyle(dashInk(child.health == .none ? .good : child.health))
                 if grain != .store {
                     Text(storeCountLine(child.count, title: false))

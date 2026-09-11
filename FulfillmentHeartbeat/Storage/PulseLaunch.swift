@@ -837,6 +837,8 @@ enum PulseLaunch {
     static func shouldPaintMacHubDynamicType() -> Bool { true }
     /// Kitchen-safe lock for Mac hub Dynamic Type (HubLayout.MacReadable.dynamicTypeSize).
     static func macReadableDynamicTypeName() -> String { "xxxLarge" }
+    /// Every section table / chip atom uses MacReadable metric fonts on Mac.
+    static func shouldUseMacReadableMetricAtoms() -> Bool { true }
 
     /// Every section ScoreCard on iPhone is a 1-column scroll of cards —
     /// same bar as PhoneCommandCenterHome. Pad List + tableFill leftover

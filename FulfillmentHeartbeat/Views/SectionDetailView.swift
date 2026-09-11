@@ -332,7 +332,7 @@ struct SectionDetailView: View {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(AppTheme.warn)
                     Text("The Labor pack is missing the Power BI Total row, so company tiles cannot match -0.04% Target vs Actual.")
-                        .font(.subheadline.weight(.semibold))
+                        .font(HubLayout.MacReadable.metricLineFont)
                         .foregroundStyle(AppTheme.text)
                 }
                 .padding(12)
@@ -345,7 +345,7 @@ struct SectionDetailView: View {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(AppTheme.warn)
                     Text(coverage)
-                        .font(.subheadline.weight(.semibold))
+                        .font(HubLayout.MacReadable.metricLineFont)
                         .foregroundStyle(AppTheme.text)
                 }
                 .padding(12)
@@ -371,7 +371,7 @@ struct SectionDetailView: View {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(AppTheme.warn)
                     Text("No Pre-Sub OOS rows loaded. The Heartbeat pack should include a Pre-Sub OOS tab (DEPARTMENT_NM + STORE_ID). Do not use the 5 Star Pre-Sub column — that is a different report.")
-                        .font(.subheadline.weight(.semibold))
+                        .font(HubLayout.MacReadable.metricLineFont)
                         .foregroundStyle(AppTheme.text)
                 }
                 .padding(12)
@@ -1089,7 +1089,7 @@ struct PhoneSectionPage: View {
             Image(systemName: tone == .none ? "info.circle.fill" : "exclamationmark.triangle.fill")
                 .foregroundStyle(tone == .none ? AppTheme.blue : AppTheme.warn)
             Text(text)
-                .font(.subheadline.weight(.semibold))
+                .font(HubLayout.MacReadable.metricLineFont)
                 .foregroundStyle(AppTheme.text)
                 .fixedSize(horizontal: false, vertical: true)
         }

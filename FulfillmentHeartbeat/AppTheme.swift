@@ -463,22 +463,23 @@ enum HubLayout {
         static var enabled: Bool {
             HubLayout.isMac && PulseLaunch.shouldUseExpandedMacReadableChrome()
         }
-        static var sidebarWidth: CGFloat { 292 }
-        static var sidebarIcon: CGFloat { 36 }
-        static var controlMin: CGFloat { 56 }
-        static var glanceFloor: CGFloat { 184 }
-        static var heroBandMax: CGFloat { 184 }
-        static var heroValue: CGFloat { 40 }
-        static var glanceValue: CGFloat { 36 }
-        static var columnScale: CGFloat { 1.22 }
+        static var sidebarWidth: CGFloat { 304 }
+        static var sidebarIcon: CGFloat { 40 }
+        static var controlMin: CGFloat { 60 }
+        static var glanceFloor: CGFloat { 196 }
+        static var heroBandMax: CGFloat { 196 }
+        static var heroValue: CGFloat { 44 }
+        static var glanceValue: CGFloat { 40 }
+        static var columnScale: CGFloat { 1.28 }
         static var chromeFont: Font { .title3.weight(.semibold) }
         static var tableFont: Font { .body.weight(.semibold) }
         static var headerFont: Font { .body.weight(.bold) }
         static var badgeFont: Font { .title3.weight(.heavy) }
         static var tableHeaderFont: Font { .title2.weight(.bold) }
-        static var metricHeaderFont: Font { enabled ? .subheadline.weight(.bold) : .caption.weight(.bold) }
-        static var metricLineFont: Font { enabled ? .body.weight(.semibold) : .subheadline.weight(.semibold) }
-        static var metricValueFont: Font { enabled ? .body.weight(.bold).monospacedDigit() : .subheadline.weight(.bold).monospacedDigit() }
+        static var metricHeaderFont: Font { enabled ? .body.weight(.bold) : .caption.weight(.bold) }
+        static var metricLineFont: Font { enabled ? .title3.weight(.semibold) : .subheadline.weight(.semibold) }
+        static var metricValueFont: Font { enabled ? .title3.weight(.bold).monospacedDigit() : .subheadline.weight(.bold).monospacedDigit() }
+        static var metricStatusFont: Font { enabled ? .body.weight(.heavy) : .caption.weight(.heavy) }
         static var dynamicTypeSize: DynamicTypeSize { .xxxLarge }
     }
 

@@ -953,13 +953,13 @@ struct HubChromePill: View {
                 }
                 if showsChevron {
                     Image(systemName: "chevron.down")
-                        .font(.subheadline.weight(.semibold))
+                        .font(HubLayout.MacReadable.metricLineFont)
                 }
             }
             .font((compactPills ? HubLayout.phoneChromePillFont() : (HubLayout.MacReadable.enabled ? HubLayout.MacReadable.chromeFont : Font.subheadline.weight(.semibold))))
             .foregroundStyle(prominent ? Color.white : AppTheme.blue)
-            .padding(.horizontal, compactPills ? 12 : (HubLayout.MacReadable.enabled ? 14 : 10))
-            .padding(.vertical, compactPills ? 8 : (HubLayout.MacReadable.enabled ? 10 : 8))
+            .padding(.horizontal, compactPills ? 12 : (HubLayout.MacReadable.enabled ? 16 : 10))
+            .padding(.vertical, compactPills ? 8 : (HubLayout.MacReadable.enabled ? 12 : 8))
             .frame(minWidth: compactPills ? HubLayout.phoneHitTarget : nil, minHeight: HubLayout.MacReadable.enabled ? HubLayout.MacReadable.controlMin : HubLayout.phoneHitTarget)
             .background(
                 Capsule(style: .continuous)
@@ -1024,7 +1024,7 @@ struct FilterBar: View {
                 }
                 if store.filters.isActive {
                     Button("Clear") { clearNow() }
-                        .font(.subheadline.weight(.semibold))
+                        .font(HubLayout.MacReadable.metricLineFont)
                         .foregroundStyle(AppTheme.blue)
                         .frame(minWidth: HubLayout.phoneHitTarget, minHeight: HubLayout.phoneHitTarget)
                         .contentShape(Rectangle())
@@ -1235,7 +1235,7 @@ struct ShareRecapCompose: View {
                     Text("Subject:")
                         .foregroundStyle(AppTheme.textSecondary)
                     Text(packet.subject)
-                        .font(.subheadline.weight(.semibold))
+                        .font(HubLayout.MacReadable.metricLineFont)
                         .foregroundStyle(AppTheme.text)
                 }
             }
@@ -1806,13 +1806,13 @@ struct StoreTable: View {
             VStack(alignment: .leading, spacing: 2) {
                 if section == .pickerScorecard {
                     Text(row.shopperName)
-                        .font(.subheadline.weight(.semibold))
+                        .font(HubLayout.MacReadable.metricLineFont)
                     Text(row.storeNumber.isEmpty ? "—" : row.storeNumber)
                         .font(.caption)
                         .foregroundStyle(AppTheme.textSecondary)
                 } else {
                     Text(HeartbeatMath.storeDisplayLabel(row))
-                        .font(.subheadline.weight(.semibold).monospacedDigit())
+                        .font(HubLayout.MacReadable.metricLineFont.monospacedDigit())
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
                 }
@@ -1828,7 +1828,7 @@ struct StoreTable: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             VStack(alignment: .leading, spacing: 2) {
                 Text(view.primary)
-                    .font(.subheadline.weight(.semibold).monospacedDigit())
+                    .font(HubLayout.MacReadable.metricLineFont.monospacedDigit())
                 Text(view.extra)
                     .font(.caption)
                     .foregroundStyle(AppTheme.textTertiary)
@@ -1936,7 +1936,7 @@ struct PickPathTable: View {
                                     rebuildOrder(sort: sort, ascending: ascending)
                                 } label: {
                                     Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
-                                        .font(.subheadline.weight(.semibold))
+                                        .font(HubLayout.MacReadable.metricLineFont)
                                         .foregroundStyle(AppTheme.blue)
                                         .frame(maxWidth: .infinity)
                                         .padding(.vertical, 12)
@@ -2173,7 +2173,7 @@ private struct PickPathCheapLine: View, Equatable {
         HStack(spacing: PickPathMath.gutter) {
             HStack(spacing: 4) {
                 Text(snap.label)
-                    .font(.subheadline.weight(.semibold))
+                    .font(HubLayout.MacReadable.metricLineFont)
                     .foregroundStyle(AppTheme.text)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -2188,7 +2188,7 @@ private struct PickPathCheapLine: View, Equatable {
             cell(snap.mapper, snap.mapperHealth, alignment: .center)
             cell(snap.sequence, snap.sequenceHealth, alignment: .center)
             Text(snap.health.label.uppercased())
-                .font(.caption.weight(.heavy))
+                .font(HubLayout.MacReadable.metricStatusFont)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .padding(.horizontal, 8)
@@ -2202,7 +2202,7 @@ private struct PickPathCheapLine: View, Equatable {
 
     private func cell(_ value: String, _ health: Health, alignment: Alignment = .trailing) -> some View {
         Text(value.isEmpty ? "—" : value)
-            .font(.subheadline.weight(.bold).monospacedDigit())
+            .font(HubLayout.MacReadable.metricValueFont)
             .foregroundStyle(ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.7)
@@ -2264,14 +2264,14 @@ private struct PickPathMetricLine: View {
         let health = PickPathMath.pathHealth(path)
         HStack(spacing: 6) {
             Text(label)
-                .font(.subheadline.weight(.semibold))
+                .font(HubLayout.MacReadable.metricLineFont)
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .frame(width: labelWidth, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
-                    .font(.subheadline.weight(.semibold).monospacedDigit())
+                    .font(HubLayout.MacReadable.metricLineFont.monospacedDigit())
                     .foregroundStyle(AppTheme.textSecondary)
                     .frame(width: PickPathMath.countW, alignment: .trailing)
             }
@@ -2286,7 +2286,7 @@ private struct PickPathMetricLine: View {
 
     private func cell(_ value: String, _ health: Health) -> some View {
         Text(value)
-            .font(.subheadline.weight(.bold).monospacedDigit())
+            .font(HubLayout.MacReadable.metricValueFont)
             .foregroundStyle(ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
@@ -2670,7 +2670,7 @@ private struct PathShopperTable: View {
                             limit = pickers.count
                         } label: {
                             Text("Show all \(pickers.count) shoppers")
-                                .font(.subheadline.weight(.semibold))
+                                .font(HubLayout.MacReadable.metricLineFont)
                                 .foregroundStyle(AppTheme.blue)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.vertical, 6)
@@ -2699,7 +2699,7 @@ private struct PathShopperTable: View {
                             limit = pickers.count
                         } label: {
                             Text("Show all \(pickers.count) shoppers")
-                                .font(.subheadline.weight(.semibold))
+                                .font(HubLayout.MacReadable.metricLineFont)
                                 .foregroundStyle(AppTheme.blue)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                                 .padding(.vertical, 6)
@@ -2793,7 +2793,7 @@ private struct PathShopperTable: View {
         let overall = worstHealth(scores)
         return HStack(spacing: 6) {
             Text(picker.name)
-                .font(.subheadline.weight(.semibold))
+                .font(HubLayout.MacReadable.metricLineFont)
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
@@ -2802,7 +2802,7 @@ private struct PathShopperTable: View {
                 cell(display(metric, picker), health(of: metric, in: picker))
             }
             Text(overall.label.uppercased())
-                .font(.caption.weight(.heavy))
+                .font(HubLayout.MacReadable.metricStatusFont)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .padding(.horizontal, 8)
@@ -2880,7 +2880,7 @@ private struct PathShopperTable: View {
 
     private func cell(_ value: String, _ health: Health) -> some View {
         Text(value)
-            .font(.subheadline.weight(.bold).monospacedDigit())
+            .font(HubLayout.MacReadable.metricValueFont)
             .foregroundStyle(ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.5)
@@ -3130,7 +3130,7 @@ struct DynacapTable: View {
                             rebuildOrder(sort: sort, ascending: ascending)
                         } label: {
                             Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
-                                .font(.subheadline.weight(.semibold))
+                                .font(HubLayout.MacReadable.metricLineFont)
                                 .foregroundStyle(AppTheme.blue)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 12)
@@ -3343,7 +3343,7 @@ private struct DynacapCheapLine: View, Equatable {
         HStack(spacing: 6) {
             HStack(spacing: 4) {
                 Text(snap.label)
-                    .font(.subheadline.weight(.semibold))
+                    .font(HubLayout.MacReadable.metricLineFont)
                     .foregroundStyle(AppTheme.text)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -3357,7 +3357,7 @@ private struct DynacapCheapLine: View, Equatable {
             cell(DynacapMath.goalText, .none, brand: true)
             cell(snap.util, .none)
             Text(snap.health.label.uppercased())
-                .font(.caption.weight(.heavy))
+                .font(HubLayout.MacReadable.metricStatusFont)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .padding(.horizontal, 8)
@@ -3371,7 +3371,7 @@ private struct DynacapCheapLine: View, Equatable {
 
     private func cell(_ value: String, _ health: Health, brand: Bool = false) -> some View {
         Text(value)
-            .font(.subheadline.weight(.bold).monospacedDigit())
+            .font(HubLayout.MacReadable.metricValueFont)
             .foregroundStyle(brand ? AppTheme.blue : ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
@@ -3420,14 +3420,14 @@ private struct DynacapMetricLine: View, Equatable {
         let health = DynacapMath.rateHealth(rate)
         HStack(spacing: 6) {
             Text(label)
-                .font(.subheadline.weight(.semibold))
+                .font(HubLayout.MacReadable.metricLineFont)
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
-                    .font(.subheadline.weight(.semibold).monospacedDigit())
+                    .font(HubLayout.MacReadable.metricLineFont.monospacedDigit())
                     .foregroundStyle(AppTheme.textSecondary)
                     .frame(width: 58, alignment: .trailing)
             }
@@ -3437,7 +3437,7 @@ private struct DynacapMetricLine: View, Equatable {
             cell(HeartbeatFormat.pct(util), .none)
             if rate == nil {
                 Text("NOT IN FILE")
-                    .font(.caption.weight(.heavy))
+                    .font(HubLayout.MacReadable.metricStatusFont)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
                     .padding(.horizontal, 8)
@@ -3455,7 +3455,7 @@ private struct DynacapMetricLine: View, Equatable {
 
     private func cell(_ value: String, _ health: Health, brand: Bool = false) -> some View {
         Text(value)
-            .font(.subheadline.weight(.bold).monospacedDigit())
+            .font(HubLayout.MacReadable.metricValueFont)
             .foregroundStyle(brand ? AppTheme.blue : ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
@@ -3804,7 +3804,7 @@ private struct DynacapStoreExpand: View {
         let health = HeartbeatMath.pphHealth(picker)
         return HStack(spacing: 6) {
             Text(picker.shopperName)
-                .font(.subheadline.weight(.semibold))
+                .font(HubLayout.MacReadable.metricLineFont)
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
@@ -3813,7 +3813,7 @@ private struct DynacapStoreExpand: View {
             cell(HeartbeatFormat.num(picker.number("orders")), .none)
             cell(HeartbeatFormat.num(picker.number("pick_hours"), digits: 1), .none)
             Text(health.label.uppercased())
-                .font(.caption.weight(.heavy))
+                .font(HubLayout.MacReadable.metricStatusFont)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .padding(.horizontal, 8)
@@ -3826,7 +3826,7 @@ private struct DynacapStoreExpand: View {
 
     private func cell(_ value: String, _ health: Health) -> some View {
         Text(value)
-            .font(.subheadline.weight(.bold).monospacedDigit())
+            .font(HubLayout.MacReadable.metricValueFont)
             .foregroundStyle(ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
@@ -4018,7 +4018,7 @@ struct PrepTable: View {
                                     rebuildOrder(sort: sort, ascending: ascending)
                                 } label: {
                                     Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
-                                        .font(.subheadline.weight(.semibold))
+                                        .font(HubLayout.MacReadable.metricLineFont)
                                         .foregroundStyle(AppTheme.blue)
                                         .frame(maxWidth: .infinity)
                                         .padding(.vertical, 12)
@@ -4232,7 +4232,7 @@ private struct PrepCheapLine: View, Equatable {
         HStack(spacing: 6) {
             HStack(spacing: 4) {
                 Text(snap.label)
-                    .font(.subheadline.weight(.semibold))
+                    .font(HubLayout.MacReadable.metricLineFont)
                     .foregroundStyle(AppTheme.text)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -4245,7 +4245,7 @@ private struct PrepCheapLine: View, Equatable {
             cell(PrepMath.goalText, .none, brand: true)
             cell(PrepMath.watchText, .watch)
             Text(snap.health.label.uppercased())
-                .font(.caption.weight(.heavy))
+                .font(HubLayout.MacReadable.metricStatusFont)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .padding(.horizontal, 8)
@@ -4259,7 +4259,7 @@ private struct PrepCheapLine: View, Equatable {
 
     private func cell(_ value: String, _ health: Health, brand: Bool = false) -> some View {
         Text(value)
-            .font(.subheadline.weight(.bold).monospacedDigit())
+            .font(HubLayout.MacReadable.metricValueFont)
             .foregroundStyle(brand ? AppTheme.blue : ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
@@ -4316,14 +4316,14 @@ private struct PrepMetricLine: View, Equatable {
         let health = PrepMath.pnrHealth(pnr)
         HStack(spacing: 6) {
             Text(label)
-                .font(.subheadline.weight(.semibold))
+                .font(HubLayout.MacReadable.metricLineFont)
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .frame(width: labelWidth, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
-                    .font(.subheadline.weight(.semibold).monospacedDigit())
+                    .font(HubLayout.MacReadable.metricLineFont.monospacedDigit())
                     .foregroundStyle(AppTheme.textSecondary)
                     .frame(width: PrepMath.countW, alignment: .trailing)
             }
@@ -4338,7 +4338,7 @@ private struct PrepMetricLine: View, Equatable {
 
     private func cell(_ value: String, _ health: Health, brand: Bool = false) -> some View {
         Text(value)
-            .font(.subheadline.weight(.bold).monospacedDigit())
+            .font(HubLayout.MacReadable.metricValueFont)
             .foregroundStyle(brand ? AppTheme.blue : ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
@@ -4779,7 +4779,7 @@ struct FiveStarTable: View {
                                     rebuildOrder(sort: sort, ascending: ascending)
                                 } label: {
                                     Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
-                                        .font(.subheadline.weight(.semibold))
+                                        .font(HubLayout.MacReadable.metricLineFont)
                                         .foregroundStyle(AppTheme.blue)
                                         .frame(maxWidth: .infinity)
                                         .padding(.vertical, 12)
@@ -5013,7 +5013,7 @@ private struct FiveStarCheapLine: View, Equatable {
         HStack(spacing: 6) {
             HStack(spacing: 4) {
                 Text(snap.label)
-                    .font(.subheadline.weight(.semibold))
+                    .font(HubLayout.MacReadable.metricLineFont)
                     .foregroundStyle(AppTheme.text)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -5029,7 +5029,7 @@ private struct FiveStarCheapLine: View, Equatable {
             cell(snap.ott, snap.ottHealth)
             cell(snap.oth, snap.othHealth)
             Text(snap.health.label.uppercased())
-                .font(.caption.weight(.heavy))
+                .font(HubLayout.MacReadable.metricStatusFont)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .padding(.horizontal, 8)
@@ -5043,7 +5043,7 @@ private struct FiveStarCheapLine: View, Equatable {
 
     private func cell(_ value: String, _ health: Health) -> some View {
         Text(value)
-            .font(.subheadline.weight(.bold).monospacedDigit())
+            .font(HubLayout.MacReadable.metricValueFont)
             .foregroundStyle(ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
@@ -5095,14 +5095,14 @@ private struct FiveStarMetricLine: View, Equatable {
         let health = rating == nil ? Health.none : HeartbeatMath.band(rating, good: 4.5, watch: HeartbeatMath.fiveStarPass)
         HStack(spacing: 6) {
             Text(label)
-                .font(.subheadline.weight(.semibold))
+                .font(HubLayout.MacReadable.metricLineFont)
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
-                    .font(.subheadline.weight(.semibold).monospacedDigit())
+                    .font(HubLayout.MacReadable.metricLineFont.monospacedDigit())
                     .foregroundStyle(AppTheme.textSecondary)
                     .frame(width: 58, alignment: .trailing)
             }
@@ -5120,7 +5120,7 @@ private struct FiveStarMetricLine: View, Equatable {
 
     private func cell(_ value: String, _ health: Health) -> some View {
         Text(value)
-            .font(.subheadline.weight(.bold).monospacedDigit())
+            .font(HubLayout.MacReadable.metricValueFont)
             .foregroundStyle(ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
@@ -5995,7 +5995,7 @@ private struct LaborCheapLine: View, Equatable {
         HStack(spacing: 6) {
             HStack(spacing: 4) {
                 Text(snap.label)
-                    .font(.subheadline.weight(.semibold))
+                    .font(HubLayout.MacReadable.metricLineFont)
                     .foregroundStyle(AppTheme.text)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -6012,7 +6012,7 @@ private struct LaborCheapLine: View, Equatable {
             cell(snap.wage, snap.wageHealth)
             cell(snap.aiv, snap.aivHealth)
             Text(snap.tvaHealth.label.uppercased())
-                .font(.caption.weight(.heavy))
+                .font(HubLayout.MacReadable.metricStatusFont)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .padding(.horizontal, 8)
@@ -6026,7 +6026,7 @@ private struct LaborCheapLine: View, Equatable {
 
     private func cell(_ value: String, _ health: Health, brand: Bool = false) -> some View {
         Text(value)
-            .font(.subheadline.weight(.bold).monospacedDigit())
+            .font(HubLayout.MacReadable.metricValueFont)
             .foregroundStyle(brand ? AppTheme.blue : ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.6)
@@ -6081,7 +6081,7 @@ private struct LaborMetricLine: View, Equatable {
         HStack(spacing: 6) {
             HStack(spacing: 4) {
                 Text(label)
-                    .font(.subheadline.weight(.semibold))
+                    .font(HubLayout.MacReadable.metricLineFont)
                     .foregroundStyle(AppTheme.text)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -6094,7 +6094,7 @@ private struct LaborMetricLine: View, Equatable {
             .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
-                    .font(.subheadline.weight(.semibold).monospacedDigit())
+                    .font(HubLayout.MacReadable.metricLineFont.monospacedDigit())
                     .foregroundStyle(AppTheme.textSecondary)
                     .frame(width: 58, alignment: .trailing)
             }
@@ -6113,7 +6113,7 @@ private struct LaborMetricLine: View, Equatable {
 
     private func cell(_ value: String, _ health: Health, brand: Bool = false) -> some View {
         Text(value)
-            .font(.subheadline.weight(.bold).monospacedDigit())
+            .font(HubLayout.MacReadable.metricValueFont)
             .foregroundStyle(brand ? AppTheme.blue : ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.6)
@@ -6651,7 +6651,7 @@ struct LaborTable: View {
                             rebuildOrder(sort: sort, ascending: ascending)
                         } label: {
                             Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
-                                .font(.subheadline.weight(.semibold))
+                                .font(HubLayout.MacReadable.metricLineFont)
                                 .foregroundStyle(AppTheme.blue)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 12)
@@ -7213,7 +7213,7 @@ private struct LostRevenueCheapLine: View, Equatable {
         HStack(spacing: 6) {
             HStack(spacing: 4) {
                 Text(snap.label)
-                    .font(.subheadline.weight(.semibold))
+                    .font(HubLayout.MacReadable.metricLineFont)
                     .foregroundStyle(AppTheme.text)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -7230,7 +7230,7 @@ private struct LostRevenueCheapLine: View, Equatable {
             cell(snap.refund, .none)
             cell(snap.missed, .none)
             Text(snap.health.label.uppercased())
-                .font(.caption.weight(.heavy))
+                .font(HubLayout.MacReadable.metricStatusFont)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .padding(.horizontal, 8)
@@ -7244,7 +7244,7 @@ private struct LostRevenueCheapLine: View, Equatable {
 
     private func cell(_ value: String, _ health: Health, brand: Bool = false) -> some View {
         Text(value)
-            .font(.subheadline.weight(.bold).monospacedDigit())
+            .font(HubLayout.MacReadable.metricValueFont)
             .foregroundStyle(brand ? AppTheme.blue : ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
@@ -7297,14 +7297,14 @@ private struct LostRevenueMetricLine: View, Equatable {
         let health = HeartbeatMath.lostRevenueHealth(pct: pct)
         HStack(spacing: 6) {
             Text(label)
-                .font(.subheadline.weight(.semibold))
+                .font(HubLayout.MacReadable.metricLineFont)
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
-                    .font(.subheadline.weight(.semibold).monospacedDigit())
+                    .font(HubLayout.MacReadable.metricLineFont.monospacedDigit())
                     .foregroundStyle(AppTheme.textSecondary)
                     .frame(width: 58, alignment: .trailing)
             }
@@ -7323,7 +7323,7 @@ private struct LostRevenueMetricLine: View, Equatable {
 
     private func cell(_ value: String, _ health: Health, brand: Bool = false) -> some View {
         Text(value)
-            .font(.subheadline.weight(.bold).monospacedDigit())
+            .font(HubLayout.MacReadable.metricValueFont)
             .foregroundStyle(brand ? AppTheme.blue : ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
@@ -7705,7 +7705,7 @@ struct LostRevenueTable: View {
                                     rebuildOrder(sort: sort, ascending: ascending)
                                 } label: {
                                     Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
-                                        .font(.subheadline.weight(.semibold))
+                                        .font(HubLayout.MacReadable.metricLineFont)
                                         .foregroundStyle(AppTheme.blue)
                                         .frame(maxWidth: .infinity)
                                         .padding(.vertical, 12)
@@ -8056,7 +8056,7 @@ struct ScheduleTable: View {
                             rebuildOrder(sort: sort, ascending: ascending)
                         } label: {
                             Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
-                                .font(.subheadline.weight(.semibold))
+                                .font(HubLayout.MacReadable.metricLineFont)
                                 .foregroundStyle(AppTheme.blue)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 12)
@@ -8295,7 +8295,7 @@ private struct ScheduleCheapLine: View, Equatable {
         HStack(spacing: 6) {
             HStack(spacing: 4) {
                 Text(snap.label)
-                    .font(.subheadline.weight(.semibold))
+                    .font(HubLayout.MacReadable.metricLineFont)
                     .foregroundStyle(AppTheme.text)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -8310,7 +8310,7 @@ private struct ScheduleCheapLine: View, Equatable {
             cell(snap.under, snap.underHealth)
             cell(snap.over, snap.overHealth)
             Text(snap.health.label.uppercased())
-                .font(.caption.weight(.heavy))
+                .font(HubLayout.MacReadable.metricStatusFont)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .padding(.horizontal, 8)
@@ -8324,7 +8324,7 @@ private struct ScheduleCheapLine: View, Equatable {
 
     private func cell(_ value: String, _ health: Health, brand: Bool = false) -> some View {
         Text(value)
-            .font(.subheadline.weight(.bold).monospacedDigit())
+            .font(HubLayout.MacReadable.metricValueFont)
             .foregroundStyle(brand ? AppTheme.blue : ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
@@ -8387,14 +8387,14 @@ private struct ScheduleMetricLine: View {
         let health = ScheduleRollupRow(id: label, label: label, storeCount: count ?? 0, efficiency: efficiency, staffing: staffing, under: under, over: over).health
         HStack(spacing: 6) {
             Text(label)
-                .font(.subheadline.weight(.semibold))
+                .font(HubLayout.MacReadable.metricLineFont)
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .frame(width: labelWidth, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
-                    .font(.subheadline.weight(.semibold).monospacedDigit())
+                    .font(HubLayout.MacReadable.metricLineFont.monospacedDigit())
                     .foregroundStyle(AppTheme.textSecondary)
                     .frame(width: 58, alignment: .trailing)
             }
@@ -8411,7 +8411,7 @@ private struct ScheduleMetricLine: View {
 
     private func cell(_ value: String, _ health: Health, brand: Bool = false) -> some View {
         Text(value)
-            .font(.subheadline.weight(.bold).monospacedDigit())
+            .font(HubLayout.MacReadable.metricValueFont)
             .foregroundStyle(brand ? AppTheme.blue : ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
@@ -8927,7 +8927,7 @@ struct PPHTable: View {
                             rebuildOrder(sort: sort, ascending: ascending)
                         } label: {
                             Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
-                                .font(.subheadline.weight(.semibold))
+                                .font(HubLayout.MacReadable.metricLineFont)
                                 .foregroundStyle(AppTheme.blue)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 12)
@@ -9110,7 +9110,7 @@ private struct PPHCheapLine: View, Equatable {
         HStack(spacing: 6) {
             HStack(spacing: 4) {
                 Text(snap.label)
-                    .font(.subheadline.weight(.semibold))
+                    .font(HubLayout.MacReadable.metricLineFont)
                     .foregroundStyle(AppTheme.text)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -9123,7 +9123,7 @@ private struct PPHCheapLine: View, Equatable {
             cell(snap.pickers, .none)
             cell(PPHMath.goalText, .none, brand: true)
             Text(snap.health.label.uppercased())
-                .font(.caption.weight(.heavy))
+                .font(HubLayout.MacReadable.metricStatusFont)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .padding(.horizontal, 8)
@@ -9137,7 +9137,7 @@ private struct PPHCheapLine: View, Equatable {
 
     private func cell(_ value: String, _ health: Health, brand: Bool = false) -> some View {
         Text(value)
-            .font(.subheadline.weight(.bold).monospacedDigit())
+            .font(HubLayout.MacReadable.metricValueFont)
             .foregroundStyle(brand ? AppTheme.blue : ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
@@ -9185,14 +9185,14 @@ private struct PPHMetricLine: View, Equatable {
         let health = PPHMath.pphHealth(pph)
         HStack(spacing: 6) {
             Text(label)
-                .font(.subheadline.weight(.semibold))
+                .font(HubLayout.MacReadable.metricLineFont)
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
-                    .font(.subheadline.weight(.semibold).monospacedDigit())
+                    .font(HubLayout.MacReadable.metricLineFont.monospacedDigit())
                     .foregroundStyle(AppTheme.textSecondary)
                     .frame(width: 58, alignment: .trailing)
             }
@@ -9207,7 +9207,7 @@ private struct PPHMetricLine: View, Equatable {
 
     private func cell(_ value: String, _ health: Health, brand: Bool = false) -> some View {
         Text(value)
-            .font(.subheadline.weight(.bold).monospacedDigit())
+            .font(HubLayout.MacReadable.metricValueFont)
             .foregroundStyle(brand ? AppTheme.blue : ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
@@ -9550,7 +9550,7 @@ private struct PPHStoreExpand: View {
         let health = HeartbeatMath.pphHealth(picker)
         return HStack(spacing: 6) {
             Text(picker.shopperName)
-                .font(.subheadline.weight(.semibold))
+                .font(HubLayout.MacReadable.metricLineFont)
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
@@ -9559,7 +9559,7 @@ private struct PPHStoreExpand: View {
             cell(HeartbeatFormat.num(picker.number("orders")), .none)
             cell(HeartbeatFormat.num(picker.number("pick_hours"), digits: 1), .none)
             Text(health.label.uppercased())
-                .font(.caption.weight(.heavy))
+                .font(HubLayout.MacReadable.metricStatusFont)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .padding(.horizontal, 8)
@@ -9595,7 +9595,7 @@ private struct PPHStoreExpand: View {
 
     private func cell(_ value: String, _ health: Health) -> some View {
         Text(value)
-            .font(.subheadline.weight(.bold).monospacedDigit())
+            .font(HubLayout.MacReadable.metricValueFont)
             .foregroundStyle(ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
@@ -9679,7 +9679,7 @@ struct PickerScoreTable: View {
                         ProgressView()
                             .tint(AppTheme.blue)
                         Text("Loading shoppers…")
-                            .font(.subheadline.weight(.semibold))
+                            .font(HubLayout.MacReadable.metricLineFont)
                             .foregroundStyle(AppTheme.textSecondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -9799,7 +9799,7 @@ struct PickerScoreTable: View {
                             rebuildPage()
                         } label: {
                             Text("Show more · \(snaps.count) of \(HeartbeatFormat.num(Double(total)))")
-                                .font(.subheadline.weight(.semibold))
+                                .font(HubLayout.MacReadable.metricLineFont)
                                 .foregroundStyle(AppTheme.blue)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 12)
@@ -10763,7 +10763,7 @@ struct ChecklistShopperDisclosure: View {
                     Spacer(minLength: 0)
                     Image(systemName: open ? "chevron.up" : "chevron.down")
                 }
-                .font(.subheadline.weight(.semibold))
+                .font(HubLayout.MacReadable.metricLineFont)
                 .foregroundStyle(AppTheme.blue)
                 .padding(.vertical, 4)
                 .contentShape(Rectangle())
@@ -10932,14 +10932,14 @@ struct FulfillmentChecklistCard: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
                 Text("ACTION ITEMS")
-                    .font(.caption.weight(.heavy))
+                    .font(HubLayout.MacReadable.metricStatusFont)
                     .tracking(0.4)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
                     .foregroundStyle(Color.white)
                     .background(AppTheme.bad, in: Capsule(style: .continuous))
                 Text("\(store.checklistOpenCount) OPEN")
-                    .font(.caption.weight(.heavy))
+                    .font(HubLayout.MacReadable.metricStatusFont)
                     .tracking(0.4)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
@@ -11055,7 +11055,7 @@ struct FulfillmentChecklistCard: View {
                     openItems.formUnion(items.map(\.id))
                 } label: {
                     Text("Show all \(items.count) \(section.short) stores")
-                        .font(.subheadline.weight(.semibold))
+                        .font(HubLayout.MacReadable.metricLineFont)
                         .foregroundStyle(AppTheme.blue)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.vertical, 6)
@@ -11132,7 +11132,7 @@ struct FulfillmentChecklistCard: View {
                 } label: {
                     HStack(alignment: .center, spacing: 12) {
                         Text("\(rank)")
-                            .font(.subheadline.weight(.bold).monospacedDigit())
+                            .font(HubLayout.MacReadable.metricValueFont)
                             .foregroundStyle(AppTheme.blue)
                             .frame(width: 32, height: 32)
                             .background(AppTheme.blueSoft, in: Circle())
@@ -11151,7 +11151,7 @@ struct FulfillmentChecklistCard: View {
                             .frame(minWidth: 72, alignment: .trailing)
                         Spacer(minLength: 8)
                         Image(systemName: detailsOpen ? "chevron.up" : "chevron.down")
-                            .font(.subheadline.weight(.semibold))
+                            .font(HubLayout.MacReadable.metricLineFont)
                             .foregroundStyle(AppTheme.textTertiary)
                     }
                     .contentShape(Rectangle())
@@ -11248,7 +11248,7 @@ struct FulfillmentChecklistCard: View {
                 .foregroundStyle(AppTheme.text)
                 .fixedSize(horizontal: false, vertical: true)
             Text(finding.action)
-                .font(.subheadline.weight(.semibold))
+                .font(HubLayout.MacReadable.metricLineFont)
                 .foregroundStyle(AppTheme.text)
                 .fixedSize(horizontal: false, vertical: true)
             HStack(spacing: 8) {
@@ -11307,7 +11307,7 @@ struct FulfillmentChecklistCard: View {
                         .font(.headline.weight(.bold))
                         .foregroundStyle(AppTheme.text)
                     Text(person.issues.joined(separator: "  ·  "))
-                        .font(.subheadline.weight(.semibold))
+                        .font(HubLayout.MacReadable.metricLineFont)
                         .foregroundStyle(headlineColor(person.health))
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -11353,7 +11353,7 @@ struct FulfillmentChecklistCard: View {
                 .tracking(0.4)
                 .foregroundStyle(AppTheme.textTertiary)
             Text(text)
-                .font(.subheadline.weight(.semibold))
+                .font(HubLayout.MacReadable.metricLineFont)
                 .foregroundStyle(ink)
                 .fixedSize(horizontal: false, vertical: true)
         }

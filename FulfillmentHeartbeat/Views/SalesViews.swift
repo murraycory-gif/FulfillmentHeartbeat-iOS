@@ -808,7 +808,7 @@ struct SalesTable: View {
                                     rebuild()
                                 } label: {
                                     Text("Show more · \(HeartbeatFormat.num(Double(min(limit, orderedCount)))) of \(HeartbeatFormat.num(Double(orderedCount)))")
-                                        .font(.subheadline.weight(.semibold))
+                                        .font(HubLayout.MacReadable.metricLineFont)
                                         .foregroundStyle(AppTheme.blue)
                                         .frame(maxWidth: .infinity)
                                         .padding(.vertical, 12)

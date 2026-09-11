@@ -147,8 +147,8 @@ enum CommandCenterLayout {
             return portrait ? 168 : 128
         }
         if mac, PulseLaunch.shouldUseExpandedMacReadableChrome() {
-            let fraction = portrait ? 0.18 : 0.19
-            return min(HubLayout.MacReadable.heroBandMax, max(140, available * fraction))
+            let fraction = portrait ? 0.22 : 0.23
+            return min(HubLayout.MacReadable.heroBandMax, max(156, available * fraction))
         }
         let fraction = portrait ? 0.15 : 0.16
         return min(128, max(minHeroHeight, available * fraction))
@@ -444,7 +444,7 @@ struct CommandCenterHome: View {
                 .foregroundStyle(AppTheme.textTertiary)
             Spacer(minLength: 0)
         }
-        .frame(height: phone ? 14 : (HubLayout.MacReadable.enabled ? 20 : 16))
+        .frame(height: phone ? 14 : (HubLayout.MacReadable.enabled ? 28 : 16))
     }
 
     private func glanceGrid(cards: [SectionSummary], columns: Int, tileHeight: CGFloat) -> some View {
@@ -494,7 +494,7 @@ struct CommandCenterHeroTile: View {
                     Spacer(minLength: 0)
                 }
             }
-            .padding(HubLayout.MacReadable.enabled ? 14 : 10)
+            .padding(HubLayout.MacReadable.enabled ? 16 : 10)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .background(AppTheme.blue, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
