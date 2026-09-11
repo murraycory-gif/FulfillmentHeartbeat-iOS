@@ -2960,6 +2960,34 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(WorkbookParser.usableStoreNumber("17"), "17")
         XCTAssertTrue(RollupMarketFill.hidesUnassignedMarket("Unassigned"))
         XCTAssertTrue(RollupMarketFill.hidesUnassignedMarket(""))
+        XCTAssertEqual(RollupMarketFill.proofNoiseStoreNumbers.count, 20)
+        XCTAssertTrue(RollupMarketFill.proofNoiseStoreNumbers.contains("17"))
+        XCTAssertTrue(RollupMarketFill.proofNoiseStoreNumbers.contains("4799"))
+        XCTAssertFalse(
+            RollupMarketFill.isRealRosterOrphan(storeNumber: "17", division: "", rosterContains: false)
+        )
+        XCTAssertFalse(
+            RollupMarketFill.isRealRosterOrphan(storeNumber: "17", division: "", rosterContains: true)
+        )
+        XCTAssertTrue(
+            RollupMarketFill.isRealRosterOrphan(storeNumber: "12", division: "", rosterContains: true)
+        )
+        let noiseMarkets = RollupMarketFill.proofNoiseStoreNumbers.map {
+            HeartbeatMath.MarketStore(storeNumber: $0, division: "", district: "", om: "", pph: nil, compliance: nil)
+        }
+        XCTAssertNil(
+            RollupMarketFill.unassignedIfRealOrphans(markets: noiseMarkets, isRoster: { _ in false })
+        )
+        XCTAssertNil(
+            RollupMarketFill.unassignedIfRealOrphans(markets: noiseMarkets, isRoster: { _ in true })
+        )
+        let realOrphan = HeartbeatMath.MarketStore(
+            storeNumber: "12", division: "", district: "03", om: "Jino Arvin", pph: nil, compliance: nil
+        )
+        XCTAssertEqual(
+            RollupMarketFill.unassignedIfRealOrphans(markets: [realOrphan], isRoster: { $0 == "12" })?.storeCount,
+            1
+        )
         XCTAssertEqual(RollupMarketFill.marketBucketKey(
             MetricRow(section: .sales, division: "", operationsOM: "", storeNumber: "17", payload: ["sales_dollars": 10])
         ), "")

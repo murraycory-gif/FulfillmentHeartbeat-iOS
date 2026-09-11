@@ -19,7 +19,7 @@ Home is a **Pulse / Power BI Mobile briefing**: packed KPI tiles, tight gutters,
 | Expand | Tap opens the scorecard. No store tables on home. |
 | Mac | **Pinned** left Pages rail + dense center. **No right Alerts column.** |
 | iPad land + port | **Full-width center by default.** Pages opens as a drawer. **No Alerts drawer / rail.** Do not pin Mac triple columns. |
-| iPhone | Same glance-first density (2-col port / 3-col land). Picker: phone cards + picture strip; no duplicate empty “all shoppers” host; 44pt hit targets; Pages opens on first tap with health-tinted icons. Assist is a five-part ops coach on every device. Markets never invent Unassigned. |
+| iPhone | Same glance-first density (2-col port / 3-col land). Picker: phone cards + picture strip; no duplicate empty “all shoppers” host; 44pt hit targets; Pages opens on first tap with health-tinted icons. Assist is a five-part ops coach on every device. Loss Markets: no Unassigned 21 / NO DATA noise row — hide unless a real roster store has blank Excel MARKET. |
 | Load | Heart + progress + chrome. **No grocery one-liners.** |
 | Halloween | Off |
 

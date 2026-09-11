@@ -5405,6 +5405,38 @@ enum RollupMarketFill {
         return HeartbeatMath.compactKey(key) == "unassigned"
     }
 
+    /// Cory Loss proof: these Sales/Labor store #s are not on the Excel Roster.
+    /// They must never seed a Markets Unassigned row (count 21 / NO DATA).
+    static let proofNoiseStoreNumbers: Set<String> = [
+        "17", "137", "683", "797", "835", "862", "881", "879", "1038",
+        "1721", "1787", "1792", "2077", "2258", "2563", "2915", "3610", "3723",
+        "4187", "4799",
+    ]
+
+    /// Roster store whose Excel MARKET/DIVISION is still blank after stamp.
+    static func isRealRosterOrphan(storeNumber: String, division: String, rosterContains: Bool) -> Bool {
+        guard rosterContains else { return false }
+        let store = HeartbeatMath.canonicalStore(storeNumber)
+        guard !store.isEmpty, !HeartbeatMath.isIgnoredStore(store) else { return false }
+        if proofNoiseStoreNumbers.contains(store) { return false }
+        return divisionKey(division).isEmpty
+    }
+
+    static func unassignedIfRealOrphans(
+        markets: [HeartbeatMath.MarketStore],
+        isRoster: (String) -> Bool
+    ) -> (name: String, storeCount: Int)? {
+        let orphans = markets.filter {
+            isRealRosterOrphan(
+                storeNumber: $0.storeNumber,
+                division: $0.division,
+                rosterContains: isRoster($0.storeNumber)
+            )
+        }
+        guard !orphans.isEmpty else { return nil }
+        return (unassignedLabel, orphans.count)
+    }
+
     /// Markets grain never invents Unassigned. Blank / ignored / orphan → hidden.
     static func marketBucketKey(_ row: MetricRow) -> String {
         divisionKey(row.division)
@@ -5552,6 +5584,7 @@ enum RollupMarketFill {
         .filter { !$0.key.isEmpty }
         .mapValues(\.count)
         return MarketRegion.companyDivisions(for: filters).compactMap { name in
+            if hidesUnassignedMarket(name) { return nil }
             guard !seen.contains(HeartbeatMath.normalize(name)) else { return nil }
             return (name: name, storeCount: counts[name] ?? 0)
         }
@@ -7154,6 +7187,7 @@ struct LostRevenueRollupTable: View {
         let source = LostRevenueRollupBuilder.source(from: store.rollupStores(for: .lostRevenue), filters: store.filters)
         let fallbackGoal = store.lostRevenueMarketRow().flatMap { HeartbeatMath.lostRevenueGoalPct($0) }
         var rows = LostRevenueRollupBuilder.rows(from: source, grain: next, fallbackGoal: fallbackGoal)
+        rows.removeAll { RollupMarketFill.hidesUnassignedMarket($0.label) }
         if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
                 rows.append(
@@ -7161,6 +7195,25 @@ struct LostRevenueRollupTable: View {
                         id: extra.name,
                         label: extra.name,
                         storeCount: extra.storeCount,
+                        lost: nil,
+                        pct: nil,
+                        goal: nil,
+                        sales: nil,
+                        post: nil,
+                        refund: nil,
+                        missed: nil
+                    )
+                )
+            }
+            if let orphan = RollupMarketFill.unassignedIfRealOrphans(
+                markets: store.marketStores(),
+                isRoster: store.isOfficialRosterStore
+            ) {
+                rows.append(
+                    LostRevenueRollupRow(
+                        id: orphan.name,
+                        label: orphan.name,
+                        storeCount: orphan.storeCount,
                         lost: nil,
                         pct: nil,
                         goal: nil,

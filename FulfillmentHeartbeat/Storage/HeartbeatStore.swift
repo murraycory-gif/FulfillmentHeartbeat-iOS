@@ -1966,6 +1966,10 @@ final class HeartbeatStore: ObservableObject {
             ?? HeartbeatMath.StoreIdentity(division: "", district: "", om: "", name: nil)
     }
 
+    func isOfficialRosterStore(_ number: String) -> Bool {
+        roster[HeartbeatMath.canonicalStore(number)] != nil
+    }
+
     var lastUpload: UploadRecord? {
         uploads.max(by: { $0.uploadedAt < $1.uploadedAt })
     }

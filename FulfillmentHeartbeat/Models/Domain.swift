@@ -1151,6 +1151,11 @@ enum HeartbeatMath {
             goalFallback: goalFallback
         )
         if grain == .region { return table }
+        if grain == .division {
+            let cleaned = table.filter { !RollupMarketFill.hidesUnassignedMarket($0.label) }
+            if grainRowsAreLive(cleaned) { return cleaned }
+            return cleaned
+        }
         if grainRowsAreLive(table) { return table }
         guard !order.isEmpty else { return table }
         let fallback = dashboardGrainTable(
