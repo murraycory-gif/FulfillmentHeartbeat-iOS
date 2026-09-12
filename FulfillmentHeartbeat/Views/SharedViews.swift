@@ -11955,12 +11955,15 @@ final class MailShareActivity: UIActivity {
     override var activityImage: UIImage? { UIImage(systemName: "envelope.fill") }
     override class var activityCategory: UIActivity.Category { .share }
     override func canPerform(withActivityItems activityItems: [Any]) -> Bool {
-        MFMailComposeViewController.canSendMail()
+        PulseLaunch.shouldUseInAppMailCompose(
+            canSendMail: MFMailComposeViewController.canSendMail(),
+            mac: HubLayout.isMac
+        ) || HubLayout.isMac
     }
 
     override func perform() {
         let packet = self.packet
-        activityDidFinish(true)
+        activityDidFinish(false)
         Task { @MainActor in
             PulseShare.presentMail(packet)
         }
@@ -12120,8 +12123,16 @@ enum PulseShare {
         packet: PulseMail.Packet,
         to: [String]
     ) {
-        guard MFMailComposeViewController.canSendMail() else {
-            presentUnavailableFallback(packet, to: to, on: presenter)
+        let mac = HubLayout.isMac
+        guard PulseLaunch.shouldUseInAppMailCompose(
+            canSendMail: MFMailComposeViewController.canSendMail(),
+            mac: mac
+        ) else {
+            if mac, PulseLaunch.shouldRequireUserSendInMailAppOnMac() {
+                presentMacMailHandoff(packet, to: to, on: presenter)
+            } else {
+                presentUnavailableFallback(packet, to: to, on: presenter)
+            }
             return
         }
         guard let presenter, presenter.view.window != nil else {
@@ -12147,40 +12158,106 @@ enum PulseShare {
     }
 
     @MainActor
+    private static func presentMacMailHandoff(
+        _ packet: PulseMail.Packet,
+        to: [String],
+        on presenter: UIViewController?
+    ) {
+        copyRecapToPasteboard(packet)
+        openMailto(packet, to: to, shortBody: true) { opened in
+            let sent = PulseLaunch.shouldAnnounceMailSent(
+                mailtoOpened: opened,
+                composeResultSent: false,
+                mac: true
+            )
+            presentShareMailStatus(
+                on: presenter,
+                title: sent ? "Mail" : (opened ? "Finish in Mail" : "Mail did not send"),
+                message: opened
+                    ? PulseLaunch.macShareMailOpenedCopy()
+                    : PulseLaunch.shareMailOpenFailedCopy()
+            )
+        }
+    }
+
+    @MainActor
     private static func presentUnavailableFallback(
         _ packet: PulseMail.Packet,
         to: [String],
         on presenter: UIViewController?
     ) {
-        UIPasteboard.general.string = packet.brief
-        if openMailto(packet, to: to) { return }
-        openOutlook(subject: packet.subject, jpegURLs: [])
+        copyRecapToPasteboard(packet)
+        openMailto(packet, to: to, shortBody: HubLayout.isMac) { opened in
+            let sent = PulseLaunch.shouldAnnounceMailSent(
+                mailtoOpened: opened,
+                composeResultSent: false,
+                mac: HubLayout.isMac
+            )
+            if sent { return }
+            presentShareMailStatus(
+                on: presenter,
+                title: opened ? "Finish in Mail" : "Mail did not send",
+                message: opened
+                    ? PulseLaunch.macShareMailOpenedCopy()
+                    : PulseLaunch.shareMailUnavailableCopy()
+            )
+        }
+    }
+
+    @MainActor
+    private static func presentShareMailStatus(
+        on presenter: UIViewController?,
+        title: String,
+        message: String
+    ) {
         afterShareSheetDismissed { host in
             let host = host ?? presenter ?? keyWindowRoot()
-            guard let host, host.view.window != nil, host.presentedViewController == nil else { return }
-            let alert = UIAlertController(
-                title: "Couldn’t open Mail",
-                message: PulseLaunch.shareMailUnavailableCopy(),
-                preferredStyle: .alert
-            )
+            guard let host, host.view.window != nil else { return }
+            if host.presentedViewController != nil { return }
+            let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
             alert.addAction(UIAlertAction(title: "OK", style: .default))
             host.present(alert, animated: true)
         }
     }
 
     @MainActor
-    private static func openMailto(_ packet: PulseMail.Packet, to: [String]) -> Bool {
+    private static func copyRecapToPasteboard(_ packet: PulseMail.Packet) {
+        let html = PulseMail.html(from: packet)
+        if html.isEmpty {
+            UIPasteboard.general.string = packet.brief
+            return
+        }
+        var item: [String: Any] = [UTType.plainText.identifier: packet.brief]
+        if let data = html.data(using: .utf8) {
+            item[UTType.html.identifier] = data
+        }
+        UIPasteboard.general.items = [item]
+    }
+
+    @MainActor
+    private static func openMailto(
+        _ packet: PulseMail.Packet,
+        to: [String],
+        shortBody: Bool,
+        done: @escaping (Bool) -> Void
+    ) {
         let subject = encode(packet.subject)
-        let body = encode(packet.brief)
+        let body = encode(
+            shortBody
+                ? "Heartbeat recap is on the clipboard. Paste it into this message if the body is empty, then click Send in Mail. Heartbeat did not send this email."
+                : packet.brief
+        )
         let recipients = to.joined(separator: ",")
         let urlString = to.isEmpty
             ? "mailto:?subject=\(subject)&body=\(body)"
             : "mailto:\(recipients)?subject=\(subject)&body=\(body)"
         guard let url = URL(string: urlString), UIApplication.shared.canOpenURL(url) else {
-            return false
+            done(false)
+            return
         }
-        UIApplication.shared.open(url)
-        return true
+        UIApplication.shared.open(url) { ok in
+            DispatchQueue.main.async { done(ok) }
+        }
     }
 
     /// Inline Mail-safe HTML in the message body when it fits. Never a duplicate giant attachment.
@@ -12386,8 +12463,8 @@ struct MailComposeView: UIViewControllerRepresentable {
             return mail
         }
         let fallback = UIActivityViewController(activityItems: [plain], applicationActivities: nil)
-        fallback.completionWithItemsHandler = { _, completed, _, _ in
-            onFinish(completed ? .sent : .cancelled)
+        fallback.completionWithItemsHandler = { _, _, _, _ in
+            onFinish(.cancelled)
         }
         return fallback
     }

@@ -2123,9 +2123,29 @@ enum PulseLaunch {
     static func shouldPresentMailOverActiveShareSheet() -> Bool { false }
     static func shouldDismissShareSheetBeforePresentingMail() -> Bool { true }
     static func shareMailUnavailableCopy() -> String {
-        "Mail isn’t set up. The recap was copied — paste it into Outlook or Mail."
+        "Mail isn’t set up. The recap was copied — paste it into Outlook or Mail and send it. Heartbeat did not send this email."
+    }
+    static func shareMailOpenFailedCopy() -> String {
+        "Couldn’t open Mail. The recap was copied — paste it into Outlook or Mail and send it. Heartbeat did not send this email."
+    }
+    static func macShareMailOpenedCopy() -> String {
+        "Apple Mail opened a draft. Click Send in Mail to deliver it. Heartbeat does not send mail on Mac."
     }
     static var shareSheetDismissSettleNanoseconds: UInt64 { 350_000_000 }
+
+    /// Mac Catalyst: MFMailCompose canSendMail / .sent is a false delivery.
+    static func shouldPresentMFMailComposeOnMac() -> Bool { false }
+    static func shouldTreatMailtoOpenAsSent() -> Bool { false }
+    static func shouldRequireUserSendInMailAppOnMac() -> Bool { true }
+    static func shouldUseInAppMailCompose(canSendMail: Bool, mac: Bool) -> Bool {
+        if mac, !shouldPresentMFMailComposeOnMac() { return false }
+        return canSendMail
+    }
+    static func shouldAnnounceMailSent(mailtoOpened: Bool, composeResultSent: Bool, mac: Bool) -> Bool {
+        if shouldTreatMailtoOpenAsSent(), mailtoOpened { return true }
+        if mac { return false }
+        return composeResultSent && !mailtoOpened
+    }
 
     /// Mac Catalyst Share / New Message: bigger default, user-resizable, preview + notes.
     /// Mail presenter hop (dismiss sheet → keyWindowRoot → presentMail) stays Soft KEEP.

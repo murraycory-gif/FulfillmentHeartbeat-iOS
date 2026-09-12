@@ -24,4 +24,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.412 / 1.0 (738) — Mac CC reserves window-bottom chrome and scrolls so Prep / stamp do not clip. Hide-pages icon chrome + Share To/Back Soft KEEP. MUST P / PTR untouched.
+HB-0828.413 / 1.0 (739) — Mac Share hands off a Mail draft and never claims sent. MFMailCompose skipped on Mac. Bottom clip + Hide-pages Soft KEEP. MUST P / PTR untouched.
