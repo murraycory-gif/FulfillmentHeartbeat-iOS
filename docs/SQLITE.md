@@ -24,4 +24,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.408 / 1.0 (734) — Mac window-fit + collapsible Pages + bigger Share sheet. Pull-to-refresh on phone / iPad / Mac uses the same no-delete seat-repull as cold open (remote `updated_at` newer). MUST P cook / expand gates and Share Mail presenter Soft KEEP.
+HB-0828.409 / 1.0 (735) — Compile fix: HubSeatPackRefreshModifier at file scope. Pull-to-refresh + Mac chrome Soft KEEP. MUST P cook / no-delete path untouched.

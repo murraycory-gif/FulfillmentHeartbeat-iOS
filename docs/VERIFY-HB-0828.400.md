@@ -1,8 +1,8 @@
-# HB-0828.408 / 734 — verify (Mac window-fit + collapsible Pages)
+# HB-0828.409 / 735 — verify (compile fix: modifier at file scope)
 
-**Tip** `origin/cursor/command-center-8b-3389` · [PR #5](https://github.com/murraycory-gif/FulfillmentHeartbeat-iOS/pull/5)  
-**Stamp** `HB-0828.408  1.0 (734)` · bundle `com.corymurray.FulfillmentHeartbeat`  
-**No TestFlight until this PASSes.** Do not delete the app. Cloud Linux cannot `xcodebuild` or talk to a Mac/iPad (no self-hosted worker registered).
+**Tip** `origin/cursor/command-center-8b-3389` · [PR #5](https://github.com/murraycory-gif/FulfillmentHeartbeat-iOS/pull/5)
+**Stamp** `HB-0828.409  1.0 (735)` · bundle `com.corymurray.FulfillmentHeartbeat`
+**No TestFlight until this PASSes.** Do not delete the app. Cloud Linux cannot `xcodebuild` or talk to a Mac/iPad (no self-hosted worker registered). 409 moves `HubSeatPackRefreshModifier` to file scope so Mac Catalyst compiles.
 
 ## CoS first — Mac Catalyst (over existing app)
 
@@ -17,7 +17,8 @@ Quit Heartbeat from the **Dock** (not just the window). Reopen.
 
 | Check | Pass |
 |---|---|
-| Sidebar stamp | `HB-0828.408  1.0 (734)` |
+| Sidebar stamp | `HB-0828.409  1.0 (735)` |
+| Mac compile | `./install-mac.sh` succeeds. `HubSeatPackRefreshModifier` is file-scope next to `HubPhoneTableModifier` — not nested in `extension View`. |
 | Sales | **~$58M** and **Thursday / `sales_d4`** (not ~$49M / Wednesday) |
 | Automated test | `testArchitecture408MacWindowFitAndCollapsibleRail` + 406/407 Soft KEEP green |
 | Company tables | Visible page / chrome only — not all 12 cards rebuilt into RAM |
@@ -41,6 +42,7 @@ Quit Heartbeat from the **Dock** (not just the window). Reopen.
 | MUST M Mac readable tokens | Soft KEEP — 408 fits those tokens to the live window instead of overflowing |
 | Share Mail presenter | Soft KEEP — dismiss sheet → 350ms → `presentMail` on `keyWindowRoot`. Notes wrap the packet only. |
 | Pull-to-refresh seat-repull | MUST — same `importCloudSQLiteIfPresent` / remote-newer check as cold open. `shouldStampHubOnPullToRefresh() == false`. MUST P no-delete Soft KEEP. |
+| File-scope refresh modifier | MUST — `HubSeatPackRefreshModifier` stays at file scope. Nesting a `ViewModifier` in `extension View` is a compile FAIL. |
 
 ## QC — iPhone (THIS SEAT)
 
@@ -54,7 +56,7 @@ git reset --hard origin/cursor/command-center-8b-3389
 SKIP_PULL=1 ALLOW_PHONE=1 ./install-ipad.sh
 ```
 
-1. Confirm stamp **HB-0828.408  1.0 (734)**. Pages stays on phone. No phone Back chevron. Tighter CC / section cards.
+1. Confirm stamp **HB-0828.409  1.0 (735)**. Pages stays on phone. No phone Back chevron. Tighter CC / section cards.
 2. **Force-quit.** Reopen. Do **not** delete.
 3. 5 Star / Pick Path / Prep / Picker / Labor THIS SEAT still live keys (MUST 1).
 4. Share Send still presents Mail.

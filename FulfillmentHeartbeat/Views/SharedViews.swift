@@ -10701,6 +10701,7 @@ extension View {
     func hubPhoneTable(minWidth: CGFloat = 720) -> some View {
         modifier(HubPhoneTableModifier(minWidth: minWidth))
     }
+}
 
 private struct HubSeatPackRefreshModifier: ViewModifier {
     @EnvironmentObject private var store: HeartbeatStore
@@ -10714,7 +10715,6 @@ private struct HubSeatPackRefreshModifier: ViewModifier {
             content
         }
     }
-}
 }
 
 private struct HubPhoneTableModifier: ViewModifier {
