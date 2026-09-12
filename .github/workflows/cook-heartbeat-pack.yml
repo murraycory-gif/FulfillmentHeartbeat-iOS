@@ -8,7 +8,7 @@ on:
   repository_dispatch:
     types: [cook-heartbeat-pack]
   schedule:
-    - cron: "*/15 * * * *"
+    - cron: "*/2 * * * *"
     - cron: "0 6 * * *"
 
 concurrency:
