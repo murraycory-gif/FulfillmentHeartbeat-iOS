@@ -331,9 +331,9 @@ enum PulseLaunch {
     /// Labor is not still Sales after Pages → Labor.
     static func shouldClearPhonePushOnPagesOpen() -> Bool { true }
 
-    /// Filter chip on a phone section: hero/chips from new chrome first,
-    /// then grain / stores / picker on the next frame.
-    static func shouldProgressivePaintPhoneSectionOnFilterSwap() -> Bool { true }
+    /// Same path every platform. Tearing down section tables on filter swap
+    /// is phone-only refresh theater — hero + sections + tables stay mounted.
+    static func shouldProgressivePaintPhoneSectionOnFilterSwap() -> Bool { false }
 
     static func shouldParkHiddenPhoneSection(isVisible: Bool) -> Bool {
         !isVisible && !shouldRenderHiddenPhoneSectionHeavy()
@@ -392,6 +392,24 @@ enum PulseLaunch {
     static func seatRowPlaneMatchesChrome(rowStoreCount: Int, chromeStoreCount: Int) -> Bool {
         rowStoreCount == chromeStoreCount
     }
+
+    /// Filter Save / chip: paint cached chrome + row plane on the tap turn
+    /// before the async pack confirm. Same path phone / iPad / Mac.
+    static func shouldPaintCachedSeatOnFilterTap() -> Bool { true }
+
+    /// Repeat filter / Clear: the painted row plane already is the seat.
+    /// Re-reading sqlite + PulseCaches.build + lockPickerDashboard is the
+    /// multi-second "refreshing" dwell. Cloud promote uses forceReload.
+    static func shouldReinstallSeatPackWhenRowPlanePainted() -> Bool { false }
+
+    /// First visit: publish chrome (and any plane) before PulseCaches.build
+    /// so hero / sections do not wait on warehouse materialize.
+    static func shouldPublishSeatPaintAfterChromeBeforeCaches() -> Bool { true }
+
+    /// `lockPickerDashboard` builds picker expand on MainActor. Filter swap
+    /// already has seat rows from the plane / install caches. Expand stays
+    /// off the gesture thread.
+    static func shouldLockPickerDashboardOnFilterSwap() -> Bool { false }
 
     /// Filter pills use the same seat-swap rewrite as Clear.
     static func shouldReuseCachedSeatPackOnFilterChange() -> Bool { true }
@@ -923,8 +941,9 @@ enum PulseLaunch {
     /// PhoneCommandCenterHome / NavigationStack stay mounted across filter chips.
     static func shouldRemountPhoneHubOnFilterSwap() -> Bool { false }
 
-    /// keepLastGoodSeat skips wipe, so section SQL must re-run after seatPaint.
-    static func shouldReloadSectionSQLOnSeatPaintStamp() -> Bool { true }
+    /// Row-plane rewrite + same-turn install replaced SQL re-arm.
+    /// Re-running `ensureSectionLoaded` on every seatPaint is refresh theater.
+    static func shouldReloadSectionSQLOnSeatPaintStamp() -> Bool { false }
 
     static var deferredSeatInstallDelayNanoseconds: UInt64 { 16_000_000 }
 

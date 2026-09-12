@@ -2374,7 +2374,9 @@ final class HeartbeatStore: ObservableObject {
             if PulseLaunch.shouldDeferIncomingSeatInstallAfterCachedChrome(
                 hasRowPlane: seatRowPlanes[key] != nil
             ) {
-                scheduleDeferredSeatInstall(key, dest: dest)
+                if PulseLaunch.shouldReinstallSeatPackWhenRowPlanePainted() {
+                    scheduleDeferredSeatInstall(key, dest: dest)
+                }
                 return true
             }
             installed = await installPublishedSeatPack(key, dest: dest, keepChrome: true)
@@ -2555,6 +2557,9 @@ final class HeartbeatStore: ObservableObject {
         guard !Task.isCancelled else { return false }
         if let chrome = pack.chrome {
             applySeatChrome(chrome, key: key)
+            if PulseLaunch.shouldPublishSeatPaintAfterChromeBeforeCaches() {
+                publishSeatPaint()
+            }
         }
         guard !Task.isCancelled else { return false }
         let caches = await Self.buildSeatCaches(
@@ -2568,7 +2573,9 @@ final class HeartbeatStore: ObservableObject {
         hydrating = false
         usingPackChrome = pack.chrome != nil
         seeded = true
-        lockPickerDashboard()
+        if PulseLaunch.shouldLockPickerDashboardOnFilterSwap() {
+            lockPickerDashboard()
+        }
         rearmAfterSeatPromote(clearExpand: PulseLaunch.shouldClearExpandCachesAtCompany(
             filtersActive: filters.isActive,
             pad: isPadDevice
@@ -3947,6 +3954,11 @@ final class HeartbeatStore: ObservableObject {
             grainPaintSettled = false
             paintGeneration += 1
             pageOnlyGeneration = -1
+            if PulseLaunch.shouldPaintCachedSeatOnFilterTap(),
+               let chrome = cachedChrome(for: key) {
+                applySeatChrome(chrome, key: key)
+                publishSeatPaint()
+            }
             refilterTask = Task { @MainActor in
                 await self.swapToSeatPack(key)
                 guard !Task.isCancelled else { return }

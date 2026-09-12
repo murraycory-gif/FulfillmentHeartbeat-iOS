@@ -1,8 +1,8 @@
-# HB-0828.418 / 744 — verify (Clear rewrites row plane with company chrome)
+# HB-0828.419 / 745 — verify (filter swap snappy; Clear row-plane KEEP)
 
 **Tip** `origin/cursor/command-center-8b-3389` · [PR #5](https://github.com/murraycory-gif/FulfillmentHeartbeat-iOS/pull/5)
-**Stamp** `HB-0828.418  1.0 (744)` · bundle `com.corymurray.FulfillmentHeartbeat`
-**No TestFlight until this PASSes.** HARD TF HOLD until Soft KEEP + Cory phone Clear PASS. Do not delete the app. Cloud Linux cannot `xcodebuild` or talk to a Mac/iPad (no self-hosted worker registered). Soft FAIL `fda1bf0` / .417 / 743: Clear painted company chrome (2161) while PhoneSectionPage kept leftover district `filteredLatest` (THIS WEEK 612). **MUST:** one filter identity — hero + all sections + expand. Clear rewrites the row plane in-place the same turn as chrome. Remount / `filterStamp` is not the fix. MUST 8 / SEND 1–7 / MUST K / MUST P stand. Re-AUDIT this SHA after phone Clear PASS.
+**Stamp** `HB-0828.419  1.0 (745)` · bundle `com.corymurray.FulfillmentHeartbeat`
+**No TestFlight until this PASSes.** HARD TF HOLD until Soft KEEP + Cory phone Clear PASS + filter-swap feel PASS. Do not delete the app. Cloud Linux cannot `xcodebuild` or talk to a Mac/iPad (no self-hosted worker registered). Soft FAIL `ab890c4` / .418 / 744: filter selection still dwelt — repeat seats re-read sqlite and rebuilt picker expand on MainActor after chrome already painted. **MUST SPEED:** hero + sections + tables paint on the tap, all platforms. Clear FILE ROOT (MUST 1–5 row plane with chrome) stands. Remount / `filterStamp` is not the fix. MUST P `PulseSeatPack` identical vs `a9e2f68`.
 
 ## CoS first — Mac Catalyst (over existing app)
 
@@ -17,10 +17,11 @@ Quit Heartbeat from the **Dock** (not just the window). Reopen.
 
 | Check | Pass |
 |---|---|
-| Sidebar stamp | `HB-0828.418  1.0 (744)` — fully visible, not under the dock / window edge |
+| Sidebar stamp | `HB-0828.419  1.0 (745)` — fully visible, not under the dock / window edge |
 | Mac compile | `./install-mac.sh` succeeds. `HubSeatPackRefreshModifier` is file-scope next to `HubPhoneTableModifier` — not nested in `extension View`. |
 | Sales | **~$58M** and **Thursday / `sales_d4`** (not ~$49M / Wednesday) |
-| Automated test | `testArchitecture418ClearRewritesRowPlaneWithChrome` + 417 MUST 8 Soft KEEP green |
+| Automated test | `testArchitecture419FilterSwapPaintsWithoutReinstall` + 418 Clear Soft KEEP green |
+| **Filter feel** | District / OM / Store / Region / Clear: hero + sections + tables swap without a multi-second dwell or spinner theater. Repeat seats stay on the cached plane — no second refresh. Same path Mac / iPad / iPhone. |
 | Company tables | Visible page / chrome only — not all 12 cards rebuilt into RAM |
 | THIS SEAT | Every section live when the hero is live. No ghost dashes/zeros. |
 | **Clear identity** | District (or OM) → Clear: hero Stores N, THIS WEEK, THIS SEAT, and expand all show **company** store count (2161), not leftover 612. Labels and golds agree. No hub remount / `filterStamp` flash. |
@@ -49,7 +50,8 @@ Quit Heartbeat from the **Dock** (not just the window). Reopen.
 | Mac Command Center scroll | MUST K — `shouldFillMacViewport() == false`. Readable tiles + ScrollView. `overflows()` is the gate. Do not leftover-fill or paper slack/minGlance. |
 | Mac Share send | MUST 8 + SEND 1–7 Soft KEEP — `MacMailComposer.swift` gone. Hop: dismiss → 350ms → `keyWindowRoot` → MFMailCompose. |
 | Remount bans | Soft KEEP — `shouldStampHubOnClearToCompany` / `shouldStampHubOnFilterSwap` / `shouldRemountPhoneHubOnFilterSwap` / `shouldRemountPageOnDestinationChange` / `shouldStampHubOnPullToRefresh` stay **false**. Expand stays off the gesture thread. |
-| Clear row plane | Soft KEEP this root — `shouldRewriteSeatRowPlaneWithChrome() == true`. `shouldDeferSeatInstallWhenRowPlaneMissing() == false`. No `wipeSeatDashboardState` / `restoreUnfilteredChrome` on Clear. `shouldApplySeatSliceOfMarketWarehouse() == false`. |
+| Clear row plane | Soft KEEP FILE ROOT — `shouldRewriteSeatRowPlaneWithChrome() == true`. `shouldDeferSeatInstallWhenRowPlaneMissing() == false`. No `wipeSeatDashboardState` / `restoreUnfilteredChrome` on Clear. |
+| Filter swap feel | Soft KEEP this root — `shouldPaintCachedSeatOnFilterTap() == true`. `shouldReinstallSeatPackWhenRowPlanePainted() == false`. `shouldPublishSeatPaintAfterChromeBeforeCaches() == true`. `shouldLockPickerDashboardOnFilterSwap() == false`. `shouldReloadSectionSQLOnSeatPaintStamp() == false`. `shouldProgressivePaintPhoneSectionOnFilterSwap() == false`. |
 
 ## QC — iPhone (THIS SEAT)
 
@@ -63,12 +65,13 @@ git reset --hard origin/cursor/command-center-8b-3389
 SKIP_PULL=1 ALLOW_PHONE=1 ./install-ipad.sh
 ```
 
-1. Confirm stamp **HB-0828.418  1.0 (744)**. Pages stays on phone. No phone Back chevron. Tighter CC / section cards.
+1. Confirm stamp **HB-0828.419  1.0 (745)**. Pages stays on phone. No phone Back chevron. Tighter CC / section cards.
 2. **Force-quit.** Reopen. Do **not** delete.
 3. 5 Star / Pick Path / Prep / Picker / Labor THIS SEAT still live keys (MUST 1).
 4. **Clear:** District (or OM) on Sales → Clear. Hero, THIS WEEK, THIS SEAT, and expand all show company store count (2161) — not leftover 612. Every section agrees. No remount flash.
-5. Share Send still presents Mail.
-6. **Mac:** no top Pages button; sidebar-leading icon in the rail chrome collapses the list — Loss Revenue is fully visible, no Hide pages text on top of it. Command Center **Prep** (last of 9) is fully visible after scroll — no leftover-fill clip. Share → New Message: navy Back + To above the fold; Send disabled until a valid To. Send hop → MFMailCompose. No Recap sent toast. Recipient inbox must get the email. Cancel / `.failed` must not claim sent.
+5. **Filters:** pick District, then OM, then Store, then Clear. Hero + sections + tables swap immediately — no multi-second refresh / spinner. Repeat District is instant (cached plane).
+6. Share Send still presents Mail.
+7. **Mac:** same filter feel as phone / iPad. No top Pages button; sidebar-leading icon in the rail chrome collapses the list — Loss Revenue is fully visible, no Hide pages text on top of it. Command Center **Prep** (last of 9) is fully visible after scroll — no leftover-fill clip. Share → New Message: navy Back + To above the fold; Send disabled until a valid To. Send hop → MFMailCompose. No Recap sent toast. Recipient inbox must get the email. Cancel / `.failed` must not claim sent.
 
 UDID `676FA816-88AE-59D9-A89D-5C17BFC2DA96` if you target that iPad.
 
