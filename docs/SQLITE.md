@@ -24,4 +24,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.422 / 1.0 (748) — Box maps rewrite same turn as chrome (LRU miss in-place). Idle/Clear/snappy KEEP. MUST P vs a9e2f68.
+HB-0828.423 / 1.0 (749) — Command Center dashboard binds seatPaintStamp (no navigate-away). Box-map / idle / Clear KEEP. MUST P vs a9e2f68.

@@ -218,6 +218,14 @@ enum CommandCenterLayout {
         return card.headlineText
     }
 
+    /// GeometryReader can freeze the snapshot passed into a tile. Live
+    /// `summary` + `seatPaintStamp` is the dashboard filter paint.
+    static func paintedCard(_ card: SectionSummary, store: HeartbeatStore) -> SectionSummary {
+        _ = store.seatPaintStamp
+        guard PulseLaunch.shouldBindCommandCenterDashboardToSeatPaint() else { return card }
+        return store.summary(for: card.section)
+    }
+
     /// Empty chrome stays empty. Never paint `.none` as Healthy when the
     /// headline or store count is still 0 (company Picker 0 / Healthy reject).
     static func sectionPills(
@@ -289,6 +297,8 @@ struct PhoneCommandCenterHome: View {
     var open: (MetricSection) -> Void
 
     var body: some View {
+        let _ = store.seatPaintStamp
+        let _ = store.filters.summary
         ScrollView {
             VStack(alignment: .leading, spacing: CommandCenterLayout.phoneHomeStackSpacing()) {
                 ForEach(heroCards) { card in
@@ -330,8 +340,13 @@ struct PhoneCommandCenterHome: View {
 }
 
 struct PhoneCommandHeroCard: View {
+    @EnvironmentObject private var store: HeartbeatStore
     let card: SectionSummary
     var action: (() -> Void)? = nil
+
+    private var painted: SectionSummary {
+        CommandCenterLayout.paintedCard(card, store: store)
+    }
 
     var body: some View {
         Group {
@@ -343,24 +358,24 @@ struct PhoneCommandHeroCard: View {
             }
         }
         .frame(minHeight: HubLayout.phoneHitTarget)
-        .accessibilityLabel("\(CommandCenterLayout.glanceTitle(card.section)), \(CommandCenterLayout.compactValue(card)), \(CommandCenterLayout.displayedHealth(card).label), Stores \(card.storeCount)")
+        .accessibilityLabel("\(CommandCenterLayout.glanceTitle(painted.section)), \(CommandCenterLayout.compactValue(painted)), \(CommandCenterLayout.displayedHealth(painted).label), Stores \(painted.storeCount)")
     }
 
     private var hero: some View {
         VStack(alignment: .leading, spacing: PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 6 : 10) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(CommandCenterLayout.glanceTitle(card.section))
+                Text(CommandCenterLayout.glanceTitle(painted.section))
                     .font(AppTheme.rounded(PulseLaunch.shouldUseCompactPhoneCommandChrome() ? .headline : .title3, weight: .bold))
                     .foregroundStyle(Color.white.opacity(0.92))
                     .lineLimit(2)
                 Spacer(minLength: 8)
                 HealthBadge(
-                    health: CommandCenterLayout.displayedHealth(card),
+                    health: CommandCenterLayout.displayedHealth(painted),
                     prominent: true,
                     compact: PulseLaunch.shouldUseCompactPhoneCommandChrome()
                 )
             }
-            Text(CommandCenterLayout.compactValue(card))
+            Text(CommandCenterLayout.compactValue(painted))
                 .font(AppTheme.rounded(size: CommandCenterLayout.phoneHeroValueSize(), weight: .bold).monospacedDigit())
                 .foregroundStyle(Color.white)
                 .lineLimit(1)
@@ -369,7 +384,7 @@ struct PhoneCommandHeroCard: View {
                 Circle()
                     .fill(AppTheme.gold)
                     .frame(width: PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 6 : 8, height: PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 6 : 8)
-                Text("Stores \(card.storeCount)")
+                Text("Stores \(painted.storeCount)")
                     .font(AppTheme.rounded(PulseLaunch.shouldUseCompactPhoneCommandChrome() ? .subheadline : .body, weight: .bold).monospacedDigit())
                     .foregroundStyle(AppTheme.gold)
                 Spacer(minLength: 0)
@@ -383,21 +398,26 @@ struct PhoneCommandHeroCard: View {
 }
 
 struct PhoneCommandGlanceCard: View {
+    @EnvironmentObject private var store: HeartbeatStore
     let card: SectionSummary
     let action: () -> Void
 
+    private var painted: SectionSummary {
+        CommandCenterLayout.paintedCard(card, store: store)
+    }
+
     var body: some View {
         PhoneScorecardRow(
-            title: CommandCenterLayout.glanceTitle(card.section),
-            subtitle: card.storeCount > 0 ? "\(card.storeCount) stores" : nil,
+            title: CommandCenterLayout.glanceTitle(painted.section),
+            subtitle: painted.storeCount > 0 ? "\(painted.storeCount) stores" : nil,
             chips: [
                 PhoneMetricChip(
                     label: "Result",
-                    value: CommandCenterLayout.compactValue(card),
-                    health: CommandCenterLayout.displayedHealth(card)
+                    value: CommandCenterLayout.compactValue(painted),
+                    health: CommandCenterLayout.displayedHealth(painted)
                 ),
             ],
-            health: CommandCenterLayout.displayedHealth(card),
+            health: CommandCenterLayout.displayedHealth(painted),
             onTap: action
         )
         .frame(minHeight: CommandCenterLayout.phoneGlanceMinHeight())
@@ -413,21 +433,28 @@ struct CommandCenterHome: View {
     private var phone: Bool { HubLayout.isPhone(sizeClass) }
 
     var body: some View {
+        let _ = store.seatPaintStamp
+        let _ = store.filters.summary
+        let heroes = heroCards
+        let glances = glanceCards
         if phone, PulseLaunch.shouldUsePhoneNativeCommandCenter() {
             PhoneCommandCenterHome(open: open)
         } else if HubLayout.isMac, !PulseLaunch.shouldFillMacViewport() {
-            macScrollingHome
+            macScrollingHome(heroes: heroes, glances: glances)
         } else {
-            padLeftoverHome
+            padLeftoverHome(heroes: heroes, glances: glances)
         }
     }
 
     /// MUST K: intrinsic MUST M tiles + ScrollView. `overflows()` decides bounce.
     /// Do not lock height to `geo.size.height` or leftover-fill Prep off-screen.
-    private var macScrollingHome: some View {
+    private func macScrollingHome(heroes: [SectionSummary], glances: [SectionSummary]) -> some View {
         GeometryReader { geo in
+            let _ = store.seatPaintStamp
             let portrait = geo.size.height > geo.size.width
-            let cards = glanceCards
+            let cards = PulseLaunch.shouldSampleCommandCenterCardsInsideGeometryReaderOnly()
+                ? glanceCards
+                : glances
             let cols = CommandCenterLayout.glanceColumns(width: geo.size.width, phone: false, portrait: portrait)
             let fit = CommandCenterLayout.macCommandCenterFit(
                 availableHeight: geo.size.height,
@@ -441,7 +468,7 @@ struct CommandCenterHome: View {
             )
             ScrollView {
                 VStack(spacing: CommandCenterLayout.gutter) {
-                    heroBand(height: fit.heroHeight, portrait: portrait, width: geo.size.width)
+                    heroBand(height: fit.heroHeight, portrait: portrait, width: geo.size.width, heroes: heroes)
                     glanceHeader
                     glanceGrid(cards: cards, columns: cols, tileHeight: fit.glanceTileHeight)
                 }
@@ -463,10 +490,13 @@ struct CommandCenterHome: View {
         }
     }
 
-    private var padLeftoverHome: some View {
+    private func padLeftoverHome(heroes: [SectionSummary], glances: [SectionSummary]) -> some View {
         GeometryReader { geo in
+            let _ = store.seatPaintStamp
             let portrait = geo.size.height > geo.size.width
-            let cards = glanceCards
+            let cards = PulseLaunch.shouldSampleCommandCenterCardsInsideGeometryReaderOnly()
+                ? glanceCards
+                : glances
             let cols = CommandCenterLayout.glanceColumns(width: geo.size.width, phone: phone, portrait: portrait)
             let heroH = CommandCenterLayout.heroBandHeight(
                 phone: phone,
@@ -486,7 +516,7 @@ struct CommandCenterHome: View {
                 columns: cols
             )
             let fitted = VStack(spacing: CommandCenterLayout.gutter) {
-                heroBand(height: heroH, portrait: portrait, width: geo.size.width)
+                heroBand(height: heroH, portrait: portrait, width: geo.size.width, heroes: heroes)
                 glanceHeader
                 glanceGrid(cards: cards, columns: cols, tileHeight: tileH)
             }
@@ -516,9 +546,14 @@ struct CommandCenterHome: View {
         return CommandCenterLayout.glanceSections.map { store.summary(for: $0) }
     }
 
-    private func heroBand(height: CGFloat, portrait: Bool, width: CGFloat) -> some View {
+    private func heroBand(
+        height: CGFloat,
+        portrait: Bool,
+        width: CGFloat,
+        heroes: [SectionSummary]
+    ) -> some View {
         let cols = CommandCenterLayout.heroColumns(width: width, phone: phone, portrait: portrait)
-        let rows = CommandCenterLayout.rowCount(cards: heroCards.count, columns: cols)
+        let rows = CommandCenterLayout.rowCount(cards: heroes.count, columns: cols)
         let tile = max(
             96,
             (height - CommandCenterLayout.gutter * CGFloat(max(rows - 1, 0))) / CGFloat(rows)
@@ -527,7 +562,7 @@ struct CommandCenterHome: View {
             columns: HubLayout.grid(cols, spacing: CommandCenterLayout.gutter, minWidth: 64),
             spacing: CommandCenterLayout.gutter
         ) {
-            ForEach(heroCards) { card in
+            ForEach(heroes) { card in
                 CommandCenterHeroTile(card: card) {
                     open(card.section)
                 }
@@ -576,21 +611,26 @@ struct CommandCenterHome: View {
 }
 
 struct CommandCenterHeroTile: View {
+    @EnvironmentObject private var store: HeartbeatStore
     let card: SectionSummary
     let action: () -> Void
+
+    private var painted: SectionSummary {
+        CommandCenterLayout.paintedCard(card, store: store)
+    }
 
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text(CommandCenterLayout.glanceTitle(card.section))
+                    Text(CommandCenterLayout.glanceTitle(painted.section))
                         .font(AppTheme.rounded(HubLayout.MacReadable.enabled ? .title2 : .title3, weight: .bold))
                         .foregroundStyle(Color.white.opacity(0.92))
                         .lineLimit(2)
                     Spacer(minLength: 4)
-                    HealthBadge(health: CommandCenterLayout.displayedHealth(card), prominent: true, compact: false)
+                    HealthBadge(health: CommandCenterLayout.displayedHealth(painted), prominent: true, compact: false)
                 }
-                Text(CommandCenterLayout.compactValue(card))
+                Text(CommandCenterLayout.compactValue(painted))
                     .font(AppTheme.rounded(size: HubLayout.MacReadable.enabled ? HubLayout.MacReadable.heroValue : 28, weight: .bold).monospacedDigit())
                     .foregroundStyle(Color.white)
                     .lineLimit(1)
@@ -600,7 +640,7 @@ struct CommandCenterHeroTile: View {
                     Circle()
                         .fill(AppTheme.gold)
                         .frame(width: 7, height: 7)
-                    Text("Stores \(card.storeCount)")
+                    Text("Stores \(painted.storeCount)")
                         .font(AppTheme.rounded(HubLayout.MacReadable.enabled ? .subheadline : .caption, weight: .bold).monospacedDigit())
                         .foregroundStyle(AppTheme.gold)
                     Spacer(minLength: 0)
@@ -611,25 +651,30 @@ struct CommandCenterHeroTile: View {
             .background(AppTheme.blue, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(CommandCenterLayout.glanceTitle(card.section)), \(CommandCenterLayout.compactValue(card)), \(CommandCenterLayout.displayedHealth(card).label), Stores \(card.storeCount)")
+        .accessibilityLabel("\(CommandCenterLayout.glanceTitle(painted.section)), \(CommandCenterLayout.compactValue(painted)), \(CommandCenterLayout.displayedHealth(painted).label), Stores \(painted.storeCount)")
     }
 }
 
 struct CommandCenterGlanceTile: View {
+    @EnvironmentObject private var store: HeartbeatStore
     let card: SectionSummary
     let action: () -> Void
+
+    private var painted: SectionSummary {
+        CommandCenterLayout.paintedCard(card, store: store)
+    }
 
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .center, spacing: 6) {
-                    Text(CommandCenterLayout.glanceTitle(card.section))
+                    Text(CommandCenterLayout.glanceTitle(painted.section))
                         .font(AppTheme.rounded(HubLayout.MacReadable.enabled ? .title3 : .headline, weight: .heavy))
                         .foregroundStyle(Color.white)
                         .lineLimit(2)
                         .minimumScaleFactor(0.85)
                     Spacer(minLength: 4)
-                    HealthBadge(health: CommandCenterLayout.displayedHealth(card), compact: false)
+                    HealthBadge(health: CommandCenterLayout.displayedHealth(painted), compact: false)
                 }
                 .padding(.horizontal, HubLayout.MacReadable.enabled ? 12 : 10)
                 .padding(.vertical, HubLayout.MacReadable.enabled ? 10 : 8)
@@ -637,14 +682,14 @@ struct CommandCenterGlanceTile: View {
                 .background(AppTheme.blue)
 
                 VStack(spacing: 6) {
-                    Text(CommandCenterLayout.compactValue(card))
+                    Text(CommandCenterLayout.compactValue(painted))
                         .font(AppTheme.rounded(size: HubLayout.MacReadable.enabled ? HubLayout.MacReadable.glanceValue : 26, weight: .bold).monospacedDigit())
                         .foregroundStyle(AppTheme.text)
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
                     CommandCenterGlanceIcon(
-                        section: card.section,
-                        health: CommandCenterLayout.displayedHealth(card)
+                        section: painted.section,
+                        health: CommandCenterLayout.displayedHealth(painted)
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -662,7 +707,7 @@ struct CommandCenterGlanceTile: View {
             )
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(CommandCenterLayout.glanceTitle(card.section)), \(CommandCenterLayout.compactValue(card)), \(CommandCenterLayout.displayedHealth(card).label)")
+        .accessibilityLabel("\(CommandCenterLayout.glanceTitle(painted.section)), \(CommandCenterLayout.compactValue(painted)), \(CommandCenterLayout.displayedHealth(painted).label)")
     }
 }
 
@@ -687,7 +732,8 @@ struct CommandCenterAlertsRail: View {
     var open: (MetricSection) -> Void = { _ in }
 
     private var cards: [SectionSummary] {
-        CommandCenterLayout.alertRank(MetricSection.dashboardCards.map { store.summary(for: $0) })
+        _ = store.seatPaintStamp
+        return CommandCenterLayout.alertRank(MetricSection.dashboardCards.map { store.summary(for: $0) })
     }
 
     private var liveStores: Int {

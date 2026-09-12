@@ -57,6 +57,8 @@ struct DashboardView: View {
     }
 
     private var commandCenterBody: some View {
+        let _ = store.seatPaintStamp
+        let _ = store.filters.summary
         ZStack {
             if HubLayout.isPhone(sizeClass), PulseLaunch.shouldUsePhoneNativeCommandCenter() {
                 PhoneCommandCenterHome(open: open)

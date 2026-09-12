@@ -471,6 +471,15 @@ enum PulseLaunch {
         shouldRewriteSeatRowPlaneWithChrome() && shouldRewriteSeatBoxMapsInPlaceWhenPlaneMissing()
     }
 
+    /// FILE ROOT 423 / 749. Mac Command Center samples glance/hero cards
+    /// inside GeometryReader. That closure only re-runs on size / appear —
+    /// filter `seatPaintStamp` never reaches the tiles until the user opens
+    /// a section (layout) and comes back. Tiles must read `summary` live.
+    /// Not a hub remount / `filterStamp`.
+    static func shouldBindCommandCenterDashboardToSeatPaint() -> Bool { true }
+
+    static func shouldSampleCommandCenterCardsInsideGeometryReaderOnly() -> Bool { false }
+
     /// Filter Save / chip: paint cached chrome + row plane on the tap turn
     /// before the async pack confirm. Same path phone / iPad / Mac.
     static func shouldPaintCachedSeatOnFilterTap() -> Bool { true }
