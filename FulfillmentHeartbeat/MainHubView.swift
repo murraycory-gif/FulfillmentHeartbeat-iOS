@@ -308,6 +308,68 @@ struct MainHubView: View {
     }
 
     private var sidebar: some View {
+        Group {
+            if HubLayout.isMac, PulseLaunch.shouldPlaceMacSidebarCollapseInChrome() {
+                VStack(spacing: 0) {
+                    macSidebarChrome
+                    sidebarList
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    sidebarStamp
+                }
+            } else {
+                sidebarList
+                    .navigationBarTitleDisplayMode(.inline)
+                    .navigationTitle("")
+                    .toolbarBackground(AppTheme.bg, for: .navigationBar)
+                    .toolbarBackground(.visible, for: .navigationBar)
+                    .toolbar(removing: .sidebarToggle)
+                    .toolbar {
+                        ToolbarItem(placement: .principal) {
+                            HubNavLogo()
+                        }
+                    }
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        sidebarStamp
+                    }
+            }
+        }
+    }
+
+    private var macSidebarChrome: some View {
+        HStack(spacing: 10) {
+            HubNavLogo(height: 36)
+            Spacer(minLength: 8)
+            if PulseLaunch.shouldAllowMacSidebarCollapse() {
+                Button {
+                    router.toggleMacSidebar()
+                } label: {
+                    Image(systemName: "sidebar.leading")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(AppTheme.blue)
+                        .frame(
+                            width: HubLayout.MacReadable.controlMin,
+                            height: HubLayout.MacReadable.controlMin
+                        )
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Hide pages")
+                .help("Hide pages")
+            }
+        }
+        .padding(.leading, 14)
+        .padding(.trailing, 8)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity)
+        .background(AppTheme.bg)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(AppTheme.cardBorder)
+                .frame(height: 1)
+        }
+    }
+
+    private var sidebarList: some View {
         List {
             Section("Sections") {
                 ForEach(HubDestination.sectionItems) { item in
@@ -325,54 +387,23 @@ struct MainHubView: View {
         .listStyle(.sidebar)
         .scrollContentBackground(.hidden)
         .background(AppTheme.bg)
-        .navigationBarTitleDisplayMode(.inline)
-        .navigationTitle("")
-        .toolbarBackground(AppTheme.bg, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
-        .toolbar(removing: .sidebarToggle)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                HubNavLogo()
-            }
-        }
-        .safeAreaInset(edge: .top, spacing: 0) {
-            if HubLayout.isMac, PulseLaunch.shouldAllowMacSidebarCollapse() {
-                Button {
-                    router.toggleMacSidebar()
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "sidebar.leading")
-                            .font(.body.weight(.semibold))
-                        Text("Hide pages")
-                            .font(HubLayout.MacReadable.metricLineFont)
-                        Spacer(minLength: 0)
-                    }
-                    .foregroundStyle(AppTheme.blue)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .frame(minHeight: HubLayout.MacReadable.controlMin)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Hide pages")
-            }
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            Text(BuildStamp.label)
-                .font(.caption2.weight(.semibold).monospaced())
-                .foregroundStyle(AppTheme.textTertiary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .frame(maxWidth: .infinity)
-                .background(AppTheme.card, in: Capsule(style: .continuous))
-                .overlay(Capsule(style: .continuous).stroke(AppTheme.cardBorder, lineWidth: 1))
-                .padding(.horizontal, 16)
-                .padding(.bottom, 12)
-                .padding(.top, 8)
-                .frame(maxWidth: .infinity)
-                .background(AppTheme.bg)
-                .accessibilityLabel("Build \(BuildStamp.label)")
-        }
+    }
+
+    private var sidebarStamp: some View {
+        Text(BuildStamp.label)
+            .font(.caption2.weight(.semibold).monospaced())
+            .foregroundStyle(AppTheme.textTertiary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity)
+            .background(AppTheme.card, in: Capsule(style: .continuous))
+            .overlay(Capsule(style: .continuous).stroke(AppTheme.cardBorder, lineWidth: 1))
+            .padding(.horizontal, 16)
+            .padding(.bottom, 12)
+            .padding(.top, 8)
+            .frame(maxWidth: .infinity)
+            .background(AppTheme.bg)
+            .accessibilityLabel("Build \(BuildStamp.label)")
     }
 
     private func sidebarRow(_ item: HubDestination) -> some View {

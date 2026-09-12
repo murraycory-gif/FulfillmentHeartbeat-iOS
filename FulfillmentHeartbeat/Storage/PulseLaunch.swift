@@ -917,6 +917,11 @@ enum PulseLaunch {
     /// User can close the Mac Pages rail; the center then expands to the window.
     static func shouldAllowMacSidebarCollapse() -> Bool { true }
 
+    /// Cory FAIL on 410: `safeAreaInset` "Hide pages" text floated over Loss Revenue.
+    /// Collapse lives in sidebar chrome (icon-only), never over list rows.
+    static func shouldPlaceMacSidebarCollapseInChrome() -> Bool { true }
+    static func shouldUseFloatingMacHidePagesLabel() -> Bool { false }
+
     /// Command Center / callouts must partition the live window — never overflow.
     static func shouldFitMacCommandCenterToWindow() -> Bool { true }
 

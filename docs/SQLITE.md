@@ -24,4 +24,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.410 / 1.0 (736) — Mac Share: in-content Back + reachable To/notes; 1100×860 default. Mail hop Soft KEEP. MUST P cook / no-delete path untouched.
+HB-0828.411 / 1.0 (737) — Mac sidebar collapse is an icon in rail chrome (no floating Hide pages over Loss Revenue). Share To/Back + Mail hop Soft KEEP. MUST P / PTR untouched.
