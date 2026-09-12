@@ -9,6 +9,7 @@ struct OverviewSalesBlock: View {
     private var phone: Bool { HubLayout.usesPhoneScorecards(sizeClass: sizeClass) }
 
     var body: some View {
+        let _ = store.seatPaintStamp
         let stores = store.salesStores()
         let total = SalesPack(rows: stores)
         let mid = midRows(from: stores)

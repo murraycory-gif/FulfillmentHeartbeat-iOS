@@ -453,6 +453,24 @@ enum PulseLaunch {
         rowStoreCount == chromeStoreCount
     }
 
+    /// FILE ROOT 422 / 748. LRU ≤2 may evict the incoming plane.
+    /// Missing plane still rewrites `latestBySection` / `filteredLatest`
+    /// same turn as chrome (thin pack read + row install). Chrome-now /
+    /// rows-later is the dual-identity FAIL. No PulseCaches / expand / grain.
+    static func shouldRewriteSeatBoxMapsInPlaceWhenPlaneMissing() -> Bool { true }
+
+    static func shouldDropStaleSeatRowsWhenPlaneMissing() -> Bool { true }
+
+    /// Stamp only after box maps match incoming chrome. Coalesce may eat a
+    /// chrome-only stamp; leftover maps then never publish.
+    static func shouldStampSeatPaintBeforeBoxMapsRewrite() -> Bool { false }
+
+    static func shouldPublishSeatPaintAfterBoxMapsRewrite() -> Bool { true }
+
+    static func shouldRewriteSeatBoxMapsSameTurnAsChrome() -> Bool {
+        shouldRewriteSeatRowPlaneWithChrome() && shouldRewriteSeatBoxMapsInPlaceWhenPlaneMissing()
+    }
+
     /// Filter Save / chip: paint cached chrome + row plane on the tap turn
     /// before the async pack confirm. Same path phone / iPad / Mac.
     static func shouldPaintCachedSeatOnFilterTap() -> Bool { true }

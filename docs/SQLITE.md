@@ -24,4 +24,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.421 / 1.0 (747) — Idle/after-open: no xlsx ingest/cook, no picker fill-after-ready. Tiny LRU + Clear/snappy KEEP. MUST P vs a9e2f68.
+HB-0828.422 / 1.0 (748) — Box maps rewrite same turn as chrome (LRU miss in-place). Idle/Clear/snappy KEEP. MUST P vs a9e2f68.

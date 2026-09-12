@@ -2184,7 +2184,7 @@ final class HeartbeatStore: ObservableObject {
         hydrating = false
         if let chrome = cachedChrome(for: key) {
             applySeatChrome(chrome, key: key)
-            publishSeatPaint()
+            publishSeatPaintAfterBoxMaps(for: key)
         }
         if PulseLaunch.shouldLeaveRoleGateBeforeSeatWarehouse() {
             revealHubAfterSeat()
@@ -2278,6 +2278,8 @@ final class HeartbeatStore: ObservableObject {
             self.filters = DashboardFilters()
             self.hydrating = false
             self.persistFilters()
+            self.paintGeneration += 1
+            self.pageOnlyGeneration = -1
             await self.swapToSeatPack(.company)
             self.refreshFilterOptions()
         }
@@ -2365,7 +2367,7 @@ final class HeartbeatStore: ObservableObject {
                 applySeatChrome(chrome, key: key)
             }
             rememberSeatChrome(key)
-            publishSeatPaint()
+            publishSeatPaintAfterBoxMaps(for: key)
             return true
         case .paintCachedThenSwap:
             if let chrome = cached {
@@ -2379,14 +2381,14 @@ final class HeartbeatStore: ObservableObject {
                 activeSeatKey = key
                 activePackURL = dest
                 rememberSeatChrome(key)
-                publishSeatPaint()
+                publishSeatPaintAfterBoxMaps(for: key)
             }
             guard localUsable else {
                 failSeatSwap(key)
                 return false
             }
             if PulseLaunch.shouldDeferIncomingSeatInstallAfterCachedChrome(
-                hasRowPlane: seatRowPlanes[key] != nil
+                hasRowPlane: seatBoxMapsReady(for: key)
             ) {
                 if PulseLaunch.shouldReinstallSeatPackWhenRowPlanePainted() {
                     scheduleDeferredSeatInstall(key, dest: dest)
@@ -2435,7 +2437,7 @@ final class HeartbeatStore: ObservableObject {
         if PulseLaunch.shouldStampHubOnSeatSwap(clearingToCompany: key == .company && !filters.isActive) {
             filterStamp += 1
         }
-        publishSeatPaint(force: true)
+        publishSeatPaintAfterBoxMaps(for: key)
         return true
     }
 
@@ -2453,6 +2455,21 @@ final class HeartbeatStore: ObservableObject {
         }
         lastPublishedSeatPaintGeneration = paintGeneration
         seatPaintStamp += 1
+    }
+
+    /// One stamp after `latestBySection` / `filteredLatest` match incoming.
+    /// Chrome-only stamps leave leftover THIS WEEK / THIS SEAT on screen.
+    private func publishSeatPaintAfterBoxMaps(for key: PulseSeatPack.Key) {
+        guard PulseLaunch.shouldPublishSeatPaintAfterBoxMapsRewrite() else {
+            publishSeatPaint()
+            return
+        }
+        guard seatBoxMapsReady(for: key) else { return }
+        publishSeatPaint()
+    }
+
+    private func seatBoxMapsReady(for key: PulseSeatPack.Key) -> Bool {
+        lastPaintedSeatKey == key && (!latestBySection.isEmpty || !filteredLatest.isEmpty)
     }
 
     private func scheduleDeferredSeatInstall(_ key: PulseSeatPack.Key, dest: URL) {
@@ -2569,10 +2586,20 @@ final class HeartbeatStore: ObservableObject {
         return true
     }
 
-    private func applySeatChrome(_ chrome: PulseDashChrome, key: PulseSeatPack.Key) {
-        lastPaintedSeatKey = key
-        if PulseLaunch.shouldRewriteSeatRowPlaneWithChrome() {
-            applyCachedSeatRowPlane(for: key)
+    private func applySeatChrome(
+        _ chrome: PulseDashChrome,
+        key: PulseSeatPack.Key,
+        rewriteMissingMaps: Bool = true
+    ) {
+        var mapsReady = PulseLaunch.shouldRewriteSeatRowPlaneWithChrome()
+            && applyCachedSeatRowPlane(for: key)
+        if !mapsReady,
+           rewriteMissingMaps,
+           PulseLaunch.shouldRewriteSeatBoxMapsInPlaceWhenPlaneMissing() {
+            if PulseLaunch.shouldDropStaleSeatRowsWhenPlaneMissing() {
+                dropStaleSeatBoxMaps()
+            }
+            mapsReady = rewriteSeatBoxMapsFromLocalPack(key)
         }
         if key == .company {
             applyDashChrome(chrome)
@@ -2581,6 +2608,32 @@ final class HeartbeatStore: ObservableObject {
             applyPreRolledSeatChrome(chrome)
         }
         seatChromeByKey[key] = chrome
+        if mapsReady {
+            lastPaintedSeatKey = key
+        }
+    }
+
+    /// LRU evicted the plane. Do not keep leftover District rows under new chrome.
+    private func dropStaleSeatBoxMaps() {
+        latestBySection = [:]
+        filteredLatest = [:]
+        cachedSalesScopeRows = []
+        cachedSalesDayRows = []
+    }
+
+    /// Thin same-turn rewrite. Rows + roster only — no PulseCaches / expand / grain.
+    @discardableResult
+    private func rewriteSeatBoxMapsFromLocalPack(_ key: PulseSeatPack.Key) -> Bool {
+        let dest = PulseSeatPack.localURL(root: rootURL, key: key)
+        if key == .company, !PulseLaunch.isCompanySeatSizeAllowed(PulseSQLite.fileBytes(at: dest)) {
+            return false
+        }
+        guard PulseSeatPack.isUsable(at: dest) else { return false }
+        guard let pack = try? PulseSQLite.read(from: dest, skipping: seatReadSkip(for: key)) else {
+            return false
+        }
+        installSeatRowsFromPack(pack, key: key)
+        return !latestBySection.isEmpty || !filteredLatest.isEmpty
     }
 
     @discardableResult
@@ -2601,8 +2654,9 @@ final class HeartbeatStore: ObservableObject {
         guard let pack = await Self.readSeatPack(at: dest, skipping: seatReadSkip(for: key)) else { return false }
         guard !Task.isCancelled else { return false }
         if let chrome = pack.chrome {
-            applySeatChrome(chrome, key: key)
-            if PulseLaunch.shouldPublishSeatPaintAfterChromeBeforeCaches() {
+            applySeatChrome(chrome, key: key, rewriteMissingMaps: false)
+            if PulseLaunch.shouldPublishSeatPaintAfterChromeBeforeCaches(),
+               PulseLaunch.shouldStampSeatPaintBeforeBoxMapsRewrite() {
                 publishSeatPaint()
             }
         }
@@ -2619,6 +2673,7 @@ final class HeartbeatStore: ObservableObject {
             hydrating = false
         } else {
             installSeatRowsFromPack(pack, key: key)
+            lastPaintedSeatKey = key
         }
         usingPackChrome = pack.chrome != nil
         seeded = true
@@ -4031,7 +4086,7 @@ final class HeartbeatStore: ObservableObject {
             if PulseLaunch.shouldPaintCachedSeatOnFilterTap(),
                let chrome = cachedChrome(for: key) {
                 applySeatChrome(chrome, key: key)
-                publishSeatPaint()
+                publishSeatPaintAfterBoxMaps(for: key)
             }
             refilterTask = Task { @MainActor in
                 await self.swapToSeatPack(key)
