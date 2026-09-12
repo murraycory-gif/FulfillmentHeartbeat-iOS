@@ -2173,7 +2173,8 @@ enum PulseLaunch {
         if mac, !shouldPresentMFMailComposeOnMac() { return false }
         return canSendMail
     }
-    /// Catalyst: NSSharingService / AppKit composeEmail is unavailable. Do not compile it in.
+    /// MUST 8: no AppKit sharing composer on Catalyst. File deleted from the target.
+    static func shouldCompileMacMailComposer() -> Bool { false }
     static func shouldUseAppKitSharingServiceOnMacCatalyst() -> Bool { false }
     static func shouldUseMacSharingServiceForMailSend() -> Bool { false }
     static func shouldTreatSharingDidShareAsMailSent() -> Bool { false }

@@ -1,8 +1,8 @@
-# HB-0828.416 / 742 — verify (Catalyst compile: no AppKit Mail; MFMailCompose hop)
+# HB-0828.417 / 743 — verify (MUST 8: banned composer off target; MFMailCompose hop)
 
 **Tip** `origin/cursor/command-center-8b-3389` · [PR #5](https://github.com/murraycory-gif/FulfillmentHeartbeat-iOS/pull/5)
-**Stamp** `HB-0828.416  1.0 (742)` · bundle `com.corymurray.FulfillmentHeartbeat`
-**No TestFlight until this PASSes.** HARD TF HOLD until Mac inbox PASS. Do not delete the app. Cloud Linux cannot `xcodebuild` or talk to a Mac/iPad (no self-hosted worker registered). Soft FAIL `a7822f6` / 415: `MacMailComposer` used AppKit `NSSharingService` — unavailable on Mac Catalyst. 416 deletes that file. Mail path is `MFMailComposeViewController` only. FILE ROOT MUST 1–5 stand: valid To; Back+To above fold; refuse empty To; mailto ≠ sent; hop dismiss → 350ms → keyWindowRoot → MFMailCompose. No Sent toast. No PulseSeatPack / writeHTML. MUST K scroll + MUST C file-only.
+**Stamp** `HB-0828.417  1.0 (743)` · bundle `com.corymurray.FulfillmentHeartbeat`
+**No TestFlight until this PASSes.** HARD TF HOLD until Mac inbox PASS. Do not delete the app. Cloud Linux cannot `xcodebuild` or talk to a Mac/iPad (no self-hosted worker registered). Soft FAIL `a7822f6` / .415 / 741: banned AppKit composer still in the Catalyst target. **MUST 8:** that file is deleted from disk and pbx Sources. Mail path is `MFMailComposeViewController` only (dismiss → 350ms → `keyWindowRoot`). MUST SEND 1–7 stand. MUST K file PASS. MUST P `PulseSeatPack` identical vs `a9e2f68`. Re-AUDIT this SHA after Mac-green compile.
 
 ## CoS first — Mac Catalyst (over existing app)
 
@@ -17,10 +17,10 @@ Quit Heartbeat from the **Dock** (not just the window). Reopen.
 
 | Check | Pass |
 |---|---|
-| Sidebar stamp | `HB-0828.416  1.0 (742)` — fully visible, not under the dock / window edge |
+| Sidebar stamp | `HB-0828.417  1.0 (743)` — fully visible, not under the dock / window edge |
 | Mac compile | `./install-mac.sh` succeeds. `HubSeatPackRefreshModifier` is file-scope next to `HubPhoneTableModifier` — not nested in `extension View`. |
 | Sales | **~$58M** and **Thursday / `sales_d4`** (not ~$49M / Wednesday) |
-| Automated test | `testArchitecture416NoAppKitSharingServiceOnCatalyst` + 415 Soft KEEP green |
+| Automated test | `testArchitecture417MacMailComposerDeletedFromTarget` + 416/415 Soft KEEP green |
 | Company tables | Visible page / chrome only — not all 12 cards rebuilt into RAM |
 | THIS SEAT | Every section live when the hero is live. No ghost dashes/zeros. |
 | Share Mail | Share pulse → Send → **Mail stays up**. |
@@ -60,7 +60,7 @@ git reset --hard origin/cursor/command-center-8b-3389
 SKIP_PULL=1 ALLOW_PHONE=1 ./install-ipad.sh
 ```
 
-1. Confirm stamp **HB-0828.416  1.0 (742)**. Pages stays on phone. No phone Back chevron. Tighter CC / section cards.
+1. Confirm stamp **HB-0828.417  1.0 (743)**. Pages stays on phone. No phone Back chevron. Tighter CC / section cards.
 2. **Force-quit.** Reopen. Do **not** delete.
 3. 5 Star / Pick Path / Prep / Picker / Labor THIS SEAT still live keys (MUST 1).
 4. Share Send still presents Mail.
