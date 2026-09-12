@@ -2138,28 +2138,53 @@ enum PulseLaunch {
     static func macShareMailDidShareCopy() -> String {
         "Mail sent the recap. Heartbeat only reports sent after you click Send in Mail."
     }
+    static func shareMailMissingToCopy() -> String {
+        "Add a To address before Send. Heartbeat did not send this email."
+    }
+    static func shareMailComposeFailedCopy() -> String {
+        "Mail could not send this recap. Heartbeat did not send this email."
+    }
     static var shareSheetDismissSettleNanoseconds: UInt64 { 350_000_000 }
 
-    /// Mac Catalyst: MFMailCompose canSendMail / .sent is a false delivery.
-    static func shouldPresentMFMailComposeOnMac() -> Bool { false }
+    /// FILE ROOT: empty To dismissed the sheet, then silent mailto / no recipient.
+    static func shouldRequireShareRecapToAddress() -> Bool { true }
+    static func shouldRefusePresentMailWithoutTo() -> Bool { true }
+    static func shouldPinMacShareToAboveFold() -> Bool { true }
+    static func shouldScrollMacShareComposeFields() -> Bool { true }
+    static func shouldShowShareSentToast() -> Bool { false }
+    static func shouldSurfaceMailComposeFailed() -> Bool { true }
+    static func shouldFinishShareActivityBeforeMailSent() -> Bool { false }
+
+    static func shareRecapToAddresses(_ raw: String) -> [String] {
+        raw.split(whereSeparator: { ",; ".contains($0) })
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { $0.contains("@") }
+    }
+
+    static func shouldAllowShareSend(to: String, htmlReady: Bool) -> Bool {
+        htmlReady && !shareRecapToAddresses(to).isEmpty
+    }
+
+    /// KEEP hop: dismiss → 350ms → keyWindowRoot → MFMailCompose. mailto ≠ sent.
+    static func shouldPresentMFMailComposeOnMac() -> Bool { true }
     static func shouldTreatMailtoOpenAsSent() -> Bool { false }
     static func shouldRequireUserSendInMailAppOnMac() -> Bool { true }
     static func shouldUseInAppMailCompose(canSendMail: Bool, mac: Bool) -> Bool {
         if mac, !shouldPresentMFMailComposeOnMac() { return false }
         return canSendMail
     }
-    static func shouldUseMacSharingServiceForMailSend() -> Bool { true }
-    static func shouldTreatSharingDidShareAsMailSent() -> Bool { true }
+    static func shouldUseMacSharingServiceForMailSend() -> Bool { false }
+    static func shouldTreatSharingDidShareAsMailSent() -> Bool { false }
     static func shouldAnnounceMailSent(
         mailtoOpened: Bool,
         composeResultSent: Bool,
         sharingDidShare: Bool = false,
         mac: Bool
     ) -> Bool {
-        if mac {
-            return sharingDidShare && shouldTreatSharingDidShareAsMailSent()
-        }
+        if !shouldShowShareSentToast() { return false }
         if shouldTreatMailtoOpenAsSent(), mailtoOpened { return true }
+        if mac, sharingDidShare, shouldTreatSharingDidShareAsMailSent() { return true }
+        if mac { return false }
         return composeResultSent && !mailtoOpened
     }
 

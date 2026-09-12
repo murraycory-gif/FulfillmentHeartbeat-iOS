@@ -24,4 +24,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.414 / 1.0 (740) — Mac Command Center scrolls readable tiles (overflows() gate). Mac Share send completion is NSSharingService didShareItems — mailto is not delivery. Hide-pages file-only. MUST P / PTR untouched.
+HB-0828.415 / 1.0 (741) — Mac Share requires To; hop is dismiss → MFMailCompose. mailto ≠ sent. No Sent toast. Mac CC scrolls readable tiles (overflows() gate). Hide-pages file-only. MUST P / PTR untouched.

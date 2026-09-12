@@ -1,8 +1,8 @@
-# HB-0828.414 / 740 — verify (Mac CC scrolls readable tiles; Mail send completion)
+# HB-0828.415 / 741 — verify (Mac Share To + MFMailCompose hop; CC scroll)
 
 **Tip** `origin/cursor/command-center-8b-3389` · [PR #5](https://github.com/murraycory-gif/FulfillmentHeartbeat-iOS/pull/5)
-**Stamp** `HB-0828.414  1.0 (740)` · bundle `com.corymurray.FulfillmentHeartbeat`
-**No TestFlight until this PASSes.** HARD TF HOLD. Do not delete the app. Cloud Linux cannot `xcodebuild` or talk to a Mac/iPad (no self-hosted worker registered). 411 leftover-fill clipped Prep (CommandCenterView byte-identical vs 213cf11). 412 paper clip patch rejected. 413 mailto hop ≠ delivery. 414: Mac Command Center scrolls readable MUST M tiles (`overflows()` is the gate). Mac Share Send uses `NSSharingService.composeEmail`; “Recap sent” only on `didShareItems`. MUST C hide-pages is file-only, not KEEP.
+**Stamp** `HB-0828.415  1.0 (741)` · bundle `com.corymurray.FulfillmentHeartbeat`
+**No TestFlight until this PASSes.** HARD TF HOLD until Mac inbox PASS. Do not delete the app. Cloud Linux cannot `xcodebuild` or talk to a Mac/iPad (no self-hosted worker registered). FILE ROOT: empty To dismissed then silent mailto; activityDidFinish(true) before real send; closer ignored .failed. 415: block empty To; Mac To/Back above fold; presentMailOn refuses empty To; KEEP hop dismiss → 350ms → keyWindowRoot → MFMailCompose. No Sent toast. MUST K: Mac CC scrolls readable tiles (`overflows()` is the gate). MUST C hide-pages is file-only, not KEEP.
 
 ## CoS first — Mac Catalyst (over existing app)
 
@@ -17,17 +17,17 @@ Quit Heartbeat from the **Dock** (not just the window). Reopen.
 
 | Check | Pass |
 |---|---|
-| Sidebar stamp | `HB-0828.414  1.0 (740)` — fully visible, not under the dock / window edge |
+| Sidebar stamp | `HB-0828.415  1.0 (741)` — fully visible, not under the dock / window edge |
 | Mac compile | `./install-mac.sh` succeeds. `HubSeatPackRefreshModifier` is file-scope next to `HubPhoneTableModifier` — not nested in `extension View`. |
 | Sales | **~$58M** and **Thursday / `sales_d4`** (not ~$49M / Wednesday) |
-| Automated test | `testArchitecture414MacScrollAndMailSendCompletion` + 413/412/411 Soft KEEP green |
+| Automated test | `testArchitecture415MacShareToAndMailHop` + 414/413 Soft KEEP green |
 | Company tables | Visible page / chrome only — not all 12 cards rebuilt into RAM |
 | THIS SEAT | Every section live when the hero is live. No ghost dashes/zeros. |
 | Share Mail | Share pulse → Send → **Mail stays up**. |
 | Mac Picker | Top Opportunity headers stay (MUST H). |
 | Mac Pages | **No Pages button** in the top brand bar. Sidebar-leading **icon** sits in rail chrome (logo row) — never a floating "Hide pages" label over Loss Revenue / any list row. Icon collapses the rail; slim rail icon reopens it. Center expands and reflows on window resize. |
 | Mac clip | **Prep** glance (last of 9) is fully visible after scroll. Tiles stay MUST M size (glance floor 196) — do not leftover-fill to `geo.size.height`. `overflows()` is the scroll-indicator gate. Sidebar stamp visible. |
-| Mac Share | **New Message** opens at **1100×860**. Navy **Back**, clickable **To**, notes, +/−. Send dismisses the sheet (730 hop) then `NSSharingService.composeEmail`. Click **Send in Mail**. Heartbeat says **Recap sent** only after `didShareItems`. Cancel/close says **Mail did not send**. mailto + **Finish in Mail** is fallback only — never claims sent. Recipient gets the email after Send. |
+| Mac Share | **New Message** opens at **1100×860**. Navy **Back** + **To** hit-testable above the fold (fields scroll). Send stays disabled until a valid To. Send dismisses the sheet (730 hop) then **MFMailCompose** on `keyWindowRoot`. Empty To never opens mailto. No **Recap sent** toast. Mail compose `.failed` surfaces **Mail did not send**. Recipient inbox must get the email. |
 | Pull-to-refresh | Phone / iPad / Mac Command Center + section pages pull the **same** no-delete seat-repull as cold open (remote `updated_at` newer). No hub remount / filterStamp. |
 
 ## Soft KEEP (Architecture)
@@ -46,7 +46,7 @@ Quit Heartbeat from the **Dock** (not just the window). Reopen.
 | Pull-to-refresh seat-repull | MUST — same `importCloudSQLiteIfPresent` / remote-newer check as cold open. `shouldStampHubOnPullToRefresh() == false`. MUST P no-delete Soft KEEP. |
 | File-scope refresh modifier | MUST — `HubSeatPackRefreshModifier` stays at file scope. Nesting a `ViewModifier` in `extension View` is a compile FAIL. |
 | Mac Command Center scroll | MUST K — `shouldFillMacViewport() == false`. Readable tiles + ScrollView. `overflows()` is the gate. Do not leftover-fill or paper slack/minGlance. |
-| Mac Share send completion | MUST S — `shouldPresentMFMailComposeOnMac() == false`. `shouldTreatMailtoOpenAsSent() == false`. “Recap sent” only when `sharingDidShare == true`. Mailto/copy is not delivery. |
+| Mac Share send | MUST — valid To required. `presentMailOn` refuses empty To. Hop: dismiss → 350ms → `keyWindowRoot` → MFMailCompose. mailto ≠ sent. `activityDidFinish` stays false until real send. Closer surfaces `.failed`. No Sent toast. Do not edit `writeHTML` / `dataTable` / PulseSeatPack. |
 
 ## QC — iPhone (THIS SEAT)
 
@@ -60,11 +60,11 @@ git reset --hard origin/cursor/command-center-8b-3389
 SKIP_PULL=1 ALLOW_PHONE=1 ./install-ipad.sh
 ```
 
-1. Confirm stamp **HB-0828.414  1.0 (740)**. Pages stays on phone. No phone Back chevron. Tighter CC / section cards.
+1. Confirm stamp **HB-0828.415  1.0 (741)**. Pages stays on phone. No phone Back chevron. Tighter CC / section cards.
 2. **Force-quit.** Reopen. Do **not** delete.
 3. 5 Star / Pick Path / Prep / Picker / Labor THIS SEAT still live keys (MUST 1).
 4. Share Send still presents Mail.
-5. **Mac:** no top Pages button; sidebar-leading icon in the rail chrome collapses the list — Loss Revenue is fully visible, no Hide pages text on top of it. Command Center **Prep** (last of 9) is fully visible after scroll — no leftover-fill clip. Share → New Message: navy Back, clickable To, notes, +/−. Send → Mail compose → click Send. Heartbeat says **Recap sent** only after send. Recipient gets the email. Cancel must not say sent.
+5. **Mac:** no top Pages button; sidebar-leading icon in the rail chrome collapses the list — Loss Revenue is fully visible, no Hide pages text on top of it. Command Center **Prep** (last of 9) is fully visible after scroll — no leftover-fill clip. Share → New Message: navy Back + To above the fold; Send disabled until a valid To. Send hop → MFMailCompose. No Recap sent toast. Recipient inbox must get the email. Cancel / `.failed` must not claim sent.
 
 UDID `676FA816-88AE-59D9-A89D-5C17BFC2DA96` if you target that iPad.
 

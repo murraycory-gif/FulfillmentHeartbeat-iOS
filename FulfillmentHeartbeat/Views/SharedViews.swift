@@ -1449,17 +1449,46 @@ struct ShareRecapCompose: View {
     private var macCompose: some View {
         VStack(spacing: 0) {
             MacShareComposeChrome(title: "New Message", backTitle: "Back", onBack: onBack)
-            composeFields
-                .fixedSize(horizontal: false, vertical: true)
-                .layoutPriority(1)
-            previewBanner
-            previewBody
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .frame(minHeight: PulseLaunch.shouldPinMacShareComposeFields() ? 220 : 280)
-                .layoutPriority(0)
+                .zIndex(2)
+            if PulseLaunch.shouldPinMacShareToAboveFold() {
+                toFieldRow
+                    .padding(.horizontal, 20)
+                    .padding(.top, 16)
+                    .padding(.bottom, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(AppTheme.card)
+                    .zIndex(2)
+            }
+            Group {
+                if PulseLaunch.shouldScrollMacShareComposeFields() {
+                    ScrollView {
+                        macScrollableCompose
+                    }
+                } else {
+                    macScrollableCompose
+                }
+            }
             sendBar
         }
         .background(AppTheme.bg)
+    }
+
+    private var macScrollableCompose: some View {
+        VStack(spacing: 0) {
+            if PulseLaunch.shouldPinMacShareToAboveFold() {
+                remainingComposeFields
+            } else {
+                composeFields
+            }
+            previewBanner
+            previewBody
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: PulseLaunch.shouldPinMacShareComposeFields() ? 220 : 280)
+        }
+    }
+
+    private var canSendRecap: Bool {
+        PulseLaunch.shouldAllowShareSend(to: to, htmlReady: htmlReady)
     }
 
     private var phonePadCompose: some View {
@@ -1490,16 +1519,19 @@ struct ShareRecapCompose: View {
         }
     }
 
-    private var composeFields: some View {
+    private var toFieldRow: some View {
+        HStack(alignment: .center, spacing: 10) {
+            Text("To:")
+                .font(macShare ? HubLayout.MacReadable.metricLineFont.weight(.semibold) : .body)
+                .foregroundStyle(AppTheme.textSecondary)
+                .frame(width: macShare ? 72 : 56, alignment: .leading)
+            toAddressField
+        }
+        .contentShape(Rectangle())
+    }
+
+    private var subjectAndNotes: some View {
         VStack(alignment: .leading, spacing: macShare ? 12 : 8) {
-            HStack(alignment: .center, spacing: 10) {
-                Text("To:")
-                    .font(macShare ? HubLayout.MacReadable.metricLineFont.weight(.semibold) : .body)
-                    .foregroundStyle(AppTheme.textSecondary)
-                    .frame(width: macShare ? 72 : 56, alignment: .leading)
-                toAddressField
-            }
-            Divider()
             HStack(alignment: .firstTextBaseline, spacing: 10) {
                 Text("Subject:")
                     .font(macShare ? HubLayout.MacReadable.metricLineFont.weight(.semibold) : .body)
@@ -1536,6 +1568,25 @@ struct ShareRecapCompose: View {
                         }
                 }
             }
+        }
+    }
+
+    private var remainingComposeFields: some View {
+        VStack(alignment: .leading, spacing: macShare ? 12 : 8) {
+            Divider()
+            subjectAndNotes
+        }
+        .padding(.horizontal, macShare ? 20 : 16)
+        .padding(.vertical, macShare ? 16 : 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppTheme.card)
+    }
+
+    private var composeFields: some View {
+        VStack(alignment: .leading, spacing: macShare ? 12 : 8) {
+            toFieldRow
+            Divider()
+            subjectAndNotes
         }
         .padding(.horizontal, macShare ? 20 : 16)
         .padding(.vertical, macShare ? 16 : 12)
@@ -1598,27 +1649,23 @@ struct ShareRecapCompose: View {
             .padding(.vertical, 14)
         }
         .buttonStyle(PrimaryButtonStyle())
-        .disabled(!htmlReady)
+        .disabled(!canSendRecap)
         .padding(.horizontal, 20)
         .padding(.vertical, 12)
         .background(AppTheme.bg)
     }
 
     private func sendMail() {
+        guard canSendRecap else { return }
         let outgoing = PulseMail.applyingUserNotes(packet, notes: notes)
-        let recipients = emails
+        let recipients = PulseLaunch.shareRecapToAddresses(to)
+        guard !recipients.isEmpty else { return }
         router.showShare = false
         dismiss()
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: PulseLaunch.shareSheetDismissSettleNanoseconds)
             PulseShare.presentMail(outgoing, to: recipients)
         }
-    }
-
-    private var emails: [String] {
-        to.split(whereSeparator: { ",; ".contains($0) })
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { $0.contains("@") }
     }
 }
 
@@ -11963,7 +12010,7 @@ final class MailShareActivity: UIActivity {
 
     override func perform() {
         let packet = self.packet
-        activityDidFinish(false)
+        activityDidFinish(PulseLaunch.shouldFinishShareActivityBeforeMailSent())
         Task { @MainActor in
             PulseShare.presentMail(packet)
         }
@@ -11976,7 +12023,9 @@ private final class PulseMailCloser: NSObject, MFMailComposeViewControllerDelega
         didFinishWith result: MFMailComposeResult,
         error: Error?
     ) {
-        controller.dismiss(animated: true)
+        controller.dismiss(animated: true) {
+            PulseShare.surfaceMailComposeFinish(result: result, error: error)
+        }
     }
 }
 
@@ -12002,7 +12051,7 @@ final class OutlookLaunchActivity: UIActivity {
     override func perform() {
         let subject = self.subject
         let urls = jpegURLs
-        activityDidFinish(true)
+        activityDidFinish(PulseLaunch.shouldFinishShareActivityBeforeMailSent())
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             PulseShare.openOutlook(subject: subject, jpegURLs: urls)
         }
@@ -12028,7 +12077,7 @@ final class OutlookShareActivity: UIActivity {
 
     override func perform() {
         let packet = self.packet
-        activityDidFinish(true)
+        activityDidFinish(PulseLaunch.shouldFinishShareActivityBeforeMailSent())
         Task { @MainActor in
             await PulseShare.openOutlook(packet)
         }
@@ -12118,11 +12167,30 @@ enum PulseShare {
     }
 
     @MainActor
+    static func surfaceMailComposeFinish(result: MFMailComposeResult, error: Error?) {
+        guard PulseLaunch.shouldSurfaceMailComposeFailed() else { return }
+        guard result == .failed || error != nil else { return }
+        presentShareMailStatus(
+            on: keyWindowRoot(),
+            title: "Mail did not send",
+            message: PulseLaunch.shareMailComposeFailedCopy()
+        )
+    }
+
+    @MainActor
     private static func presentMailOn(
         presenter: UIViewController?,
         packet: PulseMail.Packet,
         to: [String]
     ) {
+        if PulseLaunch.shouldRefusePresentMailWithoutTo(), to.isEmpty {
+            presentShareMailStatus(
+                on: presenter,
+                title: "Add a To address",
+                message: PulseLaunch.shareMailMissingToCopy()
+            )
+            return
+        }
         let mac = HubLayout.isMac
         guard PulseLaunch.shouldUseInAppMailCompose(
             canSendMail: MFMailComposeViewController.canSendMail(),
@@ -12163,35 +12231,15 @@ enum PulseShare {
         to: [String],
         on presenter: UIViewController?
     ) {
-        copyRecapToPasteboard(packet)
-        if PulseLaunch.shouldUseMacSharingServiceForMailSend() {
-            var items: [Any] = []
-            if let file = writeHTMLFile(packet) {
-                items.append(file)
-            }
-            let html = PulseMail.html(from: packet)
-            items.append(html.isEmpty ? packet.brief : html)
-            let started = MacMailComposer.compose(
-                subject: packet.subject,
-                recipients: to,
-                items: items
-            ) { shared in
-                let sent = PulseLaunch.shouldAnnounceMailSent(
-                    mailtoOpened: false,
-                    composeResultSent: false,
-                    sharingDidShare: shared,
-                    mac: true
-                )
-                presentShareMailStatus(
-                    on: presenter,
-                    title: sent ? "Recap sent" : "Mail did not send",
-                    message: sent
-                        ? PulseLaunch.macShareMailDidShareCopy()
-                        : PulseLaunch.shareMailOpenFailedCopy()
-                )
-            }
-            if started { return }
+        if PulseLaunch.shouldRefusePresentMailWithoutTo(), to.isEmpty {
+            presentShareMailStatus(
+                on: presenter,
+                title: "Add a To address",
+                message: PulseLaunch.shareMailMissingToCopy()
+            )
+            return
         }
+        copyRecapToPasteboard(packet)
         openMailto(packet, to: to, shortBody: true) { opened in
             let sent = PulseLaunch.shouldAnnounceMailSent(
                 mailtoOpened: opened,
@@ -12199,9 +12247,10 @@ enum PulseShare {
                 sharingDidShare: false,
                 mac: true
             )
+            if sent { return }
             presentShareMailStatus(
                 on: presenter,
-                title: sent ? "Mail" : (opened ? "Finish in Mail" : "Mail did not send"),
+                title: opened ? "Finish in Mail" : "Mail did not send",
                 message: opened
                     ? PulseLaunch.macShareMailOpenedCopy()
                     : PulseLaunch.shareMailOpenFailedCopy()
@@ -12215,6 +12264,14 @@ enum PulseShare {
         to: [String],
         on presenter: UIViewController?
     ) {
+        if PulseLaunch.shouldRefusePresentMailWithoutTo(), to.isEmpty {
+            presentShareMailStatus(
+                on: presenter,
+                title: "Add a To address",
+                message: PulseLaunch.shareMailMissingToCopy()
+            )
+            return
+        }
         copyRecapToPasteboard(packet)
         openMailto(packet, to: to, shortBody: HubLayout.isMac) { opened in
             let sent = PulseLaunch.shouldAnnounceMailSent(
@@ -12271,6 +12328,10 @@ enum PulseShare {
         shortBody: Bool,
         done: @escaping (Bool) -> Void
     ) {
+        if PulseLaunch.shouldRefusePresentMailWithoutTo(), to.isEmpty {
+            done(false)
+            return
+        }
         let subject = encode(packet.subject)
         let body = encode(
             shortBody
@@ -12278,9 +12339,7 @@ enum PulseShare {
                 : packet.brief
         )
         let recipients = to.joined(separator: ",")
-        let urlString = to.isEmpty
-            ? "mailto:?subject=\(subject)&body=\(body)"
-            : "mailto:\(recipients)?subject=\(subject)&body=\(body)"
+        let urlString = "mailto:\(recipients)?subject=\(subject)&body=\(body)"
         guard let url = URL(string: urlString), UIApplication.shared.canOpenURL(url) else {
             done(false)
             return
