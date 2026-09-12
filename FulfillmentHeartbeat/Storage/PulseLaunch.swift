@@ -2108,6 +2108,30 @@ enum PulseLaunch {
     }
     static var shareSheetDismissSettleNanoseconds: UInt64 { 350_000_000 }
 
+    /// Mac Catalyst Share / New Message: bigger default, user-resizable, preview + notes.
+    /// Mail presenter hop (dismiss sheet → keyWindowRoot → presentMail) stays Soft KEEP.
+    static func shouldUseMacShareResizableSheet() -> Bool { true }
+    static func shouldShowMacShareEmailPreview() -> Bool { true }
+    static func shouldOfferShareComposeNotes() -> Bool { true }
+    static func macShareSheetDefaultStep() -> Int { 1 }
+    static func macShareSheetMinStep() -> Int { 0 }
+    static func macShareSheetMaxStep() -> Int { 2 }
+    static func macShareSheetWidth(step: Int) -> CGFloat {
+        switch step {
+        case 0: return 720
+        case 2: return 1180
+        default: return 960
+        }
+    }
+    static func macShareSheetHeight(step: Int) -> CGFloat {
+        switch step {
+        case 0: return 560
+        case 2: return 960
+        default: return 780
+        }
+    }
+    static let macShareSheetSizeDefaultsKey = "hb.macShareSheetSize"
+
     /// Apple Mail clips wide `overflow-x` tables. Stack each grain/store row
     /// as a 100% card so Regions columns stay readable on phone width.
     static func shouldStackShareTablesForMailClients() -> Bool { true }

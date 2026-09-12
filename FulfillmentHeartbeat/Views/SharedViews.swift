@@ -1082,6 +1082,52 @@ struct FilterBar: View {
     }
 }
 
+private struct MacShareSheetChrome: ViewModifier {
+    @AppStorage(PulseLaunch.macShareSheetSizeDefaultsKey) private var step = PulseLaunch.macShareSheetDefaultStep()
+
+    func body(content: Content) -> some View {
+        if HubLayout.isMac, PulseLaunch.shouldUseMacShareResizableSheet() {
+            let width = PulseLaunch.macShareSheetWidth(step: step)
+            let height = PulseLaunch.macShareSheetHeight(step: step)
+            content
+                .frame(
+                    minWidth: PulseLaunch.macShareSheetWidth(step: PulseLaunch.macShareSheetMinStep()),
+                    idealWidth: width,
+                    maxWidth: 1400,
+                    minHeight: PulseLaunch.macShareSheetHeight(step: PulseLaunch.macShareSheetMinStep()),
+                    idealHeight: height,
+                    maxHeight: 1400
+                )
+        } else {
+            content
+        }
+    }
+}
+
+private struct MacShareSizeControls: View {
+    @AppStorage(PulseLaunch.macShareSheetSizeDefaultsKey) private var step = PulseLaunch.macShareSheetDefaultStep()
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button {
+                step = max(PulseLaunch.macShareSheetMinStep(), step - 1)
+            } label: {
+                Image(systemName: "minus.magnifyingglass")
+            }
+            .disabled(step <= PulseLaunch.macShareSheetMinStep())
+            .accessibilityLabel("Smaller share window")
+            Button {
+                step = min(PulseLaunch.macShareSheetMaxStep(), step + 1)
+            } label: {
+                Image(systemName: "plus.magnifyingglass")
+            }
+            .disabled(step >= PulseLaunch.macShareSheetMaxStep())
+            .accessibilityLabel("Bigger share window")
+        }
+        .buttonStyle(.bordered)
+    }
+}
+
 struct SharePulseSheet: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var router: HubRouter
@@ -1105,6 +1151,7 @@ struct SharePulseSheet: View {
                 selected = [PulseMail.SharePage.from(destination: router.current)]
             }
         }
+        .modifier(MacShareSheetChrome())
     }
 
     private var picker: some View {
@@ -1155,6 +1202,11 @@ struct SharePulseSheet: View {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Cancel") { dismiss() }
                     .disabled(building)
+            }
+            if HubLayout.isMac, PulseLaunch.shouldUseMacShareResizableSheet() {
+                ToolbarItem(placement: .primaryAction) {
+                    MacShareSizeControls()
+                }
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -1217,10 +1269,15 @@ struct ShareRecapCompose: View {
     @EnvironmentObject private var router: HubRouter
     @Environment(\.dismiss) private var dismiss
     @State private var to = ""
+    @State private var notes = ""
+
+    private var macShare: Bool {
+        HubLayout.isMac && PulseLaunch.shouldUseMacShareResizableSheet()
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: macShare ? 12 : 8) {
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
                     Text("To:")
                         .foregroundStyle(AppTheme.textSecondary)
@@ -1229,6 +1286,7 @@ struct ShareRecapCompose: View {
                         .textInputAutocapitalization(.never)
                         .keyboardType(.emailAddress)
                         .textContentType(.emailAddress)
+                        .font(macShare ? HubLayout.MacReadable.metricLineFont : .body)
                 }
                 Divider()
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -1238,10 +1296,53 @@ struct ShareRecapCompose: View {
                         .font(HubLayout.MacReadable.metricLineFont)
                         .foregroundStyle(AppTheme.text)
                 }
+                if macShare, PulseLaunch.shouldOfferShareComposeNotes() {
+                    Divider()
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Notes")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(AppTheme.textSecondary)
+                        TextEditor(text: $notes)
+                            .font(.body)
+                            .frame(minHeight: 84, maxHeight: 140)
+                            .padding(8)
+                            .background(AppTheme.bg, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                    .stroke(AppTheme.cardBorder, lineWidth: 1)
+                            )
+                            .overlay(alignment: .topLeading) {
+                                if notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                    Text("Add a note to this email before Send")
+                                        .foregroundStyle(AppTheme.textTertiary)
+                                        .padding(.horizontal, 14)
+                                        .padding(.vertical, 16)
+                                        .allowsHitTesting(false)
+                                }
+                            }
+                    }
+                }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .padding(.horizontal, macShare ? 20 : 16)
+            .padding(.vertical, macShare ? 16 : 12)
             .background(AppTheme.card)
+
+            if macShare, PulseLaunch.shouldShowMacShareEmailPreview() {
+                HStack {
+                    Text("Email preview")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(AppTheme.textSecondary)
+                    Spacer(minLength: 0)
+                    Text("Same recap Mail will send")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(AppTheme.textTertiary)
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 10)
+                .padding(.bottom, 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(red: 0.96, green: 0.97, blue: 0.99))
+            }
 
             Group {
                 if let url = packet.htmlFile {
@@ -1259,6 +1360,7 @@ struct ShareRecapCompose: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(minHeight: macShare ? 280 : nil)
             .background(Color(red: 0.96, green: 0.97, blue: 0.99))
 
             Button(action: sendMail) {
@@ -1285,11 +1387,16 @@ struct ShareRecapCompose: View {
             ToolbarItem(placement: .cancellationAction) {
                 Button("Back", action: onBack)
             }
+            if macShare {
+                ToolbarItem(placement: .primaryAction) {
+                    MacShareSizeControls()
+                }
+            }
         }
     }
 
     private func sendMail() {
-        let outgoing = packet
+        let outgoing = PulseMail.applyingUserNotes(packet, notes: notes)
         let recipients = emails
         router.showShare = false
         dismiss()
@@ -1324,7 +1431,13 @@ struct RecapWebView: UIViewRepresentable {
         web.scrollView.backgroundColor = .clear
         web.scrollView.contentInsetAdjustmentBehavior = .never
         web.scrollView.alwaysBounceHorizontal = true
+        web.scrollView.alwaysBounceVertical = true
         web.scrollView.showsHorizontalScrollIndicator = true
+        web.scrollView.showsVerticalScrollIndicator = true
+        if HubLayout.isMac {
+            web.scrollView.minimumZoomScale = 0.85
+            web.scrollView.maximumZoomScale = 1.8
+        }
         return web
     }
 

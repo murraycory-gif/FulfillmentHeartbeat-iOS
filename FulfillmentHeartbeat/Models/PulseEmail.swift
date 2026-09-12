@@ -246,6 +246,46 @@ enum PulseMail {
         """
     }
 
+    /// User notes from New Message. Does not change writeHTML / dataTable cook.
+    static func applyingUserNotes(_ packet: Packet, notes: String) -> Packet {
+        let trimmed = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return packet }
+        let block = """
+        <div style="margin:16px 16px 0;padding:14px 16px;background:#FFF8E7;border:1px solid #E8D48A;border-radius:12px">
+        <p style="margin:0 0 6px;font-weight:700;color:#003DA5;font-size:16px">Notes</p>
+        <p style="margin:0;white-space:pre-wrap;font-size:16px;line-height:1.45">\(esc(trimmed))</p>
+        </div>
+        """
+        let brief = "Notes\n\(trimmed)\n\n\(packet.brief)"
+        var html = insertingNotesHTML(packet.html, block: block)
+        var file = packet.htmlFile
+        if let url = packet.htmlFile, let existing = try? String(contentsOf: url, encoding: .utf8), !existing.isEmpty {
+            html = insertingNotesHTML(existing, block: block)
+            let dest = FileManager.default.temporaryDirectory
+                .appendingPathComponent("hb-share-notes-\(UUID().uuidString).html")
+            try? html.write(to: dest, atomically: true, encoding: .utf8)
+            file = dest
+        }
+        return Packet(
+            subject: packet.subject,
+            html: html,
+            htmlFile: file,
+            plain: packet.plain,
+            brief: brief
+        )
+    }
+
+    private static func insertingNotesHTML(_ html: String, block: String) -> String {
+        guard !html.isEmpty else { return block }
+        if let start = html.range(of: "<body", options: .caseInsensitive),
+           let close = html.range(of: ">", range: start.upperBound..<html.endIndex) {
+            var out = html
+            out.insert(contentsOf: block, at: close.upperBound)
+            return out
+        }
+        return block + html
+    }
+
     static func briefPacket(_ snap: Snapshot, pages: Set<SharePage>) -> Packet {
         let chosen = pages.isEmpty ? Set(SharePage.allCases) : pages
         let names = SharePage.allCases.filter { chosen.contains($0) }.map(\.title)

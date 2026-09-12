@@ -5849,6 +5849,21 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(PulseLaunch.shouldRedownloadUsableCompanySeat())
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
         XCTAssertEqual(PulseLaunch.companySeatMaxBytes, 28_000_000)
+        XCTAssertTrue(PulseLaunch.shouldUseMacShareResizableSheet())
+        XCTAssertTrue(PulseLaunch.shouldShowMacShareEmailPreview())
+        XCTAssertTrue(PulseLaunch.shouldOfferShareComposeNotes())
+        XCTAssertEqual(PulseLaunch.macShareSheetWidth(step: PulseLaunch.macShareSheetDefaultStep()), 960)
+        XCTAssertEqual(PulseLaunch.macShareSheetHeight(step: PulseLaunch.macShareSheetDefaultStep()), 780)
+        XCTAssertGreaterThan(PulseLaunch.macShareSheetWidth(step: 2), PulseLaunch.macShareSheetWidth(step: 0))
+        XCTAssertTrue(PulseLaunch.shouldDismissShareSheetBeforePresentingMail())
+        XCTAssertFalse(PulseLaunch.shouldPresentMailOverActiveShareSheet())
+        XCTAssertEqual(PulseLaunch.shareSheetDismissSettleNanoseconds, 350_000_000)
+        let base = PulseMail.Packet(subject: "HB", html: "<html><body><p>Recap</p></body></html>", htmlFile: nil, plain: "", brief: "Recap")
+        XCTAssertEqual(PulseMail.applyingUserNotes(base, notes: "   ").brief, "Recap")
+        let noted = PulseMail.applyingUserNotes(base, notes: "District 49 look")
+        XCTAssertTrue(noted.brief.hasPrefix("Notes\nDistrict 49 look"))
+        XCTAssertTrue(noted.html.contains("District 49 look"))
+        XCTAssertTrue(noted.html.contains("<body"))
     }
 
     /// HARDENED MUST 1: `336752c` HB-0828.397 PhoneSectionPage.seatChips

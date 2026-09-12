@@ -26,6 +26,7 @@ Quit Heartbeat from the **Dock** (not just the window). Reopen.
 | Mac Picker | Top Opportunity headers stay (MUST H). |
 | Mac Pages | **No Pages button** in the top brand bar. Hide pages on the rail; collapsed rail reopens it. Center expands and reflows on window resize. |
 | Mac clip | Command Center glance / section callouts are fully visible — nothing cut at the window bottom or rail edge. |
+| Mac Share | Share / New Message is a **big** pop-out (960×780 default). +/− resizes it. Email preview is large. Notes go into the mail on Send. Mail still dismisses the sheet first (730 hop). |
 
 ## Soft KEEP (Architecture)
 
@@ -37,6 +38,7 @@ Quit Heartbeat from the **Dock** (not just the window). Reopen.
 | Data MUST 1 dual-map deleted | Soft KEEP |
 | MUST P cook / seat-repull / expand gates | Soft KEEP — no PulseSeatPack / WorkbookParser / cook edits |
 | MUST M Mac readable tokens | Soft KEEP — 408 fits those tokens to the live window instead of overflowing |
+| Share Mail presenter | Soft KEEP — dismiss sheet → 350ms → `presentMail` on `keyWindowRoot`. Notes wrap the packet only. |
 
 ## QC — iPhone (THIS SEAT)
 
