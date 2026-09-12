@@ -123,6 +123,7 @@ final class HeartbeatStore: ObservableObject {
     private var packChrome: PulseDashChrome?
     private var companySeatChrome: PulseDashChrome?
     private var seatChromeByKey: [PulseSeatPack.Key: PulseDashChrome] = [:]
+    private var seatRowPlanes: [PulseSeatPack.Key: SeatRowPlane] = [:]
     private var packPickerFactCount = 0
     private var factsOwned: Set<MetricSection> = []
     private var didAdoptExcelFacts = false
@@ -2370,7 +2371,9 @@ final class HeartbeatStore: ObservableObject {
                 failSeatSwap(key)
                 return false
             }
-            if PulseLaunch.shouldDeferHeavySeatInstallAfterCachedChrome() {
+            if PulseLaunch.shouldDeferIncomingSeatInstallAfterCachedChrome(
+                hasRowPlane: seatRowPlanes[key] != nil
+            ) {
                 scheduleDeferredSeatInstall(key, dest: dest)
                 return true
             }
@@ -2465,7 +2468,65 @@ final class HeartbeatStore: ObservableObject {
         }
     }
 
+    /// One identity with `seatChromeByKey`. Hero Stores N and section rows
+    /// (THIS WEEK / THIS SEAT / expand) must be the same seat.
+    private struct SeatRowPlane {
+        var latestBySection: [MetricSection: [MetricRow]]
+        var filteredLatest: [MetricSection: [MetricRow]]
+        var roster: [String: HeartbeatMath.StoreIdentity]
+        var filteredMarket: [HeartbeatMath.MarketStore]
+        var cachedDivisions: [String]
+        var cachedDistricts: [String]
+        var cachedOMs: [String]
+        var cachedStores: [(number: String, name: String?)]
+        var cachedGrainPacks: [MetricSection: [DashScopePack]]
+        var cachedGrainTables: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]]
+        var cachedSalesScopeRows: [SalesRollupRow]
+        var cachedSalesDayRows: [SalesRollupRow]
+    }
+
+    private func rememberSeatRowPlane(for key: PulseSeatPack.Key) {
+        guard !latestBySection.isEmpty || !filteredLatest.isEmpty else { return }
+        seatRowPlanes[key] = SeatRowPlane(
+            latestBySection: latestBySection,
+            filteredLatest: filteredLatest,
+            roster: roster,
+            filteredMarket: filteredMarket,
+            cachedDivisions: cachedDivisions,
+            cachedDistricts: cachedDistricts,
+            cachedOMs: cachedOMs,
+            cachedStores: cachedStores,
+            cachedGrainPacks: cachedGrainPacks,
+            cachedGrainTables: cachedGrainTables,
+            cachedSalesScopeRows: cachedSalesScopeRows,
+            cachedSalesDayRows: cachedSalesDayRows
+        )
+    }
+
+    @discardableResult
+    private func applyCachedSeatRowPlane(for key: PulseSeatPack.Key) -> Bool {
+        guard PulseLaunch.shouldRewriteSeatRowPlaneWithChrome() else { return false }
+        guard let plane = seatRowPlanes[key] else { return false }
+        latestBySection = plane.latestBySection
+        filteredLatest = plane.filteredLatest
+        roster = plane.roster
+        filteredMarket = plane.filteredMarket
+        cachedDivisions = plane.cachedDivisions
+        cachedDistricts = plane.cachedDistricts
+        cachedOMs = plane.cachedOMs
+        cachedStores = plane.cachedStores
+        cachedGrainPacks = plane.cachedGrainPacks
+        cachedGrainTables = plane.cachedGrainTables
+        cachedSalesScopeRows = plane.cachedSalesScopeRows
+        cachedSalesDayRows = plane.cachedSalesDayRows
+        refreshSalesExpandCache()
+        return true
+    }
+
     private func applySeatChrome(_ chrome: PulseDashChrome, key: PulseSeatPack.Key) {
+        if PulseLaunch.shouldRewriteSeatRowPlaneWithChrome() {
+            applyCachedSeatRowPlane(for: key)
+        }
         if key == .company {
             applyDashChrome(chrome)
             companySeatChrome = chrome
@@ -3118,6 +3179,7 @@ final class HeartbeatStore: ObservableObject {
         guard PulseLaunch.shouldInvalidateCachedCompanySeatAfterCloudPromote() else { return }
         companySeatChrome = nil
         seatChromeByKey[.company] = nil
+        seatRowPlanes[.company] = nil
         if activeSeatKey == .company || activeSeatKey == nil {
             packChrome = nil
             usingPackChrome = false
@@ -5898,6 +5960,9 @@ final class HeartbeatStore: ObservableObject {
             rebuildLaborWeekIndex()
             refreshChecklistOpenCount()
             refreshSalesExpandCache()
+            if let key = activeSeatKey {
+                rememberSeatRowPlane(for: key)
+            }
             fillExpandTablesSoon()
             return
         }
@@ -5909,6 +5974,9 @@ final class HeartbeatStore: ObservableObject {
         rebuildLaborWeekIndex()
         refreshChecklistOpenCount()
         refreshSalesExpandCache()
+        if let key = activeSeatKey {
+            rememberSeatRowPlane(for: key)
+        }
         if !filters.isActive {
             unfilteredPulse = snapshotPulse()
         }

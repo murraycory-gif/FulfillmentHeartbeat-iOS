@@ -378,6 +378,21 @@ enum PulseLaunch {
     static func shouldWipeWarehouseBeforeCachedCompanyChrome() -> Bool { false }
     static func shouldStampHubOnClearToCompany() -> Bool { false }
 
+    /// Clear / seat swap: chrome and section rows are one identity.
+    /// `applySeatChrome` rewrites the cached row plane in the same turn so
+    /// PhoneSectionPage cannot keep leftover `filteredLatest` (THIS WEEK 612
+    /// under company 2161). Remount / `filterStamp` is not the fix.
+    static func shouldRewriteSeatRowPlaneWithChrome() -> Bool { true }
+
+    /// Missing company plane must not defer leftover district rows under
+    /// company chrome. Defer only when the incoming seat's rows already landed.
+    static func shouldDeferSeatInstallWhenRowPlaneMissing() -> Bool { false }
+
+    /// Hero Stores N and section / expand store counts are one seat identity.
+    static func seatRowPlaneMatchesChrome(rowStoreCount: Int, chromeStoreCount: Int) -> Bool {
+        rowStoreCount == chromeStoreCount
+    }
+
     /// Filter pills use the same seat-swap rewrite as Clear.
     static func shouldReuseCachedSeatPackOnFilterChange() -> Bool { true }
     static func shouldRedownloadUsableSeatOnFilterChange() -> Bool { false }
@@ -889,6 +904,14 @@ enum PulseLaunch {
     /// Full heavy caches on MainActor after every District / OM / Store chip
     /// is why phone felt frozen.
     static func shouldDeferHeavySeatInstallAfterCachedChrome() -> Bool { true }
+
+    /// Defer the pack install only when chrome already has matching rows.
+    /// No row plane + defer is chrome-only Clear (Soft FAIL 743).
+    static func shouldDeferIncomingSeatInstallAfterCachedChrome(hasRowPlane: Bool) -> Bool {
+        guard shouldDeferHeavySeatInstallAfterCachedChrome() else { return false }
+        if hasRowPlane { return true }
+        return shouldDeferSeatInstallWhenRowPlaneMissing()
+    }
 
     /// Keep heroes / glance / last rows until the incoming pack is ready.
     static func shouldKeepLastGoodSeatUntilIncomingPackReady() -> Bool { true }

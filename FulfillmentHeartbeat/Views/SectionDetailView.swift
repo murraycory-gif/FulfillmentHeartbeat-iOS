@@ -49,6 +49,7 @@ struct SectionDetailView: View {
     }
 
     var body: some View {
+        let _ = store.seatPaintStamp
         Group {
             if PulseLaunch.shouldMountPadSectionListHost(
                 usesPhoneScorecards: HubLayout.usesPhoneScorecards(sizeClass: sizeClass)
@@ -982,6 +983,7 @@ struct PhoneSectionPage: View {
     }
 
     var body: some View {
+        let _ = store.seatPaintStamp
         ScrollView {
             VStack(alignment: .leading, spacing: CommandCenterLayout.phoneHomeStackSpacing()) {
                 if PulseLaunch.shouldParkHiddenPhoneSection(isVisible: isVisible) {

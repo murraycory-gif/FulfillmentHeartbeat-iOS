@@ -24,4 +24,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.417 / 1.0 (743) — MUST 8: banned AppKit composer off target. Mac Share hop is MFMailCompose. MUST SEND 1–7. MUST P PulseSeatPack identical vs a9e2f68.
+HB-0828.418 / 1.0 (744) — Clear rewrites row plane with company chrome same turn. MUST 8 / SEND 1–7 Soft KEEP. MUST P PulseSeatPack identical vs a9e2f68.
