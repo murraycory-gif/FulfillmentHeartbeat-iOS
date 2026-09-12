@@ -928,6 +928,14 @@ enum PulseLaunch {
     /// Mac Catalyst window chrome owns the bottom edge. Do not paint under it.
     static func shouldRespectMacWindowSafeArea() -> Bool { true }
 
+    /// Cory FAIL on 411: leftover-fill used the exact window height, so Prep +
+    /// the sidebar stamp sat under the dock / window edge. Reserve chrome and
+    /// scroll when the glance row cannot fit.
+    static func shouldReserveMacWindowBottomChrome() -> Bool { true }
+    static func shouldScrollMacCommandCenterWhenOverflow() -> Bool { true }
+    static var macWindowBottomChrome: CGFloat { 40 }
+    static var macWindowFitSlack: CGFloat { 24 }
+
     static var macCollapsedSidebarWidth: CGFloat { 56 }
     static let macSidebarExpandedDefaultsKey = "hb.macSidebarExpanded"
 

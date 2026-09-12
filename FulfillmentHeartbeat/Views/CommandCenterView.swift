@@ -146,12 +146,15 @@ enum CommandCenterLayout {
     ) -> MacCommandCenterFit {
         let header: CGFloat = PulseLaunch.shouldUseExpandedMacReadableChrome() ? 28 : 16
         let pad: CGFloat = PulseLaunch.shouldUseExpandedMacReadableChrome() ? 16 : 12
-        let bottom: CGFloat = 8
+        let bottom: CGFloat = PulseLaunch.shouldReserveMacWindowBottomChrome() ? 12 : 8
+        let slack = PulseLaunch.shouldReserveMacWindowBottomChrome()
+            ? PulseLaunch.macWindowFitSlack
+            : 0
         let rows = rowCount(cards: glanceCards, columns: max(glanceColumns, 1))
         let stackGutters = gutter * 2
         let glanceGutters = gutter * CGFloat(max(rows - 1, 0))
         let chrome = header + pad + bottom + stackGutters
-        let usable = max(0, availableHeight - chrome)
+        let usable = max(0, availableHeight - chrome - slack)
         let preferredHero = heroBandHeight(
             phone: false,
             portrait: portrait,
@@ -159,7 +162,7 @@ enum CommandCenterLayout {
             mac: true
         )
         let minHero: CGFloat = 120
-        let minGlance: CGFloat = 72
+        let minGlance: CGFloat = 108
         let minGlanceTotal = CGFloat(rows) * minGlance + glanceGutters
         var hero = min(preferredHero, max(minHero, usable * 0.36))
         if usable - hero < minGlanceTotal {
@@ -454,29 +457,50 @@ struct CommandCenterHome: View {
                         ? CommandCenterLayout.leftoverGlanceFloor(mac: HubLayout.isMac)
                         : 0,
                     geo.size.height - heroH - header - pad - CommandCenterLayout.gutter
+                        - (HubLayout.isMac && PulseLaunch.shouldReserveMacWindowBottomChrome()
+                            ? 12 + PulseLaunch.macWindowFitSlack
+                            : 0)
                 )
                 let tileH = macFit?.glanceTileHeight ?? CommandCenterLayout.glanceTileHeight(
                     remaining: leftover,
                     cards: max(cards.count, 1),
                     columns: cols
                 )
+                let bottomPad: CGFloat = HubLayout.isMac && PulseLaunch.shouldReserveMacWindowBottomChrome()
+                    ? 12
+                    : 8
                 let fitted = VStack(spacing: CommandCenterLayout.gutter) {
                     heroBand(height: heroH, portrait: portrait, width: geo.size.width)
                     glanceHeader
                     glanceGrid(cards: cards, columns: cols, tileHeight: tileH)
                 }
                 .padding(.horizontal, 12)
-                .padding(.bottom, 8)
-                .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
-                if PulseLaunch.shouldOfferPullToRefreshSeatPack() {
+                .padding(.bottom, bottomPad)
+                .frame(width: geo.size.width, alignment: .top)
+                .frame(
+                    minHeight: max(0, geo.size.height),
+                    alignment: .top
+                )
+                if HubLayout.isMac && PulseLaunch.shouldScrollMacCommandCenterWhenOverflow() {
                     ScrollView {
                         fitted
+                    }
+                    .scrollIndicators(.visible)
+                    .scrollBounceBehavior(
+                        PulseLaunch.shouldOfferPullToRefreshSeatPack() ? .always : .basedOnSize
+                    )
+                    .hubSeatPackRefreshable()
+                } else if PulseLaunch.shouldOfferPullToRefreshSeatPack() {
+                    ScrollView {
+                        fitted
+                            .frame(height: geo.size.height, alignment: .top)
                     }
                     .scrollIndicators(.hidden)
                     .scrollBounceBehavior(.always)
                     .hubSeatPackRefreshable()
                 } else {
                     fitted
+                        .frame(height: geo.size.height, alignment: .top)
                 }
             }
         }
@@ -533,10 +557,21 @@ struct CommandCenterHome: View {
                 CommandCenterGlanceTile(card: card) {
                     open(card.section)
                 }
-                .frame(minHeight: tileHeight, maxHeight: .infinity)
+                .frame(
+                    minHeight: tileHeight,
+                    maxHeight: HubLayout.isMac && PulseLaunch.shouldScrollMacCommandCenterWhenOverflow()
+                        ? nil
+                        : .infinity
+                )
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .frame(
+            maxWidth: .infinity,
+            maxHeight: HubLayout.isMac && PulseLaunch.shouldScrollMacCommandCenterWhenOverflow()
+                ? nil
+                : .infinity,
+            alignment: .top
+        )
     }
 }
 

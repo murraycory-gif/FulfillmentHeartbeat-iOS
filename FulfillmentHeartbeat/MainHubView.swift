@@ -212,6 +212,12 @@ struct MainHubView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(
+            .bottom,
+            HubLayout.isMac && PulseLaunch.shouldReserveMacWindowBottomChrome()
+                ? PulseLaunch.macWindowBottomChrome
+                : 0
+        )
         .tint(AppTheme.blue)
         .dynamicTypeSize(
             PulseLaunch.shouldPaintMacHubDynamicType()
@@ -399,7 +405,12 @@ struct MainHubView: View {
             .background(AppTheme.card, in: Capsule(style: .continuous))
             .overlay(Capsule(style: .continuous).stroke(AppTheme.cardBorder, lineWidth: 1))
             .padding(.horizontal, 16)
-            .padding(.bottom, 12)
+            .padding(
+                .bottom,
+                HubLayout.isMac && PulseLaunch.shouldReserveMacWindowBottomChrome()
+                    ? 16
+                    : 12
+            )
             .padding(.top, 8)
             .frame(maxWidth: .infinity)
             .background(AppTheme.bg)
@@ -650,6 +661,12 @@ private struct ImportProgressCard: View {
             }
         }
         .padding(28)
+        .padding(
+            .bottom,
+            HubLayout.isMac && PulseLaunch.shouldReserveMacWindowBottomChrome()
+                ? PulseLaunch.macWindowBottomChrome
+                : 0
+        )
         .frame(maxWidth: 360)
         .background(
             RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)

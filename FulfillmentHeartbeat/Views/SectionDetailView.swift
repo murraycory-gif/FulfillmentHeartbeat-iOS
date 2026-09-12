@@ -242,6 +242,13 @@ struct SectionDetailView: View {
             .listStyle(.plain)
             .listSectionSpacing(0)
             .scrollContentBackground(.hidden)
+            .contentMargins(
+                .bottom,
+                HubLayout.isMac && PulseLaunch.shouldReserveMacWindowBottomChrome()
+                    ? PulseLaunch.macWindowBottomChrome
+                    : 0,
+                for: .scrollContent
+            )
             .environment(\.defaultMinListRowHeight, 1)
             .transaction { $0.animation = nil }
             .hubSeatPackRefreshable()
