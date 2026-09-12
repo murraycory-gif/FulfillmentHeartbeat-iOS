@@ -239,6 +239,57 @@ enum PulseLaunch {
     /// A finished swap must publish Command Center chrome. Silent reuse is a no-op.
     static func shouldPublishCommandCenterAfterSeatSwap() -> Bool { true }
 
+    /// Same-turn applyFilters + swapToSeatPack must not increment
+    /// `seatPaintStamp` twice. That rebuilds Mac Command Center + section
+    /// tables twice and feels like a continuous refresh.
+    static func shouldCoalesceSeatPaintStamp() -> Bool { true }
+
+    /// Filter tap already applied chrome + row plane. Do not copy the plane
+    /// again inside `swapToSeatPack` on the same generation.
+    static func shouldSkipRedundantSeatChromeApply() -> Bool { true }
+
+    /// Field devices are viewers. Do not download/parse the Daily Report xlsx
+    /// after a usable company seat is already painted — that pegs Mac CPU.
+    static func shouldIngestCloudWorkbookOnMac(seatAlreadyPainted: Bool) -> Bool {
+        !seatAlreadyPainted
+    }
+
+    /// Foreground must not re-ingest xlsx. Cloud freshness is the sqlite pack.
+    static func shouldIngestCloudWorkbookOnForeground() -> Bool { false }
+
+    /// In-app `cookPublished` of every store seat is Actions-only. Running it
+    /// in-process after ingest is the thermal + OOM FAIL on every device.
+    static func shouldCookPublishedSeatPlaneInApp() -> Bool { false }
+
+    /// Tiny LRU: one live filter plane. Company stays pinned for Clear
+    /// identity (744). Every District / OM / Store copy is a Jetsam.
+    static func maxCachedSeatRowPlanes() -> Int { 2 }
+
+    static func shouldPinCompanySeatRowPlane() -> Bool { true }
+
+    static func shouldEvictInactiveSeatRowPlanes() -> Bool { true }
+
+    /// Filter / Clear tap: chrome + row plane only. Never `PulseCaches.build`,
+    /// expandTables, or company grain.
+    static func shouldBuildFullPulseCachesOnFilterSwap() -> Bool { false }
+
+    /// Grain tables stay page/chrome scoped. Copying them into every plane
+    /// reintroduces company expand RAM (iPad Jetsam KEEP).
+    static func shouldCacheGrainTablesInSeatRowPlane() -> Bool { false }
+
+    /// `unfilteredPulse` is a third company warehouse next to live + plane.
+    static func shouldSnapshotUnfilteredPulseWhenRowPlaneCached() -> Bool { false }
+
+    static func shouldApplySeatChromeAgain(
+        alreadyPaintedKey: PulseSeatPack.Key?,
+        incoming: PulseSeatPack.Key,
+        forceReload: Bool
+    ) -> Bool {
+        if forceReload { return true }
+        guard shouldSkipRedundantSeatChromeApply() else { return true }
+        return alreadyPaintedKey != incoming
+    }
+
     /// Missing / unreadable seat pack is an error, not "keep the last tiles."
     static func shouldSilentNoOpOnSeatSwapFailure() -> Bool { false }
 

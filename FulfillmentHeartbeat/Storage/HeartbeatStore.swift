@@ -109,6 +109,8 @@ final class HeartbeatStore: ObservableObject {
     private var hubBecameInteractiveAt: Date?
     private var lastPickerStampCount = 0
     private var paintGeneration = 0
+    private var lastPaintedSeatKey: PulseSeatPack.Key?
+    private var lastPublishedSeatPaintGeneration = Int.min
     private var pageOnlyGeneration = -1
     private var becameReadyAt: Date?
     private var pulseGeneration = 0
@@ -2353,7 +2355,12 @@ final class HeartbeatStore: ObservableObject {
         var installed = false
         switch plan {
         case .reuseInPlace:
-            if let chrome = cached {
+            if let chrome = cached,
+               PulseLaunch.shouldApplySeatChromeAgain(
+                alreadyPaintedKey: lastPaintedSeatKey,
+                incoming: key,
+                forceReload: forceReload
+               ) {
                 applySeatChrome(chrome, key: key)
             }
             rememberSeatChrome(key)
@@ -2361,7 +2368,13 @@ final class HeartbeatStore: ObservableObject {
             return true
         case .paintCachedThenSwap:
             if let chrome = cached {
-                applySeatChrome(chrome, key: key)
+                if PulseLaunch.shouldApplySeatChromeAgain(
+                    alreadyPaintedKey: lastPaintedSeatKey,
+                    incoming: key,
+                    forceReload: forceReload
+                ) {
+                    applySeatChrome(chrome, key: key)
+                }
                 activeSeatKey = key
                 activePackURL = dest
                 rememberSeatChrome(key)
@@ -2421,7 +2434,7 @@ final class HeartbeatStore: ObservableObject {
         if PulseLaunch.shouldStampHubOnSeatSwap(clearingToCompany: key == .company && !filters.isActive) {
             filterStamp += 1
         }
-        publishSeatPaint()
+        publishSeatPaint(force: true)
         return true
     }
 
@@ -2431,8 +2444,13 @@ final class HeartbeatStore: ObservableObject {
         publishSeatPaint()
     }
 
-    private func publishSeatPaint() {
+    private func publishSeatPaint(force: Bool = false) {
         guard PulseLaunch.shouldPublishCommandCenterAfterSeatSwap() else { return }
+        if !force, PulseLaunch.shouldCoalesceSeatPaintStamp(),
+           lastPublishedSeatPaintGeneration == paintGeneration, seatPaintStamp > 0 {
+            return
+        }
+        lastPublishedSeatPaintGeneration = paintGeneration
         seatPaintStamp += 1
     }
 
@@ -2445,7 +2463,7 @@ final class HeartbeatStore: ObservableObject {
             guard !Task.isCancelled, self.acceptPaint(generation) else { return }
             let ok = await self.installPublishedSeatPack(key, dest: dest, keepChrome: true)
             guard ok, !Task.isCancelled, self.acceptPaint(generation) else { return }
-            self.publishSeatPaint()
+            self.publishSeatPaint(force: true)
             self.refreshFilterOptions()
         }
     }
@@ -2489,6 +2507,7 @@ final class HeartbeatStore: ObservableObject {
 
     private func rememberSeatRowPlane(for key: PulseSeatPack.Key) {
         guard !latestBySection.isEmpty || !filteredLatest.isEmpty else { return }
+        let keepGrains = PulseLaunch.shouldCacheGrainTablesInSeatRowPlane()
         seatRowPlanes[key] = SeatRowPlane(
             latestBySection: latestBySection,
             filteredLatest: filteredLatest,
@@ -2498,11 +2517,31 @@ final class HeartbeatStore: ObservableObject {
             cachedDistricts: cachedDistricts,
             cachedOMs: cachedOMs,
             cachedStores: cachedStores,
-            cachedGrainPacks: cachedGrainPacks,
-            cachedGrainTables: cachedGrainTables,
+            cachedGrainPacks: keepGrains ? cachedGrainPacks : [:],
+            cachedGrainTables: keepGrains ? cachedGrainTables : [:],
             cachedSalesScopeRows: cachedSalesScopeRows,
             cachedSalesDayRows: cachedSalesDayRows
         )
+        evictInactiveSeatRowPlanes(keeping: key)
+    }
+
+    private func evictInactiveSeatRowPlanes(keeping incoming: PulseSeatPack.Key) {
+        guard PulseLaunch.shouldEvictInactiveSeatRowPlanes() else { return }
+        let cap = max(1, PulseLaunch.maxCachedSeatRowPlanes())
+        guard seatRowPlanes.count > cap else { return }
+        var keep: Set<PulseSeatPack.Key> = [incoming]
+        if PulseLaunch.shouldPinCompanySeatRowPlane() {
+            keep.insert(.company)
+        }
+        for key in seatRowPlanes.keys where !keep.contains(key) {
+            seatRowPlanes.removeValue(forKey: key)
+        }
+        while seatRowPlanes.count > cap {
+            guard let extra = seatRowPlanes.keys.first(where: { $0 != incoming && $0 != .company }) else {
+                break
+            }
+            seatRowPlanes.removeValue(forKey: extra)
+        }
     }
 
     @discardableResult
@@ -2517,8 +2556,12 @@ final class HeartbeatStore: ObservableObject {
         cachedDistricts = plane.cachedDistricts
         cachedOMs = plane.cachedOMs
         cachedStores = plane.cachedStores
-        cachedGrainPacks = plane.cachedGrainPacks
-        cachedGrainTables = plane.cachedGrainTables
+        if PulseLaunch.shouldCacheGrainTablesInSeatRowPlane() {
+            cachedGrainPacks = plane.cachedGrainPacks
+            cachedGrainTables = plane.cachedGrainTables
+        } else {
+            cachedGrainTables = [:]
+        }
         cachedSalesScopeRows = plane.cachedSalesScopeRows
         cachedSalesDayRows = plane.cachedSalesDayRows
         refreshSalesExpandCache()
@@ -2526,6 +2569,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func applySeatChrome(_ chrome: PulseDashChrome, key: PulseSeatPack.Key) {
+        lastPaintedSeatKey = key
         if PulseLaunch.shouldRewriteSeatRowPlaneWithChrome() {
             applyCachedSeatRowPlane(for: key)
         }
@@ -2562,15 +2606,19 @@ final class HeartbeatStore: ObservableObject {
             }
         }
         guard !Task.isCancelled else { return false }
-        let caches = await Self.buildSeatCaches(
-            pack: pack,
-            key: key,
-            heavy: PulseLaunch.shouldUseHeavySeatCachesOnFilterSwap()
-        )
-        guard !Task.isCancelled else { return false }
-        hydrating = true
-        install(caches)
-        hydrating = false
+        if PulseLaunch.shouldBuildFullPulseCachesOnFilterSwap() {
+            let caches = await Self.buildSeatCaches(
+                pack: pack,
+                key: key,
+                heavy: PulseLaunch.shouldUseHeavySeatCachesOnFilterSwap()
+            )
+            guard !Task.isCancelled else { return false }
+            hydrating = true
+            install(caches)
+            hydrating = false
+        } else {
+            installSeatRowsFromPack(pack, key: key)
+        }
         usingPackChrome = pack.chrome != nil
         seeded = true
         if PulseLaunch.shouldLockPickerDashboardOnFilterSwap() {
@@ -2594,6 +2642,21 @@ final class HeartbeatStore: ObservableObject {
             PulseSeatPack.evictSeatCache(root: root, keeping: key)
         }
         return true
+    }
+
+    /// Rows + roster only. No `PulseCaches.build`, grain tables, or expand.
+    private func installSeatRowsFromPack(_ pack: PulseSQLite.Pack, key: PulseSeatPack.Key) {
+        var bySection: [MetricSection: [MetricRow]] = [:]
+        bySection.reserveCapacity(16)
+        for row in pack.rows {
+            bySection[row.section, default: []].append(row)
+        }
+        latestBySection = bySection
+        filteredLatest = bySection
+        roster = PulseCaches.storeRoster(from: pack.rows)
+        refreshFilterOptions()
+        refreshSalesExpandCache()
+        rememberSeatRowPlane(for: key)
     }
 
     private func seatReadSkip(for key: PulseSeatPack.Key) -> Set<MetricSection> {
@@ -2953,6 +3016,7 @@ final class HeartbeatStore: ObservableObject {
         pullCloudPackIfNeeded()
         guard HubLayout.ingestsWorkbook else { return }
         Task { await pullWatchedWorkbook() }
+        guard PulseLaunch.shouldIngestCloudWorkbookOnForeground() else { return }
         Task { await ingestWorkbookOnMacIfNeeded() }
     }
 
@@ -3033,6 +3097,8 @@ final class HeartbeatStore: ObservableObject {
 
     private func ingestWorkbookOnMacIfNeeded() async {
         guard HubLayout.ingestsWorkbook else { return }
+        let painted = seeded && packChrome != nil && !latestBySection.isEmpty
+        guard PulseLaunch.shouldIngestCloudWorkbookOnMac(seatAlreadyPainted: painted) else { return }
         await importCloudWorkbook(blocking: true)
     }
 
@@ -3408,7 +3474,8 @@ final class HeartbeatStore: ObservableObject {
             await MainActor.run {
                 UserDefaults.standard.set(data.count, forKey: "hb.cloudPackBytes")
             }
-            guard PulseSeatPack.shouldPublishSeatPlaneFromCook() else { return }
+            guard PulseSeatPack.shouldPublishSeatPlaneFromCook(),
+                  PulseLaunch.shouldCookPublishedSeatPlaneInApp() else { return }
             do {
                 let manifest = try PulseSeatPack.cookPublished(
                     rows: packRows,
@@ -4498,7 +4565,7 @@ final class HeartbeatStore: ObservableObject {
         }
         hydrating = false
         if !filters.isActive {
-            unfilteredPulse = snapshotPulse()
+            rememberUnfilteredPulseIfNeeded()
         }
         if needsRolePick, !PulseLaunch.shouldStampUIDuringRolePick() {
             return
@@ -4641,7 +4708,7 @@ final class HeartbeatStore: ObservableObject {
             cachedGrainPacks = PulseCaches.placeholderGrainPacks(grain: effectiveDashboardGrain)
         }
         if unfilteredPulse == nil {
-            unfilteredPulse = snapshotPulse()
+            rememberUnfilteredPulseIfNeeded()
         }
         Task { await paintFromWarehouse(light: true) }
     }
@@ -5154,7 +5221,7 @@ final class HeartbeatStore: ObservableObject {
             )
         }
         if !filters.isActive {
-            unfilteredPulse = snapshotPulse()
+            rememberUnfilteredPulseIfNeeded()
         }
         fillExpandTablesSoon()
         lockPickerDashboard()
@@ -5990,7 +6057,15 @@ final class HeartbeatStore: ObservableObject {
             rememberSeatRowPlane(for: key)
         }
         if !filters.isActive {
+            rememberUnfilteredPulseIfNeeded()
+        }
+    }
+
+    private func rememberUnfilteredPulseIfNeeded() {
+        if PulseLaunch.shouldSnapshotUnfilteredPulseWhenRowPlaneCached() {
             unfilteredPulse = snapshotPulse()
+        } else {
+            unfilteredPulse = nil
         }
     }
 

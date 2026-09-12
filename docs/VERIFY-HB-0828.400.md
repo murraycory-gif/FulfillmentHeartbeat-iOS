@@ -1,80 +1,56 @@
-# HB-0828.419 / 745 — verify (filter swap snappy; Clear row-plane KEEP)
+# HB-0828.420 / 746 — verify (tiny seat-plane LRU; no PulseCaches on filter tap)
 
 **Tip** `origin/cursor/command-center-8b-3389` · [PR #5](https://github.com/murraycory-gif/FulfillmentHeartbeat-iOS/pull/5)
-**Stamp** `HB-0828.419  1.0 (745)` · bundle `com.corymurray.FulfillmentHeartbeat`
-**No TestFlight until this PASSes.** HARD TF HOLD until Soft KEEP + Cory phone Clear PASS + filter-swap feel PASS. Do not delete the app. Cloud Linux cannot `xcodebuild` or talk to a Mac/iPad (no self-hosted worker registered). Soft FAIL `ab890c4` / .418 / 744: filter selection still dwelt — repeat seats re-read sqlite and rebuilt picker expand on MainActor after chrome already painted. **MUST SPEED:** hero + sections + tables paint on the tap, all platforms. Clear FILE ROOT (MUST 1–5 row plane with chrome) stands. Remount / `filterStamp` is not the fix. MUST P `PulseSeatPack` identical vs `a9e2f68`.
+**Stamp** `HB-0828.420  1.0 (746)` · bundle `com.corymurray.FulfillmentHeartbeat`
+**No TestFlight until this PASSes.** HARD TF HOLD until Clear + swap feel + thermal + memory PASS on **iPhone, iPad, and Mac**. Soft FAIL `90a53cd` / .419 / 745: `applyFilters` remembered a full `latestBySection` / `filteredLatest` / grain copy per District / OM / Store with no LRU. Repeat paints skipped reinstall so planes accumulated. First visit still ran `PulseCaches.build`. Mac ingest could still parse xlsx and cook seats in-process (~270% CPU, OOM). Shared path — not Mac-only, not a Timer.
 
 ## CoS first — Mac Catalyst (over existing app)
 
 ```bash
-cd ~/Developer/FulfillmentHeartbeat-iOS   # or your checkout
-./install-mac.sh                          # Debug Catalyst, tip SHA
-# CONFIGURATION=Release ./install-mac.sh  # optional second smoke
+cd ~/Developer/FulfillmentHeartbeat-iOS
+./install-mac.sh
 ./Tools/HeartbeatIngest/verify-stale-seat-refresh.sh
 ```
 
-Quit Heartbeat from the **Dock** (not just the window). Reopen.
+Quit Heartbeat from the **Dock**. Reopen. Activity Monitor: after Command Center is up, **CPU near idle**. Memory must not climb while flipping District / OM / Store / Clear.
 
 | Check | Pass |
 |---|---|
-| Sidebar stamp | `HB-0828.419  1.0 (745)` — fully visible, not under the dock / window edge |
-| Mac compile | `./install-mac.sh` succeeds. `HubSeatPackRefreshModifier` is file-scope next to `HubPhoneTableModifier` — not nested in `extension View`. |
-| Sales | **~$58M** and **Thursday / `sales_d4`** (not ~$49M / Wednesday) |
-| Automated test | `testArchitecture419FilterSwapPaintsWithoutReinstall` + 418 Clear Soft KEEP green |
-| **Filter feel** | District / OM / Store / Region / Clear: hero + sections + tables swap without a multi-second dwell or spinner theater. Repeat seats stay on the cached plane — no second refresh. Same path Mac / iPad / iPhone. |
-| Company tables | Visible page / chrome only — not all 12 cards rebuilt into RAM |
-| THIS SEAT | Every section live when the hero is live. No ghost dashes/zeros. |
-| **Clear identity** | District (or OM) → Clear: hero Stores N, THIS WEEK, THIS SEAT, and expand all show **company** store count (2161), not leftover 612. Labels and golds agree. No hub remount / `filterStamp` flash. |
-| Share Mail | Share pulse → Send → **Mail stays up**. |
-| Mac Picker | Top Opportunity headers stay (MUST H). |
-| Mac Pages | **No Pages button** in the top brand bar. Sidebar-leading **icon** sits in rail chrome (logo row) — never a floating "Hide pages" label over Loss Revenue / any list row. Icon collapses the rail; slim rail icon reopens it. Center expands and reflows on window resize. |
-| Mac clip | **Prep** glance (last of 9) is fully visible after scroll. Tiles stay MUST M size (glance floor 196) — do not leftover-fill to `geo.size.height`. `overflows()` is the scroll-indicator gate. Sidebar stamp visible. |
-| Mac Share | **New Message** opens at **1100×860**. Navy **Back** + **To** hit-testable above the fold (fields scroll). Send stays disabled until a valid To. Send dismisses the sheet (730 hop) then **MFMailCompose** on `keyWindowRoot`. Empty To never opens mailto. No **Recap sent** toast. Mail compose `.failed` surfaces **Mail did not send**. Recipient inbox must get the email. |
-| Pull-to-refresh | Phone / iPad / Mac Command Center + section pages pull the **same** no-delete seat-repull as cold open (remote `updated_at` newer). No hub remount / filterStamp. |
+| Sidebar stamp | `HB-0828.420  1.0 (746)` |
+| Idle CPU | Near-zero after paint. No 270% loop. |
+| Memory | Flip 6+ seats. RAM does not grow without bound. App stays up (no OOM / Jetsam). |
+| **Filter feel** | District / OM / Store / Clear: hero + sections + tables on the tap. No PulseCaches / expand / company grain rebuild. |
+| **Clear identity** | District → Clear: company Stores N (2161) on hero, THIS WEEK, THIS SEAT, expand — not leftover 612. |
+| Company seat | Thin ≤28MB. Never a ~56MB market file. No xlsx ingest after seat painted. |
+| Automated test | `testArchitecture420SeatPlaneTinyLRUNoFullCaches` + 419/418 Soft KEEP |
+| Share / Mac chrome | MUST 8 / SEND / MUST K / MUST H / MUST M stand |
 
-## Soft KEEP (Architecture)
+## Soft KEEP
 
 | KEEP | Status |
 |---|---|
-| Phone D1–D5 compact chrome | Soft KEEP — phone-only |
-| iPad leftover-fill 132 / 120 | Soft KEEP — `heroBandHeight(..., mac: false)` still 128 |
-| MUST H Mac Picker headers | Soft KEEP |
-| Data MUST 1 dual-map deleted | Soft KEEP |
-| MUST P cook / seat-repull / expand gates | Soft KEEP — no PulseSeatPack / WorkbookParser / cook / PTR edits |
-| MUST M Mac readable tokens | Soft KEEP — 408 fits those tokens to the live window instead of overflowing |
-| Share Mail presenter | Soft KEEP — dismiss sheet → 350ms → `presentMail` on `keyWindowRoot`. Notes wrap the packet only. Do not edit `writeHTML` / `dataTable` / `presentMail`. |
-| Mac Share in-content chrome | MUST — Back + To live in the sheet body on Mac. Do not put compose fields only in the Catalyst navigation bar. |
-| Mac sidebar collapse chrome | MUST C file-only — icon in rail chrome only. `shouldUseFloatingMacHidePagesLabel() == false`. Not Soft KEEP yet. |
-| Pull-to-refresh seat-repull | MUST — same `importCloudSQLiteIfPresent` / remote-newer check as cold open. `shouldStampHubOnPullToRefresh() == false`. MUST P no-delete Soft KEEP. |
-| File-scope refresh modifier | MUST — `HubSeatPackRefreshModifier` stays at file scope. Nesting a `ViewModifier` in `extension View` is a compile FAIL. |
-| Mac Command Center scroll | MUST K — `shouldFillMacViewport() == false`. Readable tiles + ScrollView. `overflows()` is the gate. Do not leftover-fill or paper slack/minGlance. |
-| Mac Share send | MUST 8 + SEND 1–7 Soft KEEP — `MacMailComposer.swift` gone. Hop: dismiss → 350ms → `keyWindowRoot` → MFMailCompose. |
-| Remount bans | Soft KEEP — `shouldStampHubOnClearToCompany` / `shouldStampHubOnFilterSwap` / `shouldRemountPhoneHubOnFilterSwap` / `shouldRemountPageOnDestinationChange` / `shouldStampHubOnPullToRefresh` stay **false**. Expand stays off the gesture thread. |
-| Clear row plane | Soft KEEP FILE ROOT — `shouldRewriteSeatRowPlaneWithChrome() == true`. `shouldDeferSeatInstallWhenRowPlaneMissing() == false`. No `wipeSeatDashboardState` / `restoreUnfilteredChrome` on Clear. |
-| Filter swap feel | Soft KEEP this root — `shouldPaintCachedSeatOnFilterTap() == true`. `shouldReinstallSeatPackWhenRowPlanePainted() == false`. `shouldPublishSeatPaintAfterChromeBeforeCaches() == true`. `shouldLockPickerDashboardOnFilterSwap() == false`. `shouldReloadSectionSQLOnSeatPaintStamp() == false`. `shouldProgressivePaintPhoneSectionOnFilterSwap() == false`. |
+| Clear MUST 1–5 row plane + chrome same turn | Soft KEEP FILE ROOT (744) |
+| 745 in-place paint / no pack reinstall when plane exists | Soft KEEP |
+| Tiny LRU — company pin + one live plane | Soft KEEP this root |
+| No `PulseCaches.build` / expandTables / company grain on filter tap | Soft KEEP this root |
+| Remount bans stay **false** | Soft KEEP |
+| Company expand / grain Jetsam gates stay **false** | Soft KEEP |
+| MUST P `PulseSeatPack` vs `a9e2f68` | Soft KEEP — no cook / PTR |
+| HARD LINE 1 — `companySeatMaxBytes == 28_000_000` | Soft KEEP |
+| No remount / filterStamp / wipe-redownload as cooldown | Soft KEEP |
+| iPhone D1–D5 / iPad 132/120 / MUST M / MUST H / MUST 8 | Soft KEEP |
 
-## QC — iPhone (THIS SEAT)
-
-Keep the **old local company seat**. Install tip **over** the current build.
+## QC — iPhone + iPad
 
 ```bash
-cd ~/Developer/FulfillmentHeartbeat-iOS
-git fetch origin cursor/command-center-8b-3389
-git checkout cursor/command-center-8b-3389
-git reset --hard origin/cursor/command-center-8b-3389
 SKIP_PULL=1 ALLOW_PHONE=1 ./install-ipad.sh
 ```
 
-1. Confirm stamp **HB-0828.419  1.0 (745)**. Pages stays on phone. No phone Back chevron. Tighter CC / section cards.
-2. **Force-quit.** Reopen. Do **not** delete.
-3. 5 Star / Pick Path / Prep / Picker / Labor THIS SEAT still live keys (MUST 1).
-4. **Clear:** District (or OM) on Sales → Clear. Hero, THIS WEEK, THIS SEAT, and expand all show company store count (2161) — not leftover 612. Every section agrees. No remount flash.
-5. **Filters:** pick District, then OM, then Store, then Clear. Hero + sections + tables swap immediately — no multi-second refresh / spinner. Repeat District is instant (cached plane).
-6. Share Send still presents Mail.
-7. **Mac:** same filter feel as phone / iPad. No top Pages button; sidebar-leading icon in the rail chrome collapses the list — Loss Revenue is fully visible, no Hide pages text on top of it. Command Center **Prep** (last of 9) is fully visible after scroll — no leftover-fill clip. Share → New Message: navy Back + To above the fold; Send disabled until a valid To. Send hop → MFMailCompose. No Recap sent toast. Recipient inbox must get the email. Cancel / `.failed` must not claim sent.
-
-UDID `676FA816-88AE-59D9-A89D-5C17BFC2DA96` if you target that iPad.
+1. Stamp **HB-0828.420  1.0 (746)**. Do not delete the app.
+2. **iPhone:** District → OM → Store → Clear. Identity agrees. No heat, no Jetsam, no remount flash.
+3. **iPad:** same seats. Company expand stays page-scoped. App stays up.
+4. **Mac:** Activity Monitor idle after paint. Memory stable across many seat flips.
 
 ## After PASS
 
-CoS + QC ship TestFlight. Do not upload TF from the agent. Do not merge until CoS says.
+CoS + QC ship TestFlight. Do not upload TF from the agent.
