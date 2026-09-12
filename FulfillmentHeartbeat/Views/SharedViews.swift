@@ -1089,17 +1089,103 @@ private struct MacShareSheetChrome: ViewModifier {
         if HubLayout.isMac, PulseLaunch.shouldUseMacShareResizableSheet() {
             let width = PulseLaunch.macShareSheetWidth(step: step)
             let height = PulseLaunch.macShareSheetHeight(step: step)
+            let minW = PulseLaunch.macShareSheetWidth(step: PulseLaunch.macShareSheetMinStep())
+            let minH = PulseLaunch.macShareSheetHeight(step: PulseLaunch.macShareSheetMinStep())
+            let maxW = PulseLaunch.macShareSheetWidth(step: PulseLaunch.macShareSheetMaxStep())
+            let maxH = PulseLaunch.macShareSheetHeight(step: PulseLaunch.macShareSheetMaxStep())
             content
                 .frame(
-                    minWidth: PulseLaunch.macShareSheetWidth(step: PulseLaunch.macShareSheetMinStep()),
+                    minWidth: minW,
                     idealWidth: width,
-                    maxWidth: 1400,
-                    minHeight: PulseLaunch.macShareSheetHeight(step: PulseLaunch.macShareSheetMinStep()),
+                    maxWidth: maxW,
+                    minHeight: minH,
                     idealHeight: height,
-                    maxHeight: 1400
+                    maxHeight: maxH
                 )
+                .frame(width: width, height: height)
+                .background {
+                    MacShareSheetHostSizer(width: width, height: height, minWidth: minW, minHeight: minH, maxWidth: maxW, maxHeight: maxH)
+                }
         } else {
             content
+        }
+    }
+}
+
+/// File-scope — do not nest ViewModifier / UIViewRepresentable in `extension View`.
+private struct MacShareSheetHostSizer: UIViewRepresentable {
+    var width: CGFloat
+    var height: CGFloat
+    var minWidth: CGFloat
+    var minHeight: CGFloat
+    var maxWidth: CGFloat
+    var maxHeight: CGFloat
+
+    func makeUIView(context: Context) -> Sentinel {
+        let view = Sentinel()
+        view.isUserInteractionEnabled = false
+        view.backgroundColor = .clear
+        return view
+    }
+
+    func updateUIView(_ uiView: Sentinel, context: Context) {
+        uiView.width = width
+        uiView.height = height
+        uiView.minWidth = minWidth
+        uiView.minHeight = minHeight
+        uiView.maxWidth = maxWidth
+        uiView.maxHeight = maxHeight
+        uiView.applySoon()
+    }
+
+    final class Sentinel: UIView {
+        var width: CGFloat = 1100
+        var height: CGFloat = 860
+        var minWidth: CGFloat = 800
+        var minHeight: CGFloat = 640
+        var maxWidth: CGFloat = 1280
+        var maxHeight: CGFloat = 1000
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            applySoon()
+        }
+
+        func applySoon() {
+            applyNow()
+            DispatchQueue.main.async { self.applyNow() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { self.applyNow() }
+        }
+
+        private func applyNow() {
+            guard PulseLaunch.shouldApplyMacSharePreferredContentSize() else { return }
+            let size = CGSize(width: width, height: height)
+            var walker: UIResponder? = self
+            var start: UIViewController?
+            while let next = walker?.next {
+                if let found = next as? UIViewController {
+                    start = found
+                    break
+                }
+                walker = next
+            }
+            guard let start else { return }
+            var host = start
+            while let parent = host.parent { host = parent }
+            start.preferredContentSize = size
+            host.preferredContentSize = size
+            guard host.presentingViewController != nil || start.presentingViewController != nil else { return }
+            guard let window else { return }
+            let screen = window.screen.bounds
+            let w = min(max(size.width, minWidth), min(maxWidth, screen.width - 36))
+            let h = min(max(size.height, minHeight), min(maxHeight, screen.height - 48))
+            var frame = window.frame
+            if abs(frame.width - w) > 6 || abs(frame.height - h) > 6 {
+                frame.size = CGSize(width: w, height: h)
+                frame.origin.x = max(18, (screen.width - w) / 2)
+                frame.origin.y = max(24, (screen.height - h) / 2)
+                window.frame = frame
+            }
         }
     }
 }
@@ -1113,6 +1199,8 @@ private struct MacShareSizeControls: View {
                 step = max(PulseLaunch.macShareSheetMinStep(), step - 1)
             } label: {
                 Image(systemName: "minus.magnifyingglass")
+                    .font(.body.weight(.semibold))
+                    .frame(minWidth: 28, minHeight: 28)
             }
             .disabled(step <= PulseLaunch.macShareSheetMinStep())
             .accessibilityLabel("Smaller share window")
@@ -1120,11 +1208,56 @@ private struct MacShareSizeControls: View {
                 step = min(PulseLaunch.macShareSheetMaxStep(), step + 1)
             } label: {
                 Image(systemName: "plus.magnifyingglass")
+                    .font(.body.weight(.semibold))
+                    .frame(minWidth: 28, minHeight: 28)
             }
             .disabled(step >= PulseLaunch.macShareSheetMaxStep())
             .accessibilityLabel("Bigger share window")
         }
         .buttonStyle(.bordered)
+        .controlSize(.large)
+    }
+}
+
+private struct MacShareComposeChrome: View {
+    var title: String
+    var backTitle: String
+    var onBack: () -> Void
+    var enabled: Bool = true
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Button(action: onBack) {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.left")
+                        .font(.body.weight(.bold))
+                    Text(backTitle)
+                        .font(.body.weight(.bold))
+                }
+                .foregroundStyle(Color.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 9)
+                .background(AppTheme.blue, in: Capsule(style: .continuous))
+            }
+            .buttonStyle(.plain)
+            .disabled(!enabled)
+            .opacity(enabled ? 1 : 0.45)
+            .accessibilityLabel(backTitle)
+
+            Text(title)
+                .font(.title3.weight(.bold))
+                .foregroundStyle(AppTheme.text)
+                .lineLimit(1)
+            Spacer(minLength: 8)
+            if PulseLaunch.shouldUseMacShareResizableSheet() {
+                MacShareSizeControls()
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 14)
+        .padding(.bottom, 12)
+        .background(AppTheme.card)
+        .overlay(alignment: .bottom) { Divider() }
     }
 }
 
@@ -1151,10 +1284,41 @@ struct SharePulseSheet: View {
                 selected = [PulseMail.SharePage.from(destination: router.current)]
             }
         }
+        .toolbar(macInContentChrome ? .hidden : .automatic, for: .navigationBar)
         .modifier(MacShareSheetChrome())
     }
 
+    private var macInContentChrome: Bool {
+        HubLayout.isMac && PulseLaunch.shouldUseMacShareInContentChrome()
+    }
+
     private var picker: some View {
+        Group {
+            if macInContentChrome {
+                VStack(spacing: 0) {
+                    MacShareComposeChrome(
+                        title: "Share pulse",
+                        backTitle: "Cancel",
+                        onBack: { dismiss() },
+                        enabled: !building
+                    )
+                    pickerList
+                }
+            } else {
+                pickerList
+                    .navigationTitle("Share pulse")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Cancel") { dismiss() }
+                                .disabled(building)
+                        }
+                    }
+            }
+        }
+    }
+
+    private var pickerList: some View {
         List {
             Section {
                 Button {
@@ -1193,19 +1357,6 @@ struct SharePulseSheet: View {
                                 .foregroundStyle(selected.contains(page) ? AppTheme.blue : AppTheme.textTertiary)
                         }
                     }
-                }
-            }
-        }
-        .navigationTitle("Share pulse")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") { dismiss() }
-                    .disabled(building)
-            }
-            if HubLayout.isMac, PulseLaunch.shouldUseMacShareResizableSheet() {
-                ToolbarItem(placement: .primaryAction) {
-                    MacShareSizeControls()
                 }
             }
         }
@@ -1276,123 +1427,181 @@ struct ShareRecapCompose: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            VStack(alignment: .leading, spacing: macShare ? 12 : 8) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text("To:")
-                        .foregroundStyle(AppTheme.textSecondary)
-                        .frame(width: 56, alignment: .leading)
-                    TextField("name@company.com", text: $to)
-                        .textInputAutocapitalization(.never)
-                        .keyboardType(.emailAddress)
-                        .textContentType(.emailAddress)
-                        .font(macShare ? HubLayout.MacReadable.metricLineFont : .body)
-                }
-                Divider()
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text("Subject:")
-                        .foregroundStyle(AppTheme.textSecondary)
-                    Text(packet.subject)
-                        .font(HubLayout.MacReadable.metricLineFont)
-                        .foregroundStyle(AppTheme.text)
-                }
-                if macShare, PulseLaunch.shouldOfferShareComposeNotes() {
-                    Divider()
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Notes")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(AppTheme.textSecondary)
-                        TextEditor(text: $notes)
-                            .font(.body)
-                            .frame(minHeight: 84, maxHeight: 140)
-                            .padding(8)
-                            .background(AppTheme.bg, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                    .stroke(AppTheme.cardBorder, lineWidth: 1)
-                            )
-                            .overlay(alignment: .topLeading) {
-                                if notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                    Text("Add a note to this email before Send")
-                                        .foregroundStyle(AppTheme.textTertiary)
-                                        .padding(.horizontal, 14)
-                                        .padding(.vertical, 16)
-                                        .allowsHitTesting(false)
-                                }
-                            }
-                    }
-                }
+        Group {
+            if macShare, PulseLaunch.shouldUseMacShareInContentChrome() {
+                macCompose
+            } else {
+                phonePadCompose
             }
-            .padding(.horizontal, macShare ? 20 : 16)
-            .padding(.vertical, macShare ? 16 : 12)
-            .background(AppTheme.card)
-
-            if macShare, PulseLaunch.shouldShowMacShareEmailPreview() {
-                HStack {
-                    Text("Email preview")
-                        .font(.subheadline.weight(.bold))
-                        .foregroundStyle(AppTheme.textSecondary)
-                    Spacer(minLength: 0)
-                    Text("Same recap Mail will send")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(AppTheme.textTertiary)
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 10)
-                .padding(.bottom, 4)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(red: 0.96, green: 0.97, blue: 0.99))
-            }
-
-            Group {
-                if let url = packet.htmlFile {
-                    RecapWebView(fileURL: url)
-                } else if !packet.html.isEmpty {
-                    RecapWebView(html: packet.html)
-                } else {
-                    ScrollView {
-                        Text(packet.brief)
-                            .font(.body)
-                            .foregroundStyle(AppTheme.text)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(16)
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .frame(minHeight: macShare ? 280 : nil)
-            .background(Color(red: 0.96, green: 0.97, blue: 0.99))
-
-            Button(action: sendMail) {
-                HStack(spacing: 10) {
-                    if !htmlReady {
-                        ProgressView()
-                            .tint(.white)
-                    }
-                    Text(htmlReady ? "Send" : "Building recap…")
-                        .font(.headline.weight(.bold))
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-            }
-            .buttonStyle(PrimaryButtonStyle())
-            .disabled(!htmlReady)
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
-            .background(AppTheme.bg)
         }
         .navigationTitle("New Message")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar(macShare && PulseLaunch.shouldHideMacShareNavigationBar() ? .hidden : .automatic, for: .navigationBar)
         .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Back", action: onBack)
-            }
-            if macShare {
-                ToolbarItem(placement: .primaryAction) {
-                    MacShareSizeControls()
+            if !(macShare && PulseLaunch.shouldHideMacShareNavigationBar()) {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Back", action: onBack)
                 }
             }
         }
+    }
+
+    private var macCompose: some View {
+        VStack(spacing: 0) {
+            MacShareComposeChrome(title: "New Message", backTitle: "Back", onBack: onBack)
+            composeFields
+                .fixedSize(horizontal: false, vertical: true)
+                .layoutPriority(1)
+            previewBanner
+            previewBody
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(minHeight: PulseLaunch.shouldPinMacShareComposeFields() ? 220 : 280)
+                .layoutPriority(0)
+            sendBar
+        }
+        .background(AppTheme.bg)
+    }
+
+    private var phonePadCompose: some View {
+        VStack(spacing: 0) {
+            composeFields
+            previewBody
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            sendBar
+        }
+    }
+
+    @ViewBuilder
+    private var toAddressField: some View {
+        if macShare {
+            TextField("name@company.com", text: $to)
+                .textInputAutocapitalization(.never)
+                .keyboardType(.emailAddress)
+                .textContentType(.emailAddress)
+                .font(HubLayout.MacReadable.metricLineFont)
+                .textFieldStyle(.roundedBorder)
+                .frame(minHeight: 36)
+        } else {
+            TextField("name@company.com", text: $to)
+                .textInputAutocapitalization(.never)
+                .keyboardType(.emailAddress)
+                .textContentType(.emailAddress)
+                .font(.body)
+        }
+    }
+
+    private var composeFields: some View {
+        VStack(alignment: .leading, spacing: macShare ? 12 : 8) {
+            HStack(alignment: .center, spacing: 10) {
+                Text("To:")
+                    .font(macShare ? HubLayout.MacReadable.metricLineFont.weight(.semibold) : .body)
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .frame(width: macShare ? 72 : 56, alignment: .leading)
+                toAddressField
+            }
+            Divider()
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text("Subject:")
+                    .font(macShare ? HubLayout.MacReadable.metricLineFont.weight(.semibold) : .body)
+                    .foregroundStyle(AppTheme.textSecondary)
+                    .frame(width: macShare ? 72 : 56, alignment: .leading)
+                Text(packet.subject)
+                    .font(HubLayout.MacReadable.metricLineFont)
+                    .foregroundStyle(AppTheme.text)
+                    .textSelection(.enabled)
+            }
+            if macShare, PulseLaunch.shouldOfferShareComposeNotes() {
+                Divider()
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Notes")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(AppTheme.textSecondary)
+                    TextEditor(text: $notes)
+                        .font(.body)
+                        .frame(minHeight: 84, maxHeight: 140)
+                        .padding(8)
+                        .background(AppTheme.bg, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                .stroke(AppTheme.cardBorder, lineWidth: 1)
+                        )
+                        .overlay(alignment: .topLeading) {
+                            if notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                Text("Add a note to this email before Send")
+                                    .foregroundStyle(AppTheme.textTertiary)
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 16)
+                                    .allowsHitTesting(false)
+                            }
+                        }
+                }
+            }
+        }
+        .padding(.horizontal, macShare ? 20 : 16)
+        .padding(.vertical, macShare ? 16 : 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppTheme.card)
+    }
+
+    @ViewBuilder
+    private var previewBanner: some View {
+        if macShare, PulseLaunch.shouldShowMacShareEmailPreview() {
+            HStack {
+                Text("Email preview")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(AppTheme.textSecondary)
+                Spacer(minLength: 0)
+                Text("Same recap Mail will send")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.textTertiary)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 10)
+            .padding(.bottom, 4)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(red: 0.96, green: 0.97, blue: 0.99))
+        }
+    }
+
+    @ViewBuilder
+    private var previewBody: some View {
+        Group {
+            if let url = packet.htmlFile {
+                RecapWebView(fileURL: url)
+            } else if !packet.html.isEmpty {
+                RecapWebView(html: packet.html)
+            } else {
+                ScrollView {
+                    Text(packet.brief)
+                        .font(.body)
+                        .foregroundStyle(AppTheme.text)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(16)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .background(Color(red: 0.96, green: 0.97, blue: 0.99))
+    }
+
+    private var sendBar: some View {
+        Button(action: sendMail) {
+            HStack(spacing: 10) {
+                if !htmlReady {
+                    ProgressView()
+                        .tint(.white)
+                }
+                Text(htmlReady ? "Send" : "Building recap…")
+                    .font(.headline.weight(.bold))
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 14)
+        }
+        .buttonStyle(PrimaryButtonStyle())
+        .disabled(!htmlReady)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .background(AppTheme.bg)
     }
 
     private func sendMail() {

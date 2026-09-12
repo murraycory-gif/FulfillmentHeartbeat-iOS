@@ -24,4 +24,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.409 / 1.0 (735) — Compile fix: HubSeatPackRefreshModifier at file scope. Pull-to-refresh + Mac chrome Soft KEEP. MUST P cook / no-delete path untouched.
+HB-0828.410 / 1.0 (736) — Mac Share: in-content Back + reachable To/notes; 1100×860 default. Mail hop Soft KEEP. MUST P cook / no-delete path untouched.

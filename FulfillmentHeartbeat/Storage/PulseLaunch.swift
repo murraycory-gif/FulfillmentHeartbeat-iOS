@@ -2119,21 +2119,26 @@ enum PulseLaunch {
     static func shouldUseMacShareResizableSheet() -> Bool { true }
     static func shouldShowMacShareEmailPreview() -> Bool { true }
     static func shouldOfferShareComposeNotes() -> Bool { true }
+    /// Cory FAIL on 735: toolbar Back was faint; To sat under Catalyst title chrome.
+    static func shouldUseMacShareInContentChrome() -> Bool { true }
+    static func shouldHideMacShareNavigationBar() -> Bool { true }
+    static func shouldPinMacShareComposeFields() -> Bool { true }
+    static func shouldApplyMacSharePreferredContentSize() -> Bool { true }
     static func macShareSheetDefaultStep() -> Int { 1 }
     static func macShareSheetMinStep() -> Int { 0 }
     static func macShareSheetMaxStep() -> Int { 2 }
     static func macShareSheetWidth(step: Int) -> CGFloat {
         switch step {
-        case 0: return 720
-        case 2: return 1180
-        default: return 960
+        case 0: return 800
+        case 2: return 1280
+        default: return 1100
         }
     }
     static func macShareSheetHeight(step: Int) -> CGFloat {
         switch step {
-        case 0: return 560
-        case 2: return 960
-        default: return 780
+        case 0: return 640
+        case 2: return 1000
+        default: return 860
         }
     }
     static let macShareSheetSizeDefaultsKey = "hb.macShareSheetSize"
