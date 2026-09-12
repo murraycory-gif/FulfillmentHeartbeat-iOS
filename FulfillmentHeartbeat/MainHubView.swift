@@ -17,6 +17,7 @@ final class HubRouter: ObservableObject {
     /// Phone NavigationStack push. Dashboard stays `destination` so back works.
     @Published var pushedSection: MetricSection?
     @Published var sidebarOpen = false
+    @Published var macSidebarExpanded = PulseLaunch.loadMacSidebarExpanded()
     @Published var alertsOpen = false
     @Published var showCompactMenu = false
     @Published var showShare = false
@@ -118,6 +119,16 @@ final class HubRouter: ObservableObject {
             alertsOpen = false
         }
     }
+
+    func toggleMacSidebar() {
+        guard PulseLaunch.shouldAllowMacSidebarCollapse() else { return }
+        var transaction = Transaction()
+        transaction.animation = nil
+        withTransaction(transaction) {
+            macSidebarExpanded.toggle()
+            PulseLaunch.storeMacSidebarExpanded(macSidebarExpanded)
+        }
+    }
 }
 
 struct MainHubView: View {
@@ -165,24 +176,28 @@ struct MainHubView: View {
                 rememberWarmSection(section)
             }
         }
-        .background(AppTheme.bg.ignoresSafeArea(edges: .bottom))
+        .background(macCanvasBackground)
         .overlay {
             ImportProgressOverlay()
         }
     }
 
-    /// Mac Catalyst: persistent Pages rail + readable center. No Alerts column.
+    /// Mac Catalyst: collapsible Pages rail + window-fit center. No Alerts column.
     private var macHub: some View {
         HStack(spacing: 0) {
-            sidebar
-                .frame(width: HubLayout.MacReadable.sidebarWidth)
-                .frame(maxHeight: .infinity, alignment: .top)
-                .background(AppTheme.bg.ignoresSafeArea())
-                .overlay(alignment: .trailing) {
-                    Rectangle()
-                        .fill(AppTheme.cardBorder)
-                        .frame(width: 1)
-                }
+            if PulseLaunch.shouldAllowMacSidebarCollapse(), !router.macSidebarExpanded {
+                macCollapsedRail
+            } else {
+                sidebar
+                    .frame(width: HubLayout.MacReadable.sidebarWidth)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                    .background(macHubFill)
+                    .overlay(alignment: .trailing) {
+                        Rectangle()
+                            .fill(AppTheme.cardBorder)
+                            .frame(width: 1)
+                    }
+            }
             detail
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             if PulseLaunch.shouldPinMacCommandCenterAlertsRail(), router.current == .dashboard {
@@ -196,12 +211,50 @@ struct MainHubView: View {
                     }
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .tint(AppTheme.blue)
         .dynamicTypeSize(
             PulseLaunch.shouldPaintMacHubDynamicType()
                 ? HubLayout.MacReadable.dynamicTypeSize
                 : .large
         )
+    }
+
+    private var macHubFill: Color { AppTheme.bg }
+
+    @ViewBuilder
+    private var macCanvasBackground: some View {
+        if HubLayout.isMac, PulseLaunch.shouldRespectMacWindowSafeArea() {
+            AppTheme.bg
+        } else {
+            AppTheme.bg.ignoresSafeArea(edges: .bottom)
+        }
+    }
+
+    private var macCollapsedRail: some View {
+        VStack(spacing: 12) {
+            Button {
+                router.toggleMacSidebar()
+            } label: {
+                Image(systemName: "sidebar.leading")
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(AppTheme.blue)
+                    .frame(width: PulseLaunch.macCollapsedSidebarWidth, height: HubLayout.MacReadable.controlMin)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Show pages")
+            Spacer(minLength: 0)
+        }
+        .padding(.top, 8)
+        .frame(width: PulseLaunch.macCollapsedSidebarWidth)
+        .frame(maxHeight: .infinity, alignment: .top)
+        .background(macHubFill)
+        .overlay(alignment: .trailing) {
+            Rectangle()
+                .fill(AppTheme.cardBorder)
+                .frame(width: 1)
+        }
     }
 
     /// Full-width Command Center. Pages drawer on demand. No Alerts rail.
@@ -282,6 +335,28 @@ struct MainHubView: View {
                 HubNavLogo()
             }
         }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if HubLayout.isMac, PulseLaunch.shouldAllowMacSidebarCollapse() {
+                Button {
+                    router.toggleMacSidebar()
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "sidebar.leading")
+                            .font(.body.weight(.semibold))
+                        Text("Hide pages")
+                            .font(HubLayout.MacReadable.metricLineFont)
+                        Spacer(minLength: 0)
+                    }
+                    .foregroundStyle(AppTheme.blue)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .frame(minHeight: HubLayout.MacReadable.controlMin)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Hide pages")
+            }
+        }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             Text(BuildStamp.label)
                 .font(.caption2.weight(.semibold).monospaced())
@@ -329,7 +404,8 @@ struct MainHubView: View {
                 Text(item.title)
                     .font((HubLayout.MacReadable.enabled ? Font.title3 : Font.body).weight(selected ? .semibold : .regular))
                     .foregroundStyle(selected ? AppTheme.blue : AppTheme.text)
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
                 Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity, alignment: .leading)

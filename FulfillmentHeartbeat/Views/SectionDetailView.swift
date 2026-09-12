@@ -58,7 +58,13 @@ struct SectionDetailView: View {
                 PhoneSectionPage(section: section)
             }
         }
-        .background(AppTheme.bg.ignoresSafeArea(edges: .bottom))
+        .background {
+            if HubLayout.isMac, PulseLaunch.shouldRespectMacWindowSafeArea() {
+                AppTheme.bg
+            } else {
+                AppTheme.bg.ignoresSafeArea(edges: .bottom)
+            }
+        }
         .environmentObject(laborHeaderPin)
         .readWidth($pageWidth)
         .onPreferenceChange(LaborListTopKey.self) { top in
@@ -1363,6 +1369,7 @@ struct HubCalloutGrid<Content: View>: View {
         ) {
             content
         }
+        .fixedSize(horizontal: false, vertical: HubLayout.isMac && PulseLaunch.shouldFitMacCommandCenterToWindow())
     }
 }
 

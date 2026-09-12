@@ -10324,7 +10324,13 @@ struct HubChromeModifier: ViewModifier {
                 HubBrandBar(showBack: showBack, showsFilters: showsFilters)
                     .background(AppTheme.bg.ignoresSafeArea(edges: .top))
             }
-            .background(AppTheme.bg.ignoresSafeArea(edges: .bottom))
+            .background {
+                if HubLayout.isMac, PulseLaunch.shouldRespectMacWindowSafeArea() {
+                    AppTheme.bg
+                } else {
+                    AppTheme.bg.ignoresSafeArea(edges: .bottom)
+                }
+            }
             .navigationBarTitleDisplayMode(.inline)
             .navigationTitle("")
             .tint(AppTheme.blue)
@@ -10444,11 +10450,13 @@ struct HubBrandBar: View {
     private var regularBar: some View {
         ZStack {
             HStack(spacing: 4) {
-                HubNavControl(symbol: "line.3.horizontal", title: "Pages") {
-                    var transaction = Transaction()
-                    transaction.animation = nil
-                    withTransaction(transaction) {
-                        router.toggleSidebar()
+                if !(HubLayout.isMac && PulseLaunch.shouldHideMacHeaderPagesButton()) {
+                    HubNavControl(symbol: "line.3.horizontal", title: "Pages") {
+                        var transaction = Transaction()
+                        transaction.animation = nil
+                        withTransaction(transaction) {
+                            router.toggleSidebar()
+                        }
                     }
                 }
                 if showBack {
@@ -10564,7 +10572,13 @@ extension View {
     func hubPageCanvas() -> some View {
         self
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .background(AppTheme.bg.ignoresSafeArea(edges: .bottom))
+            .background {
+                if HubLayout.isMac, PulseLaunch.shouldRespectMacWindowSafeArea() {
+                    AppTheme.bg
+                } else {
+                    AppTheme.bg.ignoresSafeArea(edges: .bottom)
+                }
+            }
     }
 
     func hubPhoneTable(minWidth: CGFloat = 720) -> some View {

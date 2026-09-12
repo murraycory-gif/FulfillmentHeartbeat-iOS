@@ -911,6 +911,32 @@ enum PulseLaunch {
     /// Mac Catalyst Command Center: pinned Pages sidebar + center only.
     static func shouldPinMacCommandCenterRails() -> Bool { true }
 
+    /// Mac header Pages button is redundant once the rail can collapse in-place.
+    static func shouldHideMacHeaderPagesButton() -> Bool { true }
+
+    /// User can close the Mac Pages rail; the center then expands to the window.
+    static func shouldAllowMacSidebarCollapse() -> Bool { true }
+
+    /// Command Center / callouts must partition the live window — never overflow.
+    static func shouldFitMacCommandCenterToWindow() -> Bool { true }
+
+    /// Mac Catalyst window chrome owns the bottom edge. Do not paint under it.
+    static func shouldRespectMacWindowSafeArea() -> Bool { true }
+
+    static var macCollapsedSidebarWidth: CGFloat { 56 }
+    static let macSidebarExpandedDefaultsKey = "hb.macSidebarExpanded"
+
+    static func loadMacSidebarExpanded() -> Bool {
+        if UserDefaults.standard.object(forKey: macSidebarExpandedDefaultsKey) == nil {
+            return true
+        }
+        return UserDefaults.standard.bool(forKey: macSidebarExpandedDefaultsKey)
+    }
+
+    static func storeMacSidebarExpanded(_ expanded: Bool) {
+        UserDefaults.standard.set(expanded, forKey: macSidebarExpandedDefaultsKey)
+    }
+
     /// No right Alerts column on Mac. Simplifies chrome / heat.
     static func shouldPinMacCommandCenterAlertsRail() -> Bool { false }
 

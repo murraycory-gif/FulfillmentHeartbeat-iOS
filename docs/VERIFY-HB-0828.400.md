@@ -1,7 +1,7 @@
-# HB-0828.407 / 733 — verify (THIS SEAT chips + phone density)
+# HB-0828.408 / 734 — verify (Mac window-fit + collapsible Pages)
 
 **Tip** `origin/cursor/command-center-8b-3389` · [PR #5](https://github.com/murraycory-gif/FulfillmentHeartbeat-iOS/pull/5)  
-**Stamp** `HB-0828.407  1.0 (733)` · bundle `com.corymurray.FulfillmentHeartbeat`  
+**Stamp** `HB-0828.408  1.0 (734)` · bundle `com.corymurray.FulfillmentHeartbeat`  
 **No TestFlight until this PASSes.** Do not delete the app. Cloud Linux cannot `xcodebuild` or talk to a Mac/iPad (no self-hosted worker registered).
 
 ## CoS first — Mac Catalyst (over existing app)
@@ -17,14 +17,26 @@ Quit Heartbeat from the **Dock** (not just the window). Reopen.
 
 | Check | Pass |
 |---|---|
-| Sidebar stamp | `HB-0828.407  1.0 (733)` |
+| Sidebar stamp | `HB-0828.408  1.0 (734)` |
 | Sales | **~$58M** and **Thursday / `sales_d4`** (not ~$49M / Wednesday) |
-| Automated test | `testArchitecture406SeatChipsFalseZeroBanAndLiveKeys` + `testArchitecture407PhoneDensitySoftKeep` green |
+| Automated test | `testArchitecture408MacWindowFitAndCollapsibleRail` + 406/407 Soft KEEP green |
 | Company tables | Visible page / chrome only — not all 12 cards rebuilt into RAM |
-| THIS SEAT | Every section live when the hero is live. No ghost dashes/zeros. Healthy/Watch/At Risk washes like Regions. |
-| Share Mail | Share pulse → one page **or** multi-select → Send → **Mail stays up**. |
-| Mac Picker | Top Opportunity Pickers table shows Shopper / Hours / PPH / Orders / Presub / OTT / OTH5 / COE / Status headers (MUST H — Mac FAIL, not iPad). |
-| Mac readability | Command Center + every section is **bigger / easier** (type, cards, tables, status chips, filter chrome). Not phone-dense. Phone D1–D5 stay phone-only. |
+| THIS SEAT | Every section live when the hero is live. No ghost dashes/zeros. |
+| Share Mail | Share pulse → Send → **Mail stays up**. |
+| Mac Picker | Top Opportunity headers stay (MUST H). |
+| Mac Pages | **No Pages button** in the top brand bar. Hide pages on the rail; collapsed rail reopens it. Center expands and reflows on window resize. |
+| Mac clip | Command Center glance / section callouts are fully visible — nothing cut at the window bottom or rail edge. |
+
+## Soft KEEP (Architecture)
+
+| KEEP | Status |
+|---|---|
+| Phone D1–D5 compact chrome | Soft KEEP — phone-only |
+| iPad leftover-fill 132 / 120 | Soft KEEP — `heroBandHeight(..., mac: false)` still 128 |
+| MUST H Mac Picker headers | Soft KEEP |
+| Data MUST 1 dual-map deleted | Soft KEEP |
+| MUST P cook / seat-repull / expand gates | Soft KEEP — no PulseSeatPack / WorkbookParser / cook edits |
+| MUST M Mac readable tokens | Soft KEEP — 408 fits those tokens to the live window instead of overflowing |
 
 ## QC — iPhone (THIS SEAT)
 
@@ -38,18 +50,11 @@ git reset --hard origin/cursor/command-center-8b-3389
 SKIP_PULL=1 ALLOW_PHONE=1 ./install-ipad.sh
 ```
 
-1. Confirm stamp **HB-0828.407  1.0 (733)**. Pages only — no phone Back chevron. Tighter CC / section cards.
+1. Confirm stamp **HB-0828.408  1.0 (734)**. Pages stays on phone. No phone Back chevron. Tighter CC / section cards.
 2. **Force-quit.** Reopen. Do **not** delete.
-3. 5 Star: Rating / Flash / COE / OTT / Pre-Sub / OTH — not On-time / Fill / Quality dashes.
-4. Pick Path THIS SEAT = Path % / AVG PPH (same as Regions). No ghost Exceptions 0 from `exception_count`.
-5. Prep THIS SEAT = PNR % / Goal / Watch (same as Regions). No ghost Not Ready / Orders Due 0.
-6. Picker: Shoppers / Opportunity / Doing Well match chrome 27,458 — not 0/0/0.
-7. Labor: Weeks is a real week id or omitted — never "—". Cost Tgt / TVA match -0.10%.
-8. Dynacap Util % and Schedule Over / Under live from `utilization_pct` / `over_scheduled` / `under_scheduled`.
-9. Share Send still presents Mail after the sheet dismisses.
-10. Phone header is Pages + Filters + banner only — **no Back**. Command Center / section cards are the denser 407 chrome. iPad leftover-fill unchanged.
-11. **Mac Catalyst:** Picker ScoreCard → Top Opportunity Pickers has column headers above live rows. Phone cards stay headerless.
-12. **Mac Catalyst readability (MUST M HARDENED):** Every page is a lot easier — Command Center, all section tables, status chips, Filters. Not a one-page tweak. A narrow Mac window must **not** flip to phone compact chrome. iPhone stays the tighter 407 density.
+3. 5 Star / Pick Path / Prep / Picker / Labor THIS SEAT still live keys (MUST 1).
+4. Share Send still presents Mail.
+5. **Mac:** no top Pages button; Hide pages collapses the rail; resize the window — callouts and Command Center stay inside the frame.
 
 UDID `676FA816-88AE-59D9-A89D-5C17BFC2DA96` if you target that iPad.
 

@@ -29,7 +29,13 @@ struct DashboardView: View {
                 legacyCalloutScroll
             }
         }
-        .background(AppTheme.bg.ignoresSafeArea(edges: .bottom))
+        .background {
+            if HubLayout.isMac, PulseLaunch.shouldRespectMacWindowSafeArea() {
+                AppTheme.bg
+            } else {
+                AppTheme.bg.ignoresSafeArea(edges: .bottom)
+            }
+        }
         .alert("Couldn’t load", isPresented: $showError) {
             Button("OK", role: .cancel) {
                 store.errorMessage = nil

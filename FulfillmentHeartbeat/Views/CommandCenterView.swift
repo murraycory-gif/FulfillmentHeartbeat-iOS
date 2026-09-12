@@ -136,6 +136,48 @@ enum CommandCenterLayout {
         return max(minGlanceHeight, raw)
     }
 
+    /// Mac Catalyst: partition the live window. Preferred MUST M floors shrink
+    /// so heroes + glance never clip the bottom edge.
+    static func macCommandCenterFit(
+        availableHeight: CGFloat,
+        glanceCards: Int,
+        glanceColumns: Int,
+        portrait: Bool
+    ) -> MacCommandCenterFit {
+        let header: CGFloat = PulseLaunch.shouldUseExpandedMacReadableChrome() ? 28 : 16
+        let pad: CGFloat = PulseLaunch.shouldUseExpandedMacReadableChrome() ? 16 : 12
+        let bottom: CGFloat = 8
+        let rows = rowCount(cards: glanceCards, columns: max(glanceColumns, 1))
+        let stackGutters = gutter * 2
+        let glanceGutters = gutter * CGFloat(max(rows - 1, 0))
+        let chrome = header + pad + bottom + stackGutters
+        let usable = max(0, availableHeight - chrome)
+        let preferredHero = heroBandHeight(
+            phone: false,
+            portrait: portrait,
+            available: availableHeight,
+            mac: true
+        )
+        let minHero: CGFloat = 120
+        let minGlance: CGFloat = 72
+        let minGlanceTotal = CGFloat(rows) * minGlance + glanceGutters
+        var hero = min(preferredHero, max(minHero, usable * 0.36))
+        if usable - hero < minGlanceTotal {
+            hero = max(minHero, usable - minGlanceTotal)
+        }
+        hero = min(hero, max(0, usable - minGlanceTotal))
+        let glanceRemain = max(0, usable - hero)
+        let glanceTile = max(minGlance, (glanceRemain - glanceGutters) / CGFloat(max(rows, 1)))
+        let used = chrome + hero + CGFloat(rows) * glanceTile + glanceGutters
+        return MacCommandCenterFit(
+            heroHeight: hero,
+            glanceTileHeight: glanceTile,
+            headerHeight: header,
+            pad: pad,
+            usedHeight: used
+        )
+    }
+
     static func leftoverGlanceFloor(mac: Bool) -> CGFloat {
         mac && PulseLaunch.shouldUseExpandedMacReadableChrome()
             ? HubLayout.MacReadable.glanceFloor
@@ -235,6 +277,18 @@ enum CommandCenterLayout {
             return (MetricSection.dashboardCards.firstIndex(of: lhs.section) ?? 99)
                 < (MetricSection.dashboardCards.firstIndex(of: rhs.section) ?? 99)
         }
+    }
+}
+
+struct MacCommandCenterFit: Equatable {
+    var heroHeight: CGFloat
+    var glanceTileHeight: CGFloat
+    var headerHeight: CGFloat
+    var pad: CGFloat
+    var usedHeight: CGFloat
+
+    static func overflows(availableHeight: CGFloat, usedHeight: CGFloat) -> Bool {
+        usedHeight > availableHeight + 1
     }
 }
 
@@ -376,19 +430,31 @@ struct CommandCenterHome: View {
                 let portrait = geo.size.height > geo.size.width
                 let cards = glanceCards
                 let cols = CommandCenterLayout.glanceColumns(width: geo.size.width, phone: phone, portrait: portrait)
-                let heroH = CommandCenterLayout.heroBandHeight(
+                let macFit = HubLayout.isMac && PulseLaunch.shouldFitMacCommandCenterToWindow()
+                    ? CommandCenterLayout.macCommandCenterFit(
+                        availableHeight: geo.size.height,
+                        glanceCards: max(cards.count, 1),
+                        glanceColumns: cols,
+                        portrait: portrait
+                    )
+                    : nil
+                let heroH = macFit?.heroHeight ?? CommandCenterLayout.heroBandHeight(
                     phone: phone,
                     portrait: portrait,
                     available: geo.size.height,
                     mac: HubLayout.isMac
                 )
-                let header: CGFloat = HubLayout.MacReadable.enabled ? 24 : 20
-                let pad: CGFloat = HubLayout.MacReadable.enabled ? 16 : 12
+                let header: CGFloat = macFit?.headerHeight
+                    ?? (HubLayout.MacReadable.enabled ? 24 : 20)
+                let pad: CGFloat = macFit?.pad
+                    ?? (HubLayout.MacReadable.enabled ? 16 : 12)
                 let leftover = max(
-                    CommandCenterLayout.leftoverGlanceFloor(mac: HubLayout.isMac),
+                    macFit == nil
+                        ? CommandCenterLayout.leftoverGlanceFloor(mac: HubLayout.isMac)
+                        : 0,
                     geo.size.height - heroH - header - pad - CommandCenterLayout.gutter
                 )
-                let tileH = CommandCenterLayout.glanceTileHeight(
+                let tileH = macFit?.glanceTileHeight ?? CommandCenterLayout.glanceTileHeight(
                     remaining: leftover,
                     cards: max(cards.count, 1),
                     columns: cols
@@ -400,7 +466,7 @@ struct CommandCenterHome: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.bottom, 8)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
             }
         }
     }

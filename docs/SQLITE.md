@@ -24,4 +24,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.407 / 1.0 (733) — Phone THIS SEAT chips are one path: hero + `dashboardTableValues` (regression `336752c` .397 dual map deleted). No ghost `otp_pct` / `exception_count` / `pnr_count` chips. Picker Shoppers/Opportunity/Doing Well from chrome; Labor Weeks from pack `week` when present. Dynacap Util % and Schedule Over/Under keep `utilization_pct` / `over_scheduled` / `under_scheduled`. Phone density Soft KEEP (phone-only). Mac Catalyst MUST M readable chrome + MUST H Picker headers. Share Mail Soft KEEP (730) and Jetsam expand gates unchanged.
+HB-0828.408 / 1.0 (734) — Mac Catalyst window-fit Command Center + collapsible Pages rail (no top Pages button). Phone THIS SEAT chips stay one path: hero + `dashboardTableValues`. Phone density Soft KEEP (phone-only). MUST M readable tokens + MUST H Picker headers. MUST P cook / seat-repull and Share Mail Soft KEEP (730) / Jetsam expand gates unchanged.
