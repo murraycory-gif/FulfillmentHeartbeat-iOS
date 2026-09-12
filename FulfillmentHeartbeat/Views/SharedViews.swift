@@ -10694,9 +10694,27 @@ extension View {
             }
     }
 
+    func hubSeatPackRefreshable() -> some View {
+        modifier(HubSeatPackRefreshModifier())
+    }
+
     func hubPhoneTable(minWidth: CGFloat = 720) -> some View {
         modifier(HubPhoneTableModifier(minWidth: minWidth))
     }
+
+private struct HubSeatPackRefreshModifier: ViewModifier {
+    @EnvironmentObject private var store: HeartbeatStore
+
+    func body(content: Content) -> some View {
+        if PulseLaunch.shouldOfferPullToRefreshSeatPack() {
+            content.refreshable {
+                await store.refreshSeatPackFromUserPull()
+            }
+        } else {
+            content
+        }
+    }
+}
 }
 
 private struct HubPhoneTableModifier: ViewModifier {

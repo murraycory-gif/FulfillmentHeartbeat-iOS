@@ -244,6 +244,7 @@ struct SectionDetailView: View {
             .scrollContentBackground(.hidden)
             .environment(\.defaultMinListRowHeight, 1)
             .transaction { $0.animation = nil }
+            .hubSeatPackRefreshable()
             .background {
                 if HubLayout.pinsStickyStoreHeader(sizeClass) {
                     GeometryReader { geo in
@@ -996,7 +997,8 @@ struct PhoneSectionPage: View {
             .frame(maxWidth: .infinity, alignment: .top)
         }
         .scrollIndicators(.hidden)
-        .scrollBounceBehavior(.basedOnSize)
+        .scrollBounceBehavior(PulseLaunch.shouldOfferPullToRefreshSeatPack() ? .always : .basedOnSize)
+        .hubSeatPackRefreshable()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onAppear { armHeavy() }
         .onChange(of: isVisible) { _, visible in

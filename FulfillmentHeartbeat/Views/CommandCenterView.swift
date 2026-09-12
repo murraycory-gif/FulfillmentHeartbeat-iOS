@@ -324,7 +324,8 @@ struct PhoneCommandCenterHome: View {
             .frame(maxWidth: .infinity, alignment: .top)
         }
         .scrollIndicators(.hidden)
-        .scrollBounceBehavior(.basedOnSize)
+        .scrollBounceBehavior(PulseLaunch.shouldOfferPullToRefreshSeatPack() ? .always : .basedOnSize)
+        .hubSeatPackRefreshable()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
@@ -459,7 +460,7 @@ struct CommandCenterHome: View {
                     cards: max(cards.count, 1),
                     columns: cols
                 )
-                VStack(spacing: CommandCenterLayout.gutter) {
+                let fitted = VStack(spacing: CommandCenterLayout.gutter) {
                     heroBand(height: heroH, portrait: portrait, width: geo.size.width)
                     glanceHeader
                     glanceGrid(cards: cards, columns: cols, tileHeight: tileH)
@@ -467,6 +468,16 @@ struct CommandCenterHome: View {
                 .padding(.horizontal, 12)
                 .padding(.bottom, 8)
                 .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
+                if PulseLaunch.shouldOfferPullToRefreshSeatPack() {
+                    ScrollView {
+                        fitted
+                    }
+                    .scrollIndicators(.hidden)
+                    .scrollBounceBehavior(.always)
+                    .hubSeatPackRefreshable()
+                } else {
+                    fitted
+                }
             }
         }
     }

@@ -24,4 +24,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.408 / 1.0 (734) — Mac Catalyst window-fit Command Center + collapsible Pages rail (no top Pages button). Phone THIS SEAT chips stay one path: hero + `dashboardTableValues`. Phone density Soft KEEP (phone-only). MUST M readable tokens + MUST H Picker headers. MUST P cook / seat-repull and Share Mail Soft KEEP (730) / Jetsam expand gates unchanged.
+HB-0828.408 / 1.0 (734) — Mac window-fit + collapsible Pages + bigger Share sheet. Pull-to-refresh on phone / iPad / Mac uses the same no-delete seat-repull as cold open (remote `updated_at` newer). MUST P cook / expand gates and Share Mail presenter Soft KEEP.

@@ -1961,6 +1961,12 @@ enum PulseLaunch {
 
     static func shouldPullCloudPackOnColdOpen() -> Bool { true }
     static func shouldPullCloudPackOnForeground() -> Bool { true }
+
+    /// Pull-to-refresh on phone / pad / Mac uses the same no-delete seat-repull
+    /// as cold open (`importCloudSQLiteIfPresent` when remote `updated_at` is newer).
+    static func shouldOfferPullToRefreshSeatPack() -> Bool { true }
+    static func shouldRefreshSeatPackOnPull() -> Bool { true }
+    static func shouldStampHubOnPullToRefresh() -> Bool { false }
     static func shouldReplaceCompanySeatFromDownloadedRoot() -> Bool { true }
     static func isCompanySeatSizeAllowed(_ bytes: Int) -> Bool {
         bytes >= minimumPackBytes && bytes <= companySeatMaxBytes

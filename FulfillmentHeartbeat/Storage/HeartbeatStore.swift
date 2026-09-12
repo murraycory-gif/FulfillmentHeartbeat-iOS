@@ -2892,6 +2892,13 @@ final class HeartbeatStore: ObservableObject {
         Task { await refreshFromCloud() }
     }
 
+    /// User pull-to-refresh. Same freshness check as cold open / foreground —
+    /// remote `updated_at` newer downloads; usable local seat is not deleted.
+    func refreshSeatPackFromUserPull() async {
+        guard PulseLaunch.shouldRefreshSeatPackOnPull() else { return }
+        await refreshFromCloud()
+    }
+
     private func refreshFromCloud() async {
         guard !isImporting else { return }
         let snap = await PulseCloud.snapshot()

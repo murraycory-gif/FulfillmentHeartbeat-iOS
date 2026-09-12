@@ -5864,6 +5864,17 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(noted.brief.hasPrefix("Notes\nDistrict 49 look"))
         XCTAssertTrue(noted.html.contains("District 49 look"))
         XCTAssertTrue(noted.html.contains("<body"))
+        XCTAssertTrue(PulseLaunch.shouldOfferPullToRefreshSeatPack())
+        XCTAssertTrue(PulseLaunch.shouldRefreshSeatPackOnPull())
+        XCTAssertFalse(PulseLaunch.shouldStampHubOnPullToRefresh())
+        XCTAssertFalse(PulseLaunch.shouldStampHubOnFilterSwap())
+        XCTAssertFalse(PulseLaunch.shouldRemountPageOnDestinationChange())
+        XCTAssertFalse(PulseLaunch.shouldRemountPhoneHubOnFilterSwap())
+        XCTAssertTrue(PulseLaunch.shouldPullCloudPackOnColdOpen())
+        XCTAssertTrue(PulseLaunch.shouldForceRedownloadCompanySeatWhenRemoteNewer())
+        XCTAssertFalse(PulseLaunch.shouldRedownloadUsableCompanySeat())
+        XCTAssertFalse(PulseLaunch.shouldWipeWarehouseBeforeCachedCompanyChrome())
+        XCTAssertTrue(PulseLaunch.reloadInSessionAfterFetch(constrained: true, localRowsLoaded: 0))
     }
 
     /// HARDENED MUST 1: `336752c` HB-0828.397 PhoneSectionPage.seatChips
