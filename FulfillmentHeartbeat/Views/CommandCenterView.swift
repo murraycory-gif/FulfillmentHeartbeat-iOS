@@ -218,14 +218,6 @@ enum CommandCenterLayout {
         return card.headlineText
     }
 
-    /// GeometryReader can freeze the snapshot passed into a tile. Live
-    /// `summary` + `seatPaintStamp` is the dashboard filter paint.
-    static func paintedCard(_ card: SectionSummary, store: HeartbeatStore) -> SectionSummary {
-        _ = store.seatPaintStamp
-        guard PulseLaunch.shouldBindCommandCenterDashboardToSeatPaint() else { return card }
-        return store.summary(for: card.section)
-    }
-
     /// Empty chrome stays empty. Never paint `.none` as Healthy when the
     /// headline or store count is still 0 (company Picker 0 / Healthy reject).
     static func sectionPills(
@@ -345,7 +337,7 @@ struct PhoneCommandHeroCard: View {
     var action: (() -> Void)? = nil
 
     private var painted: SectionSummary {
-        CommandCenterLayout.paintedCard(card, store: store)
+        store.paintedCommandCenterCard(card)
     }
 
     var body: some View {
@@ -403,7 +395,7 @@ struct PhoneCommandGlanceCard: View {
     let action: () -> Void
 
     private var painted: SectionSummary {
-        CommandCenterLayout.paintedCard(card, store: store)
+        store.paintedCommandCenterCard(card)
     }
 
     var body: some View {
@@ -616,7 +608,7 @@ struct CommandCenterHeroTile: View {
     let action: () -> Void
 
     private var painted: SectionSummary {
-        CommandCenterLayout.paintedCard(card, store: store)
+        store.paintedCommandCenterCard(card)
     }
 
     var body: some View {
@@ -661,7 +653,7 @@ struct CommandCenterGlanceTile: View {
     let action: () -> Void
 
     private var painted: SectionSummary {
-        CommandCenterLayout.paintedCard(card, store: store)
+        store.paintedCommandCenterCard(card)
     }
 
     var body: some View {

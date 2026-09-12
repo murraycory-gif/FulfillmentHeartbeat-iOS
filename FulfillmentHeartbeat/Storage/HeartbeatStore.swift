@@ -730,6 +730,14 @@ final class HeartbeatStore: ObservableObject {
         )
     }
 
+    /// Dashboard tiles must not keep a GeometryReader snapshot. Read on
+    /// `HeartbeatStore` (MainActor) so Catalyst can bind `seatPaintStamp`.
+    func paintedCommandCenterCard(_ card: SectionSummary) -> SectionSummary {
+        _ = seatPaintStamp
+        guard PulseLaunch.shouldBindCommandCenterDashboardToSeatPaint() else { return card }
+        return summary(for: card.section)
+    }
+
     func upload(for section: MetricSection) -> UploadRecord? {
         uploads.first { $0.section == section }
     }
@@ -2358,26 +2366,23 @@ final class HeartbeatStore: ObservableObject {
         var installed = false
         switch plan {
         case .reuseInPlace:
-            if let chrome = cached,
-               PulseLaunch.shouldApplySeatChromeAgain(
-                alreadyPaintedKey: lastPaintedSeatKey,
-                incoming: key,
-                forceReload: forceReload
-               ) {
-                applySeatChrome(chrome, key: key)
+            if let chrome = cached {
+                applySeatChromeOrCommandCenterSummaries(
+                    chrome,
+                    key: key,
+                    forceReload: forceReload
+                )
             }
             rememberSeatChrome(key)
             publishSeatPaintAfterBoxMaps(for: key)
             return true
         case .paintCachedThenSwap:
             if let chrome = cached {
-                if PulseLaunch.shouldApplySeatChromeAgain(
-                    alreadyPaintedKey: lastPaintedSeatKey,
-                    incoming: key,
+                applySeatChromeOrCommandCenterSummaries(
+                    chrome,
+                    key: key,
                     forceReload: forceReload
-                ) {
-                    applySeatChrome(chrome, key: key)
-                }
+                )
                 activeSeatKey = key
                 activePackURL = dest
                 rememberSeatChrome(key)
@@ -2611,6 +2616,43 @@ final class HeartbeatStore: ObservableObject {
         if mapsReady {
             lastPaintedSeatKey = key
         }
+    }
+
+    /// skipRedundant skips `applyDashChrome` (745). CC tiles still need
+    /// `cachedSummaries` rewritten with the box maps this turn.
+    private func applySeatChromeOrCommandCenterSummaries(
+        _ chrome: PulseDashChrome,
+        key: PulseSeatPack.Key,
+        forceReload: Bool
+    ) {
+        if PulseLaunch.shouldApplySeatChromeAgain(
+            alreadyPaintedKey: lastPaintedSeatKey,
+            incoming: key,
+            forceReload: forceReload
+        ) {
+            applySeatChrome(chrome, key: key)
+            return
+        }
+        rewriteCommandCenterSummaries(chrome, key: key)
+    }
+
+    @discardableResult
+    private func rewriteCommandCenterSummaries(
+        _ chrome: PulseDashChrome,
+        key: PulseSeatPack.Key
+    ) -> Bool {
+        guard PulseLaunch.shouldRewriteCommandCenterSummariesWithBoxMaps() else { return false }
+        guard !chrome.summaries.isEmpty else { return false }
+        let changed = cachedSummaries != chrome.summaries
+        cachedSummaries = chrome.summaries
+        packChrome = chrome
+        usingPackChrome = true
+        seatChromeByKey[key] = chrome
+        if key == .company {
+            companySeatChrome = chrome
+            pinCompanyCommandCenterChrome()
+        }
+        return changed
     }
 
     /// LRU evicted the plane. Do not keep leftover District rows under new chrome.

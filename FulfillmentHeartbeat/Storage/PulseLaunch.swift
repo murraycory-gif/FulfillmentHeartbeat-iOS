@@ -299,6 +299,11 @@ enum PulseLaunch {
         return alreadyPaintedKey != incoming
     }
 
+    /// FILE ROOT 424 / 750. skipRedundant may skip `applyDashChrome` on
+    /// swap, but CC tiles read `cachedSummaries` (not @Published). Thin
+    /// summary rewrite still runs with box maps. Not a remount / SQL stamp.
+    static func shouldRewriteCommandCenterSummariesWithBoxMaps() -> Bool { true }
+
     /// Missing / unreadable seat pack is an error, not "keep the last tiles."
     static func shouldSilentNoOpOnSeatSwapFailure() -> Bool { false }
 

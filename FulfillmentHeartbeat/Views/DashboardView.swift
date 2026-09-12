@@ -56,6 +56,7 @@ struct DashboardView: View {
         }
     }
 
+    @ViewBuilder
     private var commandCenterBody: some View {
         let _ = store.seatPaintStamp
         let _ = store.filters.summary
