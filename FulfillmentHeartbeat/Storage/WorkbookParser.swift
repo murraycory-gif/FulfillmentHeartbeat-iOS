@@ -427,13 +427,14 @@ enum WorkbookParser {
         return sample.contains(",") && !data.starts(with: [0x50, 0x4B])
     }
 
-    private static let divisionKeys = ["division", "div", "divn", "divnbr", "divisionnumber"]
+    private static let divisionKeys = ["division", "div", "divn", "divnbr", "divisionnumber", "market", "banner"]
+    private static let marketAsDivisionKeys: Set<String> = ["market", "banner"]
     private static let omKeys = [
         "operationsom", "operations_om", "opsom", "om", "omid", "marketmanager", "mm",
         "operationsmanager", "opsmgr",
     ]
     private static let districtKeys = ["district", "dist", "distid", "districtnbr", "districtnumber"]
-    private static let omAreaKeys = ["omarea", "om_area", "area", "market"]
+    private static let omAreaKeys = ["omarea", "om_area", "area"]
     private static let storeKeys = [
         "storenumber", "storenbr", "store", "storeid", "unit", "storenbr", "location", "loc", "locationid",
     ]
@@ -681,8 +682,10 @@ enum WorkbookParser {
         case .pickerScorecard: return parsePickerWide(matrix) ?? parseEmployeeWeek(matrix)
         case .pickPathPicker: return parseEmployeeWeek(matrix) ?? parsePickerWide(matrix)
         case .pickPath: return parseStoreWeek(matrix) ?? parseOutline(matrix)
-        case .fiveStar, .pph, .dynacap, .scheduleQuality:
+        case .fiveStar, .dynacap, .scheduleQuality:
             return parseStoreWeek(matrix) ?? parseOutline(matrix) ?? parseFlat(matrix)
+        case .pph:
+            return parseOutline(matrix) ?? parseStoreWeek(matrix) ?? parseFlat(matrix)
         default:
             return nil
         }
@@ -785,11 +788,38 @@ enum WorkbookParser {
         raw.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("total") == .orderedSame
     }
 
+    static func isNonStoreFooter(_ raw: String) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return false }
+        let lower = trimmed.lowercased()
+        if lower.hasPrefix("applied") || lower.contains("applied filter") { return true }
+        if lower.hasPrefix("no filter") { return true }
+        if lower.contains("excluded") && lower.contains("blank") { return true }
+        return false
+    }
+
+    static func usableStoreNumber(_ raw: String) -> String? {
+        if isNonStoreFooter(raw) { return nil }
+        guard looksLikeStoreNumber(raw) else { return nil }
+        let store = HeartbeatMath.canonicalStore(raw)
+        return store.isEmpty ? nil : store
+    }
+
     private static func usableValue(_ raw: String) -> String? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.isEmpty || isTotalCell(trimmed) { return nil }
-        if trimmed.lowercased().hasPrefix("applied filters") { return nil }
+        if isNonStoreFooter(trimmed) { return nil }
         return trimmed
+    }
+
+    /// Official Excel market only. MARKET leftovers stay blank — never Unassigned.
+    private static func boundDivision(header: String, raw: String) -> (division: String?, omArea: String?) {
+        guard let trimmed = usableValue(raw) else { return (nil, nil) }
+        let official = MarketRegion.canonicalName(trimmed)
+        if !official.isEmpty { return (official, nil) }
+        if MarketRegion.isIgnoredDivisionToken(trimmed) { return ("", nil) }
+        if marketAsDivisionKeys.contains(header) { return (nil, trimmed) }
+        return (trimmed, nil)
     }
 
     private static func normalizeWeekID(_ raw: String) -> String {
@@ -876,19 +906,23 @@ enum WorkbookParser {
     private static func parseStoreRoster(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {
         guard let headerIndex = matrix.firstIndex(where: { row in
             let names = row.map(normHeader)
-            return names.contains(where: { $0 == "division" || $0.contains("division") })
+            return names.contains(where: {
+                $0 == "division" || $0.contains("division") || $0 == "market" || $0 == "banner"
+            })
                 && names.contains(where: { $0 == "district" || $0.contains("district") })
                 && names.contains(where: { $0 == "store" || $0.contains("store") })
         }) else { return nil }
         let header = matrix[headerIndex].map(normHeader)
         func idx(_ keys: [String]) -> Int? {
-            header.firstIndex { name in keys.contains(where: { name == $0 || name.contains($0) }) }
+            Self.headerIndex(in: header, keys: keys)
         }
-        let divisionIdx = idx(["division"]) ?? 0
+        let divisionIdx = idx(["division", "market", "banner"]) ?? 0
+        let divisionHeader = divisionIdx < header.count ? header[divisionIdx] : "division"
         let districtIdx = idx(["district"]) ?? 1
-        let areaIdx = idx(["omarea", "om_area", "area"])
-        let omIdx = idx(["omid", "om_id", "om"]) ?? 3
-        let storeIdx = idx(["store", "storeid", "store_id"]) ?? 4
+        let areaIdx = idx(["omarea", "area"])
+        /// Exact / longest key only. `om` must not steal `omarea`.
+        let omIdx = idx(["omid", "om"])
+        let storeIdx = idx(["store", "storeid"]) ?? 4
         var division = ""
         var district = ""
         var area = ""
@@ -906,7 +940,9 @@ enum WorkbookParser {
             let omRaw = cell(omIdx)
             let storeRaw = cell(storeIdx)
             if !divRaw.isEmpty, !isTotalCell(divRaw), divRaw.uppercased() != "WEEK_ID" {
-                division = divRaw
+                let bound = boundDivision(header: divisionHeader, raw: divRaw)
+                if let next = bound.division { division = next }
+                if let nextArea = bound.omArea { area = nextArea }
             }
             if !distRaw.isEmpty, !isTotalCell(distRaw) {
                 district = distRaw
@@ -973,6 +1009,8 @@ enum WorkbookParser {
                     continue
                 }
                 if let number = cellNumber(raw) {
+                    // First header wins. Goal / FY must never overwrite a TO key.
+                    if payload[key] != nil { continue }
                     var value = number
                     if key.hasSuffix("_pct"), value <= 2 { value *= 100 }
                     payload[key] = value
@@ -1012,9 +1050,23 @@ enum WorkbookParser {
         return out.isEmpty ? nil : out
     }
 
+    /// Public so tests fail if a Goal / FY header steals a Total Opportunity key.
+    static func lostRevenueColumnKey(_ header: String) -> String {
+        lostRevenueColumn(header)
+    }
+
     private static func lostRevenueColumn(_ raw: String) -> String {
         let lower = raw.lowercased()
         let hasPct = raw.contains("%") || lower.contains("percent")
+        let isGoal = lower.contains("goal") || lower.contains("fy20")
+        let isComponent = lower.contains("missed")
+            || lower.contains("kill")
+            || lower.contains("post sub")
+            || lower.contains("refund")
+            || lower.contains("cancel")
+            || lower.contains("reduced capacity")
+        func key(_ base: String) -> String { hasPct ? "\(base)_pct" : base }
+
         if lower.trimmingCharacters(in: .whitespacesAndNewlines) == "store" { return "store" }
         if lower == "store_id" || lower == "storeid" || lower == "store number" || lower == "store #"
             || lower == "store no" || lower.contains("store id") || lower.contains("store number")
@@ -1026,27 +1078,48 @@ enum WorkbookParser {
         if (lower.contains("ecomm") || lower.contains("e-comm") || lower.contains("ecommerce")) && lower.contains("sales") {
             return "ecomm_sales"
         }
-        if lower.contains("total lost revenue") && lower.contains("fy") && hasPct { return "lost_revenue_goal_pct" }
-        if lower.contains("total lost revenue") && lower.contains("fy") { return "lost_revenue_goal" }
-        if lower.contains("total lost revenue") && lower.contains("total opportunity") && hasPct { return "lost_revenue_pct" }
-        if lower.contains("total lost revenue") && lower.contains("total opportunity") { return "lost_revenue" }
-        if lower.contains("lost revenue") && hasPct { return "lost_revenue_pct" }
-        if lower.contains("lost revenue") { return "lost_revenue" }
-        if lower.contains("post sub oos") && hasPct && !lower.contains("foregone") { return "post_sub_oos_pct" }
-        if lower.contains("post sub oos") && lower.contains("foregone") && hasPct { return "post_sub_oos_foregone_pct" }
-        if lower.contains("post sub oos") && lower.contains("foregone") { return "post_sub_oos_foregone" }
-        if lower.contains("refund") && hasPct { return "refund_lost_pct" }
-        if lower.contains("refund") { return "refund_lost" }
-        if lower.contains("capacity utilization") { return "capacity_util_pct" }
-        if lower.contains("missed sales") && hasPct { return "missed_sales_pct" }
-        if lower.contains("missed sales") { return "missed_sales" }
-        if lower.contains("cancelled") && hasPct { return "cancelled_lost_pct" }
-        if lower.contains("cancelled") { return "cancelled_lost" }
-        if lower.contains("kill switch") && hasPct { return "kill_switch_pct" }
-        if lower.contains("kill switch") && lower.contains("lost order") { return "kill_switch_orders" }
-        if lower.contains("kill switch") && (lower.contains("lost sales") || lower.contains("$90")) { return "kill_switch_lost" }
-        if lower.contains("kill switch") { return "kill_switch_lost" }
-        if lower.contains("reduced capacity") { return "reduced_capacity" }
+
+        // Total Lost Revenue (Total Opportunity) — never a Goal/FY column.
+        if lower.contains("total lost revenue"), lower.contains("total opportunity"), !isGoal {
+            return key("lost_revenue")
+        }
+        // Only this header family writes lost_revenue_goal*.
+        if lower.contains("total lost revenue"), isGoal, !isComponent {
+            return key("lost_revenue_goal")
+        }
+
+        if lower.contains("post sub oos") {
+            if isGoal { return key("post_sub_oos_foregone_goal") }
+            if lower.contains("foregone") { return key("post_sub_oos_foregone") }
+            return key("post_sub_oos")
+        }
+        if lower.contains("refund") {
+            return isGoal ? key("refund_lost_goal") : key("refund_lost")
+        }
+        if lower.contains("missed sales") {
+            return isGoal ? key("missed_sales_goal") : key("missed_sales")
+        }
+        if lower.contains("cancelled") {
+            return isGoal ? key("cancelled_lost_goal") : key("cancelled_lost")
+        }
+        if lower.contains("kill switch") {
+            if lower.contains("lost order") {
+                return isGoal ? "kill_switch_orders_goal" : "kill_switch_orders"
+            }
+            if isGoal { return key("kill_switch_lost_goal") }
+            if hasPct { return "kill_switch_pct" }
+            if lower.contains("lost sales") || lower.contains("$90") { return "kill_switch_lost" }
+            return "kill_switch_lost"
+        }
+        if lower.contains("capacity utilization") { return key("capacity_util") }
+        if lower.contains("reduced capacity") {
+            return isGoal ? key("reduced_capacity_goal") : "reduced_capacity"
+        }
+
+        // Bare "Goal %" / "FY2026 Goal" on the Total Lost Revenue block only.
+        if isGoal, !isComponent {
+            return key("lost_revenue_goal")
+        }
         return ""
     }
 
@@ -1332,9 +1405,8 @@ enum WorkbookParser {
                 }
                 continue
             }
-            if rawStore.isEmpty { continue }
-            let store = HeartbeatMath.canonicalStore(rawStore)
-            if store.isEmpty { continue }
+            if rawStore.isEmpty || isNonStoreFooter(rawStore) || isNonStoreFooter(rawDivision) { continue }
+            guard let store = usableStoreNumber(rawStore) else { continue }
             var payload: [String: Double] = [:]
             applySalesBlock(weekBlock, line: line, prefix: "sales_", payload: &payload)
             applySalesDayBlocks(dayBlocks, weekBlock: weekBlock, line: line, payload: &payload)
@@ -2231,7 +2303,8 @@ enum WorkbookParser {
             if isTotalCell(divRaw) {
                 division = ""
             } else if let value = usableValue(divRaw) {
-                division = value
+                let bound = boundDivision(header: "division", raw: value)
+                if let next = bound.division { division = next }
             }
             let distRaw = cell(idxDist)
             if isTotalCell(distRaw) {
@@ -2611,7 +2684,8 @@ enum WorkbookParser {
         if isTotalCell(divRaw) {
             division = ""
         } else if let value = usableValue(divRaw) {
-            division = value
+            let bound = boundDivision(header: "division", raw: value)
+            if let next = bound.division { division = next }
         }
         let distRaw = cell("district")
         if isTotalCell(distRaw) {
@@ -3481,7 +3555,9 @@ enum WorkbookParser {
             header.firstIndex { keys.contains($0) }
         }
 
-        let divIdx = firstIndex(divisionKeys)
+        let divIdx = firstIndex(["division", "div", "divn", "divnbr", "divisionnumber"])
+            ?? firstIndex(["market", "banner"])
+        let divHeader = divIdx.flatMap { $0 < header.count ? header[$0] : nil } ?? "division"
         let distIdx = firstIndex(districtKeys)
         let areaIdx = firstIndex(omAreaKeys)
         let omIdx = firstIndex(omKeys)
@@ -3528,7 +3604,11 @@ enum WorkbookParser {
                 return line[index]
             }
 
-            if let value = usableValue(cell(divIdx)) { carryDiv = value }
+            if let raw = usableValue(cell(divIdx)) {
+                let bound = boundDivision(header: divHeader, raw: raw)
+                if let next = bound.division { carryDiv = next }
+                if let nextArea = bound.omArea { carryArea = nextArea }
+            }
             if let value = usableValue(cell(distIdx)) { carryDist = value }
             if let value = usableValue(cell(areaIdx)) { carryArea = value }
             if let value = usableValue(cell(omIdx)) { carryOM = value }
@@ -3893,6 +3973,8 @@ enum WorkbookParser {
         var out: [ParsedWorkbookRow] = []
         for line in matrix.dropFirst(headerIndex + 1) {
             if line.allSatisfy({ $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) { continue }
+            let blob = line.joined(separator: " ")
+            if isNonStoreFooter(blob) { continue }
             var division = ""
             var om = ""
             var store = ""
@@ -3905,7 +3987,9 @@ enum WorkbookParser {
                 guard !header.isEmpty else { continue }
                 let raw = index < line.count ? line[index] : ""
                 if divisionKeys.contains(header) {
-                    division = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+                    let bound = boundDivision(header: header, raw: raw)
+                    if let next = bound.division { division = next }
+                    if let nextArea = bound.omArea { text["om_area"] = nextArea }
                     continue
                 }
                 if districtKeys.contains(header) {
@@ -3923,7 +4007,7 @@ enum WorkbookParser {
                     continue
                 }
                 if storeKeys.contains(header) {
-                    store = HeartbeatMath.canonicalStore(raw)
+                    store = usableStoreNumber(raw) ?? ""
                     continue
                 }
                 if nameKeys.contains(header) {
@@ -3982,6 +4066,21 @@ enum WorkbookParser {
         raw.lowercased()
             .replacingOccurrences(of: "[%#]", with: "", options: .regularExpression)
             .replacingOccurrences(of: "[^a-z0-9]+", with: "", options: .regularExpression)
+    }
+
+    /// Exact header match, longest key first. Substring match is banned —
+    /// normalized `omarea` must not bind the `om` key.
+    static func headerIndex(in header: [String], keys: [String]) -> Int? {
+        let ranked = keys.sorted { lhs, rhs in
+            if lhs.count != rhs.count { return lhs.count > rhs.count }
+            return lhs < rhs
+        }
+        for key in ranked {
+            if let match = header.firstIndex(where: { $0 == key }) {
+                return match
+            }
+        }
+        return nil
     }
 
     private static func cellNumber(_ raw: String) -> Double? {

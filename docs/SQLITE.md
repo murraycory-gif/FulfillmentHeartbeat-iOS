@@ -1,31 +1,27 @@
 # Heartbeat pack
 
 The iPad is a **viewer**. GitHub Actions cooks `Heartbeat Daily Report.xlsx`
-into `current.sqlite` and publishes it to the `heartbeat-packs` bucket.
+into `current.sqlite` plus **seat packs** and publishes them to `heartbeat-packs`.
 
-## How a filter works
+See [SEAT-SCOPED-PACKS.md](SEAT-SCOPED-PACKS.md) for the Tip 1 contract.
 
-Company-wide paints the cooked dashboard tiles.
-
-District / division / store is a database lookup:
+## Layout
 
 ```
-SELECT … FROM facts
-WHERE section IN (sales, lostRevenue, labor, …)
-  AND store_number IN (roster stores for this filter)
+current.sqlite                         # LIVE root. Company seat (~21MB) when market ~56MB exceeds Storage ~50MB.
+packs/manifest.json
+packs/seat/company/all/current.sqlite  # thin company summary (also copied to root when market is over the limit)
+packs/seat/district/03/current.sqlite
+packs/seat/om/Jino-Arvin/current.sqlite
+packs/seat/store/12/current.sqlite
 ```
 
-If store numbers in the sheet are padded (`0667` vs `667`), the lookup
-retries the whole section and joins on aliases. The iPad does **not**
-rebuild company math.
+Under a seat the hub paints from **that** sqlite only. Market
+`current.sqlite` is not the primary. `applySeatSlice` of the full market
+is banned.
 
-Labor loads on open. Picker shoppers load for the stores in the current
-filter, then the full list when that page opens.
-
-If a store is on the roster but the pack has no Loss Revenue row, the app
-fills that store from `facts.json` (2,162 scored stores). Pack dollars always
-win. District 03 is 20 NorCal stores totaling $36,193.
+District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.308 / 1.0 (630)
+HB-0828.424 / 1.0 (750) — CC summaries rewrite with box maps; Catalyst compile-clean tile bind. 748/744/745 KEEP. MUST P vs a9e2f68.

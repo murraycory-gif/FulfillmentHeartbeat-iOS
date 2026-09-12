@@ -4,13 +4,13 @@ struct DashboardView: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var router: HubRouter
     @Environment(\.horizontalSizeClass) private var sizeClass
-    @State private var pushedSection: MetricSection?
     @State private var showError = false
+    @State private var cardWidth: CGFloat = 980
 
     var body: some View {
         dashboardBody
-            .opacity(store.needsRolePick ? 0 : 1)
-            .allowsHitTesting(!store.needsRolePick)
+            .opacity(PulseLaunch.shouldMountRoleGate(needsRolePick: store.needsRolePick) ? 0 : 1)
+            .allowsHitTesting(!PulseLaunch.shouldMountRoleGate(needsRolePick: store.needsRolePick))
     }
 
     private var dashboardBody: some View {
@@ -23,62 +23,19 @@ struct DashboardView: View {
                     trailing: store.sharedDataWindow()
                 )
             }
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    if briefingCards.isEmpty, store.seeded {
-                        HStack {
-                            Spacer()
-                            VStack(spacing: 10) {
-                                ProgressView()
-                                    .tint(AppTheme.blue)
-                                Text("Setting the aisle…")
-                                    .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(AppTheme.textSecondary)
-                            }
-                            .padding(.top, 40)
-                            Spacer()
-                        }
-                    }
-                    ForEach(briefingCards) { card in
-                        DashCallout(
-                            card: card,
-                            flags: store.dashboardFlags(for: card.section),
-                            grains: store.dashboardGrains(for: card.section),
-                            grain: store.effectiveDashboardGrain
-                        ) {
-                            open(card.section)
-                        }
-                        .equatable()
-                        .padding(.horizontal, HubLayout.isPhone(sizeClass) ? 12 : 20)
-                        .padding(.vertical, HubLayout.isPhone(sizeClass) ? 5 : 6)
-                    }
-                    if !store.seeded {
-                        HubCard {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text("No files yet")
-                                    .font(.headline)
-                                Text("Open Upload to drop in the section workbooks, including the picker score card — or load the sample market to see the pulse.")
-                                    .font(.subheadline)
-                                    .foregroundStyle(AppTheme.textSecondary)
-                                Button("Load sample market") {
-                                    store.loadSampleMarket()
-                                }
-                                .buttonStyle(SecondaryButtonStyle())
-                                .padding(.top, 4)
-                            }
-                        }
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 20)
-                    }
-                }
-            }
-            .scrollIndicators(.hidden)
-            .transaction { $0.animation = nil }
-            .navigationDestination(item: $pushedSection) { section in
-                SectionDetailView(section: section)
+            if PulseLaunch.shouldUseCommandCenterHome() {
+                commandCenterBody
+            } else {
+                legacyCalloutScroll
             }
         }
-        .background(AppTheme.bg.ignoresSafeArea())
+        .background {
+            if HubLayout.isMac, PulseLaunch.shouldRespectMacWindowSafeArea() {
+                AppTheme.bg
+            } else {
+                AppTheme.bg.ignoresSafeArea(edges: .bottom)
+            }
+        }
         .alert("Couldn’t load", isPresented: $showError) {
             Button("OK", role: .cancel) {
                 store.errorMessage = nil
@@ -91,11 +48,98 @@ struct DashboardView: View {
         }
         .onChange(of: router.destination) { _, dest in
             if dest == .dashboard {
-                pushedSection = nil
+                router.clearPushedSection()
             }
         }
         .onChange(of: showError) { _, presented in
             if !presented { store.errorMessage = nil }
+        }
+    }
+
+    @ViewBuilder
+    private var commandCenterBody: some View {
+        let _ = store.seatPaintStamp
+        let _ = store.filters.summary
+        ZStack {
+            if HubLayout.isPhone(sizeClass), PulseLaunch.shouldUsePhoneNativeCommandCenter() {
+                PhoneCommandCenterHome(open: open)
+            } else {
+                CommandCenterHome(open: open)
+            }
+            if !store.seeded {
+                HubCard {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Waiting for the pack")
+                            .font(.headline)
+                        Text("Dashboard fills from the Heartbeat pack on this device. Stay here — shopper cards land after ready.")
+                            .font(.subheadline)
+                            .foregroundStyle(AppTheme.textSecondary)
+                    }
+                }
+                .padding(.horizontal, 20)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var legacyCalloutScroll: some View {
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                if briefingCards.isEmpty, store.seeded {
+                    HStack {
+                        Spacer()
+                        VStack(spacing: 10) {
+                            ProgressView()
+                                .tint(AppTheme.blue)
+                            Text(store.aisleFillCaption)
+                                .font(HubLayout.MacReadable.metricLineFont)
+                                .foregroundStyle(AppTheme.textSecondary)
+                        }
+                        .padding(.top, 40)
+                        Spacer()
+                    }
+                }
+                ForEach(briefingCards) { card in
+                    DashCallout(
+                        card: card,
+                        flags: store.dashboardFlags(for: card.section),
+                        grains: store.dashboardGrains(for: card.section),
+                        grain: store.effectiveDashboardGrain,
+                        width: cardWidth
+                    ) {
+                        open(card.section)
+                    }
+                    .equatable()
+                    .padding(.horizontal, HubLayout.isPhone(sizeClass) ? 12 : 20)
+                    .padding(.vertical, HubLayout.isPhone(sizeClass) ? 5 : 6)
+                }
+                if !store.seeded {
+                    HubCard {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Waiting for the pack")
+                                .font(.headline)
+                            Text("Dashboard fills from the Heartbeat pack on this device. Stay here — shopper cards land after ready.")
+                                .font(.subheadline)
+                                .foregroundStyle(AppTheme.textSecondary)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 20)
+                }
+            }
+        }
+        .scrollIndicators(.hidden)
+        .scrollBounceBehavior(.basedOnSize)
+        .transaction { $0.animation = nil }
+        .background(
+            GeometryReader { geo in
+                Color.clear.preference(key: HubWidthKey.self, value: geo.size.width)
+            }
+        )
+        .onPreferenceChange(HubWidthKey.self) { value in
+            if value > 0, abs(value - cardWidth) > 12 {
+                cardWidth = value
+            }
         }
     }
 
@@ -109,7 +153,7 @@ struct DashboardView: View {
 
     private func open(_ section: MetricSection) {
         if HubLayout.isPhone(sizeClass) {
-            pushedSection = section
+            router.pushPhone(section: section)
         } else {
             router.open(section: section)
         }
@@ -125,8 +169,10 @@ private func statusFlags(_ flags: [HeartbeatMath.FiveStarFlag]) -> [HeartbeatMat
     func pick(_ name: String, health: Health) -> HeartbeatMath.FiveStarFlag {
         named[name.lowercased()] ?? HeartbeatMath.FiveStarFlag(name: name, value: "", health: health, stores: 0)
     }
+    let bandNames: Set<String> = ["healthy", "watch", "at risk"]
+    let extras = flags.filter { !bandNames.contains($0.name.lowercased()) }
     if named["healthy"] != nil || named["watch"] != nil || named["at risk"] != nil {
-        return [pick("Healthy", health: .good), pick("Watch", health: .watch), pick("At Risk", health: .risk)]
+        return extras + [pick("Healthy", health: .good), pick("Watch", health: .watch), pick("At Risk", health: .risk)]
     }
     return flags
 }
@@ -185,7 +231,7 @@ struct PhonePulseCard: View {
             }
             PhoneFlagStrip(flags: statusFlags(flags))
             if let grain {
-                DashScopeStrip(section: card.section, grain: grain, packs: grains, width: 390)
+                DashScopeStrip(section: card.section, grain: grain, packs: grains)
             }
         }
         .modifier(DashCardChrome(health: card.health))
@@ -232,7 +278,7 @@ struct PhoneFlagStrip: View {
     let flags: [HeartbeatMath.FiveStarFlag]
 
     private var shown: [HeartbeatMath.FiveStarFlag] {
-        Array(flags.prefix(4))
+        flags
     }
 
     var body: some View {
@@ -245,18 +291,21 @@ struct PhoneFlagStrip: View {
                     let tone = flag.health == .none ? Health.good : flag.health
                     VStack(spacing: 2) {
                         Text(phoneFlagValue(flag))
-                            .font(AppTheme.rounded(.subheadline, weight: .bold).monospacedDigit())
+                            .font(AppTheme.rounded(.title3, weight: .bold).monospacedDigit())
                             .foregroundStyle(dashInk(tone))
                             .lineLimit(1)
-                            .minimumScaleFactor(0.6)
+                            .minimumScaleFactor(0.45)
+                            .truncationMode(.tail)
+                            .frame(maxWidth: .infinity)
                         Text(phoneFlagName(flag.name))
-                            .font(AppTheme.rounded(.caption2, weight: .semibold))
+                            .font(AppTheme.rounded(.caption, weight: .semibold))
                             .foregroundStyle(AppTheme.textSecondary)
-                            .lineLimit(2)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
                             .multilineTextAlignment(.center)
-                            .minimumScaleFactor(0.8)
+                            .minimumScaleFactor(0.7)
                     }
-                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .frame(maxWidth: .infinity, minHeight: 48, maxHeight: 56)
                     .padding(.vertical, 6)
                     .padding(.horizontal, 6)
                     .background(AppTheme.healthWash(tone), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -298,7 +347,6 @@ struct DashLostBanner: View {
     var width: CGFloat = 980
     let action: () -> Void
     @Environment(\.horizontalSizeClass) private var sizeClass
-    @State private var flagsOpen = false
 
     private var compact: Bool { HubLayout.isPhone(sizeClass) }
 
@@ -315,11 +363,11 @@ struct DashLostBanner: View {
             if !compact {
                 DashFlagGrid(
                     flags: statusFlags(flags),
-                    columns: HubLayout.flagColumns(count: statusFlags(flags).count, width: width)
+                    width: width
                 )
             }
             if let grain {
-                DashScopeStrip(section: summary.section, grain: grain, packs: grains, width: width)
+                DashScopeStrip(section: summary.section, grain: grain, packs: grains)
             }
         }
         .modifier(DashCardChrome(health: summary.health))
@@ -347,7 +395,7 @@ struct DashLostBanner: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)
                 Text("Dollars")
-                    .font(.subheadline.weight(.semibold))
+                    .font(HubLayout.MacReadable.metricLineFont)
                     .foregroundStyle(AppTheme.textSecondary)
             }
             VStack(alignment: .trailing, spacing: 2) {
@@ -357,7 +405,7 @@ struct DashLostBanner: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)
                 Text("Lost %")
-                    .font(.subheadline.weight(.semibold))
+                    .font(HubLayout.MacReadable.metricLineFont)
                     .foregroundStyle(AppTheme.textSecondary)
             }
             HealthBadge(health: summary.health, prominent: true)
@@ -377,7 +425,7 @@ struct DashLostBanner: View {
                         .foregroundStyle(AppTheme.text)
                         .fixedSize(horizontal: false, vertical: true)
                     Text("Total Lost Revenue (Total Opportunity)")
-                        .font(.subheadline.weight(.semibold))
+                        .font(HubLayout.MacReadable.metricLineFont)
                         .foregroundStyle(AppTheme.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -412,7 +460,7 @@ struct DashLostBanner: View {
                 HealthBadge(health: summary.health, prominent: true)
             }
             Text(riskLine)
-                .font(.subheadline.weight(.semibold))
+                .font(HubLayout.MacReadable.metricLineFont)
                 .foregroundStyle(dashInk(summary.riskCount == 0 ? .good : summary.health))
         }
     }
@@ -430,19 +478,25 @@ struct DashScopeStrip: View {
     let section: MetricSection
     let grain: DashScopeGrain
     let packs: [DashScopePack]
-    var width: CGFloat
     @State private var expanded = false
-    @State private var salesRows: [SalesRollupRow] = []
-    @State private var dayRows: [SalesRollupRow] = []
-    @State private var flagMap: [String: [HeartbeatMath.FiveStarFlag]] = [:]
+
+    private var expandLive: Bool { store.dashboardExpandIsLive(section) }
+    private var salesRows: [SalesRollupRow] { store.salesExpandRows() }
+    private var dayRows: [SalesRollupRow] { store.cachedSalesDayRows }
+    private var grainRows: [HeartbeatMath.DashboardGrainTableRow] {
+        store.dashboardGrainRows(for: section)
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: expanded ? 10 : 8) {
+        VStack(alignment: .leading, spacing: expanded && expandLive ? 10 : 8) {
             Button {
-                expanded.toggle()
-                if expanded, section == .sales {
-                    salesRows = store.cachedSalesScopeRows
-                    dayRows = store.cachedSalesDayRows
+                // Inert until live caches exist. Toggle only — never cook on
+                // the gesture thread and never bump filterStamp.
+                guard expandLive else { return }
+                var txn = Transaction()
+                txn.animation = nil
+                withTransaction(txn) {
+                    expanded.toggle()
                 }
             } label: {
                 HStack(spacing: 8) {
@@ -452,13 +506,15 @@ struct DashScopeStrip: View {
                     Text(grain.title)
                         .font(AppTheme.rounded(HubLayout.isPhone(sizeClass) ? .caption : .subheadline, weight: .bold))
                         .foregroundStyle(Color.white)
-                    Text("\(bannerCount)")
-                        .font(AppTheme.rounded(.caption, weight: .semibold))
-                        .foregroundStyle(Color.white.opacity(0.85))
+                    if bannerCount > 0 {
+                        Text("\(bannerCount)")
+                            .font(AppTheme.rounded(.caption, weight: .semibold))
+                            .foregroundStyle(Color.white.opacity(0.85))
+                    }
                     Spacer(minLength: 8)
-                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                    Image(systemName: expandLive && expanded ? "chevron.up" : "chevron.down")
                         .font(.caption.weight(.bold))
-                        .foregroundStyle(Color.white)
+                        .foregroundStyle(Color.white.opacity(expandLive ? 1 : 0.45))
                 }
                 .padding(.horizontal, HubLayout.isPhone(sizeClass) ? 10 : 14)
                 .padding(.vertical, HubLayout.isPhone(sizeClass) ? 8 : 10)
@@ -466,104 +522,353 @@ struct DashScopeStrip: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            if expanded {
-                if HubLayout.isPhone(sizeClass) {
-                    phoneExpandedList
-                } else {
-                    VStack(alignment: .leading, spacing: 10) {
-                        if section == .sales {
-                            OverviewSalesAlignedTable(title: grain.title, rows: Array(visibleSalesRows.prefix(20)), showCount: grain != .store)
-                            if !visibleDayRows.isEmpty {
-                                OverviewSalesAlignedTable(title: "By Day", rows: visibleDayRows, showCount: false)
-                                    .padding(.top, 8)
+            .disabled(!expandLive)
+            .allowsHitTesting(expandLive)
+            if expanded && expandLive {
+                expandedTables
+            }
+        }
+        .transaction { $0.animation = nil }
+        .onAppear {
+            guard PulseLaunch.shouldPrefetchExpandOnAppear() else { return }
+            guard !expandLive else { return }
+            Task { await store.prefetchExpand(section: section) }
+        }
+        .onChange(of: store.filterStamp) { _, _ in
+            expanded = false
+            guard PulseLaunch.shouldPrefetchExpandOnFilterStamp() else { return }
+            Task { await store.prefetchExpand(section: section) }
+        }
+    }
+
+    /// Live expand caches only. Never roster / placeholder pack counts.
+    private var bannerCount: Int {
+        PulseLaunch.dashboardBannerCount(
+            section: section,
+            salesRows: salesRows,
+            grainRows: grainRows
+        )
+    }
+
+    @ViewBuilder
+    private var expandedTables: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if section == .sales {
+                if !salesRows.isEmpty {
+                    OverviewSalesAlignedTable(
+                        title: grain.title,
+                        rows: grain == .store ? Array(salesRows.prefix(40)) : salesRows,
+                        showCount: grain != .store,
+                        district: grain == .district
+                    )
+                }
+                if !dayRows.isEmpty {
+                    OverviewSalesAlignedTable(title: "By Day", rows: dayRows, showCount: false)
+                        .padding(.top, 8)
+                }
+            } else if !grainRows.isEmpty {
+                OverviewMetricAlignedTable(
+                    title: grain.title,
+                    section: section,
+                    headers: HeartbeatMath.dashboardTableHeaders(section),
+                    rows: grain == .store ? Array(grainRows.prefix(40)) : grainRows,
+                    showCount: grain != .store,
+                    district: grain == .district
+                )
+            }
+        }
+    }
+}
+
+struct OverviewMetricAlignedTable: View {
+    let title: String
+    var section: MetricSection = .lostRevenue
+    let headers: [String]
+    let rows: [HeartbeatMath.DashboardGrainTableRow]
+    var showCount: Bool
+    var district: Bool = false
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
+    private var phone: Bool { HubLayout.isPhone(sizeClass) }
+    private var valueMin: CGFloat { HubLayout.dashboardValueMin(phone: phone, columns: headers.count) }
+    private var floor: CGFloat {
+        HubLayout.readableTableFloor(
+            phone: phone,
+            columns: headers.count,
+            showCount: showCount,
+            district: district,
+            valueMin: valueMin
+        )
+    }
+
+    var body: some View {
+        HubAdaptiveHScroll(minWidth: floor, minHeight: CGFloat(max(rows.count, 1)) * 36 + 48) {
+            OverviewMetricColumns(
+                section: section,
+                headers: headers,
+                rows: rows,
+                showCount: showCount,
+                district: district,
+                phone: phone,
+                valueMin: valueMin
+            )
+        }
+        .accessibilityLabel("\(title) table")
+    }
+}
+
+private struct OverviewMetricColumns: View {
+    var section: MetricSection
+    let headers: [String]
+    let rows: [HeartbeatMath.DashboardGrainTableRow]
+    var showCount: Bool
+    var district: Bool
+    var phone: Bool
+    var valueMin: CGFloat
+    @Environment(\.hubTableWidth) private var tableWidth
+
+    private var labelWidth: CGFloat { HubLayout.scopeLabelWidth(district: district, phone: phone) }
+    private var storeWidth: CGFloat { HubLayout.readableStoreWidth(phone: phone) }
+    private var valueWidth: CGFloat {
+        HubLayout.evenValueWidth(
+            available: tableWidth,
+            phone: phone,
+            columns: headers.count,
+            showCount: showCount,
+            district: district,
+            valueMin: valueMin
+        )
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            row(
+                label: "Scope",
+                stores: "Stores",
+                values: headers,
+                health: nil,
+                header: true
+            )
+            ForEach(Array(rows.enumerated()), id: \.element.id) { index, item in
+                row(
+                    label: item.label,
+                    stores: HeartbeatFormat.num(Double(item.storeCount)),
+                    values: item.values,
+                    health: item.health == .none && item.storeCount > 0 ? .good : item.health,
+                    header: false,
+                    stripe: index.isMultiple(of: 2)
+                )
+            }
+        }
+        .frame(minWidth: max(tableWidth, 1), alignment: .leading)
+    }
+
+    private func row(
+        label: String,
+        stores: String,
+        values: [String],
+        health: Health?,
+        header: Bool,
+        stripe: Bool = false
+    ) -> some View {
+        HStack(spacing: HubLayout.tableGutter) {
+            Text(header ? label.uppercased() : HeartbeatMath.displayGrainLabel(label))
+                .font(AppTheme.rounded(header ? .caption2 : .subheadline, weight: header ? .bold : .semibold))
+                .foregroundStyle(header ? AppTheme.textSecondary : AppTheme.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.62)
+                .frame(width: labelWidth, alignment: .leading)
+            if showCount {
+                cell(stores, header: header, width: storeWidth, secondary: true)
+            }
+            ForEach(Array(values.enumerated()), id: \.offset) { index, text in
+                let title = index < headers.count ? headers[index] : text
+                let tone: Health? = header
+                    ? nil
+                    : HeartbeatMath.dashboardExpandCellHealth(
+                        section: section,
+                        header: title,
+                        text: text,
+                        rowHealth: health ?? .none,
+                        values: values,
+                        headers: headers
+                    )
+                cell(text, header: header, width: valueWidth, tone: tone, wrapHeader: header && title.contains(" "))
+            }
+            Group {
+                if header {
+                    Text("STATUS")
+                        .font(AppTheme.rounded(.caption2, weight: .bold))
+                        .foregroundStyle(AppTheme.textSecondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                } else if let health {
+                    HealthBadge(health: health, prominent: true, compact: true)
+                }
+            }
+            .frame(width: HubLayout.readableStatusWidth(phone: phone), alignment: .trailing)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, header ? 6 : 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(stripe ? AppTheme.blueSoft.opacity(0.35) : Color.clear)
+    }
+
+    private func cell(
+        _ text: String,
+        header: Bool,
+        width: CGFloat,
+        secondary: Bool = false,
+        tone: Health? = nil,
+        wrapHeader: Bool = false
+    ) -> some View {
+        Text(header ? text.uppercased() : text)
+            .font(AppTheme.rounded(header ? .caption2 : .subheadline, weight: header ? .bold : .bold).monospacedDigit())
+            .foregroundStyle(header ? AppTheme.textSecondary : ink(tone, secondary: secondary))
+            .lineLimit(header && wrapHeader ? 2 : 1)
+            .minimumScaleFactor(0.5)
+            .multilineTextAlignment(.trailing)
+            .frame(width: width, alignment: .trailing)
+    }
+
+    private func ink(_ health: Health?, secondary: Bool) -> Color {
+        if secondary { return AppTheme.textSecondary }
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        default: return AppTheme.text
+        }
+    }
+}
+
+struct PhoneMetricChip: Identifiable, Hashable {
+    let label: String
+    let value: String
+    var health: Health = .none
+    var id: String { label }
+}
+
+/// Dedicated iPhone scorecard card. Used by every Pages row on phone — never a table line.
+struct PhoneScorecardRow: View {
+    let title: String
+    var eyebrow: String? = nil
+    var subtitle: String? = nil
+    var chips: [PhoneMetricChip] = []
+    var health: Health = .none
+    var chevronExpanded: Bool? = nil
+    var onTap: (() -> Void)? = nil
+
+    var body: some View {
+        let corner = CommandCenterLayout.phoneScorecardCorner()
+        let compact = PulseLaunch.shouldUseCompactPhoneCommandChrome()
+        let card = HStack(alignment: .top, spacing: 0) {
+            UnevenRoundedRectangle(
+                cornerRadii: RectangleCornerRadii(topLeading: corner, bottomLeading: corner, bottomTrailing: 0, topTrailing: 0),
+                style: .continuous
+            )
+            .fill(AppTheme.healthInk(health == .none ? .good : health))
+            .frame(width: CommandCenterLayout.phoneScorecardAccentWidth())
+            VStack(alignment: .leading, spacing: CommandCenterLayout.phoneScorecardStackSpacing()) {
+                HStack(alignment: .top, spacing: compact ? 8 : 12) {
+                    VStack(alignment: .leading, spacing: compact ? 3 : 5) {
+                        if let eyebrow, !eyebrow.isEmpty {
+                            Text(eyebrow.uppercased())
+                                .font(.caption.weight(.heavy))
+                                .tracking(0.8)
+                                .foregroundStyle(AppTheme.textTertiary)
+                        }
+                        Text(title)
+                            .font(AppTheme.rounded(compact ? .headline : .title3, weight: .bold))
+                            .foregroundStyle(AppTheme.text)
+                            .lineLimit(3)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if let subtitle, !subtitle.isEmpty {
+                            Text(subtitle)
+                                .font((compact ? Font.subheadline : Font.body).weight(.semibold))
+                                .foregroundStyle(AppTheme.textSecondary)
+                                .lineLimit(2)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    Spacer(minLength: 8)
+                    VStack(alignment: .trailing, spacing: compact ? 4 : 6) {
+                        Text("STATUS")
+                            .font(.caption.weight(.heavy))
+                            .tracking(0.7)
+                            .foregroundStyle(AppTheme.textTertiary)
+                        HealthBadge(health: health, prominent: true, compact: compact)
+                        if let chevronExpanded {
+                            Image(systemName: chevronExpanded ? "chevron.up" : "chevron.down")
+                                .font(.body.weight(.bold))
+                                .foregroundStyle(AppTheme.textSecondary)
+                                .frame(width: HubLayout.phoneHitTarget, height: HubLayout.phoneHitTarget)
+                        }
+                    }
+                }
+                if !chips.isEmpty {
+                    LazyVGrid(
+                        columns: [
+                            GridItem(.flexible(), spacing: CommandCenterLayout.phoneScorecardChipSpacing()),
+                            GridItem(.flexible(), spacing: CommandCenterLayout.phoneScorecardChipSpacing()),
+                        ],
+                        spacing: CommandCenterLayout.phoneScorecardChipSpacing()
+                    ) {
+                        ForEach(chips) { chip in
+                            VStack(alignment: .leading, spacing: compact ? 2 : 4) {
+                                Text(chip.label.uppercased())
+                                    .font(.caption.weight(.heavy))
+                                    .tracking(0.5)
+                                    .foregroundStyle(AppTheme.textSecondary)
+                                Text(chip.value)
+                                    .font(AppTheme.rounded(compact ? .headline : .title3, weight: .bold).monospacedDigit())
+                                    .foregroundStyle(chipInk(chip.health))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.85)
                             }
-                        } else {
-                            VStack(spacing: 8) {
-                                ForEach(Array(packs.prefix(12))) { pack in
-                                    DashScopeGrainCard(
-                                        pack: pack,
-                                        grain: grain,
-                                        flags: pack.flags.isEmpty ? (flagMap[pack.id] ?? flagMap[pack.line.label] ?? []) : pack.flags,
-                                        width: width,
-                                        section: section
-                                    )
-                                }
-                            }
+                            .frame(maxWidth: .infinity, minHeight: CommandCenterLayout.phoneScorecardChipMinHeight(), alignment: .leading)
+                            .padding(CommandCenterLayout.phoneScorecardChipPadding())
+                            .background(chipWash(chip.health), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                         }
                     }
                 }
             }
+            .padding(CommandCenterLayout.phoneScorecardPadding())
         }
-        .onAppear {
-            if section == .sales {
-                salesRows = store.cachedSalesScopeRows
-                dayRows = store.cachedSalesDayRows
+        .frame(maxWidth: .infinity, minHeight: compact ? 64 : 72, alignment: .leading)
+        .background(Color.white, in: RoundedRectangle(cornerRadius: corner, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: corner, style: .continuous)
+                .stroke(AppTheme.healthInk(health == .none ? .good : health).opacity(0.22), lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.07), radius: CommandCenterLayout.phoneScorecardShadowRadius(), y: compact ? 2 : 4)
+
+        if let onTap {
+            Button(action: onTap) {
+                card
+                    .contentShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
             }
-        }
-        .onChange(of: store.filterStamp) { _, _ in
-            salesRows = store.cachedSalesScopeRows
-            dayRows = store.cachedSalesDayRows
-            flagMap = [:]
+            .buttonStyle(.plain)
+        } else {
+            card
         }
     }
 
-    private var visibleSalesRows: [SalesRollupRow] {
-        salesRows.isEmpty ? store.cachedSalesScopeRows : salesRows
-    }
-
-    private var visibleDayRows: [SalesRollupRow] {
-        dayRows.isEmpty ? store.cachedSalesDayRows : dayRows
-    }
-
-    private var canLoadGrainFlags: Bool { section != .sales }
-
-    private var bannerCount: Int {
-        let scoped = store.dashboardScopeCount(grain)
-        if scoped > 0 { return scoped }
-        if section == .sales { return visibleSalesRows.count }
-        let live = packs.filter {
-            $0.line.count > 0 || (!$0.line.value.isEmpty && $0.line.value != "—")
+    private func chipInk(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.ok
+        case .watch: return AppTheme.warn
+        case .risk: return AppTheme.bad
+        case .none: return AppTheme.text
         }
-        return live.isEmpty ? packs.count : live.count
     }
 
-    @ViewBuilder
-    private var phoneExpandedList: some View {
-        VStack(spacing: 6) {
-            if section == .sales {
-                ForEach(Array(visibleSalesRows.prefix(8))) { row in
-                    PhoneGrainRow(
-                        label: row.label,
-                        value: phoneMoney(row.pack.sales) ?? HeartbeatFormat.money(row.pack.sales ?? 0),
-                        count: row.storeCount,
-                        health: row.pack.health
-                    )
-                }
-                if !visibleDayRows.isEmpty {
-                    Text("By Day")
-                        .font(AppTheme.rounded(.caption, weight: .bold))
-                        .foregroundStyle(AppTheme.textSecondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.top, 4)
-                    ForEach(visibleDayRows.prefix(7)) { row in
-                        PhoneGrainRow(
-                            label: row.label,
-                            value: phoneMoney(row.pack.sales) ?? HeartbeatFormat.money(row.pack.sales ?? 0),
-                            count: nil,
-                            health: row.pack.health
-                        )
-                    }
-                }
-            } else {
-                ForEach(Array(packs.prefix(8))) { pack in
-                    PhoneGrainRow(
-                        label: pack.line.label,
-                        value: pack.line.value,
-                        count: grain == .store ? nil : pack.line.count,
-                        health: pack.line.health == .none ? .good : pack.line.health
-                    )
-                }
-            }
+    private func chipWash(_ health: Health) -> Color {
+        switch health {
+        case .good: return AppTheme.okSoft
+        case .watch: return AppTheme.warnSoft
+        case .risk: return AppTheme.badSoft
+        case .none: return AppTheme.blueSoft.opacity(0.55)
         }
     }
 }
@@ -573,36 +878,46 @@ struct PhoneGrainRow: View {
     let value: String
     let count: Int?
     let health: Health
+    var metricLabel: String = "Result"
 
     var body: some View {
-        HStack(spacing: 8) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(label)
-                    .font(AppTheme.rounded(.subheadline, weight: .bold))
-                    .foregroundStyle(AppTheme.text)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.75)
-                if let count, count > 0 {
-                    Text(count == 1 ? "1 store" : "\(count) stores")
-                        .font(AppTheme.rounded(.caption2, weight: .semibold))
-                        .foregroundStyle(AppTheme.textSecondary)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            Text(value)
-                .font(AppTheme.rounded(.subheadline, weight: .bold).monospacedDigit())
-                .foregroundStyle(dashInk(health))
-                .lineLimit(1)
-                .minimumScaleFactor(0.6)
-            HealthBadge(health: health, prominent: true, compact: true)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color.black.opacity(0.08), lineWidth: 1)
+        PhoneScorecardRow(
+            title: label,
+            subtitle: count.flatMap { $0 > 0 ? ($0 == 1 ? "1 store" : "\($0) stores") : nil },
+            chips: [PhoneMetricChip(label: metricLabel, value: value, health: health)],
+            health: health
         )
+    }
+}
+
+struct PhoneStoreScoreStack<Item: Identifiable>: View {
+    let items: [Item]
+    let label: (Item) -> String
+    let value: (Item) -> String
+    let health: (Item) -> Health
+    var moreTitle: String? = nil
+    var onMore: (() -> Void)? = nil
+
+    var body: some View {
+        VStack(spacing: 6) {
+            ForEach(items) { item in
+                PhoneGrainRow(
+                    label: label(item),
+                    value: value(item),
+                    count: nil,
+                    health: health(item)
+                )
+            }
+            if let moreTitle, let onMore {
+                Button(action: onMore) {
+                    Text(moreTitle)
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(AppTheme.blue)
+                        .frame(maxWidth: .infinity, minHeight: HubLayout.phoneHitTarget, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+            }
+        }
     }
 }
 
@@ -619,6 +934,7 @@ struct DashScopeGrainCard: View {
     @State private var childFlags: [String: [HeartbeatMath.FiveStarFlag]] = [:]
 
     private var line: DashScopeLine { pack.line }
+    private var scopeLabel: String { HeartbeatMath.displayGrainLabel(line.label) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -629,7 +945,7 @@ struct DashScopeGrainCard: View {
             if !flags.isEmpty {
                 DashFlagGrid(
                     flags: flags,
-                    columns: HubLayout.flagColumns(count: flags.count, width: max(width - 24, 200))
+                    width: max(width - 24, 200)
                 )
             }
             if open {
@@ -651,7 +967,7 @@ struct DashScopeGrainCard: View {
 
     private var header: some View {
         Group {
-            if HubLayout.isPhone(sizeClass) {
+            if HubLayout.usesPhoneScorecards(sizeClass: sizeClass) {
                 phoneHeader
             } else {
                 wideHeader
@@ -662,7 +978,7 @@ struct DashScopeGrainCard: View {
     private var phoneHeader: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text(line.label)
+                Text(scopeLabel)
                     .font(AppTheme.rounded(.subheadline, weight: .bold))
                     .foregroundStyle(AppTheme.text)
                     .lineLimit(2)
@@ -685,7 +1001,7 @@ struct DashScopeGrainCard: View {
 
     private var wideHeader: some View {
         HStack(spacing: 10) {
-            Text(line.label)
+            Text(scopeLabel)
                 .font(AppTheme.rounded(.subheadline, weight: .bold))
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
@@ -716,13 +1032,13 @@ struct DashScopeGrainCard: View {
     private func childBlock(_ child: DashScopeLine) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Text(child.label)
-                    .font(.subheadline.weight(.semibold))
+                Text(HeartbeatMath.displayGrainLabel(child.label))
+                    .font(HubLayout.MacReadable.metricLineFont)
                     .foregroundStyle(AppTheme.text)
                     .lineLimit(1)
                 Spacer(minLength: 4)
                 Text(child.value)
-                    .font(.subheadline.weight(.bold).monospacedDigit())
+                    .font(HubLayout.MacReadable.metricValueFont)
                     .foregroundStyle(dashInk(child.health == .none ? .good : child.health))
                 if grain != .store {
                     Text(storeCountLine(child.count, title: false))
@@ -734,7 +1050,7 @@ struct DashScopeGrainCard: View {
             if section != .sales, let metrics = childFlags[child.label], !metrics.isEmpty {
                 DashFlagGrid(
                     flags: metrics,
-                    columns: HubLayout.flagColumns(count: metrics.count, width: max(width - 36, 200))
+                    width: max(width - 36, 200)
                 )
             }
         }
@@ -772,27 +1088,37 @@ struct DashScopeGrainCard: View {
 
 struct DashFlagGrid: View {
     let flags: [HeartbeatMath.FiveStarFlag]
-    var columns: Int
+    var columns: Int = 0
+    var width: CGFloat = 980
     @Environment(\.horizontalSizeClass) private var sizeClass
-
-    private var stacked: Bool { HubLayout.isPhone(sizeClass) }
 
     var body: some View {
         if flags.isEmpty {
             EmptyView()
-        } else if stacked {
-            VStack(spacing: 8) {
-                ForEach(flags) { flag in
-                    DashFlagChip(flag: flag, stacked: true)
-                }
-            }
         } else {
-            HStack(alignment: .top, spacing: 6) {
-                ForEach(flags) { flag in
-                    DashFlagChip(flag: flag)
-                        .frame(maxWidth: .infinity, minHeight: 92, maxHeight: 92, alignment: .top)
+            let cols = HubLayout.calloutColumns(count: flags.count, width: width, sizeClass: sizeClass)
+            let phone = HubLayout.isPhone(sizeClass)
+            let tileH = HubLayout.calloutTileHeight(phone: phone)
+            let rows = stride(from: 0, to: flags.count, by: cols).map {
+                Array(flags[$0..<min($0 + cols, flags.count)])
+            }
+            VStack(spacing: HubLayout.calloutGridSpacing) {
+                ForEach(Array(rows.enumerated()), id: \.offset) { _, row in
+                    HStack(spacing: HubLayout.calloutGridSpacing) {
+                        ForEach(row) { flag in
+                            DashFlagChip(flag: flag)
+                                .frame(maxWidth: .infinity, minHeight: tileH, maxHeight: tileH, alignment: .topLeading)
+                        }
+                        if row.count < cols {
+                            ForEach(0..<(cols - row.count), id: \.self) { _ in
+                                Color.clear
+                                    .frame(maxWidth: .infinity, minHeight: tileH, maxHeight: tileH)
+                            }
+                        }
+                    }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }
@@ -806,62 +1132,58 @@ private struct DashFlagChip: View {
     private var tone: Health { flag.health == .none ? .good : flag.health }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: stacked ? 8 : 5) {
-            Text(flag.name)
-                .font(AppTheme.rounded(stacked ? .subheadline : (compact ? .caption2 : .caption), weight: .bold))
-                .foregroundStyle(Color.white)
-                .lineLimit(stacked ? 2 : 1)
-                .minimumScaleFactor(stacked ? 0.85 : 0.7)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, stacked ? 10 : (compact ? 6 : 8))
-                .padding(.vertical, stacked ? 7 : (compact ? 4 : 5))
-                .background(AppTheme.blue)
-            if stacked {
-                HStack(alignment: .center, spacing: 10) {
-                    Text(flag.value.isEmpty ? "—" : flag.value)
-                        .font(AppTheme.rounded(.title3, weight: .bold))
-                        .foregroundStyle(dashInk(tone))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                    Spacer(minLength: 8)
-                    VStack(alignment: .trailing, spacing: 4) {
-                        Text(countLine)
-                            .font(AppTheme.rounded(.caption, weight: .semibold))
-                            .foregroundStyle(dashInk(tone))
-                            .lineLimit(1)
-                        HealthBadge(health: tone, prominent: true, compact: true)
-                    }
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .center, spacing: 6) {
+                Text(flag.name)
+                    .font(AppTheme.rounded(compact ? .subheadline : .headline, weight: .bold))
+                    .foregroundStyle(AppTheme.text)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.65)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if tone != .none {
+                    HealthBadge(health: tone, prominent: true, compact: true)
                 }
-                .padding(.horizontal, 10)
-                .padding(.bottom, 10)
-            } else {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(flag.value.isEmpty ? " " : flag.value)
-                        .font(AppTheme.rounded(compact ? .caption : .subheadline, weight: .bold))
-                        .foregroundStyle(dashInk(tone))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.65)
-                    HStack(spacing: 4) {
-                        Text(countLine)
-                            .font(AppTheme.rounded(.caption2, weight: .semibold))
-                            .foregroundStyle(dashInk(tone))
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                        HealthBadge(health: tone, prominent: true, compact: true)
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                .padding(.horizontal, compact ? 6 : 8)
-                .padding(.bottom, compact ? 6 : 8)
             }
+            Text(flag.value.isEmpty ? countLine : flag.value)
+                .font(.system(size: HubLayout.calloutValueSize(phone: compact), weight: .bold, design: .rounded).monospacedDigit())
+                .foregroundStyle(dashInk(tone))
+                .lineLimit(1)
+                .minimumScaleFactor(0.45)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text(flag.value.isEmpty ? (tone.label) : countLine)
+                .font(AppTheme.rounded(.caption, weight: .medium))
+                .foregroundStyle(AppTheme.textSecondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .truncationMode(.tail)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(AppTheme.healthWash(tone))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .padding(compact ? 10 : 11)
+        .padding(.leading, 4)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .clipped()
+        .background {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.white)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(AppTheme.healthWash(tone).opacity(0.42))
+                }
+        }
+        .overlay(alignment: .leading) {
+            Capsule()
+                .fill(AppTheme.healthInk(tone))
+                .frame(width: 4)
+                .padding(.vertical, 10)
+        }
         .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(AppTheme.healthInk(tone).opacity(0.28), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(AppTheme.healthInk(tone).opacity(tone == .risk ? 0.9 : 0.22), lineWidth: tone == .risk ? 2 : 1)
         )
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .shadow(color: Color.black.opacity(0.06), radius: 3, y: 1)
     }
 
     private var countLine: String {
@@ -876,15 +1198,15 @@ struct DashCallout: View, Equatable {
     let flags: [HeartbeatMath.FiveStarFlag]
     let grains: [DashScopePack]
     let grain: DashScopeGrain?
+    let width: CGFloat
     let action: () -> Void
     @Environment(\.horizontalSizeClass) private var sizeClass
-    @State private var width: CGFloat = 980
-    @State private var flagsOpen = false
 
     private var compact: Bool { HubLayout.isPhone(sizeClass) }
 
     static func == (lhs: DashCallout, rhs: DashCallout) -> Bool {
-        lhs.card == rhs.card && lhs.flags == rhs.flags && lhs.grains == rhs.grains && lhs.grain == rhs.grain
+        lhs.card == rhs.card && lhs.flags == rhs.flags && lhs.grains == rhs.grains
+            && lhs.grain == rhs.grain && lhs.width == rhs.width
     }
 
     var body: some View {
@@ -908,10 +1230,10 @@ struct DashCallout: View, Equatable {
                     .buttonStyle(DashLiftStyle())
                     DashFlagGrid(
                         flags: statusFlags(flags),
-                        columns: HubLayout.flagColumns(count: statusFlags(flags).count, width: width)
+                        width: width
                     )
                     if let grain {
-                        DashScopeStrip(section: card.section, grain: grain, packs: grains, width: width)
+                        DashScopeStrip(section: card.section, grain: grain, packs: grains)
                     }
                 }
                 .modifier(DashCardChrome(health: card.health))
@@ -947,80 +1269,6 @@ struct DashCallout: View, Equatable {
             Image(systemName: "chevron.right")
                 .font(.title3.weight(.semibold))
                 .foregroundStyle(AppTheme.textTertiary)
-        }
-    }
-
-    private var compactHeader: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 10) {
-                DashCardGlyph(symbol: card.section.symbol, health: card.health, compact: true)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(titleText)
-                        .font(.subheadline.weight(.bold))
-                        .foregroundStyle(AppTheme.text)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.8)
-                    Text(card.headlineLabel)
-                        .font(.caption)
-                        .foregroundStyle(AppTheme.textSecondary)
-                        .lineLimit(1)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                Image(systemName: "chevron.right")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(AppTheme.textTertiary)
-                    .padding(.top, 6)
-            }
-            HStack(alignment: .center, spacing: 10) {
-                Text(card.headlineText)
-                    .font(.system(size: 22, weight: .bold, design: .rounded).monospacedDigit())
-                    .foregroundStyle(dashInk(card.health))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-                Spacer(minLength: 8)
-                Text(riskLine(for: card))
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(dashInk(card.riskCount == 0 ? .good : .risk))
-                    .multilineTextAlignment(.trailing)
-                HealthBadge(health: card.health, prominent: true)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func compactFlagBlock(_ flags: [HeartbeatMath.FiveStarFlag]) -> some View {
-        if flags.isEmpty {
-            EmptyView()
-        } else {
-            Button {
-                flagsOpen.toggle()
-            } label: {
-                HStack(spacing: 8) {
-                    Text("\(flags.count) metrics")
-                        .font(.subheadline.weight(.bold))
-                        .foregroundStyle(AppTheme.blue)
-                    Text("tap to \(flagsOpen ? "collapse" : "expand")")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(AppTheme.textSecondary)
-                    Spacer(minLength: 4)
-                    Image(systemName: flagsOpen ? "chevron.up" : "chevron.down")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(AppTheme.blue)
-                }
-            }
-            .buttonStyle(.plain)
-            if flagsOpen {
-                DashFlagGrid(flags: flags, columns: 1)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func flagBlock(_ flags: [HeartbeatMath.FiveStarFlag]) -> some View {
-        if flags.isEmpty {
-            EmptyView()
-        } else {
-            DashFlagGrid(flags: flags, columns: flags.count)
         }
     }
 
@@ -1094,13 +1342,25 @@ private struct DashCardChrome: ViewModifier {
 
 struct PickerHighlightsPanel: View {
     @EnvironmentObject private var store: HeartbeatStore
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    var showPictures: Bool = false
     var onSelectOpportunity: () -> Void = {}
     var onSelectStrong: () -> Void = {}
     @State private var expanded = true
     @State private var openShopper: String?
+    @State private var panelWidth: CGFloat = 0
 
     private var board: HeartbeatMath.PickerBoard {
         store.pickerBoard
+    }
+
+    private var phone: Bool { HubLayout.isPhone(sizeClass) }
+
+    private var usePhoneCards: Bool {
+        PulseLaunch.shouldUsePickerHighlightPhoneCards(
+            phone: HubLayout.isPhone(sizeClass),
+            mac: HubLayout.isMac
+        )
     }
 
     var body: some View {
@@ -1119,12 +1379,12 @@ struct PickerHighlightsPanel: View {
 
             if expanded {
                 Group {
-                    if board.shopperCount == 0 {
-                        Text("Upload a picker score card workbook to rank opportunity and strong shoppers.")
-                            .font(.subheadline)
+                    if board.shopperCount == 0 && board.opportunity.isEmpty && board.strong.isEmpty {
+                        Text(store.pickerLoading ? "Loading shoppers…" : "Shoppers fill from the Heartbeat pack after ready.")
+                            .font(phone ? .caption : .subheadline)
                             .foregroundStyle(AppTheme.textSecondary)
                     } else {
-                        VStack(alignment: .leading, spacing: 16) {
+                        VStack(alignment: .leading, spacing: phone ? 10 : 16) {
                             shopperColumn(
                                 title: "Top opportunity",
                                 subtitle: "Underperforming vs the metric mix",
@@ -1144,10 +1404,18 @@ struct PickerHighlightsPanel: View {
                         }
                     }
                 }
-                .padding(16)
+                .padding(phone ? 10 : 16)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(AppTheme.tableFill)
+                .background(
+                    GeometryReader { geo in
+                        Color.clear.preference(key: HubWidthKey.self, value: geo.size.width)
+                    }
+                )
             }
+        }
+        .onPreferenceChange(HubWidthKey.self) { value in
+            if value > 0 { panelWidth = value }
         }
         .background(AppTheme.tableFill)
         .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
@@ -1165,14 +1433,14 @@ struct PickerHighlightsPanel: View {
         tone: Health,
         action: @escaping () -> Void
     ) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: phone ? 8 : 10) {
             Button(action: action) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                        .font(.title3.weight(.semibold))
+                        .font((phone ? Font.headline : (HubLayout.MacReadable.enabled ? Font.title2 : Font.title3)).weight(.semibold))
                         .foregroundStyle(tone == .risk ? AppTheme.bad : AppTheme.ok)
                     Text(subtitle)
-                        .font(.subheadline)
+                        .font(phone ? .caption : (HubLayout.MacReadable.enabled ? Font.body : Font.subheadline))
                         .foregroundStyle(AppTheme.textSecondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1181,23 +1449,41 @@ struct PickerHighlightsPanel: View {
             .buttonStyle(.plain)
             if rows.isEmpty {
                 Text(empty)
-                    .font(.subheadline)
+                    .font(phone ? .caption : .subheadline)
                     .foregroundStyle(AppTheme.textSecondary)
-                    .padding(.vertical, 8)
+                    .padding(.vertical, phone ? 4 : 8)
             } else {
-                PickerMetricHeader(label: "Shopper")
+                if showPictures {
+                    ShopperPictureStrip(rows: rows)
+                }
+                if PulseLaunch.shouldShowPickerHighlightColumnHeaders(
+                    phone: usePhoneCards,
+                    mac: HubLayout.isMac
+                ) {
+                    PickerMetricHeader(label: "Shopper")
+                }
                 ForEach(rows) { row in
-                    PickerStoreRow(
-                        snap: PickerLineSnap(row, division: divisionLabel(for: row)),
-                        expanded: openShopper == row.id.uuidString,
-                        onToggle: {
-                            openShopper = openShopper == row.id.uuidString ? nil : row.id.uuidString
-                        }
-                    )
+                    if usePhoneCards {
+                        PickerPhoneCard(
+                            snap: PickerLineSnap(row, division: divisionLabel(for: row)),
+                            expanded: openShopper == row.id.uuidString,
+                            onToggle: {
+                                openShopper = openShopper == row.id.uuidString ? nil : row.id.uuidString
+                            }
+                        )
+                    } else {
+                        PickerStoreRow(
+                            snap: PickerLineSnap(row, division: divisionLabel(for: row)),
+                            expanded: openShopper == row.id.uuidString,
+                            onToggle: {
+                                openShopper = openShopper == row.id.uuidString ? nil : row.id.uuidString
+                            }
+                        )
+                    }
                 }
             }
         }
-        .padding(14)
+        .padding(phone ? 10 : 14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)

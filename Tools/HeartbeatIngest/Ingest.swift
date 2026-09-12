@@ -11,8 +11,8 @@ enum HeartbeatIngest {
         let xlsx = URL(fileURLWithPath: args[1])
         let sqlite = URL(fileURLWithPath: args[2])
         let data = try Data(contentsOf: xlsx)
-        guard data.count > 1_000 else {
-            fputs("Workbook is empty.\n", stderr)
+        guard data.count >= 1_000_000 else {
+            fputs("Workbook is too small (\(data.count) bytes). Need Heartbeat Daily Report.xlsx >= 1MB.\n", stderr)
             exit(1)
         }
         print("Cooking \(xlsx.lastPathComponent) (\(data.count) bytes)…")
@@ -42,7 +42,7 @@ enum HeartbeatIngest {
             heavy: true,
             grain: .region
         )
-        let chrome = PulseDashChrome.from(caches)
+        let chrome = PulseDashChrome.from(caches, grain: .region)
         try PulseSQLite.write(rows: rows, uploads: uploads, seeded: true, chrome: chrome, to: sqlite)
         let size = (try FileManager.default.attributesOfItem(atPath: sqlite.path)[.size] as? NSNumber)?.intValue ?? 0
         print("Wrote \(rows.count) rows + \(chrome.summaries.count) dashboard cards → \(sqlite.lastPathComponent) (\(size) bytes)")
@@ -51,6 +51,8 @@ enum HeartbeatIngest {
             print("  card \(summary.section.rawValue): stores=\(summary.storeCount) head=\(head) risk=\(summary.riskCount)")
         }
         print("  picker shoppers=\(chrome.pickerShoppers) opportunity=\(chrome.pickerOpportunity) strong=\(chrome.pickerStrong)")
+        let pickerTable = chrome.tables[MetricSection.pickerScorecard.rawValue] ?? []
+        print("  picker expand live=\(HeartbeatMath.grainRowsAreLive(pickerTable)) rows=\(pickerTable.count)")
         for section in [MetricSection.lostRevenue, .labor, .sales, .fiveStar] {
             let count = rows.filter {
                 $0.section == section && !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty
@@ -76,5 +78,18 @@ enum HeartbeatIngest {
             exit(1)
         }
         print("Dashboard tiles complete.")
+        let includeStores = PulseSeatPack.shouldCookEveryStoreSeat()
+        print("Cooking company + every district + every store seat pack…")
+        let packRoot = sqlite.deletingLastPathComponent().appendingPathComponent("packs", isDirectory: true)
+        let manifest = try PulseSeatPack.cookPublished(
+            rows: rows,
+            uploads: uploads,
+            packRoot: packRoot,
+            includeStores: includeStores
+        )
+        print("Seat packs districts=\(manifest.districts.count) stores=\(manifest.stores.count) company=\(manifest.company.storeCount)")
+        for entry in manifest.districts.prefix(8) {
+            print("  district \(entry.id): stores=\(entry.storeCount) bytes=\(entry.bytes)")
+        }
     }
 }

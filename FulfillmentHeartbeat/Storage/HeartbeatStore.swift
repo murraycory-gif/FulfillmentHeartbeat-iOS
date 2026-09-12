@@ -5,14 +5,16 @@ final class ImportProgress: ObservableObject {
     @Published var label: String?
     @Published var loaded = 0
     @Published var expected = 0
+    @Published var fraction = 0.0
     @Published var ready: [String] = []
     @Published var missing: [String] = []
 }
 
 @MainActor
 final class HeartbeatStore: ObservableObject {
-    @Published private(set) var rows: [MetricRow]
-    @Published private(set) var uploads: [UploadRecord]
+    /// Not @Published — wave merges must not invalidate the hub while the user scrolls.
+    private(set) var rows: [MetricRow]
+    private(set) var uploads: [UploadRecord]
     @Published private(set) var seeded: Bool
     @Published var filters: DashboardFilters {
         didSet {
@@ -34,17 +36,25 @@ final class HeartbeatStore: ObservableObject {
     @Published var waitingForFileSection: MetricSection?
     @Published private(set) var isReady = false
     @Published private(set) var filterStamp = 0
+    /// Pack chrome landed. Command Center reads this — not `filterStamp` remount.
+    @Published private(set) var seatPaintStamp = 0
     @Published private(set) var linkedMasterName: String?
     @Published private(set) var linkedMasterLoadedAt: Date?
-    @Published var needsRolePick = true
+    @Published var needsRolePick = false
     @Published private(set) var usingDatabasePack = false
+    @Published private(set) var warehouseHydrating = false
     @Published private(set) var sessionRole: HeartbeatRole?
     @Published var laborWeekFilter = ""
+    @Published private(set) var pickerLoading = false
 
     private let fileManager: FileManager
+    private let rootURL: URL
+    private let companySQLiteURL: URL
+    private var activePackURL: URL
+    private var activeSeatKey: PulseSeatPack.Key?
+    private var sqliteURL: URL { activePackURL }
     private let snapshotURL: URL
     private let heavyURL: URL
-    private let sqliteURL: URL
     private let cardsURL: URL
     private let checklistURL: URL
     private let masterLinkURL: URL
@@ -78,25 +88,49 @@ final class HeartbeatStore: ObservableObject {
     private var pickPathPickersByStore: [String: [MetricRow]] = [:]
     private var pickPathByShopper: [String: MetricRow] = [:]
     private var pphPickersByStore: [String: [MetricRow]] = [:]
+    private var pphPickerCountByStore: [String: Int] = [:]
     private var cachedCardFlags: [MetricSection: [HeartbeatMath.FiveStarFlag]] = [:]
     private var cachedGrainPacks: [MetricSection: [DashScopePack]] = [:]
+    private var cachedGrainTables: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] = [:]
     private(set) var cachedSalesScopeRows: [SalesRollupRow] = []
     private(set) var cachedSalesDayRows: [SalesRollupRow] = []
     private var laborWeeksByStore: [String: [MetricRow]] = [:]
     private var unfilteredPulse: FilterPulse?
     private var refilterTask: Task<Void, Never>?
+    private var seatInstallTask: Task<Void, Never>?
+    private var grainPaintTask: Task<Void, Never>?
+    private var expandFillTask: Task<Void, Never>?
+    private var pageOnlyTask: Task<Void, Never>?
+    private var pickerLoadTask: Task<Void, Never>?
     private var unfilteredWarmTask: Task<Void, Never>?
+    private var visibleDestination: HubDestination = .dashboard
+    private var pickerStreamDone = false
+    private var grainPaintSettled = false
+    private var hubBecameInteractiveAt: Date?
+    private var lastPickerStampCount = 0
+    private var paintGeneration = 0
+    private var lastPaintedSeatKey: PulseSeatPack.Key?
+    private var lastPublishedSeatPaintGeneration = Int.min
+    private var pageOnlyGeneration = -1
+    private var becameReadyAt: Date?
     private var pulseGeneration = 0
     private var masterBookmark: Data?
     private var lastCloudPullAt: Date?
     private var lifetimeObservers: [NSObjectProtocol] = []
     private var cloudHydrateStarted = false
+    private var packFetchInFlight = false
     private var pendingHeavyExtras = false
     private var heavyLoadStarted = false
     private var usingPackChrome = false
     private var packChrome: PulseDashChrome?
+    private var companySeatChrome: PulseDashChrome?
+    private var seatChromeByKey: [PulseSeatPack.Key: PulseDashChrome] = [:]
+    private var seatRowPlanes: [PulseSeatPack.Key: SeatRowPlane] = [:]
+    private var packPickerFactCount = 0
     private var factsOwned: Set<MetricSection> = []
     private var didAdoptExcelFacts = false
+    private var pendingLaunchFilters: DashboardFilters?
+    private var seatLoadHalloweenStartedAt: Date?
 
     init(rootURL: URL? = nil) {
         fileManager = .default
@@ -104,9 +138,11 @@ final class HeartbeatStore: ObservableObject {
         if !fileManager.fileExists(atPath: root.path) {
             try? fileManager.createDirectory(at: root, withIntermediateDirectories: true)
         }
+        self.rootURL = root
+        companySQLiteURL = root.appendingPathComponent(PulseSQLite.fileName)
+        activePackURL = companySQLiteURL
         snapshotURL = root.appendingPathComponent("heartbeat.json")
         heavyURL = root.appendingPathComponent("heartbeat-heavy.json")
-        sqliteURL = root.appendingPathComponent(PulseSQLite.fileName)
         cardsURL = root.appendingPathComponent(PulseCards.fileName)
         checklistURL = root.appendingPathComponent("checklist.json")
         masterLinkURL = root.appendingPathComponent("master-link.json")
@@ -117,9 +153,10 @@ final class HeartbeatStore: ObservableObject {
         filters = DashboardFilters()
         isReady = false
         isImporting = true
-        importProgress.label = "Loading the data"
-        importProgress.expected = MetricSection.uploadOrder.count
-        importProgress.loaded = 0
+        importProgress.label = PulseLaunch.BootPhase.openingFloor.label
+        importProgress.expected = PulseLaunch.BootPhase.ready.rawValue
+        importProgress.loaded = PulseLaunch.BootPhase.openingFloor.rawValue
+        importProgress.fraction = PulseLaunch.BootPhase.openingFloor.fraction
         Task { await self.boot() }
         watchAppLifecycle()
     }
@@ -127,44 +164,354 @@ final class HeartbeatStore: ObservableObject {
     private func boot() async {
         loadChecklist()
         loadMasterLink()
+        loadPersistedFilters()
+        restoreSessionRoleName()
         isImporting = true
         isReady = false
-        importProgress.label = "Opening the floor"
-        await loadPack()
-        if seeded, !cachedSummaries.isEmpty {
+        errorMessage = nil
+        setBootPhase(.openingFloor)
+        let chrome = await loadChromeIfPresent()
+        if PulseLaunch.shouldOpenCompanyCommandCenterOnColdOpen() {
+            setBootPhase(.readingPack)
+            let painted = await swapToSeatPack(.company)
+            if painted {
+                finishLocalLaunch()
+                if PulseLaunch.shouldPullCloudPackOnColdOpen() {
+                    Task {
+                        _ = await self.importCloudSQLiteIfPresent(reason: .boot)
+                        await self.fillAfterReady()
+                    }
+                } else {
+                    Task { await self.fillAfterReady() }
+                }
+                if HubLayout.ingestsWorkbook {
+                    Task { await self.ingestWorkbookOnMacIfNeeded() }
+                }
+                return
+            }
             isImporting = false
             importLabel = nil
-            isReady = true
-            needsRolePick = true
+            if errorMessage == nil {
+                errorMessage = PulseSeatPack.missingSeatMessage(.company)
+            }
+            return
+        }
+        if PulseLaunch.shouldRevealRoleGateDuringWarehouseLoad(),
+           PulseLaunch.shouldPresentSeatBeforeWarehouse(),
+           PulseLaunch.shouldLeaveSplashForSeatLoad()
+            || PulseLaunch.leaveSplashAfterChrome(paintedStoreCards: PulseLaunch.usablePaintedCards(cachedSummaries)) {
+            presentSeatUI()
+            warehouseHydrating = true
+            Task { await self.finishWarehouseAfterSeat(chrome: chrome) }
+            return
+        }
+        setBootPhase(.readingPack)
+        await loadWarehousePack(chromeFirst: chrome)
+        if PulseLaunch.shouldCacheCompanySeatChromeOnBootCriticalPath() {
+            await cachePublishedCompanySeatChrome()
+        }
+        await paintFromWarehouse(light: true, adoptFacts: true)
+        if canLeaveSplash() {
+            finishLocalLaunch()
+            Task { await self.fillAfterReady() }
+            if HubLayout.ingestsWorkbook {
+                Task { await self.ingestWorkbookOnMacIfNeeded() }
+            }
+            return
         }
         if HubLayout.ingestsWorkbook {
-            importProgress.label = "Building today's pack"
+            importProgress.label = PulseLaunch.comedyLoadStatus(at: 4)
             await ingestWorkbookOnMacIfNeeded()
-        } else {
-            await importCloudSQLiteIfPresent()
+            await paintFromWarehouse(light: true, adoptFacts: true)
+        } else if !PulseSQLite.isUsableFile(at: sqliteURL) {
+            importProgress.label = PulseLaunch.comedyLoadStatus(at: 3)
+            await importCloudSQLiteIfPresent(reason: .boot)
+            await paintFromWarehouse(light: true, adoptFacts: true)
         }
-        await loadPublishedFacts()
-        await paintFromWarehouse(light: true)
-        Task { await self.paintFromWarehouse(light: false) }
-        if seeded, !cachedSummaries.isEmpty {
-            isImporting = false
-            importLabel = nil
-            isReady = true
-            needsRolePick = true
+        if canLeaveSplash() {
+            finishLocalLaunch()
+            Task { await self.fillAfterReady() }
             return
         }
         isImporting = false
         importLabel = nil
-        errorMessage = errorMessage ?? "Could not load Heartbeat pack from the cloud."
+        errorMessage = PulseLaunch.missingPackMessage()
+    }
+
+    private func setBootPhase(_ phase: PulseLaunch.BootPhase) {
+        importProgress.label = phase.label
+        importProgress.loaded = phase.rawValue
+        importProgress.expected = PulseLaunch.BootPhase.ready.rawValue
+        importProgress.fraction = phase.fraction
+    }
+
+    var aisleFillCaption: String {
+        if needsRolePick, warehouseHydrating {
+            return PulseLaunch.seatLoadQuip(at: importProgress.loaded)
+        }
+        if needsRolePick {
+            return PulseLaunch.displayLoadStatus(importProgress.label, tick: importProgress.loaded)
+        }
+        if let pending = pendingLaunchFilters, pending.isActive, warehouseHydrating {
+            return "Opening \(pending.summary)"
+        }
+        return PulseLaunch.displayLoadStatus(importProgress.label, tick: importProgress.loaded)
+    }
+
+    var shareReady: Bool {
+        PulseLaunch.shouldAllowShare(warehouseHydrating: warehouseHydrating)
+    }
+
+    private func presentSeatUI() {
+        if !cachedSummaries.isEmpty {
+            seeded = true
+        }
+        isImporting = false
+        importLabel = nil
+        isReady = true
+        becameReadyAt = Date()
+        setNeedsRolePick(
+            PulseLaunch.shouldRequireRoleGateOnColdOpen()
+                && !PulseLaunch.shouldSkipRoleGateOnRelaunch(
+                    role: sessionRole,
+                    filtersActive: pendingLaunchFilters?.isActive == true
+                )
+        )
+        if !needsRolePick {
+            noteHubInteractive()
+            startCloudHydrateIfNeeded()
+        }
+        setBootPhase(.presentingSeat)
+        if PulseLaunch.shouldPlaySeatLoadHalloween() {
+            seatLoadHalloweenStartedAt = Date()
+        }
+    }
+
+    /// Who's looking stays locked only while warehouse work runs. Timeout / fail must unlock.
+    func unlockWarehouseAfterSeat(
+        outcome: PulseLaunch.SeatWarehouseOutcome = .completed,
+        error: Error? = nil
+    ) {
+        if PulseLaunch.seatWarehouseUnlocksHydrating(outcome) {
+            warehouseHydrating = false
+        }
+        if PulseLaunch.seatWarehouseShowsError(outcome) {
+            errorMessage = error?.localizedDescription ?? PulseLaunch.seatWarehouseTimeoutMessage()
+            setBootPhase(.ready)
+        }
+    }
+
+    func beginSeatWarehouseHydrating() {
+        warehouseHydrating = true
+        if PulseLaunch.shouldPlaySeatLoadHalloween(), seatLoadHalloweenStartedAt == nil {
+            seatLoadHalloweenStartedAt = Date()
+        }
+    }
+
+    private func holdSeatLoadHalloweenIfNeeded() async {
+        guard PulseLaunch.shouldHoldSeatLoadHalloweenMinDwell() else { return }
+        guard PulseLaunch.shouldMountSeatLoadHalloween(warehouseHydrating: warehouseHydrating) else { return }
+        let elapsed = UInt64(max(0, Date().timeIntervalSince(seatLoadHalloweenStartedAt ?? Date())) * 1_000_000_000)
+        let remain = PulseLaunch.halloweenDwellRemainingNanoseconds(elapsedNanoseconds: elapsed)
+        if remain > 0 {
+            try? await Task.sleep(nanoseconds: remain)
+        }
+    }
+
+    private func finishWarehouseAfterSeat(chrome: PulseDashChrome?) async {
+        let work = Task { @MainActor in
+            await self.runWarehouseAfterSeat(chrome: chrome)
+        }
+        let timedOut = await PulseLaunch.awaitSeatWarehouseTask(
+            timeoutNanoseconds: PulseLaunch.warehouseAfterSeatTimeoutNanoseconds(),
+            work: work
+        )
+        if timedOut {
+            work.cancel()
+            unlockWarehouseAfterSeat(outcome: .timedOut)
+            return
+        }
+        await holdSeatLoadHalloweenIfNeeded()
+        unlockWarehouseAfterSeat(outcome: .completed)
+    }
+
+    private func runWarehouseAfterSeat(chrome: PulseDashChrome?) async {
+        if PulseLaunch.shouldCheckCloudPackDuringSeatWait() {
+            setBootPhase(.readingPack)
+            PulseCloud.invalidateObjectList()
+            if await importCloudSQLiteIfPresent(reason: .boot), warehouseRowCount > 0 {
+                setBootPhase(.ready)
+                Task { await self.adoptFactsThenFill() }
+                if HubLayout.ingestsWorkbook {
+                    Task { await self.ingestWorkbookOnMacIfNeeded() }
+                }
+                return
+            }
+        }
+        if PulseLaunch.shouldPaintDashboardSectionsProgressively() {
+            setBootPhase(.readingPack)
+            await loadWarehouseWave(PulseLaunch.dashboardFirstWave)
+            applyRestoredLaunchFiltersIfNeeded()
+            setBootPhase(.buildingTables)
+            await paintFromWarehouse(light: true, adoptFacts: false, urgent: true)
+            setBootPhase(.paintingAisle)
+            await loadWarehouseWave(PulseLaunch.dashboardSecondWave)
+            await paintFromWarehouse(light: true, adoptFacts: false)
+            syncWarehouseTape()
+            setBootPhase(.ready)
+            Task { await self.adoptFactsThenFill() }
+            if HubLayout.ingestsWorkbook {
+                Task { await self.ingestWorkbookOnMacIfNeeded() }
+            }
+            return
+        }
+        setBootPhase(.readingPack)
+        await loadWarehousePack(chromeFirst: chrome)
+        applyRestoredLaunchFiltersIfNeeded()
+        setBootPhase(.paintingAisle)
+        await paintFromWarehouse(light: true, adoptFacts: false)
+        syncWarehouseTape()
+        setBootPhase(.ready)
+        Task { await self.adoptFactsThenFill() }
+        if HubLayout.ingestsWorkbook {
+            Task { await self.ingestWorkbookOnMacIfNeeded() }
+        }
+    }
+
+    private func applyRestoredLaunchFiltersIfNeeded() {
+        let decision = PulseLaunch.consumePendingLaunchFilters(
+            pending: pendingLaunchFilters,
+            filtersActive: filters.isActive,
+            needsRolePick: needsRolePick
+        )
+        pendingLaunchFilters = decision.remaining
+        guard let pending = decision.apply else { return }
+        hydrating = true
+        filters = pending
+        hydrating = false
+        if PulseLaunch.shouldKeepLiveCalloutsUntilFilterPaint() {
+            invalidateShareGrainTables()
+            cachedGrainPacks = PulseCaches.placeholderGrainPacks(grain: effectiveDashboardGrain)
+        } else {
+            invalidateFilteredGrainChrome()
+        }
+    }
+
+    private func restoreSessionRoleName() {
+        if let raw = UserDefaults.standard.string(forKey: "hb.sessionRole"),
+           let role = HeartbeatRole(rawValue: raw) {
+            sessionRole = role
+        }
+    }
+
+    private func loadPersistedFilters() {
+        guard fileManager.fileExists(atPath: filtersURL.path),
+              let data = try? Data(contentsOf: filtersURL),
+              let saved = try? JSONDecoder().decode(DashboardFilters.self, from: data)
+        else { return }
+        pendingLaunchFilters = saved
+    }
+
+    private func canLeaveSplash() -> Bool {
+        PulseLaunch.leaveSplash(
+            localPackBytes: PulseSQLite.fileBytes(at: sqliteURL),
+            loadedRows: rows.count,
+            paintedStoreCards: PulseLaunch.usablePaintedCards(cachedSummaries)
+        )
+    }
+
+    private func finishLocalLaunch() {
+        presentSeatUI()
+        if PulseLaunch.shouldKeepHydratingThroughFinishLocalLaunch() {
+            warehouseHydrating = true
+        } else {
+            warehouseHydrating = false
+        }
+        setBootPhase(.ready)
+        if PulseLaunch.shouldOpenCompanyCommandCenterOnColdOpen(),
+           activeSeatKey != .company,
+           pendingLaunchFilters?.isActive != true {
+            Task { await self.swapToSeatPack(.company) }
+        }
+    }
+
+    /// Facts + picker stream after the hub can scroll. Never on the wave-2 paint.
+    private func adoptFactsThenFill() async {
+        if !PulseLaunch.shouldAdoptFactsDuringInteractivePaint() {
+            let changed = await adoptExcelFactsIntoWarehouse()
+            if changed {
+                await paintFromWarehouse(light: true)
+            }
+        }
+        await fillAfterReady()
+    }
+
+    /// Splash stays local-first. Shopper warehouse stream stays join-page only.
+    /// Dashboard still locks card + expand from chrome / a first pack chunk.
+    private func fillAfterReady() async {
+        guard PulseLaunch.shouldFillPickerAfterCompanyReady() else { return }
+        lockPickerDashboard()
+        await prefetchPickerDashboardIfNeeded()
+        guard PulseLaunch.streamPickerAfterReady else { return }
+        guard PulseLaunch.shouldStreamPickerOnDashboard() else { return }
+        if PulseLaunch.shouldDeferPickerStreamUntilHubQuiet() {
+            while needsRolePick {
+                try? await Task.sleep(nanoseconds: 80_000_000)
+                if Task.isCancelled { return }
+            }
+            noteHubInteractive()
+            try? await Task.sleep(nanoseconds: PulseLaunch.hubFirstInteractionNanoseconds)
+            if Task.isCancelled { return }
+        }
+        await streamPicker(preferSnappy: PulseLaunch.streamPickerSnappyAfterReady)
+    }
+
+    func setVisibleDestination(_ dest: HubDestination) {
+        visibleDestination = dest
+        if PulseLaunch.shouldDeferDestinationWorkOnNav() {
+            Task { @MainActor in
+                await Task.yield()
+                guard self.visibleDestination == dest else { return }
+                self.applyDestinationSideEffects(dest)
+            }
+            return
+        }
+        applyDestinationSideEffects(dest)
+    }
+
+    private func applyDestinationSideEffects(_ dest: HubDestination) {
+        if dest != .dashboard {
+            grainPaintTask?.cancel()
+        } else if isReady, !needsRolePick, PulseLaunch.shouldRestartGrainPaint(alreadySettled: grainPaintSettled, dest: dest) {
+            scheduleGrainPaint(generation: paintGeneration)
+        }
+        if PulseLaunch.needsShopperJoin(dest),
+           !pickerStreamDone,
+           PulseLaunch.shouldStartPickerStreamOnDestinationSwitch() {
+            Task { await self.streamPicker(preferSnappy: dest == .pickerScorecard) }
+        }
+        if isCompanyExpandScope, let section = dest.section {
+            Task { await self.prefetchExpand(section: section) }
+        }
+    }
+
+    func retryLaunch() {
+        guard !isImporting else { return }
+        errorMessage = nil
+        isReady = false
+        isImporting = true
+        warehouseHydrating = false
+        importProgress.label = PulseLaunch.comedyLoadStatus(at: 1)
+        Task { await boot() }
     }
 
     private func hydrateFromCloudInBackground() async {
         let snap = await PulseCloud.snapshot()
         await syncCloudPackIfChanged(snap)
-        if HubLayout.profile.skipExcel {
-            applyLocalCards()
-            return
-        }
+        applyLocalCards()
+        let lost = PulseQuery.scoredStoreFacts(latestBySection[.lostRevenue] ?? []).count
+        let sales = PulseQuery.scoredStoreFacts(latestBySection[.sales] ?? []).count
+        guard PulseLaunch.shouldLoadPublishedFacts(lostStores: lost, salesStores: sales) else { return }
         await loadPublishedFacts()
     }
 
@@ -218,7 +565,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func rows(for section: MetricSection, relaxUnknown: Bool = false) -> [MetricRow] {
-        HeartbeatMath.rowsFillingRoster(filteredLatest[section] ?? [], roster: roster)
+        HeartbeatMath.rowsFillingRoster(displayRows(for: section), roster: roster)
     }
 
     func marketStores() -> [HeartbeatMath.MarketStore] { filteredMarket }
@@ -228,28 +575,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func allLatest(for section: MetricSection) -> [MetricRow] {
-        if factsOwned.contains(section), let ram = latestBySection[section], !ram.isEmpty {
-            return ram
-        }
-        let ram = latestBySection[section] ?? []
-        if section == .lostRevenue || section == .sales || section == .fiveStar {
-            let facts = PulseFacts.bundledMetricRows().filter {
-                $0.section == section
-                    && $0.textPayload["lost_grain"] != "market"
-                    && $0.textPayload["sales_grain"] != "company"
-                    && $0.textPayload["sales_grain"] != "day"
-                    && !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty
-                    && !$0.payload.isEmpty
-            }
-            let ramScored = ram.filter { !$0.payload.isEmpty && !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty }.count
-            if facts.count > ramScored {
-                let stamped = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(facts), roster: roster)
-                latestBySection[section] = stamped
-                factsOwned.insert(section)
-                return stamped
-            }
-        }
-        return ram
+        latestBySection[section] ?? []
     }
 
     func salesCompanyFact() -> MetricRow? {
@@ -264,7 +590,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func salesStores() -> [MetricRow] {
-        SalesRollupBuilder.source(from: allLatest(for: .sales), filters: filters, roster: roster)
+        SalesRollupBuilder.source(from: seatRows(for: .sales), filters: DashboardFilters(), roster: roster)
     }
 
     func refreshSalesExpandCache() {
@@ -284,7 +610,7 @@ final class HeartbeatStore: ObservableObject {
                 ?? Set(roster.keys.map { HeartbeatMath.canonicalStore($0) })
             return (allLatest(for: section)).compactMap { row in
                 let store = HeartbeatMath.canonicalStore(row.storeNumber)
-                guard !store.isEmpty, allowed.contains(store) else { return nil }
+                guard !store.isEmpty, HeartbeatMath.storeInAllowed(store, allowed: allowed) else { return nil }
                 return HeartbeatMath.stampRoster(row, roster: roster)
             }
         default:
@@ -312,9 +638,8 @@ final class HeartbeatStore: ObservableObject {
             if section == .labor, row.textPayload["labor_grain"] == "market" { continue }
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
             guard !store.isEmpty else { continue }
-            let keys = [store] + HeartbeatMath.storeAliases(store)
-            guard keys.contains(where: { allowed.contains($0) }) else { continue }
-            let key = keys.first(where: { allowed.contains($0) }) ?? store
+            guard HeartbeatMath.storeInAllowed(store, allowed: allowed) else { continue }
+            let key = store
             if byStore[key] == nil { byStore[key] = row }
         }
         var out: [MetricRow] = []
@@ -323,6 +648,7 @@ final class HeartbeatStore: ObservableObject {
             let identity = roster[store]
             if var row = byStore[store] {
                 row = HeartbeatMath.stampRoster(row, roster: roster)
+                row.payload = HeartbeatMath.remapSchedulePayload(row.payload)
                 out.append(row)
             } else if let identity {
                 out.append(
@@ -340,13 +666,76 @@ final class HeartbeatStore: ObservableObject {
         return out
     }
 
+    /// Seat pages list Heartbeat Stores N. Fact-only `displayRows` is banned under a filter.
+    func seatRows(for section: MetricSection) -> [MetricRow] {
+        if filters.isActive {
+            return rollupStores(for: section)
+        }
+        return displayRows(for: section)
+    }
+
+    /// Company seat omits shopper tape. Same chrome lift as Share picker buckets.
+    func seatPickerBuckets() -> (shoppers: Int, healthy: Int, watch: Int, risk: Int) {
+        PulseLaunch.pickerShareBuckets(
+            rows: seatRows(for: .pickerScorecard),
+            chromeShoppers: max(
+                cachedPickerBoard.shopperCount,
+                packChrome?.pickerShoppers ?? 0,
+                Int(summary(for: .pickerScorecard).headline ?? 0)
+            ),
+            chromeStrong: max(cachedPickerBoard.strongCount, packChrome?.pickerStrong ?? 0),
+            chromeOpportunity: max(
+                cachedPickerBoard.opportunityCount,
+                packChrome?.pickerOpportunity ?? 0,
+                summary(for: .pickerScorecard).riskCount
+            ),
+            grain: dashboardGrainRows(for: .pickerScorecard)
+        )
+    }
+
+    /// Architecture: Shoppers / Opportunity / Doing Well = chrome fields, not 0.
+    func seatPickerChrome() -> (shoppers: Int, opportunity: Int, strong: Int) {
+        let buckets = seatPickerBuckets()
+        return (
+            max(buckets.shoppers, packChrome?.pickerShoppers ?? 0, cachedPickerBoard.shopperCount),
+            max(buckets.risk, packChrome?.pickerOpportunity ?? 0, cachedPickerBoard.opportunityCount),
+            max(buckets.healthy, packChrome?.pickerStrong ?? 0, cachedPickerBoard.strongCount)
+        )
+    }
+
     func displayRows(for section: MetricSection) -> [MetricRow] {
-        PulseQuery.slice(filteredLatest[section] ?? allLatest(for: section), allowed: nil)
+        if filters.isActive {
+            return rollupStores(for: section)
+        }
+        if let cached = filteredLatest[section], !cached.isEmpty {
+            return cached
+        }
+        return PulseQuery.sliceSection(
+            section,
+            rows: latestBySection[section] ?? [],
+            allowed: PulseCaches.allowedStores(roster: roster, filters: filters),
+            filters: filters,
+            roster: roster
+        )
     }
 
     func summary(for section: MetricSection) -> SectionSummary {
-        cachedSummaries.first { $0.section == section }
+        let painted = cachedSummaries.first { $0.section == section }
             ?? HeartbeatMath.summarize(section, rows: displayRows(for: section), upload: upload(for: section))
+        guard !filters.isActive else { return painted }
+        return PulseLaunch.companyCommandCenterCard(
+            painted,
+            chrome: packChrome,
+            rosterStores: roster.count
+        )
+    }
+
+    /// Dashboard tiles must not keep a GeometryReader snapshot. Read on
+    /// `HeartbeatStore` (MainActor) so Catalyst can bind `seatPaintStamp`.
+    func paintedCommandCenterCard(_ card: SectionSummary) -> SectionSummary {
+        _ = seatPaintStamp
+        guard PulseLaunch.shouldBindCommandCenterDashboardToSeatPaint() else { return card }
+        return summary(for: card.section)
     }
 
     func upload(for section: MetricSection) -> UploadRecord? {
@@ -361,6 +750,366 @@ final class HeartbeatStore: ObservableObject {
 
     func dashboardGrains(for section: MetricSection) -> [DashScopePack] {
         cachedGrainPacks[section] ?? []
+    }
+
+    func dashboardGrainRows(for section: MetricSection) -> [HeartbeatMath.DashboardGrainTableRow] {
+        let grain = effectiveDashboardGrain
+        if section == .pickerScorecard, filters.isActive {
+            if let cached = cachedGrainTables[.pickerScorecard],
+               PulseLaunch.pickerExpandHasStatusBuckets(cached),
+               PulseLaunch.grainMatchesSeat(cached, filters: filters, grain: grain) {
+                return cached
+            }
+            let seat = PulseLaunch.pickerSeatRows(
+                filtered: filteredLatest[.pickerScorecard] ?? [],
+                warehouse: latestBySection[.pickerScorecard] ?? [],
+                allowed: pickerStoreSet(),
+                filters: filters,
+                roster: roster
+            )
+            let table = PulseLaunch.pickerExpandTable(
+                seatRows: seat,
+                chrome: nil,
+                filters: filters,
+                grain: grain
+            )
+            if PulseLaunch.pickerExpandHasStatusBuckets(table) {
+                return table
+            }
+        }
+        if let cached = cachedGrainTables[section], HeartbeatMath.grainRowsAreLive(cached) {
+            if !filters.isActive || PulseLaunch.grainTableMatchesCurrent(labels: cached.map(\.label), grain: grain) {
+                if section != .pickerScorecard || PulseLaunch.pickerExpandHasStatusBuckets(cached)
+                    || PulseSeatPack.shouldPaintHubFromActiveSeatSQLite() {
+                    return cached
+                }
+            }
+        }
+        if filters.isActive, section != .pickerScorecard {
+            return PulseLaunch.grainRowsFromSeatPacks(
+                cachedGrainPacks[section] ?? [],
+                section: section,
+                grain: grain
+            )
+        }
+        return []
+    }
+
+    func salesExpandRows() -> [SalesRollupRow] {
+        cachedSalesScopeRows
+    }
+
+    func salesExpandIsLive() -> Bool {
+        PulseLaunch.salesExpandIsLive(cachedSalesScopeRows)
+    }
+
+    /// Chevron / table gate: never open a header shell over an empty body.
+    func dashboardExpandIsLive(_ section: MetricSection) -> Bool {
+        PulseLaunch.dashboardExpandIsLive(
+            section: section,
+            salesRows: cachedSalesScopeRows,
+            grainRows: dashboardGrainRows(for: section),
+            pickerFacts: pickerFactCount()
+        )
+    }
+
+    private func pickerFactCount() -> Int {
+        let filtered = (filteredLatest[.pickerScorecard] ?? []).count
+        let sliced = PulseQuery.sliceSection(
+            .pickerScorecard,
+            rows: latestBySection[.pickerScorecard] ?? [],
+            allowed: pickerStoreSet(),
+            filters: filters,
+            roster: roster
+        ).count
+        let chrome = packChrome
+        let head = Int(chrome?.card(.pickerScorecard)?.headline ?? 0)
+        return PulseLaunch.pickerExpandFactCount(
+            filteredCount: filtered,
+            warehouseSlicedCount: sliced,
+            chromeCount: max(chrome?.pickerShoppers ?? 0, head, packPickerFactCount),
+            filtersActive: filters.isActive
+        )
+    }
+
+    /// Fill expand caches off the tap turn. Writes cache only — no filterStamp.
+    func prefetchExpand(section: MetricSection) async {
+        if section == .sales {
+            if PulseLaunch.salesExpandIsLive(cachedSalesScopeRows) { return }
+            let source = salesStores()
+            let grain = effectiveDashboardGrain
+            let company = filters.isActive ? nil : salesCompanyFact()
+            let built = await Task.detached(priority: .userInitiated) {
+                (
+                    SalesRollupBuilder.dashboardRows(from: source, grain: grain),
+                    SalesRollupBuilder.dayRows(from: source, company: company)
+                )
+            }.value
+            adoptLiveSalesExpand(built.0, days: built.1)
+            return
+        }
+        if section == .pickerScorecard {
+            if filters.isActive {
+                await loadFilteredPickerExpandIfNeeded()
+            } else if let chrome = packChrome {
+                seedPickerGrainFromChrome(chrome)
+            }
+        }
+        if let cached = cachedGrainTables[section],
+           HeartbeatMath.grainRowsAreLive(cached),
+           PulseLaunch.grainMatchesSeat(cached, filters: filters, grain: effectiveDashboardGrain) {
+            return
+        }
+        let grain = effectiveDashboardGrain
+        var source = HeartbeatMath.rowsFillingRoster(displayRows(for: section), roster: roster)
+        if source.isEmpty, !filters.isActive {
+            source = HeartbeatMath.rowsFillingRoster(latestBySection[section] ?? [], roster: roster)
+        }
+        if section == .lostRevenue {
+            source = attachingCompanyLostTotal(source)
+        }
+        let packs = cachedGrainPacks[section] ?? []
+        let order = packs.map(\.line.label)
+        let goal = section == .lostRevenue ? lostRevenueGoalFallbackValue() : nil
+        let table = await Task.detached(priority: .userInitiated) {
+            HeartbeatMath.dashboardGrainTableFilled(
+                section: section,
+                rows: source,
+                grain: grain,
+                order: order,
+                goalFallback: goal
+            )
+        }.value
+        // Live grain only. Placeholder packs must not land in cachedGrainTables.
+        if HeartbeatMath.grainRowsAreLive(table) {
+            let wasLive = HeartbeatMath.grainRowsAreLive(cachedGrainTables[section] ?? [])
+            cachedGrainTables[section] = cappedGrainTable(table)
+            if !wasLive {
+                acknowledgeBackgroundFill(stampIfAllowed: PulseLaunch.shouldStampHubWhenExpandCacheFills())
+            }
+        }
+    }
+
+    /// Cache/packs only. Expand must not walk the warehouse on the tap turn.
+    func ensureDashboardExpandReady(_ section: MetricSection) {
+        if PulseLaunch.shouldBuildExpandTableOffMain() { return }
+        if section == .sales {
+            if cachedSalesScopeRows.isEmpty { refreshSalesExpandCache() }
+            return
+        }
+        let cached = cachedGrainTables[section] ?? []
+        if section == .lostRevenue, HeartbeatMath.grainTableNeedsGoalFill(cached),
+           let goal = lostRevenueGoalFallbackValue() {
+            cachedGrainTables[section] = HeartbeatMath.fillingLostRevenueGoal(cached, goal: goal)
+        }
+        let next = cachedGrainTables[section] ?? cached
+        if !HeartbeatMath.grainRowsAreLive(next) || regionExpandNeedsFill(next)
+            || (section == .lostRevenue && HeartbeatMath.grainTableNeedsGoalFill(next))
+            || !PulseLaunch.grainTableMatchesCurrent(labels: next.map(\.label), grain: effectiveDashboardGrain) {
+            cachedGrainTables[section] = buildGrainTableNow(for: section)
+        }
+    }
+
+    private func regionExpandNeedsFill(_ table: [HeartbeatMath.DashboardGrainTableRow]) -> Bool {
+        guard effectiveDashboardGrain == .region, !filters.isActive else { return false }
+        let live = Set(table.filter { $0.storeCount > 0 }.map(\.label))
+        return MarketRegion.allCases.contains { !live.contains($0.rawValue) }
+    }
+
+    private func buildGrainTableNow(for section: MetricSection) -> [HeartbeatMath.DashboardGrainTableRow] {
+        let grain = effectiveDashboardGrain
+        var source = HeartbeatMath.rowsFillingRoster(displayRows(for: section), roster: roster)
+        if source.isEmpty, !filters.isActive {
+            source = HeartbeatMath.rowsFillingRoster(latestBySection[section] ?? [], roster: roster)
+        }
+        if section == .lostRevenue, source.filter({ $0.number("lost_revenue") != nil }).isEmpty {
+            let facts = HeartbeatMath.rowsFillingRoster(latestOrFacts(for: .lostRevenue), roster: roster)
+            source = filters.isActive
+                ? PulseQuery.sliceSection(
+                    .lostRevenue,
+                    rows: facts,
+                    allowed: pickerStoreSet(),
+                    filters: filters,
+                    roster: roster
+                )
+                : facts
+        }
+        if section == .dynacap, source.filter({ $0.number("dynacap_rate", "pieces_per_hour") != nil }).isEmpty {
+            let raw = (latestBySection[.dynacap] ?? []) + rows.filter { $0.section == .dynacap }
+            let filled = HeartbeatMath.materializeDynacap(raw, roster: roster)
+            source = filters.isActive
+                ? PulseQuery.sliceSection(
+                    .dynacap,
+                    rows: filled,
+                    allowed: pickerStoreSet(),
+                    filters: filters,
+                    roster: roster
+                )
+                : filled
+        }
+        if section == .dynacap {
+            source = HeartbeatMath.overlayStorePPH(
+                source,
+                from: latestBySection[.pph] ?? filteredLatest[.pph] ?? [],
+                pickers: latestBySection[.pickerScorecard] ?? filteredLatest[.pickerScorecard] ?? []
+            )
+        }
+        if grain == .region, !filters.isActive {
+            source = PulseQuery.fillMissingRegions(
+                existing: source,
+                facts: PulseFacts.bundledMetricRows(),
+                section: section
+            )
+            source = HeartbeatMath.rowsFillingRoster(source, roster: roster)
+        }
+        if section == .lostRevenue {
+            source = attachingCompanyLostTotal(source)
+        }
+        let packs = cachedGrainPacks[section] ?? []
+        let order = packs.map(\.line.label)
+        let goalFallback = section == .lostRevenue ? lostRevenueGoalFallbackValue() : nil
+        let table = HeartbeatMath.dashboardGrainTableFilled(
+            section: section,
+            rows: source,
+            grain: grain,
+            order: order,
+            goalFallback: goalFallback
+        )
+        if section == .lostRevenue, let goalFallback, HeartbeatMath.grainTableNeedsGoalFill(table) {
+            return cappedGrainTable(HeartbeatMath.fillingLostRevenueGoal(table, goal: goalFallback))
+        }
+        if HeartbeatMath.grainRowsAreLive(table) { return cappedGrainTable(table) }
+        return cappedGrainTable(
+            HeartbeatMath.dashboardGrainRowsFromPacks(packs, section: section, goalFallback: goalFallback)
+        )
+    }
+
+    private func cappedGrainTable(
+        _ table: [HeartbeatMath.DashboardGrainTableRow]
+    ) -> [HeartbeatMath.DashboardGrainTableRow] {
+        guard isCompanyExpandScope else { return table }
+        let cap = PulseLaunch.companyExpandRowCap(pad: isPadDevice)
+        guard table.count > cap else { return table }
+        return Array(table.prefix(cap))
+    }
+
+    private func fillExpandTablesSoon() {
+        guard PulseLaunch.shouldPrefillExpandTables(filtersActive: filters.isActive) else { return }
+        let company = isCompanyExpandScope
+        if company, !PulseLaunch.shouldPrefillAllExpandTablesAtCompany(pad: isPadDevice) {
+            return
+        }
+        let grain = effectiveDashboardGrain
+        var latest = filteredLatest.isEmpty ? latestBySection : filteredLatest
+        if let lost = latest[.lostRevenue] {
+            latest[.lostRevenue] = attachingCompanyLostTotal(lost)
+        }
+        let packs = cachedGrainPacks
+        let rosterCopy = roster
+        let goalFallback = lostRevenueGoalFallbackValue()
+        let delay = grainTablePrefetchDelayNanoseconds()
+        let salesRaw = latest[.sales] ?? []
+        let companyFact = filters.isActive ? nil : salesCompanyFact()
+        let only: Set<MetricSection>? = company
+            ? Set(PulseLaunch.expandTableSections(visible: visibleDestination, companyScope: true))
+            : nil
+        let rowCap: Int? = company ? PulseLaunch.companyExpandRowCap(pad: isPadDevice) : nil
+        expandFillTask?.cancel()
+        expandFillTask = Task.detached(priority: .background) {
+            if delay > 0 {
+                try? await Task.sleep(nanoseconds: delay)
+            }
+            guard !Task.isCancelled else { return }
+            let tables = PulseCaches.grainTables(
+                latest: latest,
+                grain: grain,
+                roster: rosterCopy,
+                packs: packs,
+                goalFallback: goalFallback,
+                only: only,
+                rowCap: rowCap
+            )
+            let salesSource = SalesRollupBuilder.source(
+                from: salesRaw,
+                filters: DashboardFilters(),
+                roster: rosterCopy
+            )
+            let salesScope = SalesRollupBuilder.dashboardRows(from: salesSource, grain: grain)
+            let salesDays = SalesRollupBuilder.dayRows(from: salesSource, company: companyFact)
+            await MainActor.run {
+                guard !Task.isCancelled else { return }
+                guard self.effectiveDashboardGrain == grain else { return }
+                self.mergeGrainTables(tables)
+                if PulseLaunch.shouldPrefetchSalesExpandWithGrainTables(),
+                   salesScope.count >= self.cachedSalesScopeRows.count {
+                    self.adoptLiveSalesExpand(salesScope, days: salesDays)
+                }
+            }
+        }
+    }
+
+    private func lostRevenueGoalFallbackValue() -> Double? {
+        lostRevenueMarketRow().flatMap { HeartbeatMath.lostRevenueGoalPct($0) }
+            ?? HeartbeatMath.lostRevenueGoalFallback(
+                (latestBySection[.lostRevenue] ?? []) + (filteredLatest[.lostRevenue] ?? [])
+            )
+    }
+
+    private func grainTablePrefetchDelayNanoseconds() -> UInt64 {
+        guard PulseLaunch.shouldDeferGrainTablesUntilHubQuiet() else { return 0 }
+        // Prefill while Who's looking is up so expand is live on the first hub frame.
+        if needsRolePick { return 0 }
+        let quiet = PulseLaunch.hubFirstInteractionNanoseconds
+        guard let start = hubBecameInteractiveAt else { return quiet }
+        let elapsed = Date().timeIntervalSince(start)
+        if elapsed >= Double(quiet) / 1_000_000_000 { return 0 }
+        let remaining = Double(quiet) / 1_000_000_000 - elapsed
+        return UInt64(max(0, remaining) * 1_000_000_000)
+    }
+
+    private func mergeGrainTables(_ tables: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]]) {
+        var changed = false
+        let merged = PulseLaunch.mergeLiveGrainTables(
+            incoming: tables,
+            live: cachedGrainTables,
+            grain: effectiveDashboardGrain,
+            filtersActive: filters.isActive
+        )
+        for (section, rows) in merged where !rows.isEmpty {
+            if !HeartbeatMath.grainRowsAreLive(rows),
+               let keep = cachedGrainTables[section],
+               HeartbeatMath.grainRowsAreLive(keep) {
+                continue
+            }
+            if cachedGrainTables[section] != rows {
+                cachedGrainTables[section] = rows
+                changed = true
+            }
+        }
+        if let goal = lostRevenueGoalFallbackValue(),
+           HeartbeatMath.grainTableNeedsGoalFill(cachedGrainTables[.lostRevenue] ?? []) {
+            cachedGrainTables[.lostRevenue] = HeartbeatMath.fillingLostRevenueGoal(
+                cachedGrainTables[.lostRevenue] ?? [],
+                goal: goal
+            )
+            changed = true
+        }
+        if changed, !needsRolePick {
+            acknowledgeBackgroundFill(stampIfAllowed: PulseLaunch.shouldStampHubWhenExpandCacheFills())
+        }
+    }
+
+    /// Write sales expand cache. `objectWillChange` only — never `filterStamp`.
+    private func adoptLiveSalesExpand(_ rows: [SalesRollupRow], days: [SalesRollupRow]) {
+        let wasLive = PulseLaunch.salesExpandIsLive(cachedSalesScopeRows)
+        if rows.isEmpty, wasLive { return }
+        if PulseLaunch.salesExpandIsLive(rows) || cachedSalesScopeRows.isEmpty {
+            cachedSalesScopeRows = rows
+            cachedSalesDayRows = days
+        }
+        if PulseLaunch.salesExpandIsLive(cachedSalesScopeRows), !wasLive {
+            acknowledgeBackgroundFill(stampIfAllowed: PulseLaunch.shouldStampHubWhenExpandCacheFills())
+        }
     }
 
     func dashboardGrainChildren(section: MetricSection, label: String) -> [DashScopeLine] {
@@ -396,11 +1145,13 @@ final class HeartbeatStore: ObservableObject {
         let rows = (filteredLatest[metric] ?? []).filter { HeartbeatMath.dashboardScopeKey($0, grain: grain) == label }
         let items = (filteredLatest[.preSubOOSItem] ?? []).filter { HeartbeatMath.dashboardScopeKey($0, grain: grain) == label }
         let pickers = (filteredLatest[.pickerScorecard] ?? []).filter { HeartbeatMath.dashboardScopeKey($0, grain: grain) == label }
+        let pphRows = (filteredLatest[.pph] ?? []).filter { HeartbeatMath.dashboardScopeKey($0, grain: grain) == label }
         return HeartbeatMath.dashboardActionFlags(
             section: metric,
             rows: rows,
             pickers: pickers,
             items: items,
+            pphRows: pphRows,
             includeAll: true
         )
     }
@@ -423,43 +1174,41 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func dashboardScopeCount(_ grain: DashScopeGrain) -> Int {
-        if !cachedSalesScopeRows.isEmpty {
+        // Roster / placeholder packs are not an expand count. "Regions 4" with
+        // an empty table was `containing(division)` while sales cache was empty.
+        _ = grain
+        if PulseLaunch.salesExpandIsLive(cachedSalesScopeRows) {
             return cachedSalesScopeRows.count
         }
-        switch grain {
-        case .region:
-            return Set(roster.values.compactMap { MarketRegion.containing($0.division)?.rawValue }).count
-        case .division:
-            return cachedDivisions.filter { filters.includesDivision($0) }.count
-        case .district:
-            return cachedDistricts.count
-        case .store:
-            return cachedStores.count
-        }
+        return 0
     }
 
     var effectiveDashboardGrain: DashScopeGrain {
-        if !filters.store.isEmpty || !filters.om.isEmpty || !filters.district.isEmpty {
-            return .store
-        }
-        if !filters.division.isEmpty {
-            return .district
-        }
-        if !filters.region.isEmpty {
-            return .division
-        }
-        return sessionRole?.dashboardGrain ?? .region
+        PulseLaunch.dashboardGrain(filters: filters, sessionRole: sessionRole)
+    }
+
+    private var isPadDevice: Bool { HubLayout.isPadDevice }
+
+    private var isCompanyExpandScope: Bool {
+        PulseLaunch.isCompanyExpandScope(
+            filtersActive: filters.isActive,
+            grain: effectiveDashboardGrain
+        )
     }
 
     var pickerBoard: HeartbeatMath.PickerBoard { cachedPickerBoard }
 
     func pphPickers(forStore store: String) -> [MetricRow] {
-        pphPickersByStore[HeartbeatMath.canonicalStore(store)] ?? []
+        let want = HeartbeatMath.canonicalStore(store)
+        if want.isEmpty { return [] }
+        return pphPickersByStore[want] ?? pphPickersByStore[store] ?? []
     }
 
     func pphPickerCount(forStore store: String) -> Int {
-        pphPickersByStore[HeartbeatMath.canonicalStore(store)]?.count ?? 0
+        PulseLaunch.pphPickerCount(store: store, counts: pphPickerCountByStore)
     }
+
+    func pphPickerCounts() -> [String: Int] { pphPickerCountByStore }
 
     func pickPathPickers(forStore store: String) -> [MetricRow] {
         let want = HeartbeatMath.canonicalStore(store)
@@ -467,18 +1216,7 @@ final class HeartbeatStore: ObservableObject {
         if let exact = pickPathPickersByStore[want], !exact.isEmpty {
             return exact
         }
-        var matched: [MetricRow] = []
-        for (key, rows) in pickPathPickersByStore where HeartbeatMath.sameStore(key, want) {
-            matched.append(contentsOf: rows)
-        }
-        if !matched.isEmpty { return matched }
-        for section in [MetricSection.pickerScorecard, .pickPathPicker] {
-            let source = latestBySection[section] ?? filteredLatest[section] ?? []
-            for row in source where HeartbeatMath.sameStore(row.storeNumber, want) {
-                matched.append(row)
-            }
-        }
-        return matched
+        return []
     }
 
     func pickPathPicker(forShopper raw: String) -> MetricRow? {
@@ -486,29 +1224,31 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func pickerCount(for focus: PickerFocus) -> Int {
-        let pickers = filters.isActive
-            ? (filteredLatest[.pickerScorecard] ?? [])
-            : (latestBySection[.pickerScorecard] ?? [])
+        let pickers = visiblePickers()
         if focus == .all { return pickers.count }
-        if let indexed = pickerIndex[focus]?.count, indexed > 0 {
+        if pickerIndexMatches(pickers), let indexed = pickerIndex[focus]?.count {
             return indexed
         }
-        return 0
+        return pickers.filter { HeartbeatMath.pickerMatches($0, focus: focus) }.count
     }
 
     func pickerFocusHealth(for focus: PickerFocus) -> Health {
-        pickerFocusHealth[focus] ?? Health.none
+        let pickers = visiblePickers()
+        guard pickerIndexMatches(pickers) else { return Health.none }
+        return pickerFocusHealth[focus] ?? Health.none
     }
 
     func pickerPage(focus: PickerFocus, sort: PickerSort, ascending: Bool, limit: Int) -> [MetricRow] {
-        let pickers = filteredLatest[.pickerScorecard] ?? []
+        let pickers = visiblePickers()
         guard !pickers.isEmpty else { return [] }
-        var idxs = (pickerIndex[focus] ?? []).filter { pickers.indices.contains($0) }
+        var idxs = pickerIndexMatches(pickers)
+            ? (pickerIndex[focus] ?? []).filter { pickers.indices.contains($0) }
+            : []
         if idxs.isEmpty {
             if focus == .all {
                 idxs = Array(pickers.indices)
             } else {
-                return []
+                idxs = pickers.indices.filter { HeartbeatMath.pickerMatches(pickers[$0], focus: focus) }
             }
         }
         let cap = min(max(limit, 1), idxs.count)
@@ -520,6 +1260,20 @@ final class HeartbeatStore: ObservableObject {
             idxs = Array(idxs.prefix(cap))
         }
         return idxs.map { pickers[$0] }
+    }
+
+    private func visiblePickers() -> [MetricRow] {
+        if let painted = filteredLatest[.pickerScorecard], !painted.isEmpty {
+            return painted
+        }
+        return displayRows(for: .pickerScorecard)
+    }
+
+    private func pickerIndexMatches(_ pickers: [MetricRow]) -> Bool {
+        PulseLaunch.pickerIndexMatchesSeat(
+            visibleCount: pickers.count,
+            indexedAll: (pickerIndex[.all] ?? []).count
+        )
     }
 
     private func comparePickers(_ lhs: MetricRow, _ rhs: MetricRow, sort: PickerSort) -> ComparisonResult {
@@ -728,21 +1482,22 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func rebuildPPHPickerIndex(scorecard: [MetricRow]) {
-        pphPickersByStore = pphIndexValues(scorecard)
+        installPPHPickerIndex(PulseLaunch.pphPickerIndex(scorecard))
     }
 
-    private func pphIndexValues(_ scorecard: [MetricRow]) -> [String: [MetricRow]] {
-        var buckets: [String: [MetricRow]] = [:]
-        buckets.reserveCapacity(512)
-        for row in scorecard where row.number("pph") != nil {
-            let store = HeartbeatMath.canonicalStore(row.storeNumber)
-            guard !store.isEmpty else { continue }
-            buckets[store, default: []].append(row)
+    private func installPPHPickerIndex(_ index: PulseLaunch.PPHPickerIndex) {
+        pphPickersByStore = index.rows
+        pphPickerCountByStore = index.counts
+    }
+
+    private func installPPHPickerIndex(fromRows rows: [String: [MetricRow]]) {
+        pphPickersByStore = rows
+        var counts: [String: Int] = [:]
+        counts.reserveCapacity(rows.count)
+        for (key, group) in rows {
+            counts[key] = group.count
         }
-        for store in buckets.keys {
-            buckets[store]?.sort { ($0.number("pph") ?? 999) < ($1.number("pph") ?? 999) }
-        }
-        return buckets
+        pphPickerCountByStore = counts
     }
 
     func laborWeekIds() -> [String] {
@@ -779,12 +1534,15 @@ final class HeartbeatStore: ObservableObject {
 
     func laborWeekSpan() -> String {
         let ids = laborWeekIds()
-        guard let first = ids.first, let last = ids.last else { return "—" }
-        return first == last ? first : "\(first) thru \(last)"
+        if let first = ids.first, let last = ids.last {
+            return first == last ? first : "\(first) thru \(last)"
+        }
+        return PulseLaunch.laborSeatWeekSpan(rows: seatRows(for: .labor)) ?? "—"
     }
 
     func laborMarketRow() -> MetricRow? {
-        rows.first {
+        let pool = (latestBySection[.labor] ?? []) + (filteredLatest[.labor] ?? []) + rows
+        return pool.first {
             $0.section == .labor && (
                 $0.textPayload["labor_grain"] == "market"
                     || HeartbeatMath.canonicalStore($0.storeNumber).caseInsensitiveCompare("TOTAL") == .orderedSame
@@ -793,7 +1551,31 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func lostRevenueMarketRow() -> MetricRow? {
-        rows.first { $0.section == .lostRevenue && $0.textPayload["lost_grain"] == "market" }
+        let pool = (latestBySection[.lostRevenue] ?? []) + (filteredLatest[.lostRevenue] ?? []) + rows
+        return pool.first { $0.textPayload["lost_grain"] == "market" }
+    }
+
+    /// Unfiltered company only. Seat filters must not inherit the global Total.
+    private func attachingCompanyLostTotal(_ rows: [MetricRow]) -> [MetricRow] {
+        guard !filters.isActive else { return rows }
+        if rows.contains(where: { $0.textPayload["lost_grain"] == "market" }) { return rows }
+        guard let market = lostRevenueMarketRow() else { return rows }
+        return rows + [market]
+    }
+
+    private func pinUnfilteredLostRevenueHeadline() {
+        guard !filters.isActive,
+              let market = lostRevenueMarketRow(),
+              let target = market.number("lost_revenue"),
+              target > 0
+        else { return }
+        guard let index = cachedSummaries.firstIndex(where: { $0.section == .lostRevenue }) else { return }
+        if abs((cachedSummaries[index].headline ?? 0) - target) <= 1 { return }
+        cachedSummaries[index] = HeartbeatMath.summarize(
+            .lostRevenue,
+            rows: attachingCompanyLostTotal(filteredLatest[.lostRevenue] ?? []),
+            upload: upload(for: .lostRevenue)
+        )
     }
 
     func dynacapCoverageNote() -> String? {
@@ -818,13 +1600,13 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func laborNeedsReload() -> Bool {
-        let stores = rows.filter { $0.section == .labor && $0.textPayload["labor_grain"] == "store" }
-        guard !stores.isEmpty else { return false }
-        if laborMarketRow() == nil, laborWeekIds().isEmpty { return true }
-        return stores.contains {
-            let rev = $0.textPayload["parser_rev"] ?? ""
-            return rev != "7" && rev != "8" && rev != "9"
-        }
+        let hasMarket = laborMarketRow() != nil
+        let hasLiveTVA = summary(for: .labor).headline != nil
+        return PulseLaunch.shouldShowLaborTotalRowWarning(
+            filtersActive: filters.isActive,
+            hasMarketTotal: hasMarket,
+            hasLiveTVA: hasLiveTVA
+        )
     }
 
     static func importAudit(section: MetricSection, rows: [MetricRow]) -> String {
@@ -1268,6 +2050,10 @@ final class HeartbeatStore: ObservableObject {
             ?? HeartbeatMath.StoreIdentity(division: "", district: "", om: "", name: nil)
     }
 
+    func isOfficialRosterStore(_ number: String) -> Bool {
+        roster[HeartbeatMath.canonicalStore(number)] != nil
+    }
+
     var lastUpload: UploadRecord? {
         uploads.max(by: { $0.uploadedAt < $1.uploadedAt })
     }
@@ -1330,7 +2116,7 @@ final class HeartbeatStore: ObservableObject {
 
     func filterChoices(focus: FilterFocus, draft: DashboardFilters) -> [(id: String, label: String)] {
         func pairs(_ values: [String]) -> [(id: String, label: String)] {
-            values.map { (id: $0, label: $0) }
+            values.map { (id: $0, label: HeartbeatMath.displayGrainLabel($0)) }
         }
         switch focus {
         case .region:
@@ -1347,17 +2133,7 @@ final class HeartbeatStore: ObservableObject {
                     .sorted()
             )
         case .om:
-            return pairs(
-                roster.values
-                    .filter { draft.includesDivision($0.division) }
-                    .filter { draft.includesDistrict($0.district) }
-                    .map { HeartbeatMath.canonicalOM($0.om) }
-                    .filter { value in
-                        !value.isEmpty && value.rangeOfCharacter(from: .letters) != nil
-                    }
-                    .uniquedIgnoringCase()
-                    .sorted()
-            )
+            return pairs(PulseSeatPack.publishedOMNames(from: roster, filters: draft))
         case .store:
             var seen: [String: String] = [:]
             for (number, identity) in roster {
@@ -1367,14 +2143,25 @@ final class HeartbeatStore: ObservableObject {
                 if seen[number] == nil { seen[number] = identity.name ?? "" }
             }
             return seen.keys.sorted(by: HeartbeatFormat.storeOrder).map { number in
-                let name = seen[number] ?? ""
+                let name = HeartbeatMath.usableStoreName(seen[number]) ?? ""
                 let label = name.isEmpty ? number : "\(number) · \(name)"
                 return (id: number, label: label)
             }
         }
     }
 
-    func applyLaunchRole(_ role: HeartbeatRole, region: String = "", division: String = "", district: String = "", om: String = "") {
+    func suggestedSeatValues(for role: HeartbeatRole) -> [String] {
+        PulseLaunch.suggestedSeatValues(role: role, pending: pendingLaunchFilters)
+    }
+
+    func applyLaunchRole(
+        _ role: HeartbeatRole,
+        region: String = "",
+        division: String = "",
+        district: String = "",
+        om: String = "",
+        store: String = ""
+    ) {
         sessionRole = role
         UserDefaults.standard.set(role.rawValue, forKey: "hb.sessionRole")
         var next = DashboardFilters()
@@ -1385,54 +2172,810 @@ final class HeartbeatStore: ObservableObject {
             next.region = region
         case .director:
             next.division = division
-            next.region = MarketRegion.containing(division)?.rawValue ?? ""
+            let regions = DashboardFilters.parts(division).compactMap { MarketRegion.containing($0)?.rawValue }
+            next.region = Set(regions).sorted().joined(separator: "\n")
         case .districtManager:
             next.district = district
         case .om:
             next.om = om
+        case .store:
+            next.store = store
         }
         next.sanitize()
-        if filters != next {
-            filters = next
-            persistFilters()
+        if PulseLaunch.shouldDiscardPendingLaunchFiltersOnRolePick() {
+            pendingLaunchFilters = nil
         }
-        needsRolePick = false
-        Task { await paintFromWarehouse(light: true) }
+        let key = PulseSeatPack.Key.forSeat(filters: next, role: role)
+        hydrating = true
+        filters = next
+        persistFilters()
+        hydrating = false
+        if let chrome = cachedChrome(for: key) {
+            applySeatChrome(chrome, key: key)
+            publishSeatPaintAfterBoxMaps(for: key)
+        }
+        if PulseLaunch.shouldLeaveRoleGateBeforeSeatWarehouse() {
+            revealHubAfterSeat()
+        }
+        Task { @MainActor in
+            let ok = await self.swapToSeatPack(key)
+            if !ok, self.errorMessage == nil, !PulseLaunch.shouldSilentNoOpOnSeatSwapFailure() {
+                self.errorMessage = PulseSeatPack.missingSeatMessage(key)
+            }
+            if !PulseLaunch.shouldLeaveRoleGateBeforeSeatWarehouse() {
+                self.revealHubAfterSeat()
+            }
+        }
+    }
+
+    private func revealHubAfterSeat() {
+        guard needsRolePick else { return }
+        setNeedsRolePick(false)
+        noteHubInteractive()
+        if let chrome = packChrome {
+            seedPickerGrainFromChrome(chrome)
+            pinUnfilteredLostRevenueHeadline()
+        }
+        lockPickerDashboard()
+        // Seat paint skipped grains while Who's looking was up. Start them now.
+        scheduleGrainPaint(generation: paintGeneration)
         startCloudHydrateIfNeeded()
+    }
+
+    func finishRoleGate() {
+        setNeedsRolePick(false)
+        noteHubInteractive()
+        let decision = PulseLaunch.consumePendingLaunchFilters(
+            pending: pendingLaunchFilters,
+            filtersActive: filters.isActive,
+            needsRolePick: false
+        )
+        pendingLaunchFilters = decision.remaining
+        if let pending = decision.apply {
+            filters = pending
+        }
+        startCloudHydrateIfNeeded()
+    }
+
+    private func noteHubInteractive() {
+        if hubBecameInteractiveAt == nil { hubBecameInteractiveAt = Date() }
     }
 
     private func startCloudHydrateIfNeeded() {
         guard !cloudHydrateStarted else { return }
         cloudHydrateStarted = true
-        Task {
-            try? await Task.sleep(nanoseconds: 350_000_000)
+        Task(priority: .background) {
+            if PulseLaunch.shouldSyncCompanySeatAfterCloudHydrate() {
+                _ = await self.importCloudSQLiteIfPresent(reason: .refresh)
+            }
+            try? await Task.sleep(nanoseconds: PulseLaunch.cloudHydrateDelayNanoseconds)
+            guard !Task.isCancelled else { return }
             await self.hydrateFromCloudInBackground()
         }
     }
 
     func reopenRoleGate() {
-        needsRolePick = true
+        setNeedsRolePick(
+            PulseLaunch.shouldRequireRoleGateOnColdOpen()
+                && PulseLaunch.shouldShowRoleGatePill()
+        )
     }
 
-    private func restoreSessionRole() {
-        if let raw = UserDefaults.standard.string(forKey: "hb.sessionRole"),
-           let role = HeartbeatRole(rawValue: raw) {
-            sessionRole = role
-            needsRolePick = false
-        } else {
-            needsRolePick = true
+    /// Product lock: needsRolePick can never stick true while Who's looking is off.
+    func dismissBlockedRoleGate() {
+        setNeedsRolePick(false)
+    }
+
+    private func setNeedsRolePick(_ value: Bool) {
+        let next = value && PulseLaunch.shouldMountRoleGate(needsRolePick: true)
+        if needsRolePick != next {
+            needsRolePick = next
         }
     }
 
+    private func restoreSessionRole() {
+        restoreSessionRoleName()
+    }
+
     func clearFilters() {
-        refilterTask?.cancel()
-        unfilteredWarmTask?.cancel()
-        sessionRole = .backstage
+        if PulseLaunch.shouldDiscardPendingLaunchFiltersOnClear() {
+            pendingLaunchFilters = nil
+        }
+        Task { @MainActor in
+            self.hydrating = true
+            self.filters = DashboardFilters()
+            self.hydrating = false
+            self.persistFilters()
+            self.paintGeneration += 1
+            self.pageOnlyGeneration = -1
+            await self.swapToSeatPack(.company)
+            self.refreshFilterOptions()
+        }
+    }
+
+    /// Seat grain/packs must not ride into company restore (merge kept District rows).
+    private func wipeSeatDashboardState() {
+        filteredLatest = [:]
+        cachedGrainTables = [:]
+        cachedGrainPacks = [:]
+        cachedSalesScopeRows = []
+        cachedSalesDayRows = []
+        cachedCardFlags = [:]
+        lastPickerStampCount = 0
+        if PulseLaunch.shouldWipePickerIndexOnSeatClear() {
+            wipePickerIndex()
+        }
+    }
+
+    private func wipePickerIndex() {
+        pickerIndex = [:]
+        pickerFocusHealth = [:]
+    }
+
+    private func activateSeatPack(_ key: PulseSeatPack.Key, filters next: DashboardFilters) async {
+        beginSeatWarehouseHydrating()
         hydrating = true
-        filters = DashboardFilters()
-        hydrating = false
+        filters = next
         persistFilters()
-        Task { await paintFromWarehouse(light: false) }
+        hydrating = false
+        await swapToSeatPack(key)
+        if PulseLaunch.shouldUnlockWarehouseHydratingAfterSeat(completed: true) {
+            unlockWarehouseAfterSeat(outcome: .completed)
+        }
+    }
+
+    /// One plane for Clear, filter chips, cold open, and any leftover Continue.
+    /// Progressive: cached / disk chrome (heroes + glance) then warehouse.
+    /// Always paints Command Center or sets `errorMessage`. Never silent no-op.
+    @discardableResult
+    private func swapToSeatPack(_ key: PulseSeatPack.Key, forceReload: Bool = false) async -> Bool {
+        seatInstallTask?.cancel()
+        guard PulseSeatPack.shouldPaintHubFromActiveSeatSQLite() else {
+            failSeatSwap(key)
+            return false
+        }
+        let dest = PulseSeatPack.localURL(root: rootURL, key: key)
+        try? fileManager.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+        var localUsable = PulseSeatPack.isUsable(at: dest)
+        if key == .company, !PulseLaunch.isCompanySeatSizeAllowed(PulseSQLite.fileBytes(at: dest)) {
+            localUsable = false
+        }
+        if !localUsable {
+            _ = await downloadSeatPack(key, to: dest)
+            localUsable = PulseSeatPack.isUsable(at: dest)
+            if key == .company {
+                localUsable = localUsable
+                    && PulseLaunch.isCompanySeatSizeAllowed(PulseSQLite.fileBytes(at: dest))
+            }
+        }
+        if !localUsable, PulseSeatPack.shouldMaterializeMissingSeat() {
+            _ = materializeSeatFromCompany(key, to: dest)
+            localUsable = PulseSeatPack.isUsable(at: dest)
+        }
+        let alreadyOn = !forceReload
+            && activeSeatKey == key
+            && PulseSeatPack.isUsable(at: activePackURL)
+            && !latestBySection.isEmpty
+        let cached = forceReload ? nil : cachedChrome(for: key)
+        let plan = PulseLaunch.seatSwapPlan(
+            localUsable: localUsable,
+            alreadyOnPack: alreadyOn,
+            hasCachedChrome: cached != nil,
+            forceReload: forceReload
+        )
+        var installed = false
+        switch plan {
+        case .reuseInPlace:
+            if let chrome = cached {
+                applySeatChromeOrCommandCenterSummaries(
+                    chrome,
+                    key: key,
+                    forceReload: forceReload
+                )
+            }
+            rememberSeatChrome(key)
+            publishSeatPaintAfterBoxMaps(for: key)
+            return true
+        case .paintCachedThenSwap:
+            if let chrome = cached {
+                applySeatChromeOrCommandCenterSummaries(
+                    chrome,
+                    key: key,
+                    forceReload: forceReload
+                )
+                activeSeatKey = key
+                activePackURL = dest
+                rememberSeatChrome(key)
+                publishSeatPaintAfterBoxMaps(for: key)
+            }
+            guard localUsable else {
+                failSeatSwap(key)
+                return false
+            }
+            if PulseLaunch.shouldDeferIncomingSeatInstallAfterCachedChrome(
+                hasRowPlane: seatBoxMapsReady(for: key)
+            ) {
+                if PulseLaunch.shouldReinstallSeatPackWhenRowPlanePainted() {
+                    scheduleDeferredSeatInstall(key, dest: dest)
+                }
+                return true
+            }
+            installed = await installPublishedSeatPack(key, dest: dest, keepChrome: true)
+        case .installLocalPack:
+            guard localUsable else {
+                failSeatSwap(key)
+                return false
+            }
+            installed = await installPublishedSeatPack(
+                key,
+                dest: dest,
+                keepChrome: PulseLaunch.shouldKeepLastGoodSeatUntilIncomingPackReady()
+            )
+        case .downloadMissingPack:
+            if !PulseLaunch.shouldRedownloadUsableSeatPack(), localUsable {
+                installed = await installPublishedSeatPack(key, dest: dest, keepChrome: cached != nil)
+            } else {
+                if !localUsable {
+                    _ = await downloadSeatPack(key, to: dest)
+                    localUsable = PulseSeatPack.isUsable(at: dest)
+                }
+                if !localUsable, PulseSeatPack.shouldMaterializeMissingSeat() {
+                    _ = materializeSeatFromCompany(key, to: dest)
+                    localUsable = PulseSeatPack.isUsable(at: dest)
+                }
+                guard localUsable else {
+                    failSeatSwap(key)
+                    return false
+                }
+                installed = await installPublishedSeatPack(
+                    key,
+                    dest: dest,
+                    keepChrome: PulseLaunch.shouldKeepLastGoodSeatUntilIncomingPackReady()
+                )
+            }
+        }
+        guard installed else {
+            failSeatSwap(key)
+            return false
+        }
+        guard !Task.isCancelled else { return false }
+        if PulseLaunch.shouldStampHubOnSeatSwap(clearingToCompany: key == .company && !filters.isActive) {
+            filterStamp += 1
+        }
+        publishSeatPaintAfterBoxMaps(for: key)
+        return true
+    }
+
+    private func failSeatSwap(_ key: PulseSeatPack.Key) {
+        guard !PulseLaunch.shouldSilentNoOpOnSeatSwapFailure() else { return }
+        errorMessage = PulseSeatPack.missingSeatMessage(key)
+        publishSeatPaint()
+    }
+
+    private func publishSeatPaint(force: Bool = false) {
+        guard PulseLaunch.shouldPublishCommandCenterAfterSeatSwap() else { return }
+        if !force, PulseLaunch.shouldCoalesceSeatPaintStamp(),
+           lastPublishedSeatPaintGeneration == paintGeneration, seatPaintStamp > 0 {
+            return
+        }
+        lastPublishedSeatPaintGeneration = paintGeneration
+        seatPaintStamp += 1
+    }
+
+    /// One stamp after `latestBySection` / `filteredLatest` match incoming.
+    /// Chrome-only stamps leave leftover THIS WEEK / THIS SEAT on screen.
+    private func publishSeatPaintAfterBoxMaps(for key: PulseSeatPack.Key) {
+        guard PulseLaunch.shouldPublishSeatPaintAfterBoxMapsRewrite() else {
+            publishSeatPaint()
+            return
+        }
+        guard seatBoxMapsReady(for: key) else { return }
+        publishSeatPaint()
+    }
+
+    private func seatBoxMapsReady(for key: PulseSeatPack.Key) -> Bool {
+        lastPaintedSeatKey == key && (!latestBySection.isEmpty || !filteredLatest.isEmpty)
+    }
+
+    private func scheduleDeferredSeatInstall(_ key: PulseSeatPack.Key, dest: URL) {
+        seatInstallTask?.cancel()
+        let generation = paintGeneration
+        seatInstallTask = Task { @MainActor in
+            await Task.yield()
+            try? await Task.sleep(nanoseconds: PulseLaunch.deferredSeatInstallDelayNanoseconds)
+            guard !Task.isCancelled, self.acceptPaint(generation) else { return }
+            let ok = await self.installPublishedSeatPack(key, dest: dest, keepChrome: true)
+            guard ok, !Task.isCancelled, self.acceptPaint(generation) else { return }
+            self.publishSeatPaint(force: true)
+            self.refreshFilterOptions()
+        }
+    }
+
+    /// Retired Clear primary. Company is a seat pack like District.
+    private func restoreCompanyPack() async {
+        await swapToSeatPack(.company)
+    }
+
+    private func cachedChrome(for key: PulseSeatPack.Key) -> PulseDashChrome? {
+        if let cached = seatChromeByKey[key] { return cached }
+        if key == .company, let company = companySeatChrome { return company }
+        if activeSeatKey == key { return packChrome }
+        return nil
+    }
+
+    private func rememberSeatChrome(_ key: PulseSeatPack.Key) {
+        guard let chrome = packChrome else { return }
+        seatChromeByKey[key] = chrome
+        if key == .company {
+            companySeatChrome = chrome
+        }
+    }
+
+    /// One identity with `seatChromeByKey`. Hero Stores N and section rows
+    /// (THIS WEEK / THIS SEAT / expand) must be the same seat.
+    private struct SeatRowPlane {
+        var latestBySection: [MetricSection: [MetricRow]]
+        var filteredLatest: [MetricSection: [MetricRow]]
+        var roster: [String: HeartbeatMath.StoreIdentity]
+        var filteredMarket: [HeartbeatMath.MarketStore]
+        var cachedDivisions: [String]
+        var cachedDistricts: [String]
+        var cachedOMs: [String]
+        var cachedStores: [(number: String, name: String?)]
+        var cachedGrainPacks: [MetricSection: [DashScopePack]]
+        var cachedGrainTables: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]]
+        var cachedSalesScopeRows: [SalesRollupRow]
+        var cachedSalesDayRows: [SalesRollupRow]
+    }
+
+    private func rememberSeatRowPlane(for key: PulseSeatPack.Key) {
+        guard !latestBySection.isEmpty || !filteredLatest.isEmpty else { return }
+        let keepGrains = PulseLaunch.shouldCacheGrainTablesInSeatRowPlane()
+        seatRowPlanes[key] = SeatRowPlane(
+            latestBySection: latestBySection,
+            filteredLatest: filteredLatest,
+            roster: roster,
+            filteredMarket: filteredMarket,
+            cachedDivisions: cachedDivisions,
+            cachedDistricts: cachedDistricts,
+            cachedOMs: cachedOMs,
+            cachedStores: cachedStores,
+            cachedGrainPacks: keepGrains ? cachedGrainPacks : [:],
+            cachedGrainTables: keepGrains ? cachedGrainTables : [:],
+            cachedSalesScopeRows: cachedSalesScopeRows,
+            cachedSalesDayRows: cachedSalesDayRows
+        )
+        evictInactiveSeatRowPlanes(keeping: key)
+    }
+
+    private func evictInactiveSeatRowPlanes(keeping incoming: PulseSeatPack.Key) {
+        guard PulseLaunch.shouldEvictInactiveSeatRowPlanes() else { return }
+        let cap = max(1, PulseLaunch.maxCachedSeatRowPlanes())
+        guard seatRowPlanes.count > cap else { return }
+        var keep: Set<PulseSeatPack.Key> = [incoming]
+        if PulseLaunch.shouldPinCompanySeatRowPlane() {
+            keep.insert(.company)
+        }
+        for key in seatRowPlanes.keys where !keep.contains(key) {
+            seatRowPlanes.removeValue(forKey: key)
+        }
+        while seatRowPlanes.count > cap {
+            guard let extra = seatRowPlanes.keys.first(where: { $0 != incoming && $0 != .company }) else {
+                break
+            }
+            seatRowPlanes.removeValue(forKey: extra)
+        }
+    }
+
+    @discardableResult
+    private func applyCachedSeatRowPlane(for key: PulseSeatPack.Key) -> Bool {
+        guard PulseLaunch.shouldRewriteSeatRowPlaneWithChrome() else { return false }
+        guard let plane = seatRowPlanes[key] else { return false }
+        latestBySection = plane.latestBySection
+        filteredLatest = plane.filteredLatest
+        roster = plane.roster
+        filteredMarket = plane.filteredMarket
+        cachedDivisions = plane.cachedDivisions
+        cachedDistricts = plane.cachedDistricts
+        cachedOMs = plane.cachedOMs
+        cachedStores = plane.cachedStores
+        if PulseLaunch.shouldCacheGrainTablesInSeatRowPlane() {
+            cachedGrainPacks = plane.cachedGrainPacks
+            cachedGrainTables = plane.cachedGrainTables
+        } else {
+            cachedGrainTables = [:]
+        }
+        cachedSalesScopeRows = plane.cachedSalesScopeRows
+        cachedSalesDayRows = plane.cachedSalesDayRows
+        refreshSalesExpandCache()
+        return true
+    }
+
+    private func applySeatChrome(
+        _ chrome: PulseDashChrome,
+        key: PulseSeatPack.Key,
+        rewriteMissingMaps: Bool = true
+    ) {
+        var mapsReady = PulseLaunch.shouldRewriteSeatRowPlaneWithChrome()
+            && applyCachedSeatRowPlane(for: key)
+        if !mapsReady,
+           rewriteMissingMaps,
+           PulseLaunch.shouldRewriteSeatBoxMapsInPlaceWhenPlaneMissing() {
+            if PulseLaunch.shouldDropStaleSeatRowsWhenPlaneMissing() {
+                dropStaleSeatBoxMaps()
+            }
+            mapsReady = rewriteSeatBoxMapsFromLocalPack(key)
+        }
+        if key == .company {
+            applyDashChrome(chrome)
+            companySeatChrome = chrome
+        } else {
+            applyPreRolledSeatChrome(chrome)
+        }
+        seatChromeByKey[key] = chrome
+        if mapsReady {
+            lastPaintedSeatKey = key
+        }
+    }
+
+    /// skipRedundant skips `applyDashChrome` (745). CC tiles still need
+    /// `cachedSummaries` rewritten with the box maps this turn.
+    private func applySeatChromeOrCommandCenterSummaries(
+        _ chrome: PulseDashChrome,
+        key: PulseSeatPack.Key,
+        forceReload: Bool
+    ) {
+        if PulseLaunch.shouldApplySeatChromeAgain(
+            alreadyPaintedKey: lastPaintedSeatKey,
+            incoming: key,
+            forceReload: forceReload
+        ) {
+            applySeatChrome(chrome, key: key)
+            return
+        }
+        rewriteCommandCenterSummaries(chrome, key: key)
+    }
+
+    @discardableResult
+    private func rewriteCommandCenterSummaries(
+        _ chrome: PulseDashChrome,
+        key: PulseSeatPack.Key
+    ) -> Bool {
+        guard PulseLaunch.shouldRewriteCommandCenterSummariesWithBoxMaps() else { return false }
+        guard !chrome.summaries.isEmpty else { return false }
+        let changed = cachedSummaries != chrome.summaries
+        cachedSummaries = chrome.summaries
+        packChrome = chrome
+        usingPackChrome = true
+        seatChromeByKey[key] = chrome
+        if key == .company {
+            companySeatChrome = chrome
+            pinCompanyCommandCenterChrome()
+        }
+        return changed
+    }
+
+    /// LRU evicted the plane. Do not keep leftover District rows under new chrome.
+    private func dropStaleSeatBoxMaps() {
+        latestBySection = [:]
+        filteredLatest = [:]
+        cachedSalesScopeRows = []
+        cachedSalesDayRows = []
+    }
+
+    /// Thin same-turn rewrite. Rows + roster only — no PulseCaches / expand / grain.
+    @discardableResult
+    private func rewriteSeatBoxMapsFromLocalPack(_ key: PulseSeatPack.Key) -> Bool {
+        let dest = PulseSeatPack.localURL(root: rootURL, key: key)
+        if key == .company, !PulseLaunch.isCompanySeatSizeAllowed(PulseSQLite.fileBytes(at: dest)) {
+            return false
+        }
+        guard PulseSeatPack.isUsable(at: dest) else { return false }
+        guard let pack = try? PulseSQLite.read(from: dest, skipping: seatReadSkip(for: key)) else {
+            return false
+        }
+        installSeatRowsFromPack(pack, key: key)
+        return !latestBySection.isEmpty || !filteredLatest.isEmpty
+    }
+
+    @discardableResult
+    private func installPublishedSeatPack(
+        _ key: PulseSeatPack.Key,
+        dest: URL,
+        keepChrome: Bool
+    ) async -> Bool {
+        if !PulseSeatPack.shouldMergeSeatWithCompanyOnSwap(),
+           !PulseLaunch.shouldKeepLastGoodSeatUntilIncomingPackReady() {
+            wipeWarehouseForPackSwap(keepChrome: keepChrome)
+        }
+        activeSeatKey = key
+        activePackURL = dest
+        if key == .company, !PulseLaunch.isCompanySeatSizeAllowed(PulseSQLite.fileBytes(at: dest)) {
+            return false
+        }
+        guard let pack = await Self.readSeatPack(at: dest, skipping: seatReadSkip(for: key)) else { return false }
+        guard !Task.isCancelled else { return false }
+        if let chrome = pack.chrome {
+            applySeatChrome(chrome, key: key, rewriteMissingMaps: false)
+            if PulseLaunch.shouldPublishSeatPaintAfterChromeBeforeCaches(),
+               PulseLaunch.shouldStampSeatPaintBeforeBoxMapsRewrite() {
+                publishSeatPaint()
+            }
+        }
+        guard !Task.isCancelled else { return false }
+        if PulseLaunch.shouldBuildFullPulseCachesOnFilterSwap() {
+            let caches = await Self.buildSeatCaches(
+                pack: pack,
+                key: key,
+                heavy: PulseLaunch.shouldUseHeavySeatCachesOnFilterSwap()
+            )
+            guard !Task.isCancelled else { return false }
+            hydrating = true
+            install(caches)
+            hydrating = false
+        } else {
+            installSeatRowsFromPack(pack, key: key)
+            lastPaintedSeatKey = key
+        }
+        usingPackChrome = pack.chrome != nil
+        seeded = true
+        if PulseLaunch.shouldLockPickerDashboardOnFilterSwap() {
+            lockPickerDashboard()
+        }
+        rearmAfterSeatPromote(clearExpand: PulseLaunch.shouldClearExpandCachesAtCompany(
+            filtersActive: filters.isActive,
+            pad: isPadDevice
+        ))
+        if let chrome = packChrome {
+            seedExpandTablesFromChrome(chrome)
+        }
+        if PulseLaunch.shouldInstallSeatExpandTablesOnFilterSwap() {
+            installSeatExpandTables()
+        } else {
+            fillExpandTablesSoon()
+        }
+        rememberSeatChrome(key)
+        let root = rootURL
+        Task.detached(priority: .utility) {
+            PulseSeatPack.evictSeatCache(root: root, keeping: key)
+        }
+        return true
+    }
+
+    /// Rows + roster only. No `PulseCaches.build`, grain tables, or expand.
+    private func installSeatRowsFromPack(_ pack: PulseSQLite.Pack, key: PulseSeatPack.Key) {
+        var bySection: [MetricSection: [MetricRow]] = [:]
+        bySection.reserveCapacity(16)
+        for row in pack.rows {
+            bySection[row.section, default: []].append(row)
+        }
+        latestBySection = bySection
+        filteredLatest = bySection
+        roster = PulseCaches.storeRoster(from: pack.rows)
+        refreshFilterOptions()
+        refreshSalesExpandCache()
+        rememberSeatRowPlane(for: key)
+    }
+
+    private func seatReadSkip(for key: PulseSeatPack.Key) -> Set<MetricSection> {
+        guard key == .company,
+              PulseLaunch.shouldSkipShoppersOnCompanyPadRead(),
+              isPadDevice,
+              !filters.isActive
+        else { return [] }
+        return PulseLaunch.companyPadSkippedSections()
+    }
+
+    private static func readSeatPack(
+        at dest: URL,
+        skipping: Set<MetricSection> = []
+    ) async -> PulseSQLite.Pack? {
+        let path = dest.path
+        return await Task.detached(priority: .userInitiated) {
+            try? PulseSQLite.read(from: URL(fileURLWithPath: path), skipping: skipping)
+        }.value
+    }
+
+    private static func buildSeatCaches(
+        pack: PulseSQLite.Pack,
+        key: PulseSeatPack.Key,
+        heavy: Bool
+    ) async -> PulseCaches {
+        let rows = pack.rows
+        let uploads = pack.uploads
+        let filters = key.filters
+        let grain = key.dashboardGrain
+        return await Task.detached(priority: .userInitiated) {
+            PulseCaches.build(
+                rows: rows,
+                filters: filters,
+                uploads: uploads,
+                heavy: heavy,
+                grain: grain
+            )
+        }.value
+    }
+
+    /// Field iPad and Mac both read the published company seat object.
+    /// Market `current.sqlite` stays Who's looking roster only.
+    @discardableResult
+    private func ensurePublishedCompanySeatPack() async -> URL? {
+        let dest = PulseSeatPack.localURL(root: rootURL, key: .company)
+        if PulseSeatPack.isUsable(at: dest) { return dest }
+        _ = await downloadSeatPack(.company, to: dest)
+        return PulseSeatPack.isUsable(at: dest) ? dest : nil
+    }
+
+    /// Warm company chrome so Clear / filter bounce can paint heroes before warehouse.
+    private func cachePublishedCompanySeatChrome() async {
+        guard let dest = await ensurePublishedCompanySeatPack() else { return }
+        guard let pack = try? PulseSQLite.read(from: dest), let chrome = pack.chrome else { return }
+        companySeatChrome = chrome
+        seatChromeByKey[.company] = chrome
+    }
+
+    private func wipeWarehouseForPackSwap(keepChrome: Bool = false) {
+        rows = []
+        latestBySection = [:]
+        filteredLatest = [:]
+        wipeSeatDashboardState()
+        if PulseLaunch.packSwapClearsFactOwnership() {
+            factsOwned = []
+            pickerStreamDone = false
+            didAdoptExcelFacts = false
+            packPickerFactCount = 0
+            pickerLoadTask?.cancel()
+            pickerLoadTask = nil
+        }
+        if !keepChrome {
+            packChrome = nil
+            usingPackChrome = false
+        }
+    }
+
+    private func applyPreRolledSeatChrome(_ chrome: PulseDashChrome) {
+        packChrome = chrome
+        usingPackChrome = true
+        if !chrome.summaries.isEmpty {
+            cachedSummaries = chrome.summaries
+        }
+        if !chrome.flags.isEmpty {
+            var next: [MetricSection: [HeartbeatMath.FiveStarFlag]] = [:]
+            for (key, value) in chrome.flags {
+                if let section = MetricSection(rawValue: key) {
+                    next[section] = value
+                }
+            }
+            cachedCardFlags = next
+        }
+        if !chrome.packs.isEmpty {
+            var next: [MetricSection: [DashScopePack]] = [:]
+            for (key, value) in chrome.packs {
+                if let section = MetricSection(rawValue: key) {
+                    next[section] = value
+                }
+            }
+            cachedGrainPacks = next
+        }
+        for (key, rows) in chrome.tables {
+            guard let section = MetricSection(rawValue: key) else { continue }
+            if HeartbeatMath.grainRowsAreLive(rows) {
+                cachedGrainTables[section] = rows
+            }
+        }
+        if chrome.pickerShoppers > 0 {
+            cachedPickerBoard = HeartbeatMath.PickerBoard(
+                shopperCount: chrome.pickerShoppers,
+                opportunityCount: max(chrome.pickerOpportunity, cachedPickerBoard.opportunityCount),
+                strongCount: max(chrome.pickerStrong, cachedPickerBoard.strongCount),
+                opportunity: cachedPickerBoard.opportunity,
+                strong: cachedPickerBoard.strong
+            )
+        }
+        lockPickerDashboard()
+    }
+
+    /// Page/stream only at company. Never `expandTables` → `grainTables` →
+    /// `dashboardGrainTable` for all `dashboardCards` (that Jetsamed ~4GB).
+    private func installSeatExpandTables() {
+        if !filters.isActive {
+            if let chrome = packChrome {
+                seedExpandTablesFromChrome(chrome)
+            }
+            if let section = visibleDestination.section {
+                Task { await prefetchExpand(section: section) }
+            }
+            return
+        }
+        let sections = PulseLaunch.expandTableSections(
+            visible: visibleDestination,
+            companyScope: false
+        )
+        let grain = effectiveDashboardGrain
+        let latest = filteredLatest.isEmpty ? latestBySection : filteredLatest
+        let tables = PulseSeatPack.expandTables(
+            latest: latest,
+            roster: roster,
+            grain: grain,
+            packs: cachedGrainPacks,
+            only: Set(sections),
+            rowCap: nil
+        )
+        for section in sections {
+            if let rows = tables[section], HeartbeatMath.grainRowsAreLive(rows) {
+                cachedGrainTables[section] = rows
+            }
+        }
+        refreshSalesExpandCache()
+        if let picker = cachedGrainTables[.pickerScorecard],
+           !PulseLaunch.pickerExpandHasStatusBuckets(picker) {
+            lockPickerDashboard()
+        }
+    }
+
+    private func clearCompanyExpandCaches() {
+        expandFillTask?.cancel()
+        expandFillTask = nil
+        cachedGrainTables = [:]
+        cachedSalesScopeRows = []
+        cachedSalesDayRows = []
+    }
+
+    /// keepLastGoodSeat skips wipe — still drop ownership so page SQL re-reads.
+    private func rearmAfterSeatPromote(clearExpand: Bool) {
+        if PulseLaunch.shouldClearFactOwnershipAfterSeatPromote()
+            || PulseLaunch.packSwapClearsFactOwnership() {
+            factsOwned = []
+            pickerStreamDone = false
+            didAdoptExcelFacts = false
+        }
+        if clearExpand {
+            clearCompanyExpandCaches()
+        }
+    }
+
+    @discardableResult
+    private func downloadSeatPack(
+        _ key: PulseSeatPack.Key,
+        to dest: URL,
+        timeout: TimeInterval = 180
+    ) async -> Bool {
+        do {
+            let staging = dest.deletingLastPathComponent()
+                .appendingPathComponent("incoming-\(UUID().uuidString).sqlite")
+            let size = try await PulseCloud.downloadObject(key.objectPath, to: staging, timeout: timeout)
+            guard size > 1_000 else {
+                try? fileManager.removeItem(at: staging)
+                return false
+            }
+            try PulseSeatPack.atomicReplace(from: staging, to: dest)
+            if key == .company, !PulseLaunch.isCompanySeatSizeAllowed(PulseSQLite.fileBytes(at: dest)) {
+                try? fileManager.removeItem(at: dest)
+                return false
+            }
+            return PulseSeatPack.isUsable(at: dest)
+        } catch {
+            return false
+        }
+    }
+
+    /// Kitchen only. Field iPad Release must fail instead of calling this.
+    @discardableResult
+    private func materializeSeatFromCompany(_ key: PulseSeatPack.Key, to dest: URL) -> Bool {
+        guard PulseSeatPack.shouldMaterializeMissingSeat() else { return false }
+        guard PulseSQLite.exists(at: companySQLiteURL) else { return false }
+        do {
+            _ = try PulseSeatPack.materialize(
+                from: companySQLiteURL,
+                key: key,
+                roster: roster,
+                uploads: uploads,
+                to: dest
+            )
+            return PulseSeatPack.isUsable(at: dest)
+        } catch {
+            return false
+        }
     }
 
     func loadSampleMarket() {
@@ -1567,9 +3110,11 @@ final class HeartbeatStore: ObservableObject {
     }
 
     func pullLatestWorkbookIfNeeded() {
-        if let last = lastCloudPullAt, Date().timeIntervalSince(last) < 300 { return }
-        lastCloudPullAt = Date()
+        guard isReady, !isImporting else { return }
         pullCloudPackIfNeeded()
+        // Viewer: sqlite pack freshness only. A dropped Daily Report.xlsx
+        // after open is the same ~270% cook loop as cloud ingest.
+        guard PulseLaunch.shouldIngestCloudWorkbookOnForeground() else { return }
         guard HubLayout.ingestsWorkbook else { return }
         Task { await pullWatchedWorkbook() }
         Task { await ingestWorkbookOnMacIfNeeded() }
@@ -1579,6 +3124,13 @@ final class HeartbeatStore: ObservableObject {
         Task { await refreshFromCloud() }
     }
 
+    /// User pull-to-refresh. Same freshness check as cold open / foreground —
+    /// remote `updated_at` newer downloads; usable local seat is not deleted.
+    func refreshSeatPackFromUserPull() async {
+        guard PulseLaunch.shouldRefreshSeatPackOnPull() else { return }
+        await refreshFromCloud()
+    }
+
     private func refreshFromCloud() async {
         guard !isImporting else { return }
         let snap = await PulseCloud.snapshot()
@@ -1586,21 +3138,8 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func syncCloudPackIfChanged(_ snap: [String: PulseCloud.ObjectStat]? = nil) async {
-        let info: PulseCloud.ObjectStat
-        if let hit = snap?[PulseCloud.object] {
-            info = hit
-        } else {
-            let remote = await PulseCloud.objectInfo(PulseCloud.object)
-            info = PulseCloud.ObjectStat(size: remote.size, updated: remote.updated)
-        }
-        let known = UserDefaults.standard.integer(forKey: "hb.cloudPackBytes")
-        let knownUpdated = UserDefaults.standard.string(forKey: "hb.cloudPackUpdated") ?? ""
-        let same = info.size > 50_000
-            && info.size == known
-            && (info.updated.isEmpty || info.updated == knownUpdated)
-        if info.size > 50_000, !same {
-            await importCloudSQLiteIfPresent()
-        }
+        _ = snap
+        await importCloudSQLiteIfPresent(reason: .refresh)
         await importCloudCardsIfPresent()
     }
 
@@ -1621,22 +3160,23 @@ final class HeartbeatStore: ObservableObject {
 
     private func pullWorkbookFromServer() async {
         guard HubLayout.ingestsWorkbook else { return }
+        guard PulseLaunch.shouldIngestCloudWorkbookOnMac(seatAlreadyPainted: seeded) else { return }
         isImporting = true
-        importProgress.label = "Downloading workbook"
-        importLabel = "Downloading workbook"
+        importProgress.label = PulseLaunch.comedyLoadStatus(at: 2)
+        importLabel = PulseLaunch.comedyLoadStatus(at: 2)
         var lastError: String?
         for name in PulseCloud.workbookNames {
             do {
-                importProgress.label = "Downloading \(name)"
+                importProgress.label = PulseLaunch.comedyLoadStatus(at: 2)
                 let book = try await PulseCloud.downloadNamed(name)
                 guard book.count > 1_000 else { continue }
-                importProgress.label = "Reading workbook"
+                importProgress.label = PulseLaunch.comedyLoadStatus(at: 5)
                 let ok = await runMasterImport(
                     data: book,
                     filename: name,
                     fallbackToPicker: false,
                     alreadyOpen: true,
-                    presentRoleGate: true
+                    presentRoleGate: false
                 )
                 if ok {
                     UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
@@ -1658,34 +3198,274 @@ final class HeartbeatStore: ObservableObject {
 
     private func ingestWorkbookOnMacIfNeeded() async {
         guard HubLayout.ingestsWorkbook else { return }
+        let painted = seeded && packChrome != nil && !latestBySection.isEmpty
+        guard PulseLaunch.shouldIngestCloudWorkbookOnMac(seatAlreadyPainted: painted) else { return }
         await importCloudWorkbook(blocking: true)
     }
 
-    private func importCloudSQLiteIfPresent() async {
-        let remote = await PulseCloud.objectSize(PulseCloud.object)
-        guard remote > 50_000 else { return }
-        let known = UserDefaults.standard.integer(forKey: "hb.cloudPackBytes")
-        let packReady = usingPackChrome || (Self.hasUsableSales(rows) && Self.hasUsableLostRevenue(rows))
-        let sameFile = known == remote && packReady
-        if sameFile { return }
+    private enum PackFetchReason {
+        case boot, refresh
+    }
+
+    @discardableResult
+    private func importCloudSQLiteIfPresent(reason: PackFetchReason) async -> Bool {
+        if packFetchInFlight {
+            while packFetchInFlight {
+                try? await Task.sleep(nanoseconds: 40_000_000)
+            }
+            let dest = PulseSeatPack.localURL(root: rootURL, key: .company)
+            return PulseSeatPack.isUsable(at: dest) && (warehouseRowCount > 0 || seeded)
+        }
+        packFetchInFlight = true
+        defer { packFetchInFlight = false }
+        lastCloudPullAt = Date()
+        let healedSeat = promoteOnDiskRootOverStaleSeatIfNeeded()
+        PulseCloud.invalidateObjectList()
+        let rootRemote = await PulseCloud.objectInfo(PulseCloud.object)
+        let seatRemote = await PulseCloud.objectInfo(PulseSeatPack.Key.company.objectPath)
+        let chosen = chooseCloudPackObject(root: rootRemote, seat: seatRemote)
+        let companySeatURL = PulseSeatPack.localURL(root: rootURL, key: .company)
+        let localSeatBytes = PulseSQLite.fileBytes(at: companySeatURL)
+        let alreadyLoaded = warehouseRowCount
+        let knownUpdated = UserDefaults.standard.string(forKey: "hb.cloudPackUpdated") ?? ""
+        let localWrittenAt = PulseSQLite.writtenAtString(at: companySeatURL)
+        let shouldDownload = PulseLaunch.shouldFetchRemotePack(
+            remoteBytes: chosen.size,
+            localBytes: localSeatBytes,
+            localRowsLoaded: alreadyLoaded,
+            remoteUpdated: chosen.updated,
+            knownUpdated: knownUpdated,
+            localWrittenAt: localWrittenAt
+        )
+        var downloadedUpdated = ""
+        var downloadedSize = 0
+        if shouldDownload {
+            let staging = companySQLiteURL.deletingLastPathComponent()
+                .appendingPathComponent(PulseLaunch.stagingFileName)
+            let timeout = reason == .boot ? PulseLaunch.bootDownloadTimeout : 180
+            do {
+                let size: Int
+                if chosen.path != PulseCloud.object {
+                    size = try await PulseCloud.downloadObject(chosen.path, to: staging, timeout: timeout)
+                } else {
+                    size = try await PulseCloud.downloadPack(to: staging, timeout: timeout)
+                }
+                guard PulseSQLite.isUsableFile(at: staging) else {
+                    try? fileManager.removeItem(at: staging)
+                    if healedSeat {
+                        return await reloadCompanySeatAfterCloudPromote(
+                            reason: reason,
+                            alreadyLoaded: alreadyLoaded,
+                            stampUpdated: "",
+                            stampBytes: 0
+                        )
+                    }
+                    return false
+                }
+                guard PulseLaunch.isCompanySeatSizeAllowed(size) else {
+                    try? fileManager.removeItem(at: staging)
+                    if healedSeat {
+                        return await reloadCompanySeatAfterCloudPromote(
+                            reason: reason,
+                            alreadyLoaded: alreadyLoaded,
+                            stampUpdated: "",
+                            stampBytes: 0
+                        )
+                    }
+                    return false
+                }
+                try promoteCompanyStagingPack(staging)
+                downloadedUpdated = chosen.updated
+                downloadedSize = size
+            } catch {
+                try? fileManager.removeItem(at: staging)
+                if healedSeat {
+                    return await reloadCompanySeatAfterCloudPromote(
+                        reason: reason,
+                        alreadyLoaded: alreadyLoaded,
+                        stampUpdated: "",
+                        stampBytes: 0
+                    )
+                }
+                return false
+            }
+        } else if !healedSeat {
+            return false
+        }
+
+        return await reloadCompanySeatAfterCloudPromote(
+            reason: reason,
+            alreadyLoaded: alreadyLoaded,
+            stampUpdated: downloadedUpdated,
+            stampBytes: downloadedSize
+        )
+    }
+
+    private struct CloudPackChoice {
+        var path: String
+        var size: Int
+        var updated: String
+    }
+
+    private func chooseCloudPackObject(
+        root: (size: Int, updated: String),
+        seat: (size: Int, updated: String)
+    ) -> CloudPackChoice {
+        if PulseLaunch.isCompanySeatSizeAllowed(seat.size) {
+            return CloudPackChoice(
+                path: PulseSeatPack.Key.company.objectPath,
+                size: seat.size,
+                updated: seat.updated
+            )
+        }
+        if PulseLaunch.isCompanySeatSizeAllowed(root.size) {
+            return CloudPackChoice(path: PulseCloud.object, size: root.size, updated: root.updated)
+        }
+        return CloudPackChoice(path: PulseCloud.object, size: 0, updated: "")
+    }
+
+    private func promoteOnDiskRootOverStaleSeatIfNeeded() -> Bool {
+        let rootBytes = PulseSQLite.fileBytes(at: companySQLiteURL)
+        guard PulseLaunch.shouldCopyRootOntoCompanySeat(rootBytes: rootBytes) else { return false }
+        let seatURL = PulseSeatPack.localURL(root: rootURL, key: .company)
+        let rootWritten = PulseSQLite.writtenAtString(at: companySQLiteURL)
+        let seatWritten = PulseSQLite.writtenAtString(at: seatURL)
+        guard PulseLaunch.shouldReplaceSeatFromNewerOnDiskRoot(
+            rootWrittenAt: rootWritten,
+            seatWrittenAt: seatWritten
+        ) else { return false }
+        guard PulseSQLite.isUsableFile(at: companySQLiteURL) else { return false }
         do {
-            let dest = sqliteURL
-            let size = try await PulseCloud.downloadPack(to: dest)
-            await loadPack()
-            guard seeded, !rows.isEmpty else { return }
-            UserDefaults.standard.set(size, forKey: "hb.cloudPackBytes")
-            UserDefaults.standard.set(BuildStamp.id, forKey: "hb.packBuild")
-            let stamp = await PulseCloud.objectInfo(PulseCloud.object)
-            if !stamp.updated.isEmpty {
-                UserDefaults.standard.set(stamp.updated, forKey: "hb.cloudPackUpdated")
-            }
-            if HubLayout.constrained {
-                applyLocalCards()
-                return
-            }
-            await loadPublishedFacts()
+            try replaceCompanySeatFromRoot()
+            return true
         } catch {
-            return
+            return false
+        }
+    }
+
+    private func replaceCompanySeatFromRoot() throws {
+        let rootBytes = PulseSQLite.fileBytes(at: companySQLiteURL)
+        guard PulseLaunch.shouldCopyRootOntoCompanySeat(rootBytes: rootBytes) else { return }
+        _ = try PulseSeatPack.promoteIncomingOverCompanySeat(incoming: companySQLiteURL, appRoot: rootURL)
+    }
+
+    private func invalidateCompanySeatCache() {
+        guard PulseLaunch.shouldInvalidateCachedCompanySeatAfterCloudPromote() else { return }
+        companySeatChrome = nil
+        seatChromeByKey[.company] = nil
+        seatRowPlanes[.company] = nil
+        if activeSeatKey == .company || activeSeatKey == nil {
+            packChrome = nil
+            usingPackChrome = false
+        }
+    }
+
+    @discardableResult
+    private func reloadCompanySeatAfterCloudPromote(
+        reason: PackFetchReason,
+        alreadyLoaded: Int,
+        stampUpdated: String,
+        stampBytes: Int
+    ) async -> Bool {
+        let dest = PulseSeatPack.localURL(root: rootURL, key: .company)
+        let timeout = reason == .boot ? PulseLaunch.bootDownloadTimeout : 180
+        let activeKey = activeSeatKey
+        var seatPromoted = false
+        if PulseLaunch.shouldForceRedownloadCompanySeatWhenRemoteNewer() {
+            let downloaded = await downloadSeatPack(.company, to: dest, timeout: timeout)
+            if downloaded {
+                seatPromoted = PulseLaunch.isCompanySeatSizeAllowed(PulseSQLite.fileBytes(at: dest))
+            } else if PulseLaunch.shouldCopyRootOntoCompanySeat(
+                rootBytes: PulseSQLite.fileBytes(at: companySQLiteURL)
+            ) {
+                try? replaceCompanySeatFromRoot()
+                let seatWritten = PulseSQLite.writtenAtString(at: dest)
+                let rootWritten = PulseSQLite.writtenAtString(at: companySQLiteURL)
+                seatPromoted = !seatWritten.isEmpty && seatWritten == rootWritten
+                    && PulseLaunch.isCompanySeatSizeAllowed(PulseSQLite.fileBytes(at: dest))
+            }
+            if let activeKey, activeKey != .company {
+                let activeDest = PulseSeatPack.localURL(root: rootURL, key: activeKey)
+                let activeDownloaded = await downloadSeatPack(activeKey, to: activeDest, timeout: timeout)
+                if !activeDownloaded, PulseSeatPack.shouldMaterializeMissingSeat() {
+                    _ = materializeSeatFromCompany(activeKey, to: activeDest)
+                }
+            }
+        } else if PulseLaunch.shouldCopyRootOntoCompanySeat(
+            rootBytes: PulseSQLite.fileBytes(at: companySQLiteURL)
+        ) {
+            try? replaceCompanySeatFromRoot()
+            let seatWritten = PulseSQLite.writtenAtString(at: dest)
+            let rootWritten = PulseSQLite.writtenAtString(at: companySQLiteURL)
+            seatPromoted = !seatWritten.isEmpty && seatWritten == rootWritten
+                && PulseLaunch.isCompanySeatSizeAllowed(PulseSQLite.fileBytes(at: dest))
+        }
+        invalidateCompanySeatCache()
+        if alreadyLoaded > 0 {
+            rows = []
+            latestBySection = [:]
+        }
+        guard PulseLaunch.reloadInSessionAfterFetch(
+            constrained: HubLayout.constrained,
+            localRowsLoaded: alreadyLoaded
+        ) else {
+            applyLocalCards()
+            return seatPromoted
+        }
+        var painted = false
+        if PulseLaunch.shouldSwapToCompanySeatAfterCloudPromote() {
+            painted = await swapToSeatPack(.company, forceReload: true)
+        } else {
+            activeSeatKey = .company
+            activePackURL = dest
+            painted = await installPublishedSeatPack(.company, dest: dest, keepChrome: false)
+            if painted {
+                await paintFromWarehouse(light: true)
+            }
+        }
+        if painted {
+            rearmAfterSeatPromote(clearExpand: PulseLaunch.shouldClearExpandCachesAtCompany(
+                filtersActive: filters.isActive,
+                pad: isPadDevice
+            ))
+            if let chrome = packChrome {
+                seedExpandTablesFromChrome(chrome)
+            }
+            if PulseLaunch.shouldInstallSeatExpandTablesAfterCloudPromote() {
+                installSeatExpandTables()
+            } else {
+                fillExpandTablesSoon()
+            }
+            publishSeatPaint()
+            if reason != .boot,
+               PulseLaunch.shouldScheduleLiveGrainPaint(filtersActive: filters.isActive) {
+                scheduleGrainPaint(generation: paintGeneration)
+            }
+        }
+        let ok = painted && (warehouseRowCount > 0 || seeded || seatPromoted)
+        guard PulseLaunch.shouldStampCloudPackUpdated(
+            downloadSucceeded: !stampUpdated.isEmpty || stampBytes > 0,
+            seatPromoted: ok
+        ) else {
+            return ok
+        }
+        if stampBytes > 0 {
+            UserDefaults.standard.set(stampBytes, forKey: "hb.cloudPackBytes")
+        }
+        if !stampUpdated.isEmpty {
+            UserDefaults.standard.set(stampUpdated, forKey: "hb.cloudPackUpdated")
+        }
+        return ok
+    }
+
+    private func promoteCompanyStagingPack(_ staging: URL) throws {
+        if fileManager.fileExists(atPath: companySQLiteURL.path) {
+            _ = try fileManager.replaceItemAt(companySQLiteURL, withItemAt: staging)
+        } else {
+            try fileManager.moveItem(at: staging, to: companySQLiteURL)
+        }
+        if activeSeatKey == nil {
+            activePackURL = companySQLiteURL
         }
     }
 
@@ -1695,6 +3475,8 @@ final class HeartbeatStore: ObservableObject {
 
     private func importCloudWorkbook(blocking: Bool) async {
         guard HubLayout.ingestsWorkbook else { return }
+        let painted = seeded && packChrome != nil && !latestBySection.isEmpty
+        guard PulseLaunch.shouldIngestCloudWorkbookOnMac(seatAlreadyPainted: painted) else { return }
         var remoteXlsx = 0
         var remoteName = "Heartbeat Daily Report.xlsx"
         for name in PulseCloud.workbookNames {
@@ -1705,23 +3487,23 @@ final class HeartbeatStore: ObservableObject {
                 break
             }
         }
-        let hasPack = seeded && !rows.isEmpty
+        let hasPack = seeded && warehouseRowCount > 0
         guard remoteXlsx > 1_000 else { return }
         isImporting = true
         isReady = false
-        importLabel = "Building today's pack"
-        importProgress.label = "Building today's pack"
+        importLabel = PulseLaunch.comedyLoadStatus(at: 4)
+        importProgress.label = PulseLaunch.comedyLoadStatus(at: 4)
         importProgress.loaded = 0
         importProgress.expected = MetricSection.uploadOrder.count
         do {
             let book = try await PulseCloud.downloadNamed(remoteName)
-            importProgress.label = "Reading workbook"
+            importProgress.label = PulseLaunch.comedyLoadStatus(at: 5)
             let ok = await runMasterImport(
                 data: book,
                 filename: remoteName,
                 fallbackToPicker: false,
                 alreadyOpen: hasPack,
-                presentRoleGate: !hasPack
+                presentRoleGate: false
             )
             if ok {
                 UserDefaults.standard.set(book.count, forKey: "hb.cloudXlsxBytes")
@@ -1770,14 +3552,18 @@ final class HeartbeatStore: ObservableObject {
     private func publishCloudPack() {
         publishFacts()
         guard Self.hasFullScorecards(rows) else { return }
-        let url = sqliteURL
+        let companyURL = companySQLiteURL
         let cardsPath = cardsURL
         let cards = PulseCards.from(board: cachedPickerBoard)
+        let packRows = rows
+        let packUploads = uploads
+        let packRoot = rootURL.appendingPathComponent("packs", isDirectory: true)
+        let appRoot = rootURL
         Task.detached(priority: .utility) {
-            var data = try? Data(contentsOf: url)
+            var data = try? Data(contentsOf: companyURL)
             if data == nil || (data?.count ?? 0) < 1_000 {
                 try? await Task.sleep(nanoseconds: 800_000_000)
-                data = try? Data(contentsOf: url)
+                data = try? Data(contentsOf: companyURL)
             }
             guard let data, data.count > 1_000 else { return }
             try? PulseCards.write(cards, to: cardsPath)
@@ -1791,10 +3577,29 @@ final class HeartbeatStore: ObservableObject {
             await MainActor.run {
                 UserDefaults.standard.set(data.count, forKey: "hb.cloudPackBytes")
             }
+            guard PulseSeatPack.shouldPublishSeatPlaneFromCook(),
+                  PulseLaunch.shouldCookPublishedSeatPlaneInApp() else { return }
+            do {
+                let manifest = try PulseSeatPack.cookPublished(
+                    rows: packRows,
+                    uploads: packUploads,
+                    packRoot: packRoot,
+                    includeStores: PulseSeatPack.shouldCookEveryStoreSeat()
+                )
+                try await PulseCloud.publishSeatPacks(root: appRoot, manifest: manifest)
+                await MainActor.run {
+                    UserDefaults.standard.set(manifest.allEntries.count, forKey: "hb.cloudSeatPackCount")
+                }
+            } catch {
+                await MainActor.run {
+                    self.errorMessage = "Seat packs did not publish. \(error.localizedDescription)"
+                }
+            }
         }
     }
 
     private func pullWatchedWorkbook() async {
+        guard PulseLaunch.shouldIngestCloudWorkbookOnForeground() else { return }
         guard !isImporting else { return }
         if let bookmark = masterBookmark {
             if await fileLooksNewer(bookmark: bookmark) {
@@ -1883,7 +3688,7 @@ final class HeartbeatStore: ObservableObject {
                 filename: file.name,
                 fallbackToPicker: false,
                 alreadyOpen: true,
-                presentRoleGate: !silent
+                presentRoleGate: false
             )
             if ok {
                 rememberMasterFile(url: url, filename: file.name)
@@ -2038,10 +3843,10 @@ final class HeartbeatStore: ObservableObject {
         }.value
         guard token == masterApplyToken else { return }
         hydrating = true
-        if presentRoleGate, sessionRole == nil {
+        if presentRoleGate, sessionRole == nil, PulseLaunch.shouldMountRoleGate(needsRolePick: true) {
             filters = DashboardFilters()
             sessionRole = nil
-            needsRolePick = true
+            setNeedsRolePick(true)
         }
         rebuildLaborWeekIndex()
         install(caches)
@@ -2104,7 +3909,7 @@ final class HeartbeatStore: ObservableObject {
         }
     }
 
-    private func runMasterImport(data: Data, filename: String, fallbackToPicker: Bool, alreadyOpen: Bool = false, presentRoleGate: Bool = true) async -> Bool {
+    private func runMasterImport(data: Data, filename: String, fallbackToPicker: Bool, alreadyOpen: Bool = false, presentRoleGate: Bool = false) async -> Bool {
         do {
             let sheets = try await parseMasterOffMain(data: data, filename: filename)
             masterApplyToken += 1
@@ -2175,11 +3980,21 @@ final class HeartbeatStore: ObservableObject {
                 latest[section] = HeartbeatMath.applyRoster(sectionRows, roster: roster)
             } else if section == .storeRoster {
                 latest[section] = HeartbeatMath.latestPerStore(sectionRows)
-            } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady || section == .pph || section == .lostRevenue || section == .missingItems || section == .preSubOOS || section == .sales {
+            } else if section == .pph {
+                latest[section] = HeartbeatMath.materializePPH(
+                    sectionRows,
+                    roster: roster,
+                    pickers: latest[.pickerScorecard] ?? rows.filter { $0.section == .pickerScorecard }
+                )
+            } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady || section == .lostRevenue || section == .missingItems || section == .preSubOOS || section == .sales {
                 let source = section == .lostRevenue
                     ? sectionRows.filter { $0.textPayload["lost_grain"] != "market" }
                     : sectionRows
-                latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(source), roster: roster)
+                var collapsed = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(source), roster: roster)
+                if section == .lostRevenue, let market = sectionRows.first(where: { $0.textPayload["lost_grain"] == "market" }) {
+                    collapsed.append(market)
+                }
+                latest[section] = collapsed
             } else if section == .labor {
                 let stores = sectionRows.filter {
                     $0.textPayload["labor_grain"] == "store" && !$0.storeNumber.isEmpty
@@ -2200,6 +4015,7 @@ final class HeartbeatStore: ObservableObject {
         if let path = latest[.pickPath] {
             latest[.pickPath] = HeartbeatMath.applyAisleMapper(path, from: latest[.aisleMapper] ?? [])
         }
+        latest = HeartbeatMath.overlayDynacapPPH(latest)
         latestBySection = latest
         rebuildLostIndex()
         cachedDivisions = MarketRegion.uniqueNames(roster.values.map(\.division)).sorted()
@@ -2300,55 +4116,615 @@ final class HeartbeatStore: ObservableObject {
 
     private func applyFilters() {
         refilterTask?.cancel()
-        refilterTask = Task { await self.paintFromWarehouse(light: false) }
+        seatInstallTask?.cancel()
+        grainPaintTask?.cancel()
+        pageOnlyTask?.cancel()
+        expandFillTask?.cancel()
+        if !PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse() {
+            let key = PulseSeatPack.Key.forSeat(filters: filters, role: sessionRole)
+            grainPaintSettled = false
+            paintGeneration += 1
+            pageOnlyGeneration = -1
+            if PulseLaunch.shouldPaintCachedSeatOnFilterTap(),
+               let chrome = cachedChrome(for: key) {
+                applySeatChrome(chrome, key: key)
+                publishSeatPaintAfterBoxMaps(for: key)
+            }
+            refilterTask = Task { @MainActor in
+                await self.swapToSeatPack(key)
+                guard !Task.isCancelled else { return }
+                self.refreshFilterOptions()
+            }
+            return
+        }
+        let clearing = !filters.isActive
+        if clearing {
+            wipeSeatDashboardState()
+            grainPaintSettled = restoreUnfilteredChrome()
+            paintGeneration += 1
+            pageOnlyGeneration = -1
+            if PulseLaunch.shouldAcknowledgeFilterClearImmediately(previousActive: true, nextActive: false) {
+                filterStamp += 1
+            }
+            if PulseLaunch.shouldSkipWarehousePaintOnClear(restoredCompanyWide: grainPaintSettled)
+                || !PulseLaunch.shouldPaintWarehouseOnClear() {
+                return
+            }
+            return
+        }
+        if PulseLaunch.shouldWipePickerIndexOnSeatApply() {
+            wipePickerIndex()
+        }
+        if PulseLaunch.shouldKeepLiveCalloutsUntilFilterPaint() {
+            invalidateShareGrainTables()
+            cachedGrainPacks = PulseCaches.placeholderGrainPacks(grain: effectiveDashboardGrain)
+        } else {
+            invalidateFilteredGrainChrome()
+        }
+        applySeatSliceNow()
+        grainPaintSettled = false
+        paintGeneration += 1
+        pageOnlyGeneration = -1
+        filterStamp += 1
+        let generation = paintGeneration
+        let delay = PulseLaunch.filterPaintDelayNanoseconds(clearingAll: false)
+        refilterTask = Task(priority: .userInitiated) {
+            await Task.yield()
+            if delay > 0 {
+                try? await Task.sleep(nanoseconds: delay)
+                guard self.acceptPaint(generation) else { return }
+            }
+            await self.paintFromWarehouse(light: true, generation: generation, filterPaint: true)
+            guard self.acceptPaint(generation) else { return }
+            if self.filters.isActive {
+                await self.loadFilteredPickerExpandIfNeeded()
+            }
+            self.refreshFilterOptions()
+            if PulseLaunch.shouldRefreshPickersAfterFilter(dest: self.visibleDestination) {
+                if PulseLaunch.shouldRefreshPageOnly(pageVisible: self.visibleDestination == .pickerScorecard) {
+                    self.schedulePageOnlyRefresh(generation: generation)
+                } else if let pickers = self.latestBySection[.pickerScorecard], pickers.count >= 2 {
+                    self.refreshPickerDashboard(
+                        PulseQuery.sliceSection(
+                            .pickerScorecard,
+                            rows: pickers,
+                            allowed: PulseCaches.allowedStores(roster: self.roster, filters: self.filters)
+                        ),
+                        stamp: true
+                    )
+                }
+            }
+            if PulseLaunch.shouldPaintGrains(
+                dashboardVisible: self.visibleDestination == .dashboard,
+                ready: self.isReady,
+                rolePicked: !self.needsRolePick
+            ) {
+                self.scheduleGrainPaint(generation: generation)
+            }
+            self.warmUnfilteredPulse()
+        }
+    }
+
+    /// Rebuild every section card + expand from the seat slice. Never chrome labels.
+    private func applySeatSliceNow() {
+        guard filters.isActive else { return }
+        if PulseLaunch.shouldRefreshFilterOptionsOnSeatSlice() {
+            refreshFilterOptions()
+        }
+        let allowed = PulseCaches.allowedStores(roster: roster, filters: filters)
+        let grain = effectiveDashboardGrain
+        var latest: [MetricSection: [MetricRow]] = [:]
+        latest.reserveCapacity(MetricSection.dashboardCards.count)
+        for section in MetricSection.dashboardCards {
+            latest[section] = PulseQuery.sliceSection(
+                section,
+                rows: latestBySection[section] ?? [],
+                allowed: allowed,
+                filters: filters,
+                roster: roster
+            )
+        }
+        filteredLatest = latest
+        cachedSummaries = MetricSection.dashboardCards.map { section in
+            let card = HeartbeatMath.summarize(
+                section,
+                rows: latest[section] ?? [],
+                upload: upload(for: section)
+            )
+            if let allowed, !allowed.isEmpty {
+                return PulseLaunch.pinSeatStoreCount(card, seatStores: allowed.count)
+            }
+            return card
+        }
+        if PulseLaunch.shouldBuildCardFlagsOnSeatSlice() {
+            cachedCardFlags = PulseCaches.cardFlags(latest: latest)
+        }
+        if PulseLaunch.shouldBuildGrainTablesOnSeatSlice() {
+            let seatStores: [(number: String, name: String?)] = {
+                if let allowed {
+                    return allowed.sorted(by: HeartbeatFormat.storeOrder).map {
+                        ($0, roster[HeartbeatMath.canonicalStore($0)]?.name)
+                    }
+                }
+                return cachedStores
+            }()
+            let packs = PulseCaches.grainPacks(
+                latest: latest,
+                grain: grain,
+                hidePicker: false,
+                stores: seatStores,
+                roster: roster
+            )
+            cachedGrainPacks = packs
+            cachedGrainTables = PulseLaunch.mergeLiveGrainTables(
+                incoming: PulseCaches.grainTables(
+                    latest: latest,
+                    grain: grain,
+                    roster: roster,
+                    packs: packs,
+                    goalFallback: lostRevenueGoalFallbackValue()
+                ),
+                live: cachedGrainTables,
+                grain: grain,
+                filtersActive: true
+            )
+            refreshSalesExpandCache()
+        }
+        if PulseLaunch.shouldLockPickerDashboardOnSeatSlice() {
+            lockPickerDashboard()
+        }
+    }
+
+    /// Drop company-wide region tables so Share / expand cannot emit East/South/CA/West under a district filter.
+    private func invalidateFilteredGrainChrome() {
+        invalidateShareGrainTables()
+        cachedGrainPacks = [:]
+        cachedCardFlags = [:]
+    }
+
+    /// Share-unsafe tables only. Live store tables stay so a light filter paint
+    /// cannot leave the chevron inert. Chrome region labels are dropped.
+    private func invalidateShareGrainTables() {
+        if filters.isActive {
+            cachedGrainTables = PulseLaunch.mergeLiveGrainTables(
+                incoming: [:],
+                live: cachedGrainTables,
+                grain: effectiveDashboardGrain,
+                filtersActive: true
+            )
+        } else {
+            cachedGrainTables = [:]
+        }
+        cachedSalesScopeRows = []
+        cachedSalesDayRows = []
+    }
+
+    @discardableResult
+    private func restoreUnfilteredChrome() -> Bool {
+        if PulseLaunch.shouldRestoreUnfilteredPulseOnClear(hasCompanyWideCache: unfilteredPulseIsReady(unfilteredPulse)),
+           let pulse = unfilteredPulse {
+            install(pulse)
+            let grainLabels = pulse.grainTables[.sales]?.map(\.label)
+                ?? pulse.grainTables[.scheduleQuality]?.map(\.label)
+                ?? pulse.grainTables.values.first(where: { !$0.isEmpty })?.map(\.label)
+                ?? []
+            if pulse.grainTables.values.allSatisfy(\.isEmpty)
+                || !PulseLaunch.grainTableMatchesCurrent(
+                    labels: grainLabels,
+                    grain: PulseLaunch.unfilteredDashboardGrain()
+                ) {
+                applyUnfilteredGrainFromWarehouse()
+            }
+            return true
+        }
+        applyUnfilteredFromWarehouse()
+        return true
+    }
+
+    private func unfilteredPulseIsReady(_ pulse: FilterPulse?) -> Bool {
+        guard isCompanyWide(pulse) else { return false }
+        guard let pulse else { return false }
+        return pulse.grainTables.values.contains { HeartbeatMath.grainRowsAreLive($0) }
+            || pulse.summaries.contains { $0.storeCount >= 8 }
+    }
+
+    private func applyUnfilteredFromWarehouse() {
+        guard !latestBySection.isEmpty else { return }
+        filteredLatest = latestBySection
+        refreshFilterOptions()
+        cachedSummaries = MetricSection.dashboardCards.map { section in
+            HeartbeatMath.summarize(
+                section,
+                rows: latestBySection[section] ?? [],
+                upload: uploads.first { $0.section == section }
+            )
+        }
+        if let pulse = unfilteredPulse, !pulse.cardFlags.isEmpty {
+            cachedCardFlags = pulse.cardFlags
+        }
+        applyUnfilteredGrainFromWarehouse()
+    }
+
+    private func applyUnfilteredGrainFromWarehouse() {
+        if !PulseLaunch.shouldPaintWarehouseOnClear() {
+            if let pulse = unfilteredPulse {
+                cachedGrainPacks = PulseLaunch.mergeDashboardPacks(
+                    incoming: pulse.grainPacks,
+                    live: [:],
+                    filtersActive: false
+                )
+                cachedGrainTables = PulseLaunch.mergeLiveGrainTables(
+                    incoming: pulse.grainTables,
+                    live: [:],
+                    grain: PulseLaunch.unfilteredDashboardGrain(),
+                    filtersActive: false
+                )
+            }
+            if !filters.isActive, let chrome = packChrome {
+                seedExpandTablesFromChrome(chrome)
+                seedPickerGrainFromChrome(chrome)
+            }
+            lockPickerDashboard()
+            refreshSalesExpandCache()
+            return
+        }
+        let grain = PulseLaunch.unfilteredDashboardGrain()
+        let latest = filteredLatest.isEmpty ? latestBySection : filteredLatest
+        let packs = PulseCaches.grainPacks(
+            latest: latest,
+            grain: grain,
+            hidePicker: true,
+            stores: cachedStores,
+            roster: roster
+        )
+        let tables = PulseLaunch.grainTablesSkippingCompanyPrefill(
+            latest: latest,
+            grain: grain,
+            roster: roster,
+            packs: packs,
+            goalFallback: lostRevenueGoalFallbackValue(),
+            filtersActive: false
+        )
+        cachedGrainPacks = PulseLaunch.mergeDashboardPacks(
+            incoming: packs,
+            live: cachedGrainPacks,
+            filtersActive: false
+        )
+        cachedGrainTables = PulseLaunch.mergeLiveGrainTables(
+            incoming: tables,
+            live: cachedGrainTables,
+            grain: grain,
+            filtersActive: false
+        )
+        lockPickerDashboard()
+        refreshSalesExpandCache()
+    }
+
+    private func acceptPaint(_ generation: Int) -> Bool {
+        PulseLaunch.acceptPaint(
+            generation: generation,
+            current: paintGeneration,
+            cancelled: Task.isCancelled
+        )
+    }
+
+    /// Cache writes during grain / pageOnly / picker fill. Never remount the hub
+    /// while the user is scrolling or switching pages.
+    private func acknowledgeBackgroundFill(stampIfAllowed: Bool) {
+        if stampIfAllowed {
+            filterStamp += 1
+            return
+        }
+        if PulseLaunch.shouldInvalidateHubOnBackgroundFill() {
+            objectWillChange.send()
+        }
+    }
+
+    /// Slice picker / item grains only after cards, and only if already in memory.
+    private func schedulePageOnlyRefresh(generation: Int) {
+        pageOnlyTask?.cancel()
+        let warehouse = latestBySection
+        let hasPageOnly = PulseQuery.pageOnlySections.contains { section in
+            (warehouse[section] ?? []).count >= 2
+        }
+        guard hasPageOnly else { return }
+        let rosterCopy = roster
+        let current = filters
+        pageOnlyTask = Task(priority: .utility) {
+            guard self.acceptPaint(generation) else { return }
+            let allowed = PulseCaches.allowedStores(roster: rosterCopy, filters: current)
+            let slices = await Task.detached(priority: .utility) { () -> [MetricSection: [MetricRow]] in
+                var out: [MetricSection: [MetricRow]] = [:]
+                for section in PulseQuery.pageOnlySections {
+                    guard let rows = warehouse[section], rows.count >= 2 else { continue }
+                    out[section] = PulseQuery.sliceSection(section, rows: rows, allowed: allowed)
+                }
+                return out
+            }.value
+            guard self.acceptPaint(generation) else { return }
+            guard self.filters == current else { return }
+            self.mergePageOnlySlices(slices, generation: generation)
+        }
+    }
+
+    private func mergePageOnlySlices(_ slices: [MetricSection: [MetricRow]], generation: Int) {
+        guard !slices.isEmpty else { return }
+        for (section, rows) in slices {
+            filteredLatest[section] = rows
+            refreshSummary(for: section, rows: rows)
+            if section == .pickerScorecard, !rows.isEmpty {
+                cachedPickerBoard = HeartbeatMath.pickerBoard(rows)
+                schedulePickerIndex(rows)
+            }
+        }
+        pageOnlyGeneration = generation
+        acknowledgeBackgroundFill(stampIfAllowed: PulseLaunch.shouldStampGrainOrPageOnlyFill())
+    }
+
+    /// Full grain expand after cards, at utility, and only once the hub is in use.
+    private func scheduleGrainPaint(generation: Int? = nil) {
+        guard PulseLaunch.shouldScheduleLiveGrainPaint(filtersActive: filters.isActive) else { return }
+        grainPaintTask?.cancel()
+        let token = generation ?? paintGeneration
+        grainPaintTask = Task(priority: .background) {
+            try? await Task.sleep(nanoseconds: PulseLaunch.grainPaintDelayNanoseconds)
+            guard self.acceptPaint(token) else { return }
+            guard PulseLaunch.shouldPaintGrains(
+                dashboardVisible: self.visibleDestination == .dashboard,
+                ready: self.isReady,
+                rolePicked: !self.needsRolePick
+            ) else { return }
+            await self.paintFromWarehouse(light: false, generation: token)
+        }
     }
 
     private func restoreCompanyWide() {
-        Task { await paintFromWarehouse(light: false) }
+        applyFilters()
     }
 
     private func applyVisibleFilter() {
-        Task { await paintFromWarehouse(light: false) }
+        applyFilters()
     }
 
     @MainActor
-    private func paintFromWarehouse(light: Bool) async {
-        await adoptExcelFactsIntoWarehouse()
+    private func paintFromWarehouse(
+        light: Bool,
+        generation: Int? = nil,
+        adoptFacts: Bool = false,
+        urgent: Bool = false,
+        filterPaint: Bool = false
+    ) async {
+        if adoptFacts, PulseLaunch.shouldAdoptFactsDuringInteractivePaint() || !isReady {
+            await adoptExcelFactsIntoWarehouse()
+        }
         let warehouse = latestBySection
         let rosterCopy = roster
         let current = filters
         let grain = effectiveDashboardGrain
         let uploadsCopy = uploads
-        let hidePicker = true
-        let view = await Task.detached(priority: .userInitiated) {
-            PulseQuery.paint(
-                warehouse: warehouse,
+        let scoredStores = PulseQuery.scoredStoreFacts(warehouse[.lostRevenue] ?? []).count
+            + PulseQuery.scoredStoreFacts(warehouse[.sales] ?? []).count
+        let needFacts = !current.isActive && !filterPaint
+        let passRaw = PulseLaunch.shouldPassRawRowsToPaint(
+            needFacts: needFacts,
+            warehouseHasScoredStores: scoredStores >= 8
+        )
+        let rawRows = passRaw ? rows : []
+        let pickers = warehouse[.pickerScorecard] ?? []
+        let skipPrepare = filterPaint && !PulseLaunch.shouldPrepareWarehouseOnFilterPaint()
+        let scopedLost: [MetricRow]? = {
+            guard !skipPrepare, current.isActive,
+                  let allowed = PulseCaches.allowedStores(roster: rosterCopy, filters: current) else {
+                return nil
+            }
+            let lost = scopedLostRevenue(allowed)
+            return lost.isEmpty ? nil : lost
+        }()
+        let dest = visibleDestination
+        let includeFlags = filterPaint && PulseLaunch.shouldIncludeFlagsOnFilterPaint()
+        let paintPriority = PulseLaunch.warehousePaintPriority(
+            light: light,
+            hubReady: isReady && !needsRolePick,
+            firstSectionWave: urgent,
+            filterPaint: filterPaint
+        )
+        let view = await Task.detached(priority: paintPriority) {
+            let prepared: [MetricSection: [MetricRow]]
+            if skipPrepare {
+                prepared = warehouse
+            } else {
+                let facts = needFacts ? PulseFacts.bundledMetricRows() : []
+                prepared = PulseQuery.prepareWarehouse(
+                    warehouse: warehouse,
+                    roster: rosterCopy,
+                    filters: current,
+                    rawRows: rawRows,
+                    pickers: pickers,
+                    bundledFacts: facts,
+                    scopedLost: scopedLost
+                )
+            }
+            return PulseQuery.paint(
+                warehouse: prepared,
                 roster: rosterCopy,
                 filters: current,
                 grain: grain,
                 uploads: uploadsCopy,
-                hidePicker: hidePicker,
-                light: light
+                hidePicker: true,
+                light: light,
+                includePageOnly: current.isActive,
+                includeFlags: includeFlags
             )
         }.value
+        if let generation {
+            guard acceptPaint(generation) else { return }
+        }
         guard filters == current else { return }
-        filteredLatest = view.filtered
-        cachedSummaries = view.summaries
+        let liveSummaries = cachedSummaries
+        let liveFiltered = filteredLatest
+        var next = view.filtered
+        next = PulseQuery.keepPageOnlyRows(painted: next, live: liveFiltered, filtersActive: current.isActive)
+        next = current.isActive
+            ? next
+            : PulseQuery.mergeFilteredRows(painted: next, live: liveFiltered)
+        filteredLatest = next
+        cachedSummaries = PulseLaunch.mergeDashboardSummaries(
+            painted: PulseQuery.overlayPageOnlySummaries(
+                painted: view.summaries,
+                live: liveSummaries,
+                filtersActive: current.isActive
+            ),
+            live: liveSummaries,
+            filtersActive: current.isActive
+        )
+        pinUnfilteredLostRevenueHeadline()
         if !view.flags.isEmpty {
-            cachedCardFlags = view.flags
+            var flags = view.flags
+            for (section, nextFlags) in flags {
+                let live = nextFlags.contains {
+                    $0.stores > 0 || (!$0.value.isEmpty && $0.value != "—" && $0.value != "$0" && $0.value != "$0.00")
+                }
+                if !live, let keep = cachedCardFlags[section], !keep.isEmpty {
+                    flags[section] = keep
+                }
+            }
+            cachedCardFlags = flags
         }
-        if !light || cachedGrainPacks.isEmpty {
-            cachedGrainPacks = view.grains
+        if PulseLaunch.shouldRebuildPPHIndexDuringPaint(dest: dest),
+           let livePickers = filteredLatest[.pickerScorecard], !livePickers.isEmpty {
+            refreshSummary(for: .pickerScorecard, rows: livePickers)
+            cachedCardFlags[.pickerScorecard] = HeartbeatMath.dashboardActionFlags(
+                section: .pickerScorecard,
+                rows: livePickers,
+                includeAll: true
+            )
+            rebuildPPHPickerIndex(scorecard: livePickers)
         }
-        if !view.pickers.isEmpty {
-            cachedPickerBoard = HeartbeatMath.pickerBoard(view.pickers)
+        if !light {
+            var tables = view.tables
+            for (section, rows) in tables {
+                if !HeartbeatMath.grainRowsAreLive(rows),
+                   let keep = cachedGrainTables[section],
+                   HeartbeatMath.grainRowsAreLive(keep) {
+                    tables[section] = keep
+                }
+            }
+            cachedGrainPacks = PulseLaunch.mergeDashboardPacks(
+                incoming: view.grains,
+                live: cachedGrainPacks,
+                filtersActive: current.isActive
+            )
+            cachedGrainTables = PulseLaunch.mergeLiveGrainTables(
+                incoming: tables,
+                live: cachedGrainTables,
+                grain: grain,
+                filtersActive: current.isActive
+            )
+            if let goal = lostRevenueGoalFallbackValue(),
+               HeartbeatMath.grainTableNeedsGoalFill(cachedGrainTables[.lostRevenue] ?? []) {
+                cachedGrainTables[.lostRevenue] = HeartbeatMath.fillingLostRevenueGoal(
+                    cachedGrainTables[.lostRevenue] ?? [],
+                    goal: goal
+                )
+            }
+            grainPaintSettled = true
+        } else {
+            if current.isActive {
+                cachedGrainTables = PulseLaunch.mergeLiveGrainTables(
+                    incoming: [:],
+                    live: cachedGrainTables,
+                    grain: grain,
+                    filtersActive: true
+                )
+            }
+            if cachedGrainPacks.isEmpty || filterPaint {
+                cachedGrainPacks = PulseLaunch.mergeDashboardPacks(
+                    incoming: view.grains,
+                    live: cachedGrainPacks,
+                    filtersActive: current.isActive
+                )
+            }
         }
+        lockPickerDashboard()
         usingPackChrome = false
-        rebuildLostIndex()
-        refreshFilterOptions()
-        refreshSalesExpandCache()
+        if lostByStore.isEmpty {
+            rebuildLostIndex()
+        }
+        if PulseLaunch.shouldRefreshFilterOptionsOnEveryPaint() {
+            refreshFilterOptions()
+        }
+        if !light {
+            refreshSalesExpandCache()
+        } else if !PulseLaunch.salesExpandIsLive(cachedSalesScopeRows) {
+            // Light paint must not wait on the 1.2s grain defer. Prefill sales
+            // off-main so the chevron is live before it is tappable.
+            Task { await prefetchExpand(section: .sales) }
+        }
+        if cachedGrainTables.values.allSatisfy(\.isEmpty) || cachedSalesScopeRows.isEmpty {
+            fillExpandTablesSoon()
+        }
+        let hasFilteredPPH = (filteredLatest[.pph] ?? []).contains { HeartbeatMath.pphNumber($0) != nil }
+        if PulseLaunch.shouldPatchPPHOnPaint(hasFilteredPPH: hasFilteredPPH) {
+            patchPPHCallouts()
+        }
         hydrating = false
-        filterStamp += 1
+        if !filters.isActive {
+            rememberUnfilteredPulseIfNeeded()
+        }
+        if needsRolePick, !PulseLaunch.shouldStampUIDuringRolePick() {
+            return
+        }
+        acknowledgeBackgroundFill(stampIfAllowed: PulseLaunch.shouldStampGrainOrPageOnlyFill())
+    }
+
+    /// Light paint skips flag grids (pack chrome stays). .343 built a PPH chip that
+    /// never replaced that chrome, so the total callout stayed blank. Always write
+    /// the filtered week's Pure PPH onto the PPH card — header and equal tiles.
+    private func patchPPHCallouts() {
+        var rows = filteredLatest[.pph] ?? []
+        let pickers = filteredLatest[.pickerScorecard] ?? latestBySection[.pickerScorecard] ?? []
+        if rows.filter({ HeartbeatMath.pphNumber($0) != nil }).isEmpty {
+            let filled = HeartbeatMath.materializePPH(
+                latestBySection[.pph] ?? [],
+                roster: roster,
+                pickers: pickers
+            )
+            if !filled.isEmpty {
+                if filters.isActive, let allowed = PulseCaches.allowedStores(roster: roster, filters: filters) {
+                    rows = PulseQuery.sliceSection(
+                        .pph,
+                        rows: filled,
+                        allowed: allowed,
+                        filters: filters,
+                        roster: roster
+                    )
+                } else {
+                    rows = filled
+                }
+                filteredLatest[.pph] = rows
+            }
+        }
+        cachedCardFlags[.pph] = HeartbeatMath.pphDashboardFlags(rows, pickers: pickers)
+        if !rows.isEmpty {
+            refreshSummary(for: .pph, rows: rows)
+        }
+        if !rows.isEmpty, var dyn = filteredLatest[.dynacap], !dyn.isEmpty {
+            dyn = HeartbeatMath.overlayStorePPH(dyn, from: rows, pickers: pickers)
+            filteredLatest[.dynacap] = dyn
+            cachedCardFlags[.dynacap] = HeartbeatMath.dashboardActionFlags(
+                section: .dynacap,
+                rows: dyn,
+                pickers: pickers,
+                pphRows: rows
+            )
+        } else if let dyn = filteredLatest[.dynacap], !dyn.isEmpty {
+            cachedCardFlags[.dynacap] = HeartbeatMath.dashboardActionFlags(
+                section: .dynacap,
+                rows: dyn,
+                pickers: pickers,
+                pphRows: rows
+            )
+        }
     }
 
 
@@ -2368,6 +4744,7 @@ final class HeartbeatStore: ObservableObject {
         var summaries: [SectionSummary]
         var cardFlags: [MetricSection: [HeartbeatMath.FiveStarFlag]]
         var grainPacks: [MetricSection: [DashScopePack]]
+        var grainTables: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]]
     }
 
     private func snapshotPulse() -> FilterPulse {
@@ -2386,7 +4763,8 @@ final class HeartbeatStore: ObservableObject {
             stores: cachedStores,
             summaries: cachedSummaries,
             cardFlags: cachedCardFlags,
-            grainPacks: cachedGrainPacks
+            grainPacks: cachedGrainPacks,
+            grainTables: cachedGrainTables
         )
     }
 
@@ -2406,7 +4784,8 @@ final class HeartbeatStore: ObservableObject {
             stores: caches.cachedStores,
             summaries: caches.cachedSummaries,
             cardFlags: caches.cachedCardFlags,
-            grainPacks: caches.cachedGrainPacks
+            grainPacks: caches.cachedGrainPacks,
+            grainTables: [:]
         )
     }
 
@@ -2433,7 +4812,7 @@ final class HeartbeatStore: ObservableObject {
             cachedGrainPacks = PulseCaches.placeholderGrainPacks(grain: effectiveDashboardGrain)
         }
         if unfilteredPulse == nil {
-            unfilteredPulse = snapshotPulse()
+            rememberUnfilteredPulseIfNeeded()
         }
         Task { await paintFromWarehouse(light: true) }
     }
@@ -2453,29 +4832,48 @@ final class HeartbeatStore: ObservableObject {
                 stores: stores,
                 roster: rosterCopy
             )
+            let tables = PulseLaunch.grainTablesSkippingCompanyPrefill(
+                latest: latest,
+                grain: grain,
+                roster: rosterCopy,
+                packs: packs,
+                goalFallback: HeartbeatMath.lostRevenueGoalFallback(latest[.lostRevenue] ?? []),
+                filtersActive: false
+            )
             await MainActor.run {
                 guard !self.filters.isActive else { return }
                 guard self.effectiveDashboardGrain == grain else { return }
                 guard self.filterStamp >= token else { return }
-                self.cachedGrainPacks = packs
+                self.cachedGrainPacks = PulseLaunch.mergeDashboardPacks(
+                    incoming: packs,
+                    live: self.cachedGrainPacks,
+                    filtersActive: false
+                )
+                self.cachedGrainTables = PulseLaunch.mergeLiveGrainTables(
+                    incoming: tables,
+                    live: self.cachedGrainTables,
+                    grain: PulseLaunch.unfilteredDashboardGrain(),
+                    filtersActive: false
+                )
+                self.lockPickerDashboard()
                 var snap = self.snapshotPulse()
                 snap.grainPacks = packs
                 self.unfilteredPulse = snap
                 if !self.needsRolePick {
-                    self.filterStamp += 1
+                    self.acknowledgeBackgroundFill(stampIfAllowed: PulseLaunch.shouldStampGrainOrPageOnlyFill())
                 }
             }
         }
     }
 
     private func warmUnfilteredPulse() {
-        if let pulse = unfilteredPulse, isCompanyWide(pulse) { return }
+        if unfilteredPulseIsReady(unfilteredPulse) { return }
         if !filters.isActive {
             let snap = snapshotPulse()
-            if isCompanyWide(snap) {
+            if unfilteredPulseIsReady(snap) {
                 unfilteredPulse = snap
+                return
             }
-            return
         }
         guard unfilteredWarmTask == nil else { return }
         let latest = latestBySection
@@ -2483,6 +4881,7 @@ final class HeartbeatStore: ObservableObject {
         let uploadsCopy = uploads
         let laborMarket = laborMarketRow()
         let lostMarket = lostRevenueMarketRow()
+        let grain = PulseLaunch.unfilteredDashboardGrain()
         let generation = pulseGeneration
         unfilteredWarmTask = Task.detached(priority: .utility) {
             let caches = PulseCaches.refilter(
@@ -2493,18 +4892,31 @@ final class HeartbeatStore: ObservableObject {
                 laborMarket: laborMarket,
                 lostRevenueMarket: lostMarket
             )
+            let packs = PulseCaches.grainPacks(
+                latest: caches.filteredLatest,
+                grain: grain,
+                hidePicker: true,
+                stores: caches.cachedStores,
+                roster: rosterCopy
+            )
+            let tables = PulseLaunch.grainTablesSkippingCompanyPrefill(
+                latest: caches.filteredLatest,
+                grain: grain,
+                roster: rosterCopy,
+                packs: packs,
+                goalFallback: HeartbeatMath.lostRevenueGoalFallback(caches.filteredLatest[.lostRevenue] ?? []),
+                filtersActive: false
+            )
             guard !Task.isCancelled else { return }
             await MainActor.run {
                 self.unfilteredWarmTask = nil
                 guard self.pulseGeneration == generation else { return }
-                let pulse = self.pulse(from: caches)
+                if self.unfilteredPulseIsReady(self.unfilteredPulse) { return }
+                var pulse = self.pulse(from: caches)
+                pulse.grainPacks = packs
+                pulse.grainTables = tables
                 if self.isCompanyWide(pulse) {
                     self.unfilteredPulse = pulse
-                }
-                if !self.filters.isActive {
-                    self.refilterTask?.cancel()
-                    self.install(pulse)
-                    self.filterStamp += 1
                 }
             }
         }
@@ -2512,12 +4924,14 @@ final class HeartbeatStore: ObservableObject {
 
     private func install(_ pulse: FilterPulse) {
         if filters.isActive {
-            cachedPickerBoard = pulse.pickerBoard
-            pickerIndex = pulse.pickerIndex
-            pickerFocusHealth = pulse.pickerFocusHealth
+            if !PulseLaunch.shouldRejectCompanyPickerIndexUnderSeat() {
+                cachedPickerBoard = pulse.pickerBoard
+                pickerIndex = pulse.pickerIndex
+                pickerFocusHealth = pulse.pickerFocusHealth
+            }
             pickPathPickersByStore = pulse.pickPathPickersByStore
             pickPathByShopper = pulse.pickPathByShopper
-            pphPickersByStore = pulse.pphPickersByStore
+            installPPHPickerIndex(fromRows: pulse.pphPickersByStore)
             if !pulse.checklistGroups.isEmpty {
                 cachedChecklistGroups = pulse.checklistGroups
             }
@@ -2530,7 +4944,7 @@ final class HeartbeatStore: ObservableObject {
         pickerFocusHealth = pulse.pickerFocusHealth
         pickPathPickersByStore = pulse.pickPathPickersByStore
         pickPathByShopper = pulse.pickPathByShopper
-        pphPickersByStore = pulse.pphPickersByStore
+        installPPHPickerIndex(fromRows: pulse.pphPickersByStore)
         if !pulse.checklistGroups.isEmpty || filters.isActive {
             cachedChecklistGroups = pulse.checklistGroups
         }
@@ -2541,6 +4955,14 @@ final class HeartbeatStore: ObservableObject {
         cachedSummaries = pulse.summaries
         cachedCardFlags = pulse.cardFlags
         cachedGrainPacks = pulse.grainPacks
+        if pulse.grainTables.isEmpty {
+            applyUnfilteredGrainFromWarehouse()
+        } else {
+            cachedGrainTables = pulse.grainTables
+        }
+        if let chrome = packChrome {
+            seedPickerGrainFromChrome(chrome)
+        }
         refreshChecklistOpenCount()
     }
 
@@ -2551,20 +4973,13 @@ final class HeartbeatStore: ObservableObject {
             .filter { !$0.isEmpty }
             .uniquedIgnoringCase()
             .sorted()
-        cachedOMs = roster.values
-            .filter { filters.includesDivision($0.division) }
-            .filter { filters.includesDistrict($0.district) }
-            .map { HeartbeatMath.canonicalOM($0.om) }
-            .filter { value in
-                !value.isEmpty && value.rangeOfCharacter(from: .letters) != nil
-            }
-            .uniquedIgnoringCase()
-            .sorted()
+        cachedOMs = PulseSeatPack.publishedOMNames(from: roster, filters: filters)
         var seen: [String: String?] = [:]
         for (number, identity) in roster {
             if !filters.includesDivision(identity.division) { continue }
             if !filters.includesDistrict(identity.district) { continue }
             if !filters.includesOM(identity.om) { continue }
+            if !filters.includesStore(number) { continue }
             if seen[number] == nil { seen[number] = identity.name }
         }
         cachedStores = seen.keys.sorted(by: HeartbeatFormat.storeOrder).map { ($0, seen[$0] ?? nil) }
@@ -2688,37 +5103,19 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func loadPublishedFacts() async {
-        importProgress.label = "Loading store facts"
-        let incoming: [MetricRow] = await Task.detached(priority: .userInitiated) {
+        importProgress.label = PulseLaunch.comedyLoadStatus(at: 2)
+        let incoming: [MetricRow] = await Task.detached(priority: .background) {
             await PulseFacts.loadRows()
         }.value
         guard !incoming.isEmpty else { return }
         rows = PulseDataPolicy.applyIdentity(existing: rows, identity: incoming)
         rows = PulseDataPolicy.fillMissing(existing: rows, facts: incoming)
         seeded = true
-        let lost = incoming.filter { $0.section == .lostRevenue }
-        if !lost.isEmpty {
-            let stamped = HeartbeatMath.applyRoster(
-                HeartbeatMath.latestPerStore(lost.filter { $0.textPayload["lost_grain"] != "market" }),
-                roster: roster
-            )
-            var merged = latestBySection[.lostRevenue] ?? []
-            var have: Set<String> = []
-            for row in merged {
-                have.formUnion(HeartbeatMath.storeAliases(row.storeNumber))
-            }
-            for row in stamped where !have.contains(HeartbeatMath.canonicalStore(row.storeNumber)) {
-                merged.append(row)
-                have.formUnion(HeartbeatMath.storeAliases(row.storeNumber))
-            }
-            latestBySection[.lostRevenue] = merged
-        }
+        let changed = adoptFactRows(incoming, mode: .takeIfRicher)
+        guard changed else { return }
+        lostByStore = [:]
         rebuildLostIndex()
-        if filters.isActive {
-            Task { await paintFromWarehouse(light: false) }
-        } else {
-            Task { await paintFromWarehouse(light: true) }
-        }
+        applyFilters()
     }
 
     private func publishFacts() {
@@ -2732,57 +5129,157 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func loadPack() async {
-        if PulseSQLite.exists(at: sqliteURL) {
-            let url = sqliteURL
-            let chromeFirst = await Task.detached(priority: .userInitiated) {
-                PulseSQLite.readChrome(from: url)
-            }.value
-            if let chromeFirst {
-                applyDashChrome(chromeFirst)
+        let chrome = await loadChromeIfPresent()
+        if isReady, PulseLaunch.shouldPaintDashboardSectionsProgressively() {
+            await loadWarehouseWave(PulseLaunch.dashboardFirstWave)
+            await loadWarehouseWave(PulseLaunch.dashboardSecondWave)
+            syncWarehouseTape()
+            return
+        }
+        await loadWarehousePack(chromeFirst: chrome)
+    }
+
+    private func loadChromeIfPresent() async -> PulseDashChrome? {
+        guard PulseSQLite.exists(at: sqliteURL) else { return nil }
+        setBootPhase(.readingChrome)
+        let url = sqliteURL
+        let priority = PulseLaunch.warehouseReadPriority(hubInteractive: isReady && !needsRolePick)
+        let chrome = await Task.detached(priority: priority) {
+            PulseSQLite.readChrome(from: url)
+        }.value
+        if let chrome {
+            applyDashChrome(chrome)
+        }
+        packPickerFactCount = max(
+            packPickerFactCount,
+            PulseSQLite.sectionCount(from: url, section: .pickerScorecard)
+        )
+        lockPickerDashboard()
+        return chrome
+    }
+
+    private func loadWarehouseWave(_ sections: [MetricSection]) async {
+        let url = sqliteURL
+        guard PulseSQLite.exists(at: url), !sections.isEmpty else { return }
+        let only = Set(sections)
+        let priority = PulseLaunch.warehouseReadPriority(hubInteractive: isReady && !needsRolePick)
+        let pack = await Task.detached(priority: priority) {
+            try? PulseSQLite.read(from: url, only: only)
+        }.value
+        guard let pack, !pack.rows.isEmpty else { return }
+        let packRows = pack.rows
+        let packUploads = pack.uploads
+        let caches = await Task.detached(priority: priority) {
+            PulseCaches.build(
+                rows: packRows,
+                filters: DashboardFilters(),
+                uploads: packUploads,
+                heavy: false,
+                grain: nil
+            )
+        }.value
+        mergeWarehouse(caches, pack: pack)
+    }
+
+    private func mergeWarehouse(_ caches: PulseCaches, pack: PulseSQLite.Pack) {
+        let incoming = Set(pack.rows.map(\.section))
+        if PulseLaunch.shouldPublishWarehouseRowsDuringHydrate() || !warehouseHydrating {
+            rows.removeAll { incoming.contains($0.section) }
+            rows.append(contentsOf: pack.rows)
+        }
+        if !pack.uploads.isEmpty {
+            uploads = pack.uploads.sorted { $0.uploadedAt > $1.uploadedAt }
+        }
+        for (section, sectionRows) in caches.latestBySection where !sectionRows.isEmpty {
+            latestBySection[section] = sectionRows
+        }
+        for (store, identity) in caches.roster {
+            if let have = roster[store], !have.district.isEmpty, identity.district.isEmpty {
+                continue
             }
-            let skipHeavy: Set<MetricSection> = HubLayout.lightLaunch || chromeFirst != nil ? Self.launchSkip : []
-            let pack = await Task.detached(priority: .userInitiated) {
-                try? PulseSQLite.read(from: url, skipping: skipHeavy)
+            roster[store] = identity
+        }
+        if !seeded { seeded = true }
+        if !usingDatabasePack { usingDatabasePack = true }
+        if incoming.contains(.lostRevenue), latestBySection[.lostRevenue] != nil {
+            rebuildLostIndex()
+        }
+    }
+
+    /// One publish of the row tape after both waves. During hydrate the hub reads latestBySection.
+    private func syncWarehouseTape() {
+        var tape: [MetricRow] = []
+        tape.reserveCapacity(latestBySection.values.reduce(0) { $0 + $1.count })
+        for section in MetricSection.allCases {
+            tape.append(contentsOf: latestBySection[section] ?? [])
+        }
+        if !tape.isEmpty {
+            rows = tape
+        }
+    }
+
+    private var warehouseRowCount: Int {
+        if !rows.isEmpty { return rows.count }
+        return latestBySection.values.reduce(0) { $0 + $1.count }
+    }
+
+    private func loadWarehousePack(chromeFirst: PulseDashChrome?) async {
+        let url = sqliteURL
+        guard PulseSQLite.exists(at: url) else {
+            if seeded, !cachedSummaries.isEmpty { return }
+            rebuildIndex()
+            return
+        }
+        setBootPhase(.readingPack)
+        var skipHeavy: Set<MetricSection> = HubLayout.lightLaunch || chromeFirst != nil ? Self.launchSkip : []
+        if isCompanyExpandScope, PulseLaunch.shouldSkipShoppersOnCompanyPadRead(), isPadDevice {
+            skipHeavy.formUnion(PulseLaunch.companyPadSkippedSections())
+        }
+        let priority = PulseLaunch.warehouseReadPriority(hubInteractive: isReady && !needsRolePick)
+        let pack = await Task.detached(priority: priority) {
+            try? PulseSQLite.read(from: url, skipping: skipHeavy)
+        }.value
+        if let pack, !pack.rows.isEmpty {
+            setBootPhase(.buildingTables)
+            let packRows = pack.rows
+            let packUploads = pack.uploads
+            let chrome = pack.chrome ?? chromeFirst
+            let caches = await Task.detached(priority: priority) {
+                PulseCaches.build(
+                    rows: packRows,
+                    filters: DashboardFilters(),
+                    uploads: packUploads,
+                    heavy: false,
+                    grain: chrome == nil ? .region : nil
+                )
             }.value
-            if let pack, !pack.rows.isEmpty {
-                importProgress.label = "Setting the aisle"
-                let packRows = pack.rows
-                let packUploads = pack.uploads
-                let chrome = pack.chrome ?? chromeFirst
-                let caches = await Task.detached(priority: .userInitiated) {
-                    PulseCaches.build(
-                        rows: packRows,
-                        filters: DashboardFilters(),
-                        uploads: packUploads,
-                        heavy: false,
-                        grain: chrome == nil ? .region : nil
-                    )
-                }.value
-                hydrating = true
-                rows = pack.rows
-                uploads = pack.uploads.sorted { $0.uploadedAt > $1.uploadedAt }
-                seeded = true
-                usingDatabasePack = true
-                if !isReady {
-                    filters = DashboardFilters()
-                    sessionRole = nil
-                    needsRolePick = true
-                }
-                install(caches)
-                if let chrome {
-                    applyDashChrome(chrome)
-                }
-                hydrating = false
-                applyLocalCards()
-                importProgress.loaded = MetricSection.uploadOrder.count
-                pendingHeavyExtras = chrome == nil || !(chrome?.isComplete ?? false)
-                return
+            hydrating = true
+            rows = pack.rows
+            uploads = pack.uploads.sorted { $0.uploadedAt > $1.uploadedAt }
+            seeded = true
+            usingDatabasePack = true
+            if !isReady {
+                filters = DashboardFilters()
+                sessionRole = nil
+                setNeedsRolePick(false)
             }
+            packPickerFactCount = max(
+                packPickerFactCount,
+                pack.counts[MetricSection.pickerScorecard.rawValue] ?? 0
+            )
+            install(caches)
+            if let chrome {
+                applyDashChrome(chrome)
+            }
+            lockPickerDashboard()
+            hydrating = false
+            applyLocalCards()
+            importProgress.loaded = MetricSection.uploadOrder.count
+            pendingHeavyExtras = chrome == nil || !(chrome?.isComplete ?? false)
+            return
         }
         if seeded, !cachedSummaries.isEmpty { return }
-        isReady = false
         rebuildIndex()
-        applyFilters()
     }
 
     private func applyDashChrome(_ chrome: PulseDashChrome) {
@@ -2791,6 +5288,7 @@ final class HeartbeatStore: ObservableObject {
         if !chrome.summaries.isEmpty {
             cachedSummaries = chrome.summaries
         }
+        pinUnfilteredLostRevenueHeadline()
         if !chrome.flags.isEmpty {
             var next: [MetricSection: [HeartbeatMath.FiveStarFlag]] = [:]
             for (key, value) in chrome.flags {
@@ -2809,6 +5307,14 @@ final class HeartbeatStore: ObservableObject {
             }
             cachedGrainPacks = next
         }
+        if filters.isActive, PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse() {
+            applySeatSliceNow()
+        } else if filters.isActive {
+            applyPreRolledSeatChrome(chrome)
+        } else {
+            seedExpandTablesFromChrome(chrome)
+            seedPickerGrainFromChrome(chrome)
+        }
         if chrome.pickerShoppers > 0 {
             cachedPickerBoard = HeartbeatMath.PickerBoard(
                 shopperCount: chrome.pickerShoppers,
@@ -2819,7 +5325,266 @@ final class HeartbeatStore: ObservableObject {
             )
         }
         if !filters.isActive {
-            unfilteredPulse = snapshotPulse()
+            rememberUnfilteredPulseIfNeeded()
+        }
+        fillExpandTablesSoon()
+        lockPickerDashboard()
+        pinCompanyCommandCenterChrome()
+    }
+
+    /// Company Command Center reads pack chrome + roster gold. No picker stream.
+    private func pinCompanyCommandCenterChrome() {
+        guard !filters.isActive else { return }
+        cachedSummaries = cachedSummaries.map {
+            PulseLaunch.companyCommandCenterCard($0, chrome: packChrome, rosterStores: roster.count)
+        }
+    }
+
+    /// Pack chrome already has live expand numbers. Seed them on the first
+    /// frame so gold / chevron do not wait for a second tap.
+    private func seedExpandTablesFromChrome(_ chrome: PulseDashChrome) {
+        guard !filters.isActive else { return }
+        guard !chrome.tables.isEmpty else { return }
+        var incoming: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] = [:]
+        for (key, rows) in chrome.tables {
+            guard let section = MetricSection(rawValue: key) else { continue }
+            if HeartbeatMath.grainRowsAreLive(rows) {
+                incoming[section] = rows
+            }
+        }
+        cachedGrainTables = PulseLaunch.mergeLiveGrainTables(
+            incoming: incoming,
+            live: cachedGrainTables,
+            grain: PulseLaunch.unfilteredDashboardGrain(),
+            filtersActive: false
+        )
+    }
+
+    /// Picker rows stay out of dashboard `displayRows` (Jetsam). Prefill expand
+    /// from chrome so the chevron is never permanently light-blue inert.
+    private func seedPickerGrainFromChrome(_ chrome: PulseDashChrome) {
+        guard !filters.isActive else { return }
+        if let cached = cachedGrainTables[.pickerScorecard],
+           HeartbeatMath.grainRowsAreLive(cached),
+           PulseLaunch.grainTableMatchesCurrent(labels: cached.map(\.label), grain: .region) {
+            return
+        }
+        let table = PulseLaunch.pickerExpandRows(
+            from: chrome,
+            filters: filters,
+            grain: effectiveDashboardGrain
+        )
+        guard HeartbeatMath.grainRowsAreLive(table) else { return }
+        cachedGrainTables[.pickerScorecard] = table
+    }
+
+    /// Card + expand stay filled whenever the pack has picker facts.
+    /// Chrome numbers win unfiltered so a first-chunk warehouse cannot show 80
+    /// shoppers over a 26,349 pack total. Never stamps the hub.
+    private func lockPickerDashboard() {
+        let allowed = pickerStoreSet()
+        let latest = PulseLaunch.pickerSeatRows(
+            filtered: filteredLatest[.pickerScorecard] ?? [],
+            warehouse: latestBySection[.pickerScorecard] ?? [],
+            allowed: allowed,
+            filters: filters,
+            roster: roster
+        )
+        let grain = effectiveDashboardGrain
+        if filters.isActive {
+            if !latest.isEmpty {
+                filteredLatest[.pickerScorecard] = latest
+                var painted = HeartbeatMath.summarize(
+                    .pickerScorecard,
+                    rows: latest,
+                    upload: upload(for: .pickerScorecard)
+                )
+                if let seat = allowed?.count, seat > 0 {
+                    painted = PulseLaunch.pinSeatStoreCount(painted, seatStores: seat)
+                }
+                upsertPickerSummary(painted)
+                cachedCardFlags[.pickerScorecard] = HeartbeatMath.dashboardActionFlags(
+                    section: .pickerScorecard,
+                    rows: latest,
+                    includeAll: true
+                )
+                cachedPickerBoard = HeartbeatMath.pickerBoard(latest)
+                rebuildSeatPickerIndex()
+            } else if PulseLaunch.shouldWipePickerIndexOnSeatClear() {
+                wipePickerIndex()
+            }
+            let table = PulseLaunch.pickerExpandTable(
+                seatRows: latest,
+                chrome: nil,
+                filters: filters,
+                grain: grain
+            )
+            if HeartbeatMath.grainRowsAreLive(table) {
+                cachedGrainTables[.pickerScorecard] = table
+                let packs = PulseCaches.grainPacks(
+                    latest: [.pickerScorecard: latest],
+                    grain: grain,
+                    hidePicker: false,
+                    stores: cachedStores,
+                    roster: roster
+                )[.pickerScorecard] ?? []
+                if PulseLaunch.pickerPacksAreLive(packs) {
+                    cachedGrainPacks[.pickerScorecard] = packs
+                }
+            } else if !PulseLaunch.grainMatchesSeat(
+                cachedGrainTables[.pickerScorecard] ?? [],
+                filters: filters,
+                grain: grain
+            ) {
+                cachedGrainTables[.pickerScorecard] = []
+            }
+            return
+        }
+        if !latest.isEmpty {
+            let painted = HeartbeatMath.summarize(
+                .pickerScorecard,
+                rows: latest,
+                upload: upload(for: .pickerScorecard)
+            )
+            let chromeHead = Double(max(packChrome?.pickerShoppers ?? 0, Int(packChrome?.card(.pickerScorecard)?.headline ?? 0), packPickerFactCount))
+            if (painted.headline ?? 0) >= chromeHead {
+                upsertPickerSummary(painted)
+                cachedCardFlags[.pickerScorecard] = HeartbeatMath.dashboardActionFlags(
+                    section: .pickerScorecard,
+                    rows: latest,
+                    includeAll: true
+                )
+                cachedPickerBoard = HeartbeatMath.pickerBoard(latest)
+            } else if let chrome = packChrome, let card = PulseLaunch.pickerSummaryFromChrome(chrome) {
+                upsertPickerSummary(card)
+                seedPickerFlagsFromChrome(chrome)
+            }
+            let table = PulseLaunch.pickerExpandTable(
+                seatRows: latest,
+                chrome: packChrome,
+                filters: filters,
+                grain: grain,
+                packOrder: cachedGrainPacks[.pickerScorecard]?.map(\.line.label) ?? []
+            )
+            if HeartbeatMath.grainRowsAreLive(table) {
+                cachedGrainTables[.pickerScorecard] = table
+            }
+            let packs = PulseCaches.grainPacks(
+                latest: [.pickerScorecard: latest],
+                grain: grain,
+                hidePicker: false,
+                roster: roster
+            )[.pickerScorecard] ?? []
+            if PulseLaunch.pickerPacksAreLive(packs), Double(latest.count) >= chromeHead * 0.5 {
+                cachedGrainPacks[.pickerScorecard] = packs
+            }
+        } else if let chrome = packChrome {
+            if let card = PulseLaunch.pickerSummaryFromChrome(chrome) {
+                upsertPickerSummary(card)
+            }
+            seedPickerFlagsFromChrome(chrome)
+            seedPickerGrainFromChrome(chrome)
+            if let packs = chrome.packs[MetricSection.pickerScorecard.rawValue],
+               PulseLaunch.pickerPacksAreLive(packs) {
+                cachedGrainPacks[.pickerScorecard] = packs
+            }
+        }
+        if !HeartbeatMath.grainRowsAreLive(cachedGrainTables[.pickerScorecard] ?? []),
+           let chrome = packChrome {
+            seedPickerGrainFromChrome(chrome)
+        }
+        pinCompanyCommandCenterChrome()
+    }
+
+    /// Chrome-lift must seed Healthy / Watch / At Risk, same keys as live tiles.
+    private func seedPickerFlagsFromChrome(_ chrome: PulseDashChrome) {
+        let flags = PulseLaunch.pickerChromeActionFlags(chrome)
+        let shoppers = max(chrome.pickerShoppers, Int(chrome.card(.pickerScorecard)?.headline ?? 0))
+        guard !PulseLaunch.shouldRejectZeroPickerFlags(flags, chromeShoppers: shoppers) else { return }
+        cachedCardFlags[.pickerScorecard] = flags
+        let buckets = PulseLaunch.pickerChromeBuckets(chrome)
+        cachedPickerBoard = HeartbeatMath.PickerBoard(
+            shopperCount: max(buckets.shoppers, cachedPickerBoard.shopperCount),
+            opportunityCount: max(buckets.risk, cachedPickerBoard.opportunityCount),
+            strongCount: max(buckets.healthy, cachedPickerBoard.strongCount),
+            opportunity: cachedPickerBoard.opportunity,
+            strong: cachedPickerBoard.strong
+        )
+    }
+
+    private func upsertPickerSummary(_ summary: SectionSummary) {
+        if let index = cachedSummaries.firstIndex(where: { $0.section == .pickerScorecard }) {
+            let have = cachedSummaries[index].headline ?? 0
+            if !filters.isActive, have > (summary.headline ?? 0) { return }
+            cachedSummaries[index] = summary
+        } else {
+            cachedSummaries.append(summary)
+        }
+    }
+
+    private func prefetchPickerDashboardIfNeeded() async {
+        if filters.isActive {
+            await loadFilteredPickerExpandIfNeeded()
+            return
+        }
+        lockPickerDashboard()
+        if HeartbeatMath.grainRowsAreLive(cachedGrainTables[.pickerScorecard] ?? []),
+           (cachedSummaries.first(where: { $0.section == .pickerScorecard })?.headline ?? 0) > 0 {
+            return
+        }
+        guard PulseSQLite.exists(at: sqliteURL) else { return }
+        let url = sqliteURL
+        let count = PulseSQLite.sectionCount(from: url, section: .pickerScorecard)
+        if count > packPickerFactCount { packPickerFactCount = count }
+        if count == 0 { return }
+        let rosterCopy = roster
+        let first = PulseLaunch.pickerFirstPaintCount
+        let rows = await Task.detached(priority: .userInitiated) { () -> [MetricRow] in
+            let raw = PulseSQLite.readSection(from: url, section: .pickerScorecard, limit: first, offset: 0)
+            return HeartbeatMath.applyRoster(HeartbeatMath.latestPerShopper(raw), roster: rosterCopy)
+        }.value
+        if !rows.isEmpty, (latestBySection[.pickerScorecard] ?? []).isEmpty {
+            latestBySection[.pickerScorecard] = rows
+        }
+        lockPickerDashboard()
+    }
+
+    private func loadFilteredPickerExpandIfNeeded() async {
+        lockPickerDashboard()
+        let grain = effectiveDashboardGrain
+        if PulseLaunch.grainMatchesSeat(
+            cachedGrainTables[.pickerScorecard] ?? [],
+            filters: filters,
+            grain: grain
+        ), !(filteredLatest[.pickerScorecard] ?? []).isEmpty {
+            return
+        }
+        let allowed = pickerStoreSet() ?? []
+        guard filters.isActive, !allowed.isEmpty, PulseSQLite.exists(at: sqliteURL) else { return }
+        let wasEmpty = (filteredLatest[.pickerScorecard] ?? []).isEmpty
+        let showLoading = wasEmpty && PulseLaunch.shouldShowPickerLoadingOnSeatFill(dest: visibleDestination)
+        if showLoading { pickerLoading = true }
+        let url = sqliteURL
+        let stores = allowed
+        let rosterCopy = roster
+        let rows = await Task.detached(priority: .userInitiated) { () -> [MetricRow] in
+            let raw = PulseSQLite.readStores(from: url, sections: [.pickerScorecard], stores: stores)
+            return HeartbeatMath.applyRoster(HeartbeatMath.latestPerShopper(raw), roster: rosterCopy)
+        }.value
+        if showLoading { pickerLoading = false }
+        guard !rows.isEmpty else { return }
+        filteredLatest[.pickerScorecard] = rows
+        latestBySection[.pickerScorecard] = PulseLaunch.mergePickerRows(
+            existing: latestBySection[.pickerScorecard] ?? [],
+            incoming: rows
+        )
+        lockPickerDashboard()
+        rebuildSeatPickerIndex()
+        if PulseLaunch.shouldPublishSeatFill(
+            dest: visibleDestination,
+            interactiveAt: hubBecameInteractiveAt
+        ) {
+            objectWillChange.send()
         }
     }
 
@@ -2830,15 +5595,29 @@ final class HeartbeatStore: ObservableObject {
         return true
     }
 
+    private enum FactAdoptMode {
+        case fillIfThin
+        case takeIfRicher
+    }
+
     /// Put Excel store rows for Sales, 5 Star, and Loss Revenue into the warehouse.
-    private func adoptExcelFactsIntoWarehouse() async {
-        if didAdoptExcelFacts, factsOwned.contains(.lostRevenue), factsOwned.contains(.sales) {
-            return
-        }
-        let facts = await Task.detached(priority: .userInitiated) {
+    /// A full live pack / cloud table is kept. Bundled facts only fill a thin pack.
+    @discardableResult
+    private func adoptExcelFactsIntoWarehouse() async -> Bool {
+        if didAdoptExcelFacts { return false }
+        let priority = PulseLaunch.warehouseReadPriority(hubInteractive: isReady && !needsRolePick)
+        let facts = await Task.detached(priority: priority) {
             PulseFacts.bundledMetricRows()
         }.value
-        guard !facts.isEmpty else { return }
+        let changed = adoptFactRows(facts, mode: .fillIfThin)
+        didAdoptExcelFacts = true
+        return changed
+    }
+
+    @discardableResult
+    private func adoptFactRows(_ facts: [MetricRow], mode: FactAdoptMode) -> Bool {
+        guard !facts.isEmpty else { return false }
+        var changed = false
         for row in facts where row.section == .storeRoster || row.textPayload["roster"] == "1" {
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
             guard !store.isEmpty else { continue }
@@ -2854,67 +5633,355 @@ final class HeartbeatStore: ObservableObject {
         for section in owned {
             let factRows = facts.filter { PulseQuery.isStoreFact($0) && $0.section == section }
             let stamped = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(factRows), roster: roster)
-            let scoredFacts = stamped.filter { !$0.payload.isEmpty }.count
-            guard scoredFacts >= 200 else { continue }
-            latestBySection[section] = stamped
+            let incoming: [MetricRow]?
+            switch mode {
+            case .fillIfThin:
+                if let full = PulseQuery.fillIfThin(existing: latestBySection[section] ?? [], incoming: stamped) {
+                    incoming = full
+                } else {
+                    let merged = PulseQuery.fillMissingRegions(
+                        existing: latestBySection[section] ?? [],
+                        facts: stamped,
+                        section: section
+                    )
+                    incoming = merged.count > (latestBySection[section] ?? []).count ? merged : nil
+                }
+            case .takeIfRicher:
+                incoming = PulseQuery.takeIfRicher(existing: latestBySection[section] ?? [], incoming: stamped)
+            }
+            guard let incoming else { continue }
+            latestBySection[section] = incoming
             factsOwned.insert(section)
+            changed = true
         }
-        didAdoptExcelFacts = true
+        return changed
     }
 
     private func paintFactsScorecards() {
         Task { await paintFromWarehouse(light: true) }
     }
 
-    func ensureSectionLoaded(_ section: MetricSection) async {
-        if factsOwned.contains(section) { return }
-        if !(latestBySection[section] ?? []).isEmpty { return }
+    private func loadDeferredPicker() async {
+        await streamPicker(preferSnappy: false)
+    }
+
+    private func streamPicker(preferSnappy: Bool) async {
+        if pickerStreamDone, (latestBySection[.pickerScorecard] ?? []).count >= 2 {
+            let join = PulseLaunch.needsShopperJoin(visibleDestination)
+            if join {
+                refreshPickerDashboard(visiblePickers(), stamp: true, chrome: true)
+            }
+            return
+        }
+        if pickerLoadTask != nil {
+            let join = PulseLaunch.needsShopperJoin(visibleDestination)
+            if join, let first = latestBySection[.pickerScorecard], first.count >= 2 {
+                refreshPickerDashboard(
+                    PulseQuery.sliceSection(
+                        .pickerScorecard,
+                        rows: first,
+                        allowed: PulseCaches.allowedStores(roster: roster, filters: filters)
+                    ),
+                    stamp: true,
+                    chrome: true
+                )
+            }
+            if preferSnappy { return }
+            await pickerLoadTask?.value
+            return
+        }
         guard PulseSQLite.exists(at: sqliteURL) else { return }
         let url = sqliteURL
         let rosterCopy = roster
-        let incoming = await Task.detached(priority: .userInitiated) { () -> [MetricRow] in
-            guard let pack = try? PulseSQLite.read(from: url, only: [section]) else { return [] }
-            let rows = pack.rows
-            switch section {
-            case .labor:
-                let stores = rows.filter {
-                    $0.textPayload["labor_grain"] == "store" && !$0.storeNumber.isEmpty
+        let firstLimit = PulseLaunch.pickerFirstPaintCount
+        let chunk = PulseLaunch.pickerChunkCount
+        let firstPriority: TaskPriority = (preferSnappy && !isReady) ? .userInitiated : .utility
+        if (latestBySection[.pickerScorecard] ?? []).isEmpty {
+            pickerLoading = true
+        }
+        let firstRows = await Task.detached(priority: firstPriority) { () -> [MetricRow] in
+            let raw = PulseSQLite.readSection(from: url, section: .pickerScorecard, limit: firstLimit, offset: 0)
+            return HeartbeatMath.applyRoster(HeartbeatMath.latestPerShopper(raw), roster: rosterCopy)
+        }.value
+        applyPickerChunk(firstRows, replace: true)
+        pickerLoadTask = Task.detached(priority: .background) {
+            var offset = firstRows.count
+            var warehouse = firstRows
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: PulseLaunch.pickerChunkPauseNanoseconds)
+                guard !Task.isCancelled else { return }
+                let raw = PulseSQLite.readSection(from: url, section: .pickerScorecard, limit: chunk, offset: offset)
+                let more = HeartbeatMath.applyRoster(HeartbeatMath.latestPerShopper(raw), roster: rosterCopy)
+                if more.isEmpty { break }
+                offset += more.count
+                guard !Task.isCancelled else { return }
+                warehouse = PulseLaunch.mergePickerRows(existing: warehouse, incoming: more)
+                if warehouse.count >= PulseLaunch.pickerWarehouseCap { break }
+                let snapshot = warehouse
+                let dest = await MainActor.run { self.visibleDestination }
+                if PulseLaunch.needsShopperJoin(dest) {
+                    await MainActor.run { self.parkPickerWarehouse(snapshot) }
                 }
-                let fallback = rows.filter {
-                    $0.textPayload["labor_grain"] != "market" && !$0.storeNumber.isEmpty
-                }
-                return HeartbeatMath.applyRoster(
-                    HeartbeatMath.latestPerStore(stores.isEmpty ? fallback : stores),
-                    roster: rosterCopy
-                )
-            case .pickerScorecard, .pickPathPicker:
-                return HeartbeatMath.applyRoster(HeartbeatMath.latestPerShopper(rows), roster: rosterCopy)
-            case .lostRevenue:
-                let source = rows.filter { $0.textPayload["lost_grain"] != "market" }
-                return HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(source), roster: rosterCopy)
-            default:
-                return HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(rows), roster: rosterCopy)
+                if more.count < chunk { break }
             }
+            let final = warehouse
+            await MainActor.run {
+                self.latestBySection[.pickerScorecard] = final
+                self.pickerStreamDone = final.count >= 2
+                self.pickerLoading = false
+                let join = PulseLaunch.needsShopperJoin(self.visibleDestination)
+                if join {
+                    self.refreshPickerDashboard(self.visiblePickers(), stamp: true, chrome: true)
+                    self.schedulePickerIndex(self.visiblePickers())
+                }
+                self.pickerLoadTask = nil
+            }
+        }
+        if !preferSnappy {
+            await pickerLoadTask?.value
+        }
+    }
+
+    /// Grow the in-memory shopper pack without waking SwiftUI unless a join page needs it.
+    private func parkPickerWarehouse(_ rows: [MetricRow]) {
+        latestBySection[.pickerScorecard] = rows
+        guard PulseLaunch.needsShopperJoin(visibleDestination) else { return }
+        let sliced = PulseQuery.sliceSection(
+            .pickerScorecard,
+            rows: rows,
+            allowed: PulseCaches.allowedStores(roster: roster, filters: filters)
+        )
+        let count = sliced.count
+        let stamp = PulseLaunch.shouldStampPicker(
+            replace: false,
+            dest: visibleDestination,
+            count: count,
+            lastStampCount: lastPickerStampCount
+        )
+        if stamp { lastPickerStampCount = count }
+        let chrome = PulseLaunch.shouldRefreshPickerChrome(
+            replace: false,
+            dest: visibleDestination,
+            stamp: stamp
+        )
+        guard PulseLaunch.shouldTouchPickerUI(stamp: stamp, chrome: chrome) else { return }
+        refreshPickerDashboard(sliced, stamp: stamp, chrome: chrome)
+    }
+
+    private func applyPickerChunk(_ rows: [MetricRow], replace: Bool) {
+        guard !rows.isEmpty else { return }
+        if replace {
+            latestBySection[.pickerScorecard] = rows
+        } else {
+            latestBySection[.pickerScorecard] = PulseLaunch.mergePickerRows(
+                existing: latestBySection[.pickerScorecard] ?? [],
+                incoming: rows
+            )
+        }
+        let sliced = PulseQuery.sliceSection(
+            .pickerScorecard,
+            rows: latestBySection[.pickerScorecard] ?? [],
+            allowed: PulseCaches.allowedStores(roster: roster, filters: filters)
+        )
+        let count = sliced.count
+        let stamp = PulseLaunch.shouldStampPicker(
+            replace: replace,
+            dest: visibleDestination,
+            count: count,
+            lastStampCount: lastPickerStampCount
+        )
+        if stamp { lastPickerStampCount = count }
+        let chrome = PulseLaunch.shouldRefreshPickerChrome(
+            replace: replace,
+            dest: visibleDestination,
+            stamp: stamp
+        )
+        guard PulseLaunch.shouldTouchPickerUI(stamp: stamp, chrome: chrome) else { return }
+        refreshPickerDashboard(sliced, stamp: stamp, chrome: chrome)
+    }
+
+    private func refreshPickerDashboard(_ sliced: [MetricRow], stamp: Bool, chrome: Bool = true) {
+        filteredLatest[.pickerScorecard] = sliced
+        refreshSummary(for: .pickerScorecard, rows: sliced)
+        if chrome, !sliced.isEmpty {
+            cachedPickerBoard = HeartbeatMath.pickerBoard(sliced)
+            cachedCardFlags[.pickerScorecard] = HeartbeatMath.dashboardActionFlags(
+                section: .pickerScorecard,
+                rows: sliced,
+                includeAll: true
+            )
+            rebuildPPHPickerIndex(scorecard: sliced)
+            patchPPHCallouts()
+        }
+        pageOnlyGeneration = paintGeneration
+        if stamp {
+            acknowledgeBackgroundFill(stampIfAllowed: PulseLaunch.shouldStampPickerOrPageOnlyInstall())
+        }
+    }
+
+    private func refreshLoadedPickers() {
+        installSectionSlice(.pickerScorecard)
+    }
+
+    private func installSectionSlice(_ section: MetricSection) {
+        let allowed = PulseCaches.allowedStores(roster: roster, filters: filters)
+        let sliced = PulseQuery.sliceSection(
+            section,
+            rows: latestBySection[section] ?? [],
+            allowed: allowed,
+            filters: filters,
+            roster: roster
+        )
+        filteredLatest[section] = sliced
+        refreshSummary(for: section, rows: sliced)
+        if section == .pickerScorecard, !sliced.isEmpty {
+            cachedPickerBoard = HeartbeatMath.pickerBoard(sliced)
+            schedulePickerIndex(sliced)
+        }
+        if PulseQuery.pageOnlySections.contains(section) {
+            pageOnlyGeneration = paintGeneration
+        }
+        acknowledgeBackgroundFill(stampIfAllowed: PulseLaunch.shouldStampPickerOrPageOnlyInstall())
+    }
+
+    private func rebuildSeatPickerIndex() {
+        guard filters.isActive else { return }
+        let seat = filteredLatest[.pickerScorecard] ?? []
+        if PulseLaunch.shouldRebuildPickerIndexOnSeatPaint(filtersActive: true, seatRowCount: seat.count) {
+            schedulePickerIndex(seat)
+        } else {
+            wipePickerIndex()
+        }
+    }
+
+    private func schedulePickerIndex(_ pickers: [MetricRow]) {
+        let seat = filters.isActive ? (filteredLatest[.pickerScorecard] ?? []) : pickers
+        let source = filters.isActive ? seat : pickers
+        let count = source.count
+        guard count > 0 else { return }
+        Task.detached(priority: .background) {
+            let built = PulseCaches.pickerBuckets(source)
+            await MainActor.run {
+                guard (self.filteredLatest[.pickerScorecard] ?? []).count == count else { return }
+                if self.filters.isActive, PulseLaunch.shouldRejectCompanyPickerIndexUnderSeat() {
+                    guard (self.filteredLatest[.pickerScorecard] ?? []).count == count else { return }
+                }
+                self.pickerIndex = built.index
+                self.pickerFocusHealth = built.health
+            }
+        }
+    }
+
+    func ensureSectionLoaded(_ section: MetricSection) async {
+        if Task.isCancelled { return }
+        let seatFirst = PulseLaunch.sectionPageFirstPaint(
+            section: section,
+            filtersActive: filters.isActive
+        ) == .seatReadStores
+
+        if section == .pickerScorecard {
+            if seatFirst {
+                await loadFilteredPickerExpandIfNeeded()
+                return
+            }
+            await streamPicker(preferSnappy: isReady)
+            return
+        }
+
+        if PulseLaunch.sectionNeedsShopperJoin(section) {
+            if seatFirst {
+                Task { await self.loadFilteredPickerExpandIfNeeded() }
+            } else if !pickerStreamDone,
+                      PulseLaunch.shouldStartCompanyPickerStreamOnJoinPage(filtersActive: false) {
+                Task { await self.streamPicker(preferSnappy: false) }
+            }
+        }
+
+        if seatFirst {
+            await loadFilteredSectionIfNeeded(section)
+            return
+        }
+
+        let deferred = PulseQuery.skipOnLight.contains(section)
+        if deferred {
+            if (latestBySection[section] ?? []).count >= 2 {
+                if filteredLatest[section]?.isEmpty != false {
+                    installSectionSlice(section)
+                }
+                return
+            }
+        } else {
+            let rowCount = (latestBySection[section] ?? []).count
+            if factsOwned.contains(section) {
+                if PulseLaunch.shouldEarlyReturnOwnedSection(owned: true, rowCount: rowCount) {
+                    return
+                }
+            } else if rowCount > 0 {
+                return
+            }
+        }
+        guard PulseSQLite.exists(at: sqliteURL) else { return }
+        if Task.isCancelled { return }
+        let url = sqliteURL
+        let rosterCopy = roster
+        let readPriority: TaskPriority = isReady ? .utility : .userInitiated
+        let incoming = await Task.detached(priority: readPriority) { () -> [MetricRow] in
+            guard let pack = try? PulseSQLite.read(from: url, only: [section]) else { return [] }
+            return PulseLaunch.materializeSectionRows(pack.rows, section: section, roster: rosterCopy)
+        }.value
+        if Task.isCancelled { return }
+        adoptSectionWarehouse(section, incoming)
+    }
+
+    /// Seat page-open: `readStores(allowed)` when the warehouse is empty. Never company LIMIT/OFFSET.
+    private func loadFilteredSectionIfNeeded(_ section: MetricSection) async {
+        if section == .pickerScorecard {
+            await loadFilteredPickerExpandIfNeeded()
+            return
+        }
+        if let have = latestBySection[section], !have.isEmpty {
+            installSectionSlice(section)
+            return
+        }
+        let allowed = pickerStoreSet() ?? []
+        guard filters.isActive, !allowed.isEmpty, PulseSQLite.exists(at: sqliteURL) else {
+            if !(latestBySection[section] ?? []).isEmpty {
+                installSectionSlice(section)
+            }
+            return
+        }
+        let url = sqliteURL
+        let stores = allowed
+        let rosterCopy = roster
+        let incoming = await Task.detached(priority: .userInitiated) { () -> [MetricRow] in
+            let raw = PulseSQLite.readStores(from: url, sections: [section], stores: stores)
+            return PulseLaunch.materializeSectionRows(raw, section: section, roster: rosterCopy)
         }.value
         guard !incoming.isEmpty else { return }
+        adoptSectionWarehouse(section, incoming)
+        if PulseLaunch.shouldPublishSeatFill(
+            dest: visibleDestination,
+            interactiveAt: hubBecameInteractiveAt
+        ) {
+            objectWillChange.send()
+        }
+    }
+
+    private func adoptSectionWarehouse(_ section: MetricSection, _ incoming: [MetricRow]) {
+        guard !incoming.isEmpty else { return }
         latestBySection[section] = incoming
+        if section == .dynacap || section == .pph || section == .pickerScorecard {
+            latestBySection = HeartbeatMath.overlayDynacapPPH(latestBySection)
+        }
         if section == .labor {
             rebuildLaborWeekIndex()
         }
-        await paintFromWarehouse(light: false)
+        installSectionSlice(section)
     }
 
     private func hydrateFilteredHeavy() async {
         guard filters.isActive else { return }
-        let laborWasEmpty = (latestBySection[.labor] ?? []).isEmpty
-        let pickerWasEmpty = (latestBySection[.pickerScorecard] ?? []).isEmpty
-        if laborWasEmpty { await ensureSectionLoaded(.labor) }
-        if pickerWasEmpty { await ensureSectionLoaded(.pickerScorecard) }
-        let loaded = (laborWasEmpty && !(latestBySection[.labor] ?? []).isEmpty)
-            || (pickerWasEmpty && !(latestBySection[.pickerScorecard] ?? []).isEmpty)
-        if loaded, filters.isActive {
-            applyVisibleFilter()
-        }
+        applyVisibleFilter()
     }
 
     private func loadHeavySections() async {
@@ -2942,6 +6009,7 @@ final class HeartbeatStore: ObservableObject {
         let stores = cachedStores
         let rosterCopy = roster
         let laborMarket = laborMarketRow()
+        let filtersActive = filters.isActive
         Task.detached(priority: .utility) {
             let flags = PulseCaches.cardFlags(latest: latest, laborMarket: laborMarket)
             let packs = PulseCaches.grainPacks(
@@ -2951,10 +6019,30 @@ final class HeartbeatStore: ObservableObject {
                 stores: stores,
                 roster: rosterCopy
             )
+            let tables = PulseLaunch.grainTablesSkippingCompanyPrefill(
+                latest: latest,
+                grain: grain,
+                roster: rosterCopy,
+                packs: packs,
+                goalFallback: HeartbeatMath.lostRevenueGoalFallback(latest[.lostRevenue] ?? []),
+                filtersActive: filtersActive
+            )
             await MainActor.run {
                 if self.usingPackChrome, !self.filters.isActive { return }
                 self.cachedCardFlags = flags
-                self.cachedGrainPacks = packs
+                self.cachedGrainPacks = PulseLaunch.mergeDashboardPacks(
+                    incoming: packs,
+                    live: self.cachedGrainPacks,
+                    filtersActive: self.filters.isActive
+                )
+                self.cachedGrainTables = PulseLaunch.mergeLiveGrainTables(
+                    incoming: tables,
+                    live: self.cachedGrainTables,
+                    grain: grain,
+                    filtersActive: self.filters.isActive
+                )
+                self.lockPickerDashboard()
+                self.patchPPHCallouts()
             }
         }
         if let labor = filteredLatest[.labor] {
@@ -3022,31 +6110,43 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func install(_ caches: PulseCaches) {
+        let seatPickers = filters.isActive ? (filteredLatest[.pickerScorecard] ?? []) : []
         latestBySection = caches.latestBySection
         roster = caches.roster
         filteredLatest = caches.filteredLatest
+        if filters.isActive, PulseLaunch.shouldRejectCompanyPickerIndexUnderSeat(), !seatPickers.isEmpty {
+            filteredLatest[.pickerScorecard] = seatPickers
+        }
         filteredMarket = caches.filteredMarket
         cachedDivisions = caches.cachedDivisions
         cachedDistricts = caches.cachedDistricts
         cachedOMs = caches.cachedOMs
         cachedStores = caches.cachedStores
         cachedChecklistGroups = caches.cachedChecklistGroups
-        pickerIndex = caches.pickerIndex
-        if (pickerIndex[.all] ?? []).isEmpty {
-            let pickers = caches.filteredLatest[.pickerScorecard] ?? []
-            if !pickers.isEmpty {
-                pickerIndex[.all] = Array(pickers.indices)
+        if filters.isActive, PulseLaunch.shouldRejectCompanyPickerIndexUnderSeat() {
+            rebuildSeatPickerIndex()
+        } else {
+            pickerIndex = caches.pickerIndex
+            if (pickerIndex[.all] ?? []).isEmpty {
+                let pickers = caches.filteredLatest[.pickerScorecard] ?? []
+                if !pickers.isEmpty {
+                    pickerIndex[.all] = Array(pickers.indices)
+                }
             }
+            pickerFocusHealth = caches.pickerFocusHealth
         }
-        pickerFocusHealth = caches.pickerFocusHealth
         pickPathPickersByStore = caches.pickPathPickersByStore
         pickPathByShopper = caches.pickPathByShopper
-        pphPickersByStore = caches.pphPickersByStore
+        installPPHPickerIndex(fromRows: caches.pphPickersByStore)
         if usingPackChrome, packChrome != nil {
             rebuildLostIndex()
             rebuildLaborWeekIndex()
             refreshChecklistOpenCount()
             refreshSalesExpandCache()
+            if let key = activeSeatKey {
+                rememberSeatRowPlane(for: key)
+            }
+            fillExpandTablesSoon()
             return
         }
         cachedSummaries = caches.cachedSummaries
@@ -3057,8 +6157,19 @@ final class HeartbeatStore: ObservableObject {
         rebuildLaborWeekIndex()
         refreshChecklistOpenCount()
         refreshSalesExpandCache()
+        if let key = activeSeatKey {
+            rememberSeatRowPlane(for: key)
+        }
         if !filters.isActive {
+            rememberUnfilteredPulseIfNeeded()
+        }
+    }
+
+    private func rememberUnfilteredPulseIfNeeded() {
+        if PulseLaunch.shouldSnapshotUnfilteredPulseWhenRowPlaneCached() {
             unfilteredPulse = snapshotPulse()
+        } else {
+            unfilteredPulse = nil
         }
     }
 
@@ -3080,9 +6191,13 @@ final class HeartbeatStore: ObservableObject {
         cachedChecklistGroups = bits.checklistGroups
         pickPathPickersByStore = bits.pickPathPickersByStore
         pickPathByShopper = bits.pickPathByShopper
-        pphPickersByStore = bits.pphPickersByStore
+        installPPHPickerIndex(fromRows: bits.pphPickersByStore)
         refreshChecklistOpenCount()
         let pickers = filteredLatest[.pickerScorecard] ?? []
+        if filters.isActive, PulseLaunch.shouldRejectCompanyPickerIndexUnderSeat() {
+            rebuildSeatPickerIndex()
+            return
+        }
         if !bits.pickerIndex.isEmpty {
             pickerIndex = bits.pickerIndex
             pickerFocusHealth = bits.pickerFocusHealth
@@ -3136,8 +6251,23 @@ final class HeartbeatStore: ObservableObject {
         if diskPicker > 100, incomingPicker == 0 { packDirty = false; return }
         if diskLabor > 100, incomingLabor == 0 { packDirty = false; return }
         do {
+            let chrome = PulseDashChrome(
+                summaries: cachedSummaries,
+                flags: Dictionary(uniqueKeysWithValues: cachedCardFlags.map { ($0.key.rawValue, $0.value) }),
+                packs: Dictionary(uniqueKeysWithValues: cachedGrainPacks.map { ($0.key.rawValue, $0.value) }),
+                tables: Dictionary(uniqueKeysWithValues: cachedGrainTables.map { ($0.key.rawValue, $0.value) }),
+                pickerShoppers: cachedPickerBoard.shopperCount,
+                pickerOpportunity: cachedPickerBoard.opportunityCount,
+                pickerStrong: cachedPickerBoard.strongCount
+            )
             try await Task.detached(priority: .utility) {
-                try PulseSQLite.write(rows: packRows, uploads: packUploads, seeded: packSeeded, to: packURL)
+                try PulseSQLite.write(
+                    rows: packRows,
+                    uploads: packUploads,
+                    seeded: packSeeded,
+                    chrome: chrome,
+                    to: packURL
+                )
             }.value
             try? PulseCards.write(PulseCards.from(board: cachedPickerBoard), to: cardsURL)
             packDirty = false
@@ -3174,24 +6304,112 @@ final class HeartbeatStore: ObservableObject {
         }
     }
 
-    func pulseMailSnapshot() -> PulseMail.Snapshot {
+    func pulseMailSnapshot(_ pages: Set<PulseMail.SharePage> = Set(PulseMail.SharePage.allCases)) -> PulseMail.Snapshot {
+        var needed: Set<MetricSection> = []
+        for page in pages {
+            if let section = page.section { needed.insert(section) }
+        }
+        if pages.contains(.preSubOOS) { needed.insert(.preSubOOSItem) }
+        if pages.contains(.dashboard) {
+            needed.formUnion(MetricSection.dashboardCards)
+        }
         var pickerCounts: [String: Int] = [:]
-        for row in displayRows(for: .pph) {
-            let key = HeartbeatMath.canonicalStore(row.storeNumber)
-            pickerCounts[key] = pphPickerCount(forStore: key)
-        }
         var rows: [MetricSection: [MetricRow]] = [:]
-        for section in PulseMail.pageOrder {
-            rows[section] = displayRows(for: section)
+        var rowTotals: [MetricSection: Int] = [:]
+        for section in needed {
+            let all = displayRows(for: section)
+            rowTotals[section] = all.count
+            rows[section] = PulseMail.pageRows(all, section: section)
         }
-        rows[.pickPathPicker] = displayRows(for: .pickPathPicker)
-        let grain = effectiveDashboardGrain.rawValue
+        if needed.contains(.pph) || needed.contains(.pickPath) || needed.contains(.pickerScorecard) {
+            pickerCounts = pphPickerCounts()
+        }
+        let grain = effectiveDashboardGrain
+        var grainTables: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] = [:]
+        var flags: [MetricSection: [HeartbeatMath.FiveStarFlag]] = [:]
+        for section in needed {
+            if let table = cachedGrainTables[section], !table.isEmpty,
+               PulseLaunch.grainTableMatchesCurrent(labels: table.map(\.label), grain: grain) {
+                grainTables[section] = table
+            }
+            if section == .pickerScorecard {
+                let shoppers = max(
+                    cachedPickerBoard.shopperCount,
+                    packChrome?.pickerShoppers ?? 0,
+                    Int(summaries.first { $0.section == .pickerScorecard }?.headline ?? 0)
+                )
+                flags[section] = PulseLaunch.pickerShareActionFlags(
+                    rows: rows[section] ?? [],
+                    chromeShoppers: shoppers,
+                    chromeStrong: max(cachedPickerBoard.strongCount, packChrome?.pickerStrong ?? 0),
+                    chromeOpportunity: max(
+                        cachedPickerBoard.opportunityCount,
+                        packChrome?.pickerOpportunity ?? 0
+                    ),
+                    grain: grainTables[section] ?? []
+                )
+                continue
+            }
+            let sectionRows = rows[section] ?? []
+            if PulseLaunch.shouldShareLiveActionFlags(), !sectionRows.isEmpty {
+                flags[section] = HeartbeatMath.dashboardActionFlags(
+                    section: section,
+                    rows: sectionRows,
+                    pickers: rows[.pickerScorecard] ?? [],
+                    pathPickers: rows[.pickPathPicker] ?? [],
+                    items: rows[.preSubOOSItem] ?? [],
+                    pphRows: rows[.pph] ?? [],
+                    includeAll: true
+                )
+                continue
+            }
+            if let card = cachedCardFlags[section], !card.isEmpty {
+                let scoped = summaries.first { $0.section == section }?.storeCount ?? 0
+                if PulseLaunch.shouldRejectZeroBandFlags(card, liveCount: scoped) {
+                    continue
+                }
+                if PulseLaunch.flagsMatchFilter(flagStores: card.map(\.stores), scopedStores: scoped) {
+                    flags[section] = card
+                }
+            }
+        }
+        let pickerSummary = summaries.first { $0.section == .pickerScorecard }
         return PulseMail.Snapshot(
             filterSummary: filters.summary,
-            grain: grain,
-            summaries: summaries,
+            grain: effectiveDashboardGrain.rawValue,
+            summaries: pages.contains(.dashboard) ? summaries : summaries.filter { needed.contains($0.section) },
             rows: rows,
             pickerCounts: pickerCounts,
+            generatedAt: Date(),
+            rowTotals: rowTotals,
+            grainTables: grainTables,
+            flags: flags,
+            pickerShoppers: max(
+                cachedPickerBoard.shopperCount,
+                packChrome?.pickerShoppers ?? 0,
+                Int(pickerSummary?.headline ?? 0)
+            ),
+            pickerStrong: max(cachedPickerBoard.strongCount, packChrome?.pickerStrong ?? 0),
+            pickerOpportunity: max(
+                cachedPickerBoard.opportunityCount,
+                packChrome?.pickerOpportunity ?? 0,
+                pickerSummary?.riskCount ?? 0
+            )
+        )
+    }
+
+    /// Headlines only so the Share sheet can appear before HTML is streamed.
+    func pulseMailBriefSnapshot(_ pages: Set<PulseMail.SharePage>) -> PulseMail.Snapshot {
+        var needed: Set<MetricSection> = []
+        for page in pages {
+            if let section = page.section { needed.insert(section) }
+        }
+        return PulseMail.Snapshot(
+            filterSummary: filters.summary,
+            grain: effectiveDashboardGrain.rawValue,
+            summaries: pages.contains(.dashboard) ? summaries : summaries.filter { needed.contains($0.section) },
+            rows: [:],
+            pickerCounts: [:],
             generatedAt: Date()
         )
     }

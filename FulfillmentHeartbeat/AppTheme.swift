@@ -12,6 +12,8 @@ enum AppTheme {
     static let heart = Color(hex: "00285C")
     /// Lighter Albertsons blue — ECG pulse and "ment" in the wordmark.
     static let pulse = Color(hex: "00A9E0")
+    /// Live Stores N on navy heroes — Pulse / PBI gold, never grey.
+    static let gold = Color(hex: "D4A017")
 
     /// Same canvas as the HUB app.
     static let bg = Color(hex: "F5F7FC")
@@ -261,8 +263,16 @@ enum HubLayout {
     static let profile: Profile = makeProfile()
 
     static var kind: Kind { profile.kind }
-    static var isPhoneDevice: Bool { profile.kind == .phone }
-    static var isPadDevice: Bool { profile.kind == .pad }
+    /// Live idiom — never trust a cached profile alone (iPhone 13…17 Pro).
+    static var livePhoneIdiom: Bool {
+        #if targetEnvironment(macCatalyst)
+        return false
+        #else
+        return UIDevice.current.userInterfaceIdiom == .phone
+        #endif
+    }
+    static var isPhoneDevice: Bool { profile.kind == .phone || livePhoneIdiom }
+    static var isPadDevice: Bool { profile.kind == .pad && !livePhoneIdiom }
     static var isMac: Bool { profile.kind == .mac }
     static var lowMemory: Bool { profile.ramGB < 6 }
     static var lightLaunch: Bool { profile.lightLaunch }
@@ -271,40 +281,302 @@ enum HubLayout {
     /// Only the Mac builds the sqlite pack from Excel. Phones and iPads never unzip xlsx.
     static var ingestsWorkbook: Bool { isMac }
 
+    /// Live idiom or compact. Never cached `profile.phoneChrome` — that left 718 on iPad tables.
+    /// Mac Catalyst compact windows stay Mac — phone D1–D5 shrink is phone-only.
     static func isPhone(_ sizeClass: UserInterfaceSizeClass?) -> Bool {
-        _ = sizeClass
-        return profile.phoneChrome
+        if isMac && !PulseLaunch.shouldApplyPhoneCompactChromeOnMac() { return false }
+        if livePhoneIdiom { return true }
+        return sizeClass == .compact
+    }
+
+    /// Scorecards + shopper lists: idiom == .phone OR compact. Width is only a split-view assist.
+    /// Mac never mounts phone scorecards / phone picker cards.
+    static func usesPhoneScorecards(
+        sizeClass: UserInterfaceSizeClass?,
+        width: CGFloat = 0
+    ) -> Bool {
+        PulseLaunch.shouldUsePickerPhoneCards(
+            compact: sizeClass == .compact,
+            phoneIdiom: livePhoneIdiom,
+            phone: isPhone(sizeClass),
+            width: width,
+            mac: isMac
+        )
+    }
+
+    /// Pad table atoms call this and return EmptyView / a phone card. No fallback.
+    static func refusesPadTable(_ sizeClass: UserInterfaceSizeClass?) -> Bool {
+        isPhone(sizeClass)
+    }
+
+    /// Pad-only sticky store header. iPhone landscape is `.regular` width —
+    /// that must not re-pin a second header over the brand / filter / banner stack.
+    static func pinsStickyStoreHeader(_ sizeClass: UserInterfaceSizeClass?) -> Bool {
+        sizeClass == .regular && !isPhone(sizeClass)
     }
 
     static var grainCap: Int { profile.grainCap }
     static var storeGrainCap: Int { profile.storeGrainCap }
+
+    /// Floor width so currency and percents stay whole; narrower screens scroll.
+    static func readableTableFloor(
+        phone: Bool,
+        columns: Int,
+        showCount: Bool,
+        district: Bool = false,
+        valueMin: CGFloat? = nil
+    ) -> CGFloat {
+        let label = scopeLabelWidth(district: district, phone: phone)
+        let stores: CGFloat = showCount ? readableStoreWidth(phone: phone) : 0
+        let value = valueMin ?? readableValueMin(phone: phone)
+        let status = readableStatusWidth(phone: phone)
+        let pad: CGFloat = 28 + CGFloat(columns + (showCount ? 2 : 1)) * tableGutter
+        return label + stores + CGFloat(max(columns, 1)) * value + status + pad
+    }
+
+    /// Use the window when it is wider than the readable floor (iPad, iPhone, Mac).
+    static func tableSpan(available: CGFloat, floor: CGFloat) -> CGFloat {
+        max(available, floor)
+    }
+
+    /// Many-column dashboard grains use a tighter min so the table fits/scrolls instead of exploding.
+    static func dashboardValueMin(phone: Bool, columns: Int) -> CGFloat {
+        if columns >= 8 { return phone ? 72 : (MacReadable.enabled ? 108 : 88) }
+        if columns >= 6 { return phone ? 84 : (MacReadable.enabled ? 116 : 96) }
+        return readableValueMin(phone: phone)
+    }
+
+    /// Extra width is split evenly across value columns. Never thinner than the readable min.
+    static func evenValueWidth(
+        available: CGFloat,
+        phone: Bool,
+        columns: Int,
+        showCount: Bool,
+        district: Bool = false,
+        valueMin: CGFloat? = nil
+    ) -> CGFloat {
+        let label = scopeLabelWidth(district: district, phone: phone)
+        let minVal = valueMin ?? readableValueMin(phone: phone)
+        let floor = readableTableFloor(
+            phone: phone,
+            columns: columns,
+            showCount: showCount,
+            district: district,
+            valueMin: minVal
+        )
+        let span = tableSpan(available: available, floor: floor)
+        let gutters = tableGutter * CGFloat(max(columns, 1) + (showCount ? 2 : 1))
+        let reserved = label
+            + (showCount ? readableStoreWidth(phone: phone) : 0)
+            + readableStatusWidth(phone: phone)
+            + gutters
+            + 16
+        let leftover = max(span - reserved, 0)
+        return max(minVal, leftover / CGFloat(max(columns, 1)))
+    }
+
+    /// Wide enough for "California Region" and "24500 | A2 | Mid-Atlantic".
+    static func readableLabelWidth(phone: Bool, available: CGFloat = 0) -> CGFloat {
+        let minW: CGFloat = phone ? 156 : (MacReadable.enabled ? 268 : 228)
+        let maxW: CGFloat = phone ? 188 : (MacReadable.enabled ? 320 : 268)
+        guard available > 0 else { return minW }
+        return min(maxW, max(minW, available * (phone ? 0.30 : 0.18)))
+    }
+
+    static var pageLabelWidth: CGFloat { readableLabelWidth(phone: isPhoneDevice) }
+
+    /// District codes are short (J3, 03). Do not reserve the store-label column.
+    static func scopeLabelWidth(district: Bool, phone: Bool = isPhoneDevice) -> CGFloat {
+        if district { return phone ? 72 : 88 }
+        return readableLabelWidth(phone: phone)
+    }
+    static func readableStoreWidth(phone: Bool) -> CGFloat {
+        if MacReadable.enabled { return 80 }
+        return phone ? 58 : 68
+    }
+    static func readableValueMin(phone: Bool) -> CGFloat {
+        if MacReadable.enabled { return 152 }
+        return phone ? 118 : 128
+    }
+    static func readableStatusWidth(phone: Bool) -> CGFloat {
+        MacReadable.enabled ? 108 : 88
+    }
+    static var tableGutter: CGFloat { MacReadable.enabled ? 8 : 6 }
     static var pickerCap: Int { 50 }
     static var hydrateNeighbors: Bool { profile.hydrateNeighbors }
     static var rasterizeSwipe: Bool { profile.rasterizeSwipe }
 
-    static func phoneBannerTitleFont() -> Font { AppTheme.rounded(.footnote, weight: .bold) }
-    static func phoneBannerIconFont() -> Font { AppTheme.rounded(.footnote, weight: .semibold) }
-    static var phoneControlHeight: CGFloat { 30 }
+    /// Sales-style callouts: readable, but tighter than the oversized 324 tiles.
+    static func calloutMinHeight(phone: Bool) -> CGFloat {
+        if MacReadable.enabled { return 120 }
+        return phone ? 62 : 98
+    }
+    static func calloutValueSize(phone: Bool) -> CGFloat {
+        if MacReadable.enabled { return 28 }
+        return phone ? 20 : 22
+    }
+    static func calloutMinWidth(phone: Bool) -> CGFloat {
+        if MacReadable.enabled { return 176 }
+        return phone ? 136 : 152
+    }
+    static var calloutGridSpacing: CGFloat { 8 }
+
+    static func phoneBannerTitleFont() -> Font {
+        AppTheme.rounded(
+            PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? .headline : .title3,
+            weight: .bold
+        )
+    }
+    static func phoneBannerIconFont() -> Font {
+        AppTheme.rounded(
+            PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? .headline : .title3,
+            weight: .semibold
+        )
+    }
+    static func phoneChromePillFont() -> Font {
+        PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? .subheadline : .title3
+    }
+    static func phoneFilterFocusFont() -> Font {
+        PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? .subheadline : .title3
+    }
+    static func phoneFilterFocusChipMinHeight() -> CGFloat {
+        PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? 44 : 52
+    }
+    static func phoneBrandBarStackSpacing() -> CGFloat {
+        PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? 4 : 6
+    }
+    static func phoneBrandBarTopPadding() -> CGFloat {
+        PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? 0 : 2
+    }
+    static func phoneBrandBarBottomPadding() -> CGFloat {
+        PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? 4 : 6
+    }
+    static func phoneFilterPillSpacing() -> CGFloat {
+        PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? 8 : 10
+    }
+    static func phoneBannerVerticalPadding() -> CGFloat {
+        PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? 4 : 6
+    }
+    /// Mac Catalyst readable chrome. Phone compact tokens must not use these.
+    /// App-wide scale for every page — Command Center, sections, tables, chips, filters.
+    enum MacReadable {
+        static var enabled: Bool {
+            HubLayout.isMac && PulseLaunch.shouldUseExpandedMacReadableChrome()
+        }
+        static var sidebarWidth: CGFloat { 304 }
+        static var sidebarIcon: CGFloat { 40 }
+        static var controlMin: CGFloat { 60 }
+        static var glanceFloor: CGFloat { 196 }
+        static var heroBandMax: CGFloat { 196 }
+        static var heroValue: CGFloat { 44 }
+        static var glanceValue: CGFloat { 40 }
+        static var columnScale: CGFloat { 1.28 }
+        static var chromeFont: Font { .title3.weight(.semibold) }
+        static var tableFont: Font { .body.weight(.semibold) }
+        static var headerFont: Font { .body.weight(.bold) }
+        static var badgeFont: Font { .title3.weight(.heavy) }
+        static var tableHeaderFont: Font { .title2.weight(.bold) }
+        static var metricHeaderFont: Font { enabled ? .body.weight(.bold) : .caption.weight(.bold) }
+        static var metricLineFont: Font { enabled ? .title3.weight(.semibold) : .subheadline.weight(.semibold) }
+        static var metricValueFont: Font { enabled ? .title3.weight(.bold).monospacedDigit() : .subheadline.weight(.bold).monospacedDigit() }
+        static var metricStatusFont: Font { enabled ? .body.weight(.heavy) : .caption.weight(.heavy) }
+        static var dynamicTypeSize: DynamicTypeSize { .xxxLarge }
+    }
+
+    /// Apple HIG minimum hit target on iPhone. Do not shrink Mac / iPad.
+    static var phoneHitTarget: CGFloat { 44 }
+    static var phoneControlHeight: CGFloat { phoneHitTarget }
     static var phoneInset: CGFloat { 12 }
 
     static func flagColumns(count: Int, width: CGFloat) -> Int {
+        calloutColumns(count: count, width: width)
+    }
+
+    /// Even KPI tiles: 2 on phone portrait, 3–4 on iPad / landscape / Mac.
+    static func calloutColumns(count: Int, width: CGFloat, sizeClass: UserInterfaceSizeClass? = .regular) -> Int {
         guard count > 0 else { return 1 }
-        if profile.phoneChrome { return 1 }
-        if width < 500 { return 1 }
-        let chip: CGFloat
-        if width < 700 { chip = 164 }
-        else if width >= 1100 { chip = 196 }
-        else { chip = 176 }
-        return max(1, min(count, Int(max(width, chip) / chip)))
+        let maxCols: Int
+        if isPhone(sizeClass) {
+            if width >= 700 { maxCols = 4 }
+            else if width >= 520 { maxCols = 3 }
+            else { maxCols = 2 }
+        } else if width >= 1100 {
+            maxCols = 4
+        } else if width >= 840 {
+            maxCols = 4
+        } else if width >= 760 {
+            maxCols = 3
+        } else {
+            maxCols = 2
+        }
+        if count == 5 { return min(3, maxCols) }
+        if count == 7 { return min(4, maxCols) }
+        var cols = max(1, min(count, maxCols))
+        let minTile = calloutMinWidth(phone: isPhone(sizeClass))
+        if width > 1 {
+            while cols >= 3 {
+                let needed = CGFloat(cols) * minTile + CGFloat(max(cols - 1, 0)) * calloutGridSpacing
+                if width >= needed { break }
+                cols -= 1
+            }
+        }
+        return cols
+    }
+
+    /// Logical points for the supported floor: iPhone 13+ and 12.9"/13" iPad Pro.
+    enum SupportedCanvas {
+        static let phonePortrait: CGFloat = 390
+        static let phoneLandscape: CGFloat = 844
+        static let padPortrait: CGFloat = 1024
+        static let padLandscape: CGFloat = 1366
+    }
+
+    /// True when equal callout tiles fit the canvas without overflowing.
+    static func calloutsFitCanvas(count: Int, width: CGFloat, phone: Bool) -> Bool {
+        let cols = calloutColumns(count: count, width: width)
+        let tile = calloutTileMinWidth(columns: cols, width: width, phone: phone)
+        let needed = CGFloat(cols) * tile + CGFloat(max(cols - 1, 0)) * calloutGridSpacing
+        return needed <= width + 0.5 && tile >= 64
+    }
+
+    /// True when value columns stay at least the readable min, or the table
+    /// is allowed to scroll horizontally (never clips numbers off-screen).
+    static func tableFlowsOnCanvas(
+        available: CGFloat,
+        phone: Bool,
+        columns: Int,
+        showCount: Bool,
+        district: Bool = false
+    ) -> Bool {
+        let even = evenValueWidth(
+            available: available,
+            phone: phone,
+            columns: columns,
+            showCount: showCount,
+            district: district
+        )
+        let minVal = dashboardValueMin(phone: phone, columns: columns)
+        if even + 0.5 >= minVal { return true }
+        let floor = readableTableFloor(
+            phone: phone,
+            columns: columns,
+            showCount: showCount,
+            district: district,
+            valueMin: minVal
+        )
+        return available + 0.5 < floor
+    }
+
+    /// Grid columns must never demand more width than the card.
+    static func calloutTileMinWidth(columns: Int, width: CGFloat, phone: Bool) -> CGFloat {
+        let cols = max(columns, 1)
+        let spacing = calloutGridSpacing * CGFloat(cols - 1)
+        let fit = max(width - spacing, 1) / CGFloat(cols)
+        return max(64, min(calloutMinWidth(phone: phone), fit))
     }
 
     static func kpiColumns(width: CGFloat, sizeClass: UserInterfaceSizeClass? = .regular) -> Int {
-        if isPhone(sizeClass) {
-            return width >= 640 ? 3 : 2
-        }
-        if width >= 1100 { return 5 }
-        if width >= 860 { return 4 }
-        return 4
+        calloutColumns(count: 8, width: width, sizeClass: sizeClass)
     }
 
     static func uploadColumns(width: CGFloat, sizeClass: UserInterfaceSizeClass? = .regular) -> Int {
@@ -313,8 +585,13 @@ enum HubLayout {
     }
 
     static func grid(_ count: Int, spacing: CGFloat = 12, minWidth: CGFloat = 140) -> [GridItem] {
-        Array(repeating: GridItem(.flexible(minimum: minWidth), spacing: spacing), count: max(1, count))
+        Array(
+            repeating: GridItem(.flexible(minimum: 0, maximum: .infinity), spacing: spacing),
+            count: max(1, count)
+        )
     }
+
+    static func calloutTileHeight(phone: Bool) -> CGFloat { calloutMinHeight(phone: phone) }
 
     private static func makeProfile() -> Profile {
         let kind = detectKind()
@@ -338,9 +615,9 @@ enum HubLayout {
             lightLaunch: lightLaunch,
             phoneChrome: kind == .phone,
             hydrateNeighbors: false,
-            rasterizeSwipe: kind == .pad && !fourGig,
-            grainCap: lightLaunch ? 12 : 24,
-            storeGrainCap: lightLaunch ? 16 : 50
+            rasterizeSwipe: false,
+            grainCap: kind == .mac ? 24 : (kind == .pad ? 16 : 12),
+            storeGrainCap: kind == .mac ? 50 : (kind == .pad ? 24 : 16)
         )
     }
 
@@ -401,11 +678,32 @@ enum HubLayout {
     }
 }
 
-private struct HubWidthKey: PreferenceKey {
+struct HubWidthKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
         let next = nextValue()
         if next > 0 { value = next }
+    }
+}
+
+/// Table scrollers must not share HubWidthKey with dashboard card readWidth —
+/// that preference war relayouts every grain table after ready and heats the iPad.
+struct HubScrollWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        let next = nextValue()
+        if next > 0 { value = next }
+    }
+}
+
+private struct HubTableWidthKey: EnvironmentKey {
+    static let defaultValue: CGFloat = 0
+}
+
+extension EnvironmentValues {
+    var hubTableWidth: CGFloat {
+        get { self[HubTableWidthKey.self] }
+        set { self[HubTableWidthKey.self] = newValue }
     }
 }
 

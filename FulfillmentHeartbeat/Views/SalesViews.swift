@@ -3,10 +3,13 @@ import SwiftUI
 struct OverviewSalesBlock: View {
     @EnvironmentObject private var store: HeartbeatStore
     @Environment(\.horizontalSizeClass) private var sizeClass
+    /// Scorecard mounts week total + by day only. Mid grain tables are the rollup host.
+    var includeMidRollup: Bool = true
 
-    private var phone: Bool { HubLayout.isPhone(sizeClass) }
+    private var phone: Bool { HubLayout.usesPhoneScorecards(sizeClass: sizeClass) }
 
     var body: some View {
+        let _ = store.seatPaintStamp
         let stores = store.salesStores()
         let total = SalesPack(rows: stores)
         let mid = midRows(from: stores)
@@ -14,11 +17,11 @@ struct OverviewSalesBlock: View {
             from: stores,
             company: store.filters.isActive ? nil : store.salesCompanyFact()
         )
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: phone ? 10 : 16) {
             overviewTable(title: scopeTitle, rows: [
                 SalesRollupRow(label: scopeTitle, storeCount: Set(stores.map(\.storeNumber)).count, pack: total)
             ], showCount: true)
-            if !mid.rows.isEmpty {
+            if includeMidRollup, !mid.rows.isEmpty {
                 overviewTable(title: mid.title, rows: mid.rows, showCount: mid.showCount)
             }
             if !days.isEmpty {
@@ -55,7 +58,9 @@ struct OverviewSalesBlock: View {
             return ("By District", SalesRollupBuilder.rows(from: stores, grain: .district), true)
         }
         if !filters.region.isEmpty {
-            return ("By Market", SalesRollupBuilder.rows(from: stores, grain: .division), true)
+            let markets = SalesRollupBuilder.rows(from: stores, grain: .division)
+                .filter { !RollupMarketFill.hidesUnassignedMarket($0.label) }
+            return ("By Market", markets, true)
         }
         return ("By Region", regionRows(from: stores), true)
     }
@@ -107,6 +112,56 @@ struct OverviewSalesAlignedTable: View {
     let title: String
     let rows: [SalesRollupRow]
     var showCount: Bool
+    var district: Bool = false
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
+    private var phone: Bool { HubLayout.usesPhoneScorecards(sizeClass: sizeClass) }
+    private var valueMin: CGFloat { HubLayout.dashboardValueMin(phone: phone, columns: 8) }
+    private var floor: CGFloat {
+        HubLayout.readableTableFloor(
+            phone: phone,
+            columns: 8,
+            showCount: showCount,
+            district: district,
+            valueMin: valueMin
+        )
+    }
+
+    var body: some View {
+        HubAdaptiveHScroll(minWidth: floor, minHeight: CGFloat(max(rows.count, 1)) * 36 + 48) {
+            OverviewSalesColumns(
+                title: title,
+                rows: rows,
+                showCount: showCount,
+                district: district,
+                phone: phone,
+                valueMin: valueMin
+            )
+        }
+    }
+}
+
+private struct OverviewSalesColumns: View {
+    let title: String
+    let rows: [SalesRollupRow]
+    var showCount: Bool
+    var district: Bool
+    var phone: Bool
+    var valueMin: CGFloat
+    @Environment(\.hubTableWidth) private var tableWidth
+
+    private var labelWidth: CGFloat { HubLayout.scopeLabelWidth(district: district, phone: phone) }
+    private var storeWidth: CGFloat { HubLayout.readableStoreWidth(phone: phone) }
+    private var valueWidth: CGFloat {
+        HubLayout.evenValueWidth(
+            available: tableWidth,
+            phone: phone,
+            columns: 8,
+            showCount: showCount,
+            district: district,
+            valueMin: valueMin
+        )
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -135,12 +190,10 @@ struct OverviewSalesAlignedTable: View {
                     status: nil,
                     health: item.pack.health == .none && (item.pack.sales ?? 0) > 0 ? .good : item.pack.health,
                     header: false,
-                    yoyRisk: (item.pack.yoy ?? 0) < 0,
                     stripe: index.isMultiple(of: 2)
                 )
             }
         }
-        .frame(maxWidth: .infinity)
     }
 
     private func row(
@@ -150,22 +203,33 @@ struct OverviewSalesAlignedTable: View {
         status: String?,
         health: Health?,
         header: Bool,
-        yoyRisk: Bool = false,
         stripe: Bool = false
     ) -> some View {
-        HStack(spacing: 6) {
+        let metricHeaders = ["Sales $", "YoY %", "Orders", "Ord YoY", "AOS", "AIV", "Items/Txn", "Items"]
+        return HStack(spacing: HubLayout.tableGutter) {
             Text(header ? label.uppercased() : label)
                 .font(AppTheme.rounded(header ? .caption2 : .subheadline, weight: header ? .bold : .semibold))
                 .foregroundStyle(header ? AppTheme.textSecondary : AppTheme.text)
                 .lineLimit(1)
-                .minimumScaleFactor(0.75)
-                .frame(width: 132, alignment: .leading)
-            cell(stores, header: header, secondary: true)
+                .minimumScaleFactor(0.62)
+                .frame(width: labelWidth, alignment: .leading)
+            if showCount {
+                cell(stores, header: header, width: storeWidth, secondary: true)
+            }
             ForEach(Array(values.enumerated()), id: \.offset) { index, text in
+                let title = index < metricHeaders.count ? metricHeaders[index] : text
                 cell(
                     text,
                     header: header,
-                    tone: header ? nil : tone(index: index, yoyRisk: yoyRisk, health: health)
+                    width: valueWidth,
+                    tone: header ? nil : HeartbeatMath.dashboardExpandCellHealth(
+                        section: .sales,
+                        header: title,
+                        text: text,
+                        rowHealth: health ?? .none,
+                        values: values,
+                        headers: metricHeaders
+                    )
                 )
             }
             Group {
@@ -173,29 +237,27 @@ struct OverviewSalesAlignedTable: View {
                     Text(status ?? "STATUS")
                         .font(AppTheme.rounded(.caption2, weight: .bold))
                         .foregroundStyle(AppTheme.textSecondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
                 } else if let health {
                     HealthBadge(health: health, prominent: true, compact: true)
                 }
             }
-            .frame(width: 84, alignment: .trailing)
+            .frame(width: HubLayout.readableStatusWidth(phone: phone), alignment: .trailing)
         }
         .padding(.horizontal, 8)
         .padding(.vertical, header ? 6 : 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(stripe ? AppTheme.blueSoft.opacity(0.35) : Color.clear)
     }
 
-    private func cell(_ text: String, header: Bool, secondary: Bool = false, tone: Health? = nil) -> some View {
+    private func cell(_ text: String, header: Bool, width: CGFloat, secondary: Bool = false, tone: Health? = nil) -> some View {
         Text(header ? text.uppercased() : text)
             .font(AppTheme.rounded(header ? .caption2 : .subheadline, weight: header ? .bold : .bold).monospacedDigit())
             .foregroundStyle(header ? AppTheme.textSecondary : ink(tone, secondary: secondary))
             .lineLimit(1)
-            .minimumScaleFactor(0.7)
-            .frame(maxWidth: .infinity, alignment: .trailing)
-    }
-
-    private func tone(index: Int, yoyRisk: Bool, health: Health?) -> Health? {
-        if index == 0 || index == 1 { return yoyRisk ? .risk : health }
-        return nil
+            .minimumScaleFactor(0.55)
+            .frame(width: width, alignment: .trailing)
     }
 
     private func ink(_ health: Health?, secondary: Bool) -> Color {
@@ -209,158 +271,35 @@ struct OverviewSalesAlignedTable: View {
     }
 }
 
-struct SalesPack {
-    let sales: Double?
-    let yoy: Double?
-    let orders: Double?
-    let ordersYoy: Double?
-    let aos: Double?
-    let aiv: Double?
-    let items: Double?
-    let ipt: Double?
-    let hd: Double?
-    let dug: Double?
-    let health: Health
-
-    init(_ row: MetricRow, prefix: String = "sales_") {
-        if prefix == "sales_" {
-            let week = row.number("sales_dollars")
-            let days = HeartbeatMath.salesHeadlineDollars(row)
-            sales = max(week ?? 0, days) == 0 ? week : max(week ?? 0, days)
-        } else {
-            sales = row.number(prefix + "dollars")
-        }
-        yoy = row.number(prefix + "yoy_pct")
-        orders = row.number(prefix + "orders")
-        ordersYoy = row.number(prefix + "orders_yoy_pct")
-        aos = row.number(prefix + "aos") ?? row.number(prefix + "aov")
-        aiv = row.number(prefix + "aiv")
-        items = row.number(prefix + "items")
-        ipt = row.number(prefix + "ipt")
-        hd = row.number(prefix + "hd_orders")
-        dug = row.number(prefix + "dug_orders")
-        health = HeartbeatMath.salesHealth(planPct: nil, yoy: yoy)
-    }
-
-    /// Company math: sum $, sum orders, sum items. YoY is this-year vs last-year, not an average of store %.
-    /// AOS = $/orders. AIV = $/items. Items/txn = items/orders.
-    init(rows: [MetricRow]) {
-        let sales = rows.reduce(0) { $0 + HeartbeatMath.salesHeadlineDollars($1) }
-        let orders = rows.reduce(0) { $0 + HeartbeatMath.salesOrders($1) }
-        let items = rows.reduce(0) { $0 + HeartbeatMath.salesItems($1) }
-        let hd = rows.compactMap { $0.number("sales_hd_orders") }.reduce(0, +)
-        let dug = rows.compactMap { $0.number("sales_dug_orders") }.reduce(0, +)
-        self.sales = sales
-        self.orders = orders
-        self.items = items
-        self.hd = hd
-        self.dug = dug
-        self.yoy = HeartbeatMath.salesRollupYoY(
-            current: rows.map { HeartbeatMath.salesHeadlineDollars($0) },
-            yoyPct: rows.map { $0.number("sales_yoy_pct") }
-        )
-        self.aos = orders > 0 ? sales / orders : nil
-        self.aiv = items > 0 ? sales / items : nil
-        self.ipt = orders > 0 ? items / orders : nil
-        self.ordersYoy = HeartbeatMath.salesRollupYoY(
-            current: rows.map { HeartbeatMath.salesOrders($0) },
-            yoyPct: rows.map { $0.number("sales_orders_yoy_pct") }
-        )
-        self.health = HeartbeatMath.salesHealth(planPct: nil, yoy: yoy)
-    }
-
-    init(
-        sales: Double?,
-        yoy: Double?,
-        orders: Double?,
-        ordersYoy: Double?,
-        aos: Double?,
-        aiv: Double?,
-        items: Double?,
-        ipt: Double?,
-        hd: Double?,
-        dug: Double?,
-        health: Health
-    ) {
-        self.sales = sales
-        self.yoy = yoy
-        self.orders = orders
-        self.ordersYoy = ordersYoy
-        self.aos = aos
-        self.aiv = aiv
-        self.items = items
-        self.ipt = ipt
-        self.hd = hd
-        self.dug = dug
-        self.health = health
-    }
-}
-
 struct OverviewSalesPhoneCard: View {
     let label: String
     var count: Int? = nil
     let pack: SalesPack
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(label)
-                    .font(AppTheme.rounded(.subheadline, weight: .bold))
-                    .foregroundStyle(AppTheme.text)
-                    .lineLimit(1)
-                if let count {
-                    Text("\(count) stores")
-                        .font(AppTheme.rounded(.caption, weight: .semibold))
-                        .foregroundStyle(AppTheme.textSecondary)
-                }
-                Spacer()
-                HealthBadge(health: pack.health == .none && (pack.sales ?? 0) > 0 ? .good : pack.health, prominent: true, compact: true)
-            }
-            HStack {
-                phoneMetric("Sales $", HeartbeatFormat.money(pack.sales))
-                phoneMetric("YoY", HeartbeatFormat.pct(pack.yoy))
-            }
-            HStack {
-                phoneMetric("Orders", HeartbeatFormat.num(pack.orders, digits: 0))
-                phoneMetric("Ord YoY", HeartbeatFormat.pct(pack.ordersYoy))
-            }
-            HStack {
-                phoneMetric("AOS", HeartbeatFormat.money(pack.aos))
-                phoneMetric("AIV", HeartbeatFormat.num(pack.aiv, digits: 2))
-            }
-            HStack {
-                phoneMetric("Items/Txn", HeartbeatFormat.num(pack.ipt, digits: 1))
-                phoneMetric("Items", HeartbeatFormat.num(pack.items, digits: 0))
-            }
-        }
-        .tableRowCard(health: pack.health)
+        let cardHealth = pack.health == .none && (pack.sales ?? 0) > 0 ? Health.good : pack.health
+        return PhoneScorecardRow(
+            title: label,
+            eyebrow: "Sales",
+            subtitle: count.flatMap { $0 > 0 ? ($0 == 1 ? "1 store" : "\($0) stores") : nil },
+            chips: [
+                PhoneMetricChip(label: "Sales $", value: HeartbeatFormat.money(pack.sales), health: cardHealth),
+                PhoneMetricChip(label: "YoY", value: HeartbeatFormat.pct(pack.yoy), health: cardHealth),
+                PhoneMetricChip(label: "Orders", value: HeartbeatFormat.num(pack.orders, digits: 0)),
+                PhoneMetricChip(label: "Ord YoY", value: HeartbeatFormat.pct(pack.ordersYoy)),
+                PhoneMetricChip(label: "AOS", value: HeartbeatFormat.money(pack.aos)),
+                PhoneMetricChip(label: "AIV", value: HeartbeatFormat.num(pack.aiv, digits: 2)),
+                PhoneMetricChip(label: "Items/Txn", value: HeartbeatFormat.num(pack.ipt, digits: 1)),
+                PhoneMetricChip(label: "Items", value: HeartbeatFormat.num(pack.items, digits: 0))
+            ],
+            health: cardHealth
+        )
     }
-
-    private func phoneMetric(_ title: String, _ value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title.uppercased())
-                .font(AppTheme.rounded(.caption2, weight: .bold))
-                .foregroundStyle(AppTheme.textSecondary)
-            Text(value)
-                .font(AppTheme.rounded(.subheadline, weight: .bold))
-                .foregroundStyle(AppTheme.text)
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-struct SalesRollupRow: Identifiable {
-    var id: String { label }
-    let label: String
-    let storeCount: Int
-    let pack: SalesPack
 }
 
 enum SalesRollupBuilder {
     static func grain(for filters: DashboardFilters) -> LaborRollupGrain? {
-        RollupMarketFill.grain(for: filters)
+        PulseLaunch.sectionRollupGrains(filters: filters).first.map(LaborRollupGrain.init)
     }
 
     static func source(from rows: [MetricRow], filters: DashboardFilters, roster: [String: HeartbeatMath.StoreIdentity] = [:]) -> [MetricRow] {
@@ -402,25 +341,11 @@ enum SalesRollupBuilder {
     static func rows(from stores: [MetricRow], grain: LaborRollupGrain) -> [SalesRollupRow] {
         var buckets: [String: [MetricRow]] = [:]
         for row in stores {
-            let key: String
-            switch grain {
-            case .region:
-                key = RollupMarketFill.bucketKey(row, grain: .region)
-                if key == "Unassigned" { continue }
-            case .division:
-                key = RollupMarketFill.divisionKey(row.division)
-                if key == "Unassigned" { continue }
-            case .district:
-                key = RollupMarketFill.districtKey(row.district)
-                if key == "Unassigned" { continue }
-            case .store:
-                key = HeartbeatMath.canonicalStore(row.storeNumber)
-            }
-            guard !key.isEmpty, HeartbeatMath.salesHeadlineDollars(row) > 0 || HeartbeatMath.salesOrders(row) > 0 else { continue }
+            guard let key = RollupMarketFill.acceptedGrainKey(row, grain: grain) else { continue }
+            guard HeartbeatMath.salesHeadlineDollars(row) > 0 || HeartbeatMath.salesOrders(row) > 0 else { continue }
             buckets[key, default: []].append(row)
         }
         return buckets.keys.sorted().compactMap { key in
-            if key == "Unassigned" { return nil }
             let packRows = buckets[key] ?? []
             let pack = SalesPack(rows: packRows)
             guard pack.sales != nil || pack.orders != nil else { return nil }
@@ -531,17 +456,18 @@ enum SalesRollupBuilder {
 }
 
 private enum SalesCols {
-    static let label: CGFloat = 200
-    static let count: CGFloat = 64
-    static let sales: CGFloat = 128
-    static let yoy: CGFloat = 80
-    static let orders: CGFloat = 80
-    static let ordersYoy: CGFloat = 80
-    static let aos: CGFloat = 84
-    static let aiv: CGFloat = 60
-    static let ipt: CGFloat = 76
-    static let items: CGFloat = 96
-    static let status: CGFloat = 92
+    static var bump: CGFloat { HubLayout.MacReadable.enabled ? HubLayout.MacReadable.columnScale : 1 }
+    static var label: CGFloat { 200 * bump }
+    static var count: CGFloat { 64 * bump }
+    static var sales: CGFloat { 128 * bump }
+    static var yoy: CGFloat { 80 * bump }
+    static var orders: CGFloat { 80 * bump }
+    static var ordersYoy: CGFloat { 80 * bump }
+    static var aos: CGFloat { 84 * bump }
+    static var aiv: CGFloat { 60 * bump }
+    static var ipt: CGFloat { 76 * bump }
+    static var items: CGFloat { 96 * bump }
+    static var status: CGFloat { 92 * bump }
 }
 
 struct SalesMetricHeader: View {
@@ -570,7 +496,7 @@ struct SalesMetricHeader: View {
             head("Status", key: "status", alignment: .trailing)
                 .frame(width: SalesCols.status, alignment: .trailing)
         }
-        .font(.caption.weight(.bold))
+        .font(HubLayout.MacReadable.metricHeaderFont)
         .tracking(0.3)
         .lineLimit(1)
         .minimumScaleFactor(0.65)
@@ -620,7 +546,7 @@ private struct SalesMetricLine: View {
                         .frame(width: 12)
                 }
                 Text(label)
-                    .font(.subheadline.weight(.semibold))
+                    .font(HubLayout.MacReadable.metricLineFont)
                     .foregroundStyle(AppTheme.text)
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
@@ -628,7 +554,7 @@ private struct SalesMetricLine: View {
             .frame(width: SalesCols.label, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
-                    .font(.subheadline.weight(.semibold).monospacedDigit())
+                    .font(HubLayout.MacReadable.metricLineFont.monospacedDigit())
                     .foregroundStyle(AppTheme.textSecondary)
                     .frame(width: SalesCols.count, alignment: .trailing)
             }
@@ -648,7 +574,7 @@ private struct SalesMetricLine: View {
 
     private func cell(_ value: String, _ health: Health, brand: Bool = false, width: CGFloat) -> some View {
         Text(value)
-            .font(.subheadline.weight(.bold).monospacedDigit())
+            .font(HubLayout.MacReadable.metricValueFont)
             .foregroundStyle(brand ? AppTheme.blue : ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.8)
@@ -677,6 +603,8 @@ private struct SalesMetricLine: View {
 struct SalesRollupTable: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var headerPin: LaborHeaderPin
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    var forcedGrain: LaborRollupGrain? = nil
     @State private var grain: LaborRollupGrain? = .division
     @State private var summary: [SalesRollupRow] = []
     @State private var sortKey = "yoy"
@@ -700,6 +628,19 @@ struct SalesRollupTable: View {
                     }
                     .buttonStyle(.plain)
                     if expanded {
+                        if HubLayout.usesPhoneScorecards(sizeClass: sizeClass) {
+                            VStack(spacing: 8) {
+                                ForEach(summary.prefix(40)) { row in
+                                    OverviewSalesPhoneCard(
+                                        label: row.label,
+                                        count: grain == .store ? nil : row.storeCount,
+                                        pack: row.pack
+                                    )
+                                }
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.bottom, 10)
+                        } else {
                         HubAdaptiveHScroll {
                             VStack(alignment: .leading, spacing: 10) {
                                 SalesMetricHeader(
@@ -722,6 +663,7 @@ struct SalesRollupTable: View {
                         .padding(.horizontal, 16)
                         .padding(.top, 8)
                         .padding(.bottom, 14)
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -739,10 +681,11 @@ struct SalesRollupTable: View {
     }
 
     private func rebuild() {
-        let next = SalesRollupBuilder.grain(for: store.filters)
+        let next = forcedGrain ?? SalesRollupBuilder.grain(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
         var rows = SalesRollupBuilder.rows(from: store.rollupStores(for: .sales), grain: next)
+        rows.removeAll { RollupMarketFill.hidesUnassignedMarket($0.label) }
         rows.sort { lhs, rhs in
             let result: ComparisonResult
             switch sortKey {
@@ -782,6 +725,7 @@ private struct SalesLineSnap: Identifiable {
 struct SalesTable: View {
     @EnvironmentObject private var headerPin: LaborHeaderPin
     @EnvironmentObject private var store: HeartbeatStore
+    @Environment(\.horizontalSizeClass) private var sizeClass
     let rows: [MetricRow]
     @State private var sortKey = "yoy"
     @State private var sortAscending = true
@@ -798,7 +742,7 @@ struct SalesTable: View {
                 EmptyHint(
                     symbol: "cart.fill",
                     title: "No stores in this view",
-                    detail: "Upload the Sales ScoreCard export or pick another filter."
+                    detail: "Sales fill from the Heartbeat pack after ready. Pick another filter if this slice is empty."
                 )
                 .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 20, trailing: 20))
                 .listRowSeparator(.hidden)
@@ -813,6 +757,20 @@ struct SalesTable: View {
                     if !next { headerPin.pinned = false }
                     if next { rebuild() }
                 } content: {
+                    if HubLayout.usesPhoneScorecards(sizeClass: sizeClass) {
+                        PhoneStoreScoreStack(
+                            items: Array(snaps.prefix(limit)),
+                            label: { $0.label },
+                            value: { HeartbeatFormat.money($0.pack.sales) },
+                            health: { $0.pack.health == .none && ($0.pack.sales ?? 0) > 0 ? .good : $0.pack.health },
+                            moreTitle: orderedCount > snaps.count
+                                ? "Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))"
+                                : nil,
+                            onMore: orderedCount > snaps.count
+                                ? { limit += 50; rebuild() }
+                                : nil
+                        )
+                    } else {
                     HubAdaptiveHScroll {
                         VStack(spacing: 0) {
                             SalesMetricHeader(
@@ -851,7 +809,7 @@ struct SalesTable: View {
                                     rebuild()
                                 } label: {
                                     Text("Show more · \(HeartbeatFormat.num(Double(min(limit, orderedCount)))) of \(HeartbeatFormat.num(Double(orderedCount)))")
-                                        .font(.subheadline.weight(.semibold))
+                                        .font(HubLayout.MacReadable.metricLineFont)
                                         .foregroundStyle(AppTheme.blue)
                                         .frame(maxWidth: .infinity)
                                         .padding(.vertical, 12)
@@ -859,6 +817,7 @@ struct SalesTable: View {
                                 .buttonStyle(.plain)
                             }
                         }
+                    }
                     }
                 }
                 .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 20, trailing: 20))
@@ -887,6 +846,7 @@ struct SalesTable: View {
     }
 
     private func rebuild() {
+        guard !PulseLaunch.shouldSkipCollapsedStoreRebuild(expanded: headerPin.storesExpanded) else { return }
         var next = rows.compactMap { row -> SalesLineSnap? in
             let snap = SalesLineSnap(row, identity: store.identity(forStore: row.storeNumber))
             guard snap.pack.sales != nil || snap.pack.orders != nil else { return nil }

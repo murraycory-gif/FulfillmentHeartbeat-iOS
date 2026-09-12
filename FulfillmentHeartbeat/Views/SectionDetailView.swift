@@ -1,5 +1,23 @@
 import SwiftUI
 
+/// Stored content closure so ForEach can call it without capturing a
+/// non-escaping `@ViewBuilder` parameter (compile fail on 75e8f60).
+private struct SectionRollupHost<Content: View>: View {
+    let grains: [DashScopeGrain]
+    let content: (LaborRollupGrain) -> Content
+
+    var body: some View {
+        ForEach(grains, id: \.self) { grain in
+            Section {
+                content(LaborRollupGrain(grain))
+                    .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(AppTheme.bg)
+            }
+        }
+    }
+}
+
 struct SectionDetailView: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var router: HubRouter
@@ -17,16 +35,89 @@ struct SectionDetailView: View {
     @State private var lostRevenueFocus: LostRevenueFocus = .all
     @State private var missingItemsFocus: MissingItemsFocus = .all
     @State private var miCategories: Set<MissingItemDept> = []
-    @State private var showTables = true
+    @State private var showTables = false
     @State private var pageWidth: CGFloat = 980
 
     private var summary: SectionSummary { store.summary(for: section) }
-    private var snapshots: [MetricRow] { store.displayRows(for: section) }
+    private var snapshots: [MetricRow] { store.seatRows(for: section) }
+    private var showStoreTable: Bool { PulseLaunch.shouldShowStoreTable(filters: store.filters) }
+    private var rollupGrains: [DashScopeGrain] {
+        PulseLaunch.sectionRollupGrains(filters: store.filters)
+    }
     private var missingInFile: Bool {
         store.latest(for: section).isEmpty && !store.marketStores().isEmpty
     }
 
     var body: some View {
+        let _ = store.seatPaintStamp
+        Group {
+            if PulseLaunch.shouldMountPadSectionListHost(
+                usesPhoneScorecards: HubLayout.usesPhoneScorecards(sizeClass: sizeClass)
+            ) {
+                padSectionPage
+            } else {
+                PhoneSectionPage(section: section)
+            }
+        }
+        .background {
+            if HubLayout.isMac, PulseLaunch.shouldRespectMacWindowSafeArea() {
+                AppTheme.bg
+            } else {
+                AppTheme.bg.ignoresSafeArea(edges: .bottom)
+            }
+        }
+        .environmentObject(laborHeaderPin)
+        .readWidth($pageWidth)
+        .onPreferenceChange(LaborListTopKey.self) { top in
+            laborHeaderPin.listTop = top
+        }
+        .onAppear {
+            armPage()
+        }
+        .task(id: PulseLaunch.sectionSQLTaskToken(
+            section: section,
+            filterSummary: store.filters.summary,
+            isActive: PulseLaunch.shouldLoadSection(
+                visible: router.current,
+                section: section,
+                pushed: router.pushedSection
+            ),
+            seatPaint: store.seatPaintStamp
+        )) {
+            guard PulseLaunch.shouldLoadSection(
+                visible: router.current,
+                section: section,
+                pushed: router.pushedSection
+            ) else { return }
+            if PulseLaunch.shouldDelaySectionSQL(seatAlreadyPainted: store.seatPaintStamp > 0) {
+                await Task.yield()
+                try? await Task.sleep(nanoseconds: PulseLaunch.pageSectionLoadDelayNanoseconds)
+                guard !Task.isCancelled else { return }
+                guard PulseLaunch.shouldLoadSection(
+                    visible: self.router.current,
+                    section: section,
+                    pushed: self.router.pushedSection
+                ) else { return }
+            }
+            guard !Task.isCancelled else { return }
+            await store.ensureSectionLoaded(section)
+            if Task.isCancelled { return }
+            if section == .preSubOOS {
+                await store.ensureSectionLoaded(.preSubOOSItem)
+            }
+            if section == .pickPath {
+                await store.ensureSectionLoaded(.pickPathPicker)
+            }
+        }
+        .onChange(of: router.current) { _, _ in
+            armPage()
+        }
+        .onChange(of: router.pushedSection) { _, _ in
+            armPage()
+        }
+    }
+
+    private var padSectionPage: some View {
         VStack(spacing: 0) {
             if !HubLayout.isPhone(sizeClass) {
                 HubStickyPageBanner(
@@ -46,100 +137,105 @@ struct SectionDetailView: View {
 
             if showTables {
             if section == .pickerScorecard {
-                Section {
-                    PickerHighlightsPanel(
-                        onSelectOpportunity: { pickerFocus = .opportunity },
-                        onSelectStrong: { pickerFocus = .strong }
-                    )
-                    .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(AppTheme.bg)
+                if PulseLaunch.shouldShowPickerHighlights(filters: store.filters) {
+                    Section {
+                        PickerHighlightsPanel(
+                            showPictures: PulseLaunch.shouldShowPickerIndividualPictures(filters: store.filters),
+                            onSelectOpportunity: { pickerFocus = .opportunity },
+                            onSelectStrong: { pickerFocus = .strong }
+                        )
+                        .listRowInsets(EdgeInsets(
+                            top: 8,
+                            leading: HubLayout.isPhone(sizeClass) ? 12 : 20,
+                            bottom: 8,
+                            trailing: HubLayout.isPhone(sizeClass) ? 12 : 20
+                        ))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(AppTheme.bg)
+                    }
                 }
-                PickerScoreTable(focus: pickerFocus)
+                if PulseLaunch.shouldShowPickerShoppersTable(filters: store.filters) {
+                    PickerScoreTable(focus: pickerFocus)
+                }
             } else if section == .pickPath {
-                Section {
-                    PickPathRollupTable()
-                        .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.bg)
+                SectionRollupHost(grains: rollupGrains) { PickPathRollupTable(forcedGrain: $0) }
+                if showStoreTable {
+                    PickPathTable(rows: pickPathRows)
                 }
-                PickPathTable(rows: pickPathRows)
             } else if section == .dynacap {
-                Section {
-                    DynacapRollupTable()
-                        .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.bg)
+                SectionRollupHost(grains: rollupGrains) { DynacapRollupTable(forcedGrain: $0) }
+                if showStoreTable {
+                    DynacapTable(rows: dynacapRows)
                 }
-                DynacapTable(rows: dynacapRows)
             } else if section == .pph {
-                Section {
-                    PPHRollupTable()
-                        .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.bg)
+                SectionRollupHost(grains: rollupGrains) { PPHRollupTable(forcedGrain: $0) }
+                if showStoreTable {
+                    PPHTable(rows: pphRows)
                 }
-                PPHTable(rows: pphRows)
             } else if section == .scheduleQuality {
-                Section {
-                    ScheduleRollupTable()
-                        .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.bg)
+                SectionRollupHost(grains: rollupGrains) { ScheduleRollupTable(forcedGrain: $0) }
+                if showStoreTable {
+                    ScheduleTable(rows: scheduleRows)
                 }
-                ScheduleTable(rows: scheduleRows)
             } else if section == .prepNotReady {
-                Section {
-                    PrepRollupTable()
-                        .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.bg)
+                SectionRollupHost(grains: rollupGrains) { PrepRollupTable(forcedGrain: $0) }
+                if showStoreTable {
+                    PrepTable(rows: prepRows)
                 }
-                PrepTable(rows: prepRows)
             } else if section == .fiveStar {
-                Section {
-                    FiveStarRollupTable()
-                        .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.bg)
+                SectionRollupHost(grains: rollupGrains) { FiveStarRollupTable(forcedGrain: $0) }
+                if showStoreTable {
+                    FiveStarTable(rows: fiveStarRows)
                 }
-                FiveStarTable(rows: fiveStarRows)
             } else if section == .labor {
-                Section {
-                    LaborRollupTable()
-                        .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.bg)
+                SectionRollupHost(grains: rollupGrains) { LaborRollupTable(forcedGrain: $0) }
+                if showStoreTable {
+                    LaborTable(rows: laborRows)
                 }
-                LaborTable(rows: laborRows)
             } else if section == .lostRevenue {
-                Section {
-                    LostRevenueRollupTable()
-                        .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.bg)
+                SectionRollupHost(grains: rollupGrains) { LostRevenueRollupTable(forcedGrain: $0) }
+                if showStoreTable {
+                    LostRevenueTable(rows: lostRevenueRows)
                 }
-                LostRevenueTable(rows: lostRevenueRows)
             } else if section == .sales {
-                Section {
-                    SalesRollupTable()
-                        .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.bg)
+                if PulseLaunch.shouldShowSalesDayWeekBlock(filters: store.filters) {
+                    Section {
+                        OverviewSalesBlock(includeMidRollup: false)
+                            .listRowInsets(EdgeInsets(
+                                top: 8,
+                                leading: HubLayout.isPhone(sizeClass) ? 12 : 20,
+                                bottom: 8,
+                                trailing: HubLayout.isPhone(sizeClass) ? 12 : 20
+                            ))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(AppTheme.bg)
+                    }
                 }
-                SalesTable(rows: snapshots)
+                SectionRollupHost(grains: rollupGrains) { SalesRollupTable(forcedGrain: $0) }
+                if showStoreTable {
+                    SalesTable(rows: snapshots)
+                }
             } else if section == .missingItems || section == .preSubOOS {
-                Section {
-                    MissingItemsRollupTable(depts: visibleMIDepts, pageWidth: pageWidth, section: section)
+                ForEach(rollupGrains, id: \.self) { grain in
+                    Section {
+                        MissingItemsRollupTable(
+                            depts: visibleMIDepts,
+                            pageWidth: pageWidth,
+                            section: section,
+                            forcedGrain: grain
+                        )
                         .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 8, trailing: 20))
                         .listRowSeparator(.hidden)
                         .listRowBackground(AppTheme.bg)
+                    }
                 }
-                MissingItemsTable(rows: missingItemsRows, depts: visibleMIDepts, pageWidth: pageWidth, section: section)
-                if section == .preSubOOS {
-                    PreSubItemTable(rows: store.displayRows(for: .preSubOOSItem), pageWidth: pageWidth)
+                if showStoreTable {
+                    MissingItemsTable(rows: missingItemsRows, depts: visibleMIDepts, pageWidth: pageWidth, section: section)
+                    if section == .preSubOOS {
+                        PreSubItemTable(rows: store.seatRows(for: .preSubOOSItem), pageWidth: pageWidth)
+                    }
                 }
-            } else {
+            } else if showStoreTable {
                 StoreTable(section: section, rows: snapshots)
             }
             }
@@ -147,10 +243,18 @@ struct SectionDetailView: View {
             .listStyle(.plain)
             .listSectionSpacing(0)
             .scrollContentBackground(.hidden)
+            .contentMargins(
+                .bottom,
+                HubLayout.isMac && PulseLaunch.shouldReserveMacWindowBottomChrome()
+                    ? PulseLaunch.macWindowBottomChrome
+                    : 0,
+                for: .scrollContent
+            )
             .environment(\.defaultMinListRowHeight, 1)
             .transaction { $0.animation = nil }
+            .hubSeatPackRefreshable()
             .background {
-                if sizeClass == .regular {
+                if HubLayout.pinsStickyStoreHeader(sizeClass) {
                     GeometryReader { geo in
                         Color.clear.preference(
                             key: LaborListTopKey.self,
@@ -160,11 +264,11 @@ struct SectionDetailView: View {
                 }
             }
             .onPreferenceChange(LaborHeaderMinYKey.self) { minY in
-                guard sizeClass == .regular else { return }
+                guard HubLayout.pinsStickyStoreHeader(sizeClass) else { return }
                 laborHeaderPin.updatePin(headerMinY: minY)
             }
             .overlay(alignment: .top) {
-                if sizeClass == .regular, laborHeaderPin.storesExpanded && laborHeaderPin.pinned {
+                if showStoreTable, HubLayout.pinsStickyStoreHeader(sizeClass), laborHeaderPin.storesExpanded && laborHeaderPin.pinned {
                     if section == .labor {
                         LaborStickyStoreHeader()
                             .environmentObject(laborHeaderPin)
@@ -196,31 +300,24 @@ struct SectionDetailView: View {
                 }
             }
         }
-        .background(AppTheme.bg.ignoresSafeArea())
-        .environmentObject(laborHeaderPin)
-        .readWidth($pageWidth)
-        .onPreferenceChange(LaborListTopKey.self) { top in
-            laborHeaderPin.listTop = top
-        }
-        .onAppear {
-            armPage()
-        }
-        .task {
-            await store.ensureSectionLoaded(section)
-        }
-        .onChange(of: router.current) { _, _ in
-            armPage()
-        }
     }
 
     private var isActivePage: Bool {
-        router.current.section == section
+        PulseLaunch.isActiveScorecardPage(
+            visible: router.current,
+            section: section,
+            pushed: router.pushedSection
+        )
     }
 
     private func armPage() {
         if isActivePage {
             if !showTables {
-                DispatchQueue.main.async {
+                if PulseLaunch.shouldPaintScorecardTablesAfterChrome() {
+                    DispatchQueue.main.async {
+                        showTables = true
+                    }
+                } else {
                     showTables = true
                 }
             }
@@ -228,6 +325,8 @@ struct SectionDetailView: View {
                 guard isActivePage else { return }
                 laborHeaderPin.openOnPageEnter()
             }
+        } else if PulseLaunch.shouldKeepVisitedScorecardHostsWarm() {
+            laborHeaderPin.pinned = false
         } else {
             showTables = false
             laborHeaderPin.rollupExpanded = false
@@ -239,31 +338,16 @@ struct SectionDetailView: View {
 
     @ViewBuilder
     private var pageIntro: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if HubLayout.isPhone(sizeClass) {
-                PhonePulseCard(
-                    card: summary,
-                    flags: store.dashboardFlags(for: section),
-                    grains: [],
-                    grain: nil,
-                    extraPct: section == .lostRevenue ? summary.lostRevenuePct : nil,
-                    tappable: false,
-                    action: {}
-                )
-            } else {
-                Text(section.blurb)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(AppTheme.textTertiary)
-                    .lineLimit(1)
-                    .padding(.horizontal, 2)
-            }
+        VStack(alignment: .leading, spacing: HubLayout.isPhone(sizeClass) ? 6 : 8) {
+            CommandCenterSectionHero(card: summary)
+            CommandCenterStatusPills(card: summary, flags: store.dashboardFlags(for: section))
 
             if section == .labor, store.laborNeedsReload() {
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(AppTheme.warn)
-                    Text("Re-upload LABOR Store View Thru Week.xlsx. The Power BI Total row is missing, so company tiles cannot match -0.04% Target vs Actual.")
-                        .font(.subheadline.weight(.semibold))
+                    Text("The Labor pack is missing the Power BI Total row, so company tiles cannot match -0.04% Target vs Actual.")
+                        .font(HubLayout.MacReadable.metricLineFont)
                         .foregroundStyle(AppTheme.text)
                 }
                 .padding(12)
@@ -276,7 +360,7 @@ struct SectionDetailView: View {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(AppTheme.warn)
                     Text(coverage)
-                        .font(.subheadline.weight(.semibold))
+                        .font(HubLayout.MacReadable.metricLineFont)
                         .foregroundStyle(AppTheme.text)
                 }
                 .padding(12)
@@ -284,7 +368,7 @@ struct SectionDetailView: View {
                 .background(AppTheme.warnSoft, in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous))
             }
 
-            if missingInFile {
+            if showStoreTable, missingInFile {
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: "info.circle.fill")
                         .foregroundStyle(AppTheme.blue)
@@ -297,12 +381,12 @@ struct SectionDetailView: View {
                 .background(AppTheme.blueSoft, in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous))
             }
 
-            if section == .preSubOOS, snapshots.isEmpty {
+            if showStoreTable, section == .preSubOOS, snapshots.isEmpty {
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(AppTheme.warn)
-                    Text("No Pre-Sub OOS rows loaded. Add a master tab named Pre-Sub OOS and paste the Division / Area / Store View export (DEPARTMENT_NM + STORE_ID). Or upload that file on the Pre-Sub card. Do not use the 5 Star Pre-Sub column — that is a different report.")
-                        .font(.subheadline.weight(.semibold))
+                    Text("No Pre-Sub OOS rows loaded. The Heartbeat pack should include a Pre-Sub OOS tab (DEPARTMENT_NM + STORE_ID). Do not use the 5 Star Pre-Sub column — that is a different report.")
+                        .font(HubLayout.MacReadable.metricLineFont)
                         .foregroundStyle(AppTheme.text)
                 }
                 .padding(12)
@@ -310,172 +394,56 @@ struct SectionDetailView: View {
                 .background(AppTheme.warnSoft, in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous))
             }
 
-            if HubLayout.isPhone(sizeClass) {
-                if section == .labor { LaborWeekFilterBar() }
-                if section == .missingItems || section == .preSubOOS {
-                    MissingItemsCategoryFilter(selected: $miCategories, width: pageWidth)
-                }
-            } else if section == .labor {
-                LaborWeekFilterBar()
-                laborStatusTiles
-            } else if section == .sales {
-                salesStatusTiles
-            } else if section == .lostRevenue {
-                lostRevenueStatusTiles
-            } else if section == .missingItems || section == .preSubOOS {
-                missingItemsStatusTiles
-                MissingItemsCategoryFilter(selected: $miCategories, width: pageWidth)
-            } else if section == .pickerScorecard {
-                LazyVGrid(
-                    columns: HubLayout.grid(4, spacing: 10, minWidth: 160),
-                    spacing: 10
-                ) {
-                    pickerStatusTiles
-                }
-            } else {
-                LazyVGrid(
-                    columns: HubLayout.grid(HubLayout.kpiColumns(width: pageWidth, sizeClass: sizeClass), spacing: 8, minWidth: 140),
-                    spacing: 8
-                ) {
-                    if section == .pph {
-                        pphStatusTiles
-                    } else if section == .pickPath {
-                        pickPathStatusTiles
-                    } else if section == .dynacap {
-                        dynacapStatusTiles
-                    } else if section == .scheduleQuality {
-                        scheduleStatusTiles
-                    } else if section == .fiveStar {
-                        fiveStarStatusTiles
-                    } else if section == .prepNotReady {
-                        prepStatusTiles
-                    } else {
-                        HubCard {
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text(summary.headlineLabel)
-                                    .font(.caption.weight(.medium))
-                                    .foregroundStyle(AppTheme.textSecondary)
-                                HStack(alignment: .bottom) {
-                                    Text(summary.headlineText)
-                                        .font(.system(size: 32, weight: .semibold).monospacedDigit())
-                                    Spacer()
-                                    HealthBadge(health: summary.health)
-                                }
-                            }
-                        }
-                        ForEach(tiles, id: \.label) { tile in
-                            KpiTile(label: tile.label, value: tile.value)
-                        }
+            if section == .labor { LaborWeekFilterBar() }
+            if showStoreTable {
+                if HubLayout.usesPhoneScorecards(sizeClass: sizeClass) {
+                    pageCallouts
+                    if section == .missingItems || section == .preSubOOS {
+                        MissingItemsCategoryFilter(selected: $miCategories, width: pageWidth)
                     }
+                } else if section == .labor {
+                    laborStatusTiles
+                } else if section == .sales {
+                    salesStatusTiles
+                } else if section == .lostRevenue {
+                    lostRevenueStatusTiles
+                } else if section == .missingItems || section == .preSubOOS {
+                    missingItemsStatusTiles
+                    MissingItemsCategoryFilter(selected: $miCategories, width: pageWidth)
+                } else {
+                    pageCallouts
                 }
             }
         }
     }
 
-    private var tiles: [(label: String, value: String)] {
-        let rows = snapshots
-        func avg(_ key: String) -> Double? {
-            HeartbeatMath.average(rows.compactMap { $0.number(key) })
-        }
+    @ViewBuilder
+    private var pageCallouts: some View {
         switch section {
-        case .fiveStar:
-            return [
-                ("On-time promise", HeartbeatFormat.pct(avg("otp_pct"))),
-                ("Fill rate", HeartbeatFormat.pct(avg("fill_rate_pct"))),
-                ("Quality", HeartbeatFormat.pct(avg("quality_score"))),
-            ]
-        case .pickPath, .pickPathPicker:
-            return [
-                ("Compliant picks", HeartbeatFormat.num(rows.reduce(0) { $0 + ($1.number("picks_compliant") ?? 0) })),
-                ("Total picks", HeartbeatFormat.num(rows.reduce(0) { $0 + ($1.number("picks_total") ?? 0) })),
-                ("Exceptions", HeartbeatFormat.num(rows.reduce(0) { $0 + ($1.number("exception_count") ?? 0) })),
-            ]
-        case .prepNotReady:
-            return [
-                ("Not ready", HeartbeatFormat.num(rows.reduce(0) { $0 + ($1.number("pnr_count") ?? 0) })),
-                ("Orders due", HeartbeatFormat.num(rows.reduce(0) { $0 + ($1.number("orders_due") ?? 0) })),
-                ("Avg late", "\(HeartbeatFormat.num(avg("avg_late_min"), digits: 1)) min"),
-            ]
-        case .dynacap:
-            let aligned = rows.filter { HeartbeatMath.dynacapAligned($0) == true }.count
-            return [
-                ("Aligned stores", HeartbeatFormat.num(Double(aligned))),
-                ("Pickup util", HeartbeatFormat.pct(avg("pickup_util_pct"))),
-                ("Delivery util", HeartbeatFormat.pct(avg("delivery_util_pct"))),
-            ]
-        case .scheduleQuality:
-            return [
-                ("Efficiency", HeartbeatFormat.pct(avg("schedule_efficiency_pct"))),
-                ("Staffing %", HeartbeatFormat.pct(avg("staffing_efficiency_pct"))),
-                ("Over scheduled", HeartbeatFormat.num(rows.reduce(0) { $0 + ($1.number("over_scheduled") ?? 0) })),
-                ("Under scheduled", HeartbeatFormat.num(rows.reduce(0) { $0 + ($1.number("under_scheduled") ?? 0) })),
-            ]
         case .pph:
-            let atGoal = rows.filter { ($0.number("pph") ?? 0) >= HeartbeatMath.pphGoal }.count
-            let atRisk = rows.filter { ($0.number("pph") ?? .greatestFiniteMagnitude) < HeartbeatMath.pphRisk }.count
-            let week = rows.compactMap(\.recordedOn).sorted().last
-            return [
-                ("Goal", "80.0"),
-                ("At goal", HeartbeatFormat.num(Double(atGoal))),
-                ("Below 74", HeartbeatFormat.num(Double(atRisk))),
-                ("Week", week ?? "—"),
-            ]
-        case .labor:
-            let risk = rows.filter { ($0.number("target_vs_actual_pct") ?? 0) > HeartbeatMath.laborWatch }.count
-            let dollars = rows.compactMap { $0.number("act_cost_dollar") }.reduce(0, +)
-            return [
-                ("Weeks", store.laborWeekSpan()),
-                ("Cost target", HeartbeatFormat.pct(avg("cost_trgt_pct"))),
-                ("Act cost", HeartbeatFormat.money(dollars)),
-                ("At risk", HeartbeatFormat.num(Double(risk))),
-            ]
+            HubCalloutGrid(width: pageWidth, count: 4) { pphStatusTiles }
+        case .pickPath, .pickPathPicker:
+            HubCalloutGrid(width: pageWidth, count: 4) { pickPathStatusTiles }
+        case .dynacap:
+            HubCalloutGrid(width: pageWidth, count: 5) { dynacapStatusTiles }
+        case .scheduleQuality:
+            HubCalloutGrid(width: pageWidth, count: 5) { scheduleStatusTiles }
+        case .fiveStar:
+            HubCalloutGrid(width: pageWidth, count: 10) { fiveStarStatusTiles }
+        case .prepNotReady:
+            HubCalloutGrid(width: pageWidth, count: 4) { prepStatusTiles }
         case .pickerScorecard:
-            let board = HeartbeatMath.pickerBoard(rows)
-            return [
-                ("Shoppers", HeartbeatFormat.num(Double(rows.count))),
-                ("Opportunity", HeartbeatFormat.num(Double(board.opportunity.count))),
-                ("Doing well", HeartbeatFormat.num(Double(board.strong.count))),
-            ]
-        case .lostRevenue:
-            let dollars = rows.compactMap { $0.number("lost_revenue") }.reduce(0, +)
-            let sales = rows.compactMap { $0.number("ecomm_sales") }.reduce(0, +)
-            return [
-                ("Lost revenue", HeartbeatFormat.money(dollars)),
-                ("Lost %", HeartbeatFormat.pct(sales > 0 ? dollars / sales * 100 : summary.lostRevenuePct)),
-                ("eComm sales", HeartbeatFormat.money(sales)),
-            ]
+            HubCalloutGrid(width: pageWidth, count: 4) { pickerStatusTiles }
+        case .labor:
+            laborStatusTiles
         case .sales:
-            let dollars = rows.compactMap { $0.number("sales_dollars") }.reduce(0, +)
-            let orders = rows.compactMap { $0.number("sales_orders") }.reduce(0, +)
-            return [
-                ("eComm sales", HeartbeatFormat.money(dollars)),
-                ("Orders", HeartbeatFormat.num(orders, digits: 0)),
-                ("AOV", HeartbeatFormat.money(orders > 0 ? dollars / orders : nil)),
-            ]
+            salesStatusTiles
+        case .lostRevenue:
+            lostRevenueStatusTiles
         case .missingItems, .preSubOOS:
-            let healthy = rows.filter { HeartbeatMath.missingItemsHealth($0) == .good }.count
-            let watch = rows.filter { HeartbeatMath.missingItemsHealth($0) == .watch }.count
-            let risk = rows.filter { HeartbeatMath.missingItemsHealth($0) == .risk }.count
-            return [
-                ("Goal", "5%"),
-                ("Healthy", HeartbeatFormat.num(Double(healthy))),
-                ("Watch", HeartbeatFormat.num(Double(watch))),
-                ("At risk", HeartbeatFormat.num(Double(risk))),
-            ]
-        case .aisleMapper:
-            return [
-                ("Mapper", "Latest map"),
-                ("Sequence", "Latest sequence"),
-            ]
-        case .preSubOOSItem:
-            return [
-                ("Items", HeartbeatFormat.num(Double(rows.count))),
-                ("Units", HeartbeatFormat.num(rows.compactMap { $0.number("presub_count") }.reduce(0, +), digits: 0)),
-            ]
-        case .storeRoster:
-            return [
-                ("Stores", HeartbeatFormat.num(Double(rows.count))),
-            ]
+            missingItemsStatusTiles
+        default:
+            EmptyView()
         }
     }
 
@@ -616,9 +584,9 @@ struct SectionDetailView: View {
     @ViewBuilder
     private var pphStatusTiles: some View {
         let rows = snapshots
-        let atGoal = rows.filter { ($0.number("pph") ?? 0) >= HeartbeatMath.pphGoal }.count
-        let atRisk = rows.filter { ($0.number("pph") ?? .greatestFiniteMagnitude) < HeartbeatMath.pphRisk }.count
-        callout("Avg pure PPH", summary.headlineText, "Goal 80 · watch under 74", summary.health, selected: pphFocus == .all) {
+        let atGoal = rows.filter { (HeartbeatMath.pphNumber($0) ?? 0) >= HeartbeatMath.pphGoal }.count
+        let atRisk = rows.filter { (HeartbeatMath.pphNumber($0) ?? .greatestFiniteMagnitude) < HeartbeatMath.pphRisk }.count
+        callout("Week Pure PPH", summary.headlineText, "Goal 80 · watch under 74", summary.health, selected: pphFocus == .all) {
             pphFocus = .all
         }
         callout("Goal", "80.0", "Target pure PPH", .none, brand: true)
@@ -655,24 +623,14 @@ struct SectionDetailView: View {
         let up = rows.filter { HeartbeatMath.salesHealth($0) == .good }.count
         let flat = rows.filter { HeartbeatMath.salesHealth($0) == .watch }.count
         let down = rows.filter { HeartbeatMath.salesHealth($0) == .risk }.count
-        VStack(spacing: 8) {
-            LazyVGrid(
-                columns: HubLayout.grid(HubLayout.kpiColumns(width: pageWidth, sizeClass: sizeClass), spacing: 8, minWidth: 140),
-                spacing: 8
-            ) {
-                callout("eComm sales", HeartbeatFormat.money(rows.isEmpty ? nil : sales), "In this filter", summary.health)
-                callout("Healthy", HeartbeatFormat.num(Double(up)), "Sales YoY over 0%", .good, unit: "stores")
-                callout("Watch", HeartbeatFormat.num(Double(flat)), "Flat YoY", flat == 0 ? .good : .watch, unit: "stores")
-                callout("At Risk", HeartbeatFormat.num(Double(down)), "Sales YoY below 0%", down == 0 ? .good : .risk, unit: "stores")
-            }
-            LazyVGrid(
-                columns: HubLayout.grid(min(3, HubLayout.kpiColumns(width: pageWidth, sizeClass: sizeClass)), spacing: 8, minWidth: 140),
-                spacing: 8
-            ) {
-                callout("Orders", HeartbeatFormat.num(orders, digits: 0), "DUG + Home Delivery", .none, brand: true)
-                callout("AOS", HeartbeatFormat.money(orders > 0 ? sales / orders : nil), "Average order size", .none, brand: true)
-                callout("Stores", HeartbeatFormat.num(Double(rows.count)), "With sales this week", .none)
-            }
+        HubCalloutGrid(width: pageWidth, count: 7) {
+            callout("eComm sales", HeartbeatFormat.money(rows.isEmpty ? nil : sales), "In this filter", summary.health)
+            callout("Healthy", HeartbeatFormat.num(Double(up)), "Sales YoY over 0%", .good, unit: "stores")
+            callout("Watch", HeartbeatFormat.num(Double(flat)), "Flat YoY", flat == 0 ? .good : .watch, unit: "stores")
+            callout("At Risk", HeartbeatFormat.num(Double(down)), "Sales YoY below 0%", down == 0 ? .good : .risk, unit: "stores")
+            callout("Orders", HeartbeatFormat.num(orders, digits: 0), "DUG + Home Delivery", .none, brand: true)
+            callout("AOS", HeartbeatFormat.money(orders > 0 ? sales / orders : nil), "Average order size", .none, brand: true)
+            callout("Stores", HeartbeatFormat.num(Double(rows.count)), "With sales this week", .none)
         }
     }
 
@@ -684,49 +642,34 @@ struct SectionDetailView: View {
         let healthy = rows.filter { HeartbeatMath.lostRevenueHealth($0) == .good }.count
         let watch = rows.filter { HeartbeatMath.lostRevenueHealth($0) == .watch }.count
         let risk = rows.filter { HeartbeatMath.lostRevenueHealth($0) == .risk }.count
+        let pool: [MetricRow] = {
+            if store.filters.isActive { return rows }
+            if let market = store.lostRevenueMarketRow() { return rows + [market] }
+            return rows
+        }()
         let sales: Double? = {
-            if !store.filters.isActive, let market = store.lostRevenueMarketRow() {
-                return market.number("ecomm_sales")
-            }
-            let sum = rows.compactMap { $0.number("ecomm_sales") }.reduce(0, +)
-            return rows.isEmpty ? nil : sum
+            let value = HeartbeatMath.lostRevenueTODollars(pool, key: "ecomm_sales")
+            return rows.isEmpty && HeartbeatMath.lostRevenueMarketRow(in: pool) == nil ? nil : value
         }()
-        let goalPct: Double? = {
-            if !store.filters.isActive, let market = store.lostRevenueMarketRow() {
-                return market.number("lost_revenue_goal_pct")
+        let goalPct = HeartbeatMath.lostRevenueGoalPct(rows: rows, market: store.filters.isActive ? nil : store.lostRevenueMarketRow())
+        let post = HeartbeatMath.lostRevenueTODollars(pool, key: "post_sub_oos_foregone")
+        HubCalloutGrid(width: pageWidth, count: 8) {
+            callout("Total lost revenue", HeartbeatFormat.money(dollars), "Total Opportunity", summary.health, selected: lostRevenueFocus == .all) {
+                lostRevenueFocus = .all
             }
-            let goal = rows.compactMap { $0.number("lost_revenue_goal") }.reduce(0, +)
-            let sumSales = rows.compactMap { $0.number("ecomm_sales") }.reduce(0, +)
-            return sumSales > 0 ? goal / sumSales * 100 : nil
-        }()
-        let post = rows.compactMap { $0.number("post_sub_oos_foregone") }.reduce(0, +)
-        VStack(spacing: 8) {
-            LazyVGrid(
-                columns: HubLayout.grid(HubLayout.kpiColumns(width: pageWidth, sizeClass: sizeClass), spacing: 8, minWidth: 140),
-                spacing: 8
-            ) {
-                callout("Total lost revenue", HeartbeatFormat.money(dollars), "Total Opportunity", summary.health, selected: lostRevenueFocus == .all) {
-                    lostRevenueFocus = .all
-                }
-                callout("Healthy", HeartbeatFormat.num(Double(healthy)), "3% or better", .good, unit: "stores", selected: lostRevenueFocus == .healthy) {
-                    lostRevenueFocus = .healthy
-                }
-                callout("Watch", HeartbeatFormat.num(Double(watch)), "3.01% to 5%", watch == 0 ? .good : .watch, unit: "stores", selected: lostRevenueFocus == .watch) {
-                    lostRevenueFocus = .watch
-                }
-                callout("At Risk", HeartbeatFormat.num(Double(risk)), "Stores over 5%", risk == 0 ? .good : .risk, unit: "stores", selected: lostRevenueFocus == .risk) {
-                    lostRevenueFocus = .risk
-                }
+            callout("Healthy", HeartbeatFormat.num(Double(healthy)), "3% or better", .good, unit: "stores", selected: lostRevenueFocus == .healthy) {
+                lostRevenueFocus = .healthy
             }
-            LazyVGrid(
-                columns: HubLayout.grid(min(4, HubLayout.kpiColumns(width: pageWidth, sizeClass: sizeClass)), spacing: 8, minWidth: 140),
-                spacing: 8
-            ) {
-                callout("Lost revenue %", HeartbeatFormat.pct(pct), "Total Opportunity", summary.health)
-                callout("eComm sales", HeartbeatFormat.money(sales), "In this filter", .none, brand: true)
-                callout("FY2026 Goal", HeartbeatFormat.pct(goalPct), "Lost revenue goal", .none, brand: true)
-                callout("Post Sub OOS", HeartbeatFormat.money(rows.isEmpty ? nil : post), "Foregone revenue", .none)
+            callout("Watch", HeartbeatFormat.num(Double(watch)), "3.01% to 5%", watch == 0 ? .good : .watch, unit: "stores", selected: lostRevenueFocus == .watch) {
+                lostRevenueFocus = .watch
             }
+            callout("At Risk", HeartbeatFormat.num(Double(risk)), "Stores over 5%", risk == 0 ? .good : .risk, unit: "stores", selected: lostRevenueFocus == .risk) {
+                lostRevenueFocus = .risk
+            }
+            callout("Lost revenue %", HeartbeatFormat.pct(pct), "Total Opportunity", summary.health)
+            callout("eComm sales", HeartbeatFormat.money(sales), "In this filter", .none, brand: true)
+            callout("FY2026 Goal", HeartbeatFormat.pct(goalPct), "Lost revenue goal", .none, brand: true)
+            callout("Post Sub OOS", HeartbeatFormat.money(rows.isEmpty ? nil : post), "Foregone revenue", .none)
         }
     }
 
@@ -736,32 +679,22 @@ struct SectionDetailView: View {
         let healthy = rows.filter { HeartbeatMath.missingItemsHealth($0) == .good }.count
         let watch = rows.filter { HeartbeatMath.missingItemsHealth($0) == .watch }.count
         let risk = rows.filter { HeartbeatMath.missingItemsHealth($0) == .risk }.count
-        VStack(spacing: 8) {
-            LazyVGrid(
-                columns: HubLayout.grid(HubLayout.kpiColumns(width: pageWidth, sizeClass: sizeClass), spacing: 8, minWidth: 140),
-                spacing: 8
-            ) {
-                callout(section == .preSubOOS ? "Avg Pre-Sub OOS" : "Avg missing items", summary.headlineText, "5% healthy · 5.01–6.50% watch · over 6.50% at risk", summary.health, selected: missingItemsFocus == .all) {
-                    missingItemsFocus = .all
-                }
-                callout("Healthy", HeartbeatFormat.num(Double(healthy)), "5% or less", .good, unit: "stores", selected: missingItemsFocus == .healthy) {
-                    missingItemsFocus = .healthy
-                }
-                callout("Watch", HeartbeatFormat.num(Double(watch)), "5.01% to 6.50%", watch == 0 ? .good : .watch, unit: "stores", selected: missingItemsFocus == .watch) {
-                    missingItemsFocus = .watch
-                }
-                callout("At Risk", HeartbeatFormat.num(Double(risk)), "Stores over 6.50%", risk == 0 ? .good : .risk, unit: "stores", selected: missingItemsFocus == .risk) {
-                    missingItemsFocus = .risk
-                }
+        HubCalloutGrid(width: pageWidth, count: 7) {
+            callout(section == .preSubOOS ? "Avg Pre-Sub OOS" : "Avg missing items", summary.headlineText, "5% healthy · 5.01–6.50% watch · over 6.50% at risk", summary.health, selected: missingItemsFocus == .all) {
+                missingItemsFocus = .all
             }
-            LazyVGrid(
-                columns: HubLayout.grid(min(3, HubLayout.kpiColumns(width: pageWidth, sizeClass: sizeClass)), spacing: 8, minWidth: 140),
-                spacing: 8
-            ) {
-                callout("Goal", "5%", "Or less is healthy", .none, brand: true)
-                callout("Watch band", "5.01–6.50%", "Needs a look", .watch)
-                callout("At risk band", "> 6.50%", section == .preSubOOS ? "Pre-substitution out of stock" : "Items without an aisle tag", .risk)
+            callout("Healthy", HeartbeatFormat.num(Double(healthy)), "5% or less", .good, unit: "stores", selected: missingItemsFocus == .healthy) {
+                missingItemsFocus = .healthy
             }
+            callout("Watch", HeartbeatFormat.num(Double(watch)), "5.01% to 6.50%", watch == 0 ? .good : .watch, unit: "stores", selected: missingItemsFocus == .watch) {
+                missingItemsFocus = .watch
+            }
+            callout("At Risk", HeartbeatFormat.num(Double(risk)), "Stores over 6.50%", risk == 0 ? .good : .risk, unit: "stores", selected: missingItemsFocus == .risk) {
+                missingItemsFocus = .risk
+            }
+            callout("Goal", "5%", "Or less is healthy", .none, brand: true)
+            callout("Watch band", "5.01–6.50%", "Needs a look", .watch)
+            callout("At risk band", "> 6.50%", section == .preSubOOS ? "Pre-substitution out of stock" : "Items without an aisle tag", .risk)
         }
     }
 
@@ -886,11 +819,8 @@ struct SectionDetailView: View {
         let uplh = laborRollup("uplh_impact_pct")
         let wage = laborRollup("wage_impact_pct")
         let aiv = laborRollup("aiv_impact_pct")
-        VStack(spacing: 8) {
-            LazyVGrid(
-                columns: HubLayout.grid(HubLayout.kpiColumns(width: pageWidth, sizeClass: sizeClass), spacing: 8, minWidth: 140),
-                spacing: 8
-            ) {
+        VStack(spacing: 10) {
+            HubCalloutGrid(width: pageWidth, count: 4) {
                 callout("Target vs Actual", HeartbeatFormat.pct(tva), "0% healthy · 0.01–3% watch · over 3% risk", HeartbeatMath.laborHealth(tva), selected: laborFocus == .all) {
                     laborFocus = .all
                 }
@@ -994,7 +924,7 @@ struct SectionDetailView: View {
         compact: Bool = false,
         action: (() -> Void)? = nil
     ) -> some View {
-        PickerFocusTile(title: title, value: value, detail: detail, health: health, selected: selected, brand: brand, unit: unit, compact: true, action: action)
+        PickerFocusTile(title: title, value: value, detail: detail, health: health, selected: selected, brand: brand, unit: unit, action: action)
     }
 
     private func pickerTileDetail(_ focus: PickerFocus) -> String {
@@ -1025,6 +955,435 @@ struct SectionDetailView: View {
     }
 }
 
+/// iPhone ScoreCard shell — same bar as PhoneCommandCenterHome.
+/// Never mounts List / *RollupTable / *Table / OverviewSalesBlock.
+struct PhoneSectionPage: View {
+    @EnvironmentObject private var store: HeartbeatStore
+    @EnvironmentObject private var router: HubRouter
+    let section: MetricSection
+    @State private var storeLimit = 40
+    @State private var pickerLimit = 24
+    @State private var itemLimit = 24
+    @State private var openShopper: String?
+    @State private var miCategories: Set<MissingItemDept> = []
+    @State private var showHeavy = false
+
+    private var isVisible: Bool {
+        PulseLaunch.isActiveScorecardPage(
+            visible: router.current,
+            section: section,
+            pushed: router.pushedSection
+        )
+    }
+
+    private var shouldPaintHeavy: Bool {
+        guard showHeavy else { return false }
+        if isVisible { return true }
+        return PulseLaunch.shouldRenderHiddenPhoneSectionHeavy()
+    }
+
+    var body: some View {
+        let _ = store.seatPaintStamp
+        ScrollView {
+            VStack(alignment: .leading, spacing: CommandCenterLayout.phoneHomeStackSpacing()) {
+                if PulseLaunch.shouldParkHiddenPhoneSection(isVisible: isVisible) {
+                    PhoneCommandHeroCard(card: store.summary(for: section))
+                } else {
+                    PhoneCommandHeroCard(card: store.summary(for: section))
+                    seatMetricCard
+                    warningNotes
+                    if section == .labor {
+                        LaborWeekFilterBar()
+                    }
+                    if shouldPaintHeavy {
+                        heavyBlocks
+                    }
+                }
+            }
+            .padding(.horizontal, CommandCenterLayout.phoneHomeHorizontalPadding())
+            .padding(.top, CommandCenterLayout.phoneHomeTopPadding())
+            .padding(.bottom, CommandCenterLayout.phoneHomeBottomPadding())
+            .frame(maxWidth: .infinity, alignment: .top)
+        }
+        .scrollIndicators(.hidden)
+        .scrollBounceBehavior(PulseLaunch.shouldOfferPullToRefreshSeatPack() ? .always : .basedOnSize)
+        .hubSeatPackRefreshable()
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .onAppear { armHeavy() }
+        .onChange(of: isVisible) { _, visible in
+            if visible { armHeavy() }
+        }
+        .onChange(of: store.filters.summary) { _, _ in
+            guard isVisible, PulseLaunch.shouldProgressivePaintPhoneSectionOnFilterSwap() else { return }
+            showHeavy = false
+            armHeavy()
+        }
+    }
+
+    private func armHeavy() {
+        guard isVisible else { return }
+        if !PulseLaunch.shouldDeferPhoneSectionHeavyUntilAfterChrome() {
+            showHeavy = true
+            return
+        }
+        DispatchQueue.main.async {
+            showHeavy = true
+        }
+    }
+
+    @ViewBuilder
+    private var heavyBlocks: some View {
+        if section == .sales, PulseLaunch.shouldShowSalesDayWeekBlock(filters: store.filters) {
+            salesWeekAndDays
+        }
+        if section == .pickerScorecard,
+           PulseLaunch.shouldShowPickerHighlights(filters: store.filters) {
+            PickerHighlightsPanel(
+                showPictures: PulseLaunch.shouldShowPickerIndividualPictures(filters: store.filters)
+            )
+        }
+        ForEach(PulseLaunch.sectionRollupGrains(filters: store.filters), id: \.self) { grain in
+            grainBlock(grain)
+        }
+        if PulseLaunch.shouldShowStoreTable(filters: store.filters) {
+            if section == .missingItems || section == .preSubOOS {
+                MissingItemsCategoryFilter(selected: $miCategories, width: 390)
+            }
+            if section == .pickerScorecard {
+                if PulseLaunch.shouldShowPickerShoppersTable(filters: store.filters) {
+                    pickerShoppers
+                }
+            } else {
+                storeCards
+            }
+            if section == .preSubOOS {
+                preSubItems
+            }
+        }
+    }
+
+    private var seatMetricCard: some View {
+        PhoneScorecardRow(
+            title: CommandCenterLayout.glanceTitle(section),
+            eyebrow: "This seat",
+            subtitle: store.filters.isActive ? store.filters.summary : "Total Company",
+            chips: seatChips,
+            health: CommandCenterLayout.displayedHealth(store.summary(for: section))
+        )
+    }
+
+    @ViewBuilder
+    private var warningNotes: some View {
+        if section == .labor, store.laborNeedsReload() {
+            phoneNote(
+                "The Labor pack is missing the Power BI Total row, so company tiles cannot match -0.04% Target vs Actual.",
+                tone: .watch
+            )
+        }
+        if section == .dynacap, let coverage = store.dynacapCoverageNote() {
+            phoneNote(coverage, tone: .watch)
+        }
+        if PulseLaunch.shouldShowStoreTable(filters: store.filters),
+           store.latest(for: section).isEmpty,
+           !store.marketStores().isEmpty {
+            phoneNote(
+                "\(store.filters.division.isEmpty ? "This filter" : store.filters.division) isn’t in the \(section.short) workbook. Stores below come from PPH so the same division still shows across the app.",
+                tone: .none
+            )
+        }
+        if PulseLaunch.shouldShowStoreTable(filters: store.filters),
+           section == .preSubOOS,
+           store.seatRows(for: section).isEmpty {
+            phoneNote(
+                "No Pre-Sub OOS rows loaded. The Heartbeat pack should include a Pre-Sub OOS tab (DEPARTMENT_NM + STORE_ID).",
+                tone: .watch
+            )
+        }
+    }
+
+    private func phoneNote(_ text: String, tone: Health) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: tone == .none ? "info.circle.fill" : "exclamationmark.triangle.fill")
+                .foregroundStyle(tone == .none ? AppTheme.blue : AppTheme.warn)
+            Text(text)
+                .font(HubLayout.MacReadable.metricLineFont)
+                .foregroundStyle(AppTheme.text)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            (tone == .none ? AppTheme.blueSoft : AppTheme.warnSoft),
+            in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous)
+        )
+    }
+
+    @ViewBuilder
+    private var salesWeekAndDays: some View {
+        let stores = store.salesStores()
+        let total = SalesPack(rows: stores)
+        PhoneSectionHeading(title: "This week")
+        OverviewSalesPhoneCard(
+            label: salesScopeTitle,
+            count: Set(stores.map(\.storeNumber)).count,
+            pack: total
+        )
+        let days = SalesRollupBuilder.dayRows(
+            from: stores,
+            company: store.filters.isActive ? nil : store.salesCompanyFact()
+        )
+        if !days.isEmpty {
+            PhoneSectionHeading(title: "By Day")
+            ForEach(days) { row in
+                OverviewSalesPhoneCard(label: row.label, pack: row.pack)
+            }
+        }
+    }
+
+    private var salesScopeTitle: String {
+        let filters = store.filters
+        if !filters.store.isEmpty { return "Store \(filters.store)" }
+        if !filters.om.isEmpty { return filters.om }
+        if !filters.district.isEmpty { return filters.district }
+        if !filters.division.isEmpty { return filters.division }
+        if !filters.region.isEmpty { return filters.region }
+        return "Total Company"
+    }
+
+    @ViewBuilder
+    private func grainBlock(_ grain: DashScopeGrain) -> some View {
+        if section == .sales {
+            let rows = salesGrainRows(for: grain)
+            if !rows.isEmpty {
+                PhoneSectionHeading(title: grain.title)
+                ForEach(rows) { row in
+                    OverviewSalesPhoneCard(
+                        label: HeartbeatMath.displayGrainLabel(row.label),
+                        count: grain == .store ? nil : row.storeCount,
+                        pack: row.pack
+                    )
+                }
+            }
+        } else {
+            let rows = metricGrainRows(for: grain)
+            if !rows.isEmpty {
+                PhoneSectionHeading(title: grain.title)
+                ForEach(rows) { row in
+                    PhoneScorecardRow(
+                        title: HeartbeatMath.displayGrainLabel(row.label),
+                        subtitle: row.storeCount > 0
+                            ? (row.storeCount == 1 ? "1 store" : "\(row.storeCount) stores")
+                            : nil,
+                        chips: metricChips(values: row.values, health: row.health),
+                        health: row.health == .none && row.storeCount > 0 ? .good : row.health
+                    )
+                }
+            }
+        }
+    }
+
+    private func salesGrainRows(for grain: DashScopeGrain) -> [SalesRollupRow] {
+        var rows = SalesRollupBuilder.rows(
+            from: store.rollupStores(for: .sales),
+            grain: LaborRollupGrain(grain)
+        )
+        rows.removeAll { RollupMarketFill.hidesUnassignedMarket($0.label) }
+        return rows
+    }
+
+    private func metricGrainRows(for grain: DashScopeGrain) -> [HeartbeatMath.DashboardGrainTableRow] {
+        let labor = LaborRollupGrain(grain)
+        let stores = store.seatRows(for: section)
+        var buckets: [String: [MetricRow]] = [:]
+        for row in stores {
+            guard let key = RollupMarketFill.acceptedGrainKey(row, grain: labor) else { continue }
+            buckets[key, default: []].append(row)
+        }
+        return buckets.keys.sorted {
+            HeartbeatMath.displayGrainLabel($0).localizedStandardCompare(
+                HeartbeatMath.displayGrainLabel($1)
+            ) == .orderedAscending
+        }.map { key in
+            let slice = buckets[key] ?? []
+            let scored = HeartbeatMath.dashboardTableValues(section, rows: slice)
+            let storeCount = Set(slice.map { HeartbeatMath.canonicalStore($0.storeNumber) }.filter { !$0.isEmpty }).count
+            return HeartbeatMath.DashboardGrainTableRow(
+                label: key,
+                storeCount: storeCount,
+                values: scored.values,
+                health: scored.health
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var storeCards: some View {
+        let all = visibleStores
+        PhoneSectionHeading(title: "Stores · \(all.count)")
+        if all.isEmpty {
+            PhoneScorecardRow(
+                title: "No stores in this view",
+                subtitle: "Adjust filters or wait for the Heartbeat pack.",
+                health: .none
+            )
+        } else {
+            ForEach(Array(all.prefix(storeLimit))) { row in
+                storeCard(row)
+            }
+            if all.count > storeLimit {
+                Button {
+                    storeLimit += 40
+                } label: {
+                    Text("Show more · \(storeLimit) of \(all.count)")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(AppTheme.blue)
+                        .frame(maxWidth: .infinity, minHeight: HubLayout.phoneHitTarget, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func storeCard(_ row: MetricRow) -> some View {
+        let scored = HeartbeatMath.dashboardTableValues(section, rows: [row])
+        let health = HeartbeatMath.health(for: section, row: row)
+        return PhoneScorecardRow(
+            title: HeartbeatMath.storeDisplayLabel(row),
+            subtitle: row.district.isEmpty ? nil : HeartbeatMath.canonicalDistrict(row.district),
+            chips: metricChips(values: scored.values, health: scored.health),
+            health: health == .none ? (scored.health == .none && scored.values.contains(where: { $0 != "—" }) ? .good : scored.health) : health
+        )
+    }
+
+    private var visibleStores: [MetricRow] {
+        store.seatRows(for: section).filter { !$0.storeNumber.isEmpty }
+    }
+
+    @ViewBuilder
+    private var pickerShoppers: some View {
+        let rows = store.pickerPage(focus: .all, sort: .pph, ascending: false, limit: pickerLimit)
+        let total = store.pickerCount(for: .all)
+        PhoneSectionHeading(title: "Shoppers · \(total)")
+        if rows.isEmpty {
+            PhoneScorecardRow(
+                title: store.pickerLoading ? "Loading shoppers…" : "No shoppers in this view",
+                subtitle: "Shoppers fill from the Heartbeat pack after ready.",
+                health: .none
+            )
+        } else {
+            ForEach(rows) { row in
+                PickerPhoneCard(
+                    snap: PickerLineSnap(row, division: divisionLabel(for: row)),
+                    expanded: openShopper == row.id.uuidString,
+                    onToggle: {
+                        openShopper = openShopper == row.id.uuidString ? nil : row.id.uuidString
+                    }
+                )
+            }
+            if total > pickerLimit {
+                Button {
+                    pickerLimit += 24
+                } label: {
+                    Text("Show more · \(pickerLimit) of \(total)")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(AppTheme.blue)
+                        .frame(maxWidth: .infinity, minHeight: HubLayout.phoneHitTarget, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var preSubItems: some View {
+        let rows = store.seatRows(for: .preSubOOSItem)
+        PhoneSectionHeading(title: "Pre-Sub items · \(rows.count)")
+        if rows.isEmpty {
+            EmptyView()
+        } else {
+            ForEach(Array(rows.prefix(itemLimit))) { row in
+                PhoneScorecardRow(
+                    title: row.textPayload["bpn"] ?? "Item",
+                    subtitle: HeartbeatMath.storeDisplayLabel(row),
+                    chips: [
+                        PhoneMetricChip(label: "Pre-Sub %", value: HeartbeatFormat.pct(row.number("presub_pct"))),
+                        PhoneMetricChip(label: "Units", value: HeartbeatFormat.num(row.number("presub_count"), digits: 0)),
+                        PhoneMetricChip(label: "$ Pre-Sub", value: HeartbeatFormat.money(row.number("presub_dollars"))),
+                    ],
+                    health: HeartbeatMath.health(for: .preSubOOSItem, row: row)
+                )
+            }
+            if rows.count > itemLimit {
+                Button {
+                    itemLimit += 24
+                } label: {
+                    Text("Show more · \(itemLimit) of \(rows.count)")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(AppTheme.blue)
+                        .frame(maxWidth: .infinity, minHeight: HubLayout.phoneHitTarget, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
+    private func divisionLabel(for row: MetricRow) -> String {
+        if !row.division.isEmpty { return row.division }
+        let division = store.identity(forStore: row.storeNumber).division
+        return division.isEmpty ? "Store" : division
+    }
+
+    private func metricChips(values: [String], health: Health) -> [PhoneMetricChip] {
+        let headers = HeartbeatMath.dashboardTableHeaders(section)
+        return zip(headers, values).map { header, value in
+            PhoneMetricChip(label: header, value: value, health: health)
+        }
+    }
+
+    private var seatChips: [PhoneMetricChip] {
+        let health = CommandCenterLayout.displayedHealth(store.summary(for: section))
+        let picker = section == .pickerScorecard ? store.seatPickerChrome() : nil
+        return PulseLaunch.seatChipValues(
+            section: section,
+            rows: store.seatRows(for: section),
+            displayedHealth: health,
+            pickerChrome: picker
+        ).map { PhoneMetricChip(label: $0.label, value: $0.value, health: $0.health) }
+    }
+}
+
+private struct PhoneSectionHeading: View {
+    let title: String
+
+    var body: some View {
+        Text(title.uppercased())
+            .font(AppTheme.rounded(.caption, weight: .heavy))
+            .tracking(0.7)
+            .foregroundStyle(AppTheme.textTertiary)
+            .padding(.top, PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 4 : 8)
+    }
+}
+
+struct HubCalloutGrid<Content: View>: View {
+    var width: CGFloat
+    var count: Int
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        let columns = HubLayout.calloutColumns(count: count, width: width, sizeClass: sizeClass)
+        let phone = HubLayout.isPhone(sizeClass)
+        let tileMin = HubLayout.calloutTileMinWidth(columns: columns, width: width, phone: phone)
+        LazyVGrid(
+            columns: HubLayout.grid(columns, spacing: HubLayout.calloutGridSpacing, minWidth: tileMin),
+            spacing: HubLayout.calloutGridSpacing
+        ) {
+            content
+        }
+        .fixedSize(horizontal: false, vertical: HubLayout.isMac && PulseLaunch.shouldFitMacCommandCenterToWindow())
+    }
+}
+
 struct PickerFocusTile: View {
     let title: String
     let value: String
@@ -1035,6 +1394,9 @@ struct PickerFocusTile: View {
     var unit: String? = nil
     var compact: Bool = false
     var action: (() -> Void)? = nil
+    @Environment(\.horizontalSizeClass) private var sizeClass
+
+    private var phone: Bool { HubLayout.isPhone(sizeClass) }
 
     var body: some View {
         Group {
@@ -1045,81 +1407,71 @@ struct PickerFocusTile: View {
                 tile
             }
         }
-        .frame(maxWidth: .infinity, minHeight: compact ? 92 : 112)
+        .frame(maxWidth: .infinity, minHeight: HubLayout.calloutMinHeight(phone: phone))
     }
 
     private var tile: some View {
-        VStack(alignment: .leading, spacing: compact ? 8 : 10) {
-            if compact {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(alignment: .center, spacing: 6) {
                 Text(title)
-                    .font(.headline.weight(.bold))
+                    .font(AppTheme.rounded(phone ? .subheadline : .headline, weight: .bold))
                     .foregroundStyle(AppTheme.text)
                     .lineLimit(2)
+                    .minimumScaleFactor(0.75)
                     .fixedSize(horizontal: false, vertical: true)
-                HStack {
-                    if health != .none {
-                        HealthBadge(health: health, prominent: true, compact: true)
-                    }
-                    Spacer(minLength: 0)
-                }
-            } else {
-                HStack(alignment: .center, spacing: 8) {
-                    Text(title)
-                        .font(.title3.weight(.bold))
-                        .foregroundStyle(AppTheme.text)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.6)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    if health != .none {
-                        HealthBadge(health: health, prominent: true, compact: compact)
-                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                if health != .none {
+                    HealthBadge(health: health, prominent: true, compact: true)
                 }
             }
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 5) {
                 Text(value)
-                    .font(.system(size: compact ? 20 : 24, weight: .semibold, design: .rounded).monospacedDigit())
+                    .font(.system(size: HubLayout.calloutValueSize(phone: phone), weight: .bold, design: .rounded).monospacedDigit())
                     .foregroundStyle(ink)
                     .lineLimit(1)
                     .minimumScaleFactor(0.55)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 if let unit, !unit.isEmpty {
                     Text(unit)
-                        .font((compact ? Font.subheadline : Font.title3).weight(.semibold))
+                        .font(AppTheme.rounded(phone ? .caption : .subheadline, weight: .semibold))
                         .foregroundStyle(ink.opacity(0.85))
                         .lineLimit(1)
                 }
                 Spacer(minLength: 0)
             }
-            .frame(minHeight: compact ? 22 : 28, alignment: .bottomLeading)
+            .frame(minHeight: phone ? 22 : 26, alignment: .bottomLeading)
             Text(detail)
-                .font(.caption.weight(.medium))
+                .font(AppTheme.rounded(.caption, weight: .medium))
                 .foregroundStyle(AppTheme.textSecondary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.75)
+                .lineLimit(2)
+                .minimumScaleFactor(0.8)
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .padding(compact ? 10 : 12)
+        .padding(phone ? 10 : 11)
+        .padding(.leading, 4)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background {
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(Color.white)
                 .overlay {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .fill(wash.opacity(0.42))
                 }
         }
         .overlay(alignment: .leading) {
             Capsule()
                 .fill(stripe)
-                .frame(width: 5)
-                .padding(.vertical, 12)
+                .frame(width: 4)
+                .padding(.vertical, 10)
         }
         .overlay {
             if shouldPulse && !selected {
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(Color(red: 220 / 255, green: 38 / 255, blue: 38 / 255), lineWidth: 2.5)
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(Color(red: 220 / 255, green: 38 / 255, blue: 38 / 255), lineWidth: 2)
             } else {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(stroke, lineWidth: selected ? 2.5 : 1)
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(stroke, lineWidth: selected ? 2 : 1)
             }
         }
         .shadow(color: Color.black.opacity(0.06), radius: 3, y: 1)

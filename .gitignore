@@ -29,4 +29,6 @@ vendor/bundle/
 # Swift PM
 .build/
 .swiftpm/
+# Kitchen copies app sources here at cook time
+Tools/HeartbeatIngest/Sources/
 docs/supabase/facts.json

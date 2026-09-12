@@ -4,18 +4,20 @@ struct PulseDashChrome: Codable {
     var summaries: [SectionSummary]
     var flags: [String: [HeartbeatMath.FiveStarFlag]]
     var packs: [String: [DashScopePack]]
+    var tables: [String: [HeartbeatMath.DashboardGrainTableRow]]
     var pickerShoppers: Int
     var pickerOpportunity: Int
     var pickerStrong: Int
 
     enum CodingKeys: String, CodingKey {
-        case summaries, flags, packs, pickerShoppers, pickerOpportunity, pickerStrong
+        case summaries, flags, packs, tables, pickerShoppers, pickerOpportunity, pickerStrong
     }
 
     init(
         summaries: [SectionSummary],
         flags: [String: [HeartbeatMath.FiveStarFlag]],
         packs: [String: [DashScopePack]],
+        tables: [String: [HeartbeatMath.DashboardGrainTableRow]] = [:],
         pickerShoppers: Int,
         pickerOpportunity: Int = 0,
         pickerStrong: Int = 0
@@ -23,6 +25,7 @@ struct PulseDashChrome: Codable {
         self.summaries = summaries
         self.flags = flags
         self.packs = packs
+        self.tables = tables
         self.pickerShoppers = pickerShoppers
         self.pickerOpportunity = pickerOpportunity
         self.pickerStrong = pickerStrong
@@ -33,16 +36,48 @@ struct PulseDashChrome: Codable {
         summaries = try container.decode([SectionSummary].self, forKey: .summaries)
         flags = try container.decodeIfPresent([String: [HeartbeatMath.FiveStarFlag]].self, forKey: .flags) ?? [:]
         packs = try container.decodeIfPresent([String: [DashScopePack]].self, forKey: .packs) ?? [:]
+        tables = try container.decodeIfPresent([String: [HeartbeatMath.DashboardGrainTableRow]].self, forKey: .tables) ?? [:]
         pickerShoppers = try container.decodeIfPresent(Int.self, forKey: .pickerShoppers) ?? 0
         pickerOpportunity = try container.decodeIfPresent(Int.self, forKey: .pickerOpportunity) ?? 0
         pickerStrong = try container.decodeIfPresent(Int.self, forKey: .pickerStrong) ?? 0
     }
 
-    static func from(_ caches: PulseCaches) -> PulseDashChrome {
-        PulseDashChrome(
+    static func from(_ caches: PulseCaches, grain: DashScopeGrain = .region) -> PulseDashChrome {
+        let latest = caches.filteredLatest.isEmpty ? caches.latestBySection : caches.filteredLatest
+        var packs = caches.cachedGrainPacks
+        if packs[MetricSection.pickerScorecard] == nil {
+            let pickerOnly = PulseCaches.grainPacks(
+                latest: latest,
+                grain: grain,
+                hidePicker: false,
+                roster: caches.roster
+            )
+            if let picker = pickerOnly[MetricSection.pickerScorecard] {
+                packs[MetricSection.pickerScorecard] = picker
+            }
+        }
+        var tables = PulseCaches.grainTables(
+            latest: latest,
+            grain: grain,
+            roster: caches.roster,
+            packs: packs
+        )
+        if !HeartbeatMath.grainRowsAreLive(tables[MetricSection.pickerScorecard] ?? []) {
+            let pickerTable = HeartbeatMath.dashboardGrainTableFilled(
+                section: .pickerScorecard,
+                rows: latest[MetricSection.pickerScorecard] ?? [],
+                grain: grain,
+                order: packs[MetricSection.pickerScorecard]?.map(\.line.label) ?? []
+            )
+            if HeartbeatMath.grainRowsAreLive(pickerTable) {
+                tables[MetricSection.pickerScorecard] = pickerTable
+            }
+        }
+        return PulseDashChrome(
             summaries: caches.cachedSummaries,
             flags: Dictionary(uniqueKeysWithValues: caches.cachedCardFlags.map { ($0.key.rawValue, $0.value) }),
-            packs: Dictionary(uniqueKeysWithValues: caches.cachedGrainPacks.map { ($0.key.rawValue, $0.value) }),
+            packs: Dictionary(uniqueKeysWithValues: packs.map { ($0.key.rawValue, $0.value) }),
+            tables: Dictionary(uniqueKeysWithValues: tables.map { ($0.key.rawValue, $0.value) }),
             pickerShoppers: caches.cachedPickerBoard.shopperCount,
             pickerOpportunity: caches.cachedPickerBoard.opportunityCount,
             pickerStrong: caches.cachedPickerBoard.strongCount
@@ -79,14 +114,14 @@ struct PulseDashChrome: Codable {
 
 enum PulseLayoutCap {
     static var grainCap: Int {
-        #if canImport(UIKit)
+        #if canImport(UIKit) && !HEARTBEAT_INGEST
         return HubLayout.grainCap
         #else
         return 24
         #endif
     }
     static var storeGrainCap: Int {
-        #if canImport(UIKit)
+        #if canImport(UIKit) && !HEARTBEAT_INGEST
         return HubLayout.storeGrainCap
         #else
         return 50
@@ -143,11 +178,21 @@ struct PulseCaches {
                 latest[section] = HeartbeatMath.applyRoster(sectionRows, roster: roster)
             } else if section == .storeRoster {
                 latest[section] = HeartbeatMath.latestPerStore(sectionRows)
-            } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady || section == .pph || section == .lostRevenue || section == .missingItems || section == .preSubOOS || section == .sales {
+            } else if section == .pph {
+                latest[section] = HeartbeatMath.materializePPH(
+                    sectionRows,
+                    roster: roster,
+                    pickers: bySection[.pickerScorecard] ?? []
+                )
+            } else if section == .scheduleQuality || section == .fiveStar || section == .prepNotReady || section == .lostRevenue || section == .missingItems || section == .preSubOOS || section == .sales {
                 let source = section == .lostRevenue
                     ? sectionRows.filter { $0.textPayload["lost_grain"] != "market" }
                     : sectionRows
-                latest[section] = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(source), roster: roster)
+                var collapsed = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(source), roster: roster)
+                if section == .lostRevenue, let market = sectionRows.first(where: { $0.textPayload["lost_grain"] == "market" }) {
+                    collapsed.append(market)
+                }
+                latest[section] = collapsed
             } else if section == .labor {
                 let stores = sectionRows.filter {
                     $0.textPayload["labor_grain"] == "store" && !$0.storeNumber.isEmpty
@@ -168,6 +213,7 @@ struct PulseCaches {
         if let path = latest[.pickPath] {
             latest[.pickPath] = HeartbeatMath.applyAisleMapper(path, from: latest[.aisleMapper] ?? [])
         }
+        latest = HeartbeatMath.overlayDynacapPPH(latest)
         return refilter(
             latest: latest,
             roster: roster,
@@ -196,11 +242,22 @@ struct PulseCaches {
         nextLatest.reserveCapacity(latest.count)
         if let allowed {
             for (section, rows) in latest {
-                nextLatest[section] = rowsMatchingStores(
+                let matched = rowsMatchingStores(
                     rows,
                     stores: allowed,
                     skipMarket: section == .lostRevenue || section == .labor
                 )
+                if filters.isActive {
+                    nextLatest[section] = PulseQuery.sliceSection(
+                        section,
+                        rows: rows,
+                        allowed: allowed,
+                        filters: filters,
+                        roster: roster
+                    )
+                } else {
+                    nextLatest[section] = matched
+                }
             }
         } else {
             nextLatest = latest
@@ -216,13 +273,7 @@ struct PulseCaches {
             .filter { !$0.isEmpty }
             .uniquedIgnoringCase()
             .sorted()
-        let oms = roster.values
-            .filter { filters.includesDivision($0.division) }
-            .filter { filters.includesDistrict($0.district) }
-            .map { HeartbeatMath.canonicalOM($0.om) }
-            .filter { value in !value.isEmpty && value.rangeOfCharacter(from: .letters) != nil }
-            .uniquedIgnoringCase()
-            .sorted()
+        let oms = PulseSeatPack.publishedOMNames(from: roster, filters: filters)
         var seen: [String: String?] = [:]
         for (number, identity) in roster {
             if let allowed, !allowed.contains(number) { continue }
@@ -235,7 +286,7 @@ struct PulseCaches {
         var pphByStore: [String: Double] = [:]
         for row in nextLatest[.pph] ?? [] {
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
-            if let value = row.number("pph") { pphByStore[store] = value }
+            if let value = HeartbeatMath.pphNumber(row) { pphByStore[store] = value }
         }
         var pathByStore: [String: Double] = [:]
         for row in nextLatest[.pickPath] ?? [] {
@@ -270,6 +321,9 @@ struct PulseCaches {
                 summary.secondary = "No \(section.short) data for \(market.count) stores in this filter"
                 summary.health = .none
             }
+            if filters.isActive, let allowed, !allowed.isEmpty {
+                return PulseLaunch.pinSeatStoreCount(summary, seatStores: allowed.count)
+            }
             return summary
         }
         return PulseCaches(
@@ -289,7 +343,11 @@ struct PulseCaches {
             pickPathPickersByStore: path.buckets,
             pickPathByShopper: path.byShopper,
             pphPickersByStore: pph,
-            cachedCardFlags: cardFlags(latest: nextLatest, laborMarket: laborMarket),
+            cachedCardFlags: cardFlags(
+                latest: nextLatest,
+                laborMarket: laborMarket,
+                lostRevenueMarket: filters.isActive ? nil : lostRevenueMarket
+            ),
             cachedGrainPacks: grainPacks(
                     latest: nextLatest,
                     grain: grain,
@@ -320,7 +378,8 @@ struct PulseCaches {
 
     static func cardFlags(
         latest: [MetricSection: [MetricRow]],
-        laborMarket: MetricRow? = nil
+        laborMarket: MetricRow? = nil,
+        lostRevenueMarket: MetricRow? = nil
     ) -> [MetricSection: [HeartbeatMath.FiveStarFlag]] {
         let pickers = latest[.pickerScorecard] ?? []
         let pathPickers = latest[.pickPathPicker] ?? []
@@ -332,12 +391,18 @@ struct PulseCaches {
             if section == .labor, let laborMarket {
                 rows.append(laborMarket)
             }
+            if section == .lostRevenue, let lostRevenueMarket {
+                if !rows.contains(where: { $0.textPayload["lost_grain"] == "market" }) {
+                    rows.append(lostRevenueMarket)
+                }
+            }
             out[section] = HeartbeatMath.dashboardActionFlags(
                 section: section,
                 rows: rows,
                 pickers: pickers,
                 pathPickers: pathPickers,
                 items: items,
+                pphRows: latest[.pph] ?? [],
                 includeAll: false
             )
         }
@@ -360,7 +425,14 @@ struct PulseCaches {
         }
         var out: [MetricSection: [DashScopePack]] = [:]
         for section in MetricSection.dashboardCards {
-            if hidePicker, section == .pickerScorecard { continue }
+            // Never drop Picker ScoreCard from dashboard packs. hidePicker only
+            // skips shopper-join extras — empty picker rows must not emit a
+            // placeholder pack that wipes live chrome grain.
+            if section == .pickerScorecard {
+                if (latest[section] ?? []).isEmpty { continue }
+            } else if hidePicker, section == .pickPathPicker {
+                continue
+            }
             let rows = HeartbeatMath.rowsFillingRoster(latest[section] ?? [], roster: roster)
             let lines: [DashScopeLine]
             if grain == .store, !stores.isEmpty {
@@ -400,6 +472,46 @@ struct PulseCaches {
                 packs = shown.map { DashScopePack(line: $0, flags: [], children: []) }
             }
             out[section] = packs
+        }
+        return out
+    }
+
+    static func grainTables(
+        latest: [MetricSection: [MetricRow]],
+        grain: DashScopeGrain?,
+        roster: [String: HeartbeatMath.StoreIdentity],
+        packs: [MetricSection: [DashScopePack]],
+        goalFallback: Double? = nil,
+        only: Set<MetricSection>? = nil,
+        rowCap: Int? = nil
+    ) -> [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] {
+        guard let grain else { return [:] }
+        var out: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] = [:]
+        let lostGoal = goalFallback ?? HeartbeatMath.lostRevenueGoalFallback(latest[.lostRevenue] ?? [])
+        for (section, sectionPacks) in packs {
+            if let only, !only.contains(section) { continue }
+            var rows = HeartbeatMath.rowsFillingRoster(latest[section] ?? [], roster: roster)
+            if section == .dynacap {
+                rows = HeartbeatMath.overlayStorePPH(
+                    rows,
+                    from: latest[.pph] ?? [],
+                    pickers: latest[.pickerScorecard] ?? []
+                )
+            }
+            var table = HeartbeatMath.dashboardGrainTableFilled(
+                section: section,
+                rows: rows,
+                grain: grain,
+                order: sectionPacks.map(\.line.label),
+                goalFallback: section == .lostRevenue ? lostGoal : nil
+            )
+            if section == .lostRevenue, let lostGoal, HeartbeatMath.grainTableNeedsGoalFill(table) {
+                table = HeartbeatMath.fillingLostRevenueGoal(table, goal: lostGoal)
+            }
+            if let rowCap, table.count > rowCap {
+                table = Array(table.prefix(rowCap))
+            }
+            out[section] = table
         }
         return out
     }
@@ -451,13 +563,37 @@ struct PulseCaches {
         for row in rows {
             if let key = key(for: row) { buckets[key, default: []].append(row) }
         }
+        var aliasToKey: [String: String] = [:]
+        for key in buckets.keys {
+            for alias in HeartbeatMath.grainAliasKeys(key, grain: grain) where aliasToKey[alias] == nil {
+                aliasToKey[alias] = key
+            }
+        }
+        func group(for pack: DashScopePack) -> [MetricRow] {
+            let match = packKey(pack)
+            for alias in HeartbeatMath.grainAliasKeys(match, grain: grain) {
+                if let key = aliasToKey[alias], let rows = buckets[key] { return rows }
+                if let rows = buckets[alias] { return rows }
+            }
+            return buckets[match] ?? []
+        }
         var out: [String: [HeartbeatMath.FiveStarFlag]] = [:]
         out.reserveCapacity(packs.count)
         for pack in packs {
-            let match = packKey(pack)
+            var rows = group(for: pack)
+            if section == .dynacap {
+                rows = HeartbeatMath.overlayStorePPH(
+                    rows,
+                    from: latest[.pph] ?? [],
+                    pickers: latest[.pickerScorecard] ?? []
+                )
+            }
             out[pack.id] = HeartbeatMath.dashboardActionFlags(
                 section: section,
-                rows: buckets[match] ?? [],
+                rows: rows,
+                pickers: latest[.pickerScorecard] ?? [],
+                items: latest[.preSubOOSItem] ?? [],
+                pphRows: latest[.pph] ?? [],
                 includeAll: true
             )
         }
@@ -478,6 +614,7 @@ struct PulseCaches {
                 ? rows.filter { $0.section != .pickerScorecard && $0.section != .pickPathPicker }
                 : primary
         )
+        let gateOrphans = PulseLaunch.shouldRosterGateRollupIdentities() && !official.isEmpty
         guard !fallback.isEmpty else { return roster }
         let extra = HeartbeatMath.storeRoster(fallback)
         for (number, identity) in extra {
@@ -487,7 +624,7 @@ struct PulseCaches {
                 if current.om.isEmpty { current.om = identity.om }
                 if current.name == nil { current.name = identity.name }
                 roster[number] = current
-            } else {
+            } else if !gateOrphans {
                 roster[number] = identity
             }
         }
@@ -495,13 +632,15 @@ struct PulseCaches {
         for row in rows {
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
             guard !store.isEmpty, !HeartbeatMath.isIgnoredStore(store) else { continue }
+            let missing = roster[store] == nil
+            if missing, gateOrphans { continue }
             var identity = roster[store] ?? HeartbeatMath.StoreIdentity(
                 division: "",
                 district: "",
                 om: "",
                 name: row.storeName
             )
-            var changed = roster[store] == nil
+            var changed = missing
             if identity.district.isEmpty {
                 let district = HeartbeatMath.canonicalDistrict(row.district)
                 if !district.isEmpty {
@@ -514,12 +653,6 @@ struct PulseCaches {
                 if !division.isEmpty {
                     identity.division = division
                     changed = true
-                } else {
-                    let raw = row.division.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !raw.isEmpty {
-                        identity.division = raw
-                        changed = true
-                    }
                 }
             }
             if identity.om.isEmpty {
@@ -545,13 +678,21 @@ struct PulseCaches {
         skipMarket: Bool
     ) -> [MetricRow] {
         var index: [String: MetricRow] = [:]
+        var districtRates: [MetricRow] = []
         index.reserveCapacity(rows.count)
         for row in rows {
             if skipMarket, row.textPayload["lost_grain"] == "market", HeartbeatMath.canonicalStore(row.storeNumber).isEmpty { continue }
             if row.textPayload["sales_grain"] == "company" { continue }
             if HeartbeatMath.isIgnoredStore(row.storeNumber), row.section != .sales { continue }
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
-            guard !store.isEmpty else { continue }
+            if store.isEmpty {
+                if row.section == .dynacap, row.number("dynacap_rate", "pieces_per_hour") != nil {
+                    districtRates.append(row)
+                } else if row.section == .scheduleQuality, row.number("schedule_efficiency_pct") != nil {
+                    districtRates.append(row)
+                }
+                continue
+            }
             if index[store] == nil { index[store] = row }
             for alias in HeartbeatMath.storeAliases(store) where index[alias] == nil {
                 index[alias] = row
@@ -568,7 +709,69 @@ struct PulseCaches {
                 out.append(row)
             }
         }
+        if !districtRates.isEmpty {
+            let haveDyn = out.contains { $0.section == .dynacap && $0.number("dynacap_rate", "pieces_per_hour") != nil }
+            let haveSch = out.contains { $0.section == .scheduleQuality && $0.number("schedule_efficiency_pct") != nil }
+            for extra in districtRates {
+                if extra.section == .dynacap, haveDyn { continue }
+                if extra.section == .scheduleQuality, haveSch { continue }
+                out.append(extra)
+            }
+        }
         return out
+    }
+
+    /// Keep Excel rows that belong to the selected region/district book even when the
+    /// store number is missing or not on the roster (California Schedule Quality totals).
+    static func unionRegionBook(
+        _ matched: [MetricRow],
+        from rows: [MetricRow],
+        filters: DashboardFilters,
+        roster: [String: HeartbeatMath.StoreIdentity],
+        allowed: Set<String>
+    ) -> [MetricRow] {
+        if filters.isActive { return matched }
+        guard filters.stores.isEmpty else { return matched }
+        let wantedRegions = Set(filters.regions.compactMap { MarketRegion(rawValue: $0) ?? MarketRegion.named($0) })
+        let wantedDistricts = Set(filters.districts.map { HeartbeatMath.canonicalDistrict($0) }.filter { !$0.isEmpty })
+        guard !wantedRegions.isEmpty || !wantedDistricts.isEmpty || !filters.divisions.isEmpty else { return matched }
+        var seen: Set<String> = []
+        seen.reserveCapacity(matched.count + 64)
+        for row in matched {
+            seen.insert(row.id.uuidString)
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            if !store.isEmpty { seen.insert(store) }
+        }
+        var extra: [MetricRow] = []
+        for row in rows {
+            if seen.contains(row.id.uuidString) { continue }
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            if !store.isEmpty {
+                if HeartbeatMath.storeInAllowed(store, allowed: allowed) { continue }
+                if roster[store] != nil { continue }
+                if let value = Int(store) {
+                    if roster[String(format: "%04d", value)] != nil { continue }
+                    if roster[String(format: "%05d", value)] != nil { continue }
+                }
+            }
+            if !wantedRegions.isEmpty {
+                guard let region = MarketRegion.resolved(division: row.division, district: row.district),
+                      wantedRegions.contains(region) else { continue }
+            }
+            if !filters.divisions.isEmpty {
+                guard filters.includesDivision(row.division) else { continue }
+            }
+            if !wantedDistricts.isEmpty {
+                let district = HeartbeatMath.canonicalDistrict(row.district.isEmpty ? row.division : row.district)
+                let have = HeartbeatMath.districtMatchKeys(district)
+                let want = Set(wantedDistricts.flatMap { HeartbeatMath.districtMatchKeys($0) })
+                guard !have.isDisjoint(with: want) else { continue }
+            }
+            extra.append(row)
+            seen.insert(row.id.uuidString)
+            if !store.isEmpty { seen.insert(store) }
+        }
+        return extra.isEmpty ? matched : matched + extra
     }
 
     static func lostRevenueRows(
@@ -591,11 +794,6 @@ struct PulseCaches {
         filters: DashboardFilters,
         skipMarket: Bool = false
     ) -> [MetricRow] {
-        var aliases: Set<String> = []
-        aliases.reserveCapacity(allowed.count * 3)
-        for store in allowed {
-            aliases.formUnion(HeartbeatMath.storeAliases(store))
-        }
         var seen: Set<String> = []
         var out: [MetricRow] = []
         out.reserveCapacity(min(rows.count, max(allowed.count, 8)))
@@ -604,7 +802,7 @@ struct PulseCaches {
             if HeartbeatMath.isIgnoredStore(row.storeNumber), row.section != .sales { continue }
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
             if store.isEmpty { continue }
-            guard !aliases.isEmpty, !HeartbeatMath.storeAliases(store).isDisjoint(with: aliases) else { continue }
+            guard HeartbeatMath.storeInAllowed(store, allowed: allowed) else { continue }
             if seen.insert(store).inserted { out.append(row) }
         }
         return out
@@ -618,8 +816,7 @@ struct PulseCaches {
     ) -> Bool {
         let store = HeartbeatMath.canonicalStore(row.storeNumber)
         let identity = store.isEmpty ? nil : roster[store]
-        if !store.isEmpty, allowed.contains(store) { return true }
-        if allowed.contains(where: { HeartbeatMath.sameStore($0, store) }) { return true }
+        if !store.isEmpty, HeartbeatMath.storeInAllowed(store, allowed: allowed) { return true }
         let district = {
             if let value = identity?.district, !value.isEmpty { return value }
             return row.district
@@ -774,13 +971,7 @@ struct PulseCaches {
     }
 
     private static func pphIndexValues(_ scorecard: [MetricRow]) -> [String: [MetricRow]] {
-        var buckets: [String: [MetricRow]] = [:]
-        for row in scorecard where row.number("pph") != nil {
-            let store = HeartbeatMath.canonicalStore(row.storeNumber)
-            guard !store.isEmpty else { continue }
-            buckets[store, default: []].append(row)
-        }
-        return buckets
+        return PulseLaunch.pphPickerIndex(scorecard).rows
     }
 
     private static func identity(

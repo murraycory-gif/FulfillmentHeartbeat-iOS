@@ -44,6 +44,8 @@ struct FulfillmentHeartbeatApp: App {
             .onChange(of: scenePhase) { _, phase in
                 if phase == .inactive || phase == .background {
                     store.flush()
+                } else if phase == .active {
+                    store.pullLatestWorkbookIfNeeded()
                 }
             }
             .onAppear {
