@@ -7,7 +7,7 @@ enum CommandCenterLayout {
     static let minGlanceHeight: CGFloat = 132
     static let minHeroHeight: CGFloat = 120
 
-    /// Every operational dashboard card that is not a navy hero — fills the leftover viewport.
+    /// Every operational dashboard card that is not a navy hero.
     static var glanceSections: [MetricSection] {
         [
             .labor,
@@ -30,7 +30,7 @@ enum CommandCenterLayout {
         Set(heroes + glance) == Set(MetricSection.dashboardCards)
     }
 
-    /// Phone home is a 1-column scroll. Pad/Mac keep leftover-fill grids.
+    /// Phone home is a 1-column scroll. Pad leftover-fill. Mac scrolls readable tiles.
     static func glanceColumns(width: CGFloat, phone: Bool, portrait: Bool) -> Int {
         if phone { return 1 }
         if portrait {
@@ -136,8 +136,8 @@ enum CommandCenterLayout {
         return max(minGlanceHeight, raw)
     }
 
-    /// Mac Catalyst: partition the live window. Preferred MUST M floors shrink
-    /// so heroes + glance never clip the bottom edge.
+    /// Mac Catalyst: readable MUST M sizes. Do not shrink tiles to leftover
+    /// `geo.size.height`. Caller uses `MacCommandCenterFit.overflows` to scroll.
     static func macCommandCenterFit(
         availableHeight: CGFloat,
         glanceCards: Int,
@@ -146,35 +146,21 @@ enum CommandCenterLayout {
     ) -> MacCommandCenterFit {
         let header: CGFloat = PulseLaunch.shouldUseExpandedMacReadableChrome() ? 28 : 16
         let pad: CGFloat = PulseLaunch.shouldUseExpandedMacReadableChrome() ? 16 : 12
-        let bottom: CGFloat = PulseLaunch.shouldReserveMacWindowBottomChrome() ? 12 : 8
-        let slack = PulseLaunch.shouldReserveMacWindowBottomChrome()
-            ? PulseLaunch.macWindowFitSlack
-            : 0
         let rows = rowCount(cards: glanceCards, columns: max(glanceColumns, 1))
         let stackGutters = gutter * 2
         let glanceGutters = gutter * CGFloat(max(rows - 1, 0))
-        let chrome = header + pad + bottom + stackGutters
-        let usable = max(0, availableHeight - chrome - slack)
-        let preferredHero = heroBandHeight(
+        let hero = heroBandHeight(
             phone: false,
             portrait: portrait,
-            available: availableHeight,
+            available: 1000,
             mac: true
         )
-        let minHero: CGFloat = 120
-        let minGlance: CGFloat = 108
-        let minGlanceTotal = CGFloat(rows) * minGlance + glanceGutters
-        var hero = min(preferredHero, max(minHero, usable * 0.36))
-        if usable - hero < minGlanceTotal {
-            hero = max(minHero, usable - minGlanceTotal)
-        }
-        hero = min(hero, max(0, usable - minGlanceTotal))
-        let glanceRemain = max(0, usable - hero)
-        let glanceTile = max(minGlance, (glanceRemain - glanceGutters) / CGFloat(max(rows, 1)))
-        let used = chrome + hero + CGFloat(rows) * glanceTile + glanceGutters
+        let glance = leftoverGlanceFloor(mac: true)
+        let used = header + pad + stackGutters + hero + CGFloat(rows) * glance + glanceGutters
+        _ = availableHeight
         return MacCommandCenterFit(
             heroHeight: hero,
-            glanceTileHeight: glanceTile,
+            glanceTileHeight: glance,
             headerHeight: header,
             pad: pad,
             usedHeight: used
@@ -418,7 +404,7 @@ struct PhoneCommandGlanceCard: View {
     }
 }
 
-/// iPad / Mac leftover-fill briefing. Phone uses PhoneCommandCenterHome.
+/// iPad leftover-fill briefing. Mac scrolls readable tiles. Phone uses PhoneCommandCenterHome.
 struct CommandCenterHome: View {
     @EnvironmentObject private var store: HeartbeatStore
     @Environment(\.horizontalSizeClass) private var sizeClass
@@ -429,79 +415,89 @@ struct CommandCenterHome: View {
     var body: some View {
         if phone, PulseLaunch.shouldUsePhoneNativeCommandCenter() {
             PhoneCommandCenterHome(open: open)
+        } else if HubLayout.isMac, !PulseLaunch.shouldFillMacViewport() {
+            macScrollingHome
         } else {
-            GeometryReader { geo in
-                let portrait = geo.size.height > geo.size.width
-                let cards = glanceCards
-                let cols = CommandCenterLayout.glanceColumns(width: geo.size.width, phone: phone, portrait: portrait)
-                let macFit = HubLayout.isMac && PulseLaunch.shouldFitMacCommandCenterToWindow()
-                    ? CommandCenterLayout.macCommandCenterFit(
-                        availableHeight: geo.size.height,
-                        glanceCards: max(cards.count, 1),
-                        glanceColumns: cols,
-                        portrait: portrait
-                    )
-                    : nil
-                let heroH = macFit?.heroHeight ?? CommandCenterLayout.heroBandHeight(
-                    phone: phone,
-                    portrait: portrait,
-                    available: geo.size.height,
-                    mac: HubLayout.isMac
-                )
-                let header: CGFloat = macFit?.headerHeight
-                    ?? (HubLayout.MacReadable.enabled ? 24 : 20)
-                let pad: CGFloat = macFit?.pad
-                    ?? (HubLayout.MacReadable.enabled ? 16 : 12)
-                let leftover = max(
-                    macFit == nil
-                        ? CommandCenterLayout.leftoverGlanceFloor(mac: HubLayout.isMac)
-                        : 0,
-                    geo.size.height - heroH - header - pad - CommandCenterLayout.gutter
-                        - (HubLayout.isMac && PulseLaunch.shouldReserveMacWindowBottomChrome()
-                            ? 12 + PulseLaunch.macWindowFitSlack
-                            : 0)
-                )
-                let tileH = macFit?.glanceTileHeight ?? CommandCenterLayout.glanceTileHeight(
-                    remaining: leftover,
-                    cards: max(cards.count, 1),
-                    columns: cols
-                )
-                let bottomPad: CGFloat = HubLayout.isMac && PulseLaunch.shouldReserveMacWindowBottomChrome()
-                    ? 12
-                    : 8
-                let fitted = VStack(spacing: CommandCenterLayout.gutter) {
-                    heroBand(height: heroH, portrait: portrait, width: geo.size.width)
+            padLeftoverHome
+        }
+    }
+
+    /// MUST K: intrinsic MUST M tiles + ScrollView. `overflows()` decides bounce.
+    /// Do not lock height to `geo.size.height` or leftover-fill Prep off-screen.
+    private var macScrollingHome: some View {
+        GeometryReader { geo in
+            let portrait = geo.size.height > geo.size.width
+            let cards = glanceCards
+            let cols = CommandCenterLayout.glanceColumns(width: geo.size.width, phone: false, portrait: portrait)
+            let fit = CommandCenterLayout.macCommandCenterFit(
+                availableHeight: geo.size.height,
+                glanceCards: max(cards.count, 1),
+                glanceColumns: cols,
+                portrait: portrait
+            )
+            let overflow = MacCommandCenterFit.overflows(
+                availableHeight: geo.size.height,
+                usedHeight: fit.usedHeight
+            )
+            ScrollView {
+                VStack(spacing: CommandCenterLayout.gutter) {
+                    heroBand(height: fit.heroHeight, portrait: portrait, width: geo.size.width)
                     glanceHeader
-                    glanceGrid(cards: cards, columns: cols, tileHeight: tileH)
+                    glanceGrid(cards: cards, columns: cols, tileHeight: fit.glanceTileHeight)
                 }
                 .padding(.horizontal, 12)
-                .padding(.bottom, bottomPad)
+                .padding(.bottom, fit.pad)
                 .frame(width: geo.size.width, alignment: .top)
-                .frame(
-                    minHeight: max(0, geo.size.height),
-                    alignment: .top
-                )
-                if HubLayout.isMac && PulseLaunch.shouldScrollMacCommandCenterWhenOverflow() {
-                    ScrollView {
-                        fitted
-                    }
-                    .scrollIndicators(.visible)
-                    .scrollBounceBehavior(
-                        PulseLaunch.shouldOfferPullToRefreshSeatPack() ? .always : .basedOnSize
-                    )
-                    .hubSeatPackRefreshable()
-                } else if PulseLaunch.shouldOfferPullToRefreshSeatPack() {
-                    ScrollView {
-                        fitted
-                            .frame(height: geo.size.height, alignment: .top)
-                    }
-                    .scrollIndicators(.hidden)
-                    .scrollBounceBehavior(.always)
-                    .hubSeatPackRefreshable()
-                } else {
+            }
+            // Viewport is the window. Content stays intrinsic — do not leftover-fill.
+            .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
+            .scrollIndicators(overflow ? .visible : .hidden)
+            .scrollBounceBehavior(
+                PulseLaunch.shouldOfferPullToRefreshSeatPack() ? .always : .basedOnSize
+            )
+            .hubSeatPackRefreshable()
+        }
+    }
+
+    private var padLeftoverHome: some View {
+        GeometryReader { geo in
+            let portrait = geo.size.height > geo.size.width
+            let cards = glanceCards
+            let cols = CommandCenterLayout.glanceColumns(width: geo.size.width, phone: phone, portrait: portrait)
+            let heroH = CommandCenterLayout.heroBandHeight(
+                phone: phone,
+                portrait: portrait,
+                available: geo.size.height,
+                mac: false
+            )
+            let header: CGFloat = 20
+            let pad: CGFloat = 12
+            let leftover = max(
+                CommandCenterLayout.leftoverGlanceFloor(mac: false),
+                geo.size.height - heroH - header - pad - CommandCenterLayout.gutter
+            )
+            let tileH = CommandCenterLayout.glanceTileHeight(
+                remaining: leftover,
+                cards: max(cards.count, 1),
+                columns: cols
+            )
+            let fitted = VStack(spacing: CommandCenterLayout.gutter) {
+                heroBand(height: heroH, portrait: portrait, width: geo.size.width)
+                glanceHeader
+                glanceGrid(cards: cards, columns: cols, tileHeight: tileH)
+            }
+            .padding(.horizontal, 12)
+            .padding(.bottom, 8)
+            .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
+            if PulseLaunch.shouldOfferPullToRefreshSeatPack() {
+                ScrollView {
                     fitted
-                        .frame(height: geo.size.height, alignment: .top)
                 }
+                .scrollIndicators(.hidden)
+                .scrollBounceBehavior(.always)
+                .hubSeatPackRefreshable()
+            } else {
+                fitted
             }
         }
     }
@@ -559,7 +555,7 @@ struct CommandCenterHome: View {
                 }
                 .frame(
                     minHeight: tileHeight,
-                    maxHeight: HubLayout.isMac && PulseLaunch.shouldScrollMacCommandCenterWhenOverflow()
+                    maxHeight: HubLayout.isMac && !PulseLaunch.shouldFillMacViewport()
                         ? nil
                         : .infinity
                 )
@@ -567,7 +563,7 @@ struct CommandCenterHome: View {
         }
         .frame(
             maxWidth: .infinity,
-            maxHeight: HubLayout.isMac && PulseLaunch.shouldScrollMacCommandCenterWhenOverflow()
+            maxHeight: HubLayout.isMac && !PulseLaunch.shouldFillMacViewport()
                 ? nil
                 : .infinity,
             alignment: .top

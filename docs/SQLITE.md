@@ -24,4 +24,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.413 / 1.0 (739) — Mac Share hands off a Mail draft and never claims sent. MFMailCompose skipped on Mac. Bottom clip + Hide-pages Soft KEEP. MUST P / PTR untouched.
+HB-0828.414 / 1.0 (740) — Mac Command Center scrolls readable tiles (overflows() gate). Mac Share send completion is NSSharingService didShareItems — mailto is not delivery. Hide-pages file-only. MUST P / PTR untouched.

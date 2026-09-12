@@ -12164,10 +12164,39 @@ enum PulseShare {
         on presenter: UIViewController?
     ) {
         copyRecapToPasteboard(packet)
+        if PulseLaunch.shouldUseMacSharingServiceForMailSend() {
+            var items: [Any] = []
+            if let file = writeHTMLFile(packet) {
+                items.append(file)
+            }
+            let html = PulseMail.html(from: packet)
+            items.append(html.isEmpty ? packet.brief : html)
+            let started = MacMailComposer.compose(
+                subject: packet.subject,
+                recipients: to,
+                items: items
+            ) { shared in
+                let sent = PulseLaunch.shouldAnnounceMailSent(
+                    mailtoOpened: false,
+                    composeResultSent: false,
+                    sharingDidShare: shared,
+                    mac: true
+                )
+                presentShareMailStatus(
+                    on: presenter,
+                    title: sent ? "Recap sent" : "Mail did not send",
+                    message: sent
+                        ? PulseLaunch.macShareMailDidShareCopy()
+                        : PulseLaunch.shareMailOpenFailedCopy()
+                )
+            }
+            if started { return }
+        }
         openMailto(packet, to: to, shortBody: true) { opened in
             let sent = PulseLaunch.shouldAnnounceMailSent(
                 mailtoOpened: opened,
                 composeResultSent: false,
+                sharingDidShare: false,
                 mac: true
             )
             presentShareMailStatus(
@@ -12191,6 +12220,7 @@ enum PulseShare {
             let sent = PulseLaunch.shouldAnnounceMailSent(
                 mailtoOpened: opened,
                 composeResultSent: false,
+                sharingDidShare: false,
                 mac: HubLayout.isMac
             )
             if sent { return }

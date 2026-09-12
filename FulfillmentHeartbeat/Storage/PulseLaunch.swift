@@ -830,6 +830,10 @@ enum PulseLaunch {
     /// Pad leftover-fill stays on the existing density. Mac uses expanded readable chrome.
     static func shouldLeavePadMacCommandChromeUnchanged() -> Bool { true }
 
+    /// MUST K: Mac must not leftover-fill to geo.size.height (that clips Prep).
+    /// Same class as phone `shouldFillPhoneViewport() == false`.
+    static func shouldFillMacViewport() -> Bool { false }
+
     /// Mac Catalyst / MacBook: bigger type, cards, tables, chips, filter chrome.
     /// Must not apply phone compact shrink. Whole-app scale, not one page.
     static func shouldUseExpandedMacReadableChrome() -> Bool { true }
@@ -2131,6 +2135,9 @@ enum PulseLaunch {
     static func macShareMailOpenedCopy() -> String {
         "Apple Mail opened a draft. Click Send in Mail to deliver it. Heartbeat does not send mail on Mac."
     }
+    static func macShareMailDidShareCopy() -> String {
+        "Mail sent the recap. Heartbeat only reports sent after you click Send in Mail."
+    }
     static var shareSheetDismissSettleNanoseconds: UInt64 { 350_000_000 }
 
     /// Mac Catalyst: MFMailCompose canSendMail / .sent is a false delivery.
@@ -2141,9 +2148,18 @@ enum PulseLaunch {
         if mac, !shouldPresentMFMailComposeOnMac() { return false }
         return canSendMail
     }
-    static func shouldAnnounceMailSent(mailtoOpened: Bool, composeResultSent: Bool, mac: Bool) -> Bool {
+    static func shouldUseMacSharingServiceForMailSend() -> Bool { true }
+    static func shouldTreatSharingDidShareAsMailSent() -> Bool { true }
+    static func shouldAnnounceMailSent(
+        mailtoOpened: Bool,
+        composeResultSent: Bool,
+        sharingDidShare: Bool = false,
+        mac: Bool
+    ) -> Bool {
+        if mac {
+            return sharingDidShare && shouldTreatSharingDidShareAsMailSent()
+        }
         if shouldTreatMailtoOpenAsSent(), mailtoOpened { return true }
-        if mac { return false }
         return composeResultSent && !mailtoOpened
     }
 
