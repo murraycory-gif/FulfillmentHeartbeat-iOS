@@ -451,7 +451,11 @@ struct CommandCenterHome: View {
             }
             // Viewport is the window. Content stays intrinsic — do not leftover-fill.
             .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
-            .scrollIndicators(overflow ? .visible : .hidden)
+            .scrollIndicators(
+                PulseLaunch.shouldToggleMacScrollIndicatorsFromFit() && overflow
+                    ? .visible
+                    : .hidden
+            )
             .scrollBounceBehavior(
                 PulseLaunch.shouldOfferPullToRefreshSeatPack() ? .always : .basedOnSize
             )

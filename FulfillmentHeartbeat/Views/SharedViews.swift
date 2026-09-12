@@ -758,6 +758,7 @@ final class LogoECGView: UIView {
 
     private let track = CAShapeLayer()
     private let pulse = CAShapeLayer()
+    private var lastBeatSize: CGSize = .zero
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -779,6 +780,8 @@ final class LogoECGView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        guard bounds.size != lastBeatSize else { return }
+        lastBeatSize = bounds.size
         let path = Self.logoPath(in: bounds)
         track.frame = bounds
         pulse.frame = bounds
@@ -837,6 +840,7 @@ private struct ECGPulseView: UIViewRepresentable {
 final class ECGPulseUIView: UIView {
     private let track = CAShapeLayer()
     private let pulse = CAShapeLayer()
+    private var lastBeatSize: CGSize = .zero
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -862,6 +866,8 @@ final class ECGPulseUIView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        guard bounds.size != lastBeatSize else { return }
+        lastBeatSize = bounds.size
         let path = Self.ecgPath(in: bounds)
         track.frame = bounds
         pulse.frame = bounds

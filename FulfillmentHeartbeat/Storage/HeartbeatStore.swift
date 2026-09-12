@@ -449,6 +449,7 @@ final class HeartbeatStore: ObservableObject {
     /// Splash stays local-first. Shopper warehouse stream stays join-page only.
     /// Dashboard still locks card + expand from chrome / a first pack chunk.
     private func fillAfterReady() async {
+        guard PulseLaunch.shouldFillPickerAfterCompanyReady() else { return }
         lockPickerDashboard()
         await prefetchPickerDashboardIfNeeded()
         guard PulseLaunch.streamPickerAfterReady else { return }
@@ -3014,9 +3015,11 @@ final class HeartbeatStore: ObservableObject {
     func pullLatestWorkbookIfNeeded() {
         guard isReady, !isImporting else { return }
         pullCloudPackIfNeeded()
+        // Viewer: sqlite pack freshness only. A dropped Daily Report.xlsx
+        // after open is the same ~270% cook loop as cloud ingest.
+        guard PulseLaunch.shouldIngestCloudWorkbookOnForeground() else { return }
         guard HubLayout.ingestsWorkbook else { return }
         Task { await pullWatchedWorkbook() }
-        guard PulseLaunch.shouldIngestCloudWorkbookOnForeground() else { return }
         Task { await ingestWorkbookOnMacIfNeeded() }
     }
 
@@ -3060,6 +3063,7 @@ final class HeartbeatStore: ObservableObject {
 
     private func pullWorkbookFromServer() async {
         guard HubLayout.ingestsWorkbook else { return }
+        guard PulseLaunch.shouldIngestCloudWorkbookOnMac(seatAlreadyPainted: seeded) else { return }
         isImporting = true
         importProgress.label = PulseLaunch.comedyLoadStatus(at: 2)
         importLabel = PulseLaunch.comedyLoadStatus(at: 2)
@@ -3374,6 +3378,8 @@ final class HeartbeatStore: ObservableObject {
 
     private func importCloudWorkbook(blocking: Bool) async {
         guard HubLayout.ingestsWorkbook else { return }
+        let painted = seeded && packChrome != nil && !latestBySection.isEmpty
+        guard PulseLaunch.shouldIngestCloudWorkbookOnMac(seatAlreadyPainted: painted) else { return }
         var remoteXlsx = 0
         var remoteName = "Heartbeat Daily Report.xlsx"
         for name in PulseCloud.workbookNames {
@@ -3496,6 +3502,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func pullWatchedWorkbook() async {
+        guard PulseLaunch.shouldIngestCloudWorkbookOnForeground() else { return }
         guard !isImporting else { return }
         if let bookmark = masterBookmark {
             if await fileLooksNewer(bookmark: bookmark) {

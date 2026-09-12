@@ -24,4 +24,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.420 / 1.0 (746) — Tiny seat-plane LRU (company + one live). Filter tap does not PulseCaches.build. Clear FILE ROOT Soft KEEP. MUST P PulseSeatPack identical vs a9e2f68. HARD LINE 1 ≤28MB.
+HB-0828.421 / 1.0 (747) — Idle/after-open: no xlsx ingest/cook, no picker fill-after-ready. Tiny LRU + Clear/snappy KEEP. MUST P vs a9e2f68.

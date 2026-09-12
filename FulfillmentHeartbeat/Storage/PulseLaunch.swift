@@ -248,11 +248,20 @@ enum PulseLaunch {
     /// again inside `swapToSeatPack` on the same generation.
     static func shouldSkipRedundantSeatChromeApply() -> Bool { true }
 
-    /// Field devices are viewers. Do not download/parse the Daily Report xlsx
-    /// after a usable company seat is already painted — that pegs Mac CPU.
+    /// Field devices are viewers. Never download/parse the Daily Report xlsx
+    /// in-app — that is the ~270% Catalyst idle/after-open cook loop.
     static func shouldIngestCloudWorkbookOnMac(seatAlreadyPainted: Bool) -> Bool {
-        !seatAlreadyPainted
+        _ = seatAlreadyPainted
+        return false
     }
+
+    /// Company Command Center is chrome. `lockPickerDashboard` + picker SQL
+    /// after ready is MainActor heat on every device, not a join-page need.
+    static func shouldFillPickerAfterCompanyReady() -> Bool { false }
+
+    /// GeometryReader + flipping `.scrollIndicators` from `overflows()`
+    /// can layout-loop on Catalyst (~270% CPU). Bounce still uses overflow.
+    static func shouldToggleMacScrollIndicatorsFromFit() -> Bool { false }
 
     /// Foreground must not re-ingest xlsx. Cloud freshness is the sqlite pack.
     static func shouldIngestCloudWorkbookOnForeground() -> Bool { false }
