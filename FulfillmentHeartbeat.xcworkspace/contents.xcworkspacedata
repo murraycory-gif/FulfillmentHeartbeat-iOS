@@ -4,4 +4,7 @@
    <FileRef
       location = "group:FulfillmentHeartbeat.xcodeproj">
    </FileRef>
+   <FileRef
+      location = "group:HubPrediction.xcodeproj">
+   </FileRef>
 </Workspace>
