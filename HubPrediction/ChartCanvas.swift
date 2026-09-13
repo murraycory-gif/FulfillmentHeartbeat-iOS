@@ -18,7 +18,7 @@ struct ChartCanvas: View {
         let rebased = Forecast.rebasePrior(prior, live: live)
         let forecast = Forecast.forwardRay(now: now, closeAt: closeAt, live: live, slopePerMin: slope, lean: lean)
         let end = now + pan
-        let start = end - zoom * 60_000
+        let start = end - zoom * HubMs.minute
         let ys = points.map(\.px) + rebased.map(\.px) + forecast.map(\.px) + [live]
         let domain = Forecast.yDomain(live: live, values: ys)
 
@@ -30,14 +30,14 @@ struct ChartCanvas: View {
                     .tracking(1.6)
                 Spacer()
                 HStack(spacing: 4) {
-                    zoomBtn("<") { pan -= zoom * 30_000 }
+                    zoomBtn("<") { pan -= zoom * 30.0 * HubMs.second }
                     ForEach([60.0, 30.0, 15.0], id: \.self) { z in
                         zoomBtn("\(Int(z))m", on: zoom == z) {
                             zoom = z
                             pan = 0
                         }
                     }
-                    zoomBtn(">") { pan += zoom * 30_000 }
+                    zoomBtn(">") { pan += zoom * 30.0 * HubMs.second }
                 }
             }
             .onAppear { ema = slope }
@@ -62,7 +62,7 @@ struct ChartCanvas: View {
                         return CGPoint(x: x, y: y)
                     }
                     func line(_ list: [Point], color: Color, width: CGFloat, dash: Bool) {
-                        let vis = list.filter { $0.t >= start - 2000 && $0.t <= end + (dash ? 16 * 60_000 : 2000) }
+                        let vis = list.filter { $0.t >= start - 2.0 * HubMs.second && $0.t <= end + (dash ? 16.0 * HubMs.minute : 2.0 * HubMs.second) }
                         guard vis.count >= 2 else { return }
                         var path = Path()
                         path.move(to: pt(vis[0]))

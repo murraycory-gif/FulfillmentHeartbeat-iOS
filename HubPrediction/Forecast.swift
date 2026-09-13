@@ -11,10 +11,10 @@ enum Forecast {
 
     static func slopeFromPoints(_ points: [Point]?, now: Double) -> Double {
         let list = points ?? []
-        let from = now - 6 * 60_000
-        let slice = list.filter { $0.t.isFinite && $0.px.isFinite && $0.t >= from && $0.t <= now + 1500 }
+        let from = now - 6.0 * HubMs.minute
+        let slice = list.filter { $0.t.isFinite && $0.px.isFinite && $0.t >= from && $0.t <= now + 1.5 * HubMs.second }
         guard slice.count >= 2, let a = slice.first, let b = slice.last else { return 0 }
-        let mins = (b.t - a.t) / 60_000
+        let mins = (b.t - a.t) / HubMs.minute
         if mins < 0.45 { return 0 }
         return clamp((b.px - a.px) / mins, -maxSlope, maxSlope)
     }
@@ -30,10 +30,10 @@ enum Forecast {
         if abs(slope) < 0.18 && lean != .sit {
             slope += lean == .up ? 0.12 : -0.12
         }
-        let close = closeAt.isFinite ? closeAt : now + 15 * 60_000
-        let nextClose = close + 15 * 60_000
+        let close = closeAt.isFinite ? closeAt : now + 15.0 * HubMs.minute
+        let nextClose = close + 15.0 * HubMs.minute
         let times = Array(Set([now, max(now, close), max(now, nextClose)].map { $0.rounded() })).sorted()
-        return times.map { Point(t: $0, px: live + slope * (($0 - now) / 60_000)) }
+        return times.map { Point(t: $0, px: live + slope * (($0 - now) / HubMs.minute)) }
     }
 
     static func rebasePrior(_ prior: [Point]?, live: Double) -> [Point] {
@@ -46,9 +46,9 @@ enum Forecast {
     static func yDomain(live: Double, values: [Double]) -> (Double, Double) {
         let base = live.isFinite ? live : 0
         let clamped = values.filter { $0.isFinite && abs($0 - base) < 250 }
-        let lo = min(base - 20, clamped.min() ?? base - 20)
-        let hi = max(base + 20, clamped.max() ?? base + 20)
-        if !lo.isFinite || !hi.isFinite { return (base - 20, base + 20) }
+        let lo = min(base - 20.0, clamped.min() ?? base - 20.0)
+        let hi = max(base + 20.0, clamped.max() ?? base + 20.0)
+        if !lo.isFinite || !hi.isFinite { return (base - 20.0, base + 20.0) }
         return (lo, hi)
     }
 }

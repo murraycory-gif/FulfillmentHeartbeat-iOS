@@ -69,6 +69,14 @@ struct HeldThesis: Equatable, Codable {
     var locked: Bool
 }
 
+enum HubMs {
+    static let second: Double = 1_000
+    static let minute: Double = 60_000
+    static let hour: Double = 3_600_000
+    static let day: Double = 86_400_000
+    static let week: Double = 604_800_000
+}
+
 enum Money {
     static func dollarsExact(_ n: Double?) -> String {
         guard let n, n.isFinite else { return "—" }

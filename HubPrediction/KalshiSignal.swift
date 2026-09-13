@@ -11,16 +11,16 @@ enum KalshiSignal {
         }
         let live = quote.live
         let strike = quote.strike
-        let yes = quote.yesAsk / 100
+        let yes = quote.yesAsk / 100.0
         let gap = live - strike
         let slope = Forecast.slopeFromPoints(quote.points, now: quote.fetchedAt > 0 ? quote.fetchedAt : Date.nowMs)
-        let gapScore = clamp(0.5 + gap / 80, 0.08, 0.92)
+        let gapScore = clamp(0.5 + gap / 80.0, 0.08, 0.92)
         let slopeScore = clamp(0.5 + slope / 4.4, 0.15, 0.85)
-        let tapeScore = yes.isFinite ? clamp(1 - yes, 0.05, 0.95) : 0.5
-        let pUp = clamp(gapScore * 0.5 + slopeScore * 0.28 + (1 - tapeScore) * 0.22, 0.05, 0.95)
-        let side: DeskSide = gap > 4 ? .up : gap < -4 ? .down : abs(slope) > 0.35 ? (slope > 0 ? .up : .down) : .sit
-        let pWin = side == .up ? pUp : side == .down ? 1 - pUp : 0.5
-        let ask = side == .up ? yes : side == .down ? quote.noAsk / 100 : 1
+        let tapeScore = yes.isFinite ? clamp(1.0 - yes, 0.05, 0.95) : 0.5
+        let pUp = clamp(gapScore * 0.5 + slopeScore * 0.28 + (1.0 - tapeScore) * 0.22, 0.05, 0.95)
+        let side: DeskSide = gap > 4.0 ? .up : gap < -4.0 ? .down : abs(slope) > 0.35 ? (slope > 0 ? .up : .down) : .sit
+        let pWin = side == .up ? pUp : side == .down ? 1.0 - pUp : 0.5
+        let ask = side == .up ? yes : side == .down ? quote.noAsk / 100.0 : 1.0
         let edge = pWin - ask
         let willBuy = side != .sit && pWin >= 0.58 && edge >= 0.04
         let label = willBuy ? (side == .up ? "BUY UP" : "BUY DOWN") : "SIT"
@@ -39,7 +39,7 @@ enum KalshiSignal {
         let live = quote.live
         let strike = quote.strike
         if prev.locked && (prev.side == "up" || prev.side == "down") {
-            let through = prev.side == "up" ? live < strike - 28 : live > strike + 28
+            let through = prev.side == "up" ? live < strike - 28.0 : live > strike + 28.0
             let hard = through && next.willBuy && next.side.rawValue != prev.side && next.side != .sit && next.pWin >= 0.72
             if hard {
                 write(HeldThesis(ticker: quote.ticker, side: next.side.rawValue, willBuy: true, pWin: next.pWin, locked: true))

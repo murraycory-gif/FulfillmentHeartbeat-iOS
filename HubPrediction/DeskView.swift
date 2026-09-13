@@ -87,9 +87,9 @@ struct DeskView: View {
 
     private var clockText: String {
         guard let close = store.quote?.closeAt, close.isFinite else { return "--:--" }
-        let left = max(0, close - now)
-        let mm = Int(left / 60_000)
-        let ss = Int(left.truncatingRemainder(dividingBy: 60_000) / 1000)
+        let left = max(0.0, close - now)
+        let mm = Int(left / HubMs.minute)
+        let ss = Int(left.truncatingRemainder(dividingBy: HubMs.minute) / HubMs.second)
         return String(format: "%02d:%02d", mm, ss)
     }
 
@@ -145,7 +145,7 @@ struct DeskView: View {
         let list = Array((store.quote?.past ?? []).prefix(24))
         let up = list.filter { $0.result == .up }.count
         let down = list.count - up
-        let upPct = list.isEmpty ? 0 : Int((Double(up) / Double(list.count) * 100).rounded())
+        let upPct = list.isEmpty ? 0 : Int((Double(up) / Double(list.count) * 100.0).rounded())
         return VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Text("ROULETTE · LAST \(list.isEmpty ? "—" : "\(list.count)") SETTLED")

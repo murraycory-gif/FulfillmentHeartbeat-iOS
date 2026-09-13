@@ -61,9 +61,11 @@ final class DeskStore: ObservableObject {
     private func refreshQuote() async {
         let now = Date.nowMs
         async let statusP = KalshiClient.fetchStatus()
-        async let liveP: Double? = { try? await KalshiClient.fetchCoinbase(timeout: 0.9) }()
+        async let liveP = KalshiClient.fetchCoinbase(timeout: 0.9)
         async let marketsP = KalshiClient.fetchMarkets(status: "open", limit: 4, timeout: 0.9)
-        let (st, live, markets) = await (statusP, liveP, marketsP)
+        let st = await statusP
+        let live = try? await liveP
+        let markets = await marketsP
         if let st { status = st }
         if st?.tradingActive == false, let last = quote {
             publish(last)
@@ -75,7 +77,7 @@ final class DeskStore: ObservableObject {
         }
         var q = KalshiClient.marketToQuote(market, live: live, source: "coinbase", now: now)
         lastQuoteAt = now
-        if points.last.map({ now - $0.t > 800 }) ?? true {
+        if points.last.map({ now - $0.t > 0.8 * HubMs.second }) ?? true {
             points.append(Point(t: now, px: live))
             if points.count > 400 { points.removeFirst(points.count - 400) }
         }
@@ -87,16 +89,16 @@ final class DeskStore: ObservableObject {
         let now = Date.nowMs
         async let openP = KalshiClient.fetchMarkets(status: "open", limit: 4, timeout: 1.600)
         async let settledP = KalshiClient.fetchMarkets(status: "settled", limit: 24, timeout: 1.400)
-        async let closesP = KalshiClient.fetchCandles(startMs: now - 90 * 60_000, endMs: now + 5_000, gran: 60, timeout: 1.4)
+        async let closesP = KalshiClient.fetchCandles(startMs: now - 90.0 * HubMs.minute, endMs: now + 5.0 * HubMs.second, gran: 60, timeout: 1.4)
         async let priorP = KalshiClient.fetchCandles(
-            startMs: now - 7 * 86_400_000 - 90 * 60_000,
-            endMs: now - 7 * 86_400_000 + 5_000,
+            startMs: now - HubMs.week - 90.0 * HubMs.minute,
+            endMs: now - HubMs.week + 5.0 * HubMs.second,
             gran: 60,
             timeout: 1.4
         )
         let (open, settled, closes, lastWeek) = await (openP, settledP, closesP, priorP)
         if !closes.isEmpty { points = merge(points, closes) }
-        if !lastWeek.isEmpty { prior = lastWeek.map { Point(t: $0.t + 7 * 86_400_000, px: $0.px) } }
+        if !lastWeek.isEmpty { prior = lastWeek.map { Point(t: $0.t + HubMs.week, px: $0.px) } }
         past = KalshiClient.settledFromMarkets(settled)
         if let market = KalshiClient.pickOpen(open, now: now) {
             let live = quote?.live ?? points.last?.px ?? 0
@@ -122,24 +124,24 @@ final class DeskStore: ObservableObject {
             dayStart = ChicagoTime.startOfChicagoDay(guess)
         }
         let isToday = ChicagoTime.dayKey(dayStart) == ChicagoTime.dayKey(now)
-        let lookNow = isToday ? now : dayStart + 12 * 3_600_000
-        let week = 7 * 86_400_000
+        let lookNow = isToday ? now : dayStart + 12.0 * HubMs.hour
+        let rangeStart = dayStart
         async let thisWeek15P = KalshiClient.fetchCandles(
-            startMs: dayStart - 30 * 60_000,
-            endMs: dayStart + 86_400_000,
+            startMs: rangeStart - 30.0 * HubMs.minute,
+            endMs: rangeStart + HubMs.day,
             gran: 900,
             timeout: 1.6
         )
         async let lastWeekP = KalshiClient.fetchCandles(
-            startMs: dayStart - week - 30 * 60_000,
-            endMs: dayStart - week + 86_400_000,
+            startMs: rangeStart - HubMs.week - 30.0 * HubMs.minute,
+            endMs: rangeStart - HubMs.week + HubMs.day,
             gran: 900,
             timeout: 1.6
         )
         let thisWeek15 = await thisWeek15P
         let lastWeekRaw = await lastWeekP
         let thisWeek = thisWeek15 + points
-        let lastWeek = lastWeekRaw.map { Point(t: $0.t + week, px: $0.px) }
+        let lastWeek = lastWeekRaw.map { Point(t: $0.t + HubMs.week, px: $0.px) }
         let live = quote?.live ?? thisWeek.last?.px ?? lastWeek.last?.px ?? 0
         let slope = Forecast.slopeFromPoints(thisWeek.isEmpty ? quote?.points : thisWeek, now: lookNow)
         let nowSlot = ChicagoTime.align15(lookNow)
@@ -147,17 +149,17 @@ final class DeskStore: ObservableObject {
         var upcoming: [DashRow] = []
         var elapsed: [DashRow] = []
         for t in ChicagoTime.slotsForDay(dayStart) {
-            let actual = t <= lookNow ? nearest(thisWeek, t + 14 * 60_000) ?? nearest(thisWeek, t) : nil
+            let actual = t <= lookNow ? nearest(thisWeek, t + 14.0 * HubMs.minute) ?? nearest(thisWeek, t) : nil
             let lw = nearest(lastWeek, t)
-            let mins = (t - lookNow) / 60_000
-            let fade = max(0, 1 - max(0, mins) / 90)
+            let mins = (t - lookNow) / HubMs.minute
+            let fade = max(0.0, 1.0 - max(0.0, mins) / 90.0)
             let shape = lw != nil ? lw! - lwNow : 0
             let theory: Double?
             if t >= nowSlot {
-                theory = live + slope * max(0, mins) * fade + shape
+                theory = live + slope * max(0.0, mins) * fade + shape
             } else if let actual {
                 let raw = lw != nil ? live + (lw! - lwNow) : actual
-                theory = min(actual + 10, max(actual - 10, raw))
+                theory = min(actual + 10.0, max(actual - 10.0, raw))
             } else {
                 theory = lw != nil ? live + (lw! - lwNow) : nil
             }
@@ -177,13 +179,13 @@ final class DeskStore: ObservableObject {
 
     private func nearest(_ points: [Point], _ t: Double) -> Double? {
         guard let best = points.min(by: { abs($0.t - t) < abs($1.t - t) }) else { return nil }
-        return abs(best.t - t) < 12 * 60_000 ? best.px : nil
+        return abs(best.t - t) < 12 * HubMs.minute ? best.px : nil
     }
 
     private func merge(_ a: [Point], _ b: [Point]) -> [Point] {
         var map: [Int: Double] = [:]
         for p in a + b where p.t.isFinite && p.px.isFinite {
-            map[Int((p.t / 1000).rounded()) * 1000] = p.px
+            map[Int((p.t / 1000.0).rounded()) * 1000] = p.px
         }
         return map.keys.sorted().map { Point(t: Double($0), px: map[$0] ?? 0) }
     }

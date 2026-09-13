@@ -26,7 +26,7 @@ enum KalshiClient {
 
     static func askCents(_ m: [String: Any], yes: Bool) -> Double {
         let dollars = num(m[yes ? "yes_ask_dollars" : "no_ask_dollars"])
-        if let dollars { return (dollars * 100).rounded() }
+        if let dollars { return (dollars * 100.0).rounded() }
         return num(m[yes ? "yes_ask" : "no_ask"]) ?? 0
     }
 
@@ -51,7 +51,7 @@ enum KalshiClient {
             live: live,
             liveSource: source,
             openAt: openAt.isFinite ? openAt : ChicagoTime.align15(now),
-            closeAt: closeAt.isFinite ? closeAt : (openAt.isFinite ? openAt : ChicagoTime.align15(now)) + 15 * 60_000,
+            closeAt: closeAt.isFinite ? closeAt : (openAt.isFinite ? openAt : ChicagoTime.align15(now)) + 15.0 * HubMs.minute,
             fetchedAt: now
         )
     }
@@ -100,8 +100,8 @@ enum KalshiClient {
     static func fetchCandles(startMs: Double, endMs: Double, gran: Int, timeout: TimeInterval) async -> [Point] {
         let df = ISO8601DateFormatter()
         df.formatOptions = [.withInternetDateTime]
-        let start = df.string(from: Date(timeIntervalSince1970: startMs / 1000))
-        let end = df.string(from: Date(timeIntervalSince1970: endMs / 1000))
+        let start = df.string(from: Date(timeIntervalSince1970: startMs / 1000.0))
+        let end = df.string(from: Date(timeIntervalSince1970: endMs / 1000.0))
         let encStart = start.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? start
         let encEnd = end.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? end
         let urlS = "https://api.exchange.coinbase.com/products/BTC-USD/candles?granularity=\(gran)&start=\(encStart)&end=\(encEnd)"
@@ -110,7 +110,7 @@ enum KalshiClient {
         var pts: [Point] = []
         for row in raw {
             guard let arr = row as? [Any], arr.count >= 5 else { continue }
-            let t = (num(arr[0]) ?? 0) * 1000
+            let t = (num(arr[0]) ?? 0) * 1000.0
             let px = num(arr[4]) ?? 0
             if t.isFinite, px.isFinite, px > 1000 {
                 pts.append(Point(t: t, px: px))
@@ -125,9 +125,9 @@ extension Date {
         guard let s = v as? String else { return .nan }
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let d = f.date(from: s) { return d.timeIntervalSince1970 * 1000 }
+        if let d = f.date(from: s) { return d.timeIntervalSince1970 * 1000.0 }
         f.formatOptions = [.withInternetDateTime]
-        if let d = f.date(from: s) { return d.timeIntervalSince1970 * 1000 }
+        if let d = f.date(from: s) { return d.timeIntervalSince1970 * 1000.0 }
         return .nan
     }
 }

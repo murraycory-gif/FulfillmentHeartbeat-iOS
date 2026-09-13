@@ -8,7 +8,7 @@ enum ChicagoTime {
         cal.timeZone = tz
         return cal.dateComponents(
             [.year, .month, .day, .hour, .minute, .second, .weekday],
-            from: Date(timeIntervalSince1970: ms / 1000)
+            from: Date(timeIntervalSince1970: ms / 1000.0)
         )
     }
 
@@ -27,21 +27,21 @@ enum ChicagoTime {
         let f = DateFormatter()
         f.timeZone = tz
         f.dateFormat = "EEE"
-        return f.string(from: Date(timeIntervalSince1970: ms / 1000))
+        return f.string(from: Date(timeIntervalSince1970: ms / 1000.0))
     }
 
     static func formatClock(_ ms: Double) -> String {
         let f = DateFormatter()
         f.timeZone = tz
         f.dateFormat = "h:mm a"
-        return f.string(from: Date(timeIntervalSince1970: ms / 1000))
+        return f.string(from: Date(timeIntervalSince1970: ms / 1000.0))
     }
 
     static func formatDayLabel(_ ms: Double) -> String {
         let f = DateFormatter()
         f.timeZone = tz
         f.dateFormat = "EEE MMM d"
-        return f.string(from: Date(timeIntervalSince1970: ms / 1000))
+        return f.string(from: Date(timeIntervalSince1970: ms / 1000.0))
     }
 
     static func startOfChicagoDay(_ ms: Double) -> Double {
@@ -60,12 +60,12 @@ enum ChicagoTime {
     }
 
     static func addChicagoDays(_ ms: Double, days: Int) -> Double {
-        startOfChicagoDay(ms + Double(days) * 86_400_000 + 12 * 3_600_000)
+        startOfChicagoDay(ms + Double(days) * HubMs.day + 12.0 * HubMs.hour)
     }
 
     static func slotsForDay(_ dayMs: Double) -> [Double] {
         let start = startOfChicagoDay(dayMs)
-        return (0..<96).map { start + Double($0) * 15 * 60_000 }
+        return (0..<96).map { start + Double($0) * 15.0 * HubMs.minute }
     }
 
     static func upcomingDays(now: Double = Date.nowMs, count: Int = 7) -> [(t: Double, key: String, label: String)] {
@@ -78,7 +78,7 @@ enum ChicagoTime {
 }
 
 extension Date {
-    static var nowMs: Double { Date().timeIntervalSince1970 * 1000 }
+    static var nowMs: Double { Date().timeIntervalSince1970 * 1000.0 }
 
     static func utcMs(y: Int, m: Int, d: Int, h: Int, min: Int, s: Int) -> Double {
         var c = DateComponents()
@@ -90,6 +90,6 @@ extension Date {
         c.second = s
         var cal = Calendar(identifier: .gregorian)
         cal.timeZone = TimeZone(secondsFromGMT: 0) ?? .gmt
-        return (cal.date(from: c) ?? Date()).timeIntervalSince1970 * 1000
+        return (cal.date(from: c) ?? Date()).timeIntervalSince1970 * 1000.0
     }
 }
