@@ -13,7 +13,9 @@ npx playwright install chromium
 npm run dev
 ```
 
-Open `http://localhost:8080` at 390×844 (Grok webview / iPhone Safari).
+Open `http://localhost:8080` on iPhone Safari (same Wi-Fi: `http://YOUR-MAC-IP:8080`), then **Share → Add to Home Screen**. That installs HUB Prediction as its own app. Grok webview still works.
+
+Standalone home-screen mode uses the iPhone safe-area inset instead of the 56px Grok overlay gap.
 
 ```bash
 npm test          # forecast + sizing

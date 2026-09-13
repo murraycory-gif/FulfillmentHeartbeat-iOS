@@ -76,11 +76,11 @@ export function WindowChart(props: {
   return (
     <section className="mt-3 px-4" data-testid="window-chart">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <p className="text-[11px] uppercase tracking-[0.14em] text-mute">Trend</p>
+        <p className="hud-label">Trend // path</p>
         <div className="flex items-center gap-1">
           <button
             type="button"
-            className="h-9 min-w-9 rounded-lg bg-chip px-2 text-sm text-ink"
+            className="zoom-btn"
             onClick={() => setPan((p) => p - zoom * 30_000)}
             aria-label="Pan earlier"
           >
@@ -94,16 +94,14 @@ export function WindowChart(props: {
                 setZoom(z)
                 setPan(0)
               }}
-              className={`h-9 min-w-[3.1rem] rounded-lg px-2 text-sm ${
-                zoom === z ? 'bg-up text-black' : 'bg-chip text-ink'
-              }`}
+              className={`zoom-btn min-w-[3.1rem] ${zoom === z ? 'zoom-btn-on' : ''}`}
             >
               {z}m
             </button>
           ))}
           <button
             type="button"
-            className="h-9 min-w-9 rounded-lg bg-chip px-2 text-sm text-ink"
+            className="zoom-btn"
             onClick={() => setPan((p) => p + zoom * 30_000)}
             aria-label="Pan later"
           >
@@ -112,55 +110,59 @@ export function WindowChart(props: {
         </div>
       </div>
       <div data-testid="forecast-pts" data-pts={forecastPts} className="hidden" />
-      <svg viewBox={`0 0 ${w + 44} 200`} className="h-[220px] w-full" role="img" aria-label="BTC trend">
-        <text x="0" y="14" fill="#8a938c" fontSize="10">
-          {Math.round(hi)}
-        </text>
-        <text x="0" y="100" fill="#8a938c" fontSize="10">
-          {Math.round(props.live)}
-        </text>
-        <text x="0" y="186" fill="#8a938c" fontSize="10">
-          {Math.round(lo)}
-        </text>
-        <g transform="translate(44,8)">
-          <line x1="0" y1={h / 2} x2={w} y2={h / 2} stroke="#2a2a2a" />
-          {priorD ? (
-            <polyline
-              data-testid="prior-line"
-              fill="none"
-              stroke="#6b6b6b"
-              strokeWidth="1.5"
-              points={priorD}
-            />
-          ) : null}
-          {actualD ? (
-            <polyline
-              data-testid="actual-line"
-              fill="none"
-              stroke="#00e57a"
-              strokeWidth="2"
-              points={actualD}
-            />
-          ) : null}
-          {nextD ? (
-            <polyline
-              data-testid="next-line"
-              fill="none"
-              stroke="#00e57a"
-              strokeWidth="1.6"
-              strokeDasharray="5 4"
-              points={nextD}
-            />
-          ) : null}
-        </g>
-        {ticks.map((t, i) => (
-          <text key={t} x={44 + (i * w) / 2} y={198} fill="#8a938c" fontSize="10">
-            {formatClock(t)}
+      <div className="hud-panel px-1 pt-1">
+        <svg viewBox={`0 0 ${w + 44} 200`} className="h-[220px] w-full" role="img" aria-label="BTC trend">
+          <text x="0" y="14" fill="#6f8a7d" fontSize="10">
+            {Math.round(hi)}
           </text>
-        ))}
-      </svg>
-      <p className="mt-1 text-[11px] text-mute">
-        Green this week · gray last week rebased · dashed next 15m
+          <text x="0" y="100" fill="#00e57a" fontSize="10">
+            {Math.round(props.live)}
+          </text>
+          <text x="0" y="186" fill="#6f8a7d" fontSize="10">
+            {Math.round(lo)}
+          </text>
+          <g transform="translate(44,8)">
+            <line x1="0" y1={h / 3} x2={w} y2={h / 3} stroke="#163226" />
+            <line x1="0" y1={(h * 2) / 3} x2={w} y2={(h * 2) / 3} stroke="#163226" />
+            <line x1="0" y1={h / 2} x2={w} y2={h / 2} stroke="#1d3d2c" />
+            {priorD ? (
+              <polyline
+                data-testid="prior-line"
+                fill="none"
+                stroke="#4d5c55"
+                strokeWidth="1.5"
+                points={priorD}
+              />
+            ) : null}
+            {actualD ? (
+              <polyline
+                data-testid="actual-line"
+                fill="none"
+                stroke="#00e57a"
+                strokeWidth="2.2"
+                points={actualD}
+              />
+            ) : null}
+            {nextD ? (
+              <polyline
+                data-testid="next-line"
+                fill="none"
+                stroke="#00e57a"
+                strokeWidth="1.6"
+                strokeDasharray="5 4"
+                points={nextD}
+              />
+            ) : null}
+          </g>
+          {ticks.map((t, i) => (
+            <text key={t} x={44 + (i * w) / 2} y={198} fill="#6f8a7d" fontSize="10">
+              {formatClock(t)}
+            </text>
+          ))}
+        </svg>
+      </div>
+      <p className="mt-1 font-mono text-[10px] tracking-wide text-mute">
+        GREEN this week · GRAY last week rebased · DASH next 15m
       </p>
     </section>
   )

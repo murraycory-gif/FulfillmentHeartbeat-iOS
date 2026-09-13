@@ -47,7 +47,8 @@ export function KalshiView(props: {
         <TapeCard label="UP" value={cents(quote?.yesAsk)} tone="up" />
         <TapeCard label="DOWN" value={cents(quote?.noAsk)} tone="down" />
       </section>
-      <p className="mt-2 px-4 text-[12px] text-mute">
+      <p className="mt-2 flex items-center gap-2 px-4 font-mono text-[11px] tracking-wide text-mute">
+        <span className="live-dot" aria-hidden />
         Live {quote?.liveSource === 'brti' ? 'BRTI' : 'Coinbase'} {dollars(quote?.live)} vs posted{' '}
         {dollars(quote?.strike)}
         {quote?.tradingActive === false ? ' · Kalshi halted — holding last ¢' : ''}
@@ -69,8 +70,8 @@ export function KalshiView(props: {
 
 function TapeCard({ label, value, tone }: { label: string; value: string; tone: 'up' | 'down' }) {
   return (
-    <div className="rounded-2xl bg-chip px-3 py-3">
-      <p className="text-[11px] uppercase tracking-[0.14em] text-mute">{label}</p>
+    <div className={`hud-panel px-3 py-3 ${tone === 'up' ? 'hud-panel-up' : 'hud-panel-down'}`}>
+      <p className="hud-label">{label} ask</p>
       <p className={`mt-1 font-mono text-3xl ${tone === 'up' ? 'text-up' : 'text-down'}`}>{value}</p>
     </div>
   )
@@ -85,10 +86,8 @@ function Roulette({ past }: { past: Settled[] }) {
   return (
     <section className="mt-4 px-4" data-testid="roulette">
       <div className="flex items-baseline justify-between">
-        <p className="text-[11px] uppercase tracking-[0.14em] text-mute">
-          Roulette · last {list.length || '—'} settled
-        </p>
-        <p className="text-[12px] text-mute">
+        <p className="hud-label">Roulette · last {list.length || '—'} settled</p>
+        <p className="font-mono text-[11px] text-mute">
           {list.length ? `${upPct}% UP · ${100 - upPct}% DOWN` : 'warming'}
         </p>
       </div>
@@ -98,16 +97,16 @@ function Roulette({ past }: { past: Settled[] }) {
             key={p.ticker || String(p.closeAt)}
             data-testid="roulette-cell"
             title={p.ticker}
-            className={`h-8 rounded-md ${p.result === 'up' ? 'bg-up' : 'bg-down'}`}
+            className={`roulette-cell ${p.result === 'up' ? 'roulette-up' : 'roulette-down'}`}
           />
         ))}
         {!list.length
           ? Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="h-8 rounded-md bg-chip" />
+              <div key={i} className="roulette-cell bg-chip" />
             ))
           : null}
       </div>
-      <p className="mt-1 text-[11px] text-mute">
+      <p className="mt-1 font-mono text-[10px] tracking-wide text-mute">
         {up} UP / {down} DOWN · newest first
       </p>
     </section>
@@ -196,10 +195,10 @@ function AccountPanel({
 
   return (
     <section className="mt-5 px-4" data-testid="account">
-      <p className="text-[11px] uppercase tracking-[0.14em] text-mute">Kalshi account</p>
+      <p className="hud-label">Kalshi account</p>
       <div className="mt-2 space-y-2">
         <input
-          className="w-full rounded-xl bg-chip px-3 py-3 text-sm text-ink outline-none"
+          className="field px-3 py-3 font-mono text-sm"
           placeholder="API Key ID"
           value={keyId}
           autoComplete="off"
@@ -209,7 +208,7 @@ function AccountPanel({
           }}
         />
         <textarea
-          className="h-24 w-full rounded-xl bg-chip px-3 py-3 font-mono text-[11px] text-ink outline-none"
+          className="field h-24 px-3 py-3 font-mono text-[11px]"
           placeholder="PEM private key"
           value={pem}
           onChange={(e) => {
@@ -218,14 +217,10 @@ function AccountPanel({
           }}
         />
         <div className="flex gap-2">
-          <button
-            type="button"
-            className="h-11 flex-1 rounded-xl bg-chip text-sm"
-            onClick={() => refreshCash()}
-          >
+          <button type="button" className="chip-btn flex-1" onClick={() => refreshCash()}>
             Show cash
           </button>
-          <label className="flex h-11 items-center gap-2 rounded-xl bg-chip px-3 text-sm">
+          <label className="chip-btn flex items-center gap-2 px-3">
             <input
               type="checkbox"
               checked={auto}
@@ -240,7 +235,7 @@ function AccountPanel({
           </label>
         </div>
       </div>
-      <p className="mt-2 text-sm text-mute">
+      <p className="mt-2 font-mono text-[12px] text-mute">
         Cash {cash == null ? '—' : dollars(cash)} · size {size} contract{size === 1 ? '' : 's'} · pWin{' '}
         {Math.round(call.pWin * 100)}%
       </p>
@@ -249,7 +244,7 @@ function AccountPanel({
           type="button"
           disabled={busy || quote?.tradingActive === false}
           onClick={() => buy('up')}
-          className="h-12 rounded-xl bg-up text-base font-semibold text-black disabled:opacity-50"
+          className="buy-up disabled:opacity-50"
         >
           Buy UP
         </button>
@@ -257,12 +252,41 @@ function AccountPanel({
           type="button"
           disabled={busy || quote?.tradingActive === false}
           onClick={() => buy('down')}
-          className="h-12 rounded-xl bg-down text-base font-semibold text-black disabled:opacity-50"
+          className="buy-down disabled:opacity-50"
         >
           Buy DOWN
         </button>
       </div>
-      {msg ? <p className="mt-2 text-[12px] text-mute">{msg}</p> : null}
+      {msg ? <p className="mt-2 font-mono text-[12px] text-mute">{msg}</p> : null}
+      <IosInstallTip />
     </section>
+  )
+}
+
+function IosInstallTip() {
+  const [show, setShow] = useState(false)
+  useEffect(() => {
+    const ios = /iPhone|iPad|iPod/i.test(navigator.userAgent)
+    const standalone =
+      window.matchMedia('(display-mode: standalone)').matches ||
+      Boolean((navigator as { standalone?: boolean }).standalone)
+    const dismissed = readLocal('hub.install.dismissed') === '1'
+    setShow(ios && !standalone && !dismissed)
+  }, [])
+  if (!show) return null
+  return (
+    <p className="hud-panel mt-3 px-3 py-3 font-mono text-[11px] text-mute">
+      iPhone app: Safari Share → Add to Home Screen.{' '}
+      <button
+        type="button"
+        className="text-up"
+        onClick={() => {
+          if (typeof localStorage !== 'undefined') localStorage.setItem('hub.install.dismissed', '1')
+          setShow(false)
+        }}
+      >
+        Got it
+      </button>
+    </p>
   )
 }

@@ -76,27 +76,26 @@ export function Dashboard({ seedQuote, seedDash }: { seedQuote: Quote | null; se
       ? mergeQuoteOntoBoard(clientBoard, quote)
       : null
   const days = upcomingDays()
-  const tone =
-    call.label === 'BUY UP' ? 'bg-up text-black' : call.label === 'BUY DOWN' ? 'bg-down text-black' : 'bg-chip text-ink'
+  const tone = call.label === 'BUY UP' ? 'call-up' : call.label === 'BUY DOWN' ? 'call-down' : 'call-sit'
 
   return (
     <div className="desk">
       <header className="flex shrink-0 flex-col">
         <div className="overlay-slot" data-testid="overlay-slot" aria-hidden />
         <div className="call-pad">
-          <div className={`call-bar rounded-2xl px-4 py-3 ${tone}`} data-testid="call-bar">
+          <div className={`call-bar px-4 py-3 ${tone}`} data-testid="call-bar">
             <div className="flex w-full items-end justify-between gap-3">
               <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] opacity-70">Desk</p>
-                <p className="mt-1 text-3xl font-bold leading-none" data-testid="call-side">
+                <p className="hud-kicker">Desk // signal</p>
+                <p className="mt-1 font-mono text-3xl font-bold leading-none tracking-wide" data-testid="call-side">
                   {call.label}
                 </p>
               </div>
               <CloseClock closeAt={quote?.closeAt} />
             </div>
-            <p className="mt-2 text-[13px] opacity-80" data-testid="call-sub">
+            <p className="mt-2 font-mono text-[12px] opacity-80" data-testid="call-sub">
               {dollarsExact(quote?.live)} vs {dollarsExact(quote?.strike)} posted
-              {call.locked ? ' · lock' : ''}
+              {call.locked ? ' · LOCK' : ''}
             </p>
           </div>
         </div>
@@ -122,16 +121,14 @@ function DayFilter({
 }) {
   return (
     <section className="mt-5 px-4">
-      <p className="text-[11px] uppercase tracking-[0.14em] text-mute">Day</p>
+      <p className="hud-label">Day</p>
       <div className="scroll-x-touch mt-2 flex gap-2 pb-1">
         {days.map((d) => (
           <button
             key={d.key}
             type="button"
             onClick={() => onDay(d.key)}
-            className={`h-10 shrink-0 rounded-xl px-3 text-sm ${
-              d.key === day ? 'bg-up text-black' : 'bg-chip text-ink'
-            }`}
+            className={`chip-btn shrink-0 px-3 ${d.key === day ? 'chip-btn-on' : ''}`}
           >
             {d.label}
           </button>
@@ -147,11 +144,11 @@ function RestOfDay({ dash }: { dash: Dash | null }) {
 
   return (
     <section className="mt-5 px-4 pb-8">
-      <p className="text-[11px] uppercase tracking-[0.14em] text-mute">Now + rest of day · 15 min</p>
+      <p className="hud-label">Now + rest of day · 15 min</p>
       <SlotTable rows={upcoming} empty="Waiting on rest-of-day slots" />
       {elapsed.length ? (
         <>
-          <p className="mt-5 text-[11px] uppercase tracking-[0.14em] text-mute">Elapsed · actual vs theory</p>
+          <p className="hud-label mt-5">Elapsed · actual vs theory</p>
           <SlotTable rows={elapsed.slice().reverse()} empty="" />
         </>
       ) : null}
@@ -164,11 +161,11 @@ function SlotTable({ rows, empty }: { rows: Dash['upcoming']; empty: string }) {
     return <p className="mt-2 text-sm text-mute">{empty}</p>
   }
   return (
-    <div className="scroll-x-touch mt-2">
-      <table className="min-w-[34rem] border-collapse text-left text-[13px]">
+    <div className="hud-panel scroll-x-touch mt-2 px-1">
+      <table className="hud-table">
         <thead>
-          <tr className="text-[11px] uppercase tracking-[0.12em] text-mute">
-            <th className="clock-col sticky left-0 z-10 bg-surface py-2 pr-3">Clock</th>
+          <tr>
+            <th className="clock-col sticky left-0 z-10 py-2 pr-3">Clock</th>
             <th className="px-3 py-2">Theory</th>
             <th className="px-3 py-2">Actual</th>
             <th className="px-3 py-2">Variance</th>
@@ -177,9 +174,9 @@ function SlotTable({ rows, empty }: { rows: Dash['upcoming']; empty: string }) {
         </thead>
         <tbody>
           {rows.map((r) => (
-            <tr key={r.t} className={r.isNow ? 'bg-[#10261a] text-up' : ''}>
-              <td className="clock-col sticky left-0 z-10 bg-surface py-2 pr-3 font-medium">
-                <span className={r.isNow ? 'bg-[#10261a] text-up' : ''}>{r.clock}</span>
+            <tr key={r.t} className={r.isNow ? 'row-now' : ''}>
+              <td className="clock-col sticky left-0 z-10 py-2 pr-3 font-medium">
+                <span>{r.clock}</span>
               </td>
               <td className="mono px-3 py-2 whitespace-nowrap">{dollarsExact(r.theory)}</td>
               <td className="mono px-3 py-2 whitespace-nowrap">{dollarsExact(r.actual)}</td>
