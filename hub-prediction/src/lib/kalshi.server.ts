@@ -25,7 +25,10 @@ let settledCache: { at: number; past: Settled[] } | null = null
 let priorCache: { at: number; prior: Point[] } | null = null
 let brtiCache: { at: number; px: number } | null = null
 let brtiBuildId: string | null = null
+let statusCache: { at: number; exchangeActive: boolean; tradingActive: boolean } | null = null
 let warming = false
+const STATUS_TTL = 8000
+const CRYPTO_INDEX = 2
 
 function ua() {
   return { 'User-Agent': 'HUB-Prediction/1.0', Accept: 'application/json' }
@@ -142,6 +145,33 @@ async function fetchCoinbase(ms: number) {
   return px
 }
 
+type StatusPayload = {
+  exchange_active?: boolean
+  trading_active?: boolean
+  exchange_index_statuses?: Array<{
+    exchange_index?: number
+    exchange_active?: boolean
+    trading_active?: boolean
+  }>
+}
+
+export async function warmupStatus() {
+  const now = Date.now()
+  if (statusCache && now - statusCache.at < STATUS_TTL) return statusCache
+  try {
+    const j = await fetchJson<StatusPayload>(`${KALSHI}/exchange/status`, 400)
+    const crypto = (j.exchange_index_statuses ?? []).find((s) => s.exchange_index === CRYPTO_INDEX)
+    statusCache = {
+      at: now,
+      exchangeActive: !!(crypto?.exchange_active ?? j.exchange_active),
+      tradingActive: !!(crypto?.trading_active ?? j.trading_active),
+    }
+    return statusCache
+  } catch {
+    return statusCache
+  }
+}
+
 async function livePrice(budgetMs: number): Promise<{ px: number; source: Quote['liveSource'] }> {
   if (brtiCache && Date.now() - brtiCache.at < BRTI_TTL) {
     return { px: brtiCache.px, source: 'brti' }
@@ -240,6 +270,8 @@ function attachCaches(quote: Quote): Quote {
     points: Array.isArray(points) ? points : [],
     past: Array.isArray(past) ? past : [],
     prior: Array.isArray(prior) ? prior : [],
+    exchangeActive: statusCache?.exchangeActive ?? quote.exchangeActive,
+    tradingActive: statusCache?.tradingActive ?? quote.tradingActive,
   }
 }
 
@@ -261,8 +293,16 @@ export async function loadKalshiQuote(): Promise<Quote> {
   void warmupCloses()
   void warmupSettled()
   void warmupBrti()
+  void warmupStatus()
 
   try {
+    if (statusCache && statusCache.tradingActive === false && lastQuote) {
+      return attachCaches({
+        ...lastQuote,
+        tradingActive: false,
+        exchangeActive: statusCache.exchangeActive,
+      })
+    }
     const marketsP = fetchJson<{ markets?: Market[] }>(
       `${KALSHI}/markets?series_ticker=${SERIES}&status=open&limit=4`,
       QUOTE_ABORT,
@@ -447,6 +487,7 @@ export function startWarm() {
   void warmupCloses()
   void warmupPrior()
   void warmupSettled()
+  void warmupStatus()
   void loadKalshiQuote().catch(() => {})
   void loadDashboard().catch(() => {})
 }

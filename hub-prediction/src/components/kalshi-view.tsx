@@ -50,6 +50,7 @@ export function KalshiView(props: {
       <p className="mt-2 px-4 text-[12px] text-mute">
         Live {quote?.liveSource === 'brti' ? 'BRTI' : 'Coinbase'} {dollars(quote?.live)} vs posted{' '}
         {dollars(quote?.strike)}
+        {quote?.tradingActive === false ? ' · Kalshi halted — holding last ¢' : ''}
       </p>
       <WindowChart
         live={quote?.live || 0}
@@ -187,7 +188,7 @@ function AccountPanel({
   }
 
   useEffect(() => {
-    if (!auto || !call.willBuy || !quote?.ticker || size < 1) return
+    if (!auto || !call.willBuy || !quote?.ticker || size < 1 || quote.tradingActive === false) return
     if (lastAuto.current === quote.ticker) return
     lastAuto.current = quote.ticker
     void buy(call.side === 'down' ? 'down' : 'up')
@@ -246,7 +247,7 @@ function AccountPanel({
       <div className="mt-2 grid grid-cols-2 gap-2">
         <button
           type="button"
-          disabled={busy}
+          disabled={busy || quote?.tradingActive === false}
           onClick={() => buy('up')}
           className="h-12 rounded-xl bg-up text-base font-semibold text-black disabled:opacity-50"
         >
@@ -254,7 +255,7 @@ function AccountPanel({
         </button>
         <button
           type="button"
-          disabled={busy}
+          disabled={busy || quote?.tradingActive === false}
           onClick={() => buy('down')}
           className="h-12 rounded-xl bg-down text-base font-semibold text-black disabled:opacity-50"
         >

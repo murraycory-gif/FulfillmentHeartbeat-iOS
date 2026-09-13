@@ -21,6 +21,8 @@ export type Quote = {
   openAt: number
   closeAt: number
   fetchedAt: number
+  exchangeActive?: boolean
+  tradingActive?: boolean
   points: Point[]
   prior?: Point[]
   past: Settled[]

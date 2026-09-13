@@ -20,4 +20,4 @@ npm test          # forecast + sizing
 npm run qc        # Playwright iPhone QC
 ```
 
-Quote path is Kalshi open markets + BRTI (Coinbase fallback). Candles, last week, and settled 24 warm in the background. No splash, no second Tape page, no Google fonts.
+Quote path is Kalshi open markets + BRTI (Coinbase fallback). Exchange status is checked in the background so a halt holds last ¢. Candles, last week, and settled 24 warm in the background. No splash, no second Tape page, no Google fonts. We do not ingest the rest of the Kalshi docs catalog.
