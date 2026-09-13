@@ -1,14 +1,15 @@
 # Heartbeat pack
 
 The iPad is a **viewer**. GitHub Actions cooks `Heartbeat Daily Report.xlsx`
-into `current.sqlite` plus **seat packs** and publishes them to `heartbeat-packs`.
+into `current.sqlite` plus **seat packs** and publishes them to the Cloudflare
+R2 bucket `heartbeat-packs`. Workbook source stays on Supabase Storage.
 
 See [SEAT-SCOPED-PACKS.md](SEAT-SCOPED-PACKS.md) for the Tip 1 contract.
 
 ## Layout
 
 ```
-current.sqlite                         # LIVE root. Company seat (~21MB) when market ~56MB exceeds Storage ~50MB.
+current.sqlite                         # LIVE root. Company seat (~21MB) when market ~56MB would Jetsam iPad.
 packs/manifest.json
 packs/seat/company/all/current.sqlite  # thin company summary (also copied to root when market is over the limit)
 packs/seat/district/03/current.sqlite
@@ -21,6 +22,21 @@ Under a seat the hub paints from **that** sqlite only. Market
 is banned.
 
 District 03 is 20 NorCal stores. Every section Stores N = 20.
+
+## Download URL
+
+`https://pub-eafb309f53464d98902d12ac107f0f1e.r2.dev/current.sqlite`
+
+Seat example: `https://pub-eafb309f53464d98902d12ac107f0f1e.r2.dev/packs/seat/company/all/current.sqlite`
+
+`r2.dev` is rate-limited. Fine for a small tester set. Swap `HBPackHost` in
+`FulfillmentHeartbeat/Info.plist` (and `PulseCloud.defaultPackHost`) to a
+custom domain later.
+
+## Cook schedule
+
+`0 * * * *` — hourly, UTC. The workbook updates about once a day. The previous
+tip ran every 2 minutes (`*/2`).
 
 ## Stamp
 

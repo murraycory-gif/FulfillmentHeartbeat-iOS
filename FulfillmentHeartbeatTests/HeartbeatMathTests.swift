@@ -5097,11 +5097,16 @@ final class HeartbeatMathTests: XCTestCase {
             )
         )
         let urls = PulseCloud.objectDownloadURLs(PulseCloud.object)
-        XCTAssertTrue(urls.first?.absoluteString.contains("/object/authenticated/") == true)
+        XCTAssertEqual(urls.count, 1)
+        XCTAssertTrue(urls.first?.absoluteString.hasPrefix(PulseCloud.defaultPackHost) == true, urls.first?.absoluteString ?? "")
+        XCTAssertTrue(urls.first?.absoluteString.hasSuffix("/current.sqlite") == true, urls.first?.absoluteString ?? "")
+        XCTAssertFalse(urls.first?.absoluteString.contains("supabase") == true)
         XCTAssertEqual(
-            PulseCloud.objectDownloadURLs(PulseSeatPack.Key.company.objectPath).first?.absoluteString.contains("packs/seat/company/all/current.sqlite"),
-            true
+            PulseCloud.objectDownloadURLs(PulseSeatPack.Key.company.objectPath).first?.absoluteString,
+            "\(PulseCloud.defaultPackHost)/packs/seat/company/all/current.sqlite"
         )
+        let workbook = PulseCloud.objectDownloadURLs("Heartbeat Daily Report.xlsx")
+        XCTAssertTrue(workbook.first?.absoluteString.contains("/object/authenticated/") == true)
         XCTAssertEqual(PulseCloud.objectByteCount(from: ["size": NSNumber(value: 2_100_000)]), 2_100_000)
         XCTAssertEqual(PulseCloud.objectByteCount(from: ["size": 2_100_000.0]), 2_100_000)
         XCTAssertTrue(PulseLaunch.shouldCheckCloudPackDuringSeatWait())
