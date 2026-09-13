@@ -29,7 +29,14 @@ sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
 
 If `xcodebuild` says it needs Xcode, the Mac is still pointed at Command Line Tools. The `xcode-select` line above fixes that.
 
-When Organizer opens: **Distribute App** → **App Store Connect** → **Upload**.
+If archive fails with **No Accounts** or **no profiles for com.corymurray.HubPrediction**, sign into Xcode first (once):
+
+1. Open **Xcode** → **Settings** → **Accounts** → **+** → add the Apple ID for team `M7FL68Q43A`.
+2. `open HubPrediction.xcodeproj`
+3. Target **HubPrediction** → **Signing & Capabilities** → **Automatically manage signing** → Team = your team.
+4. **Product → Archive**. Organizer → **Distribute App** → **App Store Connect** → **Upload**.
+
+When Organizer opens from the script: **Distribute App** → **App Store Connect** → **Upload**.
 
 Or:
 
