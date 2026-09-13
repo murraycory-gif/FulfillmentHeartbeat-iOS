@@ -17,6 +17,10 @@ fi
 ARCHIVE="$HOME/Desktop/HubPrediction.xcarchive"
 rm -rf "$ARCHIVE"
 echo "Archiving HUB Prediction. Wait for ARCHIVE SUCCEEDED. Do not close this window."
+echo "If this fails with No Accounts / no profiles:"
+echo "  1. Xcode → Settings → Accounts → + → your Apple ID"
+echo "  2. open HubPrediction.xcodeproj → Signing & Capabilities → Team M7FL68Q43A"
+echo "  3. Product → Archive, then Distribute to App Store Connect"
 xcodebuild \
   -project HubPrediction.xcodeproj \
   -scheme HubPrediction \
