@@ -8,6 +8,7 @@ final class DeskStore: ObservableObject {
     @Published var dash: Dash?
     @Published var day: String = ChicagoTime.upcomingDays().first?.key ?? ""
     @Published var days: [(t: Double, key: String, label: String)] = ChicagoTime.upcomingDays()
+    @Published var feedNote: String = "warming · waiting on Kalshi + Coinbase"
 
     private var quoteTimer: Timer?
     private var boardTimer: Timer?
@@ -68,13 +69,29 @@ final class DeskStore: ObservableObject {
         let markets = await marketsP
         if let st { status = st }
         if st?.tradingActive == false, let last = quote {
+            feedNote = "Kalshi halted — holding last ¢"
             publish(last)
             return
         }
-        guard let live, let market = KalshiClient.pickOpen(markets, now: now) else {
-            if let last = quote { publish(last) }
+        guard let live else {
+            if let last = quote {
+                feedNote = "Coinbase unreachable — holding last tick"
+                publish(last)
+            } else {
+                feedNote = "Coinbase unreachable"
+            }
             return
         }
+        guard let market = KalshiClient.pickOpen(markets, now: now) else {
+            if let last = quote {
+                feedNote = "No open KXBTC15M — holding last ¢"
+                publish(last)
+            } else {
+                feedNote = "No open KXBTC15M market"
+            }
+            return
+        }
+        feedNote = ""
         var q = KalshiClient.marketToQuote(market, live: live, source: "coinbase", now: now)
         lastQuoteAt = now
         if points.last.map({ now - $0.t > 0.8 * HubMs.second }) ?? true {
@@ -179,7 +196,7 @@ final class DeskStore: ObservableObject {
 
     private func nearest(_ points: [Point], _ t: Double) -> Double? {
         guard let best = points.min(by: { abs($0.t - t) < abs($1.t - t) }) else { return nil }
-        return abs(best.t - t) < 12 * HubMs.minute ? best.px : nil
+        return abs(best.t - t) < 12.0 * HubMs.minute ? best.px : nil
     }
 
     private func merge(_ a: [Point], _ b: [Point]) -> [Point] {

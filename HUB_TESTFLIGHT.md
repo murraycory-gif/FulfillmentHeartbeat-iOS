@@ -1,49 +1,52 @@
 # HUB Prediction — TestFlight (iPhone)
 
-This is its own iPhone app. It is not Heartbeat. It does not share Heartbeat screens, facts, or the Heartbeat TestFlight build.
+Own product. Not Heartbeat. Not the Heartbeat TestFlight build.
 
-- App name: **HUB Pred**
-- Bundle ID: `com.corymurray.HubPrediction`
-- Team: `M7FL68Q43A`
-- Project: `HubPrediction.xcodeproj`
+| | |
+|---|---|
+| App Store Connect name | **HUB Prediction** (already created) |
+| Home-screen name | **HUB Pred** |
+| Bundle ID | `com.corymurray.HubPrediction` |
+| Team | `M7FL68Q43A` |
+| Project | `HubPrediction.xcodeproj` |
+| Branch | `cursor/hub-prediction-core-5071` |
 
-The phone talks to Kalshi and Coinbase directly. Your Mac does not need to stay on.
+The phone calls Kalshi + Coinbase itself. The Mac can be off after install.
 
-## First time only — create the App Store Connect app
+## Upload from the Mac (do this)
 
-1. [App Store Connect](https://appstoreconnect.apple.com) → **Apps** → **+** → **New App**.
-2. Platform **iOS**. Name **HUB Prediction**.
-3. Bundle ID **com.corymurray.HubPrediction** (Xcode can create this identifier the first time you archive if it is missing).
-4. SKU `hub-prediction`.
-
-Skip this if the app already exists.
-
-## Send a build from your Mac
+Xcode must already have your Apple ID (Settings → Accounts) and team **M7FL68Q43A**.
 
 ```bash
 cd ~/Developer/FulfillmentHeartbeat-iOS
+git fetch origin
 git checkout cursor/hub-prediction-core-5071
+git pull
 sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+open HubPrediction.xcodeproj
+```
+
+In Xcode:
+
+1. Scheme **HubPrediction** (not FulfillmentHeartbeat).
+2. Target **HubPrediction** → **Signing & Capabilities** → Automatically manage signing → Team `M7FL68Q43A`.
+3. **Product → Archive**.
+4. Organizer → **Distribute App** → **App Store Connect** → **Upload**.
+5. App Store Connect → **HUB Prediction** → TestFlight → Internal group → add yourself.
+6. iPhone TestFlight → install **HUB Pred**.
+
+Optional script after signing works once:
+
+```bash
 ./push-hub-testflight.sh
 ```
 
-If `xcodebuild` says it needs Xcode, the Mac is still pointed at Command Line Tools. The `xcode-select` line above fixes that.
+Do **not** run `./push-testflight.sh` — that is Heartbeat.
 
-If archive fails with **No Accounts** or **no profiles for com.corymurray.HubPrediction**, sign into Xcode first (once):
+## First-time App Store Connect
 
-1. Open **Xcode** → **Settings** → **Accounts** → **+** → add the Apple ID for team `M7FL68Q43A`.
-2. `open HubPrediction.xcodeproj`
-3. Target **HubPrediction** → **Signing & Capabilities** → **Automatically manage signing** → Team = your team.
-4. **Product → Archive**. Organizer → **Distribute App** → **App Store Connect** → **Upload**.
+Already done if you see **HUB Prediction** in Apps. The access-settings warning can be ignored.
 
-When Organizer opens from the script: **Distribute App** → **App Store Connect** → **Upload**.
+If the bundle ID was missing from the dropdown, register `com.corymurray.HubPrediction` under Identifiers, then pick it.
 
-Or:
-
-```bash
-bundle exec fastlane hub_beta
-```
-
-Wait until App Store Connect → **HUB Prediction** → **TestFlight** says **Ready to Test**. Add yourself to an Internal group. Install **TestFlight** on the iPhone, accept, install **HUB Pred**.
-
-Heartbeat testers do not get this app. This TestFlight listing is only HUB Prediction.
+SKU (internal): `hub-prediction`.

@@ -96,8 +96,8 @@ enum Money {
     static func signed(_ n: Double?) -> String {
         guard let n, n.isFinite else { return "—" }
         let core = dollarsExact(abs(n))
-        if n > 0 { return "+\(core)" }
-        if n < 0 { return "−\(core)" }
+        if n > 0.0 { return "+\(core)" }
+        if n < 0.0 { return "−\(core)" }
         return core
     }
 }

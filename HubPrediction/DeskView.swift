@@ -122,20 +122,24 @@ struct DeskView: View {
         .clipShape(RoundedRectangle(cornerRadius: 16))
     }
 
+    private var liveCaption: String {
+        if !store.feedNote.isEmpty { return store.feedNote }
+        var line = "Live Coinbase \(Money.dollarsExact(store.quote?.live)) vs posted \(Money.dollarsExact(store.quote?.strike))"
+        if store.quote?.tradingActive == false {
+            line += " · Kalshi halted — holding last ¢"
+        }
+        return line
+    }
+
     private var liveLine: some View {
         HStack(spacing: 8) {
             Circle()
                 .fill(HubTheme.up)
                 .frame(width: 7, height: 7)
                 .shadow(color: HubTheme.up, radius: 4)
-            Text("Live Coinbase \(Money.dollarsExact(store.quote?.live)) vs posted \(Money.dollarsExact(store.quote?.strike))")
+            Text(liveCaption)
                 .font(.system(size: 11, design: .monospaced))
                 .foregroundStyle(HubTheme.mute)
-            if store.quote?.tradingActive == false {
-                Text("· Kalshi halted — holding last ¢")
-                    .font(.system(size: 11, design: .monospaced))
-                    .foregroundStyle(HubTheme.mute)
-            }
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)

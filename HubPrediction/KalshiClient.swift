@@ -24,6 +24,12 @@ enum KalshiClient {
         return nil
     }
 
+    static func bool(_ v: Any?) -> Bool? {
+        if let b = v as? Bool { return b }
+        if let n = num(v) { return n != 0 }
+        return nil
+    }
+
     static func askCents(_ m: [String: Any], yes: Bool) -> Double {
         let dollars = num(m[yes ? "yes_ask_dollars" : "no_ask_dollars"])
         if let dollars { return (dollars * 100.0).rounded() }
@@ -69,9 +75,9 @@ enum KalshiClient {
         guard let url = URL(string: "\(kalshi)/exchange/status") else { return nil }
         guard let json = try? await fetchJSON(url, timeout: timeout) as? [String: Any] else { return nil }
         let indexes = json["exchange_index_statuses"] as? [[String: Any]] ?? []
-        let crypto = indexes.first { ($0["exchange_index"] as? Int) == 2 }
-        let exchange = (crypto?["exchange_active"] as? Bool) ?? (json["exchange_active"] as? Bool) ?? false
-        let trading = (crypto?["trading_active"] as? Bool) ?? (json["trading_active"] as? Bool) ?? false
+        let crypto = indexes.first { num($0["exchange_index"]) == 2.0 }
+        let exchange = bool(crypto?["exchange_active"]) ?? bool(json["exchange_active"]) ?? false
+        let trading = bool(crypto?["trading_active"]) ?? bool(json["trading_active"]) ?? false
         return (exchange, trading)
     }
 
@@ -112,7 +118,7 @@ enum KalshiClient {
             guard let arr = row as? [Any], arr.count >= 5 else { continue }
             let t = (num(arr[0]) ?? 0) * 1000.0
             let px = num(arr[4]) ?? 0
-            if t.isFinite, px.isFinite, px > 1000 {
+            if t.isFinite, px.isFinite, px > 1000.0 {
                 pts.append(Point(t: t, px: px))
             }
         }

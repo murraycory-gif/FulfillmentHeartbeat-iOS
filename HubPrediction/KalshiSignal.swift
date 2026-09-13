@@ -13,7 +13,7 @@ enum KalshiSignal {
         let strike = quote.strike
         let yes = quote.yesAsk / 100.0
         let gap = live - strike
-        let slope = Forecast.slopeFromPoints(quote.points, now: quote.fetchedAt > 0 ? quote.fetchedAt : Date.nowMs)
+        let slope = Forecast.slopeFromPoints(quote.points, now: quote.fetchedAt > 0.0 ? quote.fetchedAt : Date.nowMs)
         let gapScore = clamp(0.5 + gap / 80.0, 0.08, 0.92)
         let slopeScore = clamp(0.5 + slope / 4.4, 0.15, 0.85)
         let tapeScore = yes.isFinite ? clamp(1.0 - yes, 0.05, 0.95) : 0.5

@@ -45,7 +45,7 @@ enum Forecast {
 
     static func yDomain(live: Double, values: [Double]) -> (Double, Double) {
         let base = live.isFinite ? live : 0
-        let clamped = values.filter { $0.isFinite && abs($0 - base) < 250 }
+        let clamped = values.filter { $0.isFinite && abs($0 - base) < 250.0 }
         let lo = min(base - 20.0, clamped.min() ?? base - 20.0)
         let hi = max(base + 20.0, clamped.max() ?? base + 20.0)
         if !lo.isFinite || !hi.isFinite { return (base - 20.0, base + 20.0) }
