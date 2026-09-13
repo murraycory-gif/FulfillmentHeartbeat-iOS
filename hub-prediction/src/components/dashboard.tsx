@@ -5,7 +5,6 @@ import { upcomingDays } from '../lib/chicago-time'
 import { holdThesis, kalshiCall } from '../lib/kalshi-signal'
 import {
   readBoardCache,
-  readDashCache,
   readQuoteCache,
   writeBoardCache,
   writeDashCache,
@@ -16,7 +15,7 @@ import type { Dash, Quote } from '../lib/types'
 import { CloseClock } from './close-clock'
 import { KalshiView } from './kalshi-view'
 
-export function Dashboard({ seedQuote }: { seedQuote: Quote | null }) {
+export function Dashboard({ seedQuote, seedDash }: { seedQuote: Quote | null; seedDash?: Dash | null }) {
   const [clientQuote, setClientQuote] = useState<Quote | null>(null)
   const [clientBoard, setClientBoard] = useState<ReturnType<typeof readBoardCache>>(null)
   const [day, setDay] = useState(() => upcomingDays()[0]?.key ?? '')
@@ -55,10 +54,9 @@ export function Dashboard({ seedQuote }: { seedQuote: Quote | null }) {
   const dashQuery = useQuery({
     queryKey: ['dash', day],
     queryFn: () => getBtcDashboard({ data: { day } }),
-    enabled: !!quote?.ticker,
     refetchInterval: 15_000,
     placeholderData: keepPreviousData,
-    initialData: readDashCache(day) ?? undefined,
+    initialData: seedDash ?? undefined,
     staleTime: 10_000,
   })
 
@@ -107,7 +105,7 @@ export function Dashboard({ seedQuote }: { seedQuote: Quote | null }) {
       <main className="min-h-0 flex-1 overflow-y-auto pb-24">
         <KalshiView quote={quote} board={board} call={call} />
         <DayFilter days={days} day={day} onDay={setDay} />
-        <RestOfDay dash={dashQuery.data ?? null} />
+        <RestOfDay dash={dashQuery.data ?? seedDash ?? null} />
       </main>
     </div>
   )

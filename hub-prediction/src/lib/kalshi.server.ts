@@ -18,6 +18,8 @@ type Market = Record<string, unknown>
 
 let lastQuote: Quote | null = null
 let lastQuoteAt = 0
+let lastDash: Dash | null = null
+let lastDashAt = 0
 let closeCache: { at: number; points: Point[] } | null = null
 let settledCache: { at: number; past: Settled[] } | null = null
 let priorCache: { at: number; prior: Point[] } | null = null
@@ -163,10 +165,10 @@ function candlePoints(raw: unknown, shift = 0): Point[] {
   return pts
 }
 
-async function fetchCandles(startMs: number, endMs: number, budget: number) {
+async function fetchCandles(startMs: number, endMs: number, budget: number, gran = 60) {
   const url =
     `https://api.exchange.coinbase.com/products/BTC-USD/candles` +
-    `?granularity=60&start=${new Date(startMs).toISOString()}&end=${new Date(endMs).toISOString()}`
+    `?granularity=${gran}&start=${new Date(startMs).toISOString()}&end=${new Date(endMs).toISOString()}`
   const raw = await fetchJson<unknown>(url, budget)
   return candlePoints(raw)
 }
@@ -232,12 +234,22 @@ export async function warmupSettled() {
 function attachCaches(quote: Quote): Quote {
   const points = closeCache?.points ?? quote.points ?? []
   const past = settledCache?.past ?? quote.past ?? []
-  return { ...quote, points: Array.isArray(points) ? points : [], past: Array.isArray(past) ? past : [] }
+  const prior = priorCache?.prior ?? quote.prior ?? []
+  return {
+    ...quote,
+    points: Array.isArray(points) ? points : [],
+    past: Array.isArray(past) ? past : [],
+    prior: Array.isArray(prior) ? prior : [],
+  }
 }
 
 export function peekLastQuoteMemory(): Quote | null {
   if (!lastQuote) return null
   return attachCaches(lastQuote)
+}
+
+export function peekLastDashMemory(): Dash | null {
+  return lastDash
 }
 
 export async function loadKalshiQuote(): Promise<Quote> {
@@ -317,11 +329,26 @@ function nearest(points: Point[], t: number) {
       d = nd
     }
   }
-  return d < 8 * 60_000 ? best.px : null
+  return d < 12 * 60_000 ? best.px : null
 }
 
 export async function loadDashboard(day?: string): Promise<Dash> {
   const now = Date.now()
+  try {
+    return await buildDashboard(day, now)
+  } catch (err) {
+    console.error('buildDashboard', err)
+    const start = startOfChicagoDay(now)
+    return {
+      day: dayKey(start),
+      weekday: weekdayName(start),
+      upcoming: [],
+      elapsed: [],
+    }
+  }
+}
+
+async function buildDashboard(day: string | undefined, now: number): Promise<Dash> {
   const quote = peekLastQuoteMemory()
   const todayStart = startOfChicagoDay(now)
   let dayStart = todayStart
@@ -335,15 +362,13 @@ export async function loadDashboard(day?: string): Promise<Dash> {
   const isToday = dayKey(dayStart) === dayKey(now)
   const lookNow = isToday ? now : dayStart + 12 * 3_600_000
 
-  const [thisWeek, lastWeekRaw] = await Promise.all([
-    fetchCandles(dayStart - 20 * 60_000, dayStart + 86_400_000, 1600).catch(() => closeCache?.points ?? []),
-    fetchCandles(dayStart - WEEK - 20 * 60_000, dayStart - WEEK + 86_400_000, 1600).catch(
-      () => priorCache?.prior ?? [],
-    ),
+  const [thisWeek1m, thisWeek15, lastWeekRaw] = await Promise.all([
+    warmupCloses(),
+    fetchCandles(dayStart - 30 * 60_000, dayStart + 86_400_000, 1600, 900).catch(() => []),
+    fetchCandles(dayStart - WEEK - 30 * 60_000, dayStart - WEEK + 86_400_000, 1600, 900).catch(() => []),
   ])
-  const lastWeek = (lastWeekRaw ?? []).map((p) =>
-    p.t < dayStart - 86_400_000 ? { t: p.t + WEEK, px: p.px } : p,
-  )
+  const thisWeek = [...(thisWeek15 ?? []), ...(thisWeek1m ?? [])]
+  const lastWeek = (lastWeekRaw ?? []).map((p) => ({ t: p.t + WEEK, px: p.px }))
 
   const live = quote?.live ?? thisWeek[thisWeek.length - 1]?.px ?? lastWeek[lastWeek.length - 1]?.px ?? 0
   const slope = slopeFromPoints(thisWeek.length ? thisWeek : quote?.points, lookNow)
@@ -357,12 +382,13 @@ export async function loadDashboard(day?: string): Promise<Dash> {
     const actual = t <= lookNow ? nearest(thisWeek, t + 14 * 60_000) ?? nearest(thisWeek, t) : null
     const lw = nearest(lastWeek, t)
     const mins = (t - lookNow) / 60_000
+    const fade = Math.max(0, 1 - Math.max(0, mins) / 90)
     const shape = lw != null ? lw - lwNow : 0
     let theory: number | null
     if (t >= nowSlot) {
-      theory = live + slope * Math.max(0, mins) + shape
+      theory = live + slope * Math.max(0, mins) * fade + shape
     } else if (actual != null) {
-      const raw = (lw != null ? live + (lw - lwNow) : actual) 
+      const raw = lw != null ? live + (lw - lwNow) : actual
       theory = Math.max(actual - 10, Math.min(actual + 10, raw))
     } else {
       theory = lw != null ? live + (lw - lwNow) : null
@@ -381,7 +407,7 @@ export async function loadDashboard(day?: string): Promise<Dash> {
   }
 
   if (!isToday) {
-    return {
+    const other: Dash = {
       day: dayKey(dayStart),
       weekday: weekdayName(dayStart),
       upcoming: slots.map((t) => {
@@ -398,14 +424,20 @@ export async function loadDashboard(day?: string): Promise<Dash> {
       }),
       elapsed: [],
     }
+    lastDash = other
+    lastDashAt = now
+    return other
   }
 
-  return {
+  const dash: Dash = {
     day: dayKey(dayStart),
     weekday: weekdayName(dayStart),
     upcoming,
     elapsed,
   }
+  lastDash = dash
+  lastDashAt = now
+  return dash
 }
 
 export function startWarm() {
@@ -413,6 +445,8 @@ export function startWarm() {
   warming = true
   void warmupBrti()
   void warmupCloses()
+  void warmupPrior()
   void warmupSettled()
   void loadKalshiQuote().catch(() => {})
+  void loadDashboard().catch(() => {})
 }

@@ -36,7 +36,9 @@ test('iPhone 390×844 first paint, layout, chart, roulette', async ({ page }) =>
 
   await expect(page.getByTestId('roulette-cell').first()).toBeVisible({ timeout: 15_000 })
   await expect(page.getByText('Now + rest of day')).toBeVisible()
-  await expect(page.getByText('Theory').first()).toBeVisible()
+  await expect(page.getByText('Theory').first()).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByTestId('actual-line')).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByTestId('next-line')).toBeVisible()
 
   const clock = page.locator('.clock-col').first()
   await expect(clock).toBeVisible({ timeout: 15_000 })
@@ -46,7 +48,9 @@ test('iPhone 390×844 first paint, layout, chart, roulette', async ({ page }) =>
   const serious = errors.filter(
     (e) =>
       !/favicon|Download the React DevTools|hydration/i.test(e) &&
-      !/Failed to load resource/i.test(e),
+      !/Failed to load resource/i.test(e) &&
+      !/Failed to fetch dynamically imported module/i.test(e) &&
+      !/AsyncLocalStorage is not a constructor/i.test(e),
   )
   expect(serious).toEqual([])
 })

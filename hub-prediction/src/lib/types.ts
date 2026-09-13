@@ -22,6 +22,7 @@ export type Quote = {
   closeAt: number
   fetchedAt: number
   points: Point[]
+  prior?: Point[]
   past: Settled[]
 }
 

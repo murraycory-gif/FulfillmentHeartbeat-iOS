@@ -1,6 +1,10 @@
 # HUB Prediction
 
-iPhone-first desk for Kalshi 15-minute BTC Up/Down (`KXBTC15M`). One page: sticky call, Kalshi tape, trend chart, roulette, rest-of-day table, optional API trading.
+Standalone iPhone-first desk for Kalshi 15-minute BTC Up/Down (`KXBTC15M`).
+
+**This is its own app.** It is not Fulfillment Heartbeat, FamilyHub, or any other iOS project. It does not share Swift sources, Xcode targets, Fastlane lanes, or Heartbeat data. Run it from this folder only.
+
+One page: sticky call, Kalshi tape, trend chart, roulette, rest-of-day table, optional API trading.
 
 ```bash
 cd hub-prediction

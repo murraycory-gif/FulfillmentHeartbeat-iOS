@@ -39,7 +39,7 @@ export function KalshiView(props: {
 
   const past = (quote?.past?.length ? quote.past : board?.past) ?? []
   const points = (board?.points?.length ?? 0) > 2 ? board!.points : (quote?.points ?? [])
-  const prior = board?.prior ?? []
+  const prior = (board?.prior?.length ? board.prior : quote?.prior) ?? []
 
   return (
     <div>

@@ -9,5 +9,5 @@ export const Route = createFileRoute('/')({
 
 function Home() {
   const seed = Route.useLoaderData()
-  return <Dashboard seedQuote={seed} />
+  return <Dashboard seedQuote={seed?.quote ?? null} seedDash={seed?.dash ?? null} />
 }

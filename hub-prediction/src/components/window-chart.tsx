@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, XAxis, YAxis } from 'recharts'
+import { useMemo, useRef, useState } from 'react'
 import { formatClock } from '../lib/chicago-time'
 import { emaSlope, forwardRay, rebasePrior, slopeFromPoints, yDomain } from '../lib/forecast'
 import type { DeskSide, Point } from '../lib/types'
@@ -19,6 +18,19 @@ function mergePath(a: Point[] | undefined, b: Point[] | undefined) {
     .sort((x, y) => x.t - y.t)
 }
 
+function toPoints(list: Point[], start: number, end: number, lo: number, hi: number, w: number, h: number) {
+  const span = Math.max(1, end - start)
+  const range = Math.max(1, hi - lo)
+  return list
+    .filter((p) => p.t >= start - 2000 && p.t <= end + 2000)
+    .map((p) => {
+      const x = ((p.t - start) / span) * w
+      const y = h - ((p.px - lo) / range) * h
+      return `${x.toFixed(1)},${y.toFixed(1)}`
+    })
+    .join(' ')
+}
+
 export function WindowChart(props: {
   live: number
   closeAt: number
@@ -30,12 +42,7 @@ export function WindowChart(props: {
 }) {
   const [zoom, setZoom] = useState<Zoom>(60)
   const [pan, setPan] = useState(0)
-  const [ready, setReady] = useState(false)
   const slopeRef = useRef<number | null>(null)
-
-  useEffect(() => {
-    setReady(true)
-  }, [])
 
   const now = props.points?.length ? props.points[props.points.length - 1]?.t || Date.now() : Date.now()
   const actual = mergePath(props.points, props.trail)
@@ -54,46 +61,17 @@ export function WindowChart(props: {
 
   const end = now + pan
   const start = end - zoom * 60_000
-  const rows = useMemo(() => {
-    const keys = new Set<number>()
-    const add = (list: Point[]) => {
-      for (const p of list) {
-        if (p.t >= start - 2000 && p.t <= end + 16 * 60_000) keys.add(p.t)
-      }
-    }
-    add(actual)
-    add(prior)
-    add(forecast)
-    const times = [...keys].sort((a, b) => a - b)
-    const find = (list: Point[], t: number) => {
-      let best: Point | null = null
-      let d = Infinity
-      for (const p of list) {
-        const nd = Math.abs(p.t - t)
-        if (nd < d) {
-          d = nd
-          best = p
-        }
-      }
-      return best && d < 90_000 ? best.px : null
-    }
-    return times.map((t) => ({
-      t,
-      actual: t <= now + 1500 ? find(actual, t) : null,
-      prior: find(prior, t),
-      next: t >= now - 1500 ? find(forecast, t) : null,
-    }))
-  }, [actual, prior, forecast, start, end, now])
-
-  const ys = [
-    ...actual.map((p) => p.px),
-    ...prior.map((p) => p.px),
-    ...forecast.map((p) => p.px),
-    props.live,
-  ]
+  const ys = [...actual.map((p) => p.px), ...prior.map((p) => p.px), ...forecast.map((p) => p.px), props.live]
   const [lo, hi] = yDomain(props.live, ys)
-
   const forecastPts = forecast.map((p) => p.px.toFixed(2)).join(',')
+
+  const w = 300
+  const h = 168
+  const actualD = useMemo(() => toPoints(actual, start, end, lo, hi, w, h), [actual, start, end, lo, hi])
+  const priorD = useMemo(() => toPoints(prior, start, end, lo, hi, w, h), [prior, start, end, lo, hi])
+  const nextD = useMemo(() => toPoints(forecast, start, end + 16 * 60_000, lo, hi, w, h), [forecast, start, end, lo, hi])
+
+  const ticks = [start, start + (end - start) / 2, end]
 
   return (
     <section className="mt-3 px-4" data-testid="window-chart">
@@ -134,61 +112,53 @@ export function WindowChart(props: {
         </div>
       </div>
       <div data-testid="forecast-pts" data-pts={forecastPts} className="hidden" />
-      <div className="h-[220px] w-full">
-        {ready ? (
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={rows} margin={{ top: 8, right: 8, left: 0, bottom: 4 }}>
-              <CartesianGrid stroke="#1c1c1c" vertical={false} />
-              <XAxis
-                dataKey="t"
-                type="number"
-                domain={[start, end]}
-                tickFormatter={(t) => formatClock(Number(t))}
-                stroke="#8a938c"
-                tick={{ fill: '#8a938c', fontSize: 10 }}
-                minTickGap={28}
-              />
-              <YAxis
-                domain={[lo, hi]}
-                width={44}
-                stroke="#8a938c"
-                tick={{ fill: '#8a938c', fontSize: 10 }}
-                tickFormatter={(v) => String(Math.round(Number(v)))}
-              />
-              <ReferenceLine y={props.live} stroke="#2a2a2a" />
-              <Line
-                dataKey="prior"
-                stroke="#6b6b6b"
-                strokeWidth={1.5}
-                dot={false}
-                isAnimationActive={false}
-                connectNulls
-              />
-              <Line
-                dataKey="actual"
-                stroke="#00e57a"
-                strokeWidth={2}
-                dot={false}
-                isAnimationActive={false}
-                connectNulls
-                name="actual"
-              />
-              <Line
-                dataKey="next"
-                stroke="#00e57a"
-                strokeWidth={1.6}
-                strokeDasharray="5 4"
-                dot={false}
-                isAnimationActive={false}
-                connectNulls
-                name="next"
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        ) : (
-          <div className="h-full w-full" />
-        )}
-      </div>
+      <svg viewBox={`0 0 ${w + 44} 200`} className="h-[220px] w-full" role="img" aria-label="BTC trend">
+        <text x="0" y="14" fill="#8a938c" fontSize="10">
+          {Math.round(hi)}
+        </text>
+        <text x="0" y="100" fill="#8a938c" fontSize="10">
+          {Math.round(props.live)}
+        </text>
+        <text x="0" y="186" fill="#8a938c" fontSize="10">
+          {Math.round(lo)}
+        </text>
+        <g transform="translate(44,8)">
+          <line x1="0" y1={h / 2} x2={w} y2={h / 2} stroke="#2a2a2a" />
+          {priorD ? (
+            <polyline
+              data-testid="prior-line"
+              fill="none"
+              stroke="#6b6b6b"
+              strokeWidth="1.5"
+              points={priorD}
+            />
+          ) : null}
+          {actualD ? (
+            <polyline
+              data-testid="actual-line"
+              fill="none"
+              stroke="#00e57a"
+              strokeWidth="2"
+              points={actualD}
+            />
+          ) : null}
+          {nextD ? (
+            <polyline
+              data-testid="next-line"
+              fill="none"
+              stroke="#00e57a"
+              strokeWidth="1.6"
+              strokeDasharray="5 4"
+              points={nextD}
+            />
+          ) : null}
+        </g>
+        {ticks.map((t, i) => (
+          <text key={t} x={44 + (i * w) / 2} y={198} fill="#8a938c" fontSize="10">
+            {formatClock(t)}
+          </text>
+        ))}
+      </svg>
       <p className="mt-1 text-[11px] text-mute">
         Green this week · gray last week rebased · dashed next 15m
       </p>

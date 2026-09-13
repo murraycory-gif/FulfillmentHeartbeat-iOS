@@ -29,12 +29,4 @@ vendor/bundle/
 # Swift PM
 .build/
 .swiftpm/
-
-# HUB Prediction (web)
-hub-prediction/node_modules/
-hub-prediction/.output/
-hub-prediction/.tanstack/
-hub-prediction/dist/
-hub-prediction/playwright-report/
-hub-prediction/test-results/
 docs/supabase/facts.json

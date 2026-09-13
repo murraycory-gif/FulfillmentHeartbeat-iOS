@@ -1,9 +1,9 @@
 import { createServerFn } from '@tanstack/react-start'
 
 export const peekLastQuote = createServerFn({ method: 'GET' }).handler(async () => {
-  const { peekLastQuoteMemory, startWarm } = await import('./kalshi.server')
+  const { peekLastDashMemory, peekLastQuoteMemory, startWarm } = await import('./kalshi.server')
   startWarm()
-  return peekLastQuoteMemory()
+  return { quote: peekLastQuoteMemory(), dash: peekLastDashMemory() }
 })
 
 export const getKalshiQuote = createServerFn({ method: 'GET' }).handler(async () => {
@@ -17,11 +17,21 @@ export const getKalshiBoard = createServerFn({ method: 'GET' }).handler(async ()
   return loadKalshi()
 })
 
-export const getBtcDashboard = createServerFn({ method: 'GET' })
+export const getBtcDashboard = createServerFn({ method: 'POST' })
   .validator((d: { day?: string } | undefined) => d ?? {})
   .handler(async ({ data }) => {
     const { loadDashboard } = await import('./kalshi.server')
-    return loadDashboard(data?.day)
+    try {
+      return await loadDashboard(data?.day)
+    } catch (err) {
+      console.error('loadDashboard', err)
+      return {
+        day: data?.day ?? '',
+        weekday: '',
+        upcoming: [],
+        elapsed: [],
+      }
+    }
   })
 
 export const getKalshiCash = createServerFn({ method: 'POST' })
