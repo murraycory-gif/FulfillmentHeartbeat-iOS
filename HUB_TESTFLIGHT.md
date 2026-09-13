@@ -22,9 +22,12 @@ Skip this if the app already exists.
 
 ```bash
 cd ~/Developer/FulfillmentHeartbeat-iOS
-git pull
+git checkout cursor/hub-prediction-core-5071
+sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
 ./push-hub-testflight.sh
 ```
+
+If `xcodebuild` says it needs Xcode, the Mac is still pointed at Command Line Tools. The `xcode-select` line above fixes that.
 
 When Organizer opens: **Distribute App** → **App Store Connect** → **Upload**.
 
