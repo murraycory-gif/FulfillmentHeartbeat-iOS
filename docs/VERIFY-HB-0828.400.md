@@ -1,32 +1,30 @@
-# HB-0828.426 / 752 — verify (current-pack first paint + Share file)
+# HB-0828.427 / 753 — verify (Mac Catalyst ASC 90242 category)
 
-**Tip** `cursor/mac-share-attach-1006` off `cursor/command-center-8b-3389`
-**Stamp** `HB-0828.426  1.0 (752)` · bundle `com.corymurray.FulfillmentHeartbeat`
-**No TestFlight until this PASSes.** HARD TF HOLD until **open shows today’s gold immediately** AND **Share attaches a report file** on **iPhone, iPad, and Mac**.
+**Tip** `cursor/mac-catalyst-category-70dd` off `cursor/mac-share-attach-1006` (`300eb83`)
+**Stamp** `HB-0828.427  1.0 (753)` · bundle `com.corymurray.FulfillmentHeartbeat`
+**752 Soft KEEP:** first-paint current pack gold + Share attach / `UIActivityViewController`.
 
-Soft FAIL 2026-09-14 work Mac:
-1. Send opened native Apple Mail (`Hide My Email`) with **no attachment** — plaintext body only.
-2. Work Mac has no usable Apple Mail account; Outlook / Teams / Files never saw a file.
-3. Cold open / reopen painted week **202628 (~$113M)** then later swapped to week **202629 (~$26.4M)**.
+Soft FAIL 2026-09-14: Mac Catalyst TestFlight upload of HB **752** rejected **ASC 90242** — Info.plist missing `LSApplicationCategoryType`. This root sets `public.app-category.business` in Heartbeat `Info.plist` and target `INFOPLIST_KEY_LSApplicationCategoryType` (`GENERATE_INFOPLIST_FILE = NO`).
 
-This root holds splash until the current `current.sqlite` is on disk (or the fetch fails), then paints once. Share still prefers `UIActivityViewController` + PDF/PNG file URLs.
-
-## CoS first — Mac Catalyst Share (over existing app)
+## CoS first — Mac Catalyst archive + upload
 
 ```bash
 cd ~/Developer/FulfillmentHeartbeat-iOS
+git checkout cursor/mac-catalyst-category-70dd
 ./install-mac.sh
 ```
 
 Force-quit Heartbeat (dock quit, don’t just close the window). Do not delete the app.
 
-**Mac first paint Soft KEEP**
+Confirm the archived Mac Catalyst Info.plist has `LSApplicationCategoryType = public.app-category.business`, then **Product → Archive** (My Mac / Mac Catalyst) → upload to App Store Connect. Do not upload TF from the agent.
+
+**Mac first paint Soft KEEP (752)**
 1. Dock-quit Heartbeat. Reopen.
 2. Stay on the load screen until Command Center appears.
 3. First gold must be **week 202629 / ~$26.4M** (today’s upload). Soft FAIL if **$113M / 202628** shows first, even briefly.
 4. Do not tap Clear. Do not force-quit a second time.
 
-**Mac Share Soft KEEP**
+**Mac Share Soft KEEP (752)**
 1. Share → pick page(s) → New Message.
 2. Navy **Back** visible. **To** above the fold and typeable. Notes field present. Sheet resizable (+/−). Preview readable.
 3. Attachment chip shows `Fulfillment-Heartbeat.pdf` (or page PNGs) — never missing.
@@ -37,7 +35,8 @@ Must **compile**. Stay on Command Center. Do not open a section first.
 
 | Check | Pass |
 |---|---|
-| Sidebar stamp | `HB-0828.426  1.0 (752)` |
+| Sidebar stamp | `HB-0828.427  1.0 (753)` |
+| **ASC 90242** | Archived Mac Catalyst Info.plist has `LSApplicationCategoryType` = `public.app-category.business`. Upload is not rejected for missing category. |
 | **First paint gold** | Open shows **$26.4M / week 202629** immediately. Never $113M / 202628 first. |
 | **Share attachment** | New Message shows attachment chip. Send opens the **system share sheet** with `Fulfillment-Heartbeat.pdf` (or page PNGs). Outlook / Teams / Files / AirDrop receive the file. Never Apple Mail plaintext-only / Hide My Email with no attachment. |
 | **Compile** | Mac Catalyst + iOS. No opaque-return / MainActor isolation FAIL. |
@@ -45,14 +44,14 @@ Must **compile**. Stay on Command Center. Do not open a section first.
 | **Section boxes (748)** | Open Sales after a filter: THIS WEEK / THIS SEAT already match. |
 | **Clear identity** | District → Clear: company 2161 on dashboard and Sales. Not leftover 612. |
 | Cool / LRU | ≤2 planes. No xlsx cook. No PulseCaches / expand on tap. |
-| Automated test | `testArchitecture426FirstPaintIsCurrentPackGold` + `testArchitecture425MacShareAttachesReportViaShareSheet` KEEP |
+| Automated test | `testArchitecture427MacCatalystHasAppCategory` + `testArchitecture426FirstPaintIsCurrentPackGold` + `testArchitecture425MacShareAttachesReportViaShareSheet` KEEP |
 
 ## Soft KEEP
 
 | KEEP | Status |
 |---|---|
-| First paint is current pack gold (no prior-week linger) | Soft KEEP this root |
-| Share report file via system share sheet (PDF preferred / PNG pages) | Soft KEEP |
+| First paint is current pack gold (no prior-week linger) | Soft KEEP 752 |
+| Share report file via system share sheet (PDF preferred / PNG pages) | Soft KEEP 752 |
 | Readable preview, notes, resizable Mac sheet, Back, To above the fold | Soft KEEP |
 | CC summaries rewrite with box maps; tiles bind stamp on MainActor | Soft KEEP |
 | 748 box maps same turn + stamp-after-ready | Soft KEEP |
@@ -70,4 +69,4 @@ Same dashboard-on-filter on iPhone + iPad. Do not delete the app.
 
 ## After PASS
 
-CoS + QC ship TestFlight. Do not upload TF from the agent.
+CoS Mac-archives + uploads TestFlight. Do not upload TF from the agent.
