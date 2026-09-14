@@ -170,20 +170,21 @@ final class HeartbeatStore: ObservableObject {
         isReady = false
         errorMessage = nil
         setBootPhase(.openingFloor)
-        let chrome = await loadChromeIfPresent()
+        let skipEarlyChrome = PulseLaunch.shouldBlockFirstPaintUntilCurrentPack()
+            && PulseLaunch.shouldOpenCompanyCommandCenterOnColdOpen()
+            && !PulseLaunch.shouldPaintLocalSeatBeforeCloudFreshnessCheck()
+        let chrome = skipEarlyChrome ? nil : await loadChromeIfPresent()
         if PulseLaunch.shouldOpenCompanyCommandCenterOnColdOpen() {
             setBootPhase(.readingPack)
-            let painted = await swapToSeatPack(.company)
+            var promotedCurrent = false
+            if PulseLaunch.shouldBlockFirstPaintUntilCurrentPack(),
+               PulseLaunch.shouldPullCloudPackOnColdOpen() {
+                promotedCurrent = await importCloudSQLiteIfPresent(reason: .boot)
+            }
+            let painted = await swapToSeatPack(.company, forceReload: promotedCurrent)
             if painted {
                 finishLocalLaunch()
-                if PulseLaunch.shouldPullCloudPackOnColdOpen() {
-                    Task {
-                        _ = await self.importCloudSQLiteIfPresent(reason: .boot)
-                        await self.fillAfterReady()
-                    }
-                } else {
-                    Task { await self.fillAfterReady() }
-                }
+                Task { await self.fillAfterReady() }
                 if HubLayout.ingestsWorkbook {
                     Task { await self.ingestWorkbookOnMacIfNeeded() }
                 }
@@ -3111,13 +3112,54 @@ final class HeartbeatStore: ObservableObject {
 
     func pullLatestWorkbookIfNeeded() {
         guard isReady, !isImporting else { return }
-        pullCloudPackIfNeeded()
+        if PulseLaunch.shouldBlockFirstPaintUntilCurrentPack() {
+            Task { await self.holdForCurrentPackIfStale() }
+        } else {
+            pullCloudPackIfNeeded()
+        }
         // Viewer: sqlite pack freshness only. A dropped Daily Report.xlsx
         // after open is the same ~270% cook loop as cloud ingest.
         guard PulseLaunch.shouldIngestCloudWorkbookOnForeground() else { return }
         guard HubLayout.ingestsWorkbook else { return }
         Task { await pullWatchedWorkbook() }
         Task { await ingestWorkbookOnMacIfNeeded() }
+    }
+
+    /// Reopen / foreground: if a newer current.sqlite exists, leave the
+    /// dashboard (splash) until that pack paints. Never linger last week's gold.
+    private func holdForCurrentPackIfStale() async {
+        guard PulseLaunch.shouldShowShortLoadUntilCurrentPack() else {
+            pullCloudPackIfNeeded()
+            return
+        }
+        guard await cloudPackNeedsRefresh() else { return }
+        isReady = false
+        isImporting = true
+        setBootPhase(.readingPack)
+        let promoted = await importCloudSQLiteIfPresent(reason: .refresh)
+        if promoted {
+            _ = await swapToSeatPack(.company, forceReload: true)
+        }
+        isImporting = false
+        if isReady == false {
+            finishLocalLaunch()
+        }
+    }
+
+    private func cloudPackNeedsRefresh() async -> Bool {
+        PulseCloud.invalidateObjectList()
+        let rootRemote = await PulseCloud.objectInfo(PulseCloud.object)
+        let seatRemote = await PulseCloud.objectInfo(PulseSeatPack.Key.company.objectPath)
+        let chosen = chooseCloudPackObject(root: rootRemote, seat: seatRemote)
+        let companySeatURL = PulseSeatPack.localURL(root: rootURL, key: .company)
+        return PulseLaunch.staleCompanySeatRequiresCloudSync(
+            remoteBytes: chosen.size,
+            localSeatBytes: PulseSQLite.fileBytes(at: companySeatURL),
+            localRowsLoaded: max(warehouseRowCount, seeded ? 1 : 0),
+            remoteUpdated: chosen.updated,
+            knownUpdated: UserDefaults.standard.string(forKey: "hb.cloudPackUpdated") ?? "",
+            localWrittenAt: PulseSQLite.writtenAtString(at: companySeatURL)
+        )
     }
 
     func pullCloudPackIfNeeded() {

@@ -2112,6 +2112,22 @@ enum PulseLaunch {
 
     static func shouldPullCloudPackOnColdOpen() -> Bool { true }
     static func shouldPullCloudPackOnForeground() -> Bool { true }
+    /// Soft FAIL 2026-09-14: first paint was week 202628 (~$113M), then a later
+    /// cloud swap showed week 202629 (~$26.4M). Splash stays up until the
+    /// current pack is on disk — or the fetch fails and local is the fallback.
+    static func shouldBlockFirstPaintUntilCurrentPack() -> Bool { true }
+    static func shouldPaintLocalSeatBeforeCloudFreshnessCheck() -> Bool { false }
+    static func shouldShowShortLoadUntilCurrentPack() -> Bool { true }
+    static func shouldRevealDashboardBeforeCurrentPack(
+        cloudCheckComplete: Bool,
+        fetchFailed: Bool,
+        localUsable: Bool
+    ) -> Bool {
+        if shouldPaintLocalSeatBeforeCloudFreshnessCheck() { return true }
+        if cloudCheckComplete { return true }
+        if fetchFailed, localUsable { return true }
+        return !shouldBlockFirstPaintUntilCurrentPack()
+    }
 
     /// Pull-to-refresh on phone / pad / Mac uses the same no-delete seat-repull
     /// as cold open (`importCloudSQLiteIfPresent` when remote `updated_at` is newer).

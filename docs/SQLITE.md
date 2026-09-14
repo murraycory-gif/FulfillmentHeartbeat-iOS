@@ -24,4 +24,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.425 / 1.0 (751) — Mac Share attaches PDF/PNG via system share sheet. 424 CC summaries KEEP. 748/744/745 KEEP. MUST P vs a9e2f68.
+HB-0828.426 / 1.0 (752) — First paint waits for current pack gold; Mac Share attaches PDF/PNG. 425 Share KEEP. 424 CC summaries KEEP. MUST P vs a9e2f68.
