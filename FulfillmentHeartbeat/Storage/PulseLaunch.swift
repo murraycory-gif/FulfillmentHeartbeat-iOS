@@ -2112,6 +2112,22 @@ enum PulseLaunch {
 
     static func shouldPullCloudPackOnColdOpen() -> Bool { true }
     static func shouldPullCloudPackOnForeground() -> Bool { true }
+    /// Soft FAIL 2026-09-14: first paint was week 202628 (~$113M), then a later
+    /// cloud swap showed week 202629 (~$26.4M). Splash stays up until the
+    /// current pack is on disk — or the fetch fails and local is the fallback.
+    static func shouldBlockFirstPaintUntilCurrentPack() -> Bool { true }
+    static func shouldPaintLocalSeatBeforeCloudFreshnessCheck() -> Bool { false }
+    static func shouldShowShortLoadUntilCurrentPack() -> Bool { true }
+    static func shouldRevealDashboardBeforeCurrentPack(
+        cloudCheckComplete: Bool,
+        fetchFailed: Bool,
+        localUsable: Bool
+    ) -> Bool {
+        if shouldPaintLocalSeatBeforeCloudFreshnessCheck() { return true }
+        if cloudCheckComplete { return true }
+        if fetchFailed, localUsable { return true }
+        return !shouldBlockFirstPaintUntilCurrentPack()
+    }
 
     /// Pull-to-refresh on phone / pad / Mac uses the same no-delete seat-repull
     /// as cold open (`importCloudSQLiteIfPresent` when remote `updated_at` is newer).
@@ -2295,11 +2311,46 @@ enum PulseLaunch {
             .filter { $0.contains("@") }
     }
 
-    static func shouldAllowShareSend(to: String, htmlReady: Bool) -> Bool {
-        htmlReady && !shareRecapToAddresses(to).isEmpty
+    static func shouldAllowShareSend(to: String, htmlReady: Bool, fileReady: Bool = true) -> Bool {
+        let toOK = !shouldRequireShareRecapToAddress() || !shareRecapToAddresses(to).isEmpty
+        let fileOK = !shouldShareReportFile() || fileReady
+        return htmlReady && fileOK && toOK
     }
 
-    /// KEEP hop: dismiss → 350ms → keyWindowRoot → MFMailCompose. mailto ≠ sent.
+    /// Soft FAIL 2026-09-14 work Mac: Send opened Apple Mail with Hide My Email
+    /// and a plaintext body — no file. Work Mac uses Outlook, not Apple Mail.
+    /// Primary path is the system share sheet with a PDF/PNG file URL.
+    static func shouldPreferSystemShareSheetWithFile() -> Bool { true }
+    static func shouldForceMailComposeOnSend() -> Bool { false }
+    static func shouldAllowTextOnlyShareCompose() -> Bool { false }
+    static func shouldShareReportFile() -> Bool { true }
+    static func shouldShowShareAttachmentChip() -> Bool { true }
+    static func shouldUseMailComposeAsFallback(canSendMail: Bool) -> Bool {
+        canSendMail && !shouldForceMailComposeOnSend()
+    }
+
+    static func shareAttachmentChipTitle(files: [URL], htmlFile: URL?) -> String {
+        if let pdf = files.first(where: { $0.pathExtension.lowercased() == "pdf" }) {
+            return pdf.lastPathComponent
+        }
+        if files.count == 1 { return files[0].lastPathComponent }
+        if files.count > 1 { return "\(files.count) page images" }
+        if let htmlFile { return htmlFile.lastPathComponent }
+        return "Preparing attachment…"
+    }
+
+    static func shareAttachmentMimeType(for url: URL) -> String {
+        switch url.pathExtension.lowercased() {
+        case "pdf": return "application/pdf"
+        case "png": return "image/png"
+        case "jpg", "jpeg": return "image/jpeg"
+        case "html", "htm": return "text/html"
+        default: return "application/octet-stream"
+        }
+    }
+
+    /// Mail compose is a fallback only when an account exists. Send itself
+    /// prefers UIActivityViewController + file URLs (Outlook / Teams / Files).
     static func shouldPresentMFMailComposeOnMac() -> Bool { true }
     static func shouldTreatMailtoOpenAsSent() -> Bool { false }
     static func shouldRequireUserSendInMailAppOnMac() -> Bool { true }
@@ -2326,7 +2377,8 @@ enum PulseLaunch {
     }
 
     /// Mac Catalyst Share / New Message: bigger default, user-resizable, preview + notes.
-    /// Mail presenter hop (dismiss sheet → keyWindowRoot → presentMail) stays Soft KEEP.
+    /// Send presents the system share sheet with the report file. Mail compose
+    /// is fallback only when canSendMail. To / Back / notes Soft KEEP.
     static func shouldUseMacShareResizableSheet() -> Bool { true }
     static func shouldShowMacShareEmailPreview() -> Bool { true }
     static func shouldOfferShareComposeNotes() -> Bool { true }

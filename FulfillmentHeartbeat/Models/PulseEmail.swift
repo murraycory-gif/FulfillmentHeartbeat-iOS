@@ -7,6 +7,34 @@ enum PulseMail {
         let htmlFile: URL?
         let plain: String
         let brief: String
+        let attachmentFiles: [URL]
+
+        init(
+            subject: String,
+            html: String,
+            htmlFile: URL?,
+            plain: String,
+            brief: String,
+            attachmentFiles: [URL] = []
+        ) {
+            self.subject = subject
+            self.html = html
+            self.htmlFile = htmlFile
+            self.plain = plain
+            self.brief = brief
+            self.attachmentFiles = attachmentFiles
+        }
+
+        func withAttachments(_ files: [URL]) -> Packet {
+            Packet(
+                subject: subject,
+                html: html,
+                htmlFile: htmlFile,
+                plain: plain,
+                brief: brief,
+                attachmentFiles: files
+            )
+        }
     }
 
     struct MailSums {
@@ -205,9 +233,19 @@ enum PulseMail {
         return url
     }
 
-    /// Activity-item payload: file URL or brief. Never the HTML string (Mail/Gmail attributed-string Jetsam).
+    /// File URLs for the system share sheet. Never plaintext-only compose.
+    static func shareAttachmentFiles(_ packet: Packet) -> [URL] {
+        let existing = packet.attachmentFiles.filter { FileManager.default.fileExists(atPath: $0.path) }
+        if !existing.isEmpty { return existing }
+        if let html = packet.htmlFile, FileManager.default.fileExists(atPath: html.path) {
+            return [html]
+        }
+        return []
+    }
+
+    /// Activity-item payload: report file first. Never the HTML string (Mail/Gmail attributed-string Jetsam).
     static func shareActivityItem(_ packet: Packet) -> Any {
-        packet.htmlFile ?? packet.brief
+        shareAttachmentFiles(packet).first ?? packet.htmlFile ?? packet.brief
     }
 
     /// HTML Mail can put in the message body. Reads the file when it fits the cap; never a giant string.
@@ -271,7 +309,8 @@ enum PulseMail {
             html: html,
             htmlFile: file,
             plain: packet.plain,
-            brief: brief
+            brief: brief,
+            attachmentFiles: []
         )
     }
 
