@@ -42,6 +42,8 @@ To also keep a native Mac Catalyst archive:
 
 7. Scheme destination **My Mac (Mac Catalyst)** → **Product → Archive** → upload that archive to the same App Store Connect app.
 
+Mac Catalyst App Store / TestFlight requires `LSApplicationCategoryType` in the archived Info.plist (ASC 90242). Heartbeat 753 stamps `public.app-category.business` in `FulfillmentHeartbeat/Info.plist` and `INFOPLIST_KEY_LSApplicationCategoryType`.
+
 Mac testers: install **TestFlight** from the Mac App Store → open the Heartbeat invite → **Install**. Window opens at iPad size. Choose file uses the Mac file picker / iCloud Drive.
 
 Wait 5–15 minutes. App Store Connect → the app → **TestFlight**. Build status becomes **Ready to Test**.
