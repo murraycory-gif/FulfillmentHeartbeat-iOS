@@ -1278,7 +1278,11 @@ struct SharePulseSheet: View {
     var body: some View {
         NavigationStack {
             if let packet {
-                ShareRecapCompose(packet: packet, htmlReady: packet.htmlFile != nil) {
+                ShareRecapCompose(
+                    packet: packet,
+                    htmlReady: packet.htmlFile != nil,
+                    fileReady: !packet.attachmentFiles.isEmpty
+                ) {
                     self.packet = nil
                 }
             } else {
@@ -1412,8 +1416,9 @@ struct SharePulseSheet: View {
             let built = await Task.detached(priority: .utility) {
                 PulseMail.make(snap, pages: pages, persistHTML: false)
             }.value
+            let attached = await RecapRenderer.attachReport(built)
             if packet?.subject == starter.subject {
-                packet = built
+                packet = attached
             }
         }
     }
@@ -1422,11 +1427,11 @@ struct SharePulseSheet: View {
 struct ShareRecapCompose: View {
     let packet: PulseMail.Packet
     var htmlReady: Bool = true
+    var fileReady: Bool = false
     var onBack: () -> Void
-    @EnvironmentObject private var router: HubRouter
-    @Environment(\.dismiss) private var dismiss
     @State private var to = ""
     @State private var notes = ""
+    @State private var sending = false
 
     private var macShare: Bool {
         HubLayout.isMac && PulseLaunch.shouldUseMacShareResizableSheet()
@@ -1494,7 +1499,8 @@ struct ShareRecapCompose: View {
     }
 
     private var canSendRecap: Bool {
-        PulseLaunch.shouldAllowShareSend(to: to, htmlReady: htmlReady)
+        PulseLaunch.shouldAllowShareSend(to: to, htmlReady: htmlReady, fileReady: fileReady)
+            && !sending
     }
 
     private var phonePadCompose: some View {
@@ -1547,6 +1553,9 @@ struct ShareRecapCompose: View {
                     .font(HubLayout.MacReadable.metricLineFont)
                     .foregroundStyle(AppTheme.text)
                     .textSelection(.enabled)
+            }
+            if PulseLaunch.shouldShowShareAttachmentChip() {
+                attachmentChip
             }
             if macShare, PulseLaunch.shouldOfferShareComposeNotes() {
                 Divider()
@@ -1608,7 +1617,7 @@ struct ShareRecapCompose: View {
                     .font(.subheadline.weight(.bold))
                     .foregroundStyle(AppTheme.textSecondary)
                 Spacer(minLength: 0)
-                Text("Same recap Mail will send")
+                Text("Same recap the attached file will send")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(AppTheme.textTertiary)
             }
@@ -1641,14 +1650,34 @@ struct ShareRecapCompose: View {
         .background(Color(red: 0.96, green: 0.97, blue: 0.99))
     }
 
+    private var attachmentChip: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "paperclip")
+                .font(.subheadline.weight(.semibold))
+            Text(PulseLaunch.shareAttachmentChipTitle(files: packet.attachmentFiles, htmlFile: packet.htmlFile))
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            if !fileReady {
+                ProgressView()
+                    .controlSize(.small)
+            }
+        }
+        .foregroundStyle(AppTheme.blue)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(AppTheme.blueSoft, in: Capsule(style: .continuous))
+        .accessibilityLabel("Attachment \(PulseLaunch.shareAttachmentChipTitle(files: packet.attachmentFiles, htmlFile: packet.htmlFile))")
+    }
+
     private var sendBar: some View {
         Button(action: sendMail) {
             HStack(spacing: 10) {
-                if !htmlReady {
+                if !htmlReady || !fileReady || sending {
                     ProgressView()
                         .tint(.white)
                 }
-                Text(htmlReady ? "Send" : "Building recap…")
+                Text(sendLabel)
                     .font(.headline.weight(.bold))
             }
             .frame(maxWidth: .infinity)
@@ -1661,16 +1690,25 @@ struct ShareRecapCompose: View {
         .background(AppTheme.bg)
     }
 
+    private var sendLabel: String {
+        if sending { return "Preparing…" }
+        if htmlReady && fileReady { return "Send" }
+        return "Building recap…"
+    }
+
     private func sendMail() {
         guard canSendRecap else { return }
-        let outgoing = PulseMail.applyingUserNotes(packet, notes: notes)
         let recipients = PulseLaunch.shareRecapToAddresses(to)
         guard !recipients.isEmpty else { return }
-        router.showShare = false
-        dismiss()
+        sending = true
+        let outgoing = PulseMail.applyingUserNotes(packet, notes: notes)
+        let needsRebuild = outgoing.attachmentFiles.isEmpty
+            || !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: PulseLaunch.shareSheetDismissSettleNanoseconds)
-            PulseShare.presentMail(outgoing, to: recipients)
+            let ready = needsRebuild ? await RecapRenderer.attachReport(outgoing) : outgoing
+            sending = false
+            guard !PulseMail.shareAttachmentFiles(ready).isEmpty else { return }
+            PulseShare.presentReport(ready, to: recipients)
         }
     }
 }
@@ -11895,34 +11933,29 @@ final class PulseShareSource: NSObject, UIActivityItemSource {
     let subject: String
     let brief: String
     let htmlFile: URL?
+    let reportFile: URL?
 
     init(packet: PulseMail.Packet, preview: UIImage? = nil) {
         _ = preview
         subject = packet.subject
         brief = packet.brief
         htmlFile = packet.htmlFile
+        reportFile = PulseMail.shareAttachmentFiles(packet).first ?? packet.htmlFile
         super.init()
     }
 
     func activityViewControllerPlaceholderItem(_ activityViewController: UIActivityViewController) -> Any {
-        htmlFile ?? brief
+        reportFile ?? htmlFile ?? brief
     }
 
     func activityViewController(
         _ activityViewController: UIActivityViewController,
         itemForActivityType activityType: UIActivity.ActivityType?
     ) -> Any? {
-        let raw = activityType?.rawValue ?? ""
         if activityType == .message {
-            return "\(subject)\n\n\(brief)"
+            return reportFile ?? "\(subject)\n\n\(brief)"
         }
-        if raw.localizedCaseInsensitiveContains("outlook")
-            || raw.localizedCaseInsensitiveContains("microsoft")
-            || raw.localizedCaseInsensitiveContains("teams")
-        {
-            return nil
-        }
-        return htmlFile ?? brief
+        return reportFile ?? htmlFile ?? brief
     }
 
     func activityViewController(
@@ -11936,12 +11969,15 @@ final class PulseShareSource: NSObject, UIActivityItemSource {
         _ activityViewController: UIActivityViewController,
         dataTypeIdentifierForActivityType activityType: UIActivity.ActivityType?
     ) -> String {
-        if activityType == .message {
+        if activityType == .message, reportFile == nil {
             return UTType.plainText.identifier
         }
-        let raw = activityType?.rawValue ?? ""
-        if raw.localizedCaseInsensitiveContains("outlook") || raw.localizedCaseInsensitiveContains("microsoft") {
-            return UTType.png.identifier
+        switch reportFile?.pathExtension.lowercased() {
+        case "pdf": return UTType.pdf.identifier
+        case "png": return UTType.png.identifier
+        case "jpg", "jpeg": return UTType.jpeg.identifier
+        case "html", "htm": return UTType.html.identifier
+        default: break
         }
         if htmlFile != nil { return UTType.html.identifier }
         return UTType.plainText.identifier
@@ -11952,6 +11988,42 @@ final class PulseShareSource: NSObject, UIActivityItemSource {
         meta.title = "Fulfillment Heartbeat"
         meta.originalURL = URL(string: "heartbeat://pulse")
         return meta
+    }
+}
+
+final class PulseShareCaption: NSObject, UIActivityItemSource {
+    let subject: String
+    let body: String
+
+    init(subject: String, body: String) {
+        self.subject = subject
+        self.body = body
+        super.init()
+    }
+
+    func activityViewControllerPlaceholderItem(_ activityViewController: UIActivityViewController) -> Any {
+        body
+    }
+
+    func activityViewController(
+        _ activityViewController: UIActivityViewController,
+        itemForActivityType activityType: UIActivity.ActivityType?
+    ) -> Any? {
+        body
+    }
+
+    func activityViewController(
+        _ activityViewController: UIActivityViewController,
+        subjectForActivityType activityType: UIActivity.ActivityType?
+    ) -> String {
+        subject
+    }
+
+    func activityViewController(
+        _ activityViewController: UIActivityViewController,
+        dataTypeIdentifierForActivityType activityType: UIActivity.ActivityType?
+    ) -> String {
+        UTType.plainText.identifier
     }
 }
 
@@ -12008,17 +12080,22 @@ final class MailShareActivity: UIActivity {
     override var activityImage: UIImage? { UIImage(systemName: "envelope.fill") }
     override class var activityCategory: UIActivity.Category { .share }
     override func canPerform(withActivityItems activityItems: [Any]) -> Bool {
-        PulseLaunch.shouldUseInAppMailCompose(
-            canSendMail: MFMailComposeViewController.canSendMail(),
-            mac: HubLayout.isMac
-        ) || HubLayout.isMac
+        PulseLaunch.shouldUseMailComposeAsFallback(
+            canSendMail: MFMailComposeViewController.canSendMail()
+        )
     }
 
     override func perform() {
         let packet = self.packet
         activityDidFinish(PulseLaunch.shouldFinishShareActivityBeforeMailSent())
         Task { @MainActor in
-            PulseShare.presentMail(packet)
+            if PulseLaunch.shouldUseMailComposeAsFallback(
+                canSendMail: MFMailComposeViewController.canSendMail()
+            ) {
+                PulseShare.presentMail(packet)
+            } else {
+                PulseShare.presentReport(packet)
+            }
         }
     }
 }
@@ -12198,19 +12275,15 @@ enum PulseShare {
             return
         }
         let mac = HubLayout.isMac
-        guard PulseLaunch.shouldUseInAppMailCompose(
-            canSendMail: MFMailComposeViewController.canSendMail(),
-            mac: mac
-        ) else {
-            if mac, PulseLaunch.shouldRequireUserSendInMailAppOnMac() {
-                presentMacMailHandoff(packet, to: to, on: presenter)
-            } else {
-                presentUnavailableFallback(packet, to: to, on: presenter)
-            }
+        let canSend = MFMailComposeViewController.canSendMail()
+        guard PulseLaunch.shouldUseMailComposeAsFallback(canSendMail: canSend),
+              PulseLaunch.shouldUseInAppMailCompose(canSendMail: canSend, mac: mac)
+        else {
+            presentReport(packet, to: to)
             return
         }
         guard let presenter, presenter.view.window != nil else {
-            presentUnavailableFallback(packet, to: to, on: nil)
+            presentReport(packet, to: to)
             return
         }
         if presenter.presentedViewController != nil,
@@ -12304,9 +12377,9 @@ enum PulseShare {
         message: String
     ) {
         afterShareSheetDismissed { host in
-            let host = host ?? presenter ?? keyWindowRoot()
+            var host = host ?? presenter ?? keyWindowRoot()
+            while let shown = host?.presentedViewController { host = shown }
             guard let host, host.view.window != nil else { return }
-            if host.presentedViewController != nil { return }
             let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
             alert.addAction(UIAlertAction(title: "OK", style: .default))
             host.present(alert, animated: true)
@@ -12355,31 +12428,23 @@ enum PulseShare {
         }
     }
 
-    /// Inline Mail-safe HTML in the message body when it fits. Never a duplicate giant attachment.
+    /// Short body plus the report file. Never text-only compose.
     static func configureMail(_ mail: MFMailComposeViewController, packet: PulseMail.Packet) {
         mail.setSubject(packet.subject)
-        let fileURL = writeHTMLFile(packet)
-        let bytes: Int
-        if let fileURL {
-            bytes = PulseLaunch.fileBytes(at: fileURL)
-        } else {
-            bytes = packet.html.utf8.count
-        }
-        if PulseLaunch.shouldSetHTMLMessageBody(utf8Count: bytes) {
-            let html = PulseMail.html(from: packet)
-            if html.isEmpty {
-                mail.setMessageBody(packet.brief, isHTML: false)
-            } else {
-                mail.setMessageBody(html, isHTML: true)
-            }
-            return
-        }
-        if PulseLaunch.shouldAttachHTMLFile(utf8Count: bytes), let fileURL, let data = try? Data(contentsOf: fileURL) {
-            mail.setMessageBody(PulseMail.overflowMailBody(packet.brief), isHTML: true)
-            mail.addAttachmentData(data, mimeType: "text/html", fileName: "heartbeat-recap.html")
-            return
-        }
         mail.setMessageBody(packet.brief, isHTML: false)
+        let files = PulseMail.shareAttachmentFiles(packet)
+        if files.isEmpty, let html = writeHTMLFile(packet), let data = try? Data(contentsOf: html) {
+            mail.addAttachmentData(data, mimeType: "text/html", fileName: html.lastPathComponent)
+            return
+        }
+        for url in files {
+            guard let data = try? Data(contentsOf: url) else { continue }
+            mail.addAttachmentData(
+                data,
+                mimeType: PulseLaunch.shareAttachmentMimeType(for: url),
+                fileName: url.lastPathComponent
+            )
+        }
     }
 
     @MainActor
@@ -12387,12 +12452,12 @@ enum PulseShare {
         await prepareOutlook(packet)
         let images = recapImages
         guard !images.isEmpty else {
-            presentMail(packet, to: to)
+            presentReport(packet, to: to)
             return
         }
         afterShareSheetDismissed { presenter in
             guard let presenter, presenter.view.window != nil else {
-                presentMail(packet, to: to)
+                presentReport(packet, to: to)
                 return
             }
             let items: [Any] = images.enumerated().map { index, image in
@@ -12435,29 +12500,51 @@ enum PulseShare {
 
     @MainActor
     static func present(_ packet: PulseMail.Packet) {
-        jpegURLs = []
+        presentReport(packet)
+    }
+
+    @MainActor
+    static func presentReport(_ packet: PulseMail.Packet, to: [String] = []) {
+        let files = PulseMail.shareAttachmentFiles(packet)
+        guard !files.isEmpty || !PulseLaunch.shouldShareReportFile() else {
+            if PulseLaunch.shouldAllowTextOnlyShareCompose() {
+                presentCaptionOnly(packet, to: to)
+            } else {
+                presentShareMailStatus(
+                    on: topController(),
+                    title: "Could not attach the recap",
+                    message: "Heartbeat could not build the report file. Try Share again."
+                )
+            }
+            return
+        }
+        jpegURLs = files
         jpegHTML = packet.brief
-        let source = PulseShareSource(packet: packet)
+        let caption = PulseShareCaption(subject: packet.subject, body: packet.brief)
+        var items: [Any] = files
+        items.append(caption)
         let mail = MailShareActivity(packet: packet)
+        let activities: [UIActivity] = PulseLaunch.shouldUseMailComposeAsFallback(
+            canSendMail: MFMailComposeViewController.canSendMail()
+        ) ? [mail] : []
         let sheet = UIActivityViewController(
-            activityItems: [source],
-            applicationActivities: [mail]
+            activityItems: items,
+            applicationActivities: activities
         )
         sheet.excludedActivityTypes = [
             .assignToContact,
             .addToReadingList,
             .print,
             .saveToCameraRoll,
-            .markupAsPDF,
         ]
-        afterShareSheetDismissed { presenter in
+        let presentSheet = { (presenter: UIViewController?) in
             guard let presenter, presenter.view.window != nil else { return }
             if let popover = sheet.popoverPresentationController {
                 let view = presenter.view!
                 popover.sourceView = view
                 popover.sourceRect = CGRect(
                     x: view.bounds.midX,
-                    y: 72,
+                    y: view.bounds.maxY - 72,
                     width: 1,
                     height: 1
                 )
@@ -12465,6 +12552,21 @@ enum PulseShare {
             }
             presenter.present(sheet, animated: true)
         }
+        if PulseLaunch.shouldForceMailComposeOnSend() {
+            afterShareSheetDismissed(presentSheet)
+        } else {
+            presentSheet(topController())
+        }
+        _ = to
+    }
+
+    @MainActor
+    private static func presentCaptionOnly(_ packet: PulseMail.Packet, to: [String]) {
+        _ = to
+        let source = PulseShareSource(packet: packet)
+        let sheet = UIActivityViewController(activityItems: [source], applicationActivities: nil)
+        guard let presenter = topController(), presenter.view.window != nil else { return }
+        presenter.present(sheet, animated: true)
     }
 
     @MainActor
@@ -12557,7 +12659,8 @@ struct MailComposeView: UIViewControllerRepresentable {
             mail.setMessageBody(plain, isHTML: false)
             return mail
         }
-        let fallback = UIActivityViewController(activityItems: [plain], applicationActivities: nil)
+        let items: [Any] = [plain]
+        let fallback = UIActivityViewController(activityItems: items, applicationActivities: nil)
         fallback.completionWithItemsHandler = { _, _, _, _ in
             onFinish(.cancelled)
         }
