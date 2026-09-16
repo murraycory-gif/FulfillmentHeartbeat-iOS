@@ -262,6 +262,28 @@ enum PulseLaunch {
         shoppers.isEmpty
     }
 
+    /// EMPLOYEE_ALTERNATE_ID path picker has no STORE. `readStores` misses it.
+    static func shouldReadFullPickPathPickerWhenStoreReadEmpty(_ section: MetricSection) -> Bool {
+        section == .pickPathPicker
+    }
+
+    /// Heavy extras must not wipe a live expand index with an empty snapshot.
+    static func pickPathIndexHasPathGrain(_ rows: [String: [MetricRow]]) -> Bool {
+        rows.values.contains { group in
+            group.contains { $0.number("compliance_pct") != nil }
+        }
+    }
+
+    static func shouldKeepLivePickPathIndex(
+        existing: [String: [MetricRow]],
+        incoming: [String: [MetricRow]]
+    ) -> Bool {
+        let existingN = existing.values.reduce(0) { $0 + $1.count }
+        let incomingN = incoming.values.reduce(0) { $0 + $1.count }
+        if existingN > 0 && incomingN == 0 { return true }
+        return pickPathIndexHasPathGrain(existing) && !pickPathIndexHasPathGrain(incoming)
+    }
+
     /// Company (and leftover district) packs may omit shoppers. Peek the store
     /// seat file only — never swap the active pack.
     static func shouldPeekStoreSeatForPickPathExpand(

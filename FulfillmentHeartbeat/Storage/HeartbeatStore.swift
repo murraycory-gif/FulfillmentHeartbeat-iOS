@@ -1462,6 +1462,11 @@ final class HeartbeatStore: ObservableObject {
     func ensurePickPathShoppers(forStore store: String) async -> [MetricRow] {
         let existing = pickPathPickers(forStore: store)
         if !existing.isEmpty { return existing }
+        if (latestBySection[.pickPathPicker] ?? []).isEmpty {
+            await ensureSectionLoaded(.pickPathPicker)
+            let afterLoad = pickPathPickers(forStore: store)
+            if !afterLoad.isEmpty { return afterLoad }
+        }
         let scorecard = PulseLaunch.pickerSeatRows(
             filtered: filteredLatest[.pickerScorecard] ?? [],
             warehouse: latestBySection[.pickerScorecard] ?? [],
@@ -6108,7 +6113,20 @@ final class HeartbeatStore: ObservableObject {
             let raw = PulseSQLite.readStores(from: url, sections: [section], stores: stores)
             return PulseLaunch.materializeSectionRows(raw, section: section, roster: rosterCopy)
         }.value
-        guard !incoming.isEmpty else { return }
+        if incoming.isEmpty {
+            if PulseLaunch.shouldReadFullPickPathPickerWhenStoreReadEmpty(section) {
+                let full = await Task.detached(priority: .utility) { () -> [MetricRow] in
+                    guard let pack = try? PulseSQLite.read(from: url, only: [section]) else { return [] }
+                    return PulseLaunch.materializeSectionRows(pack.rows, section: section, roster: rosterCopy)
+                }.value
+                if !full.isEmpty {
+                    adoptSectionWarehouse(section, full)
+                } else {
+                    rebuildPickPathIndexFromWarehouse()
+                }
+            }
+            return
+        }
         adoptSectionWarehouse(section, incoming)
         if PulseLaunch.shouldPublishSeatFill(
             dest: visibleDestination,
@@ -6343,9 +6361,20 @@ final class HeartbeatStore: ObservableObject {
             cachedPickerBoard = bits.pickerBoard
         }
         cachedChecklistGroups = bits.checklistGroups
-        pickPathPickersByStore = bits.pickPathPickersByStore
-        pickPathByShopper = bits.pickPathByShopper
-        installPPHPickerIndex(fromRows: bits.pphPickersByStore)
+        if PulseLaunch.shouldKeepLivePickPathIndex(
+            existing: pickPathPickersByStore,
+            incoming: bits.pickPathPickersByStore
+        ) {
+            // Deferred pick-path join already filled expand. Do not clobber.
+        } else {
+            pickPathPickersByStore = bits.pickPathPickersByStore
+            pickPathByShopper = bits.pickPathByShopper
+        }
+        if bits.pphPickersByStore.isEmpty, !pphPickersByStore.isEmpty {
+            // Keep live PPH index.
+        } else {
+            installPPHPickerIndex(fromRows: bits.pphPickersByStore)
+        }
         refreshChecklistOpenCount()
         let pickers = filteredLatest[.pickerScorecard] ?? []
         if filters.isActive, PulseLaunch.shouldRejectCompanyPickerIndexUnderSeat() {

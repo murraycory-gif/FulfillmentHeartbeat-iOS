@@ -663,6 +663,8 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(PulseLaunch.shouldRebuildPickPathIndexAfterSectionLoad(.pickPathPicker))
         XCTAssertTrue(PulseLaunch.shouldRebuildPickPathIndexAfterSectionLoad(.pickPath))
         XCTAssertTrue(PulseLaunch.shouldRebuildPickPathIndexAfterPickerStream())
+        XCTAssertTrue(PulseLaunch.shouldReadFullPickPathPickerWhenStoreReadEmpty(.pickPathPicker))
+        XCTAssertFalse(PulseLaunch.shouldReadFullPickPathPickerWhenStoreReadEmpty(.sales))
         XCTAssertFalse(PulseLaunch.shouldRebuildPickPathIndexAfterSectionLoad(.sales))
         XCTAssertEqual(
             PulseLaunch.pickPathExpandColumns(),
@@ -761,6 +763,17 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(display.pph, "76.8")
         XCTAssertEqual(display.orders, "22")
         XCTAssertNotEqual(display.path, "0.85%")
+        let liveIndex = PulseLaunch.pickPathPickerIndex(
+            scorecard: [scorecard],
+            pathRows: [path]
+        )
+        XCTAssertTrue(
+            PulseLaunch.shouldKeepLivePickPathIndex(existing: liveIndex.rows, incoming: [:]),
+            "heavy extras must not wipe a live pick-path expand index"
+        )
+        XCTAssertFalse(
+            PulseLaunch.shouldKeepLivePickPathIndex(existing: [:], incoming: liveIndex.rows)
+        )
 
         let index = PulseLaunch.pickPathPickerIndex(
             scorecard: [scorecard],
