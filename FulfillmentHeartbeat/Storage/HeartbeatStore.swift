@@ -1445,6 +1445,19 @@ final class HeartbeatStore: ObservableObject {
         pickPathPickersByStore = built.rows
     }
 
+    /// One wire for adopt / stream / ensureSectionLoaded. No filterStamp.
+    private func rebuildPickPathIndexFromWarehouse() {
+        guard PulseLaunch.shouldRebuildPickPathIndexOnPickerPaint() else { return }
+        let scorecard = PulseLaunch.pickerSeatRows(
+            filtered: filteredLatest[.pickerScorecard] ?? [],
+            warehouse: latestBySection[.pickerScorecard] ?? [],
+            allowed: pickerStoreSet(),
+            filters: filters,
+            roster: roster
+        )
+        rebuildPickPathPickerIndex(scorecard: scorecard)
+    }
+
     /// Expand-on-demand. Never swaps the active seat pack (no remount / Jetsam).
     func ensurePickPathShoppers(forStore store: String) async -> [MetricRow] {
         let existing = pickPathPickers(forStore: store)
@@ -5826,6 +5839,9 @@ final class HeartbeatStore: ObservableObject {
                 self.latestBySection[.pickerScorecard] = final
                 self.pickerStreamDone = final.count >= 2
                 self.pickerLoading = false
+                if PulseLaunch.shouldRebuildPickPathIndexAfterPickerStream() {
+                    self.rebuildPickPathIndexFromWarehouse()
+                }
                 let join = PulseLaunch.needsShopperJoin(self.visibleDestination)
                 if join {
                     self.refreshPickerDashboard(self.visiblePickers(), stamp: true, chrome: true)
@@ -5861,6 +5877,9 @@ final class HeartbeatStore: ObservableObject {
             dest: visibleDestination,
             stamp: stamp
         )
+        if PulseLaunch.shouldRebuildPickPathIndexAfterPickerStream() {
+            rebuildPickPathPickerIndex(scorecard: sliced)
+        }
         guard PulseLaunch.shouldTouchPickerUI(stamp: stamp, chrome: chrome) else { return }
         refreshPickerDashboard(sliced, stamp: stamp, chrome: chrome)
     }
@@ -5893,6 +5912,9 @@ final class HeartbeatStore: ObservableObject {
             dest: visibleDestination,
             stamp: stamp
         )
+        if PulseLaunch.shouldRebuildPickPathIndexAfterPickerStream() {
+            rebuildPickPathPickerIndex(scorecard: sliced)
+        }
         guard PulseLaunch.shouldTouchPickerUI(stamp: stamp, chrome: chrome) else { return }
         refreshPickerDashboard(sliced, stamp: stamp, chrome: chrome)
     }
@@ -5947,6 +5969,9 @@ final class HeartbeatStore: ObservableObject {
             )
             rebuildPickPathPickerIndex(scorecard: scorecard)
         }
+        if PulseLaunch.shouldRebuildPickPathIndexAfterSectionLoad(section) {
+            rebuildPickPathIndexFromWarehouse()
+        }
         if PulseQuery.pageOnlySections.contains(section) {
             pageOnlyGeneration = paintGeneration
         }
@@ -5991,6 +6016,9 @@ final class HeartbeatStore: ObservableObject {
         if section == .pickerScorecard {
             if seatFirst {
                 await loadFilteredPickerExpandIfNeeded()
+                if PulseLaunch.shouldRebuildPickPathIndexAfterSectionLoad(section) {
+                    rebuildPickPathIndexFromWarehouse()
+                }
                 return
             }
             await streamPicker(preferSnappy: isReady)
@@ -6008,6 +6036,9 @@ final class HeartbeatStore: ObservableObject {
 
         if seatFirst {
             await loadFilteredSectionIfNeeded(section)
+            if PulseLaunch.shouldRebuildPickPathIndexAfterSectionLoad(section) {
+                rebuildPickPathIndexFromWarehouse()
+            }
             return
         }
 
@@ -6016,6 +6047,8 @@ final class HeartbeatStore: ObservableObject {
             if (latestBySection[section] ?? []).count >= 2 {
                 if filteredLatest[section]?.isEmpty != false {
                     installSectionSlice(section)
+                } else if PulseLaunch.shouldRebuildPickPathIndexAfterSectionLoad(section) {
+                    rebuildPickPathIndexFromWarehouse()
                 }
                 return
             }
@@ -6023,9 +6056,15 @@ final class HeartbeatStore: ObservableObject {
             let rowCount = (latestBySection[section] ?? []).count
             if factsOwned.contains(section) {
                 if PulseLaunch.shouldEarlyReturnOwnedSection(owned: true, rowCount: rowCount) {
+                    if PulseLaunch.shouldRebuildPickPathIndexAfterSectionLoad(section) {
+                        rebuildPickPathIndexFromWarehouse()
+                    }
                     return
                 }
             } else if rowCount > 0 {
+                if PulseLaunch.shouldRebuildPickPathIndexAfterSectionLoad(section) {
+                    rebuildPickPathIndexFromWarehouse()
+                }
                 return
             }
         }
@@ -6040,6 +6079,9 @@ final class HeartbeatStore: ObservableObject {
         }.value
         if Task.isCancelled { return }
         adoptSectionWarehouse(section, incoming)
+        if PulseLaunch.shouldRebuildPickPathIndexAfterSectionLoad(section) {
+            rebuildPickPathIndexFromWarehouse()
+        }
     }
 
     /// Seat page-open: `readStores(allowed)` when the warehouse is empty. Never company LIMIT/OFFSET.
@@ -6086,6 +6128,9 @@ final class HeartbeatStore: ObservableObject {
             rebuildLaborWeekIndex()
         }
         installSectionSlice(section)
+        if PulseLaunch.shouldRebuildPickPathIndexAfterSectionLoad(section) {
+            rebuildPickPathIndexFromWarehouse()
+        }
     }
 
     private func hydrateFilteredHeavy() async {

@@ -230,6 +230,38 @@ enum PulseLaunch {
     /// Off the hub stamp path — expand reads the index, no remount.
     static func shouldRebuildPickPathIndexOnPickerPaint() -> Bool { true }
 
+    /// `ensureSectionLoaded(.pickPathPicker)` must rebuild even when the
+    /// deferred warehouse already has rows (filteredLatest non-empty early return).
+    static func shouldRebuildPickPathIndexAfterSectionLoad(_ section: MetricSection) -> Bool {
+        section == .pickPathPicker || section == .pickPath || section == .pickerScorecard
+    }
+
+    /// Stream / adopt can park shoppers without `shouldTouchPickerUI`. Still
+    /// rebuild the Pick Path by-store index — PPH already did this.
+    static func shouldRebuildPickPathIndexAfterPickerStream() -> Bool { true }
+
+    /// FILE ROOT of store expand: join then alias-safe lookup.
+    static func pickPathExpandShoppers(
+        scorecard: [MetricRow],
+        pathRows: [MetricRow],
+        store: String
+    ) -> [MetricRow] {
+        let index = pickPathPickerIndex(scorecard: scorecard, pathRows: pathRows)
+        return pickPathPickers(store: store, rows: index.rows)
+    }
+
+    static func pickPathExpandDisplay(path: Double?, pph: Double?, orders: Double?) -> (path: String, pph: String, orders: String) {
+        (
+            HeartbeatFormat.pct(path),
+            HeartbeatFormat.num(pph, digits: 1),
+            HeartbeatFormat.num(orders)
+        )
+    }
+
+    static func pickPathExpandShowsPlaceholder(_ shoppers: [MetricRow]) -> Bool {
+        shoppers.isEmpty
+    }
+
     /// Company (and leftover district) packs may omit shoppers. Peek the store
     /// seat file only — never swap the active pack.
     static func shouldPeekStoreSeatForPickPathExpand(

@@ -660,6 +660,10 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(BuildStamp.id, "HB-0828.428")
         XCTAssertFalse(PulseLaunch.shouldBuildFullPulseCachesOnFilterSwap())
         XCTAssertTrue(PulseLaunch.shouldRebuildPickPathIndexOnPickerPaint())
+        XCTAssertTrue(PulseLaunch.shouldRebuildPickPathIndexAfterSectionLoad(.pickPathPicker))
+        XCTAssertTrue(PulseLaunch.shouldRebuildPickPathIndexAfterSectionLoad(.pickPath))
+        XCTAssertTrue(PulseLaunch.shouldRebuildPickPathIndexAfterPickerStream())
+        XCTAssertFalse(PulseLaunch.shouldRebuildPickPathIndexAfterSectionLoad(.sales))
         XCTAssertEqual(
             PulseLaunch.pickPathExpandColumns(),
             ["Shopper", "Pick Path", "Avg PPH", "Orders", "Mapper", "Sequence", "Status"]
@@ -725,6 +729,38 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(stamped.isEmpty, "store pack must keep joined pick_path_picker rows")
         XCTAssertTrue(stamped.allSatisfy { $0.storeNumber == "2" })
         XCTAssertEqual(PulseLaunch.pickPathShopperLabel(path), "RPAL114")
+
+        // FILE ROOT: deferred pick_path_picker (no STORE) cannot bucket until
+        // picker scorecard streams. Then alias-safe expand must show %.
+        let beforeStream = PulseLaunch.pickPathExpandShoppers(
+            scorecard: [],
+            pathRows: [path],
+            store: "2"
+        )
+        XCTAssertTrue(
+            PulseLaunch.pickPathExpandShowsPlaceholder(beforeStream),
+            "path-only empty-store rows must not invent a store bucket"
+        )
+        let afterStream = PulseLaunch.pickPathExpandShoppers(
+            scorecard: [scorecard],
+            pathRows: [path],
+            store: "0002"
+        )
+        XCTAssertFalse(
+            PulseLaunch.pickPathExpandShowsPlaceholder(afterStream),
+            "stream + alias 0002 must fill store 2 expand"
+        )
+        let joined = afterStream.first { $0.number("compliance_pct") != nil }
+        XCTAssertEqual(joined?.number("compliance_pct") ?? 0, 84.78, accuracy: 0.01)
+        let display = PulseLaunch.pickPathExpandDisplay(
+            path: joined?.number("compliance_pct"),
+            pph: joined?.number("pph"),
+            orders: joined?.number("orders")
+        )
+        XCTAssertEqual(display.path, "84.78%")
+        XCTAssertEqual(display.pph, "76.8")
+        XCTAssertEqual(display.orders, "22")
+        XCTAssertNotEqual(display.path, "0.85%")
 
         let index = PulseLaunch.pickPathPickerIndex(
             scorecard: [scorecard],
