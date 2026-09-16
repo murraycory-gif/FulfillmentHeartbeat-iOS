@@ -242,6 +242,7 @@ struct PulseCaches {
         nextLatest.reserveCapacity(latest.count)
         if let allowed {
             for (section, rows) in latest {
+                if section == .pickPathPicker { continue }
                 let matched = rowsMatchingStores(
                     rows,
                     stores: allowed,
@@ -263,9 +264,22 @@ struct PulseCaches {
             nextLatest = latest
         }
         let pickers = nextLatest[.pickerScorecard] ?? []
+        let pathSource = latest[.pickPathPicker] ?? nextLatest[.pickPathPicker] ?? []
+        if let allowed {
+            nextLatest[.pickPathPicker] = PulseLaunch.slicePickPathPickers(
+                pathRows: pathSource,
+                scorecard: pickers,
+                allowed: allowed
+            )
+        } else if nextLatest[.pickPathPicker] == nil {
+            nextLatest[.pickPathPicker] = pathSource
+        }
         let pickerBoard = HeartbeatMath.pickerBoard(pickers)
         let picker = pickerIndexValues(pickers)
-        let path = pickPathIndexValues(scorecard: pickers, pathRows: latest[.pickPathPicker] ?? nextLatest[.pickPathPicker] ?? [])
+        let path = PulseLaunch.pickPathPickerIndex(
+            scorecard: pickers,
+            pathRows: latest[.pickPathPicker] ?? nextLatest[.pickPathPicker] ?? []
+        )
         let pph = heavy ? pphIndexValues(pickers) : [:]
         let districts = roster.values
             .filter { filters.includesDivision($0.division) }
@@ -340,7 +354,7 @@ struct PulseCaches {
             cachedChecklistGroups: heavy ? checklistGroups(from: nextLatest, roster: roster) : [:],
             pickerIndex: picker.index,
             pickerFocusHealth: picker.health,
-            pickPathPickersByStore: path.buckets,
+            pickPathPickersByStore: path.rows,
             pickPathByShopper: path.byShopper,
             pphPickersByStore: pph,
             cachedCardFlags: cardFlags(
@@ -364,12 +378,15 @@ struct PulseCaches {
     ) -> HeavyBits {
         let pickers = latest[.pickerScorecard] ?? []
         let picker = pickerIndexValues(pickers)
-        let path = pickPathIndexValues(scorecard: pickers, pathRows: latest[.pickPathPicker] ?? [])
+        let path = PulseLaunch.pickPathPickerIndex(
+            scorecard: pickers,
+            pathRows: latest[.pickPathPicker] ?? []
+        )
         return HeavyBits(
             pickerBoard: HeartbeatMath.pickerBoard(pickers),
             pickerIndex: picker.index,
             pickerFocusHealth: picker.health,
-            pickPathPickersByStore: path.buckets,
+            pickPathPickersByStore: path.rows,
             pickPathByShopper: path.byShopper,
             pphPickersByStore: pphIndexValues(pickers),
             checklistGroups: checklistGroups(from: latest, roster: roster)
@@ -939,35 +956,6 @@ struct PulseCaches {
             }
         }
         return (buckets, worst)
-    }
-
-    private static func pickPathIndexValues(scorecard: [MetricRow], pathRows: [MetricRow]) -> (buckets: [String: [MetricRow]], byShopper: [String: MetricRow]) {
-        var storesByShopper: [String: Set<String>] = [:]
-        var buckets: [String: [MetricRow]] = [:]
-        for row in scorecard {
-            let store = HeartbeatMath.canonicalStore(row.storeNumber)
-            guard !store.isEmpty else { continue }
-            buckets[store, default: []].append(row)
-            for alias in HeartbeatMath.shopperAliases(row) {
-                storesByShopper[alias, default: []].insert(store)
-            }
-        }
-        var byShopper: [String: MetricRow] = [:]
-        for row in pathRows {
-            for alias in HeartbeatMath.shopperAliases(row) {
-                byShopper[alias] = row
-            }
-            var targets = Set<String>()
-            let ownStore = HeartbeatMath.canonicalStore(row.storeNumber)
-            if !ownStore.isEmpty { targets.insert(ownStore) }
-            for alias in HeartbeatMath.shopperAliases(row) {
-                targets.formUnion(storesByShopper[alias] ?? [])
-            }
-            for store in targets {
-                buckets[store, default: []].append(row)
-            }
-        }
-        return (buckets, byShopper)
     }
 
     private static func pphIndexValues(_ scorecard: [MetricRow]) -> [String: [MetricRow]] {

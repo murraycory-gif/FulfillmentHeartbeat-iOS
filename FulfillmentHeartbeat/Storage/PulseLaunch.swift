@@ -121,6 +121,124 @@ enum PulseLaunch {
         return total
     }
 
+    struct PickPathPickerIndex: Equatable {
+        var rows: [String: [MetricRow]] = [:]
+        var byShopper: [String: MetricRow] = [:]
+    }
+
+    /// HF-003: shopper pick path % from `pick_path_picker` joined to Picker
+    /// ScoreCard. Keys include store aliases so "2" / "0002" hit the same bucket.
+    static func pickPathPickerIndex(scorecard: [MetricRow], pathRows: [MetricRow]) -> PickPathPickerIndex {
+        var storesByShopper: [String: Set<String>] = [:]
+        var canonical: [String: [MetricRow]] = [:]
+        for row in scorecard {
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            guard !store.isEmpty else { continue }
+            canonical[store, default: []].append(row)
+            for alias in HeartbeatMath.shopperAliases(row) {
+                storesByShopper[alias, default: []].insert(store)
+            }
+        }
+        var byShopper: [String: MetricRow] = [:]
+        for row in pathRows {
+            for alias in HeartbeatMath.shopperAliases(row) {
+                byShopper[alias] = row
+            }
+            var targets = Set<String>()
+            let ownStore = HeartbeatMath.canonicalStore(row.storeNumber)
+            if !ownStore.isEmpty { targets.insert(ownStore) }
+            for alias in HeartbeatMath.shopperAliases(row) {
+                targets.formUnion(storesByShopper[alias] ?? [])
+            }
+            for store in targets {
+                canonical[store, default: []].append(row)
+            }
+        }
+        for store in canonical.keys {
+            canonical[store]?.sort {
+                ($0.number("compliance_pct") ?? $0.number("pph") ?? 999)
+                    < ($1.number("compliance_pct") ?? $1.number("pph") ?? 999)
+            }
+        }
+        var rows: [String: [MetricRow]] = [:]
+        rows.reserveCapacity(canonical.count * 4)
+        for (store, group) in canonical {
+            for alias in HeartbeatMath.storeAliases(store) {
+                rows[alias] = group
+            }
+        }
+        return PickPathPickerIndex(rows: rows, byShopper: byShopper)
+    }
+
+    /// O(1) after index. Missing key is empty — never scan the shopper pack.
+    static func pickPathPickers(store: String, rows: [String: [MetricRow]]) -> [MetricRow] {
+        let want = HeartbeatMath.canonicalStore(store)
+        if want.isEmpty { return [] }
+        if let exact = rows[want], !exact.isEmpty { return exact }
+        if let raw = rows[store], !raw.isEmpty { return raw }
+        for alias in HeartbeatMath.storeAliases(want) {
+            if let group = rows[alias], !group.isEmpty { return group }
+        }
+        return []
+    }
+
+    /// LDAP / employee id first — that is what field leads read on expand.
+    static func pickPathShopperLabel(_ row: MetricRow) -> String {
+        if let id = row.shopperId?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty {
+            return id
+        }
+        let name = row.shopperName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name == "Unknown shopper" ? "" : name
+    }
+
+    /// Same Sales-style expand columns as the Pick Path store table.
+    static func pickPathExpandColumns() -> [String] {
+        ["Shopper", "Pick Path", "Avg PPH", "Orders", "Mapper", "Sequence", "Status"]
+    }
+
+    /// Keep path-picker rows whose store is in-scope, or whose LDAP joins a
+    /// scorecard shopper in-scope (EMPLOYEE_ALTERNATE_ID exports omit STORE).
+    static func slicePickPathPickers(
+        pathRows: [MetricRow],
+        scorecard: [MetricRow],
+        allowed: Set<String>?
+    ) -> [MetricRow] {
+        guard let allowed else { return pathRows }
+        var inScopeShoppers = Set<String>()
+        for row in scorecard {
+            guard storeInScope(row.storeNumber, allowed: allowed) else { continue }
+            for alias in HeartbeatMath.shopperAliases(row) {
+                inScopeShoppers.insert(alias)
+            }
+        }
+        return pathRows.filter { row in
+            if storeInScope(row.storeNumber, allowed: allowed) { return true }
+            return HeartbeatMath.shopperAliases(row).contains { inScopeShoppers.contains($0) }
+        }
+    }
+
+    /// Seat cook stamps STORE on joined path-picker rows so `readStores` hits.
+    static func stampPickPathPickerStore(_ row: MetricRow, store: String) -> MetricRow {
+        let want = HeartbeatMath.canonicalStore(store)
+        var next = row
+        next.storeNumber = want
+        if next.id == row.id { next.id = UUID() }
+        return next
+    }
+
+    /// Rebuild the pick-path shopper index when picker / path-picker facts land.
+    /// Off the hub stamp path — expand reads the index, no remount.
+    static func shouldRebuildPickPathIndexOnPickerPaint() -> Bool { true }
+
+    /// Company (and leftover district) packs may omit shoppers. Peek the store
+    /// seat file only — never swap the active pack.
+    static func shouldPeekStoreSeatForPickPathExpand(
+        activeGrain: PulseSeatPack.Grain?,
+        storePackUsable: Bool
+    ) -> Bool {
+        storePackUsable && activeGrain != .store
+    }
+
     /// Do not restart grain expand just because the user swiped back to Dashboard.
     static func shouldRestartGrainPaint(alreadySettled: Bool, dest: HubDestination) -> Bool {
         dest == .dashboard && !alreadySettled

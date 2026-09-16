@@ -15,7 +15,7 @@ Heartbeat is a field iPad app. Production analytics mobile apps (Power BI Mobile
 
 | Rule | Must |
 |---|---|
-| Cook | `cookPublished(includeStores: true)` → `packs/manifest.json` + every company / district / **OM person** / store sqlite. `publishCloudPack` uploads that seat plane. Company thin **drops shopper tape** but still publishes picker `summary_cards` + `pickerShoppers` (summary-first). |
+| Cook | `cookPublished(includeStores: true)` → `packs/manifest.json` + every company / district / **OM person** / store sqlite. `publishCloudPack` uploads that seat plane. Company thin **drops shopper tape** but still publishes picker `summary_cards` + `pickerShoppers` (summary-first). District / OM / store packs **keep picker scorecard and joined `pick_path_picker` rows** (LDAP → STORE) so Pick Path store expand lists shoppers. |
 | Grains this tip | `district`, `om`, `store`, `company` (market thin summary) |
 | Pre-roll in each seat sqlite | Card headlines, expand grain, Healthy/Watch/At Risk flags, seat store roster. Shoppers = **that seat’s stores only**. |
 | Device | Who’s looking → download **that** seat pack → hub paints from **that** sqlite. Missing object **fails** the hub. |
