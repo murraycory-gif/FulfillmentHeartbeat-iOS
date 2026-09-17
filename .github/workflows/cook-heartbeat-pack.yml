@@ -2,6 +2,7 @@ name: Cook Heartbeat pack
 
 # Turns Heartbeat Daily Report.xlsx in Supabase into current.sqlite.
 # Testers never parse Excel. Cory's Mac does not need to be on.
+# Soft KEEP thin company (~15MB) as LIVE root — Soft FAIL fat (~50MB+) hits Supabase 413.
 on:
   workflow_dispatch:
   schedule:
@@ -72,6 +73,39 @@ jobs:
           Tools/HeartbeatIngest/.build/release/HeartbeatIngest /tmp/daily.xlsx /tmp/current.sqlite
           ls -l /tmp/current.sqlite
 
+      - name: Soft KEEP thin company (drop fat picker/item grain)
+        if: env.skip != '1'
+        run: |
+          set -euo pipefail
+          # Fat market (~50–60MB) Soft FAIL Supabase 413. Soft KEEP thin company ~15MB as LIVE.
+          # Same Wed overwrite path: strip pre_sub_oos_item / pick_path_picker / picker_scorecard.
+          FAT_BYTES=$(wc -c < /tmp/current.sqlite | tr -d ' ')
+          echo "fat $FAT_BYTES"
+          python3 - <<'PY'
+          import json, sqlite3, os
+          path = "/tmp/current.sqlite"
+          con = sqlite3.connect(path)
+          before = con.execute("select section, count(*) from facts group by 1").fetchall()
+          print("before", before)
+          con.execute(
+              "DELETE FROM facts WHERE section IN ('pre_sub_oos_item','pick_path_picker','picker_scorecard')"
+          )
+          counts = {s: str(n) for s, n in con.execute("select section, count(*) from facts group by 1")}
+          con.execute("UPDATE pack_meta SET counts_json=?", (json.dumps(counts, separators=(',', ':')),))
+          con.commit()
+          con.execute("VACUUM")
+          con.close()
+          after = sqlite3.connect(path).execute("select section, count(*) from facts group by 1").fetchall()
+          print("after", after)
+          print("thin", os.path.getsize(path))
+          PY
+          THIN_BYTES=$(wc -c < /tmp/current.sqlite | tr -d ' ')
+          echo "thin $THIN_BYTES"
+          if [ "$THIN_BYTES" -gt 45000000 ]; then
+            echo "Soft FAIL: thin still too large ($THIN_BYTES) — refusing fat LIVE"
+            exit 1
+          fi
+
       - name: Publish current.sqlite
         if: env.skip != '1'
         env:
@@ -84,25 +118,32 @@ jobs:
             echo "Pack too small ($BYTES)"
             exit 1
           fi
-          CODE=$(curl -sS -o /tmp/up.txt -w "%{http_code}" \
-            -X POST \
-            -H "Authorization: Bearer $KEY" -H "apikey: $KEY" \
-            -H "Content-Type: application/octet-stream" \
-            -H "x-upsert: true" \
-            --data-binary @/tmp/current.sqlite \
-            "$PROJECT/storage/v1/object/heartbeat-packs/current.sqlite")
-          if [ "$CODE" != "200" ] && [ "$CODE" != "201" ]; then
-            CODE=$(curl -sS -o /tmp/up.txt -w "%{http_code}" \
-              -X PUT \
+          upload() {
+            local path="$1"
+            local code
+            code=$(curl -sS -o /tmp/up.txt -w "%{http_code}" \
+              -X POST \
               -H "Authorization: Bearer $KEY" -H "apikey: $KEY" \
               -H "Content-Type: application/octet-stream" \
               -H "x-upsert: true" \
               --data-binary @/tmp/current.sqlite \
-              "$PROJECT/storage/v1/object/heartbeat-packs/current.sqlite")
-          fi
-          echo "upload $CODE"
-          cat /tmp/up.txt
-          if [ "$CODE" != "200" ] && [ "$CODE" != "201" ]; then
-            exit 1
-          fi
-          echo "Published current.sqlite ($BYTES bytes)."
+              "$PROJECT/storage/v1/object/heartbeat-packs/$path")
+            if [ "$code" != "200" ] && [ "$code" != "201" ]; then
+              code=$(curl -sS -o /tmp/up.txt -w "%{http_code}" \
+                -X PUT \
+                -H "Authorization: Bearer $KEY" -H "apikey: $KEY" \
+                -H "Content-Type: application/octet-stream" \
+                -H "x-upsert: true" \
+                --data-binary @/tmp/current.sqlite \
+                "$PROJECT/storage/v1/object/heartbeat-packs/$path")
+            fi
+            echo "upload $path $code"
+            cat /tmp/up.txt
+            echo
+            if [ "$code" != "200" ] && [ "$code" != "201" ]; then
+              exit 1
+            fi
+          }
+          upload "current.sqlite"
+          upload "packs/seat/company/all/current.sqlite"
+          echo "Published thin company current.sqlite ($BYTES bytes)."
