@@ -120,4 +120,21 @@ platform :ios do
     upload_to_testflight(skip_waiting_for_build_processing: true)
     UI.success("✅ Uploaded to TestFlight — add testers in App Store Connect")
   end
+
+  desc "Archive HUB Prediction and upload to TestFlight (separate app, not Heartbeat)"
+  lane :hub_beta do
+    build_app(
+      project: "HubPrediction.xcodeproj",
+      scheme: "HubPrediction",
+      configuration: "Release",
+      export_method: "app-store",
+      output_directory: "build/hub-ipa",
+      derived_data_path: "build/HubPredictionDerived"
+    )
+    upload_to_testflight(
+      skip_waiting_for_build_processing: true,
+      app_identifier: "com.corymurray.HubPrediction"
+    )
+    UI.success("✅ HUB Prediction uploaded to TestFlight")
+  end
 end
