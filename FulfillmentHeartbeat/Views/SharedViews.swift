@@ -2376,6 +2376,10 @@ struct PickPathTable: View {
                     rebuildOrder(sort: sort, ascending: ascending)
                     headerPin.storeCount = rows.count
                 }
+                .onChange(of: store.seatPaintStamp) { _, _ in
+                    rebuildOrder(sort: sort, ascending: ascending)
+                    headerPin.storeCount = rows.count
+                }
                 .onChange(of: rows.count) { _, _ in
                     limit = 50
                     rebuildOrder(sort: sort, ascending: ascending)
@@ -2936,6 +2940,7 @@ struct PickPathRollupTable: View {
         }
         .onAppear(perform: rebuild)
         .onChange(of: store.filterStamp) { _, _ in rebuild() }
+        .onChange(of: store.seatPaintStamp) { _, _ in rebuild() }
     }
 
     private func rebuild() {
@@ -3017,15 +3022,21 @@ private struct PathShopperSnap: Identifiable {
     var refund: Double? = nil
     var orders: Double? = nil
     var hours: Double? = nil
+    var mapper: String? = nil
+    var sequence: String? = nil
 }
 
 private enum ShopperMetric: String, CaseIterable, Hashable {
-    case path, pph, presub, oos, ott, flash, oth5, coe, refund, orders, hours
+    case path, pph, presub, oos, ott, flash, oth5, coe, refund, orders, hours, mapper, sequence
 
-    var title: String {
+    var title: String { displayTitle(for: nil) }
+
+    func displayTitle(for section: MetricSection?) -> String {
         switch self {
         case .path: return "PICK PATH"
-        case .pph: return "PPH"
+        case .pph:
+            if section == .pickPath || section == .pickPathPicker { return "AVG PPH" }
+            return "PPH"
         case .presub: return "PRESUB"
         case .oos: return "OOS%"
         case .ott: return "OTT"
@@ -3035,13 +3046,15 @@ private enum ShopperMetric: String, CaseIterable, Hashable {
         case .refund: return "REFUND"
         case .orders: return "ORDERS"
         case .hours: return "HOURS"
+        case .mapper: return "MAPPER"
+        case .sequence: return "SEQUENCE"
         }
     }
 
     static func columns(for section: MetricSection) -> [ShopperMetric]? {
         switch section {
         case .fiveStar: return [.ott, .flash, .oth5, .coe, .presub, .oos]
-        case .pickPath, .pickPathPicker: return [.path, .presub, .oos, .pph]
+        case .pickPath, .pickPathPicker: return [.path, .pph, .orders, .mapper, .sequence]
         case .pph, .dynacap: return [.pph, .orders, .hours]
         case .lostRevenue: return [.refund, .presub, .oos, .pph]
         case .labor: return [.pph, .hours, .orders]
@@ -3095,7 +3108,7 @@ private struct PathShopperTable: View {
                         Text("SHOPPER")
                             .frame(minWidth: 110, maxWidth: 160, alignment: .leading)
                         ForEach(columns, id: \.self) { metric in
-                            Text(metric.title)
+                            Text(metric.displayTitle(for: section))
                                 .frame(maxWidth: .infinity, alignment: .trailing)
                         }
                         Text("STATUS")
@@ -3121,9 +3134,17 @@ private struct PathShopperTable: View {
                     }
                 }
             }
-            .onAppear(perform: rebuildPickers)
-            .onChange(of: storeNumber) { _, _ in rebuildPickers() }
+            .onAppear {
+                rebuildPickers()
+                Task { await fillShoppers() }
+            }
+            .onChange(of: storeNumber) { _, _ in
+                rebuildPickers()
+                Task { await fillShoppers() }
+            }
             .onChange(of: store.filterStamp) { _, _ in rebuildPickers() }
+            .onChange(of: store.seatPaintStamp) { _, _ in rebuildPickers() }
+            .onChange(of: store.pickerLoading) { _, _ in rebuildPickers() }
         }
     }
 
@@ -3137,20 +3158,22 @@ private struct PathShopperTable: View {
             aliases(row).first ?? HeartbeatMath.canonicalShopper(row.shopperKey)
         }
         func pathFor(_ row: MetricRow) -> Double? {
-            if let value = row.number("compliance_pct") { return value }
-            for alias in aliases(row) {
-                if let value = store.pickPathPicker(forShopper: alias)?.number("compliance_pct") {
-                    return value
-                }
-            }
-            return nil
+            PulseLaunch.pickPathPercentAfterLoad(
+                row: row,
+                picker: { store.pickPathPicker(forShopper: $0) },
+                loaded: !store.pickerLoading && PulseLaunch.pickPathPercentReady(
+                    store.pickPathPickers(forStore: storeNumber)
+                )
+            )
         }
         func merge(_ row: MetricRow, path: Double? = nil) {
             let id = key(for: row)
             guard !id.isEmpty else { return }
-            var snap = byKey[id] ?? PathShopperSnap(id: id, name: row.shopperName)
-            if snap.name.isEmpty { snap.name = row.shopperName }
-            if snap.name.isEmpty { snap.name = row.shopperId ?? id }
+            let label = PulseLaunch.pickPathShopperLabel(row)
+            var snap = byKey[id] ?? PathShopperSnap(id: id, name: label.isEmpty ? row.shopperName : label)
+            if snap.name.isEmpty || snap.name == "Unknown shopper" {
+                snap.name = label.isEmpty ? (row.shopperId ?? id) : label
+            }
             if snap.path == nil { snap.path = path ?? pathFor(row) }
             if snap.presub == nil { snap.presub = row.number("presub_pct") }
             if snap.oos == nil { snap.oos = row.number("oos_pct") }
@@ -3162,6 +3185,14 @@ private struct PathShopperTable: View {
             if snap.refund == nil { snap.refund = row.number("refund_amt") }
             if snap.orders == nil { snap.orders = row.number("orders") }
             if snap.hours == nil { snap.hours = row.number("pick_hours") }
+            if snap.mapper == nil {
+                let iso = AisleMapperMath.mapperISO(row)
+                if let iso, !iso.isEmpty { snap.mapper = HeartbeatFormat.shortDate(iso) }
+            }
+            if snap.sequence == nil {
+                let iso = AisleMapperMath.sequenceISO(row)
+                if let iso, !iso.isEmpty { snap.sequence = HeartbeatFormat.shortDate(iso) }
+            }
             byKey[id] = snap
         }
         if section == .pickPath || section == .pickPathPicker {
@@ -3178,6 +3209,29 @@ private struct PathShopperTable: View {
             if a != b { return a < b }
             return $0.name.localizedStandardCompare($1.name) == .orderedAscending
         }
+        if section == .pickPath || section == .pickPathPicker {
+            let storePath = (store.seatRows(for: .pickPath) + store.allLatest(for: .pickPath))
+                .first { HeartbeatMath.sameStore($0.storeNumber, storeNumber) }
+            if let storePath {
+                let mapper = HeartbeatFormat.shortDate(AisleMapperMath.mapperISO(storePath))
+                let sequence = HeartbeatFormat.shortDate(AisleMapperMath.sequenceISO(storePath))
+                if mapper != "—" || sequence != "—" {
+                    pickers = pickers.map { snap in
+                        var next = snap
+                        if next.mapper == nil, mapper != "—" { next.mapper = mapper }
+                        if next.sequence == nil, sequence != "—" { next.sequence = sequence }
+                        return next
+                    }
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func fillShoppers() async {
+        guard section == .pickPath || section == .pickPathPicker else { return }
+        _ = await store.ensurePickPathShoppers(forStore: storeNumber)
+        rebuildPickers()
     }
 
     private var emptyDetail: String {
@@ -3192,7 +3246,7 @@ private struct PathShopperTable: View {
             eyebrow: "Shopper",
             chips: columns.map { metric in
                 PhoneMetricChip(
-                    label: metric.title,
+                    label: metric.displayTitle(for: section),
                     value: display(metric, picker),
                     health: health(of: metric, in: picker)
                 )
@@ -3240,10 +3294,16 @@ private struct PathShopperTable: View {
         case .refund: return picker.refund
         case .orders: return picker.orders
         case .hours: return picker.hours
+        case .mapper, .sequence: return nil
         }
     }
 
     private func display(_ metric: ShopperMetric, _ picker: PathShopperSnap) -> String {
+        switch metric {
+        case .mapper: return picker.mapper ?? "—"
+        case .sequence: return picker.sequence ?? "—"
+        default: break
+        }
         let raw = value(metric, picker)
         switch metric {
         case .pph, .hours: return HeartbeatFormat.num(raw, digits: 1)
@@ -3269,7 +3329,7 @@ private struct PathShopperTable: View {
             if (raw ?? 0) <= 0 { return .good }
             if (raw ?? 0) <= 20 { return .watch }
             return .risk
-        case .orders, .hours: return .none
+        case .orders, .hours, .mapper, .sequence: return .none
         }
     }
 
@@ -4452,6 +4512,10 @@ struct PrepTable: View {
                     rebuildOrder(sort: sort, ascending: ascending)
                     headerPin.storeCount = rows.count
                 }
+                .onChange(of: store.seatPaintStamp) { _, _ in
+                    rebuildOrder(sort: sort, ascending: ascending)
+                    headerPin.storeCount = rows.count
+                }
                 .onChange(of: rows.count) { _, _ in
                     limit = 50
                     rebuildOrder(sort: sort, ascending: ascending)
@@ -4960,6 +5024,7 @@ struct PrepRollupTable: View {
         }
         .onAppear(perform: rebuild)
         .onChange(of: store.filterStamp) { _, _ in rebuild() }
+        .onChange(of: store.seatPaintStamp) { _, _ in rebuild() }
     }
 
     private func rebuild() {

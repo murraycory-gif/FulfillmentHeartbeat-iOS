@@ -121,6 +121,250 @@ enum PulseLaunch {
         return total
     }
 
+    struct PickPathPickerIndex: Equatable {
+        var rows: [String: [MetricRow]] = [:]
+        var byShopper: [String: MetricRow] = [:]
+    }
+
+    /// HF-003: shopper pick path % from `pick_path_picker` joined to Picker
+    /// ScoreCard. Keys include store aliases so "2" / "0002" hit the same bucket.
+    static func pickPathPickerIndex(scorecard: [MetricRow], pathRows: [MetricRow]) -> PickPathPickerIndex {
+        var storesByShopper: [String: Set<String>] = [:]
+        var canonical: [String: [MetricRow]] = [:]
+        for row in scorecard {
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            guard !store.isEmpty else { continue }
+            canonical[store, default: []].append(row)
+            for alias in HeartbeatMath.shopperAliases(row) {
+                storesByShopper[alias, default: []].insert(store)
+            }
+        }
+        var byShopper: [String: MetricRow] = [:]
+        for row in pathRows {
+            for alias in HeartbeatMath.shopperAliases(row) {
+                byShopper[alias] = row
+            }
+            var targets = Set<String>()
+            let ownStore = HeartbeatMath.canonicalStore(row.storeNumber)
+            if !ownStore.isEmpty { targets.insert(ownStore) }
+            for alias in HeartbeatMath.shopperAliases(row) {
+                targets.formUnion(storesByShopper[alias] ?? [])
+            }
+            for store in targets {
+                canonical[store, default: []].append(row)
+            }
+        }
+        for store in canonical.keys {
+            canonical[store]?.sort {
+                ($0.number("compliance_pct") ?? $0.number("pph") ?? 999)
+                    < ($1.number("compliance_pct") ?? $1.number("pph") ?? 999)
+            }
+        }
+        var rows: [String: [MetricRow]] = [:]
+        rows.reserveCapacity(canonical.count * 4)
+        for (store, group) in canonical {
+            for alias in HeartbeatMath.storeAliases(store) {
+                rows[alias] = group
+            }
+        }
+        return PickPathPickerIndex(rows: rows, byShopper: byShopper)
+    }
+
+    /// O(1) after index. Missing key is empty — never scan the shopper pack.
+    static func pickPathPickers(store: String, rows: [String: [MetricRow]]) -> [MetricRow] {
+        let want = HeartbeatMath.canonicalStore(store)
+        if want.isEmpty { return [] }
+        if let exact = rows[want], !exact.isEmpty { return exact }
+        if let raw = rows[store], !raw.isEmpty { return raw }
+        for alias in HeartbeatMath.storeAliases(want) {
+            if let group = rows[alias], !group.isEmpty { return group }
+        }
+        return []
+    }
+
+    /// LDAP / employee id first — that is what field leads read on expand.
+    static func pickPathShopperLabel(_ row: MetricRow) -> String {
+        if let id = row.shopperId?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty {
+            return id
+        }
+        let name = row.shopperName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name == "Unknown shopper" ? "" : name
+    }
+
+    /// Same Sales-style expand columns as the Pick Path store table.
+    static func pickPathExpandColumns() -> [String] {
+        ["Shopper", "Pick Path", "Avg PPH", "Orders", "Mapper", "Sequence", "Status"]
+    }
+
+    /// Keep path-picker rows whose store is in-scope, or whose LDAP joins a
+    /// scorecard shopper in-scope (EMPLOYEE_ALTERNATE_ID exports omit STORE).
+    static func slicePickPathPickers(
+        pathRows: [MetricRow],
+        scorecard: [MetricRow],
+        allowed: Set<String>?
+    ) -> [MetricRow] {
+        guard let allowed else { return pathRows }
+        var inScopeShoppers = Set<String>()
+        for row in scorecard {
+            guard storeInScope(row.storeNumber, allowed: allowed) else { continue }
+            for alias in HeartbeatMath.shopperAliases(row) {
+                inScopeShoppers.insert(alias)
+            }
+        }
+        return pathRows.filter { row in
+            if storeInScope(row.storeNumber, allowed: allowed) { return true }
+            return HeartbeatMath.shopperAliases(row).contains { inScopeShoppers.contains($0) }
+        }
+    }
+
+    /// Seat cook stamps STORE on joined path-picker rows so `readStores` hits.
+    static func stampPickPathPickerStore(_ row: MetricRow, store: String) -> MetricRow {
+        let want = HeartbeatMath.canonicalStore(store)
+        var next = row
+        next.storeNumber = want
+        if next.id == row.id { next.id = UUID() }
+        return next
+    }
+
+    /// Rebuild the pick-path shopper index when picker / path-picker facts land.
+    /// Off the hub stamp path — expand reads the index, no remount.
+    static func shouldRebuildPickPathIndexOnPickerPaint() -> Bool { true }
+
+    /// `ensureSectionLoaded(.pickPathPicker)` must rebuild even when the
+    /// deferred warehouse already has rows (filteredLatest non-empty early return).
+    static func shouldRebuildPickPathIndexAfterSectionLoad(_ section: MetricSection) -> Bool {
+        section == .pickPathPicker || section == .pickPath || section == .pickerScorecard
+    }
+
+    /// Stream / adopt can park shoppers without `shouldTouchPickerUI`. Still
+    /// rebuild the Pick Path by-store index — PPH already did this.
+    static func shouldRebuildPickPathIndexAfterPickerStream() -> Bool { true }
+
+    /// FILE ROOT of store expand: join then alias-safe lookup.
+    static func pickPathExpandShoppers(
+        scorecard: [MetricRow],
+        pathRows: [MetricRow],
+        store: String
+    ) -> [MetricRow] {
+        let index = pickPathPickerIndex(scorecard: scorecard, pathRows: pathRows)
+        return pickPathPickers(store: store, rows: index.rows)
+    }
+
+    static func pickPathExpandDisplay(path: Double?, pph: Double?, orders: Double?) -> (path: String, pph: String, orders: String) {
+        (
+            HeartbeatFormat.pct(path),
+            HeartbeatFormat.num(pph, digits: 1),
+            HeartbeatFormat.num(orders)
+        )
+    }
+
+    static func pickPathExpandShowsPlaceholder(_ shoppers: [MetricRow]) -> Bool {
+        shoppers.isEmpty
+    }
+
+    /// EMPLOYEE_ALTERNATE_ID path picker has no STORE. `readStores` misses it.
+    static func shouldReadFullPickPathPickerWhenStoreReadEmpty(_ section: MetricSection) -> Bool {
+        section == .pickPathPicker
+    }
+
+    /// Path-grain-only first paint. Shopper tape stays parked until expand.
+    static func shouldLoadPickPathPickerOnPageOpen() -> Bool { false }
+
+    /// Soft KEEP: expand is the only turn that loads `pick_path_picker`.
+    static func shouldLoadPickPathPickerOnStoreExpand() -> Bool { true }
+
+    /// `pickerLoading` remounts Dashboard. Toggle it only on Pick Path expand.
+    static func shouldShowPickerLoadingOnPickPathExpand(dest: HubDestination) -> Bool {
+        dest == .pickPath
+    }
+
+    /// Path % is `pick_path_picker.compliance_pct` after load — never scorecard guess.
+    static func pickPathPercentAfterLoad(
+        row: MetricRow,
+        picker: (String) -> MetricRow?,
+        loaded: Bool
+    ) -> Double? {
+        guard loaded else { return nil }
+        if row.section == .pickPathPicker {
+            return row.number("compliance_pct")
+        }
+        for alias in HeartbeatMath.shopperAliases(row) {
+            if let value = picker(alias)?.number("compliance_pct") {
+                return value
+            }
+        }
+        return nil
+    }
+
+    static func pickPathPercentReady(_ rows: [MetricRow]) -> Bool {
+        rows.contains { $0.section == .pickPathPicker && $0.number("compliance_pct") != nil }
+    }
+
+    static let prepEmptyStoreDetail = "No Prep rows this week"
+    static let prepEmptyRateText = "0%"
+
+    static func shouldInventPrepRateOnEmptyStore() -> Bool { false }
+
+    static func isPrepEmptyChrome(_ card: SectionSummary) -> Bool {
+        card.section == .prepNotReady && card.secondary == prepEmptyStoreDetail
+    }
+
+    /// Seat install / cook must join Aisle Mapper dates onto Pick Path rows.
+    /// Live company pack keeps `aisle_mapper` (text dates) and raw `pick_path`
+    /// (no date keys). UI reads Sequence from the pick_path row.
+    static func shouldJoinAisleMapperOnSeatInstall() -> Bool { true }
+
+    /// Cook writes scoped facts, not PulseCaches.latest. Bake dates onto
+    /// pick_path so a force-quit pull shows Sequence without a new build.
+    static func shouldBakeAisleMapperOntoPickPathAtCook() -> Bool { true }
+
+    static func bakeAisleMapperOntoPickPath(_ rows: [MetricRow]) -> [MetricRow] {
+        guard shouldBakeAisleMapperOntoPickPathAtCook() else { return rows }
+        let mapper = rows.filter { $0.section == .aisleMapper }
+        guard !mapper.isEmpty else { return rows }
+        return rows.map { row in
+            guard row.section == .pickPath else { return row }
+            return HeartbeatMath.applyAisleMapper([row], from: mapper).first ?? row
+        }
+    }
+
+    static func joiningAisleMapper(
+        _ latest: [MetricSection: [MetricRow]]
+    ) -> [MetricSection: [MetricRow]] {
+        guard shouldJoinAisleMapperOnSeatInstall(), let path = latest[.pickPath] else {
+            return latest
+        }
+        var next = latest
+        next[.pickPath] = HeartbeatMath.applyAisleMapper(path, from: latest[.aisleMapper] ?? [])
+        return next
+    }
+
+    /// Heavy extras must not wipe a live expand index with an empty snapshot.
+    static func pickPathIndexHasPathGrain(_ rows: [String: [MetricRow]]) -> Bool {
+        rows.values.contains { group in
+            group.contains { $0.number("compliance_pct") != nil }
+        }
+    }
+
+    static func shouldKeepLivePickPathIndex(
+        existing: [String: [MetricRow]],
+        incoming: [String: [MetricRow]]
+    ) -> Bool {
+        let existingN = existing.values.reduce(0) { $0 + $1.count }
+        let incomingN = incoming.values.reduce(0) { $0 + $1.count }
+        if existingN > 0 && incomingN == 0 { return true }
+        return pickPathIndexHasPathGrain(existing) && !pickPathIndexHasPathGrain(incoming)
+    }
+
+    /// Company (and leftover district) packs may omit shoppers. Peek the store
+    /// seat file only — never swap the active pack.
+    static func shouldPeekStoreSeatForPickPathExpand(
+        activeGrain: PulseSeatPack.Grain?,
+        storePackUsable: Bool
+    ) -> Bool {
+        storePackUsable && activeGrain != .store
+    }
+
     /// Do not restart grain expand just because the user swiped back to Dashboard.
     static func shouldRestartGrainPaint(alreadySettled: Bool, dest: HubDestination) -> Bool {
         dest == .dashboard && !alreadySettled
@@ -1602,7 +1846,9 @@ enum PulseLaunch {
         guard let active = activeScorecardSection(visible: visible, pushed: pushed) else { return false }
         if active == section { return true }
         if active == .preSubOOS, section == .preSubOOSItem { return true }
-        if active == .pickPath, section == .pickPathPicker { return true }
+        if active == .pickPath, section == .pickPathPicker {
+            return shouldLoadPickPathPickerOnPageOpen()
+        }
         return false
     }
 

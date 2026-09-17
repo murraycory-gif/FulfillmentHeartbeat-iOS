@@ -739,6 +739,9 @@ struct SectionSummary: Identifiable, Equatable, Codable {
     }
 
     var headlineText: String {
+        if PulseLaunch.isPrepEmptyChrome(self) {
+            return PulseLaunch.prepEmptyRateText
+        }
         guard let headline else { return "—" }
         if section == .fiveStar {
             return String(format: "%.2f", headline)
@@ -2302,11 +2305,18 @@ enum HeartbeatMath {
             let mapDate = AisleMapperMath.mapperISO(row) ?? ""
             let seqDate = AisleMapperMath.sequenceISO(row) ?? ""
             if mapDate.isEmpty && seqDate.isEmpty { continue }
-            byStore[key] = (mapDate, seqDate)
+            let extra = (mapDate, seqDate)
+            byStore[key] = extra
+            for alias in storeAliases(key) {
+                if byStore[alias] == nil { byStore[alias] = extra }
+            }
         }
         guard !byStore.isEmpty else { return rows }
         return rows.map { row in
-            guard let extra = byStore[canonicalStore(row.storeNumber)] else { return row }
+            let store = canonicalStore(row.storeNumber)
+            guard let extra = byStore[store] ?? storeAliases(store).compactMap({ byStore[$0] }).first else {
+                return row
+            }
             var text = row.textPayload
             if !extra.mapper.isEmpty { text[AisleMapperMath.mapperKey] = extra.mapper }
             if !extra.sequence.isEmpty { text[AisleMapperMath.sequenceKey] = extra.sequence }
@@ -2430,7 +2440,22 @@ enum HeartbeatMath {
                 lastUploadedAt: upload?.uploadedAt
             )
         case .prepNotReady:
-            let headline = average(latest.compactMap { $0.number("pnr_rate_pct") })
+            let rates = latest.compactMap { $0.number("pnr_rate_pct") }
+            if rates.isEmpty, !PulseLaunch.shouldInventPrepRateOnEmptyStore() {
+                return SectionSummary(
+                    section: section,
+                    storeCount: 0,
+                    headline: 0,
+                    headlineLabel: "Avg PNR hours",
+                    secondary: PulseLaunch.prepEmptyStoreDetail,
+                    health: .none,
+                    watchCount: 0,
+                    riskCount: 0,
+                    lastFilename: upload?.filename,
+                    lastUploadedAt: upload?.uploadedAt
+                )
+            }
+            let headline = average(rates)
             let atGoal = latest.filter { ($0.number("pnr_rate_pct") ?? .greatestFiniteMagnitude) <= pnrGoal }.count
             let atRisk = latest.filter { ($0.number("pnr_rate_pct") ?? 0) > pnrWatch }.count
             return SectionSummary(
@@ -2439,7 +2464,7 @@ enum HeartbeatMath {
                 headline: headline,
                 headlineLabel: "Avg PNR hours",
                 secondary: latest.isEmpty
-                    ? "No Prep Not Ready rows in this filter"
+                    ? PulseLaunch.prepEmptyStoreDetail
                     : "\(atGoal) of \(latest.count) at 1.9% · \(atRisk) above 2.5%",
                 health: latest.isEmpty ? .none : band(headline, good: pnrGoal, watch: pnrWatch, invert: true),
                 watchCount: watch,
