@@ -2814,19 +2814,39 @@ final class HeartbeatStore: ObservableObject {
     }
 
     /// Rows + roster only. No `PulseCaches.build`, grain tables, or expand.
+    /// Join Aisle Mapper dates onto Pick Path here — cook writes them as a
+    /// separate section, and Sequence reads pick_path text keys.
     private func installSeatRowsFromPack(_ pack: PulseSQLite.Pack, key: PulseSeatPack.Key) {
         var bySection: [MetricSection: [MetricRow]] = [:]
         bySection.reserveCapacity(16)
         for row in pack.rows {
             bySection[row.section, default: []].append(row)
         }
+        roster = PulseCaches.storeRoster(from: pack.rows)
+        if let prep = bySection[.prepNotReady], !prep.isEmpty {
+            bySection[.prepNotReady] = HeartbeatMath.applyRoster(
+                HeartbeatMath.latestPerStore(prep),
+                roster: roster
+            )
+        }
+        bySection = PulseLaunch.joiningAisleMapper(bySection)
         latestBySection = bySection
         filteredLatest = bySection
-        roster = PulseCaches.storeRoster(from: pack.rows)
         rebuildPickPathPickerIndex(scorecard: bySection[.pickerScorecard] ?? [])
         refreshFilterOptions()
         refreshSalesExpandCache()
         rememberSeatRowPlane(for: key)
+    }
+
+    private func joinAisleMapperOntoPickPathIfNeeded() {
+        let joined = PulseLaunch.joiningAisleMapper(latestBySection)
+        latestBySection = joined
+        if !filteredLatest.isEmpty {
+            filteredLatest = PulseLaunch.joiningAisleMapper(filteredLatest)
+            if filteredLatest[.pickPath] == nil, let path = latestBySection[.pickPath] {
+                filteredLatest[.pickPath] = path
+            }
+        }
     }
 
     private func seatReadSkip(for key: PulseSeatPack.Key) -> Set<MetricSection> {
@@ -6061,12 +6081,18 @@ final class HeartbeatStore: ObservableObject {
             let rowCount = (latestBySection[section] ?? []).count
             if factsOwned.contains(section) {
                 if PulseLaunch.shouldEarlyReturnOwnedSection(owned: true, rowCount: rowCount) {
+                    if section == .pickPath || section == .aisleMapper {
+                        joinAisleMapperOntoPickPathIfNeeded()
+                    }
                     if PulseLaunch.shouldRebuildPickPathIndexAfterSectionLoad(section) {
                         rebuildPickPathIndexFromWarehouse()
                     }
                     return
                 }
             } else if rowCount > 0 {
+                if section == .pickPath || section == .aisleMapper {
+                    joinAisleMapperOntoPickPathIfNeeded()
+                }
                 if PulseLaunch.shouldRebuildPickPathIndexAfterSectionLoad(section) {
                     rebuildPickPathIndexFromWarehouse()
                 }
@@ -6096,6 +6122,9 @@ final class HeartbeatStore: ObservableObject {
             return
         }
         if let have = latestBySection[section], !have.isEmpty {
+            if section == .pickPath || section == .aisleMapper {
+                joinAisleMapperOntoPickPathIfNeeded()
+            }
             installSectionSlice(section)
             return
         }
@@ -6141,6 +6170,9 @@ final class HeartbeatStore: ObservableObject {
         latestBySection[section] = incoming
         if section == .dynacap || section == .pph || section == .pickerScorecard {
             latestBySection = HeartbeatMath.overlayDynacapPPH(latestBySection)
+        }
+        if section == .pickPath || section == .aisleMapper {
+            joinAisleMapperOntoPickPathIfNeeded()
         }
         if section == .labor {
             rebuildLaborWeekIndex()

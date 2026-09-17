@@ -24,4 +24,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.428 / 1.0 (754) — Pick Path store expand lists joined shoppers. Company thin still drops shopper tape; district / OM / store packs stamp `pick_path_picker` by LDAP onto STORE so expand is not a forever placeholder. Mac Catalyst category KEEP.
+HB-0828.429 / 1.0 (755) — Pick Path Sequence dates join from aisle_mapper onto pick_path at seat install and cook (thin company KEEP). Prep Not Ready rollup rebuilds on seatPaintStamp. Company thin still drops shopper tape. Mac Catalyst category KEEP.

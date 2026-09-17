@@ -2302,11 +2302,18 @@ enum HeartbeatMath {
             let mapDate = AisleMapperMath.mapperISO(row) ?? ""
             let seqDate = AisleMapperMath.sequenceISO(row) ?? ""
             if mapDate.isEmpty && seqDate.isEmpty { continue }
-            byStore[key] = (mapDate, seqDate)
+            let extra = (mapDate, seqDate)
+            byStore[key] = extra
+            for alias in storeAliases(key) {
+                if byStore[alias] == nil { byStore[alias] = extra }
+            }
         }
         guard !byStore.isEmpty else { return rows }
         return rows.map { row in
-            guard let extra = byStore[canonicalStore(row.storeNumber)] else { return row }
+            let store = canonicalStore(row.storeNumber)
+            guard let extra = byStore[store] ?? storeAliases(store).compactMap({ byStore[$0] }).first else {
+                return row
+            }
             var text = row.textPayload
             if !extra.mapper.isEmpty { text[AisleMapperMath.mapperKey] = extra.mapper }
             if !extra.sequence.isEmpty { text[AisleMapperMath.sequenceKey] = extra.sequence }

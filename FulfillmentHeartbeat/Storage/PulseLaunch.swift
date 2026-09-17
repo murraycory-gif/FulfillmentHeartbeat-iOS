@@ -267,6 +267,36 @@ enum PulseLaunch {
         section == .pickPathPicker
     }
 
+    /// Seat install / cook must join Aisle Mapper dates onto Pick Path rows.
+    /// Live company pack keeps `aisle_mapper` (text dates) and raw `pick_path`
+    /// (no date keys). UI reads Sequence from the pick_path row.
+    static func shouldJoinAisleMapperOnSeatInstall() -> Bool { true }
+
+    /// Cook writes scoped facts, not PulseCaches.latest. Bake dates onto
+    /// pick_path so a force-quit pull shows Sequence without a new build.
+    static func shouldBakeAisleMapperOntoPickPathAtCook() -> Bool { true }
+
+    static func bakeAisleMapperOntoPickPath(_ rows: [MetricRow]) -> [MetricRow] {
+        guard shouldBakeAisleMapperOntoPickPathAtCook() else { return rows }
+        let mapper = rows.filter { $0.section == .aisleMapper }
+        guard !mapper.isEmpty else { return rows }
+        return rows.map { row in
+            guard row.section == .pickPath else { return row }
+            return HeartbeatMath.applyAisleMapper([row], from: mapper).first ?? row
+        }
+    }
+
+    static func joiningAisleMapper(
+        _ latest: [MetricSection: [MetricRow]]
+    ) -> [MetricSection: [MetricRow]] {
+        guard shouldJoinAisleMapperOnSeatInstall(), let path = latest[.pickPath] else {
+            return latest
+        }
+        var next = latest
+        next[.pickPath] = HeartbeatMath.applyAisleMapper(path, from: latest[.aisleMapper] ?? [])
+        return next
+    }
+
     /// Heavy extras must not wipe a live expand index with an empty snapshot.
     static func pickPathIndexHasPathGrain(_ rows: [String: [MetricRow]]) -> Bool {
         rows.values.contains { group in

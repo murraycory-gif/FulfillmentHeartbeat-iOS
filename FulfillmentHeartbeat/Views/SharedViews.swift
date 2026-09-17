@@ -2376,6 +2376,10 @@ struct PickPathTable: View {
                     rebuildOrder(sort: sort, ascending: ascending)
                     headerPin.storeCount = rows.count
                 }
+                .onChange(of: store.seatPaintStamp) { _, _ in
+                    rebuildOrder(sort: sort, ascending: ascending)
+                    headerPin.storeCount = rows.count
+                }
                 .onChange(of: rows.count) { _, _ in
                     limit = 50
                     rebuildOrder(sort: sort, ascending: ascending)
@@ -2936,6 +2940,7 @@ struct PickPathRollupTable: View {
         }
         .onAppear(perform: rebuild)
         .onChange(of: store.filterStamp) { _, _ in rebuild() }
+        .onChange(of: store.seatPaintStamp) { _, _ in rebuild() }
     }
 
     private func rebuild() {
@@ -3138,6 +3143,7 @@ private struct PathShopperTable: View {
                 Task { await fillShoppers() }
             }
             .onChange(of: store.filterStamp) { _, _ in rebuildPickers() }
+            .onChange(of: store.seatPaintStamp) { _, _ in rebuildPickers() }
             .onChange(of: store.pickerLoading) { _, _ in rebuildPickers() }
         }
     }
@@ -3202,6 +3208,22 @@ private struct PathShopperTable: View {
             let b = sortValue($1)
             if a != b { return a < b }
             return $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        }
+        if section == .pickPath || section == .pickPathPicker {
+            let storePath = (store.seatRows(for: .pickPath) + store.allLatest(for: .pickPath))
+                .first { HeartbeatMath.sameStore($0.storeNumber, storeNumber) }
+            if let storePath {
+                let mapper = HeartbeatFormat.shortDate(AisleMapperMath.mapperISO(storePath))
+                let sequence = HeartbeatFormat.shortDate(AisleMapperMath.sequenceISO(storePath))
+                if mapper != "—" || sequence != "—" {
+                    pickers = pickers.map { snap in
+                        var next = snap
+                        if next.mapper == nil, mapper != "—" { next.mapper = mapper }
+                        if next.sequence == nil, sequence != "—" { next.sequence = sequence }
+                        return next
+                    }
+                }
+            }
         }
     }
 
@@ -4490,6 +4512,10 @@ struct PrepTable: View {
                     rebuildOrder(sort: sort, ascending: ascending)
                     headerPin.storeCount = rows.count
                 }
+                .onChange(of: store.seatPaintStamp) { _, _ in
+                    rebuildOrder(sort: sort, ascending: ascending)
+                    headerPin.storeCount = rows.count
+                }
                 .onChange(of: rows.count) { _, _ in
                     limit = 50
                     rebuildOrder(sort: sort, ascending: ascending)
@@ -4998,6 +5024,7 @@ struct PrepRollupTable: View {
         }
         .onAppear(perform: rebuild)
         .onChange(of: store.filterStamp) { _, _ in rebuild() }
+        .onChange(of: store.seatPaintStamp) { _, _ in rebuild() }
     }
 
     private func rebuild() {

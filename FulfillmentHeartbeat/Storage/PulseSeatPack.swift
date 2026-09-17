@@ -268,7 +268,9 @@ enum PulseSeatPack {
         roster: [String: HeartbeatMath.StoreIdentity],
         to dest: URL
     ) throws -> Entry {
-        let scoped = scopeRows(rows, roster: roster, key: key)
+        let scoped = PulseLaunch.bakeAisleMapperOntoPickPath(
+            scopeRows(rows, roster: roster, key: key)
+        )
         let grain = key.dashboardGrain
         let caches = PulseCaches.build(
             rows: scoped,

@@ -35,6 +35,10 @@ enum PulseQuery {
             }
             return false
         }
+        // Aisle mapper is dates-only text. Empty payload must not drop Sequence.
+        if row.section == .aisleMapper {
+            return AisleMapperMath.mapperISO(row) != nil || AisleMapperMath.sequenceISO(row) != nil
+        }
         return !row.payload.isEmpty
     }
 
