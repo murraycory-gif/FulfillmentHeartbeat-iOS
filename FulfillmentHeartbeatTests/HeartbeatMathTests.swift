@@ -1019,7 +1019,7 @@ final class HeartbeatMathTests: XCTestCase {
 
         var filters = DashboardFilters()
         filters.store = "1"
-        let caches = PulseCaches.build(rows: parsed, filters: filters)
+        let caches = PulseCaches.build(rows: parsed, filters: filters, uploads: [])
         XCTAssertTrue(
             (caches.filteredLatest[.prepNotReady] ?? []).allSatisfy { $0.number("pnr_rate_pct") == nil },
             "Excel Prep has 0 PNR rates for store D=1"
