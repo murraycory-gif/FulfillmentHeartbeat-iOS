@@ -3158,13 +3158,13 @@ private struct PathShopperTable: View {
             aliases(row).first ?? HeartbeatMath.canonicalShopper(row.shopperKey)
         }
         func pathFor(_ row: MetricRow) -> Double? {
-            if let value = row.number("compliance_pct") { return value }
-            for alias in aliases(row) {
-                if let value = store.pickPathPicker(forShopper: alias)?.number("compliance_pct") {
-                    return value
-                }
-            }
-            return nil
+            PulseLaunch.pickPathPercentAfterLoad(
+                row: row,
+                picker: { store.pickPathPicker(forShopper: $0) },
+                loaded: !store.pickerLoading && PulseLaunch.pickPathPercentReady(
+                    store.pickPathPickers(forStore: storeNumber)
+                )
+            )
         }
         func merge(_ row: MetricRow, path: Double? = nil) {
             let id = key(for: row)

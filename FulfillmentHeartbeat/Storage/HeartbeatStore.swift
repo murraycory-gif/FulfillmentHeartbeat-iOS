@@ -1461,11 +1461,17 @@ final class HeartbeatStore: ObservableObject {
     /// Expand-on-demand. Never swaps the active seat pack (no remount / Jetsam).
     func ensurePickPathShoppers(forStore store: String) async -> [MetricRow] {
         let existing = pickPathPickers(forStore: store)
-        if !existing.isEmpty { return existing }
-        if (latestBySection[.pickPathPicker] ?? []).isEmpty {
+        if !existing.isEmpty, PulseLaunch.pickPathPercentReady(existing) { return existing }
+        let showLoading = PulseLaunch.shouldShowPickerLoadingOnPickPathExpand(dest: visibleDestination)
+        if showLoading { pickerLoading = true }
+        defer {
+            if showLoading { pickerLoading = false }
+        }
+        if (latestBySection[.pickPathPicker] ?? []).isEmpty
+            || !PulseLaunch.pickPathPercentReady(existing) {
             await ensureSectionLoaded(.pickPathPicker)
             let afterLoad = pickPathPickers(forStore: store)
-            if !afterLoad.isEmpty { return afterLoad }
+            if PulseLaunch.pickPathPercentReady(afterLoad) { return afterLoad }
         }
         let scorecard = PulseLaunch.pickerSeatRows(
             filtered: filteredLatest[.pickerScorecard] ?? [],
@@ -1476,7 +1482,7 @@ final class HeartbeatStore: ObservableObject {
         )
         rebuildPickPathPickerIndex(scorecard: scorecard)
         let rebuilt = pickPathPickers(forStore: store)
-        if !rebuilt.isEmpty { return rebuilt }
+        if PulseLaunch.pickPathPercentReady(rebuilt) { return rebuilt }
 
         let aliases = HeartbeatMath.storeAliases(store)
         if PulseSQLite.exists(at: sqliteURL), !aliases.isEmpty {
@@ -1491,7 +1497,7 @@ final class HeartbeatStore: ObservableObject {
             if !incoming.isEmpty {
                 adoptPickPathExpand(incoming, store: store)
                 let filled = pickPathPickers(forStore: store)
-                if !filled.isEmpty { return filled }
+                if PulseLaunch.pickPathPercentReady(filled) { return filled }
             }
         }
 

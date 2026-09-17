@@ -331,7 +331,9 @@ struct PulseCaches {
                 rows: input,
                 upload: uploads.first { $0.section == section }
             )
-            if summary.storeCount == 0, !market.isEmpty, summary.headline == nil {
+            if PulseLaunch.isPrepEmptyChrome(summary) {
+                // Soft KEEP: 0% / "No Prep rows this week". Do not invent a rate.
+            } else if summary.storeCount == 0, !market.isEmpty, summary.headline == nil {
                 summary.secondary = "No \(section.short) data for \(market.count) stores in this filter"
                 summary.health = .none
             }

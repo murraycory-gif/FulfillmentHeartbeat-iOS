@@ -64,6 +64,21 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertEqual(WorkbookParser.normHeader("OM_ID"), "omid")
     }
 
+    func testPrepCookUsesStoreNotStoreHash() {
+        XCTAssertEqual(
+            WorkbookParser.preferredPrepStoreColumnIndex(["Store #", "DIVISION", "Store", "Net Prep Not Ready Hours %"]),
+            2
+        )
+        let csv = """
+        DIVISION,District,OM,Store #,Store,Net Prep Not Ready Hours % Total
+        Southwest,97,Nellie Collins,1,2,0.0327
+        Haggen,39,Luke Lomas,1,3427,0.016979
+        """
+        let rows = WorkbookParser.parseCSV(csv)
+        XCTAssertEqual(Set(rows.map(\.storeNumber)), Set(["2", "3427"]))
+        XCTAssertFalse(rows.contains { $0.storeNumber == "1" })
+    }
+
     func testStoreRosterBindsOMIdNotOMArea() {
         let csv = """
         DIVISION,DISTRICT,OM_AREA,OM_ID,STORE

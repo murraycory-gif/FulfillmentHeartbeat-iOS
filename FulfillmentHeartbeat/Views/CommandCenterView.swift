@@ -215,6 +215,9 @@ enum CommandCenterLayout {
         if card.section == .sales || card.section == .lostRevenue {
             return HeartbeatFormat.moneyShort(card.headline)
         }
+        if PulseLaunch.isPrepEmptyChrome(card) {
+            return PulseLaunch.prepEmptyRateText
+        }
         return card.headlineText
     }
 

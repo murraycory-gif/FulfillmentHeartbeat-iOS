@@ -105,7 +105,7 @@ struct SectionDetailView: View {
             if section == .preSubOOS {
                 await store.ensureSectionLoaded(.preSubOOSItem)
             }
-            if section == .pickPath {
+            if section == .pickPath, PulseLaunch.shouldLoadPickPathPickerOnPageOpen() {
                 await store.ensureSectionLoaded(.pickPathPicker)
             }
         }

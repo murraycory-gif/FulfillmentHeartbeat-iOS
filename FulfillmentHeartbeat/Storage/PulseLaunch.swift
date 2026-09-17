@@ -267,6 +267,48 @@ enum PulseLaunch {
         section == .pickPathPicker
     }
 
+    /// Path-grain-only first paint. Shopper tape stays parked until expand.
+    static func shouldLoadPickPathPickerOnPageOpen() -> Bool { false }
+
+    /// Soft KEEP: expand is the only turn that loads `pick_path_picker`.
+    static func shouldLoadPickPathPickerOnStoreExpand() -> Bool { true }
+
+    /// `pickerLoading` remounts Dashboard. Toggle it only on Pick Path expand.
+    static func shouldShowPickerLoadingOnPickPathExpand(dest: HubDestination) -> Bool {
+        dest == .pickPath
+    }
+
+    /// Path % is `pick_path_picker.compliance_pct` after load — never scorecard guess.
+    static func pickPathPercentAfterLoad(
+        row: MetricRow,
+        picker: (String) -> MetricRow?,
+        loaded: Bool
+    ) -> Double? {
+        guard loaded else { return nil }
+        if row.section == .pickPathPicker {
+            return row.number("compliance_pct")
+        }
+        for alias in HeartbeatMath.shopperAliases(row) {
+            if let value = picker(alias)?.number("compliance_pct") {
+                return value
+            }
+        }
+        return nil
+    }
+
+    static func pickPathPercentReady(_ rows: [MetricRow]) -> Bool {
+        rows.contains { $0.section == .pickPathPicker && $0.number("compliance_pct") != nil }
+    }
+
+    static let prepEmptyStoreDetail = "No Prep rows this week"
+    static let prepEmptyRateText = "0%"
+
+    static func shouldInventPrepRateOnEmptyStore() -> Bool { false }
+
+    static func isPrepEmptyChrome(_ card: SectionSummary) -> Bool {
+        card.section == .prepNotReady && card.secondary == prepEmptyStoreDetail
+    }
+
     /// Seat install / cook must join Aisle Mapper dates onto Pick Path rows.
     /// Live company pack keeps `aisle_mapper` (text dates) and raw `pick_path`
     /// (no date keys). UI reads Sequence from the pick_path row.
@@ -1804,7 +1846,9 @@ enum PulseLaunch {
         guard let active = activeScorecardSection(visible: visible, pushed: pushed) else { return false }
         if active == section { return true }
         if active == .preSubOOS, section == .preSubOOSItem { return true }
-        if active == .pickPath, section == .pickPathPicker { return true }
+        if active == .pickPath, section == .pickPathPicker {
+            return shouldLoadPickPathPickerOnPageOpen()
+        }
         return false
     }
 
