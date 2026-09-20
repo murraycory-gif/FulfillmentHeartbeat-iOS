@@ -128,13 +128,17 @@ enum PulseLaunch {
 
     /// HF-003: shopper pick path % from `pick_path_picker` joined to Picker
     /// ScoreCard. Keys include store aliases so "2" / "0002" hit the same bucket.
+    /// Scorecard is join-only — never the expand row. Scorecard-first buckets
+    /// painted Path % as — until `pick_path_picker` landed.
     static func pickPathPickerIndex(scorecard: [MetricRow], pathRows: [MetricRow]) -> PickPathPickerIndex {
         var storesByShopper: [String: Set<String>] = [:]
         var canonical: [String: [MetricRow]] = [:]
         for row in scorecard {
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
             guard !store.isEmpty else { continue }
-            canonical[store, default: []].append(row)
+            if shouldIndexScorecardRowsAsPickPathExpandShoppers() {
+                canonical[store, default: []].append(row)
+            }
             for alias in HeartbeatMath.shopperAliases(row) {
                 storesByShopper[alias, default: []].insert(store)
             }
@@ -273,6 +277,13 @@ enum PulseLaunch {
     /// Soft KEEP: expand is the only turn that loads `pick_path_picker`.
     static func shouldLoadPickPathPickerOnStoreExpand() -> Bool { true }
 
+    /// Path expand lists `pick_path_picker` only. PPH scorecard merge painted
+    /// Path % as — when the path-picker index was still empty.
+    static func shouldMergePPHPickersOnPickPathExpand() -> Bool { false }
+
+    /// Scorecard rows join LDAP → STORE. They are not expand shoppers.
+    static func shouldIndexScorecardRowsAsPickPathExpandShoppers() -> Bool { false }
+
     /// `pickerLoading` remounts Dashboard. Toggle it only on Pick Path expand.
     static func shouldShowPickerLoadingOnPickPathExpand(dest: HubDestination) -> Bool {
         dest == .pickPath
@@ -302,6 +313,12 @@ enum PulseLaunch {
 
     static let prepEmptyStoreDetail = "No Prep rows this week"
     static let prepEmptyRateText = "0%"
+
+    /// Excel 0 is 0%, not —. Missing key stays a dash unless empty-chrome.
+    static func prepRateText(_ value: Double?) -> String {
+        if let value { return value == 0 ? prepEmptyRateText : HeartbeatFormat.pct(value) }
+        return "—"
+    }
 
     static func shouldInventPrepRateOnEmptyStore() -> Bool { false }
 

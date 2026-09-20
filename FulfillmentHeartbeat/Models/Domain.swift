@@ -1037,7 +1037,7 @@ enum HeartbeatMath {
         case .prepNotReady:
             return (
                 [
-                    HeartbeatFormat.pct(average(rows.compactMap { $0.number("pnr_rate_pct", "pnr_hours", "prep_not_ready_pct") })),
+                    PulseLaunch.prepRateText(average(rows.compactMap { $0.number("pnr_rate_pct", "pnr_hours", "prep_not_ready_pct") })),
                     String(format: "%.1f%%", pnrGoal),
                     String(format: "%.1f–%.1f%%", pnrGoal, pnrWatch),
                 ],

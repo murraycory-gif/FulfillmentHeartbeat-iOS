@@ -3214,8 +3214,11 @@ private struct PathShopperTable: View {
                 merge(row, path: pathFor(row))
             }
         }
-        for row in store.pphPickers(forStore: storeNumber) {
-            merge(row, path: pathFor(row))
+        if section != .pickPath && section != .pickPathPicker
+            || PulseLaunch.shouldMergePPHPickersOnPickPathExpand() {
+            for row in store.pphPickers(forStore: storeNumber) {
+                merge(row, path: pathFor(row))
+            }
         }
         pickers = byKey.values.sorted {
             let a = sortValue($0)
@@ -4700,7 +4703,7 @@ private struct PrepLineSnap: Identifiable, Equatable {
         district = HeartbeatMath.canonicalDistrict(row.district)
         om = row.operationsOM
         let pnrNum = row.number("pnr_rate_pct", "pnr_hours", "prep_not_ready_pct")
-        pnr = HeartbeatFormat.pct(pnrNum)
+        pnr = PulseLaunch.prepRateText(pnrNum)
         health = HeartbeatMath.health(for: .prepNotReady, row: row)
         pnrValue = pnrNum ?? -1
     }
