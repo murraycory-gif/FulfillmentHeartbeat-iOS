@@ -545,7 +545,7 @@ struct SectionDetailView: View {
     }
 
     private var prepRows: [MetricRow] {
-        let joined = store.rosterJoined(for: .prepNotReady)
+        let joined = snapshots
         switch prepFocus {
         case .all:
             return joined
