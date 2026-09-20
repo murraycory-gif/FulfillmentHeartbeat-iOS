@@ -9026,7 +9026,7 @@ final class HeartbeatMathTests: XCTestCase {
 
     /// iPhone TF: Pages / Filters present was waiting on warm-host redraw + pack hops.
     func testArchitecture439PhoneNavSheetParksPackWork() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.440")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.444")
         XCTAssertFalse(PulseLaunch.shouldShowThisSeatCallout())
         XCTAssertTrue(PulseLaunch.shouldPresentPhoneSheetsWithoutHubAnimation())
         XCTAssertTrue(PulseLaunch.shouldParkBackgroundWorkWhileInteractiveSheetOpen())
@@ -9179,7 +9179,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// M3: Path expand is pick_path_picker only. M4: Prep Excel 0 is 0%, one row ID.
     /// Pack holes stay dashes — do not invent fills when the cook omitted rows.
     func testArchitecture440PathExpandDropsPPHMergeAndPrepUsesSnapshots() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.440")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.444")
         XCTAssertFalse(PulseLaunch.shouldMergePPHPickersOnPickPathExpand())
         XCTAssertFalse(PulseLaunch.shouldIndexScorecardRowsAsPickPathExpandShoppers())
         XCTAssertTrue(PulseLaunch.shouldLoadPickPathPickerOnStoreExpand())
