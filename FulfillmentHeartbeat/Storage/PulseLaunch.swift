@@ -904,13 +904,19 @@ enum PulseLaunch {
     }
 
     /// Scorecard seat from the active filter. Most specific chip wins.
-    enum SectionPageSeat: String, Equatable {
+    enum SectionPageSeat: String, Equatable, Hashable {
         case company
         case region
         case division
         case district
         case om
         case store
+    }
+
+    /// Instant seat-switcher crumb. Tap pops to that grain.
+    struct SeatSwitcherCrumb: Equatable, Hashable {
+        var seat: SectionPageSeat
+        var title: String
     }
 
     static func sectionPageSeat(filters: DashboardFilters) -> SectionPageSeat {
@@ -1500,6 +1506,186 @@ enum PulseLaunch {
             let name = filters.store.trimmingCharacters(in: .whitespacesAndNewlines)
             return name.isEmpty ? "Store" : "Store \(name)"
         }
+    }
+
+    /// Cory design bar: simple corporate KPIs, all seat data in one scroll,
+    /// instant seat switch + child-row drill + Clear. Soft FAIL clutter,
+    /// chrome fighting numbers, and vanity charts that hide the KPI.
+    static func shouldUseSeatDesignBar() -> Bool { true }
+
+    static func shouldUseInstantSeatSwitcher() -> Bool { true }
+
+    static func shouldPreferFilterSheetOverSeatSwitcher() -> Bool { false }
+
+    static func shouldShowVanityChartsOnSeatPage() -> Bool { false }
+
+    static func shouldLetChromeFightSeatNumbers() -> Bool { false }
+
+    static func shouldShowSeatAssistInChrome() -> Bool { false }
+
+    static func shouldUseSeatKPIStatusDelta() -> Bool { true }
+
+    static func shouldShowAllSeatMetricsInOneScroll() -> Bool { true }
+
+    static func seatSwitcherSiblingLimit() -> Int { 16 }
+
+    static func seatSwitcherCrumbs(filters: DashboardFilters) -> [SeatSwitcherCrumb] {
+        var parts: [SeatSwitcherCrumb] = [SeatSwitcherCrumb(seat: .company, title: "Company")]
+        if !filters.region.isEmpty {
+            parts.append(
+                SeatSwitcherCrumb(
+                    seat: .region,
+                    title: HeartbeatMath.displayGrainLabel(filters.region)
+                )
+            )
+        }
+        if !filters.division.isEmpty {
+            parts.append(
+                SeatSwitcherCrumb(
+                    seat: .division,
+                    title: HeartbeatMath.displayGrainLabel(filters.division)
+                )
+            )
+        }
+        if !filters.district.isEmpty {
+            let name = HeartbeatMath.displayGrainLabel(filters.district)
+            parts.append(
+                SeatSwitcherCrumb(
+                    seat: .district,
+                    title: name.hasPrefix("District") ? name : "District \(name)"
+                )
+            )
+        }
+        if !filters.om.isEmpty {
+            parts.append(SeatSwitcherCrumb(seat: .om, title: filters.om))
+        }
+        if !filters.store.isEmpty {
+            parts.append(
+                SeatSwitcherCrumb(
+                    seat: .store,
+                    title: "Store \(HeartbeatMath.canonicalStore(filters.store))"
+                )
+            )
+        }
+        return parts
+    }
+
+    /// Instant pop to a crumb seat. Clears everything below that grain.
+    static func popSeatFilters(current: DashboardFilters, to seat: SectionPageSeat) -> DashboardFilters {
+        var next = DashboardFilters()
+        switch seat {
+        case .company:
+            return next
+        case .region:
+            next.region = current.region
+        case .division:
+            next.region = current.region
+            next.division = current.division
+        case .district:
+            next.region = current.region
+            next.division = current.division
+            next.district = current.district
+        case .om:
+            next.region = current.region
+            next.division = current.division
+            next.district = current.district
+            next.om = current.om
+        case .store:
+            next = current
+        }
+        return next
+    }
+
+    /// Company hops to Regions. Other seats switch siblings at that grain.
+    static func seatSwitcherSiblingFocus(filters: DashboardFilters) -> FilterFocus {
+        switch sectionPageSeat(filters: filters) {
+        case .company, .region: return .region
+        case .division: return .division
+        case .district: return .district
+        case .om: return .om
+        case .store: return .store
+        }
+    }
+
+    /// Soft FAIL company-wide store tape in the switcher.
+    static func shouldShowSeatSwitcherSiblings(filters: DashboardFilters) -> Bool {
+        if shouldLoadFatCompanyPickers() { return false }
+        switch sectionPageSeat(filters: filters) {
+        case .store:
+            return !filters.division.isEmpty || !filters.district.isEmpty || !filters.om.isEmpty
+        case .company, .region, .division, .district, .om:
+            return true
+        }
+    }
+
+    static func applySeatSwitcherChoice(
+        current: DashboardFilters,
+        focus: FilterFocus,
+        value: String
+    ) -> DashboardFilters {
+        let label = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch focus {
+        case .region:
+            return drillSeatFilters(current: DashboardFilters(), grain: .region, rawLabel: label)
+        case .division:
+            var next = current
+            next.division = label
+            next.district = ""
+            next.om = ""
+            next.store = ""
+            return next
+        case .district:
+            var next = current
+            next.district = label
+            next.om = ""
+            next.store = ""
+            return next
+        case .om:
+            var next = current
+            next.om = label
+            next.store = ""
+            return next
+        case .store:
+            var next = current
+            next.store = HeartbeatMath.canonicalStore(label)
+            return next
+        }
+    }
+
+    static func seatKPIStatusText(_ card: SectionSummary) -> String {
+        CommandCenterLayout.displayedHealth(card).label
+    }
+
+    static func seatKPIDeltaText(_ card: SectionSummary) -> String {
+        switch card.section {
+        case .sales:
+            if let yoy = card.salesYoyPct {
+                return "\(signedSeatPct(yoy)) YoY"
+            }
+        case .lostRevenue:
+            if let pct = card.lostRevenuePct {
+                return HeartbeatFormat.pct(pct)
+            }
+        default:
+            break
+        }
+        if card.riskCount > 0 { return "\(card.riskCount) at risk" }
+        if card.watchCount > 0 { return "\(card.watchCount) watch" }
+        if card.storeCount > 0 { return "\(card.storeCount) stores" }
+        return ""
+    }
+
+    /// Status + delta a director can act on. Empty parts drop out.
+    static func seatKPIActionLine(_ card: SectionSummary) -> String {
+        let status = seatKPIStatusText(card)
+        let delta = seatKPIDeltaText(card)
+        if delta.isEmpty { return status }
+        return "\(status) · \(delta)"
+    }
+
+    static func signedSeatPct(_ value: Double) -> String {
+        let sign = value > 0 ? "+" : ""
+        return "\(sign)\(String(format: "%.1f%%", value))"
     }
 
     /// Option 8b: Pulse / Power BI Mobile briefing home. Not always-open ScoreCard tables.

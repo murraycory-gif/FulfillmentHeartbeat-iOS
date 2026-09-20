@@ -4,14 +4,13 @@ import SwiftUI
 struct SeatHubView: View {
     @EnvironmentObject private var store: HeartbeatStore
     @StateObject private var router = HubRouter()
-    @State private var showAssist = false
 
     var body: some View {
         NavigationStack {
             SeatPageView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .safeAreaInset(edge: .top, spacing: 0) {
-                    SeatChromeBanner(showAssist: $showAssist)
+                    SeatChromeBanner()
                         .environmentObject(store)
                         .environmentObject(router)
                 }
@@ -23,11 +22,6 @@ struct SeatHubView: View {
         .environmentObject(router)
         .sheet(isPresented: $router.showShare) {
             SharePulseSheet()
-                .environmentObject(store)
-                .environmentObject(router)
-        }
-        .fullScreenCover(isPresented: $showAssist) {
-            HeartbeatAssistSheet()
                 .environmentObject(store)
                 .environmentObject(router)
         }
@@ -47,80 +41,122 @@ struct SeatHubView: View {
     }
 }
 
-/// Sticky compact banner only: Clear, filter chips, grain crumb.
-/// Soft FAIL a second HubBanner / Pages header over the scoreboard.
+/// Sticky compact banner: Clear + instant seat switcher + Share.
+/// Soft FAIL FilterSheet pills, Assist chrome, and chrome fighting numbers.
 struct SeatChromeBanner: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var router: HubRouter
-    @Binding var showAssist: Bool
-    @State private var sheetFocus: FilterFocus?
 
     var body: some View {
         let _ = store.filters.summary
         VStack(alignment: .leading, spacing: 8) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    Button("Clear") { clearNow() }
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(store.filters.isActive ? AppTheme.blue : AppTheme.textTertiary)
-                        .frame(minWidth: HubLayout.phoneHitTarget, minHeight: HubLayout.phoneHitTarget)
-                        .disabled(!store.filters.isActive)
-                    ForEach(FilterFocus.allCases) { focus in
-                        HubChromePill(
-                            title: store.filters.chipTitle(for: focus),
-                            symbol: focus.symbol,
-                            selected: !store.filters.values(for: focus).isEmpty
-                        ) {
-                            sheetFocus = focus
+            HStack(spacing: 8) {
+                Button("Clear") { applySeat(DashboardFilters()) }
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(store.filters.isActive ? AppTheme.blue : AppTheme.textTertiary)
+                    .frame(minWidth: HubLayout.phoneHitTarget, minHeight: HubLayout.phoneHitTarget)
+                    .disabled(!store.filters.isActive)
+                    .accessibilityLabel("Clear seat filters")
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 4) {
+                        ForEach(
+                            Array(PulseLaunch.seatSwitcherCrumbs(filters: store.filters).enumerated()),
+                            id: \.offset
+                        ) { index, crumb in
+                            if index > 0 {
+                                Text("›")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(AppTheme.textTertiary)
+                            }
+                            Button(crumb.title) {
+                                applySeat(PulseLaunch.popSeatFilters(current: store.filters, to: crumb.seat))
+                            }
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(AppTheme.blue)
+                            .frame(minHeight: HubLayout.phoneHitTarget)
+                            .accessibilityLabel("Switch to \(crumb.title)")
                         }
                     }
-                    HubChromePill(
-                        title: store.shareReady ? "Share" : "Share…",
-                        symbol: "square.and.arrow.up",
-                        showsChevron: false
-                    ) {
-                        guard store.shareReady else { return }
-                        var transaction = Transaction()
-                        transaction.animation = nil
-                        withTransaction(transaction) {
-                            router.showShare = true
-                        }
-                    }
-                    Button {
-                        showAssist = true
-                    } label: {
-                        Image(systemName: "sparkles")
-                            .font(.body.weight(.bold))
-                            .foregroundStyle(.white)
-                            .frame(width: HubLayout.phoneHitTarget, height: HubLayout.phoneHitTarget)
-                            .background(AppTheme.blue, in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Heartbeat Assist, build \(BuildStamp.label)")
                 }
+                Button {
+                    guard store.shareReady else { return }
+                    var transaction = Transaction()
+                    transaction.animation = nil
+                    withTransaction(transaction) {
+                        router.showShare = true
+                    }
+                } label: {
+                    Text(store.shareReady ? "Share" : "Share…")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(store.shareReady ? AppTheme.blue : AppTheme.textTertiary)
+                        .frame(minHeight: HubLayout.phoneHitTarget)
+                }
+                .buttonStyle(.plain)
+                .disabled(!store.shareReady)
             }
-            Text(PulseLaunch.seatGrainCrumb(filters: store.filters))
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(AppTheme.textSecondary)
-                .lineLimit(2)
-                .minimumScaleFactor(0.85)
+            if PulseLaunch.shouldUseInstantSeatSwitcher(),
+               PulseLaunch.shouldShowSeatSwitcherSiblings(filters: store.filters) {
+                siblingSwitcher
+            }
         }
         .padding(.horizontal, 12)
         .padding(.top, 8)
         .padding(.bottom, 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(AppTheme.bg.ignoresSafeArea(edges: .top))
-        .fullScreenCover(item: $sheetFocus) { focus in
-            FilterSheet(initialFocus: focus)
-                .environmentObject(store)
+    }
+
+    @ViewBuilder
+    private var siblingSwitcher: some View {
+        let focus = PulseLaunch.seatSwitcherSiblingFocus(filters: store.filters)
+        let choices = store.filterChoices(focus: focus, draft: store.filters)
+        let selected = store.filters.values(for: focus)
+        let limit = PulseLaunch.seatSwitcherSiblingLimit()
+        if !choices.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(Array(choices.prefix(limit)), id: \.id) { choice in
+                        let on = selected.contains { HeartbeatMath.matches($0, choice.id) }
+                            || selected.contains { HeartbeatMath.matches($0, choice.label) }
+                        Button {
+                            applySeat(
+                                PulseLaunch.applySeatSwitcherChoice(
+                                    current: store.filters,
+                                    focus: focus,
+                                    value: choice.id
+                                )
+                            )
+                        } label: {
+                            Text(choice.label)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(on ? Color.white : AppTheme.blue)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 7)
+                                .frame(minHeight: HubLayout.phoneHitTarget)
+                                .background(
+                                    on ? AppTheme.blue : AppTheme.blueSoft,
+                                    in: Capsule(style: .continuous)
+                                )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Seat \(choice.label)")
+                        .accessibilityAddTraits(on ? .isSelected : [])
+                    }
+                }
+            }
+            .accessibilityLabel("Instant seat switcher")
         }
     }
 
-    private func clearNow() {
+    private func applySeat(_ next: DashboardFilters) {
         var transaction = Transaction()
         transaction.animation = nil
         withTransaction(transaction) {
-            store.clearFilters()
+            if next.isActive {
+                store.commitFilters(next)
+            } else {
+                store.clearFilters()
+            }
         }
     }
 }
@@ -217,7 +253,7 @@ struct SeatPageView: View {
     private var scoreboard: some View {
         let cols = PulseLaunch.seatScoreboardColumns(width: pageWidth, pad: padCanvas)
         return VStack(alignment: .leading, spacing: 10) {
-            SeatBlockHeading(title: "Scoreboard")
+            SeatBlockHeading(title: PulseLaunch.shouldUseSeatDesignBar() ? "KPIs" : "Scoreboard")
             LazyVGrid(
                 columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: cols),
                 spacing: 10
@@ -410,7 +446,7 @@ struct SeatPageView: View {
     }
 }
 
-/// Label over value. Not a section destination.
+/// Label over value, big type, status/delta. Soft FAIL badges, symbols, charts.
 struct SeatScoreTile: View {
     @EnvironmentObject private var store: HeartbeatStore
     let section: MetricSection
@@ -421,28 +457,39 @@ struct SeatScoreTile: View {
 
     var body: some View {
         let health = CommandCenterLayout.displayedHealth(painted)
-        VStack(alignment: .leading, spacing: 6) {
+        let action = PulseLaunch.shouldUseSeatKPIStatusDelta()
+            ? PulseLaunch.seatKPIActionLine(painted)
+            : ""
+        VStack(alignment: .leading, spacing: 4) {
             Text(CommandCenterLayout.glanceTitle(section).uppercased())
                 .font(.caption.weight(.heavy))
                 .tracking(0.5)
                 .foregroundStyle(AppTheme.textSecondary)
                 .lineLimit(2)
             Text(CommandCenterLayout.compactValue(painted))
-                .font(AppTheme.rounded(.title, weight: .bold).monospacedDigit())
+                .font(AppTheme.rounded(size: 28, weight: .bold).monospacedDigit())
                 .foregroundStyle(AppTheme.healthInk(health == .none ? .good : health))
                 .lineLimit(1)
-                .minimumScaleFactor(0.55)
-            HealthBadge(health: health, prominent: true, compact: true)
+                .minimumScaleFactor(0.5)
+            if !action.isEmpty {
+                Text(action)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppTheme.healthInk(health))
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.85)
+            }
         }
         .padding(12)
-        .frame(maxWidth: .infinity, minHeight: 96, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 108, alignment: .topLeading)
         .background(Color.white, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(AppTheme.cardBorder, lineWidth: 1)
         )
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(CommandCenterLayout.glanceTitle(section)), \(CommandCenterLayout.compactValue(painted))")
+        .accessibilityLabel(
+            "\(CommandCenterLayout.glanceTitle(section)), \(CommandCenterLayout.compactValue(painted)), \(action)"
+        )
     }
 }
 
