@@ -724,11 +724,19 @@ final class HeartbeatStore: ObservableObject {
         let painted = cachedSummaries.first { $0.section == section }
             ?? HeartbeatMath.summarize(section, rows: displayRows(for: section), upload: upload(for: section))
         guard !filters.isActive else { return painted }
-        return PulseLaunch.companyCommandCenterCard(
+        var next = PulseLaunch.companyCommandCenterCard(
             painted,
             chrome: packChrome,
             rosterStores: roster.count
         )
+        if section == .sales, let company = salesCompanyFact() {
+            let dollars = HeartbeatMath.salesHeadlineDollars(company)
+            if dollars > 0 {
+                next.headline = dollars
+                next.salesYoyPct = company.number("sales_yoy_pct") ?? next.salesYoyPct
+            }
+        }
+        return next
     }
 
     /// Dashboard tiles must not keep a GeometryReader snapshot. Read on
@@ -1212,12 +1220,7 @@ final class HeartbeatStore: ObservableObject {
     func pphPickerCounts() -> [String: Int] { pphPickerCountByStore }
 
     func pickPathPickers(forStore store: String) -> [MetricRow] {
-        let want = HeartbeatMath.canonicalStore(store)
-        guard !want.isEmpty else { return [] }
-        if let exact = pickPathPickersByStore[want], !exact.isEmpty {
-            return exact
-        }
-        return []
+        PulseLaunch.pickPathPickers(store: store, rows: pickPathPickersByStore)
     }
 
     func pickPathPicker(forShopper raw: String) -> MetricRow? {
@@ -1443,43 +1446,124 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func rebuildPickPathPickerIndex(scorecard: [MetricRow]) {
-        let built = pickPathIndexValues(scorecard: scorecard, pathRows: latestBySection[.pickPathPicker] ?? [])
+        guard PulseLaunch.shouldRebuildPickPathIndexOnPickerPaint() else { return }
+        let pathRows = (latestBySection[.pickPathPicker] ?? []) + (filteredLatest[.pickPathPicker] ?? [])
+        let built = PulseLaunch.pickPathPickerIndex(scorecard: scorecard, pathRows: pathRows)
         pickPathByShopper = built.byShopper
-        pickPathPickersByStore = built.buckets
+        pickPathPickersByStore = built.rows
     }
 
-    private func pickPathIndexValues(scorecard: [MetricRow], pathRows: [MetricRow]) -> (buckets: [String: [MetricRow]], byShopper: [String: MetricRow]) {
-        var storesByShopper: [String: Set<String>] = [:]
-        var buckets: [String: [MetricRow]] = [:]
-        for row in scorecard {
-            let store = HeartbeatMath.canonicalStore(row.storeNumber)
-            guard !store.isEmpty else { continue }
-            buckets[store, default: []].append(row)
-            for alias in HeartbeatMath.shopperAliases(row) {
-                storesByShopper[alias, default: []].insert(store)
+    /// One wire for adopt / stream / ensureSectionLoaded. No filterStamp.
+    private func rebuildPickPathIndexFromWarehouse() {
+        guard PulseLaunch.shouldRebuildPickPathIndexOnPickerPaint() else { return }
+        let scorecard = PulseLaunch.pickerSeatRows(
+            filtered: filteredLatest[.pickerScorecard] ?? [],
+            warehouse: latestBySection[.pickerScorecard] ?? [],
+            allowed: pickerStoreSet(),
+            filters: filters,
+            roster: roster
+        )
+        rebuildPickPathPickerIndex(scorecard: scorecard)
+    }
+
+    /// Expand-on-demand. Never swaps the active seat pack (no remount / Jetsam).
+    func ensurePickPathShoppers(forStore store: String) async -> [MetricRow] {
+        let existing = pickPathPickers(forStore: store)
+        if !existing.isEmpty, PulseLaunch.pickPathPercentReady(existing) { return existing }
+        let showLoading = PulseLaunch.shouldShowPickerLoadingOnPickPathExpand(dest: visibleDestination)
+        if showLoading { pickerLoading = true }
+        defer {
+            if showLoading { pickerLoading = false }
+        }
+        if (latestBySection[.pickPathPicker] ?? []).isEmpty
+            || !PulseLaunch.pickPathPercentReady(existing) {
+            await ensureSectionLoaded(.pickPathPicker)
+            let afterLoad = pickPathPickers(forStore: store)
+            if PulseLaunch.pickPathPercentReady(afterLoad) { return afterLoad }
+        }
+        let scorecard = PulseLaunch.pickerSeatRows(
+            filtered: filteredLatest[.pickerScorecard] ?? [],
+            warehouse: latestBySection[.pickerScorecard] ?? [],
+            allowed: pickerStoreSet(),
+            filters: filters,
+            roster: roster
+        )
+        rebuildPickPathPickerIndex(scorecard: scorecard)
+        let rebuilt = pickPathPickers(forStore: store)
+        if PulseLaunch.pickPathPercentReady(rebuilt) { return rebuilt }
+
+        let aliases = HeartbeatMath.storeAliases(store)
+        if PulseSQLite.exists(at: sqliteURL), !aliases.isEmpty {
+            let url = sqliteURL
+            let incoming = await Task.detached(priority: .utility) { () -> [MetricRow] in
+                PulseSQLite.readStores(
+                    from: url,
+                    sections: [.pickerScorecard, .pickPathPicker],
+                    stores: aliases
+                )
+            }.value
+            if !incoming.isEmpty {
+                adoptPickPathExpand(incoming, store: store)
+                let filled = pickPathPickers(forStore: store)
+                if PulseLaunch.pickPathPercentReady(filled) { return filled }
             }
         }
-        var byShopper: [String: MetricRow] = [:]
-        for row in pathRows {
-            for alias in HeartbeatMath.shopperAliases(row) {
-                byShopper[alias] = row
-            }
-            var targets = Set<String>()
-            let ownStore = HeartbeatMath.canonicalStore(row.storeNumber)
-            if !ownStore.isEmpty { targets.insert(ownStore) }
-            for alias in HeartbeatMath.shopperAliases(row) {
-                targets.formUnion(storesByShopper[alias] ?? [])
-            }
-            for store in targets {
-                buckets[store, default: []].append(row)
+
+        let storeKey = PulseSeatPack.Key(grain: .store, id: HeartbeatMath.canonicalStore(store))
+        let dest = PulseSeatPack.localURL(root: rootURL, key: storeKey)
+        if storeKey != activeSeatKey,
+           PulseLaunch.shouldPeekStoreSeatForPickPathExpand(
+            activeGrain: activeSeatKey?.grain,
+            storePackUsable: PulseSeatPack.isUsable(at: dest)
+        ) {
+            let incoming = await Task.detached(priority: .utility) { () -> [MetricRow] in
+                PulseSQLite.readStores(
+                    from: dest,
+                    sections: [.pickerScorecard, .pickPathPicker],
+                    stores: aliases
+                )
+            }.value
+            if !incoming.isEmpty {
+                adoptPickPathExpand(incoming, store: store)
             }
         }
-        for store in buckets.keys {
-            buckets[store]?.sort {
-                ($0.number("compliance_pct") ?? $0.number("pph") ?? 999) < ($1.number("compliance_pct") ?? $1.number("pph") ?? 999)
+        return pickPathPickers(forStore: store)
+    }
+
+    /// Merge one store's shoppers into the pick-path index. No filterStamp.
+    private func adoptPickPathExpand(_ incoming: [MetricRow], store: String) {
+        let pickers = incoming.filter { $0.section == .pickerScorecard }
+        let path = incoming.filter { $0.section == .pickPathPicker }
+        if !pickers.isEmpty {
+            latestBySection[.pickerScorecard] = PulseLaunch.mergePickerRows(
+                existing: latestBySection[.pickerScorecard] ?? [],
+                incoming: pickers
+            )
+        }
+        if !path.isEmpty {
+            latestBySection[.pickPathPicker] = PulseLaunch.mergePickerRows(
+                existing: latestBySection[.pickPathPicker] ?? [],
+                incoming: path
+            )
+        }
+        let scorecard = PulseLaunch.pickerSeatRows(
+            filtered: filteredLatest[.pickerScorecard] ?? [],
+            warehouse: latestBySection[.pickerScorecard] ?? [],
+            allowed: pickerStoreSet(),
+            filters: filters,
+            roster: roster
+        )
+        rebuildPickPathPickerIndex(scorecard: scorecard)
+        if pickPathPickers(forStore: store).isEmpty {
+            let want = HeartbeatMath.canonicalStore(store)
+            let group = incoming.filter {
+                $0.section == .pickPathPicker || HeartbeatMath.sameStore($0.storeNumber, want)
+            }
+            guard !group.isEmpty else { return }
+            for alias in HeartbeatMath.storeAliases(want) {
+                pickPathPickersByStore[alias] = group
             }
         }
-        return (buckets, byShopper)
     }
 
     private func rebuildPPHPickerIndex(scorecard: [MetricRow]) {
@@ -2744,18 +2828,39 @@ final class HeartbeatStore: ObservableObject {
     }
 
     /// Rows + roster only. No `PulseCaches.build`, grain tables, or expand.
+    /// Join Aisle Mapper dates onto Pick Path here — cook writes them as a
+    /// separate section, and Sequence reads pick_path text keys.
     private func installSeatRowsFromPack(_ pack: PulseSQLite.Pack, key: PulseSeatPack.Key) {
         var bySection: [MetricSection: [MetricRow]] = [:]
         bySection.reserveCapacity(16)
         for row in pack.rows {
             bySection[row.section, default: []].append(row)
         }
+        roster = PulseCaches.storeRoster(from: pack.rows)
+        if let prep = bySection[.prepNotReady], !prep.isEmpty {
+            bySection[.prepNotReady] = HeartbeatMath.applyRoster(
+                HeartbeatMath.latestPerStore(prep),
+                roster: roster
+            )
+        }
+        bySection = PulseLaunch.joiningAisleMapper(bySection)
         latestBySection = bySection
         filteredLatest = bySection
-        roster = PulseCaches.storeRoster(from: pack.rows)
+        rebuildPickPathPickerIndex(scorecard: bySection[.pickerScorecard] ?? [])
         refreshFilterOptions()
         refreshSalesExpandCache()
         rememberSeatRowPlane(for: key)
+    }
+
+    private func joinAisleMapperOntoPickPathIfNeeded() {
+        let joined = PulseLaunch.joiningAisleMapper(latestBySection)
+        latestBySection = joined
+        if !filteredLatest.isEmpty {
+            filteredLatest = PulseLaunch.joiningAisleMapper(filteredLatest)
+            if filteredLatest[.pickPath] == nil, let path = latestBySection[.pickPath] {
+                filteredLatest[.pickPath] = path
+            }
+        }
     }
 
     private func seatReadSkip(for key: PulseSeatPack.Key) -> Set<MetricSection> {
@@ -5375,10 +5480,20 @@ final class HeartbeatStore: ObservableObject {
     }
 
     /// Company Command Center reads pack chrome + roster gold. No picker stream.
+    /// Sales headline is pack `sales_grain=company` when that row is on disk.
     private func pinCompanyCommandCenterChrome() {
         guard !filters.isActive else { return }
         cachedSummaries = cachedSummaries.map {
             PulseLaunch.companyCommandCenterCard($0, chrome: packChrome, rosterStores: roster.count)
+        }
+        if let index = cachedSummaries.firstIndex(where: { $0.section == .sales }),
+           let company = salesCompanyFact() {
+            let dollars = HeartbeatMath.salesHeadlineDollars(company)
+            if dollars > 0 {
+                cachedSummaries[index].headline = dollars
+                cachedSummaries[index].salesYoyPct = company.number("sales_yoy_pct")
+                    ?? cachedSummaries[index].salesYoyPct
+            }
         }
     }
 
@@ -5452,6 +5567,7 @@ final class HeartbeatStore: ObservableObject {
                 )
                 cachedPickerBoard = HeartbeatMath.pickerBoard(latest)
                 rebuildSeatPickerIndex()
+                rebuildPickPathPickerIndex(scorecard: latest)
             } else if PulseLaunch.shouldWipePickerIndexOnSeatClear() {
                 wipePickerIndex()
             }
@@ -5497,6 +5613,7 @@ final class HeartbeatStore: ObservableObject {
                     includeAll: true
                 )
                 cachedPickerBoard = HeartbeatMath.pickerBoard(latest)
+                rebuildPickPathPickerIndex(scorecard: latest)
             } else if let chrome = packChrome, let card = PulseLaunch.pickerSummaryFromChrome(chrome) {
                 upsertPickerSummary(card)
                 seedPickerFlagsFromChrome(chrome)
@@ -5771,6 +5888,9 @@ final class HeartbeatStore: ObservableObject {
                 self.latestBySection[.pickerScorecard] = final
                 self.pickerStreamDone = final.count >= 2
                 self.pickerLoading = false
+                if PulseLaunch.shouldRebuildPickPathIndexAfterPickerStream() {
+                    self.rebuildPickPathIndexFromWarehouse()
+                }
                 let join = PulseLaunch.needsShopperJoin(self.visibleDestination)
                 if join {
                     self.refreshPickerDashboard(self.visiblePickers(), stamp: true, chrome: true)
@@ -5806,6 +5926,9 @@ final class HeartbeatStore: ObservableObject {
             dest: visibleDestination,
             stamp: stamp
         )
+        if PulseLaunch.shouldRebuildPickPathIndexAfterPickerStream() {
+            rebuildPickPathPickerIndex(scorecard: sliced)
+        }
         guard PulseLaunch.shouldTouchPickerUI(stamp: stamp, chrome: chrome) else { return }
         refreshPickerDashboard(sliced, stamp: stamp, chrome: chrome)
     }
@@ -5838,6 +5961,9 @@ final class HeartbeatStore: ObservableObject {
             dest: visibleDestination,
             stamp: stamp
         )
+        if PulseLaunch.shouldRebuildPickPathIndexAfterPickerStream() {
+            rebuildPickPathPickerIndex(scorecard: sliced)
+        }
         guard PulseLaunch.shouldTouchPickerUI(stamp: stamp, chrome: chrome) else { return }
         refreshPickerDashboard(sliced, stamp: stamp, chrome: chrome)
     }
@@ -5853,6 +5979,7 @@ final class HeartbeatStore: ObservableObject {
                 includeAll: true
             )
             rebuildPPHPickerIndex(scorecard: sliced)
+            rebuildPickPathPickerIndex(scorecard: sliced)
             patchPPHCallouts()
         }
         pageOnlyGeneration = paintGeneration
@@ -5879,6 +6006,20 @@ final class HeartbeatStore: ObservableObject {
         if section == .pickerScorecard, !sliced.isEmpty {
             cachedPickerBoard = HeartbeatMath.pickerBoard(sliced)
             schedulePickerIndex(sliced)
+            rebuildPickPathPickerIndex(scorecard: sliced)
+        }
+        if section == .pickPathPicker {
+            let scorecard = PulseLaunch.pickerSeatRows(
+                filtered: filteredLatest[.pickerScorecard] ?? [],
+                warehouse: latestBySection[.pickerScorecard] ?? [],
+                allowed: pickerStoreSet(),
+                filters: filters,
+                roster: roster
+            )
+            rebuildPickPathPickerIndex(scorecard: scorecard)
+        }
+        if PulseLaunch.shouldRebuildPickPathIndexAfterSectionLoad(section) {
+            rebuildPickPathIndexFromWarehouse()
         }
         if PulseQuery.pageOnlySections.contains(section) {
             pageOnlyGeneration = paintGeneration
@@ -5924,6 +6065,9 @@ final class HeartbeatStore: ObservableObject {
         if section == .pickerScorecard {
             if seatFirst {
                 await loadFilteredPickerExpandIfNeeded()
+                if PulseLaunch.shouldRebuildPickPathIndexAfterSectionLoad(section) {
+                    rebuildPickPathIndexFromWarehouse()
+                }
                 return
             }
             await streamPicker(preferSnappy: isReady)
@@ -5941,6 +6085,9 @@ final class HeartbeatStore: ObservableObject {
 
         if seatFirst {
             await loadFilteredSectionIfNeeded(section)
+            if PulseLaunch.shouldRebuildPickPathIndexAfterSectionLoad(section) {
+                rebuildPickPathIndexFromWarehouse()
+            }
             return
         }
 
@@ -5949,6 +6096,8 @@ final class HeartbeatStore: ObservableObject {
             if (latestBySection[section] ?? []).count >= 2 {
                 if filteredLatest[section]?.isEmpty != false {
                     installSectionSlice(section)
+                } else if PulseLaunch.shouldRebuildPickPathIndexAfterSectionLoad(section) {
+                    rebuildPickPathIndexFromWarehouse()
                 }
                 return
             }
@@ -5956,9 +6105,21 @@ final class HeartbeatStore: ObservableObject {
             let rowCount = (latestBySection[section] ?? []).count
             if factsOwned.contains(section) {
                 if PulseLaunch.shouldEarlyReturnOwnedSection(owned: true, rowCount: rowCount) {
+                    if section == .pickPath || section == .aisleMapper {
+                        joinAisleMapperOntoPickPathIfNeeded()
+                    }
+                    if PulseLaunch.shouldRebuildPickPathIndexAfterSectionLoad(section) {
+                        rebuildPickPathIndexFromWarehouse()
+                    }
                     return
                 }
             } else if rowCount > 0 {
+                if section == .pickPath || section == .aisleMapper {
+                    joinAisleMapperOntoPickPathIfNeeded()
+                }
+                if PulseLaunch.shouldRebuildPickPathIndexAfterSectionLoad(section) {
+                    rebuildPickPathIndexFromWarehouse()
+                }
                 return
             }
         }
@@ -5973,6 +6134,9 @@ final class HeartbeatStore: ObservableObject {
         }.value
         if Task.isCancelled { return }
         adoptSectionWarehouse(section, incoming)
+        if PulseLaunch.shouldRebuildPickPathIndexAfterSectionLoad(section) {
+            rebuildPickPathIndexFromWarehouse()
+        }
     }
 
     /// Seat page-open: `readStores(allowed)` when the warehouse is empty. Never company LIMIT/OFFSET.
@@ -5982,6 +6146,9 @@ final class HeartbeatStore: ObservableObject {
             return
         }
         if let have = latestBySection[section], !have.isEmpty {
+            if section == .pickPath || section == .aisleMapper {
+                joinAisleMapperOntoPickPathIfNeeded()
+            }
             installSectionSlice(section)
             return
         }
@@ -5999,7 +6166,20 @@ final class HeartbeatStore: ObservableObject {
             let raw = PulseSQLite.readStores(from: url, sections: [section], stores: stores)
             return PulseLaunch.materializeSectionRows(raw, section: section, roster: rosterCopy)
         }.value
-        guard !incoming.isEmpty else { return }
+        if incoming.isEmpty {
+            if PulseLaunch.shouldReadFullPickPathPickerWhenStoreReadEmpty(section) {
+                let full = await Task.detached(priority: .utility) { () -> [MetricRow] in
+                    guard let pack = try? PulseSQLite.read(from: url, only: [section]) else { return [] }
+                    return PulseLaunch.materializeSectionRows(pack.rows, section: section, roster: rosterCopy)
+                }.value
+                if !full.isEmpty {
+                    adoptSectionWarehouse(section, full)
+                } else {
+                    rebuildPickPathIndexFromWarehouse()
+                }
+            }
+            return
+        }
         adoptSectionWarehouse(section, incoming)
         if PulseLaunch.shouldPublishSeatFill(
             dest: visibleDestination,
@@ -6015,10 +6195,16 @@ final class HeartbeatStore: ObservableObject {
         if section == .dynacap || section == .pph || section == .pickerScorecard {
             latestBySection = HeartbeatMath.overlayDynacapPPH(latestBySection)
         }
+        if section == .pickPath || section == .aisleMapper {
+            joinAisleMapperOntoPickPathIfNeeded()
+        }
         if section == .labor {
             rebuildLaborWeekIndex()
         }
         installSectionSlice(section)
+        if PulseLaunch.shouldRebuildPickPathIndexAfterSectionLoad(section) {
+            rebuildPickPathIndexFromWarehouse()
+        }
     }
 
     private func hydrateFilteredHeavy() async {
@@ -6231,9 +6417,20 @@ final class HeartbeatStore: ObservableObject {
             cachedPickerBoard = bits.pickerBoard
         }
         cachedChecklistGroups = bits.checklistGroups
-        pickPathPickersByStore = bits.pickPathPickersByStore
-        pickPathByShopper = bits.pickPathByShopper
-        installPPHPickerIndex(fromRows: bits.pphPickersByStore)
+        if PulseLaunch.shouldKeepLivePickPathIndex(
+            existing: pickPathPickersByStore,
+            incoming: bits.pickPathPickersByStore
+        ) {
+            // Deferred pick-path join already filled expand. Do not clobber.
+        } else {
+            pickPathPickersByStore = bits.pickPathPickersByStore
+            pickPathByShopper = bits.pickPathByShopper
+        }
+        if bits.pphPickersByStore.isEmpty, !pphPickersByStore.isEmpty {
+            // Keep live PPH index.
+        } else {
+            installPPHPickerIndex(fromRows: bits.pphPickersByStore)
+        }
         refreshChecklistOpenCount()
         let pickers = filteredLatest[.pickerScorecard] ?? []
         if filters.isActive, PulseLaunch.shouldRejectCompanyPickerIndexUnderSeat() {

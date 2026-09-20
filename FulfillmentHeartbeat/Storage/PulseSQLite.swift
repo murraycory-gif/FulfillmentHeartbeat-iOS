@@ -257,7 +257,7 @@ enum PulseSQLite {
         let found = Set(out.map(\.section))
         let light: Set<MetricSection> = [
             .sales, .lostRevenue, .fiveStar, .labor, .missingItems, .preSubOOS,
-            .pickPath, .prepNotReady, .dynacap, .scheduleQuality, .pph
+            .pickPath, .aisleMapper, .prepNotReady, .dynacap, .scheduleQuality, .pph
         ]
         for section in sections where light.contains(section) && !found.contains(section) {
             out.append(contentsOf: rowsMatchingSection(db: db, section: section, stores: stores))

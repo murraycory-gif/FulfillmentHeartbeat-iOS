@@ -379,6 +379,15 @@ struct SalesPack {
         self.health = HeartbeatMath.salesHealth(planPct: nil, yoy: yoy)
     }
 
+    /// Company-wide Total uses the pack `sales_grain=company` row when present.
+    init(company: MetricRow?, stores: [MetricRow]) {
+        if let company, HeartbeatMath.salesHeadlineDollars(company) > 0 {
+            self.init(company)
+        } else {
+            self.init(rows: stores)
+        }
+    }
+
     init(
         sales: Double?,
         yoy: Double?,
@@ -682,13 +691,14 @@ struct SectionSummary: Identifiable, Equatable, Codable {
     var underScheduledCount: Int = 0
     var overScheduledCount: Int = 0
     var lostRevenuePct: Double? = nil
+    var salesYoyPct: Double? = nil
 
     var id: MetricSection { section }
 
     enum CodingKeys: String, CodingKey {
         case section, storeCount, headline, headlineLabel, secondary, health
         case watchCount, riskCount, lastFilename, lastUploadedAt
-        case underScheduledCount, overScheduledCount, lostRevenuePct
+        case underScheduledCount, overScheduledCount, lostRevenuePct, salesYoyPct
     }
 
     init(
@@ -704,7 +714,8 @@ struct SectionSummary: Identifiable, Equatable, Codable {
         lastUploadedAt: Date?,
         underScheduledCount: Int = 0,
         overScheduledCount: Int = 0,
-        lostRevenuePct: Double? = nil
+        lostRevenuePct: Double? = nil,
+        salesYoyPct: Double? = nil
     ) {
         self.section = section
         self.storeCount = storeCount
@@ -719,6 +730,7 @@ struct SectionSummary: Identifiable, Equatable, Codable {
         self.underScheduledCount = underScheduledCount
         self.overScheduledCount = overScheduledCount
         self.lostRevenuePct = lostRevenuePct
+        self.salesYoyPct = salesYoyPct
     }
 
     init(from decoder: Decoder) throws {
@@ -736,9 +748,13 @@ struct SectionSummary: Identifiable, Equatable, Codable {
         underScheduledCount = try container.decodeIfPresent(Int.self, forKey: .underScheduledCount) ?? 0
         overScheduledCount = try container.decodeIfPresent(Int.self, forKey: .overScheduledCount) ?? 0
         lostRevenuePct = try container.decodeIfPresent(Double.self, forKey: .lostRevenuePct)
+        salesYoyPct = try container.decodeIfPresent(Double.self, forKey: .salesYoyPct)
     }
 
     var headlineText: String {
+        if PulseLaunch.isPrepEmptyChrome(self) {
+            return PulseLaunch.prepEmptyRateText
+        }
         guard let headline else { return "—" }
         if section == .fiveStar {
             return String(format: "%.2f", headline)
@@ -2302,11 +2318,18 @@ enum HeartbeatMath {
             let mapDate = AisleMapperMath.mapperISO(row) ?? ""
             let seqDate = AisleMapperMath.sequenceISO(row) ?? ""
             if mapDate.isEmpty && seqDate.isEmpty { continue }
-            byStore[key] = (mapDate, seqDate)
+            let extra = (mapDate, seqDate)
+            byStore[key] = extra
+            for alias in storeAliases(key) {
+                if byStore[alias] == nil { byStore[alias] = extra }
+            }
         }
         guard !byStore.isEmpty else { return rows }
         return rows.map { row in
-            guard let extra = byStore[canonicalStore(row.storeNumber)] else { return row }
+            let store = canonicalStore(row.storeNumber)
+            guard let extra = byStore[store] ?? storeAliases(store).compactMap({ byStore[$0] }).first else {
+                return row
+            }
             var text = row.textPayload
             if !extra.mapper.isEmpty { text[AisleMapperMath.mapperKey] = extra.mapper }
             if !extra.sequence.isEmpty { text[AisleMapperMath.sequenceKey] = extra.sequence }
@@ -2430,7 +2453,22 @@ enum HeartbeatMath {
                 lastUploadedAt: upload?.uploadedAt
             )
         case .prepNotReady:
-            let headline = average(latest.compactMap { $0.number("pnr_rate_pct") })
+            let rates = latest.compactMap { $0.number("pnr_rate_pct") }
+            if rates.isEmpty, !PulseLaunch.shouldInventPrepRateOnEmptyStore() {
+                return SectionSummary(
+                    section: section,
+                    storeCount: 0,
+                    headline: 0,
+                    headlineLabel: "Avg PNR hours",
+                    secondary: PulseLaunch.prepEmptyStoreDetail,
+                    health: .none,
+                    watchCount: 0,
+                    riskCount: 0,
+                    lastFilename: upload?.filename,
+                    lastUploadedAt: upload?.uploadedAt
+                )
+            }
+            let headline = average(rates)
             let atGoal = latest.filter { ($0.number("pnr_rate_pct") ?? .greatestFiniteMagnitude) <= pnrGoal }.count
             let atRisk = latest.filter { ($0.number("pnr_rate_pct") ?? 0) > pnrWatch }.count
             return SectionSummary(
@@ -2439,7 +2477,7 @@ enum HeartbeatMath {
                 headline: headline,
                 headlineLabel: "Avg PNR hours",
                 secondary: latest.isEmpty
-                    ? "No Prep Not Ready rows in this filter"
+                    ? PulseLaunch.prepEmptyStoreDetail
                     : "\(atGoal) of \(latest.count) at 1.9% · \(atRisk) above 2.5%",
                 health: latest.isEmpty ? .none : band(headline, good: pnrGoal, watch: pnrWatch, invert: true),
                 watchCount: watch,
@@ -2603,11 +2641,15 @@ enum HeartbeatMath {
                 by: { canonicalStore($0.storeNumber) }
             ).compactMap { $0.value.first }
             let storeSum = stores.reduce(0) { $0 + salesHeadlineDollars($1) }
-            let dollars = storeSum
-            let yoy = salesRollupYoY(
-                current: stores.map { salesHeadlineDollars($0) },
-                yoyPct: stores.map { $0.number("sales_yoy_pct") }
-            )
+            let company = salesCompanyRow(latest)
+            let companyDollars = company.map { salesHeadlineDollars($0) } ?? 0
+            let dollars = companyDollars > 0 ? companyDollars : storeSum
+            let yoy = companyDollars > 0
+                ? company?.number("sales_yoy_pct")
+                : salesRollupYoY(
+                    current: stores.map { salesHeadlineDollars($0) },
+                    yoyPct: stores.map { $0.number("sales_yoy_pct") }
+                )
             let plan = stores.compactMap { $0.number("sales_plan") }.reduce(0, +)
             let planPct: Double? = {
                 if let direct = average(stores.compactMap { $0.number("sales_plan_pct") }) { return direct }
@@ -2630,7 +2672,8 @@ enum HeartbeatMath {
                 watchCount: flat,
                 riskCount: down,
                 lastFilename: upload?.filename,
-                lastUploadedAt: upload?.uploadedAt
+                lastUploadedAt: upload?.uploadedAt,
+                salesYoyPct: yoy
             )
         case .missingItems:
             let headline = average(latest.compactMap { $0.number(MissingItemDept.totalKey) })
@@ -3692,6 +3735,19 @@ enum HeartbeatMath {
     static func salesHeadlineDollars(_ row: MetricRow) -> Double {
         if let week = row.number("sales_dollars"), week > 0 { return week }
         return (0..<7).compactMap { row.number("sales_d\($0)_dollars") }.reduce(0, +)
+    }
+
+    /// Official Excel Total row. Company-wide Sales must use this, not a store rollup.
+    static func salesCompanyRow(_ rows: [MetricRow]) -> MetricRow? {
+        if let hit = rows.first(where: { $0.textPayload["sales_grain"] == "company" }) {
+            return hit
+        }
+        return rows.first {
+            canonicalStore($0.storeNumber).isEmpty
+                && $0.storeNumber.caseInsensitiveCompare("total") != .orderedSame
+                && $0.textPayload["sales_grain"] != "day"
+                && salesHeadlineDollars($0) >= 5_000_000
+        }
     }
 
     static func salesOrders(_ row: MetricRow) -> Double {

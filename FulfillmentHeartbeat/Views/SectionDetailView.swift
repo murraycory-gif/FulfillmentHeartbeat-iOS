@@ -105,7 +105,7 @@ struct SectionDetailView: View {
             if section == .preSubOOS {
                 await store.ensureSectionLoaded(.preSubOOSItem)
             }
-            if section == .pickPath {
+            if section == .pickPath, PulseLaunch.shouldLoadPickPathPickerOnPageOpen() {
                 await store.ensureSectionLoaded(.pickPathPicker)
             }
         }
@@ -990,7 +990,9 @@ struct PhoneSectionPage: View {
                     PhoneCommandHeroCard(card: store.summary(for: section))
                 } else {
                     PhoneCommandHeroCard(card: store.summary(for: section))
-                    seatMetricCard
+                    if PulseLaunch.shouldShowThisSeatCallout() {
+                        seatMetricCard
+                    }
                     warningNotes
                     if section == .labor {
                         LaborWeekFilterBar()

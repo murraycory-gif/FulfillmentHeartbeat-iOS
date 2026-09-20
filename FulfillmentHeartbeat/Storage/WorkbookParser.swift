@@ -2787,8 +2787,9 @@ enum WorkbookParser {
             return hasStore && hasPNR
         }) else { return nil }
 
-        let header = matrix[headerIndex].map(normHeader)
-        let storeIdx = header.firstIndex { storeKeys.contains($0) || $0 == "store" }
+        let rawHeader = matrix[headerIndex]
+        let header = rawHeader.map(normHeader)
+        let storeIdx = preferredPrepStoreColumnIndex(rawHeader)
         let divIdx = header.firstIndex { divisionKeys.contains($0) }
         let distIdx = header.firstIndex { districtKeys.contains($0) }
         let omIdx = header.firstIndex { omKeys.contains($0) }
@@ -4060,6 +4061,28 @@ enum WorkbookParser {
             ))
         }
         return out
+    }
+
+    /// Prep Excel `Store #` is a bogus 1 on every row. Cook must use `Store`.
+    static func preferredPrepStoreColumnIndex(_ rawHeaders: [String]) -> Int? {
+        let trimmed = rawHeaders.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        if let exact = trimmed.firstIndex(where: isExactStoreHeader) {
+            return exact
+        }
+        let names = trimmed.map(normHeader)
+        return names.indices.first {
+            (storeKeys.contains(names[$0]) || names[$0] == "store") && !isStoreHashHeader(trimmed[$0])
+        }
+    }
+
+    static func isExactStoreHeader(_ raw: String) -> Bool {
+        raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            .compare("Store", options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
+    }
+
+    static func isStoreHashHeader(_ raw: String) -> Bool {
+        let compact = raw.lowercased().filter { !$0.isWhitespace }
+        return compact == "store#" || compact.hasPrefix("store#")
     }
 
     static func normHeader(_ raw: String) -> String {

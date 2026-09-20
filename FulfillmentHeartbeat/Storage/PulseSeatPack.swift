@@ -202,6 +202,8 @@ enum PulseSeatPack {
     }
 
     /// Rows that belong in a seat sqlite. Company thin drops shopper tape.
+    /// District / OM / store packs keep picker scorecard plus `pick_path_picker`
+    /// rows joined by LDAP so Pick Path store expand is not an empty placeholder.
     static func scopeRows(
         _ rows: [MetricRow],
         roster: [String: HeartbeatMath.StoreIdentity],
@@ -212,11 +214,34 @@ enum PulseSeatPack {
         }
         let allowed = PulseCaches.allowedStores(roster: roster, filters: key.filters) ?? []
         guard !allowed.isEmpty else { return [] }
-        return rows.filter { row in
+        var storesByShopper: [String: Set<String>] = [:]
+        for row in rows where row.section == .pickerScorecard {
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
-            if store.isEmpty { return false }
-            return HeartbeatMath.storeInAllowed(store, allowed: allowed)
+            guard !store.isEmpty, HeartbeatMath.storeInAllowed(store, allowed: allowed) else { continue }
+            for alias in HeartbeatMath.shopperAliases(row) {
+                storesByShopper[alias, default: []].insert(store)
+            }
         }
+        var out: [MetricRow] = []
+        out.reserveCapacity(rows.count)
+        for row in rows {
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            if !store.isEmpty {
+                if HeartbeatMath.storeInAllowed(store, allowed: allowed) {
+                    out.append(row)
+                }
+                continue
+            }
+            guard row.section == .pickPathPicker else { continue }
+            var targets = Set<String>()
+            for alias in HeartbeatMath.shopperAliases(row) {
+                targets.formUnion(storesByShopper[alias] ?? [])
+            }
+            for target in targets.sorted() {
+                out.append(PulseLaunch.stampPickPathPickerStore(row, store: target))
+            }
+        }
+        return out
     }
 
     static func sectionStoreCounts(
@@ -243,7 +268,9 @@ enum PulseSeatPack {
         roster: [String: HeartbeatMath.StoreIdentity],
         to dest: URL
     ) throws -> Entry {
-        let scoped = scopeRows(rows, roster: roster, key: key)
+        let scoped = PulseLaunch.bakeAisleMapperOntoPickPath(
+            scopeRows(rows, roster: roster, key: key)
+        )
         let grain = key.dashboardGrain
         let caches = PulseCaches.build(
             rows: scoped,
