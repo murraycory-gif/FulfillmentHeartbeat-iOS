@@ -34,6 +34,16 @@ enum HeartbeatIngest {
             )
             print("  \(sheet.section.title): \(incoming.count) rows")
         }
+        rows = HeartbeatMath.rowsStampingRosterAuthoritative(rows)
+        let beforeGarbage = rows.count
+        rows.removeAll { HeartbeatMath.isGarbageFact($0) }
+        if beforeGarbage != rows.count {
+            print("Dropped \(beforeGarbage - rows.count) garbage filter/total fact(s).")
+        }
+        if let reason = HeartbeatMath.lossBindSoftFail(rows) {
+            fputs("\(reason)\n", stderr)
+            exit(1)
+        }
         print("Cooking dashboard tiles…")
         let caches = PulseCaches.build(
             rows: rows,
@@ -51,6 +61,11 @@ enum HeartbeatIngest {
             print("  card \(summary.section.rawValue): stores=\(summary.storeCount) head=\(head) risk=\(summary.riskCount)")
         }
         print("  picker shoppers=\(chrome.pickerShoppers) opportunity=\(chrome.pickerOpportunity) strong=\(chrome.pickerStrong)")
+        let scorecardFacts = rows.filter { $0.section == .pickerScorecard }.count
+        if HeartbeatMath.orphanScorecardChrome(shoppersCited: chrome.pickerShoppers, scorecardFacts: scorecardFacts) {
+            fputs("Soft FAIL: orphan chrome cites \(chrome.pickerShoppers) shoppers with \(scorecardFacts) picker_scorecard facts.\n", stderr)
+            exit(1)
+        }
         for section in [MetricSection.lostRevenue, .labor, .sales, .fiveStar] {
             let count = rows.filter {
                 $0.section == section && !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty
