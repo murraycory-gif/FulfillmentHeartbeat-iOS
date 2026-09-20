@@ -1,1 +1,234 @@
-PLACEHOLDER
+name: Cook Heartbeat pack
+
+# Turns Heartbeat Daily Report.xlsx in Supabase into current.sqlite.
+# Testers never parse Excel. Cory's Mac does not need to be on.
+# Soft KEEP thin company with slim pick_path_picker shopper grain as LIVE.
+# Soft FAIL fat (~50MB+) hits Supabase 413 — drop scorecard/item only.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "*/15 * * * *"
+
+jobs:
+  cook:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download workbook from Supabase
+        env:
+          PROJECT: https://pcnjujfmlsklhrosxzlt.supabase.co
+          KEY: sb_publishable_T3Pzm01sMXCv2rQaCeP_Kg_4ao2M5zd
+        run: |
+          set -euo pipefail
+          curl -sS -X POST \
+            -H "Authorization: Bearer $KEY" -H "apikey: $KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"prefix":"","limit":50}' \
+            "$PROJECT/storage/v1/object/list/heartbeat-packs" > /tmp/bucket.json
+          python3 - <<'PY'
+          import json, os
+          rows = json.load(open("/tmp/bucket.json"))
+          files = {r["name"]: r for r in rows}
+          xlsx = files.get("Heartbeat Daily Report.xlsx")
+          pack = files.get("current.sqlite")
+          if not xlsx:
+              raise SystemExit("No Heartbeat Daily Report.xlsx in the bucket.")
+          xlsx_updated = xlsx.get("updated_at") or ""
+          pack_updated = (pack or {}).get("updated_at") or ""
+          force = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
+          print(f"xlsx {xlsx_updated} sqlite {pack_updated} force={force}")
+          if not force and pack_updated and xlsx_updated <= pack_updated:
+              open("/tmp/skip", "w").write("1")
+              print("Pack is already newer than the workbook. Skip.")
+          PY
+          if [ -f /tmp/skip ]; then
+            echo "skip=1" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          curl -sS -L -o /tmp/daily.xlsx \
+            -H "Authorization: Bearer $KEY" -H "apikey: $KEY" \
+            "$PROJECT/storage/v1/object/public/heartbeat-packs/Heartbeat%20Daily%20Report.xlsx"
+          ls -l /tmp/daily.xlsx
+
+      - name: Build kitchen
+        if: env.skip != '1'
+        run: |
+          set -euo pipefail
+          INGEST=Tools/HeartbeatIngest
+          mkdir -p "$INGEST/Sources"
+          cp FulfillmentHeartbeat/Models/Domain.swift "$INGEST/Sources/"
+          cp FulfillmentHeartbeat/Storage/WorkbookParser.swift "$INGEST/Sources/"
+          cp FulfillmentHeartbeat/Storage/PulseSQLite.swift "$INGEST/Sources/"
+          cp FulfillmentHeartbeat/Storage/PulseCaches.swift "$INGEST/Sources/"
+          cp FulfillmentHeartbeat/BuildStamp.swift "$INGEST/Sources/"
+          cp Tools/HeartbeatIngest/Ingest.swift "$INGEST/Sources/"
+          cp Tools/HeartbeatIngest/RollupMarketFill.swift "$INGEST/Sources/"
+          cd "$INGEST"
+          swift build -c release
+
+      - name: Cook sqlite pack
+        if: env.skip != '1'
+        run: |
+          set -euo pipefail
+          Tools/HeartbeatIngest/.build/release/HeartbeatIngest /tmp/daily.xlsx /tmp/current.sqlite
+          ls -l /tmp/current.sqlite
+
+      - name: Soft KEEP thin company (keep slim pick_path_picker)
+        if: env.skip != '1'
+        run: |
+          set -euo pipefail
+          # Fat market Soft FAIL Supabase 413. Soft KEEP slim company LIVE.
+          # Soft KEEP stamped pick_path_picker for store expand shoppers.
+          # Soft FAIL fat: drop picker_scorecard + pre_sub_oos_item only.
+          FAT_BYTES=$(wc -c < /tmp/current.sqlite | tr -d ' ')
+          echo "fat $FAT_BYTES"
+          python3 - <<'PY'
+          import json, sqlite3, os, uuid
+          path = "/tmp/current.sqlite"
+          con = sqlite3.connect(path)
+          before = con.execute("select section, count(*) from facts group by 1").fetchall()
+          print("before", before)
+
+          # ldap/shopper -> stores from fat scorecard (before drop)
+          stores_by = {}
+          for store, text in con.execute(
+              "SELECT store_number, text_json FROM facts WHERE section='picker_scorecard'"
+          ):
+              store = (store or "").strip().lstrip("0") or (store or "").strip()
+              if not store:
+                  continue
+              try:
+                  t = json.loads(text or "{}")
+              except Exception:
+                  t = {}
+              for key in ("shopper_id", "shopper_name", "employee_alternate_id"):
+                  alias = (t.get(key) or "").strip().upper()
+                  if alias:
+                      stores_by.setdefault(alias, set()).add(store)
+
+          # Stamp STORE onto pick_path_picker (Path Picker has no STORE).
+          stamped = []
+          for row in con.execute(
+              "SELECT division, operations_om, store_name, recorded_on, payload_json, text_json "
+              "FROM facts WHERE section='pick_path_picker'"
+          ):
+              division, om, store_name, recorded_on, payload_json, text_json = row
+              try:
+                  t = json.loads(text_json or "{}")
+              except Exception:
+                  t = {}
+              try:
+                  p = json.loads(payload_json or "{}")
+              except Exception:
+                  p = {}
+              # Soft KEEP slim columns for expand table
+              slim_p = {}
+              for k in ("compliance_pct", "orders", "pph"):
+                  if k in p and p[k] is not None:
+                      slim_p[k] = p[k]
+              ldap = (t.get("shopper_id") or t.get("shopper_name") or t.get("employee_alternate_id") or "").strip().upper()
+              slim_t = {"shopper_id": ldap, "shopper_name": t.get("shopper_name") or ldap}
+              targets = sorted(stores_by.get(ldap, []))
+              if not targets:
+                  continue
+              for store in targets:
+                  stamped.append(
+                      (
+                          str(uuid.uuid4()).upper(),
+                          "pick_path_picker",
+                          store,
+                          division or "",
+                          om or "",
+                          store_name,
+                          recorded_on,
+                          json.dumps(slim_p, separators=(",", ":")),
+                          json.dumps(slim_t, separators=(",", ":")),
+                      )
+                  )
+
+          con.execute("DELETE FROM facts WHERE section IN ('pre_sub_oos_item','picker_scorecard','pick_path_picker')")
+          con.executemany(
+              "INSERT INTO facts (id, section, store_number, division, operations_om, store_name, recorded_on, payload_json, text_json) "
+              "VALUES (?,?,?,?,?,?,?,?,?)",
+              stamped,
+          )
+          picker_n = con.execute("SELECT COUNT(*) FROM facts WHERE section='pick_path_picker'").fetchone()[0]
+          aisle_n = con.execute("SELECT COUNT(*) FROM facts WHERE section='aisle_mapper'").fetchone()[0]
+          if picker_n < 1:
+              raise SystemExit("Soft FAIL: pick_path_picker count is 0 after thin — refusing LIVE without shoppers")
+          if aisle_n < 1:
+              raise SystemExit("Soft FAIL: aisle_mapper missing after thin")
+          counts = {s: str(n) for s, n in con.execute("select section, count(*) from facts group by 1")}
+          con.execute("UPDATE pack_meta SET counts_json=?", (json.dumps(counts, separators=(",", ":")),))
+          con.commit()
+          con.execute("VACUUM")
+          con.close()
+          after = sqlite3.connect(path).execute("select section, count(*) from facts group by 1").fetchall()
+          print("after", after)
+          print("pick_path_picker", picker_n, "aisle_mapper", aisle_n)
+          print("thin", os.path.getsize(path))
+          PY
+          THIN_BYTES=$(wc -c < /tmp/current.sqlite | tr -d ' ')
+          echo "thin $THIN_BYTES"
+          if [ "$THIN_BYTES" -gt 50000000 ]; then
+            echo "Soft FAIL: thin still too large ($THIN_BYTES) — refusing fat LIVE"
+            exit 1
+          fi
+          PICKER_N=$(sqlite3 /tmp/current.sqlite "SELECT COUNT(*) FROM facts WHERE section='pick_path_picker';")
+          echo "pick_path_picker=$PICKER_N"
+          if [ "$PICKER_N" -lt 1 ]; then
+            echo "Soft FAIL: pick_path_picker=0"
+            exit 1
+          fi
+
+      - name: Publish current.sqlite
+        if: env.skip != '1'
+        env:
+          PROJECT: https://pcnjujfmlsklhrosxzlt.supabase.co
+          KEY: sb_publishable_T3Pzm01sMXCv2rQaCeP_Kg_4ao2M5zd
+        run: |
+          set -euo pipefail
+          BYTES=$(wc -c < /tmp/current.sqlite | tr -d ' ')
+          if [ "$BYTES" -lt 50000 ]; then
+            echo "Pack too small ($BYTES)"
+            exit 1
+          fi
+          if [ "$BYTES" -gt 50000000 ]; then
+            echo "Soft FAIL: refusing publish over 50MB ($BYTES)"
+            exit 1
+          fi
+          PICKER_N=$(sqlite3 /tmp/current.sqlite "SELECT COUNT(*) FROM facts WHERE section='pick_path_picker';")
+          if [ "$PICKER_N" -lt 1 ]; then
+            echo "Soft FAIL: pick_path_picker=0 — not publishing"
+            exit 1
+          fi
+          upload() {
+            local path="$1"
+            local code
+            code=$(curl -sS -o /tmp/up.txt -w "%{http_code}" \
+              -X POST \
+              -H "Authorization: Bearer $KEY" -H "apikey: $KEY" \
+              -H "Content-Type: application/octet-stream" \
+              -H "x-upsert: true" \
+              --data-binary @/tmp/current.sqlite \
+              "$PROJECT/storage/v1/object/heartbeat-packs/$path")
+            if [ "$code" != "200" ] && [ "$code" != "201" ]; then
+              code=$(curl -sS -o /tmp/up.txt -w "%{http_code}" \
+                -X PUT \
+                -H "Authorization: Bearer $KEY" -H "apikey: $KEY" \
+                -H "Content-Type: application/octet-stream" \
+                -H "x-upsert: true" \
+                --data-binary @/tmp/current.sqlite \
+                "$PROJECT/storage/v1/object/heartbeat-packs/$path")
+            fi
+            echo "upload $path $code"
+            cat /tmp/up.txt
+            echo
+            if [ "$code" != "200" ] && [ "$code" != "201" ]; then
+              exit 1
+            fi
+          }
+          upload "packs/seat/company/all/current.sqlite"
+          upload "current.sqlite"
+          echo "Published thin company current.sqlite ($BYTES bytes) pick_path_picker=$PICKER_N."
