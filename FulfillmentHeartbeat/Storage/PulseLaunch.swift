@@ -1464,6 +1464,7 @@ enum PulseLaunch {
     }
 
     /// First-paint scoreboard chrome. Remaining tiles fill after chrome.
+    /// Memo v3: one glance = ALL seat KPIs — use `seatGlanceKPISections()`.
     static func seatPageChromeSections() -> [MetricSection] {
         [.sales, .lostRevenue, .fiveStar]
     }
@@ -1485,6 +1486,45 @@ enum PulseLaunch {
             .preSubOOS,
             .pickerScorecard,
         ]
+    }
+
+    /// Cached summary tiles only — not PhoneSectionPage hosts (Jetsam Soft FAIL).
+    static func seatGlanceKPISections() -> [MetricSection] {
+        seatPageMetricSections()
+    }
+
+    /// Memo v3: one glance paints every seat KPI. Heavy tables still defer.
+    static func shouldPaintAllSeatKPIsAtAGlance() -> Bool { true }
+
+    static func shouldShowSeatActionableStrip() -> Bool { true }
+
+    static func shouldShowShareInSeatBanner() -> Bool { false }
+
+    static func shouldShowSiblingChipsInSeatBanner() -> Bool { false }
+
+    static func shouldShowSeatBannerClearAndCrumbOnly() -> Bool { true }
+
+    static func shouldReplaceSeatKPINumbersWithCharts() -> Bool { false }
+
+    static func seatActionableCards(_ cards: [SectionSummary]) -> [SectionSummary] {
+        cards
+            .filter { CommandCenterLayout.displayedHealth($0).needsAction }
+            .sorted { lhs, rhs in
+                if lhs.health.dashboardRank != rhs.health.dashboardRank {
+                    return lhs.health.dashboardRank < rhs.health.dashboardRank
+                }
+                return CommandCenterLayout.glanceTitle(lhs.section)
+                    < CommandCenterLayout.glanceTitle(rhs.section)
+            }
+    }
+
+    /// One line a director can act on. Empty when every KPI is healthy / empty.
+    static func seatActionableStripLine(_ cards: [SectionSummary]) -> String {
+        let items = seatActionableCards(cards)
+        guard !items.isEmpty else { return "" }
+        return items.map { card in
+            "\(CommandCenterLayout.glanceTitle(card.section)) \(seatKPIActionLine(card))"
+        }.joined(separator: "  ·  ")
     }
 
     static func seatBannerTitle(filters: DashboardFilters) -> String {

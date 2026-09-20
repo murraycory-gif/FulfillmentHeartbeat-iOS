@@ -24,4 +24,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.443 / 1.0 (769) — Seat hub behind `seatFirstPhoneEnabled` (default OFF). Design bar: instant seat switcher + KPI status/delta. CompactNav fallback. iPhone-only when ON. Mac Command Center. THIS SEAT still gone. Company seat cap 40MB. 436 KEEP: Pick Path expand shoppers + Prep Store chrome.
+HB-0828.444 / 1.0 (770) — Seat hub behind `seatFirstPhoneEnabled` (default OFF). Memo v3: all KPIs at a glance + actionable strip + Clear/crumb. CompactNav fallback. iPhone-only when ON. Mac Command Center. THIS SEAT still gone. Company seat cap 40MB. 436 KEEP: Pick Path expand shoppers + Prep Store chrome.
