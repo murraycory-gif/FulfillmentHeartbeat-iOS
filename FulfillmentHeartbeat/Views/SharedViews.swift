@@ -980,7 +980,7 @@ struct HubChromePill: View {
 
 struct FilterBar: View {
     @EnvironmentObject private var store: HeartbeatStore
-    @EnvironmentObject private var router: HubRouter
+    @EnvironmentObject private var sheets: HubSheetPresenter
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var sheetFocus: FilterFocus?
 
@@ -1013,6 +1013,9 @@ struct FilterBar: View {
         .fullScreenCover(item: $sheetFocus) { focus in
             FilterSheet(initialFocus: focus)
                 .environmentObject(store)
+        }
+        .onChange(of: sheetFocus) { wasOpen, isOpen in
+            if wasOpen != nil, isOpen == nil { store.endInteractiveSheet() }
         }
     }
 
@@ -1052,11 +1055,8 @@ struct FilterBar: View {
                 showsChevron: false
             ) {
                 guard store.shareReady else { return }
-                var transaction = Transaction()
-                transaction.animation = nil
-                withTransaction(transaction) {
-                    router.showShare = true
-                }
+                store.beginInteractiveSheet()
+                sheets.presentShare()
             }
         }
     }
@@ -1076,7 +1076,14 @@ struct FilterBar: View {
     }
 
     private func openFilters(_ focus: FilterFocus) {
-        sheetFocus = focus
+        store.beginInteractiveSheet()
+        var transaction = Transaction()
+        if PulseLaunch.shouldPresentPhoneSheetsWithoutHubAnimation() {
+            transaction.animation = nil
+        }
+        withTransaction(transaction) {
+            sheetFocus = focus
+        }
     }
 
     private func clearNow() {
@@ -2377,6 +2384,7 @@ struct PickPathTable: View {
                     headerPin.storeCount = rows.count
                 }
                 .onChange(of: store.seatPaintStamp) { _, _ in
+                    guard store.allowsStampRebuild else { return }
                     rebuildOrder(sort: sort, ascending: ascending)
                     headerPin.storeCount = rows.count
                 }
@@ -2940,7 +2948,10 @@ struct PickPathRollupTable: View {
         }
         .onAppear(perform: rebuild)
         .onChange(of: store.filterStamp) { _, _ in rebuild() }
-        .onChange(of: store.seatPaintStamp) { _, _ in rebuild() }
+        .onChange(of: store.seatPaintStamp) { _, _ in
+            guard store.allowsStampRebuild else { return }
+            rebuild()
+        }
     }
 
     private func rebuild() {
@@ -3143,7 +3154,10 @@ private struct PathShopperTable: View {
                 Task { await fillShoppers() }
             }
             .onChange(of: store.filterStamp) { _, _ in rebuildPickers() }
-            .onChange(of: store.seatPaintStamp) { _, _ in rebuildPickers() }
+            .onChange(of: store.seatPaintStamp) { _, _ in
+                guard store.allowsStampRebuild else { return }
+                rebuildPickers()
+            }
             .onChange(of: store.pickerLoading) { _, _ in rebuildPickers() }
         }
     }
@@ -4513,6 +4527,7 @@ struct PrepTable: View {
                     headerPin.storeCount = rows.count
                 }
                 .onChange(of: store.seatPaintStamp) { _, _ in
+                    guard store.allowsStampRebuild else { return }
                     rebuildOrder(sort: sort, ascending: ascending)
                     headerPin.storeCount = rows.count
                 }
@@ -5024,7 +5039,10 @@ struct PrepRollupTable: View {
         }
         .onAppear(perform: rebuild)
         .onChange(of: store.filterStamp) { _, _ in rebuild() }
-        .onChange(of: store.seatPaintStamp) { _, _ in rebuild() }
+        .onChange(of: store.seatPaintStamp) { _, _ in
+            guard store.allowsStampRebuild else { return }
+            rebuild()
+        }
     }
 
     private func rebuild() {
@@ -10820,6 +10838,7 @@ struct HubChromeModifier: ViewModifier {
 struct HubBrandBar: View {
     @EnvironmentObject private var router: HubRouter
     @EnvironmentObject private var store: HeartbeatStore
+    @EnvironmentObject private var sheets: HubSheetPresenter
     @Environment(\.horizontalSizeClass) private var sizeClass
     var showBack: Bool
     var showsFilters: Bool
@@ -10964,7 +10983,11 @@ struct HubBrandBar: View {
     private var compactBar: some View {
         HStack(spacing: 6) {
             HubNavControl(symbol: "line.3.horizontal", title: "Pages") {
-                router.showCompactMenu = true
+                store.beginInteractiveSheet()
+                sheets.presentCompactMenu(
+                    selected: router.current,
+                    health: CompactNavHealth.snapshot(summaries: store.summaries)
+                )
             }
             .layoutPriority(1)
             Spacer(minLength: 4)

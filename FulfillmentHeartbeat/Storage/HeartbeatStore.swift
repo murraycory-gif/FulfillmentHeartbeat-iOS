@@ -111,6 +111,11 @@ final class HeartbeatStore: ObservableObject {
     private var paintGeneration = 0
     private var lastPaintedSeatKey: PulseSeatPack.Key?
     private var lastPublishedSeatPaintGeneration = Int.min
+    private var interactiveSheetCount = 0
+    private var pageOpenCount = 0
+    private var pendingSheetInvalidation = false
+    private var parkedSectionLoads: Set<MetricSection> = []
+    private var pageOpenWatchdog: Task<Void, Never>?
     private var pageOnlyGeneration = -1
     private var becameReadyAt: Date?
     private var pulseGeneration = 0
@@ -467,8 +472,124 @@ final class HeartbeatStore: ObservableObject {
         await streamPicker(preferSnappy: PulseLaunch.streamPickerSnappyAfterReady)
     }
 
+    /// Pages / Filters / Share: park background hops so present is not
+    /// blocked by pack decode or a `seatPaintStamp` remount of warm hosts.
+    /// Latch — a double-tap must not leave work parked after dismiss.
+    func beginInteractiveSheet() {
+        let alreadyOpen = interactiveSheetCount > 0
+        interactiveSheetCount = 1
+        guard !alreadyOpen else { return }
+        guard PulseLaunch.shouldParkBackgroundWorkWhileInteractiveSheetOpen() else { return }
+        grainPaintTask?.cancel()
+        if PulseLaunch.shouldCancelSeatSwapWhenSheetOpens() {
+            refilterTask?.cancel()
+        }
+        pageOnlyTask?.cancel()
+        expandFillTask?.cancel()
+        pickerLoadTask?.cancel()
+    }
+
+    func endInteractiveSheet() {
+        guard interactiveSheetCount > 0 else { return }
+        interactiveSheetCount = 0
+        let parked = parkedSectionLoads
+        parkedSectionLoads = []
+        if !parked.isEmpty {
+            Task { @MainActor in
+                for section in parked {
+                    await self.ensureSectionLoaded(section)
+                }
+            }
+        }
+        guard pendingSheetInvalidation else { return }
+        pendingSheetInvalidation = false
+        guard PulseLaunch.shouldDeferHubInvalidationWhileSheetOpen() else { return }
+        guard PulseLaunch.shouldPublishHeldSeatPaintAfterSheet() else { return }
+        publishSeatPaint(force: true)
+    }
+
+    private var shouldSuppressHubInvalidation: Bool {
+        (PulseLaunch.shouldDeferHubInvalidationWhileSheetOpen() && interactiveSheetCount > 0)
+            || (PulseLaunch.shouldCoalesceStampsDuringPageOpen() && pageOpenCount > 0)
+    }
+
+    /// Hidden / sheet-open hosts must not rebuild on filterStamp or seatPaint.
+    var allowsStampRebuild: Bool { !shouldSuppressHubInvalidation }
+
+    func shouldRebuildOnHubStamp(pageVisible: Bool) -> Bool {
+        allowsStampRebuild && PulseLaunch.shouldRebuildPageOnFilterStamp(pageVisible: pageVisible)
+    }
+
+    /// Pages sheet + first scorecard paint: do not evict/remount warm hosts.
+    var shouldFreezeWarmHosts: Bool {
+        PulseLaunch.shouldFreezeWarmHostsDuringInteractivePaint()
+            && (interactiveSheetCount > 0 || pageOpenCount > 0)
+    }
+
+    func beginPageOpen() {
+        guard PulseLaunch.shouldCoalesceStampsDuringPageOpen()
+            || PulseLaunch.shouldFreezeWarmHostsDuringInteractivePaint() else { return }
+        let already = pageOpenCount > 0
+        pageOpenCount = 1
+        guard !already else { return }
+        pageOpenWatchdog?.cancel()
+        pageOpenWatchdog = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: PulseLaunch.pageOpenStampHoldNanoseconds)
+            self.endPageOpen()
+        }
+    }
+
+    func endPageOpen() {
+        pageOpenWatchdog?.cancel()
+        pageOpenWatchdog = nil
+        guard pageOpenCount > 0 else { return }
+        pageOpenCount = 0
+        let parked = parkedSectionLoads
+        parkedSectionLoads = []
+        if !parked.isEmpty {
+            Task { @MainActor in
+                for section in parked {
+                    await self.ensureSectionLoaded(section)
+                }
+            }
+        }
+    }
+
+    /// Chrome first, then the page's needed rows / grains. Never leave
+    /// Sales / Prep / Pick Path blank because skipOnLight deferred them.
+    func openSectionPage(_ section: MetricSection) async {
+        beginPageOpen()
+        defer { endPageOpen() }
+        if PulseLaunch.shouldPaintSectionChromeBeforeSQL() {
+            await Task.yield()
+        }
+        if Task.isCancelled { return }
+        let needed = PulseLaunch.shouldForceLoadPageGrainsAfterChrome()
+            ? PulseLaunch.pageOpenForceLoadSections(section)
+            : [section]
+        for load in needed {
+            if Task.isCancelled { return }
+            await ensureSectionLoaded(load)
+        }
+        if Task.isCancelled { return }
+        if PulseLaunch.shouldForceLoadPageGrainsAfterChrome() {
+            await prefetchExpand(section: section)
+        }
+        if PulseLaunch.shouldPublishVisibleSectionAfterLoad(
+            dest: visibleDestination,
+            section: section
+        ) {
+            objectWillChange.send()
+        }
+    }
+
     func setVisibleDestination(_ dest: HubDestination) {
         visibleDestination = dest
+        if dest.section != nil {
+            beginPageOpen()
+        } else {
+            endPageOpen()
+        }
         if PulseLaunch.shouldDeferDestinationWorkOnNav() {
             Task { @MainActor in
                 await Task.yield()
@@ -491,7 +612,7 @@ final class HeartbeatStore: ObservableObject {
            PulseLaunch.shouldStartPickerStreamOnDestinationSwitch() {
             Task { await self.streamPicker(preferSnappy: dest == .pickerScorecard) }
         }
-        if isCompanyExpandScope, let section = dest.section {
+        if PulseLaunch.shouldForceLoadPageGrainsAfterChrome(), let section = dest.section {
             Task { await self.prefetchExpand(section: section) }
         }
     }
@@ -2539,6 +2660,10 @@ final class HeartbeatStore: ObservableObject {
 
     private func publishSeatPaint(force: Bool = false) {
         guard PulseLaunch.shouldPublishCommandCenterAfterSeatSwap() else { return }
+        if !force, shouldSuppressHubInvalidation {
+            pendingSheetInvalidation = true
+            return
+        }
         if !force, PulseLaunch.shouldCoalesceSeatPaintStamp(),
            lastPublishedSeatPaintGeneration == paintGeneration, seatPaintStamp > 0 {
             return
@@ -4558,6 +4683,10 @@ final class HeartbeatStore: ObservableObject {
     /// Cache writes during grain / pageOnly / picker fill. Never remount the hub
     /// while the user is scrolling or switching pages.
     private func acknowledgeBackgroundFill(stampIfAllowed: Bool) {
+        if shouldSuppressHubInvalidation {
+            pendingSheetInvalidation = true
+            return
+        }
         if stampIfAllowed {
             filterStamp += 1
             return
@@ -6024,6 +6153,12 @@ final class HeartbeatStore: ObservableObject {
         if PulseQuery.pageOnlySections.contains(section) {
             pageOnlyGeneration = paintGeneration
         }
+        if PulseLaunch.shouldPublishVisibleSectionAfterLoad(
+            dest: visibleDestination,
+            section: section
+        ) {
+            objectWillChange.send()
+        }
         acknowledgeBackgroundFill(stampIfAllowed: PulseLaunch.shouldStampPickerOrPageOnlyInstall())
     }
 
@@ -6057,6 +6192,11 @@ final class HeartbeatStore: ObservableObject {
 
     func ensureSectionLoaded(_ section: MetricSection) async {
         if Task.isCancelled { return }
+        if PulseLaunch.shouldParkSectionSQLWhileSheetOpen(),
+           interactiveSheetCount > 0 {
+            parkedSectionLoads.insert(section)
+            return
+        }
         let seatFirst = PulseLaunch.sectionPageFirstPaint(
             section: section,
             filtersActive: filters.isActive
@@ -6094,7 +6234,8 @@ final class HeartbeatStore: ObservableObject {
         let deferred = PulseQuery.skipOnLight.contains(section)
         if deferred {
             if (latestBySection[section] ?? []).count >= 2 {
-                if filteredLatest[section]?.isEmpty != false {
+                if filteredLatest[section]?.isEmpty != false
+                    || PulseLaunch.shouldInstallSliceWhenWarehouseHasRows() {
                     installSectionSlice(section)
                 } else if PulseLaunch.shouldRebuildPickPathIndexAfterSectionLoad(section) {
                     rebuildPickPathIndexFromWarehouse()
@@ -6103,17 +6244,12 @@ final class HeartbeatStore: ObservableObject {
             }
         } else {
             let rowCount = (latestBySection[section] ?? []).count
-            if factsOwned.contains(section) {
-                if PulseLaunch.shouldEarlyReturnOwnedSection(owned: true, rowCount: rowCount) {
-                    if section == .pickPath || section == .aisleMapper {
-                        joinAisleMapperOntoPickPathIfNeeded()
-                    }
-                    if PulseLaunch.shouldRebuildPickPathIndexAfterSectionLoad(section) {
-                        rebuildPickPathIndexFromWarehouse()
-                    }
-                    return
+            let ownedReady = PulseLaunch.shouldEarlyReturnOwnedSection(owned: factsOwned.contains(section), rowCount: rowCount)
+            if ownedReady || rowCount > 0 {
+                if PulseLaunch.shouldInstallSliceWhenWarehouseHasRows()
+                    || filteredLatest[section]?.isEmpty != false {
+                    installSectionSlice(section)
                 }
-            } else if rowCount > 0 {
                 if section == .pickPath || section == .aisleMapper {
                     joinAisleMapperOntoPickPathIfNeeded()
                 }

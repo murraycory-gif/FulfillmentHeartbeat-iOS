@@ -852,16 +852,23 @@ enum PulseLaunch {
         visibleCount > 0 && indexedAll == visibleCount
     }
 
+    /// Phone keeps the current page plus a couple of neighbors. Cap 12 remounted
+    /// the whole hub under every EnvironmentObject ping while Pages opened.
     static func maxWarmScorecardHosts(phone: Bool = false) -> Int {
-        phone ? 12 : 2
+        phone ? 3 : 2
     }
 
     static func warmScorecardList(
         existing: [MetricSection],
         incoming: MetricSection?,
-        cap: Int = maxWarmScorecardHosts()
+        cap: Int = maxWarmScorecardHosts(),
+        freeze: Bool = false
     ) -> [MetricSection] {
         guard let incoming else { return existing }
+        if freeze {
+            if existing.contains(incoming) { return existing }
+            return existing + [incoming]
+        }
         var next = existing.filter { $0 != incoming }
         next.append(incoming)
         if next.count > cap {
@@ -988,6 +995,98 @@ enum PulseLaunch {
 
     /// iPhone Pages list opens the destination on the first tap.
     static func shouldOpenPhonePagesOnFirstTap() -> Bool { true }
+
+    /// Pages / Filters / Share must flip on the tap. Do not animate the
+    /// warm hub tree (12 parked PhoneSectionPage hosts) before the sheet.
+    static func shouldPresentPhoneSheetsWithoutHubAnimation() -> Bool { true }
+
+    /// Cancel grain / pageOnly / expand / picker hops while a sheet is up
+    /// so pack decode and SQL cannot steal the present turn.
+    static func shouldParkBackgroundWorkWhileInteractiveSheetOpen() -> Bool { true }
+
+    /// Hidden warm phone scorecards must not subscribe to `seatPaintStamp`.
+    /// Binding stamp on every parked host is the iPhone "too fast" paint storm.
+    static func shouldBindSeatPaintOnHiddenPhoneSection() -> Bool { false }
+
+    static func shouldBindSeatPaintOnPhoneSection(isVisible: Bool) -> Bool {
+        isVisible || shouldBindSeatPaintOnHiddenPhoneSection()
+    }
+
+    /// Compact Pages list uses cached summaries only — never `displayRows` slice.
+    static func shouldUseCachedSummariesOnCompactNav() -> Bool { true }
+
+    /// Hold hub stamps until the sheet closes, then one coalesced paint.
+    static func shouldDeferHubInvalidationWhileSheetOpen() -> Bool { true }
+
+    /// Seat swap / Clear must finish under the sheet. Canceling `refilterTask`
+    /// left company/district mid-swap and then flash-stormed on dismiss.
+    static func shouldCancelSeatSwapWhenSheetOpens() -> Bool { false }
+
+    /// Do not remount Command Center just because a background fill finished
+    /// under Pages. Cached chrome already painted on the filter / Clear tap.
+    static func shouldPublishHeldSeatPaintAfterSheet() -> Bool { false }
+
+    /// Page SQL must run when the user opens a scorecard. Parking it while
+    /// the Pages latch is still 1 left iPhone TF pages blank forever
+    /// (task id does not re-arm).
+    static func shouldParkSectionSQLWhileSheetOpen() -> Bool { false }
+
+    /// After sqlite lands for the visible page, one objectWillChange so
+    /// PhoneSectionPage heavy blocks paint. Not a filterStamp remount.
+    static func shouldPublishVisibleSectionAfterLoad(
+        dest: HubDestination,
+        section: MetricSection
+    ) -> Bool {
+        dest.section == section || dest == .dashboard
+    }
+
+    /// Hero chrome first. SQL / slice / PulseCaches must not steal the
+    /// first paint turn — that left iPhone pages empty until MainActor freed.
+    static func shouldPaintSectionChromeBeforeSQL() -> Bool { true }
+
+    /// Soft FAIL: deferred grains stay blank forever if page open only
+    /// early-returns. After chrome, force-load the page's needed rows.
+    static func shouldForceLoadPageGrainsAfterChrome() -> Bool { true }
+
+    /// `shouldLoadPickPathPickerOnPageOpen` stays false (first paint). After
+    /// chrome, load skipOnLight companions so shoppers / items cannot stay empty.
+    static func shouldForceLoadDeferredCompanionAfterChrome() -> Bool { true }
+
+    /// Warehouse rows without `installSectionSlice` left company Sales /
+    /// Prep / Pick Path / 5 Star / Loss tables empty after Clear already
+    /// showed $79.9M.
+    static func shouldInstallSliceWhenWarehouseHasRows() -> Bool { true }
+
+    static func requiredChromeThenFillSections() -> Set<MetricSection> {
+        [.sales, .prepNotReady, .pickPath, .fiveStar, .lostRevenue]
+    }
+
+    static func pageOpenForceLoadSections(_ section: MetricSection) -> [MetricSection] {
+        var sections = [section]
+        if section == .preSubOOS { sections.append(.preSubOOSItem) }
+        if shouldForceLoadDeferredCompanionAfterChrome() {
+            if section == .pickPath {
+                sections.append(.aisleMapper)
+                sections.append(.pickPathPicker)
+            }
+        } else if section == .pickPath, shouldLoadPickPathPickerOnPageOpen() {
+            sections.append(.pickPathPicker)
+        }
+        return sections
+    }
+
+    /// Do not evict warm hosts while Pages is up or a scorecard is first
+    /// painting. Evict remounts the remaining tree (Jetsam / multi-second freeze).
+    static func shouldFreezeWarmHostsDuringInteractivePaint() -> Bool { true }
+
+    /// Hold filterStamp / seatPaint while the opened page paints chrome.
+    static func shouldCoalesceStampsDuringPageOpen() -> Bool { true }
+
+    static var pageOpenStampHoldNanoseconds: UInt64 { 800_000_000 }
+
+    /// Phone Pages sheet shows the same `BuildStamp.label` capsule as the
+    /// iPad / Mac sidebar. Do not invent a second format.
+    static func shouldShowBuildStampOnPhonePages() -> Bool { true }
 
     /// Phone Pages icons use section health (same paint as iPad / Mac).
     static func shouldTintPhonePagesIconsWithHealth() -> Bool { true }
@@ -1284,7 +1383,8 @@ enum PulseLaunch {
     static var deferredSeatInstallDelayNanoseconds: UInt64 { 16_000_000 }
 
     static func shouldDelaySectionSQL(seatAlreadyPainted: Bool) -> Bool {
-        shouldDeferSectionSQLUntilAfterChrome() && !seatAlreadyPainted
+        _ = seatAlreadyPainted
+        return shouldPaintSectionChromeBeforeSQL()
     }
 
     /// Home glance never mounts DashScopeStrip / store tables. Expand is a section open.

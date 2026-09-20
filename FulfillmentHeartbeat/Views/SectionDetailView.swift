@@ -49,7 +49,14 @@ struct SectionDetailView: View {
     }
 
     var body: some View {
-        let _ = store.seatPaintStamp
+        let visible = PulseLaunch.isActiveScorecardPage(
+            visible: router.current,
+            section: section,
+            pushed: router.pushedSection
+        )
+        let _ = PulseLaunch.shouldBindSeatPaintOnPhoneSection(isVisible: visible)
+            ? store.seatPaintStamp
+            : 0
         Group {
             if PulseLaunch.shouldMountPadSectionListHost(
                 usesPhoneScorecards: HubLayout.usesPhoneScorecards(sizeClass: sizeClass)
@@ -82,7 +89,9 @@ struct SectionDetailView: View {
                 section: section,
                 pushed: router.pushedSection
             ),
-            seatPaint: store.seatPaintStamp
+            seatPaint: PulseLaunch.shouldReloadSectionSQLOnSeatPaintStamp()
+                ? store.seatPaintStamp
+                : 0
         )) {
             guard PulseLaunch.shouldLoadSection(
                 visible: router.current,
@@ -100,13 +109,17 @@ struct SectionDetailView: View {
                 ) else { return }
             }
             guard !Task.isCancelled else { return }
-            await store.ensureSectionLoaded(section)
-            if Task.isCancelled { return }
-            if section == .preSubOOS {
-                await store.ensureSectionLoaded(.preSubOOSItem)
-            }
-            if section == .pickPath, PulseLaunch.shouldLoadPickPathPickerOnPageOpen() {
-                await store.ensureSectionLoaded(.pickPathPicker)
+            if PulseLaunch.shouldForceLoadPageGrainsAfterChrome() {
+                await store.openSectionPage(section)
+            } else {
+                await store.ensureSectionLoaded(section)
+                if Task.isCancelled { return }
+                if section == .preSubOOS {
+                    await store.ensureSectionLoaded(.preSubOOSItem)
+                }
+                if section == .pickPath, PulseLaunch.shouldLoadPickPathPickerOnPageOpen() {
+                    await store.ensureSectionLoaded(.pickPathPicker)
+                }
             }
         }
         .onChange(of: router.current) { _, _ in
@@ -983,7 +996,9 @@ struct PhoneSectionPage: View {
     }
 
     var body: some View {
-        let _ = store.seatPaintStamp
+        let _ = PulseLaunch.shouldBindSeatPaintOnPhoneSection(isVisible: isVisible)
+            ? store.seatPaintStamp
+            : 0
         ScrollView {
             VStack(alignment: .leading, spacing: CommandCenterLayout.phoneHomeStackSpacing()) {
                 if PulseLaunch.shouldParkHiddenPhoneSection(isVisible: isVisible) {
