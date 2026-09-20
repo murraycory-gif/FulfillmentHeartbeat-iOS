@@ -1299,9 +1299,43 @@ enum PulseLaunch {
         }
     }
 
-    /// iPhone + iPad: one seat page for every metric. Soft FAIL forcing Mac
-    /// onto this shell — Mac keeps Command Center / section sidebar.
-    static func shouldUseSeatFirstShell(mac: Bool) -> Bool { !mac }
+    /// Architecture P1 cutover flag. Default OFF — CompactNav / MainHub stays.
+    /// P2 later: turn on, then enable iPad and retire section Pages.
+    static func seatFirstPhoneEnabled() -> Bool { false }
+
+    /// Soft FAIL iPad seat hub until the phone flag PASSes. P2 later.
+    static func shouldEnableSeatFirstOnIPad() -> Bool { false }
+
+    /// Mount `SeatHubView` only when the flag is ON and this is an iPhone.
+    static func shouldMountSeatHub(mac: Bool, phone: Bool, pad: Bool) -> Bool {
+        guard seatFirstPhoneEnabled() else { return false }
+        if mac { return false }
+        if pad, !shouldEnableSeatFirstOnIPad() { return false }
+        return phone
+    }
+
+    /// Live idiom wrapper. Flag OFF → false on every device.
+    static func shouldUseSeatFirstShell(mac: Bool) -> Bool {
+        shouldMountSeatHub(
+            mac: mac,
+            phone: HubLayout.isPhoneDevice,
+            pad: HubLayout.isPadDevice
+        )
+    }
+
+    /// CompactNav / section Pages stay the phone+iPad fallback while the flag is OFF.
+    static func shouldKeepSectionCompactNavWhileSeatFlagOff() -> Bool {
+        !seatFirstPhoneEnabled()
+    }
+
+    /// Soft FAIL mounting every PhoneSectionPage / metric host on the seat page.
+    static func shouldMountEverySeatMetricHostAtOnce() -> Bool { false }
+
+    /// Seat page paints scoreboard chrome first; child tables / pickers fill after.
+    static func shouldDeferSeatPageHeavyUntilAfterChrome() -> Bool { true }
+
+    /// Soft FAIL company / Region / Division / District / OM picker tape.
+    static func shouldLoadFatCompanyPickers() -> Bool { false }
 
     /// Mac Catalyst / MacBook: prior Command Center + Pages rail.
     static func shouldKeepMacCommandCenterShell(mac: Bool) -> Bool { mac }
@@ -1397,9 +1431,14 @@ enum PulseLaunch {
         sectionPageSeat(filters: filters) == .store
     }
 
-    /// Hide PathShopperTable / picker boards on the seat shell unless Store.
+    /// Hide PathShopperTable / picker boards on the mounted seat shell unless Store.
+    /// Flag OFF leaves section-page shoppers alone (CompactNav fallback).
     static func shouldHideShopperListsOnSeatShell(mac: Bool, filters: DashboardFilters) -> Bool {
-        shouldUseSeatFirstShell(mac: mac) && !shouldShowPickersOnSeatPage(filters: filters)
+        shouldMountSeatHub(
+            mac: mac,
+            phone: HubLayout.isPhoneDevice,
+            pad: HubLayout.isPadDevice
+        ) && !shouldShowPickersOnSeatPage(filters: filters)
     }
 
     static func shouldShowPickerHighlightsOnSeatPage(
@@ -1416,6 +1455,11 @@ enum PulseLaunch {
     ) -> Bool {
         if embeddedInSeat { return shouldShowPickersOnSeatPage(filters: filters) }
         return shouldShowPickerShoppersTable(filters: filters)
+    }
+
+    /// First-paint scoreboard chrome. Remaining tiles fill after chrome.
+    static func seatPageChromeSections() -> [MetricSection] {
+        [.sales, .lostRevenue, .fiveStar]
     }
 
     /// Seat page stacks these existing metric modules. Pickers stay a module

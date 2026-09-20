@@ -10937,7 +10937,7 @@ struct HubBrandBar: View {
     }
 
     private var compactBannerTitle: String {
-        if PulseLaunch.shouldUseSeatFirstShell(mac: HubLayout.isMac) {
+        if HubLayout.usesSeatFirstShell {
             return PulseLaunch.seatBannerTitle(filters: store.filters)
         }
         switch compactBannerDestination {
@@ -10958,7 +10958,7 @@ struct HubBrandBar: View {
     private var regularBar: some View {
         ZStack {
             HStack(spacing: 4) {
-                if PulseLaunch.shouldUseSeatFirstShell(mac: HubLayout.isMac) {
+                if HubLayout.usesSeatFirstShell {
                     EmptyView()
                 } else if !(HubLayout.isMac && PulseLaunch.shouldHideMacHeaderPagesButton()) {
                     HubNavControl(symbol: "line.3.horizontal", title: "Pages") {
@@ -10995,7 +10995,7 @@ struct HubBrandBar: View {
 
     private var compactBar: some View {
         HStack(spacing: 6) {
-            if !PulseLaunch.shouldUseSeatFirstShell(mac: HubLayout.isMac) {
+            if !HubLayout.usesSeatFirstShell {
                 HubNavControl(symbol: "line.3.horizontal", title: "Pages") {
                     store.beginInteractiveSheet()
                     sheets.presentCompactMenu(

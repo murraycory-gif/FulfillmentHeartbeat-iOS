@@ -14,7 +14,11 @@ struct RootView: View {
                         .transition(.opacity)
                 } else {
                     Group {
-                        if PulseLaunch.shouldUseSeatFirstShell(mac: HubLayout.isMac) {
+                        if PulseLaunch.shouldMountSeatHub(
+                            mac: HubLayout.isMac,
+                            phone: HubLayout.isPhoneDevice,
+                            pad: HubLayout.isPadDevice
+                        ) {
                             SeatHubView()
                         } else {
                             MainHubView()

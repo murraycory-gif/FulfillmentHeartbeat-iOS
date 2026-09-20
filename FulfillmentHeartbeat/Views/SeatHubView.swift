@@ -132,12 +132,20 @@ struct SeatPageView: View {
     @State private var storeLimit = 40
     @State private var pickerLimit = 24
     @State private var openShopper: String?
+    @State private var showHeavy = false
 
     private var seat: PulseLaunch.SectionPageSeat {
         PulseLaunch.sectionPageSeat(filters: store.filters)
     }
 
     private var padCanvas: Bool { !HubLayout.isPhoneDevice }
+
+    private var visibleScoreboardSections: [MetricSection] {
+        if PulseLaunch.shouldMountEverySeatMetricHostAtOnce() || showHeavy {
+            return PulseLaunch.seatPageMetricSections()
+        }
+        return PulseLaunch.seatPageChromeSections()
+    }
 
     var body: some View {
         let _ = store.seatPaintStamp
@@ -146,9 +154,12 @@ struct SeatPageView: View {
             LazyVStack(alignment: .leading, spacing: 16) {
                 seatTitle
                 scoreboard
-                childTables
-                if PulseLaunch.shouldShowPickersOnSeatPage(filters: store.filters) {
-                    storePickerBlock
+                if showHeavy {
+                    childTables
+                    if PulseLaunch.shouldShowPickersOnSeatPage(filters: store.filters),
+                       !PulseLaunch.shouldLoadFatCompanyPickers() {
+                        storePickerBlock
+                    }
                 }
                 stamp
             }
@@ -169,12 +180,18 @@ struct SeatPageView: View {
         .onPreferenceChange(HubWidthKey.self) { value in
             if value > 0 { pageWidth = value }
         }
-        .task(id: "\(store.filters.summary)|\(store.seatPaintStamp)") {
+        .onAppear { armHeavy() }
+        .onChange(of: store.filters.summary) { _, _ in
+            showHeavy = false
+            armHeavy()
+        }
+        .task(id: "\(store.filters.summary)|\(store.seatPaintStamp)|\(showHeavy)") {
+            guard showHeavy else { return }
             await store.ensureSectionLoaded(.sales)
-            if PulseLaunch.shouldShowPickersOnSeatPage(filters: store.filters) {
-                await store.ensureSectionLoaded(.pickerScorecard)
-                await store.ensureSectionLoaded(.pickPathPicker)
-            }
+            guard PulseLaunch.shouldShowPickersOnSeatPage(filters: store.filters) else { return }
+            guard !PulseLaunch.shouldLoadFatCompanyPickers() else { return }
+            await store.ensureSectionLoaded(.pickerScorecard)
+            await store.ensureSectionLoaded(.pickPathPicker)
         }
     }
 
@@ -205,7 +222,7 @@ struct SeatPageView: View {
                 columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: cols),
                 spacing: 10
             ) {
-                ForEach(PulseLaunch.seatPageMetricSections(), id: \.self) { section in
+                ForEach(visibleScoreboardSections, id: \.self) { section in
                     SeatScoreTile(section: section)
                 }
             }
@@ -367,6 +384,16 @@ struct SeatPageView: View {
 
     private var storeRows: [MetricRow] {
         store.seatRows(for: .sales).filter { !$0.storeNumber.isEmpty }
+    }
+
+    private func armHeavy() {
+        if !PulseLaunch.shouldDeferSeatPageHeavyUntilAfterChrome() {
+            showHeavy = true
+            return
+        }
+        DispatchQueue.main.async {
+            showHeavy = true
+        }
     }
 
     private func drill(grain: DashScopeGrain, rawLabel: String) {
