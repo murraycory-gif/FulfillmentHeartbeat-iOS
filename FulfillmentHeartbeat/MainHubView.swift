@@ -19,8 +19,6 @@ final class HubRouter: ObservableObject {
     @Published var sidebarOpen = false
     @Published var macSidebarExpanded = PulseLaunch.loadMacSidebarExpanded()
     @Published var alertsOpen = false
-    @Published var showCompactMenu = false
-    @Published var showShare = false
 
     var current: HubDestination { destination }
 
@@ -46,7 +44,7 @@ final class HubRouter: ObservableObject {
     }
 
     /// Pages sheet: apply the destination in the same turn as dismiss so the first tap opens.
-    func openFromCompactPages(_ dest: HubDestination) {
+    func openFromCompactPages(_ dest: HubDestination, sheets: HubSheetPresenter) {
         var transaction = Transaction()
         transaction.animation = nil
         withTransaction(transaction) {
@@ -56,7 +54,7 @@ final class HubRouter: ObservableObject {
             }
             sidebarOpen = false
             alertsOpen = false
-            showCompactMenu = false
+            sheets.showCompactMenu = false
         }
     }
 
@@ -131,10 +129,92 @@ final class HubRouter: ObservableObject {
     }
 }
 
+/// Frozen Pages-row health. CompactNavSheet must not live-observe HeartbeatStore
+/// while the sheet is up (that is the present-path EnvironmentObject storm).
+struct CompactNavHealth: Equatable {
+    var dashboard: Health
+    var bySection: [MetricSection: Health]
+
+    static let empty = CompactNavHealth(dashboard: .none, bySection: [:])
+
+    func health(for dest: HubDestination) -> Health {
+        switch dest {
+        case .dashboard:
+            return dashboard
+        default:
+            guard let section = dest.section else { return .none }
+            return bySection[section] ?? .none
+        }
+    }
+
+    static func snapshot(summaries: [SectionSummary]) -> CompactNavHealth {
+        var bySection: [MetricSection: Health] = [:]
+        bySection.reserveCapacity(summaries.count)
+        var dash = Health.none
+        for card in summaries {
+            bySection[card.section] = card.health
+            if Self.rank(card.health) > Self.rank(dash) {
+                dash = card.health
+            }
+        }
+        return CompactNavHealth(dashboard: dash, bySection: bySection)
+    }
+
+    private static func rank(_ health: Health) -> Int {
+        switch health {
+        case .none: return 0
+        case .good: return 1
+        case .watch: return 2
+        case .risk: return 3
+        }
+    }
+}
+
+/// Pages / Share presentation is not on HubRouter. Warm scorecard hosts
+/// observe the router; putting sheet flags there remounted the whole hub
+/// on every iPhone Pages tap.
+final class HubSheetPresenter: ObservableObject {
+    @Published var showCompactMenu = false
+    @Published var showShare = false
+    @Published var navSelected: HubDestination = .dashboard
+    @Published var navHealth = CompactNavHealth.empty
+
+    func presentCompactMenu(selected: HubDestination, health: CompactNavHealth) {
+        var transaction = Transaction()
+        if PulseLaunch.shouldPresentPhoneSheetsWithoutHubAnimation() {
+            transaction.animation = nil
+        }
+        withTransaction(transaction) {
+            navSelected = selected
+            navHealth = health
+            showCompactMenu = true
+        }
+    }
+
+    func presentShare() {
+        var transaction = Transaction()
+        if PulseLaunch.shouldPresentPhoneSheetsWithoutHubAnimation() {
+            transaction.animation = nil
+        }
+        withTransaction(transaction) {
+            showShare = true
+        }
+    }
+
+    func dismissCompactMenu() {
+        var transaction = Transaction()
+        transaction.animation = nil
+        withTransaction(transaction) {
+            showCompactMenu = false
+        }
+    }
+}
+
 struct MainHubView: View {
     @EnvironmentObject private var store: HeartbeatStore
     @Environment(\.horizontalSizeClass) private var sizeClass
     @StateObject private var router = HubRouter()
+    @StateObject private var sheets = HubSheetPresenter()
     @State private var warmScorecards: [MetricSection] = []
 
     var body: some View {
@@ -148,15 +228,9 @@ struct MainHubView: View {
             }
         }
         .environmentObject(router)
-        .sheet(isPresented: $router.showCompactMenu) {
-            CompactNavSheet()
-                .environmentObject(store)
-                .environmentObject(router)
-        }
-        .sheet(isPresented: $router.showShare) {
-            SharePulseSheet()
-                .environmentObject(store)
-                .environmentObject(router)
+        .environmentObject(sheets)
+        .background {
+            PhoneSheetHost()
         }
         .onAppear {
             store.setVisibleDestination(router.current)
@@ -396,14 +470,7 @@ struct MainHubView: View {
     }
 
     private var sidebarStamp: some View {
-        Text(BuildStamp.label)
-            .font(.caption2.weight(.semibold).monospaced())
-            .foregroundStyle(AppTheme.textTertiary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity)
-            .background(AppTheme.card, in: Capsule(style: .continuous))
-            .overlay(Capsule(style: .continuous).stroke(AppTheme.cardBorder, lineWidth: 1))
+        HubBuildStamp()
             .padding(.horizontal, 16)
             .padding(
                 .bottom,
@@ -414,7 +481,6 @@ struct MainHubView: View {
             .padding(.top, 8)
             .frame(maxWidth: .infinity)
             .background(AppTheme.bg)
-            .accessibilityLabel("Build \(BuildStamp.label)")
     }
 
     private func sidebarRow(_ item: HubDestination) -> some View {
@@ -473,6 +539,9 @@ struct MainHubView: View {
             return store.summaries.map(\.health).max(by: { healthRank($0) < healthRank($1) }) ?? .none
         default:
             guard let section = dest.section else { return .none }
+            if PulseLaunch.shouldUseCachedSummariesOnCompactNav() {
+                return store.summaries.first { $0.section == section }?.health ?? .none
+            }
             return store.summary(for: section).health
         }
     }
@@ -579,7 +648,8 @@ struct MainHubView: View {
         warmScorecards = PulseLaunch.warmScorecardList(
             existing: warmScorecards,
             incoming: section,
-            cap: PulseLaunch.maxWarmScorecardHosts(phone: HubLayout.isPhone(sizeClass))
+            cap: PulseLaunch.maxWarmScorecardHosts(phone: HubLayout.isPhone(sizeClass)),
+            freeze: store.shouldFreezeWarmHosts
         )
     }
 
@@ -681,9 +751,59 @@ private struct ImportProgressCard: View {
         .environmentObject(HeartbeatStore())
 }
 
-struct CompactNavSheet: View {
+/// Sheet flags stay off MainHubView.body so Pages tap does not rebuild
+/// Dashboard + warm PhoneSectionPage hosts.
+private struct PhoneSheetHost: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var router: HubRouter
+    @EnvironmentObject private var sheets: HubSheetPresenter
+
+    var body: some View {
+        Color.clear
+            .frame(width: 1, height: 1)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .sheet(isPresented: $sheets.showCompactMenu) {
+                CompactNavSheet()
+                    .environmentObject(router)
+                    .environmentObject(sheets)
+            }
+            .sheet(isPresented: $sheets.showShare) {
+                SharePulseSheet()
+                    .environmentObject(store)
+                    .environmentObject(router)
+            }
+            .onChange(of: sheets.showCompactMenu) { wasOpen, isOpen in
+                if wasOpen, !isOpen { store.endInteractiveSheet() }
+            }
+            .onChange(of: sheets.showShare) { wasOpen, isOpen in
+                if wasOpen, !isOpen { store.endInteractiveSheet() }
+            }
+    }
+}
+
+/// Same `BuildStamp.label` capsule on iPad / Mac sidebar and iPhone Pages.
+/// Phone shrinks to fit — never clip `HB-0828.xxx  1.0 (NNN)`.
+struct HubBuildStamp: View {
+    var body: some View {
+        Text(BuildStamp.label)
+            .font(.caption2.weight(.semibold).monospaced())
+            .foregroundStyle(AppTheme.textTertiary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.72)
+            .allowsTightening(true)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity)
+            .background(AppTheme.card, in: Capsule(style: .continuous))
+            .overlay(Capsule(style: .continuous).stroke(AppTheme.cardBorder, lineWidth: 1))
+            .accessibilityLabel("Build \(BuildStamp.label)")
+    }
+}
+
+struct CompactNavSheet: View {
+    @EnvironmentObject private var router: HubRouter
+    @EnvironmentObject private var sheets: HubSheetPresenter
 
     var body: some View {
         NavigationStack {
@@ -705,10 +825,20 @@ struct CompactNavSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { router.showCompactMenu = false }
+                    Button("Close") { sheets.dismissCompactMenu() }
                         .font(.body.weight(.semibold))
                         .frame(minWidth: HubLayout.phoneHitTarget, minHeight: HubLayout.phoneHitTarget)
                         .contentShape(Rectangle())
+                }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if PulseLaunch.shouldShowBuildStampOnPhonePages() {
+                    HubBuildStamp()
+                        .padding(.horizontal, 16)
+                        .padding(.top, 8)
+                        .padding(.bottom, 12)
+                        .frame(maxWidth: .infinity)
+                        .background(AppTheme.bg)
                 }
             }
         }
@@ -716,8 +846,8 @@ struct CompactNavSheet: View {
     }
 
     private func navRow(_ item: HubDestination) -> some View {
-        let health = navHealth(for: item)
-        let selected = router.destination == item
+        let health = sheets.navHealth.health(for: item)
+        let selected = sheets.navSelected == item
         let iconInk = PulseLaunch.shouldTintPhonePagesIconsWithHealth()
             ? HubNavSelection.iconInk(selected: selected, health: health)
             : (selected ? AppTheme.blue : AppTheme.text)
@@ -725,7 +855,7 @@ struct CompactNavSheet: View {
             ? HubNavSelection.iconWash(selected: selected, health: health)
             : AppTheme.blueSoft
         return Button {
-            router.openFromCompactPages(item)
+            router.openFromCompactPages(item, sheets: sheets)
         } label: {
             HStack(spacing: 12) {
                 ZStack {
@@ -753,24 +883,5 @@ struct CompactNavSheet: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(selected ? AppTheme.blue.opacity(0.12) : Color.white)
         )
-    }
-
-    private func navHealth(for dest: HubDestination) -> Health {
-        switch dest {
-        case .dashboard:
-            return store.summaries.map(\.health).max(by: { healthRank($0) < healthRank($1) }) ?? .none
-        default:
-            guard let section = dest.section else { return .none }
-            return store.summary(for: section).health
-        }
-    }
-
-    private func healthRank(_ health: Health) -> Int {
-        switch health {
-        case .none: return 0
-        case .good: return 1
-        case .watch: return 2
-        case .risk: return 3
-        }
     }
 }

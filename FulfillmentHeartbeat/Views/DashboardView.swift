@@ -536,6 +536,7 @@ struct DashScopeStrip: View {
             Task { await store.prefetchExpand(section: section) }
         }
         .onChange(of: store.filterStamp) { _, _ in
+            guard store.shouldRebuildOnHubStamp(pageVisible: true) else { return }
             expanded = false
             guard PulseLaunch.shouldPrefetchExpandOnFilterStamp() else { return }
             Task { await store.prefetchExpand(section: section) }
