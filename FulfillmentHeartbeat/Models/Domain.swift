@@ -490,13 +490,14 @@ struct SectionSummary: Identifiable, Equatable, Codable {
     var underScheduledCount: Int = 0
     var overScheduledCount: Int = 0
     var lostRevenuePct: Double? = nil
+    var salesYoyPct: Double? = nil
 
     var id: MetricSection { section }
 
     enum CodingKeys: String, CodingKey {
         case section, storeCount, headline, headlineLabel, secondary, health
         case watchCount, riskCount, lastFilename, lastUploadedAt
-        case underScheduledCount, overScheduledCount, lostRevenuePct
+        case underScheduledCount, overScheduledCount, lostRevenuePct, salesYoyPct
     }
 
     init(
@@ -512,7 +513,8 @@ struct SectionSummary: Identifiable, Equatable, Codable {
         lastUploadedAt: Date?,
         underScheduledCount: Int = 0,
         overScheduledCount: Int = 0,
-        lostRevenuePct: Double? = nil
+        lostRevenuePct: Double? = nil,
+        salesYoyPct: Double? = nil
     ) {
         self.section = section
         self.storeCount = storeCount
@@ -527,6 +529,7 @@ struct SectionSummary: Identifiable, Equatable, Codable {
         self.underScheduledCount = underScheduledCount
         self.overScheduledCount = overScheduledCount
         self.lostRevenuePct = lostRevenuePct
+        self.salesYoyPct = salesYoyPct
     }
 
     init(from decoder: Decoder) throws {
@@ -544,6 +547,7 @@ struct SectionSummary: Identifiable, Equatable, Codable {
         underScheduledCount = try container.decodeIfPresent(Int.self, forKey: .underScheduledCount) ?? 0
         overScheduledCount = try container.decodeIfPresent(Int.self, forKey: .overScheduledCount) ?? 0
         lostRevenuePct = try container.decodeIfPresent(Double.self, forKey: .lostRevenuePct)
+        salesYoyPct = try container.decodeIfPresent(Double.self, forKey: .salesYoyPct)
     }
 
     var headlineText: String {
@@ -1721,26 +1725,15 @@ enum HeartbeatMath {
                 lostRevenuePct: pct
             )
         case .sales:
-            let stores = Dictionary(
-                grouping: latest.filter {
-                    $0.textPayload["sales_grain"] != "company"
-                        && $0.textPayload["sales_grain"] != "day"
-                        && !$0.storeNumber.isEmpty
-                },
-                by: { canonicalStore($0.storeNumber) }
-            ).compactMap { $0.value.first }
-            let storeSum = stores.reduce(0) { $0 + salesHeadlineDollars($1) }
-            let dollars = storeSum
-            let yoy = salesRollupYoY(
-                current: stores.map { salesHeadlineDollars($0) },
-                yoyPct: stores.map { $0.number("sales_yoy_pct") }
-            )
+            let stores = salesStoreRows(latest)
+            let totals = salesCompanyTotals(from: latest)
+            let dollars = totals.dollars
+            let yoy = totals.yoy
             let plan = stores.compactMap { $0.number("sales_plan") }.reduce(0, +)
             let planPct: Double? = {
                 if let direct = average(stores.compactMap { $0.number("sales_plan_pct") }) { return direct }
                 return plan > 0 ? dollars / plan * 100 : nil
             }()
-            let orders = stores.reduce(0) { $0 + salesOrders($1) }
             let up = stores.filter { salesHealth($0) == .good }.count
             let flat = stores.filter { salesHealth($0) == .watch }.count
             let down = stores.filter { salesHealth($0) == .risk }.count
@@ -1757,7 +1750,8 @@ enum HeartbeatMath {
                 watchCount: flat,
                 riskCount: down,
                 lastFilename: upload?.filename,
-                lastUploadedAt: upload?.uploadedAt
+                lastUploadedAt: upload?.uploadedAt,
+                salesYoyPct: yoy
             )
         case .missingItems:
             let headline = average(latest.compactMap { $0.number(MissingItemDept.totalKey) })
@@ -2503,6 +2497,49 @@ enum HeartbeatMath {
     static func salesHeadlineDollars(_ row: MetricRow) -> Double {
         if let week = row.number("sales_dollars"), week > 0 { return week }
         return (0..<7).compactMap { row.number("sales_d\($0)_dollars") }.reduce(0, +)
+    }
+
+    /// Official Excel Total row. Company-wide Sales must use this, not a store rollup.
+    static func salesCompanyRow(_ rows: [MetricRow]) -> MetricRow? {
+        if let hit = rows.first(where: { $0.textPayload["sales_grain"] == "company" }) {
+            return hit
+        }
+        return rows.first {
+            canonicalStore($0.storeNumber).isEmpty
+                && $0.storeNumber.caseInsensitiveCompare("total") != .orderedSame
+                && $0.textPayload["sales_grain"] != "day"
+                && salesHeadlineDollars($0) >= 5_000_000
+        }
+    }
+
+    static func salesStoreRows(_ rows: [MetricRow]) -> [MetricRow] {
+        Dictionary(
+            grouping: rows.filter {
+                $0.textPayload["sales_grain"] != "company"
+                    && $0.textPayload["sales_grain"] != "day"
+                    && !$0.storeNumber.isEmpty
+                    && $0.storeNumber.caseInsensitiveCompare("total") != .orderedSame
+            },
+            by: { canonicalStore($0.storeNumber) }
+        ).compactMap { $0.value.first }
+    }
+
+    /// Company grain dollars + sales_yoy_pct when that row is in the slice.
+    /// Filtered views have no company row, so they fall back to the store sum.
+    static func salesCompanyTotals(from rows: [MetricRow]) -> (dollars: Double, yoy: Double?, usedCompany: Bool) {
+        let stores = salesStoreRows(rows)
+        if let company = salesCompanyRow(rows) {
+            let dollars = salesHeadlineDollars(company)
+            if dollars > 0 {
+                return (dollars, company.number("sales_yoy_pct"), true)
+            }
+        }
+        let dollars = stores.reduce(0) { $0 + salesHeadlineDollars($1) }
+        let yoy = salesRollupYoY(
+            current: stores.map { salesHeadlineDollars($0) },
+            yoyPct: stores.map { $0.number("sales_yoy_pct") }
+        )
+        return (dollars, yoy, false)
     }
 
     static func salesOrders(_ row: MetricRow) -> Double {

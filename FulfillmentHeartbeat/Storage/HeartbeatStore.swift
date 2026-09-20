@@ -233,20 +233,29 @@ final class HeartbeatStore: ObservableObject {
         }
         let ram = latestBySection[section] ?? []
         if section == .lostRevenue || section == .sales || section == .fiveStar {
-            let facts = PulseFacts.bundledMetricRows().filter {
-                $0.section == section
-                    && $0.textPayload["lost_grain"] != "market"
-                    && $0.textPayload["sales_grain"] != "company"
-                    && $0.textPayload["sales_grain"] != "day"
-                    && !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty
-                    && !$0.payload.isEmpty
-            }
-            let ramScored = ram.filter { !$0.payload.isEmpty && !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty }.count
-            if facts.count > ramScored {
-                let stamped = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(facts), roster: roster)
-                latestBySection[section] = stamped
-                factsOwned.insert(section)
-                return stamped
+            let facts = PulseFacts.bundledMetricRows().filter { $0.section == section }
+            let ramScored = ram.filter { PulseQuery.isStoreFact($0) }.count
+            let company = section == .sales
+                ? (HeartbeatMath.salesCompanyRow(ram)
+                    ?? HeartbeatMath.salesCompanyRow(rows.filter { $0.section == .sales })
+                    ?? HeartbeatMath.salesCompanyRow(facts))
+                : nil
+            if ramScored >= 8 || !facts.isEmpty {
+                let merged = HeartbeatMath.applyRoster(
+                    PulseDataPolicy.mergeOwnedSection(
+                        pack: ram,
+                        facts: facts,
+                        section: section,
+                        company: company
+                    ),
+                    roster: roster
+                )
+                let scored = merged.filter { PulseQuery.isStoreFact($0) }.count
+                if scored >= max(ramScored, 1) {
+                    latestBySection[section] = merged
+                    factsOwned.insert(section)
+                    return merged
+                }
             }
         }
         return ram
@@ -254,13 +263,7 @@ final class HeartbeatStore: ObservableObject {
 
     func salesCompanyFact() -> MetricRow? {
         let pool = (latestBySection[.sales] ?? []) + rows.filter { $0.section == .sales }
-        if let hit = pool.first(where: { $0.textPayload["sales_grain"] == "company" }) {
-            return hit
-        }
-        return pool.first {
-            HeartbeatMath.canonicalStore($0.storeNumber).isEmpty
-                && HeartbeatMath.salesHeadlineDollars($0) >= 5_000_000
-        }
+        return HeartbeatMath.salesCompanyRow(pool)
     }
 
     func salesStores() -> [MetricRow] {
@@ -2830,15 +2833,15 @@ final class HeartbeatStore: ObservableObject {
         return true
     }
 
-    /// Put Excel store rows for Sales, 5 Star, and Loss Revenue into the warehouse.
+    /// Pack dollars win. Bundled facts.json only fills stores the live pack never scored.
     private func adoptExcelFactsIntoWarehouse() async {
-        if didAdoptExcelFacts, factsOwned.contains(.lostRevenue), factsOwned.contains(.sales) {
+        if didAdoptExcelFacts, factsOwned.contains(.lostRevenue), factsOwned.contains(.sales),
+           HeartbeatMath.salesCompanyRow(latestBySection[.sales] ?? []) != nil {
             return
         }
         let facts = await Task.detached(priority: .userInitiated) {
             PulseFacts.bundledMetricRows()
         }.value
-        guard !facts.isEmpty else { return }
         for row in facts where row.section == .storeRoster || row.textPayload["roster"] == "1" {
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
             guard !store.isEmpty else { continue }
@@ -2852,11 +2855,26 @@ final class HeartbeatStore: ObservableObject {
         }
         let owned: [MetricSection] = [.lostRevenue, .sales, .fiveStar]
         for section in owned {
-            let factRows = facts.filter { PulseQuery.isStoreFact($0) && $0.section == section }
-            let stamped = HeartbeatMath.applyRoster(HeartbeatMath.latestPerStore(factRows), roster: roster)
-            let scoredFacts = stamped.filter { !$0.payload.isEmpty }.count
-            guard scoredFacts >= 200 else { continue }
-            latestBySection[section] = stamped
+            let packRows = latestBySection[section] ?? []
+            let packScored = packRows.filter { PulseQuery.isStoreFact($0) }.count
+            let factRows = facts.filter { $0.section == section }
+            let company = section == .sales
+                ? (HeartbeatMath.salesCompanyRow(packRows)
+                    ?? HeartbeatMath.salesCompanyRow(rows.filter { $0.section == .sales })
+                    ?? HeartbeatMath.salesCompanyRow(factRows))
+                : nil
+            let merged = HeartbeatMath.applyRoster(
+                PulseDataPolicy.mergeOwnedSection(
+                    pack: packRows,
+                    facts: factRows,
+                    section: section,
+                    company: company
+                ),
+                roster: roster
+            )
+            let scored = merged.filter { PulseQuery.isStoreFact($0) }.count
+            guard scored >= 200 || packScored >= 8 || HeartbeatMath.salesCompanyRow(merged) != nil else { continue }
+            latestBySection[section] = merged
             factsOwned.insert(section)
         }
         didAdoptExcelFacts = true

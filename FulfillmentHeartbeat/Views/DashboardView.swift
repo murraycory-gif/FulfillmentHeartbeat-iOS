@@ -163,7 +163,8 @@ struct PhonePulseCard: View {
     }
 
     private var valueText: String {
-        phoneMoney(card.headline) ?? card.headlineText
+        if card.section == .sales { return card.headlineText }
+        return phoneMoney(card.headline) ?? card.headlineText
     }
 
     private var riskText: String {
@@ -212,7 +213,9 @@ struct PhonePulseCard: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.55)
                 if let extraPct {
-                    Text(HeartbeatFormat.pct(extraPct))
+                    Text(card.section == .sales && extraPct > 0
+                         ? "+\(HeartbeatFormat.pct(extraPct))"
+                         : HeartbeatFormat.pct(extraPct))
                         .font(AppTheme.rounded(.caption, weight: .bold).monospacedDigit())
                         .foregroundStyle(dashInk(card.health))
                         .lineLimit(1)
@@ -895,7 +898,9 @@ struct DashCallout: View, Equatable {
                     flags: flags,
                     grains: grains,
                     grain: grain,
-                    extraPct: card.section == .lostRevenue ? card.lostRevenuePct : nil,
+                    extraPct: card.section == .lostRevenue
+                        ? card.lostRevenuePct
+                        : card.section == .sales ? card.salesYoyPct : nil,
                     action: action
                 )
             } else if card.section == .lostRevenue {
@@ -938,11 +943,18 @@ struct DashCallout: View, Equatable {
                     .foregroundStyle(dashInk(card.riskCount == 0 ? .good : .risk))
             }
             Spacer(minLength: 8)
-            Text(card.headlineText)
-                .font(.system(size: 32, weight: .bold, design: .rounded).monospacedDigit())
-                .foregroundStyle(dashInk(card.health))
-                .lineLimit(1)
-                .minimumScaleFactor(0.55)
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(card.headlineText)
+                    .font(.system(size: 32, weight: .bold, design: .rounded).monospacedDigit())
+                    .foregroundStyle(dashInk(card.health))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.55)
+                if card.section == .sales, let yoy = card.salesYoyPct {
+                    Text(yoy > 0 ? "+\(HeartbeatFormat.pct(yoy))" : HeartbeatFormat.pct(yoy))
+                        .font(.title3.weight(.bold).monospacedDigit())
+                        .foregroundStyle(dashInk(card.health))
+                }
+            }
             HealthBadge(health: card.health, prominent: true)
             Image(systemName: "chevron.right")
                 .font(.title3.weight(.semibold))
