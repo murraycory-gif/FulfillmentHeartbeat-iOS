@@ -974,6 +974,8 @@ struct PhoneSectionPage: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var router: HubRouter
     let section: MetricSection
+    /// Seat-first iPhone/iPad page stacks this module. Mac never embeds it.
+    var embeddedInSeat: Bool = false
     @State private var storeLimit = 40
     @State private var pickerLimit = 24
     @State private var itemLimit = 24
@@ -982,7 +984,8 @@ struct PhoneSectionPage: View {
     @State private var showHeavy = false
 
     private var isVisible: Bool {
-        PulseLaunch.isActiveScorecardPage(
+        if embeddedInSeat { return true }
+        return PulseLaunch.isActiveScorecardPage(
             visible: router.current,
             section: section,
             pushed: router.pushedSection
@@ -999,33 +1002,23 @@ struct PhoneSectionPage: View {
         let _ = PulseLaunch.shouldBindSeatPaintOnPhoneSection(isVisible: isVisible)
             ? store.seatPaintStamp
             : 0
-        ScrollView {
-            VStack(alignment: .leading, spacing: CommandCenterLayout.phoneHomeStackSpacing()) {
-                if PulseLaunch.shouldParkHiddenPhoneSection(isVisible: isVisible) {
-                    PhoneCommandHeroCard(card: store.summary(for: section))
-                } else {
-                    PhoneCommandHeroCard(card: store.summary(for: section))
-                    if PulseLaunch.shouldShowThisSeatCallout() {
-                        seatMetricCard
-                    }
-                    warningNotes
-                    if section == .labor {
-                        LaborWeekFilterBar()
-                    }
-                    if shouldPaintHeavy {
-                        heavyBlocks
-                    }
+        Group {
+            if embeddedInSeat {
+                seatModule
+            } else {
+                ScrollView {
+                    sectionStack
+                        .padding(.horizontal, CommandCenterLayout.phoneHomeHorizontalPadding())
+                        .padding(.top, CommandCenterLayout.phoneHomeTopPadding())
+                        .padding(.bottom, CommandCenterLayout.phoneHomeBottomPadding())
+                        .frame(maxWidth: .infinity, alignment: .top)
                 }
+                .scrollIndicators(.hidden)
+                .scrollBounceBehavior(PulseLaunch.shouldOfferPullToRefreshSeatPack() ? .always : .basedOnSize)
+                .hubSeatPackRefreshable()
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
-            .padding(.horizontal, CommandCenterLayout.phoneHomeHorizontalPadding())
-            .padding(.top, CommandCenterLayout.phoneHomeTopPadding())
-            .padding(.bottom, CommandCenterLayout.phoneHomeBottomPadding())
-            .frame(maxWidth: .infinity, alignment: .top)
         }
-        .scrollIndicators(.hidden)
-        .scrollBounceBehavior(PulseLaunch.shouldOfferPullToRefreshSeatPack() ? .always : .basedOnSize)
-        .hubSeatPackRefreshable()
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .onAppear { armHeavy() }
         .onChange(of: isVisible) { _, visible in
             if visible { armHeavy() }
@@ -1034,6 +1027,65 @@ struct PhoneSectionPage: View {
             guard isVisible, PulseLaunch.shouldProgressivePaintPhoneSectionOnFilterSwap() else { return }
             showHeavy = false
             armHeavy()
+        }
+        .task(id: embeddedLoadToken) {
+            guard embeddedInSeat else { return }
+            await store.ensureSectionLoaded(section)
+            if section == .preSubOOS {
+                await store.ensureSectionLoaded(.preSubOOSItem)
+            }
+            // 436 KEEP: pick_path_picker stays off page-open except Store.
+            if section == .pickPath, PulseLaunch.shouldShowPickersOnSeatPage(filters: store.filters) {
+                await store.ensureSectionLoaded(.pickPathPicker)
+            }
+        }
+    }
+
+    private var embeddedLoadToken: String {
+        "\(section.rawValue)|\(store.filters.summary)|\(store.seatPaintStamp)|\(embeddedInSeat)"
+    }
+
+    /// Heartbeat-easy: label above value, less chrome. Reuses the same chips
+    /// as the section page so calculators stay put.
+    private var seatModule: some View {
+        VStack(alignment: .leading, spacing: CommandCenterLayout.phoneHomeStackSpacing()) {
+            PhoneScorecardRow(
+                title: CommandCenterLayout.glanceTitle(section),
+                subtitle: store.filters.isActive ? store.filters.summary : "Total Company",
+                chips: seatChips,
+                health: CommandCenterLayout.displayedHealth(store.summary(for: section))
+            )
+            if PulseLaunch.shouldShowThisSeatCallout() {
+                seatMetricCard
+            }
+            warningNotes
+            if section == .labor {
+                LaborWeekFilterBar()
+            }
+            if shouldPaintHeavy {
+                heavyBlocks
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .top)
+    }
+
+    private var sectionStack: some View {
+        VStack(alignment: .leading, spacing: CommandCenterLayout.phoneHomeStackSpacing()) {
+            if PulseLaunch.shouldParkHiddenPhoneSection(isVisible: isVisible) {
+                PhoneCommandHeroCard(card: store.summary(for: section))
+            } else {
+                PhoneCommandHeroCard(card: store.summary(for: section))
+                if PulseLaunch.shouldShowThisSeatCallout() {
+                    seatMetricCard
+                }
+                warningNotes
+                if section == .labor {
+                    LaborWeekFilterBar()
+                }
+                if shouldPaintHeavy {
+                    heavyBlocks
+                }
+            }
         }
     }
 
@@ -1054,9 +1106,13 @@ struct PhoneSectionPage: View {
             salesWeekAndDays
         }
         if section == .pickerScorecard,
-           PulseLaunch.shouldShowPickerHighlights(filters: store.filters) {
+           PulseLaunch.shouldShowPickerHighlightsOnSeatPage(
+            filters: store.filters,
+            embeddedInSeat: embeddedInSeat
+           ) {
             PickerHighlightsPanel(
                 showPictures: PulseLaunch.shouldShowPickerIndividualPictures(filters: store.filters)
+                    && (!embeddedInSeat || PulseLaunch.shouldShowPickersOnSeatPage(filters: store.filters))
             )
         }
         ForEach(PulseLaunch.sectionRollupGrains(filters: store.filters), id: \.self) { grain in
@@ -1067,7 +1123,10 @@ struct PhoneSectionPage: View {
                 MissingItemsCategoryFilter(selected: $miCategories, width: 390)
             }
             if section == .pickerScorecard {
-                if PulseLaunch.shouldShowPickerShoppersTable(filters: store.filters) {
+                if PulseLaunch.shouldShowPickerShoppersOnSeatPage(
+                    filters: store.filters,
+                    embeddedInSeat: embeddedInSeat
+                ) {
                     pickerShoppers
                 }
             } else {

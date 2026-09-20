@@ -13,16 +13,22 @@ struct RootView: View {
                         .zIndex(20)
                         .transition(.opacity)
                 } else {
-                    MainHubView()
-                        .transition(.opacity)
-                        .overlay {
-                            if PulseLaunch.shouldMountRoleGate(needsRolePick: store.needsRolePick),
-                               PulseLaunch.shouldMountHubUnderRoleGate() {
-                                RoleGateView()
-                                    .zIndex(20)
-                                    .transition(.opacity)
-                            }
+                    Group {
+                        if PulseLaunch.shouldUseSeatFirstShell(mac: HubLayout.isMac) {
+                            SeatHubView()
+                        } else {
+                            MainHubView()
                         }
+                    }
+                    .transition(.opacity)
+                    .overlay {
+                        if PulseLaunch.shouldMountRoleGate(needsRolePick: store.needsRolePick),
+                           PulseLaunch.shouldMountHubUnderRoleGate() {
+                            RoleGateView()
+                                .zIndex(20)
+                                .transition(.opacity)
+                        }
+                    }
                 }
             } else {
                 LaunchSplashView()

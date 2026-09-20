@@ -9275,5 +9275,98 @@ final class HeartbeatMathTests: XCTestCase {
             "Path expand must gate the pphPickers merge"
         )
     }
+
+    /// Cory 2026-09-20: iPhone + iPad navigate by seat. Mac keeps Command Center.
+    func testArchitecture440SeatFirstShellPhonePadOnly() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.440")
+        XCTAssertTrue(PulseLaunch.shouldUseSeatFirstShell(mac: false))
+        XCTAssertEqual(HubLayout.usesSeatFirstShell, PulseLaunch.shouldUseSeatFirstShell(mac: HubLayout.isMac))
+        XCTAssertFalse(PulseLaunch.shouldUseSeatFirstShell(mac: true))
+        XCTAssertTrue(PulseLaunch.shouldKeepMacCommandCenterShell(mac: true))
+        XCTAssertFalse(PulseLaunch.shouldKeepMacCommandCenterShell(mac: false))
+        XCTAssertFalse(PulseLaunch.shouldShowSectionPagesOnSeatShell())
+        XCTAssertTrue(PulseLaunch.shouldPinMacCommandCenterRails())
+        XCTAssertTrue(PulseLaunch.shouldUseCommandCenterHome())
+        XCTAssertFalse(PulseLaunch.shouldShowThisSeatCallout())
+
+        var company = DashboardFilters()
+        XCTAssertEqual(PulseLaunch.sectionPageSeat(filters: company), .company)
+        XCTAssertEqual(PulseLaunch.sectionRollupGrains(filters: company), [.region, .division])
+        XCTAssertFalse(PulseLaunch.shouldShowStoreTable(filters: company))
+        XCTAssertFalse(PulseLaunch.shouldShowPickersOnSeatPage(filters: company))
+        XCTAssertTrue(PulseLaunch.shouldHideShopperListsOnSeatShell(mac: false, filters: company))
+        XCTAssertFalse(PulseLaunch.shouldHideShopperListsOnSeatShell(mac: true, filters: company))
+        XCTAssertFalse(
+            PulseLaunch.shouldShowPickerHighlightsOnSeatPage(filters: company, embeddedInSeat: true)
+        )
+        XCTAssertTrue(
+            PulseLaunch.shouldShowPickerHighlightsOnSeatPage(filters: company, embeddedInSeat: false)
+        )
+        XCTAssertFalse(
+            PulseLaunch.shouldShowPickerShoppersOnSeatPage(filters: company, embeddedInSeat: true)
+        )
+        XCTAssertEqual(PulseLaunch.seatBannerTitle(filters: company), "Company")
+
+        var region = DashboardFilters()
+        region.region = "NorCal"
+        XCTAssertEqual(PulseLaunch.sectionRollupGrains(filters: region), [.division])
+        XCTAssertFalse(PulseLaunch.shouldShowPickersOnSeatPage(filters: region))
+        XCTAssertEqual(PulseLaunch.seatBannerTitle(filters: region), "NorCal")
+
+        var division = DashboardFilters()
+        division.division = "Jewel Osco"
+        XCTAssertEqual(PulseLaunch.sectionRollupGrains(filters: division), [.district])
+        XCTAssertTrue(PulseLaunch.shouldShowStoreTable(filters: division))
+        XCTAssertFalse(PulseLaunch.shouldShowPickersOnSeatPage(filters: division))
+
+        var store = DashboardFilters()
+        store.store = "12"
+        XCTAssertEqual(PulseLaunch.sectionPageSeat(filters: store), .store)
+        XCTAssertEqual(PulseLaunch.sectionRollupGrains(filters: store), [])
+        XCTAssertTrue(PulseLaunch.shouldShowStoreTable(filters: store))
+        XCTAssertTrue(PulseLaunch.shouldShowPickersOnSeatPage(filters: store))
+        XCTAssertFalse(PulseLaunch.shouldHideShopperListsOnSeatShell(mac: false, filters: store))
+        XCTAssertTrue(
+            PulseLaunch.shouldShowPickerShoppersOnSeatPage(filters: store, embeddedInSeat: true)
+        )
+        XCTAssertEqual(PulseLaunch.seatBannerTitle(filters: store), "Store 12")
+
+        let modules = PulseLaunch.seatPageMetricSections()
+        XCTAssertTrue(modules.contains(.sales))
+        XCTAssertTrue(modules.contains(.prepNotReady))
+        XCTAssertTrue(modules.contains(.pickPath))
+        XCTAssertTrue(modules.contains(.fiveStar))
+        XCTAssertTrue(modules.contains(.lostRevenue))
+        XCTAssertTrue(modules.contains(.dynacap))
+        XCTAssertTrue(modules.contains(.scheduleQuality))
+        XCTAssertTrue(modules.contains(.missingItems))
+        XCTAssertTrue(modules.contains(.labor))
+        XCTAssertTrue(modules.contains(.pickerScorecard))
+        XCTAssertFalse(modules.contains(.pickPathPicker))
+
+        let root = try? String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat/RootView.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(
+            root?.contains("shouldUseSeatFirstShell(mac: HubLayout.isMac)") == true,
+            "Root must gate SeatHubView off Mac"
+        )
+        XCTAssertTrue(root?.contains("SeatHubView()") == true)
+        XCTAssertTrue(root?.contains("MainHubView()") == true)
+
+        let pbx = try? String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat.xcodeproj/project.pbxproj"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(pbx?.contains("SeatHubView.swift") == true)
+        XCTAssertTrue(pbx?.contains("CURRENT_PROJECT_VERSION = 766;") == true)
+    }
 }
 

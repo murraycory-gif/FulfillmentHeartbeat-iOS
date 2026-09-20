@@ -3088,6 +3088,11 @@ private struct PathShopperTable: View {
     var body: some View {
         if columns.isEmpty {
             EmptyView()
+        } else if PulseLaunch.shouldHideShopperListsOnSeatShell(
+            mac: HubLayout.isMac,
+            filters: store.filters
+        ) {
+            EmptyView()
         } else {
             VStack(alignment: .leading, spacing: 8) {
                 Text(pickers.isEmpty ? "Shoppers" : "Shoppers  ·  \(pickers.count)")
@@ -10932,6 +10937,9 @@ struct HubBrandBar: View {
     }
 
     private var compactBannerTitle: String {
+        if PulseLaunch.shouldUseSeatFirstShell(mac: HubLayout.isMac) {
+            return PulseLaunch.seatBannerTitle(filters: store.filters)
+        }
         switch compactBannerDestination {
         case .dashboard: return "Operational Heartbeat"
         default: return compactBannerDestination.title
@@ -10950,7 +10958,9 @@ struct HubBrandBar: View {
     private var regularBar: some View {
         ZStack {
             HStack(spacing: 4) {
-                if !(HubLayout.isMac && PulseLaunch.shouldHideMacHeaderPagesButton()) {
+                if PulseLaunch.shouldUseSeatFirstShell(mac: HubLayout.isMac) {
+                    EmptyView()
+                } else if !(HubLayout.isMac && PulseLaunch.shouldHideMacHeaderPagesButton()) {
                     HubNavControl(symbol: "line.3.horizontal", title: "Pages") {
                         var transaction = Transaction()
                         transaction.animation = nil
@@ -10985,14 +10995,16 @@ struct HubBrandBar: View {
 
     private var compactBar: some View {
         HStack(spacing: 6) {
-            HubNavControl(symbol: "line.3.horizontal", title: "Pages") {
-                store.beginInteractiveSheet()
-                sheets.presentCompactMenu(
-                    selected: router.current,
-                    health: CompactNavHealth.snapshot(summaries: store.summaries)
-                )
+            if !PulseLaunch.shouldUseSeatFirstShell(mac: HubLayout.isMac) {
+                HubNavControl(symbol: "line.3.horizontal", title: "Pages") {
+                    store.beginInteractiveSheet()
+                    sheets.presentCompactMenu(
+                        selected: router.current,
+                        health: CompactNavHealth.snapshot(summaries: store.summaries)
+                    )
+                }
+                .layoutPriority(1)
             }
-            .layoutPriority(1)
             Spacer(minLength: 4)
             if PulseLaunch.shouldStackCompactHubBrandHorizontally(),
                !PulseLaunch.shouldOverlayCompactHeartbeatMark() {

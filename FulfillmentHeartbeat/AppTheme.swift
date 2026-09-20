@@ -274,6 +274,8 @@ enum HubLayout {
     static var isPhoneDevice: Bool { profile.kind == .phone || livePhoneIdiom }
     static var isPadDevice: Bool { profile.kind == .pad && !livePhoneIdiom }
     static var isMac: Bool { profile.kind == .mac }
+    /// iPhone + iPad seat page. Mac never takes this path.
+    static var usesSeatFirstShell: Bool { PulseLaunch.shouldUseSeatFirstShell(mac: isMac) }
     static var lowMemory: Bool { profile.ramGB < 6 }
     static var lightLaunch: Bool { profile.lightLaunch }
     /// Skip Excel. Name kept for HeartbeatStore call sites.

@@ -40,6 +40,7 @@
 		AA0100000000000000000A20 /* MissingItemsViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B20 /* MissingItemsViews.swift */; };
 		AA0100000000000000000A23 /* SalesViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B23 /* SalesViews.swift */; };
 		AA0100000000000000000A22 /* RoleGateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B22 /* RoleGateView.swift */; };
+		AA0100000000000000000A2E /* SeatHubView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B2E /* SeatHubView.swift */; };
 		AA0100000000000000000A90 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B90 /* Assets.xcassets */; };
 		AA0100000000000000000A98 /* facts.json in Resources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B98 /* facts.json */; };
 		AA0100000000000000000A97 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = AA0100000000000000000B97 /* LaunchScreen.storyboard */; };
@@ -92,6 +93,7 @@
 		AA0100000000000000000B20 /* MissingItemsViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissingItemsViews.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B23 /* SalesViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SalesViews.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B22 /* RoleGateView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoleGateView.swift; sourceTree = "<group>"; };
+		AA0100000000000000000B2E /* SeatHubView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeatHubView.swift; sourceTree = "<group>"; };
 		AA0100000000000000000B90 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		AA0100000000000000000B98 /* facts.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = facts.json; sourceTree = "<group>"; };
 		AA0100000000000000000B97 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
@@ -173,6 +175,7 @@
 				AA0100000000000000000B13 /* SharedViews.swift */,
 				AA0100000000000000000B20 /* MissingItemsViews.swift */,
 				AA0100000000000000000B23 /* SalesViews.swift */,
+				AA0100000000000000000B2E /* SeatHubView.swift */,
 				AA0100000000000000000B1D /* CoachTour.swift */,
 				AA0100000000000000000B1F /* AssistView.swift */,
 			);
@@ -349,6 +352,7 @@
 				AA0100000000000000000A20 /* MissingItemsViews.swift in Sources */,
 				AA0100000000000000000A23 /* SalesViews.swift in Sources */,
 				AA0100000000000000000A22 /* RoleGateView.swift in Sources */,
+				AA0100000000000000000A2E /* SeatHubView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -676,7 +676,7 @@ private struct ImportProgressOverlay: View {
     }
 }
 
-private struct ImportProgressCard: View {
+struct ImportProgressCard: View {
     @ObservedObject var progress: ImportProgress
 
     var body: some View {

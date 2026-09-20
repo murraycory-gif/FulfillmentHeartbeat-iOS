@@ -1,4 +1,4 @@
-# HB-0828.440 / 766 — verify (M3 Path % + M4 Prep 0%; M1/M7 on 439)
+# HB-0828.440 / 766 — verify (M3 Path % + M4 Prep 0%; seat hub on phone/iPad)
 
 **Tip** `cursor/mac-catalyst-category-70dd` off `cursor/mac-share-attach-1006` (`300eb83`)
 **Stamp** `HB-0828.440  1.0 (766)` · bundle `com.corymurray.FulfillmentHeartbeat`
@@ -36,6 +36,9 @@ Must **compile**. Stay on Command Center. Do not open a section first.
 | Check | Pass |
 |---|---|
 | Sidebar stamp | `HB-0828.440  1.0 (766)` |
+| **iPhone / iPad seat shell** | Open paints **Company** seat page with Sales / Prep / Path / 5★ / Loss (and the rest) on one scroll. No Pages / section sidebar. No picker / shopper lists. Filter chips + Clear still work. |
+| **Store pickers** | Filter a store. Pickers / shopper lists may show. Company / Region stay list-free. |
+| **Mac Command Center** | Mac still opens Command Center + section Pages rail. Soft FAIL if Mac is forced onto the phone/iPad seat page. |
 | **ASC 90242** | Archived Mac Catalyst Info.plist has `LSApplicationCategoryType` = `public.app-category.business`. Upload is not rejected for missing category. |
 | **First paint gold** | Open / Clear→company shows **$79,870,895 / +16.23%** (week 202629) without opening Sales. Never a stale week. |
 | **Share attachment** | New Message shows attachment chip. Send opens the **system share sheet** with `Fulfillment-Heartbeat.pdf` (or page PNGs). Outlook / Teams / Files / AirDrop receive the file. Never Apple Mail plaintext-only / Hide My Email with no attachment. |

@@ -1299,6 +1299,82 @@ enum PulseLaunch {
         }
     }
 
+    /// iPhone + iPad: one seat page for every metric. Soft FAIL forcing Mac
+    /// onto this shell — Mac keeps Command Center / section sidebar.
+    static func shouldUseSeatFirstShell(mac: Bool) -> Bool { !mac }
+
+    /// Mac Catalyst / MacBook: prior Command Center + Pages rail.
+    static func shouldKeepMacCommandCenterShell(mac: Bool) -> Bool { mac }
+
+    /// Seat-first chrome has no section Pages sheet / sidebar.
+    static func shouldShowSectionPagesOnSeatShell() -> Bool { false }
+
+    /// Shopper / picker lists on the phone/iPad seat page: Store only.
+    static func shouldShowPickersOnSeatPage(filters: DashboardFilters) -> Bool {
+        sectionPageSeat(filters: filters) == .store
+    }
+
+    /// Hide PathShopperTable / picker boards on the seat shell unless Store.
+    static func shouldHideShopperListsOnSeatShell(mac: Bool, filters: DashboardFilters) -> Bool {
+        shouldUseSeatFirstShell(mac: mac) && !shouldShowPickersOnSeatPage(filters: filters)
+    }
+
+    static func shouldShowPickerHighlightsOnSeatPage(
+        filters: DashboardFilters,
+        embeddedInSeat: Bool
+    ) -> Bool {
+        if embeddedInSeat { return shouldShowPickersOnSeatPage(filters: filters) }
+        return shouldShowPickerHighlights(filters: filters)
+    }
+
+    static func shouldShowPickerShoppersOnSeatPage(
+        filters: DashboardFilters,
+        embeddedInSeat: Bool
+    ) -> Bool {
+        if embeddedInSeat { return shouldShowPickersOnSeatPage(filters: filters) }
+        return shouldShowPickerShoppersTable(filters: filters)
+    }
+
+    /// Seat page stacks these existing metric modules. Pickers stay a module
+    /// so Store can show shoppers; lists stay hidden above Store.
+    static func seatPageMetricSections() -> [MetricSection] {
+        [
+            .sales,
+            .prepNotReady,
+            .pickPath,
+            .fiveStar,
+            .lostRevenue,
+            .dynacap,
+            .scheduleQuality,
+            .missingItems,
+            .labor,
+            .pph,
+            .preSubOOS,
+            .pickerScorecard,
+        ]
+    }
+
+    static func seatBannerTitle(filters: DashboardFilters) -> String {
+        switch sectionPageSeat(filters: filters) {
+        case .company: return "Company"
+        case .region:
+            let name = filters.region.trimmingCharacters(in: .whitespacesAndNewlines)
+            return name.isEmpty ? "Region" : name
+        case .division:
+            let name = filters.division.trimmingCharacters(in: .whitespacesAndNewlines)
+            return name.isEmpty ? "Division" : name
+        case .district:
+            let name = filters.district.trimmingCharacters(in: .whitespacesAndNewlines)
+            return name.isEmpty ? "District" : (name.hasPrefix("District") ? name : "District \(name)")
+        case .om:
+            let name = filters.om.trimmingCharacters(in: .whitespacesAndNewlines)
+            return name.isEmpty ? "OM" : name
+        case .store:
+            let name = filters.store.trimmingCharacters(in: .whitespacesAndNewlines)
+            return name.isEmpty ? "Store" : "Store \(name)"
+        }
+    }
+
     /// Option 8b: Pulse / Power BI Mobile briefing home. Not always-open ScoreCard tables.
     static func shouldUseCommandCenterHome() -> Bool { true }
 
