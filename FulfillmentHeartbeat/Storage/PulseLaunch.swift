@@ -1457,6 +1457,12 @@ enum PulseLaunch {
                 next = lifted
             }
         }
+        if card.section == .sales, let chromeCard = chrome?.card(.sales), (chromeCard.headline ?? 0) > 0 {
+            next.headline = chromeCard.headline
+            if next.salesYoyPct == nil {
+                next.salesYoyPct = chromeCard.salesYoyPct
+            }
+        }
         return pinSeatStoreCount(next, seatStores: rosterStores)
     }
 
@@ -2032,6 +2038,11 @@ enum PulseLaunch {
     /// switch-on-section ghost keys.
     static func shouldUseSeatChipDualMap() -> Bool { false }
 
+    /// Cory 2026-09-20: THIS SEAT callout is gone on every page and every filter.
+    /// Company mixed store+company sales and showed ~2×. ScoreCard / THIS WEEK stay.
+    static func shouldShowThisSeatCallout() -> Bool { false }
+    static func shouldShowThisSeatCallout(filtersActive _: Bool) -> Bool { false }
+
     /// Same pack keys as the section hero + region `dashboardTableValues`.
     static func seatChipValues(
         section: MetricSection,
@@ -2353,8 +2364,10 @@ enum PulseLaunch {
     static let foregroundPackCheckQuietSeconds: TimeInterval = 12
     /// This project's TUS cap. Prefer the company seat over a 56MB market root.
     static let storageFileLimitBytes = 50_000_000
-    /// Thin company Command Center. Market ~56MB Jetsams the 12" iPad.
-    static let companySeatMaxBytes = 28_000_000
+    /// Company Command Center seat. Under the 50MB cook refuse.
+    /// Today's published company pack is ~29.6MB — 28MB refused fetch/promote.
+    /// 29–40MB company seats must land. Market ~56MB still refused.
+    static let companySeatMaxBytes = 40_000_000
 
     static func shouldPullCloudPackOnColdOpen() -> Bool { true }
     static func shouldPullCloudPackOnForeground() -> Bool { true }

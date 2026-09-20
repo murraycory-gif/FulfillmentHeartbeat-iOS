@@ -24,4 +24,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.436 / 1.0 (762) — Pick Path expand loads pick_path_picker after path-grain-only (pickerLoading + Path % after load). Prep cook uses Store not Store #. Empty store filter chrome is 0% / “No Prep rows this week”. 429 sequence-date join + thin company KEEP.
+HB-0828.438 / 1.0 (764) — THIS SEAT callout removed on every page and filter. Company seat cap 40MB. 436 KEEP: Pick Path expand shoppers + Prep Store chrome.

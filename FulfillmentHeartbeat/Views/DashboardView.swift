@@ -209,7 +209,8 @@ struct PhonePulseCard: View {
     }
 
     private var valueText: String {
-        phoneMoney(card.headline) ?? card.headlineText
+        if card.section == .sales { return card.headlineText }
+        return phoneMoney(card.headline) ?? card.headlineText
     }
 
     private var riskText: String {
@@ -1217,7 +1218,8 @@ struct DashCallout: View, Equatable {
                     flags: flags,
                     grains: grains,
                     grain: grain,
-                    extraPct: card.section == .lostRevenue ? card.lostRevenuePct : nil,
+                    extraPct: card.section == .lostRevenue ? card.lostRevenuePct
+                        : card.section == .sales ? card.salesYoyPct : nil,
                     action: action
                 )
             } else if card.section == .lostRevenue {
