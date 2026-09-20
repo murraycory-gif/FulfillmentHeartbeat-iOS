@@ -585,6 +585,11 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(MarketRegion.canonicalName("West Region"), "")
         XCTAssertEqual(MarketRegion.canonicalName("Nor Cal"), "NorCal")
         XCTAssertEqual(MarketRegion.canonicalName("SoCal Division"), "SoCal")
+        XCTAssertEqual(MarketRegion.canonicalName("NOR. CALIFORNIA"), "NorCal")
+        XCTAssertEqual(MarketRegion.canonicalName("SO CALIFORNIA"), "SoCal")
+        XCTAssertEqual(MarketRegion.canonicalName("DENVER"), "Mountain West")
+        XCTAssertEqual(MarketRegion.canonicalName("INTERMOUNTAIN"), "Mountain West")
+        XCTAssertEqual(MarketRegion.canonicalName("JEWEL"), "Jewel Osco")
         XCTAssertEqual(MarketRegion.divisionChoices(regions: []).count, 12)
         XCTAssertEqual(MarketRegion.divisionChoices(regions: ["West Region"]), ["Mountain West", "Seattle", "Portland", "Haggen"])
         XCTAssertEqual(MarketRegion.east.gateDivisions, ["Shaws", "Jewel Osco", "Mid-Atlantic"])
@@ -601,6 +606,37 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertFalse(all.contains("Mid Atlantic"))
         let south = MarketRegion.companyDivisions(for: DashboardFilters(region: "South Region", division: "", district: "", om: "", store: ""))
         XCTAssertEqual(south, ["Southern", "United", "Southwest"])
+    }
+
+    func testRosterAuthoritativeStampOverwritesFirstDivisionHaggen() {
+        let roster = MetricRow(
+            section: .storeRoster,
+            division: "SoCal",
+            operationsOM: "Pat",
+            storeNumber: "1704",
+            textPayload: ["roster": "1", "district": "03"]
+        )
+        let loss = MetricRow(
+            section: .lostRevenue,
+            division: "Haggen",
+            operationsOM: "",
+            storeNumber: "1704",
+            payload: ["lost_revenue": 50, "ecomm_sales": 1000],
+            textPayload: ["lost_grain": "store"]
+        )
+        let stamped = HeartbeatMath.rowsStampingRosterAuthoritative([roster, loss])
+        let row = stamped.first { $0.section == .lostRevenue }
+        XCTAssertEqual(row?.division, "SoCal")
+        XCTAssertEqual(row?.operationsOM, "Pat")
+        XCTAssertEqual(row?.textPayload["district"], "03")
+        XCTAssertFalse(HeartbeatMath.isGarbageFact(loss))
+        var garbage = loss
+        garbage.storeNumber = "Applied filters:\nRELATIVE_WEEK is TW"
+        XCTAssertTrue(HeartbeatMath.isGarbageFact(garbage))
+        var dynacap = loss
+        dynacap.section = .dynacap
+        dynacap.storeNumber = "Total"
+        XCTAssertTrue(HeartbeatMath.isGarbageFact(dynacap))
     }
 
     func testLostRevenueDistrictFilterJoinsStoresWithoutDistrictColumn() {

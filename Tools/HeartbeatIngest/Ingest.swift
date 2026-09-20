@@ -34,6 +34,12 @@ enum HeartbeatIngest {
             )
             print("  \(sheet.section.title): \(incoming.count) rows")
         }
+        rows = HeartbeatMath.rowsStampingRosterAuthoritative(rows)
+        let beforeGarbage = rows.count
+        rows.removeAll { HeartbeatMath.isGarbageFact($0) }
+        if beforeGarbage != rows.count {
+            print("Dropped \(beforeGarbage - rows.count) garbage filter/total fact(s).")
+        }
         print("Cooking dashboard tiles…")
         let caches = PulseCaches.build(
             rows: rows,

@@ -60,6 +60,49 @@ final class WorkbookParserTests: XCTestCase {
     func testNormHeaderStripsSymbols() {
         XCTAssertEqual(WorkbookParser.normHeader("OTP %"), "otppct")
         XCTAssertEqual(WorkbookParser.normHeader("Store #"), "store")
+        XCTAssertEqual(WorkbookParser.preferredStoreIndex(rawHeaders: ["Store #", "DIVISION", "Store", "PNR %"]), 2)
+        XCTAssertEqual(WorkbookParser.preferredStoreIndex(rawHeaders: ["STORE_ID", "Store #", "DPA"]), 0)
+        XCTAssertNil(WorkbookParser.preferredStoreIndex(rawHeaders: ["Store #", "Count"]))
+    }
+
+    func testLossIgnoresFirstDivisionHaggenLeftover() {
+        let csv = """
+        Store,First DIVISION,eComm Sales,Total Lost Revenue (Total Opportunity),Total Lost Revenue % (Total Opportunity)
+        1704,Haggen,1000,50,5
+        675,Haggen,2000,80,4
+        """
+        let rows = WorkbookParser.parseCSV(csv)
+        XCTAssertEqual(Set(rows.map(\.storeNumber)), Set(["1704", "675"]))
+        XCTAssertTrue(rows.allSatisfy { $0.division.isEmpty })
+        XCTAssertEqual(rows.first { $0.storeNumber == "1704" }?.payload["lost_revenue"] ?? 0, 50, accuracy: 0.01)
+    }
+
+    func testPrepPrefersStoreOverStoreHashAndKeepsUnited() {
+        let csv = """
+        Store #,DIVISION,District,OM,Store,Net Prep Not Ready Hours %
+        1,United,U3,Shawn Kildow,675,0.045
+        1,Southern,S1,Cristal Hudson,1432,0.03
+        2,United,U3,Shawn Kildow,Total,0.04
+        """
+        let rows = WorkbookParser.parseCSV(csv)
+        XCTAssertEqual(WorkbookParser.classifySheet(name: "Prep Not Ready", rows: rows), .prepNotReady)
+        XCTAssertEqual(Set(rows.map(\.storeNumber)), Set(["675", "1432"]))
+        XCTAssertEqual(rows.first { $0.storeNumber == "675" }?.division, "United")
+        XCTAssertEqual(rows.first { $0.storeNumber == "675" }?.operationsOM, "Shawn Kildow")
+        XCTAssertFalse(rows.contains { $0.storeNumber == "1" })
+    }
+
+    func testDynacapSkipsAppliedFiltersGarbageRow() {
+        let csv = """
+        STORE_ID,DPA_DYNACAP,EOT Capacity,Total Pieces/Total Hrs,% Change,Used Capacity,Utilization%
+        0001,17439,17499,75.657,0.00344,3164,0.1787
+        "Applied filters: RELATIVE_WEEK is TW",0,0,0,0,0,0
+        Total,37661846,39733428,62.48,0,0,0
+        """
+        let rows = WorkbookParser.parseCSV(csv)
+        XCTAssertEqual(Set(rows.map(\.storeNumber)), Set(["1"]))
+        XCTAssertFalse(rows.contains { HeartbeatMath.isGarbageStore($0.storeNumber) })
+        XCTAssertFalse(rows.contains { $0.storeNumber.lowercased() == "total" })
     }
 
     func testMasterSheetNames() {

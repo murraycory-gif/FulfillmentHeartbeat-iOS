@@ -629,7 +629,14 @@ enum HeartbeatMath {
         return rows.map { stampRoster($0, roster: roster) }
     }
 
-    static func stampRoster(_ row: MetricRow, roster: [String: StoreIdentity]) -> MetricRow {
+    /// Cook/thin: roster wins even when the sheet left a leftover filter (Loss `First DIVISION` = Haggen).
+    static func rowsStampingRosterAuthoritative(_ rows: [MetricRow]) -> [MetricRow] {
+        let roster = storeRoster(rows)
+        guard !roster.isEmpty else { return rows }
+        return rows.map { stampRoster($0, roster: roster, overwrite: true) }
+    }
+
+    static func stampRoster(_ row: MetricRow, roster: [String: StoreIdentity], overwrite: Bool = false) -> MetricRow {
         let store = canonicalStore(row.storeNumber)
         guard !store.isEmpty else { return row }
         var identity = roster[store]
@@ -643,13 +650,39 @@ enum HeartbeatMath {
         }
         guard let identity else { return row }
         var next = row
-        if next.division.isEmpty, !identity.division.isEmpty { next.division = identity.division }
-        if (next.textPayload["district"] ?? "").isEmpty, !identity.district.isEmpty {
+        if !identity.division.isEmpty, overwrite || next.division.isEmpty {
+            next.division = identity.division
+        }
+        if !identity.district.isEmpty, overwrite || (next.textPayload["district"] ?? "").isEmpty {
             next.textPayload["district"] = identity.district
         }
-        if next.operationsOM.isEmpty, !identity.om.isEmpty { next.operationsOM = identity.om }
+        if !identity.om.isEmpty, overwrite || next.operationsOM.isEmpty {
+            next.operationsOM = identity.om
+        }
         if next.storeName == nil || next.storeName?.isEmpty == true { next.storeName = identity.name }
         return next
+    }
+
+    static func isGarbageStore(_ raw: String) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        let lower = trimmed.lowercased()
+        if lower.hasPrefix("applied") || lower.contains("applied filters") { return true }
+        if lower.contains("relative_week") || lower.contains("is_opp_store") { return true }
+        if trimmed.contains("\n") || trimmed.contains("\r") { return true }
+        return false
+    }
+
+    static func isGarbageFact(_ row: MetricRow) -> Bool {
+        if isGarbageStore(row.storeNumber) { return true }
+        if let name = row.storeName, isGarbageStore(name) { return true }
+        if row.section == .dynacap {
+            let store = canonicalStore(row.storeNumber)
+            if store.isEmpty { return true }
+            if store.lowercased() == "total" { return true }
+            if Int(store) == nil { return true }
+        }
+        return false
     }
 
     static func dashboardScopeKey(_ row: MetricRow, grain: DashScopeGrain) -> String? {
@@ -3422,8 +3455,16 @@ enum MarketRegion: String, CaseIterable, Identifiable, Sendable {
         if key.hasPrefix("united") { return "United" }
         if key.contains("jewel") { return "Jewel Osco" }
         if key == "shaws" || key.hasPrefix("shaw") { return "Shaws" }
-        if key == "norcal" || key == "nocal" || key == "northerncalifornia" { return "NorCal" }
-        if key == "socal" || key == "southerncalifornia" || key == "southerncal" { return "SoCal" }
+        if key == "norcal" || key == "nocal" || key == "northerncalifornia"
+            || key == "norcalifornia" || key == "norcalif" || compact.hasPrefix("nor california") {
+            return "NorCal"
+        }
+        if key == "socal" || key == "southerncalifornia" || key == "southerncal"
+            || key == "socalifornia" || key == "socalif" || compact.hasPrefix("so california") {
+            return "SoCal"
+        }
+        if key == "denver" || key.hasPrefix("denver") { return "Mountain West" }
+        if key.contains("intermountain") { return "Mountain West" }
         if key.contains("mountainwest") { return "Mountain West" }
         if key == "haggen" || key.hasPrefix("haggen") { return "Haggen" }
         if key == "portland" || key.hasPrefix("portland") { return "Portland" }
