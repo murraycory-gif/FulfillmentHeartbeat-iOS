@@ -1,7 +1,7 @@
-# HB-0828.440 / 766 — verify (M3 Path % + M4 Prep 0%; seat hub on phone/iPad)
+# HB-0828.441 / 767 — verify (first-principles seat shell; Mac Command Center)
 
 **Tip** `cursor/mac-catalyst-category-70dd` off `cursor/mac-share-attach-1006` (`300eb83`)
-**Stamp** `HB-0828.440  1.0 (766)` · bundle `com.corymurray.FulfillmentHeartbeat`
+**Stamp** `HB-0828.441  1.0 (767)` · bundle `com.corymurray.FulfillmentHeartbeat`
 **752 Soft KEEP:** first-paint current pack gold + Share attach / `UIActivityViewController`.
 
 Soft FAIL 2026-09-14: Mac Catalyst TestFlight upload of HB **752** rejected **ASC 90242** — Info.plist missing `LSApplicationCategoryType`. This root sets `public.app-category.business` in Heartbeat `Info.plist` and target `INFOPLIST_KEY_LSApplicationCategoryType` (`GENERATE_INFOPLIST_FILE = NO`).
@@ -35,9 +35,10 @@ Must **compile**. Stay on Command Center. Do not open a section first.
 
 | Check | Pass |
 |---|---|
-| Sidebar stamp | `HB-0828.440  1.0 (766)` |
-| **iPhone / iPad seat shell** | Open paints **Company** seat page with Sales / Prep / Path / 5★ / Loss (and the rest) on one scroll. No Pages / section sidebar. No picker / shopper lists. Filter chips + Clear still work. |
-| **Store pickers** | Filter a store. Pickers / shopper lists may show. Company / Region stay list-free. |
+| Sidebar stamp | `HB-0828.441  1.0 (767)` |
+| **iPhone / iPad seat shell** | Compact banner (Clear + chips + crumb) → **Company** title + level chip → SCOREBOARD of every metric (label over value). Then Regions + Markets. No Pages / section tabs. No pickers. Same IA on iPad (more columns). |
+| **Child drill** | Tap a Region / Market / District / Store row → that child’s seat page, same shell. |
+| **Store pickers** | Filter a store. Shoppers / LDAP / Path may show. Company–OM stay list-free. |
 | **Mac Command Center** | Mac still opens Command Center + section Pages rail. Soft FAIL if Mac is forced onto the phone/iPad seat page. |
 | **ASC 90242** | Archived Mac Catalyst Info.plist has `LSApplicationCategoryType` = `public.app-category.business`. Upload is not rejected for missing category. |
 | **First paint gold** | Open / Clear→company shows **$79,870,895 / +16.23%** (week 202629) without opening Sales. Never a stale week. |
@@ -51,26 +52,6 @@ Must **compile**. Stay on Command Center. Do not open a section first.
 | **Pick Path expand** | Open Pick Path (path-grain-only). Expand store 1. `pickerLoading` then 14 `pick_path_picker` rows — AVELJ03 **81.36%**. Not the pack-after-ready placeholder. Path % only after load. |
 | **Pick Path Sequence** | Mapper / Sequence on the Pick Path store table show short dates (e.g. `9/16/26`), same as other dated sections. Not `—` when aisle_mapper is in the pack. |
 | **Prep Not Ready** | Store 1 filter: **0%** / “No Prep rows this week” — not a dead — tile, not an invented company rate. Cook uses **Store**, never bogus `Store #` = 1. |
-
-## APP vs PACK/COOK (QC pack is authoritative)
-
-**APP BUG** = pack **has** rows and the phone stays blank / —. Fix in app (439 M1/M7, 440 M3/M4).
-**PACK/COOK** = cook omitted the grain. UI stays empty / dash. **Do not invent fills.**
-
-| Hole | Expect | Verdict |
-|---|---|---|
-| ScoreCard facts 0 vs chrome 29249 | Dash / empty ScoreCard body; chrome may still cite pickers | **PACK/COOK** — thin killed ScoreCard |
-| Loss all `division=Haggen`; ops/OM blank; East/South/CA dash | Haggen rows only; other regions dash | **PACK/COOK** |
-| Prep United zero; 863/2161 stores missing; Southern 5 / United Ops OM zero | Empty / 0 stores / dash — not a guessed rate | **PACK/COOK** |
-| 5 Star 2224 stores missing | Those stores absent | **PACK/COOK** |
-| Region chrome CA / Mountain West / United | Holes stay holes | **PACK/COOK** |
-| Dynacap Store PPH — | Dash | **PACK/COOK** |
-| 1 garbage filter row | Cook published junk; do not invent a clean roster | **PACK/COOK** |
-| Sales / Prep / 5★ / Loss body blank when pack has store facts | Must fill after chrome (M1/M7) | **APP BUG** — 439 |
-| Path expand Path % — when `pick_path_picker` is in the seat | pick_path_picker only; no PPH merge | **APP BUG** — 440 |
-| Prep Excel 0 → — | **0%** | **APP BUG** — 440 |
-
-`prepRateText(0)` = **0%**. `prepRateText(nil)` = **—**. `shouldInventPrepRateOnEmptyStore` = false.
 
 ## Soft KEEP
 

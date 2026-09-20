@@ -1309,6 +1309,89 @@ enum PulseLaunch {
     /// Seat-first chrome has no section Pages sheet / sidebar.
     static func shouldShowSectionPagesOnSeatShell() -> Bool { false }
 
+    /// Seat shell owns a compact Clear / filters / crumb bar. Soft FAIL
+    /// HubBrandBar + HubBanner dual headers over the scoreboard.
+    static func shouldMountSeatHubBrandBar() -> Bool { false }
+
+    static func shouldUseSeatChromeBanner() -> Bool { true }
+
+    /// Scoreboard tiles are not section destinations.
+    static func shouldOpenSectionFromSeatScoreboard() -> Bool { false }
+
+    static func seatLevelChip(_ seat: SectionPageSeat) -> String {
+        switch seat {
+        case .company: return "Company"
+        case .region: return "Region"
+        case .division: return "Division"
+        case .district: return "District"
+        case .om: return "OM"
+        case .store: return "Store"
+        }
+    }
+
+    static func seatGrainCrumb(filters: DashboardFilters) -> String {
+        var parts = ["Company"]
+        if !filters.region.isEmpty {
+            parts.append(HeartbeatMath.displayGrainLabel(filters.region))
+        }
+        if !filters.division.isEmpty {
+            parts.append(HeartbeatMath.displayGrainLabel(filters.division))
+        }
+        if !filters.district.isEmpty {
+            let name = HeartbeatMath.displayGrainLabel(filters.district)
+            parts.append(name.hasPrefix("District") ? name : "District \(name)")
+        }
+        if !filters.om.isEmpty {
+            parts.append(filters.om)
+        }
+        if !filters.store.isEmpty {
+            parts.append("Store \(HeartbeatMath.canonicalStore(filters.store))")
+        }
+        return parts.joined(separator: " › ")
+    }
+
+    /// Same IA phone↔pad. Wider canvas gets more columns — not a different model.
+    static func seatScoreboardColumns(width: CGFloat, pad: Bool) -> Int {
+        if width >= 1100 { return 4 }
+        if width >= 760 { return 3 }
+        if pad, width >= 600 { return 3 }
+        return 2
+    }
+
+    static func drillSeatFilters(
+        current: DashboardFilters,
+        grain: DashScopeGrain,
+        rawLabel: String
+    ) -> DashboardFilters {
+        let label = rawLabel.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch grain {
+        case .region:
+            var next = DashboardFilters()
+            next.region = label
+            return next
+        case .division:
+            var next = current
+            next.division = label
+            next.district = ""
+            next.om = ""
+            next.store = ""
+            if next.region.isEmpty {
+                next.region = MarketRegion.containing(label)?.rawValue ?? ""
+            }
+            return next
+        case .district:
+            var next = current
+            next.district = label
+            next.om = ""
+            next.store = ""
+            return next
+        case .store:
+            var next = current
+            next.store = HeartbeatMath.canonicalStore(label)
+            return next
+        }
+    }
+
     /// Shopper / picker lists on the phone/iPad seat page: Store only.
     static func shouldShowPickersOnSeatPage(filters: DashboardFilters) -> Bool {
         sectionPageSeat(filters: filters) == .store

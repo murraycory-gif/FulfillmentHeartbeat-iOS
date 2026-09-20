@@ -24,4 +24,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.440 / 1.0 (766) — M3 Path expand pick_path_picker only; M4 Prep 0% / snapshots. M1/M7 stay on 439. Seat hub on iPhone + iPad; Mac keeps Command Center. Company seat cap 40MB.
+HB-0828.441 / 1.0 (767) — iPhone + iPad first-principles seat shell (scoreboard + child tables). Mac keeps Command Center. THIS SEAT still gone. Company seat cap 40MB. 436 KEEP: Pick Path expand shoppers + Prep Store chrome.
