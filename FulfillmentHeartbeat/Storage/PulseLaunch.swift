@@ -2038,6 +2038,11 @@ enum PulseLaunch {
     /// switch-on-section ghost keys.
     static func shouldUseSeatChipDualMap() -> Bool { false }
 
+    /// Cory 2026-09-20: THIS SEAT callout is gone on every page and every filter.
+    /// Company mixed store+company sales and showed ~2×. ScoreCard / THIS WEEK stay.
+    static func shouldShowThisSeatCallout() -> Bool { false }
+    static func shouldShowThisSeatCallout(filtersActive _: Bool) -> Bool { false }
+
     /// Same pack keys as the section hero + region `dashboardTableValues`.
     static func seatChipValues(
         section: MetricSection,

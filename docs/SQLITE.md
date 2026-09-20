@@ -24,4 +24,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.437 / 1.0 (763) — Company seat cap 40MB so ~29.6MB published current.sqlite fetches and promotes. 56MB market still refused. 436 KEEP: Pick Path expand shoppers + Prep Store chrome.
+HB-0828.438 / 1.0 (764) — THIS SEAT callout removed on every page and filter. Company seat cap 40MB. 436 KEEP: Pick Path expand shoppers + Prep Store chrome.
