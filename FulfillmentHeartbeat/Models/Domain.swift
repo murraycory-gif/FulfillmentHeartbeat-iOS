@@ -685,6 +685,26 @@ enum HeartbeatMath {
         return false
     }
 
+    /// K3: Loss leftover First DIVISION / failed roster bind is an ingest Soft FAIL.
+    static func lossBindSoftFail(_ rows: [MetricRow]) -> String? {
+        let loss = rows.filter { $0.section == .lostRevenue && !canonicalStore($0.storeNumber).isEmpty }
+        guard loss.count >= 200 else { return nil }
+        let divisions = Set(loss.map { MarketRegion.canonicalName($0.division) }.filter { !$0.isEmpty })
+        if divisions.count < 5 {
+            return "Soft FAIL: Loss roster bind left \(divisions.count) division(s) \(divisions.sorted()) on \(loss.count) stores (Haggen-only leftover)."
+        }
+        let blankOM = loss.filter { $0.operationsOM.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count
+        if blankOM * 2 > loss.count {
+            return "Soft FAIL: Loss Ops/OM blank on \(blankOM)/\(loss.count) after roster stamp."
+        }
+        return nil
+    }
+
+    /// D4: chrome citing shoppers with zero ScoreCard facts is an ingest Soft FAIL.
+    static func orphanScorecardChrome(shoppersCited: Int, scorecardFacts: Int) -> Bool {
+        shoppersCited > 0 && scorecardFacts < 1
+    }
+
     static func dashboardScopeKey(_ row: MetricRow, grain: DashScopeGrain) -> String? {
         switch grain {
         case .region:

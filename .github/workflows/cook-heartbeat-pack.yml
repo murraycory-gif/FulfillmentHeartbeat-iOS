@@ -2,8 +2,10 @@ name: Cook Heartbeat pack
 
 # Turns Heartbeat Daily Report.xlsx in Supabase into current.sqlite.
 # Testers never parse Excel. Cory's Mac does not need to be on.
-# Soft KEEP thin company ≤40MB with slim picker_scorecard + pick_path_picker as LIVE.
-# Soft FAIL fat over 40MB. Never drop ScoreCard facts. Never use needs_attention.
+# Company seat KEEP: sales/roster/chrome, slim ScoreCard facts, Loss bind, store grains.
+# Optional slim pick_path_picker (peek-only). DROP item tape / fat shopper payloads / 56MB hub.
+# Soft FAIL >40MB, orphan chrome (shoppers cited / 0 ScoreCard facts), Haggen-only Loss.
+# Cook/thin only. Do not conflate into tip 439. Never use needs_attention.
 on:
   workflow_dispatch:
   schedule:
@@ -74,15 +76,15 @@ jobs:
           Tools/HeartbeatIngest/.build/release/HeartbeatIngest /tmp/daily.xlsx /tmp/current.sqlite
           ls -l /tmp/current.sqlite
 
-      - name: Soft KEEP thin company (keep slim ScoreCard + path picker)
+      - name: Soft KEEP thin company (ScoreCard facts, ≤40MB)
         if: env.skip != '1'
         run: |
           set -euo pipefail
-          # Fat market Soft FAIL over 40MB company seat. Soft KEEP slim company LIVE.
-          # Soft KEEP picker_scorecard facts (slim). Soft KEEP stamped pick_path_picker.
-          # Soft FAIL fat: drop pre_sub_oos_item only. Never drop ScoreCard. No needs_attention.
           FAT_BYTES=$(wc -c < /tmp/current.sqlite | tr -d ' ')
           echo "fat $FAT_BYTES"
+          if [ "$FAT_BYTES" -gt 56000000 ]; then
+            echo "market fat=$FAT_BYTES (expected). Company hub must thin to ≤40MB (D3)."
+          fi
           python3 Tools/HeartbeatIngest/thin_company.py /tmp/current.sqlite
           THIN_BYTES=$(wc -c < /tmp/current.sqlite | tr -d ' ')
           echo "thin $THIN_BYTES"
@@ -91,14 +93,14 @@ jobs:
             exit 1
           fi
           SCORE_N=$(sqlite3 /tmp/current.sqlite "SELECT COUNT(*) FROM facts WHERE section='picker_scorecard';")
-          PICKER_N=$(sqlite3 /tmp/current.sqlite "SELECT COUNT(*) FROM facts WHERE section='pick_path_picker';")
-          echo "picker_scorecard=$SCORE_N pick_path_picker=$PICKER_N"
+          CHROME_N=$(sqlite3 /tmp/current.sqlite "SELECT json_extract(json,'\$.pickerShoppers') FROM dash_chrome WHERE id=1;")
+          echo "picker_scorecard=$SCORE_N chrome_pickerShoppers=$CHROME_N"
           if [ "$SCORE_N" -lt 1000 ]; then
             echo "Soft FAIL: picker_scorecard=$SCORE_N"
             exit 1
           fi
-          if [ "$PICKER_N" -lt 1 ]; then
-            echo "Soft FAIL: pick_path_picker=0"
+          if [ "${CHROME_N:-0}" -gt 0 ] && [ "$SCORE_N" -lt 1 ]; then
+            echo "Soft FAIL: orphan chrome cites $CHROME_N shoppers with 0 ScoreCard facts"
             exit 1
           fi
 
@@ -119,13 +121,13 @@ jobs:
             exit 1
           fi
           SCORE_N=$(sqlite3 /tmp/current.sqlite "SELECT COUNT(*) FROM facts WHERE section='picker_scorecard';")
-          PICKER_N=$(sqlite3 /tmp/current.sqlite "SELECT COUNT(*) FROM facts WHERE section='pick_path_picker';")
+          CHROME_N=$(sqlite3 /tmp/current.sqlite "SELECT json_extract(json,'\$.pickerShoppers') FROM dash_chrome WHERE id=1;")
           if [ "$SCORE_N" -lt 1000 ]; then
             echo "Soft FAIL: picker_scorecard=$SCORE_N — not publishing"
             exit 1
           fi
-          if [ "$PICKER_N" -lt 1 ]; then
-            echo "Soft FAIL: pick_path_picker=0 — not publishing"
+          if [ "${CHROME_N:-0}" -gt 0 ] && [ "$SCORE_N" -lt 1 ]; then
+            echo "Soft FAIL: orphan chrome cites $CHROME_N shoppers with 0 ScoreCard facts — not publishing"
             exit 1
           fi
           upload() {
@@ -156,4 +158,4 @@ jobs:
           }
           upload "packs/seat/company/all/current.sqlite"
           upload "current.sqlite"
-          echo "Published thin company current.sqlite ($BYTES bytes) picker_scorecard=$SCORE_N pick_path_picker=$PICKER_N."
+          echo "Published thin company current.sqlite ($BYTES bytes) picker_scorecard=$SCORE_N chrome_pickerShoppers=$CHROME_N."

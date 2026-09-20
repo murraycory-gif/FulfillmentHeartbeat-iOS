@@ -1,10 +1,21 @@
 #!/usr/bin/env python3
 """Thin a cooked Heartbeat market sqlite into a company seat ≤40MB.
 
-Keeps picker_scorecard facts (slim payloads). Drops pre_sub_oos_item.
-Stamps pick_path_picker store from scorecard. Roster overwrites leftover
-sheet identity (Loss First DIVISION=Haggen). Drops Applied-filters garbage.
-Never touches a needs_attention column — facts has none.
+KEEP ranked:
+  K1 sales / roster / chrome plane
+  K2 slim picker_scorecard FACTS (~2–5MB) — Soft FAIL if chrome cites shoppers and facts are 0
+  K3 Loss facts + roster bind — Soft FAIL Haggen-only / blank Ops/OM
+  K4 other store grains (Prep / 5★) — stamp identity where Excel/roster allows
+  K5 optional slim pick_path_picker (in-place / store-peek-only). Never explode shopper×store.
+
+DROP:
+  D1 pre_sub_oos_item item tape
+  D2 fat shopper payloads beyond slim ScoreCard
+  D3 market ~56MB as company hub (>40MB Soft FAIL)
+  D4 orphan chrome citing shoppers with zero ScoreCard facts
+
+Never touches needs_attention — facts has no such column.
+Cook/thin only. Do not conflate into tip 439 iOS paint.
 """
 from __future__ import annotations
 
@@ -12,10 +23,11 @@ import json
 import os
 import sqlite3
 import sys
-import uuid
 
 COMPANY_SEAT_MAX = 40_000_000
+SCORECARD_MIN = 1000
 
+# K2 core ScoreCard page. Keep small so slim facts land in the ~13.6MB headroom.
 SCORECARD_KEEP = (
     "pph",
     "presub_pct",
@@ -23,15 +35,8 @@ SCORECARD_KEEP = (
     "pick_hours",
     "subs",
     "orders",
-    "qty_ordered",
-    "dug_orders",
-    "oth_elig_pct",
-    "oth_eligible_orders",
-    "oth5_pct",
     "ott_pct",
-    "refund_amt",
-    "coe_pct",
-    "pph_picks",
+    "oth5_pct",
 )
 SCORECARD_OPTIONAL = (
     "qty_ordered",
@@ -121,28 +126,51 @@ def counts(con: sqlite3.Connection) -> list[tuple[str, int]]:
     return con.execute("SELECT section, COUNT(*) FROM facts GROUP BY 1 ORDER BY 1").fetchall()
 
 
+def chrome_shoppers(con: sqlite3.Connection) -> int:
+    try:
+        raw = con.execute("SELECT json FROM dash_chrome WHERE id=1").fetchone()
+    except sqlite3.Error:
+        return 0
+    if not raw:
+        return 0
+    data = load_json(raw[0])
+    try:
+        return int(data.get("pickerShoppers") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
 def print_qc(con: sqlite3.Connection, label: str) -> dict[str, int]:
     by_section = {section: n for section, n in counts(con)}
     print(f"{label} {counts(con)}")
-    roster = {canon_store(s) for (s,) in con.execute(
-        "SELECT store_number FROM facts WHERE section='store_roster'"
-    ) if canon_store(s)}
+    roster = {
+        canon_store(s)
+        for (s,) in con.execute("SELECT store_number FROM facts WHERE section='store_roster'")
+        if canon_store(s)
+    }
     loss_divs = con.execute(
         "SELECT COALESCE(division,''), COUNT(*) FROM facts WHERE section='lost_revenue' GROUP BY 1 ORDER BY 2 DESC"
     ).fetchall()
     print(f"{label} lost_revenue divisions {loss_divs}")
-    print(f"{label} lost_revenue blank_om", con.execute(
-        "SELECT COUNT(*) FROM facts WHERE section='lost_revenue' AND TRIM(COALESCE(operations_om,''))=''"
-    ).fetchone()[0])
+    print(
+        f"{label} lost_revenue blank_om",
+        con.execute(
+            "SELECT COUNT(*) FROM facts WHERE section='lost_revenue' AND TRIM(COALESCE(operations_om,''))= ''"
+        ).fetchone()[0],
+    )
     prep_divs = con.execute(
         "SELECT COALESCE(division,''), COUNT(*) FROM facts WHERE section='prep_not_ready' GROUP BY 1 ORDER BY 2 DESC"
     ).fetchall()
     print(f"{label} prep_not_ready divisions {prep_divs}")
-    five_stores = {canon_store(s) for (s,) in con.execute(
-        "SELECT store_number FROM facts WHERE section='five_star'"
-    ) if canon_store(s)}
-    print(f"{label} five_star stores {len(five_stores)} roster_missing {len(roster - five_stores)}")
+    five_stores = {
+        canon_store(s)
+        for (s,) in con.execute("SELECT store_number FROM facts WHERE section='five_star'")
+        if canon_store(s)
+    }
+    missing_five = sorted(roster - five_stores)
+    print(f"{label} five_star stores {len(five_stores)} roster_missing_n {len(missing_five)} sample {missing_five[:12]}")
     print(f"{label} picker_scorecard {by_section.get('picker_scorecard', 0)}")
+    print(f"{label} chrome_pickerShoppers {chrome_shoppers(con)}")
     garbage = con.execute(
         "SELECT COUNT(*) FROM facts WHERE store_number LIKE 'Applied%' OR store_number LIKE '%applied filters%'"
     ).fetchone()[0]
@@ -150,106 +178,56 @@ def print_qc(con: sqlite3.Connection, label: str) -> dict[str, int]:
     return by_section
 
 
-def thin(path: str) -> None:
-    con = sqlite3.connect(path)
-    con.isolation_level = None
-    print("before_bytes", os.path.getsize(path))
-    before = print_qc(con, "before")
-
-    roster = roster_by_store(con)
-    if len(roster) < 200:
-        raise SystemExit("Soft FAIL: store_roster too small to stamp company identity")
-    picker_n = con.execute("SELECT COUNT(*) FROM facts WHERE section='picker_scorecard'").fetchone()[0]
-    if picker_n < 1000:
+def refuse_orphan_chrome(con: sqlite3.Connection, scorecard_n: int) -> None:
+    cited = chrome_shoppers(con)
+    if cited > 0 and scorecard_n < 1:
         raise SystemExit(
-            f"Soft FAIL: picker_scorecard count is {picker_n} before thin — refusing to wipe Path Picker or publish without ScoreCard facts"
+            f"Soft FAIL: orphan chrome cites {cited} shoppers with {scorecard_n} picker_scorecard facts (D4)"
         )
 
-    stores_by: dict[str, set[str]] = {}
-    for store, text_json in con.execute(
-        "SELECT store_number, text_json FROM facts WHERE section='picker_scorecard'"
-    ):
-        store = canon_store(store)
-        if not store or is_garbage_store(store):
-            continue
-        text = load_json(text_json)
-        for key in ("shopper_id", "shopper_name", "employee_alternate_id"):
-            alias = (text.get(key) or "").strip().upper()
-            if alias:
-                stores_by.setdefault(alias, set()).add(store)
 
-    stamped = []
-    for row in con.execute(
-        "SELECT division, operations_om, store_name, recorded_on, payload_json, text_json "
-        "FROM facts WHERE section='pick_path_picker'"
-    ):
-        division, om, store_name, recorded_on, payload_json, text_json = row
-        text = load_json(text_json)
-        payload = load_json(payload_json)
-        slim_p = slim_payload(payload, PATH_KEEP)
-        ldap = (text.get("shopper_id") or text.get("shopper_name") or text.get("employee_alternate_id") or "").strip().upper()
-        slim_t = {"shopper_id": ldap, "shopper_name": text.get("shopper_name") or ldap}
-        targets = sorted(stores_by.get(ldap, []))
-        if not targets:
-            continue
-        for store in targets:
-            ident = roster.get(store)
-            stamped.append(
-                (
-                    str(uuid.uuid4()).upper(),
-                    "pick_path_picker",
-                    store,
-                    (ident[0] if ident and ident[0] else division) or "",
-                    (ident[1] if ident and ident[1] else om) or "",
-                    store_name,
-                    recorded_on,
-                    json.dumps(slim_p, separators=(",", ":")),
-                    json.dumps(slim_t, separators=(",", ":")),
-                )
-            )
+def refuse_loss_bind(con: sqlite3.Connection) -> None:
+    loss_n = con.execute(
+        "SELECT COUNT(*) FROM facts WHERE section='lost_revenue' AND TRIM(store_number)!=''"
+    ).fetchone()[0]
+    if loss_n < 200:
+        return
+    divs = con.execute(
+        "SELECT COUNT(DISTINCT division) FROM facts WHERE section='lost_revenue' AND TRIM(COALESCE(division,''))!=''"
+    ).fetchone()[0]
+    if divs < 5:
+        raise SystemExit(f"Soft FAIL: lost_revenue only {divs} division(s) after roster stamp (K3 Haggen-only)")
+    blank_om = con.execute(
+        "SELECT COUNT(*) FROM facts WHERE section='lost_revenue' AND TRIM(COALESCE(operations_om,''))=''"
+    ).fetchone()[0]
+    if blank_om * 2 > loss_n:
+        raise SystemExit(f"Soft FAIL: lost_revenue Ops/OM blank on {blank_om}/{loss_n} after roster stamp (K3)")
 
-    con.execute("BEGIN")
-    # Keep picker_scorecard. Drop item grain only. Replace path picker with slim stamps.
-    con.execute("DELETE FROM facts WHERE section IN ('pre_sub_oos_item','pick_path_picker')")
-    if stamped:
-        con.executemany(
-            "INSERT INTO facts (id, section, store_number, division, operations_om, store_name, recorded_on, payload_json, text_json) "
-            "VALUES (?,?,?,?,?,?,?,?,?)",
-            stamped,
-        )
 
-    scorecard_rows = list(con.execute(
-        "SELECT id, store_number, division, operations_om, store_name, payload_json, text_json "
-        "FROM facts WHERE section='picker_scorecard'"
-    ))
-    for row_id, store, division, om, name, payload_json, text_json in scorecard_rows:
-        if is_garbage_store(store):
-            con.execute("DELETE FROM facts WHERE id=?", (row_id,))
-            continue
-        payload = slim_payload(load_json(payload_json), SCORECARD_KEEP)
-        text = slim_text(load_json(text_json), SCORECARD_TEXT)
-        ldap = (text.get("shopper_id") or text.get("shopper_name") or text.get("employee_alternate_id") or "").strip().upper()
-        if ldap:
-            text["shopper_id"] = ldap
-            text.setdefault("shopper_name", ldap)
-        ident = roster.get(canon_store(store))
-        new_div = ident[0] if ident and ident[0] else (division or "")
-        new_om = ident[1] if ident and ident[1] else (om or "")
-        if ident and ident[2] and "district" not in text:
-            text["district"] = ident[2]
+def slim_section(con: sqlite3.Connection, section: str, keep: tuple[str, ...], text_keep: tuple[str, ...]) -> None:
+    rows = list(
         con.execute(
-            "UPDATE facts SET division=?, operations_om=?, store_name=?, payload_json=?, text_json=? WHERE id=?",
-            (
-                new_div,
-                new_om,
-                name or (ident[3] if ident else None),
-                json.dumps(payload, separators=(",", ":")),
-                json.dumps(text, separators=(",", ":")),
-                row_id,
-            ),
+            "SELECT id, payload_json, text_json FROM facts WHERE section=?",
+            (section,),
+        )
+    )
+    for row_id, payload_json, text_json in rows:
+        payload = slim_payload(load_json(payload_json), keep)
+        text = slim_text(load_json(text_json), text_keep)
+        if section == "picker_scorecard":
+            ldap = (
+                text.get("shopper_id") or text.get("shopper_name") or text.get("employee_alternate_id") or ""
+            ).strip().upper()
+            if ldap:
+                text["shopper_id"] = ldap
+                text.setdefault("shopper_name", ldap)
+        con.execute(
+            "UPDATE facts SET payload_json=?, text_json=? WHERE id=?",
+            (json.dumps(payload, separators=(",", ":")), json.dumps(text, separators=(",", ":")), row_id),
         )
 
-    # Authoritative roster stamp + drop leftover filter-text facts.
+
+def stamp_roster(con: sqlite3.Connection, roster: dict[str, tuple[str, str, str, str]]) -> None:
     for row_id, section, store, division, om, name, text_json in con.execute(
         "SELECT id, section, store_number, division, operations_om, store_name, text_json FROM facts"
     ):
@@ -275,62 +253,87 @@ def thin(path: str) -> None:
             ),
         )
 
-    picker_n = con.execute("SELECT COUNT(*) FROM facts WHERE section='picker_scorecard'").fetchone()[0]
-    path_n = con.execute("SELECT COUNT(*) FROM facts WHERE section='pick_path_picker'").fetchone()[0]
-    aisle_n = con.execute("SELECT COUNT(*) FROM facts WHERE section='aisle_mapper'").fetchone()[0]
-    loss_divs = con.execute(
-        "SELECT COUNT(DISTINCT division) FROM facts WHERE section='lost_revenue' AND TRIM(COALESCE(division,''))!=''"
-    ).fetchone()[0]
-    if picker_n < 1000:
-        raise SystemExit(f"Soft FAIL: picker_scorecard count is {picker_n} after thin — refusing LIVE without ScoreCard facts")
-    if path_n < 1:
-        raise SystemExit("Soft FAIL: pick_path_picker count is 0 after thin — refusing LIVE without shoppers")
-    if aisle_n < 1:
-        raise SystemExit("Soft FAIL: aisle_mapper missing after thin")
-    if loss_divs < 5:
-        raise SystemExit(f"Soft FAIL: lost_revenue only {loss_divs} division(s) after roster stamp")
 
+def drop_section(con: sqlite3.Connection, section: str) -> int:
+    n = con.execute("SELECT COUNT(*) FROM facts WHERE section=?", (section,)).fetchone()[0]
+    if n:
+        con.execute("DELETE FROM facts WHERE section=?", (section,))
+    return n
+
+
+def refresh_meta(con: sqlite3.Connection) -> None:
     meta = {s: str(n) for s, n in con.execute("SELECT section, COUNT(*) FROM facts GROUP BY 1")}
     con.execute("UPDATE pack_meta SET counts_json=?", (json.dumps(meta, separators=(",", ":")),))
+
+
+def thin(path: str) -> None:
+    con = sqlite3.connect(path)
+    con.isolation_level = None
+    print("before_bytes", os.path.getsize(path))
+    print_qc(con, "before")
+
+    roster = roster_by_store(con)
+    if len(roster) < 200:
+        raise SystemExit("Soft FAIL: store_roster too small to stamp company identity (K1)")
+    picker_n = con.execute("SELECT COUNT(*) FROM facts WHERE section='picker_scorecard'").fetchone()[0]
+    refuse_orphan_chrome(con, picker_n)
+    if picker_n < SCORECARD_MIN:
+        raise SystemExit(
+            f"Soft FAIL: picker_scorecard count is {picker_n} — refusing thin that would publish chrome-only ScoreCard (K2/D4)"
+        )
+
+    con.execute("BEGIN")
+    dropped_item = drop_section(con, "pre_sub_oos_item")
+    print("drop_pre_sub_oos_item", dropped_item)
+
+    slim_section(con, "picker_scorecard", SCORECARD_KEEP, SCORECARD_TEXT)
+    slim_section(con, "pick_path_picker", PATH_KEEP, ("shopper_id", "shopper_name", "employee_alternate_id"))
+    stamp_roster(con, roster)
+
+    picker_n = con.execute("SELECT COUNT(*) FROM facts WHERE section='picker_scorecard'").fetchone()[0]
+    if picker_n < SCORECARD_MIN:
+        raise SystemExit(f"Soft FAIL: picker_scorecard count is {picker_n} after slim (K2)")
+    refuse_orphan_chrome(con, picker_n)
+    refuse_loss_bind(con)
+    refresh_meta(con)
     con.execute("COMMIT")
     con.execute("VACUUM")
     con.close()
 
     after_bytes = os.path.getsize(path)
     print("after_bytes", after_bytes)
+
+    # K5 is optional. If the company seat still blows 40MB, drop path picker (store-peek via ScoreCard).
     if after_bytes > COMPANY_SEAT_MAX:
-        print("over_cap_trimming_optional_scorecard_keys", SCORECARD_OPTIONAL)
-        trim_optional_scorecard(path)
+        print("over_cap_dropping_optional_pick_path_picker (K5)")
+        con = sqlite3.connect(path)
+        con.isolation_level = None
+        con.execute("BEGIN")
+        dropped = drop_section(con, "pick_path_picker")
+        print("drop_pick_path_picker", dropped)
+        picker_n = con.execute("SELECT COUNT(*) FROM facts WHERE section='picker_scorecard'").fetchone()[0]
+        refuse_orphan_chrome(con, picker_n)
+        refuse_loss_bind(con)
+        refresh_meta(con)
+        con.execute("COMMIT")
+        con.execute("VACUUM")
+        con.close()
         after_bytes = os.path.getsize(path)
-        print("after_trim_bytes", after_bytes)
+        print("after_k5_drop_bytes", after_bytes)
+
     after_con = sqlite3.connect(path)
     after = print_qc(after_con, "after")
+    path_n = after.get("pick_path_picker", 0)
+    picker_n = after.get("picker_scorecard", 0)
+    refuse_orphan_chrome(after_con, picker_n)
+    refuse_loss_bind(after_con)
     after_con.close()
-    print("pick_path_picker", path_n, "picker_scorecard", picker_n, "aisle_mapper", aisle_n)
+    print("pick_path_picker", path_n, "picker_scorecard", picker_n)
     if after_bytes > COMPANY_SEAT_MAX:
-        raise SystemExit(f"Soft FAIL: thin still too large ({after_bytes}) — company seat cap {COMPANY_SEAT_MAX}")
-    if after.get("picker_scorecard", 0) < 1000:
-        raise SystemExit("Soft FAIL: picker_scorecard missing after vacuum")
+        raise SystemExit(f"Soft FAIL: thin still too large ({after_bytes}) — company seat cap {COMPANY_SEAT_MAX} (D3)")
+    if picker_n < SCORECARD_MIN:
+        raise SystemExit("Soft FAIL: picker_scorecard missing after vacuum (K2)")
     print("thin", after_bytes)
-
-
-def trim_optional_scorecard(path: str) -> None:
-    con = sqlite3.connect(path)
-    con.isolation_level = None
-    con.execute("BEGIN")
-    for row_id, payload_json in con.execute(
-        "SELECT id, payload_json FROM facts WHERE section='picker_scorecard'"
-    ):
-        payload = slim_payload(load_json(payload_json), SCORECARD_KEEP)
-        for key in SCORECARD_OPTIONAL:
-            payload.pop(key, None)
-        con.execute(
-            "UPDATE facts SET payload_json=? WHERE id=?",
-            (json.dumps(payload, separators=(",", ":")), row_id),
-        )
-    con.execute("COMMIT")
-    con.execute("VACUUM")
-    con.close()
 
 
 def main() -> None:

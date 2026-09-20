@@ -637,6 +637,20 @@ final class HeartbeatMathTests: XCTestCase {
         dynacap.section = .dynacap
         dynacap.storeNumber = "Total"
         XCTAssertTrue(HeartbeatMath.isGarbageFact(dynacap))
+        XCTAssertTrue(HeartbeatMath.orphanScorecardChrome(shoppersCited: 29_249, scorecardFacts: 0))
+        XCTAssertFalse(HeartbeatMath.orphanScorecardChrome(shoppersCited: 29_249, scorecardFacts: 28_833))
+        XCTAssertNil(HeartbeatMath.lossBindSoftFail([roster, loss]))
+        let haggenOnly = (0..<220).map { index in
+            MetricRow(
+                section: .lostRevenue,
+                division: "Haggen",
+                operationsOM: "",
+                storeNumber: String(3000 + index),
+                payload: ["lost_revenue": 1],
+                textPayload: ["lost_grain": "store"]
+            )
+        }
+        XCTAssertNotNil(HeartbeatMath.lossBindSoftFail(haggenOnly))
     }
 
     func testLostRevenueDistrictFilterJoinsStoresWithoutDistrictColumn() {
