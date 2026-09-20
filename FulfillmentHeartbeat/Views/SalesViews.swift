@@ -11,7 +11,10 @@ struct OverviewSalesBlock: View {
     var body: some View {
         let _ = store.seatPaintStamp
         let stores = store.salesStores()
-        let total = SalesPack(rows: stores)
+        let total = SalesPack(
+            company: store.filters.isActive ? nil : store.salesCompanyFact(),
+            stores: stores
+        )
         let mid = midRows(from: stores)
         let days = SalesRollupBuilder.dayRows(
             from: stores,

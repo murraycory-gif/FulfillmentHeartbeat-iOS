@@ -724,11 +724,19 @@ final class HeartbeatStore: ObservableObject {
         let painted = cachedSummaries.first { $0.section == section }
             ?? HeartbeatMath.summarize(section, rows: displayRows(for: section), upload: upload(for: section))
         guard !filters.isActive else { return painted }
-        return PulseLaunch.companyCommandCenterCard(
+        var next = PulseLaunch.companyCommandCenterCard(
             painted,
             chrome: packChrome,
             rosterStores: roster.count
         )
+        if section == .sales, let company = salesCompanyFact() {
+            let dollars = HeartbeatMath.salesHeadlineDollars(company)
+            if dollars > 0 {
+                next.headline = dollars
+                next.salesYoyPct = company.number("sales_yoy_pct") ?? next.salesYoyPct
+            }
+        }
+        return next
     }
 
     /// Dashboard tiles must not keep a GeometryReader snapshot. Read on
@@ -5472,10 +5480,20 @@ final class HeartbeatStore: ObservableObject {
     }
 
     /// Company Command Center reads pack chrome + roster gold. No picker stream.
+    /// Sales headline is pack `sales_grain=company` when that row is on disk.
     private func pinCompanyCommandCenterChrome() {
         guard !filters.isActive else { return }
         cachedSummaries = cachedSummaries.map {
             PulseLaunch.companyCommandCenterCard($0, chrome: packChrome, rosterStores: roster.count)
+        }
+        if let index = cachedSummaries.firstIndex(where: { $0.section == .sales }),
+           let company = salesCompanyFact() {
+            let dollars = HeartbeatMath.salesHeadlineDollars(company)
+            if dollars > 0 {
+                cachedSummaries[index].headline = dollars
+                cachedSummaries[index].salesYoyPct = company.number("sales_yoy_pct")
+                    ?? cachedSummaries[index].salesYoyPct
+            }
         }
     }
 

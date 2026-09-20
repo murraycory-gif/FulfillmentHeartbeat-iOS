@@ -17,8 +17,8 @@ KEY="${KEY:-sb_publishable_T3Pzm01sMXCv2rQaCeP_Kg_4ao2M5zd}"
 SEAT_JOBS="${SEAT_JOBS:-16}"
 # 50,000,000 — TUS on this project 413s at ~50MB. 56MB market must not be sent.
 STORAGE_FILE_LIMIT_BYTES="${STORAGE_FILE_LIMIT_BYTES:-50000000}"
-# Thin company Command Center. 56MB market must never become the company seat.
-COMPANY_SEAT_MAX_BYTES="${COMPANY_SEAT_MAX_BYTES:-28000000}"
+# Company seat under Storage 50MB. App accepts 29–40MB. 56MB market still refused.
+COMPANY_SEAT_MAX_BYTES="${COMPANY_SEAT_MAX_BYTES:-40000000}"
 MODE="${1:-}"
 TARGET="${2:-}"
 SELF="$(CDPATH= cd "$(dirname "$0")" && pwd)/$(basename "$0")"
@@ -167,8 +167,8 @@ if [ "$MODE" = "company" ]; then
     exit 1
   fi
   if [ "$COMPANY_BYTES" -gt "$COMPANY_SEAT_MAX_BYTES" ]; then
-    echo "COOK FAILED: company seat is $COMPANY_BYTES bytes, over thin-seat cap $COMPANY_SEAT_MAX_BYTES." >&2
-    echo "iPad Jetsams a ~56MB company seat. Recook a thin company pack (~21MB). Do not publish market as company." >&2
+    echo "COOK FAILED: company seat is $COMPANY_BYTES bytes, over company-seat cap $COMPANY_SEAT_MAX_BYTES." >&2
+    echo "iPad Jetsams a ~56MB company seat. Keep company under 40MB (Storage refuse is 50MB). Do not publish market as company." >&2
     exit 1
   fi
   if [ "$COMPANY_BYTES" -gt "$STORAGE_FILE_LIMIT_BYTES" ]; then
