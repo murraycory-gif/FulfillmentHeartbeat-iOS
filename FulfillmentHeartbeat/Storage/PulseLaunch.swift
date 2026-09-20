@@ -315,6 +315,8 @@ enum PulseLaunch {
     static let prepEmptyRateText = "0%"
 
     /// Excel 0 is 0%, not —. Missing key stays a dash unless empty-chrome.
+    /// Pack QC holes (United Prep, missing 5★ stores, Loss non-Haggen,
+    /// ScoreCard tape, Dynacap Store PPH) stay dashes — do not invent fills.
     static func prepRateText(_ value: Double?) -> String {
         if let value { return value == 0 ? prepEmptyRateText : HeartbeatFormat.pct(value) }
         return "—"

@@ -49,6 +49,26 @@ Must **compile**. Stay on Command Center. Do not open a section first.
 | **Pick Path Sequence** | Mapper / Sequence on the Pick Path store table show short dates (e.g. `9/16/26`), same as other dated sections. Not `—` when aisle_mapper is in the pack. |
 | **Prep Not Ready** | Store 1 filter: **0%** / “No Prep rows this week” — not a dead — tile, not an invented company rate. Cook uses **Store**, never bogus `Store #` = 1. |
 
+## APP vs PACK/COOK (QC pack is authoritative)
+
+**APP BUG** = pack **has** rows and the phone stays blank / —. Fix in app (439 M1/M7, 440 M3/M4).
+**PACK/COOK** = cook omitted the grain. UI stays empty / dash. **Do not invent fills.**
+
+| Hole | Expect | Verdict |
+|---|---|---|
+| ScoreCard facts 0 vs chrome 29249 | Dash / empty ScoreCard body; chrome may still cite pickers | **PACK/COOK** — thin killed ScoreCard |
+| Loss all `division=Haggen`; ops/OM blank; East/South/CA dash | Haggen rows only; other regions dash | **PACK/COOK** |
+| Prep United zero; 863/2161 stores missing; Southern 5 / United Ops OM zero | Empty / 0 stores / dash — not a guessed rate | **PACK/COOK** |
+| 5 Star 2224 stores missing | Those stores absent | **PACK/COOK** |
+| Region chrome CA / Mountain West / United | Holes stay holes | **PACK/COOK** |
+| Dynacap Store PPH — | Dash | **PACK/COOK** |
+| 1 garbage filter row | Cook published junk; do not invent a clean roster | **PACK/COOK** |
+| Sales / Prep / 5★ / Loss body blank when pack has store facts | Must fill after chrome (M1/M7) | **APP BUG** — 439 |
+| Path expand Path % — when `pick_path_picker` is in the seat | pick_path_picker only; no PPH merge | **APP BUG** — 440 |
+| Prep Excel 0 → — | **0%** | **APP BUG** — 440 |
+
+`prepRateText(0)` = **0%**. `prepRateText(nil)` = **—**. `shouldInventPrepRateOnEmptyStore` = false.
+
 ## Soft KEEP
 
 | KEEP | Status |
