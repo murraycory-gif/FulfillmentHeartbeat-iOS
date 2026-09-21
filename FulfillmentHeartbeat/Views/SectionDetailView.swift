@@ -136,6 +136,22 @@ struct SectionDetailView: View {
             }
 
             if showTables {
+            if PulseLaunch.shouldShowMetricCompanyThisWeekRollup(
+                section: section,
+                filters: store.filters
+            ) {
+                Section {
+                    PhoneCompanyThisWeekBlock(section: section)
+                        .listRowInsets(EdgeInsets(
+                            top: 8,
+                            leading: HubLayout.isPhone(sizeClass) ? 12 : 20,
+                            bottom: 8,
+                            trailing: HubLayout.isPhone(sizeClass) ? 12 : 20
+                        ))
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(AppTheme.bg)
+                }
+            }
             if section == .pickerScorecard {
                 if PulseLaunch.shouldShowPickerHighlights(filters: store.filters) {
                     Section {
@@ -1044,6 +1060,12 @@ struct PhoneSectionPage: View {
                 showPictures: PulseLaunch.shouldShowPickerIndividualPictures(filters: store.filters)
             )
         }
+        if PulseLaunch.shouldShowMetricCompanyThisWeekRollup(
+            section: section,
+            filters: store.filters
+        ) {
+            PhoneCompanyThisWeekBlock(section: section)
+        }
         ForEach(PulseLaunch.sectionRollupGrains(filters: store.filters), id: \.self) { grain in
             grainBlock(grain)
         }
@@ -1354,7 +1376,49 @@ struct PhoneSectionPage: View {
     }
 }
 
-private struct PhoneSectionHeading: View {
+/// Total Company This Week rollup. Same PhoneScorecardRow chrome as region cards.
+struct PhoneCompanyThisWeekBlock: View {
+    @EnvironmentObject private var store: HeartbeatStore
+    let section: MetricSection
+
+    var body: some View {
+        let rows = companyRows
+        let scored = HeartbeatMath.dashboardTableValues(section, rows: rows)
+        let storeCount = Set(
+            store.seatRows(for: section)
+                .map { HeartbeatMath.canonicalStore($0.storeNumber) }
+                .filter { !$0.isEmpty && $0.caseInsensitiveCompare("TOTAL") != .orderedSame }
+        ).count
+        let health = scored.health == .none && storeCount > 0 ? Health.good : scored.health
+        VStack(alignment: .leading, spacing: CommandCenterLayout.phoneHomeStackSpacing()) {
+            PhoneSectionHeading(title: "This Week")
+            PhoneScorecardRow(
+                title: "Total Company",
+                subtitle: storeCount > 0
+                    ? (storeCount == 1 ? "1 store" : "\(storeCount) stores")
+                    : nil,
+                chips: zip(HeartbeatMath.dashboardTableHeaders(section), scored.values).map { header, value in
+                    PhoneMetricChip(label: header, value: value, health: health)
+                },
+                health: health
+            )
+        }
+    }
+
+    /// Same store plane as region cards, plus pack company market row for Loss.
+    private var companyRows: [MetricRow] {
+        var rows = store.seatRows(for: section)
+        if !store.filters.isActive,
+           section == .lostRevenue,
+           let market = store.lostRevenueMarketRow(),
+           !rows.contains(where: { $0.textPayload["lost_grain"] == "market" }) {
+            rows.append(market)
+        }
+        return rows
+    }
+}
+
+struct PhoneSectionHeading: View {
     let title: String
 
     var body: some View {

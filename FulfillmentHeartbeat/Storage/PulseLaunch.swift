@@ -896,6 +896,21 @@ enum PulseLaunch {
         return .company
     }
 
+    /// Total Company pages: This Week company rollup above Regions.
+    /// Soft FAIL on Region / Division / District / OM / Store seats.
+    static func shouldShowCompanyThisWeekRollup(filters: DashboardFilters) -> Bool {
+        sectionPageSeat(filters: filters) == .company
+    }
+
+    /// Sales already paints week total via `shouldShowSalesDayWeekBlock`.
+    /// Every other metric section mounts the shared company This Week card.
+    static func shouldShowMetricCompanyThisWeekRollup(
+        section: MetricSection,
+        filters: DashboardFilters
+    ) -> Bool {
+        shouldShowCompanyThisWeekRollup(filters: filters) && section != .sales
+    }
+
     /// Filter → tables on every MetricSection detail page.
     /// Company: Regions + Markets. Region: Markets. Division: Districts + Stores.
     /// District / OM / Store: Stores once. Never a .store-grain rollup on top.
