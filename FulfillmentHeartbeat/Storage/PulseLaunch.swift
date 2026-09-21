@@ -1217,6 +1217,13 @@ enum PulseLaunch {
     /// the clipped cancellation-action circle stroke.
     static func shouldUseFinishedCompactNavCloseControl() -> Bool { true }
 
+    /// Close sits in the sheet body, leading, inside the safe area.
+    /// Soft FAIL a 44pt toolbar frame that becomes a circular "C".
+    static func shouldPlaceCompactNavCloseInSheetContent() -> Bool { true }
+
+    static func shouldApplyPhoneHitFrameToSheetClose() -> Bool { false }
+
+
     /// Phone Command Center: heroes + glance cards flow with no
     /// "AT-A-GLANCE · ALL SECTIONS" caption between 5 Star and Labor.
     /// Mac leftover-fill glanceHeader stays.

@@ -467,24 +467,28 @@ struct EmptyHint: View {
     }
 }
 
-/// Finished navy Close for Pages / CompactNav sheets. Soft FAIL the system
-/// cancellation circle — that stroke clips when a 44pt frame is applied.
+/// Sheet Close / Cancel / Save. Lives in sheet *content* — never a toolbar
+/// item. iOS 26 turns a leading toolbar Close into a circular "C" and clips
+/// a 44pt pill off the trailing edge.
 struct HubSheetCloseControl: View {
     var title: String = "Close"
+    var prominent: Bool = false
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
             Text(title)
                 .font(.body.weight(.semibold))
-                .foregroundStyle(AppTheme.blue)
-                .padding(.horizontal, 14)
+                .foregroundStyle(prominent ? Color.white : AppTheme.blue)
+                .padding(.horizontal, 16)
                 .padding(.vertical, 8)
-                .background(AppTheme.blueSoft, in: Capsule(style: .continuous))
+                .background(
+                    (prominent ? AppTheme.blue : AppTheme.blueSoft),
+                    in: Capsule(style: .continuous)
+                )
         }
         .buttonStyle(.plain)
-        .frame(minWidth: HubLayout.phoneHitTarget, minHeight: HubLayout.phoneHitTarget, alignment: .leading)
-        .contentShape(Rectangle())
+        .fixedSize()
         .accessibilityLabel(title)
     }
 }

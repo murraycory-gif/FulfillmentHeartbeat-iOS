@@ -703,12 +703,18 @@ struct CompactNavSheet: View {
             .background(AppTheme.bg)
             .navigationTitle("Heartbeat")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
+            .safeAreaInset(edge: .top, spacing: 0) {
+                HStack {
                     HubSheetCloseControl {
                         router.showCompactMenu = false
                     }
+                    Spacer(minLength: 0)
                 }
+                .padding(.horizontal, 20)
+                .padding(.top, 8)
+                .padding(.bottom, 4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(AppTheme.bg)
             }
         }
         .presentationDetents([.large])
