@@ -636,6 +636,54 @@ enum HeartbeatMath {
         return rows.map { stampRoster($0, roster: roster, overwrite: true) }
     }
 
+    /// Cook/thin K5: Path Picker Excel is EMPLOYEE_ALTERNATE_ID WEEK_ID (often no store).
+    /// Soft KEEP Excel store; else stamp one ScoreCard LDAP store in-place. Never explode shopper×store.
+    static func rowsStampingPathPickerStores(_ rows: [MetricRow]) -> [MetricRow] {
+        var best: [String: (store: String, orders: Double)] = [:]
+        for row in rows where row.section == .pickerScorecard {
+            let store = canonicalStore(row.storeNumber)
+            guard !store.isEmpty, !isGarbageStore(store) else { continue }
+            let orders = row.number("orders") ?? 0
+            for alias in shopperAliases(row) {
+                if let prev = best[alias], prev.orders >= orders { continue }
+                best[alias] = (store, orders)
+            }
+        }
+        guard !best.isEmpty else { return rows }
+        return rows.map { row in
+            guard row.section == .pickPathPicker else { return row }
+            let existing = canonicalStore(row.storeNumber)
+            if !existing.isEmpty { return row }
+            for alias in shopperAliases(row) {
+                if let hit = best[alias] {
+                    var next = row
+                    next.storeNumber = hit.store
+                    return next
+                }
+            }
+            return row
+        }
+    }
+
+    /// Soft FAIL if Path Picker still has empty store_number when ScoreCard LDAP/store grain exists.
+    /// Does not invent stores for Path shoppers with no grain. No-ops when K5 dropped the section.
+    static func pathPickerStoreBindSoftFail(_ rows: [MetricRow]) -> String? {
+        let path = rows.filter { $0.section == .pickPathPicker }
+        guard !path.isEmpty else { return nil }
+        var grain = Set<String>()
+        for row in rows where row.section == .pickerScorecard {
+            guard !canonicalStore(row.storeNumber).isEmpty else { continue }
+            for alias in shopperAliases(row) { grain.insert(alias) }
+        }
+        guard !grain.isEmpty else { return nil }
+        let blank = path.filter { row in
+            canonicalStore(row.storeNumber).isEmpty
+                && shopperAliases(row).contains(where: { grain.contains($0) })
+        }.count
+        guard blank > 0 else { return nil }
+        return "Soft FAIL: pick_path_picker store_number empty on \(blank)/\(path.count) LDAP rows with ScoreCard store grain."
+    }
+
     static func stampRoster(_ row: MetricRow, roster: [String: StoreIdentity], overwrite: Bool = false) -> MetricRow {
         let store = canonicalStore(row.storeNumber)
         guard !store.isEmpty else { return row }

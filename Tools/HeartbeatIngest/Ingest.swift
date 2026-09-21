@@ -34,6 +34,7 @@ enum HeartbeatIngest {
             )
             print("  \(sheet.section.title): \(incoming.count) rows")
         }
+        rows = HeartbeatMath.rowsStampingPathPickerStores(rows)
         rows = HeartbeatMath.rowsStampingRosterAuthoritative(rows)
         let beforeGarbage = rows.count
         rows.removeAll { HeartbeatMath.isGarbageFact($0) }
@@ -41,6 +42,10 @@ enum HeartbeatIngest {
             print("Dropped \(beforeGarbage - rows.count) garbage filter/total fact(s).")
         }
         if let reason = HeartbeatMath.lossBindSoftFail(rows) {
+            fputs("\(reason)\n", stderr)
+            exit(1)
+        }
+        if let reason = HeartbeatMath.pathPickerStoreBindSoftFail(rows) {
             fputs("\(reason)\n", stderr)
             exit(1)
         }
@@ -66,7 +71,7 @@ enum HeartbeatIngest {
             fputs("Soft FAIL: orphan chrome cites \(chrome.pickerShoppers) shoppers with \(scorecardFacts) picker_scorecard facts.\n", stderr)
             exit(1)
         }
-        for section in [MetricSection.lostRevenue, .labor, .sales, .fiveStar] {
+        for section in [MetricSection.lostRevenue, .labor, .sales, .fiveStar, .pickPathPicker] {
             let count = rows.filter {
                 $0.section == section && !HeartbeatMath.canonicalStore($0.storeNumber).isEmpty
             }.count

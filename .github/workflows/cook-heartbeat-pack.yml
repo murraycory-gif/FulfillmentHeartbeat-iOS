@@ -3,8 +3,10 @@ name: Cook Heartbeat pack
 # Turns Heartbeat Daily Report.xlsx in Supabase into current.sqlite.
 # Testers never parse Excel. Cory's Mac does not need to be on.
 # Company seat KEEP: sales/roster/chrome, slim ScoreCard facts, Loss bind, store grains.
-# Optional slim pick_path_picker (peek-only). DROP item tape / fat shopper payloads / 56MB hub.
-# Soft FAIL >40MB, orphan chrome (shoppers cited / 0 ScoreCard facts), Haggen-only Loss.
+# Optional slim pick_path_picker (peek-only) with Soft KEEP store_number from Excel/ScoreCard LDAP.
+# DROP item tape / fat shopper payloads / 56MB hub.
+# Soft FAIL >40MB, orphan chrome (shoppers cited / 0 ScoreCard facts), Haggen-only Loss,
+# Path picker empty store when LDAP/store grain exists. Soft FAIL invent Prep / 5★.
 # Cook/thin only. Do not conflate into tip 439. Never use needs_attention.
 on:
   workflow_dispatch:
@@ -104,6 +106,13 @@ jobs:
             echo "Soft FAIL: orphan chrome cites $CHROME_N shoppers with 0 ScoreCard facts"
             exit 1
           fi
+          PATH_N=$(sqlite3 /tmp/current.sqlite "SELECT COUNT(*) FROM facts WHERE section='pick_path_picker';")
+          PATH_BLANK=$(sqlite3 /tmp/current.sqlite "SELECT COUNT(*) FROM facts WHERE section='pick_path_picker' AND TRIM(COALESCE(store_number,''))='' AND TRIM(COALESCE(json_extract(text_json,'\$.shopper_id'),''))!='' AND json_extract(text_json,'\$.shopper_id') IN (SELECT json_extract(text_json,'\$.shopper_id') FROM facts WHERE section='picker_scorecard' AND TRIM(COALESCE(store_number,''))!='');")
+          echo "pick_path_picker=$PATH_N ldap_store_blank=$PATH_BLANK"
+          if [ "$PATH_N" -gt 0 ] && [ "$PATH_BLANK" -gt 0 ]; then
+            echo "Soft FAIL: pick_path_picker store_number empty on $PATH_BLANK LDAP rows with ScoreCard store grain"
+            exit 1
+          fi
 
       - name: Publish current.sqlite
         if: env.skip != '1'
@@ -129,6 +138,12 @@ jobs:
           fi
           if [ "${CHROME_N:-0}" -gt 0 ] && [ "$SCORE_N" -lt 1 ]; then
             echo "Soft FAIL: orphan chrome cites $CHROME_N shoppers with 0 ScoreCard facts — not publishing"
+            exit 1
+          fi
+          PATH_N=$(sqlite3 /tmp/current.sqlite "SELECT COUNT(*) FROM facts WHERE section='pick_path_picker';")
+          PATH_BLANK=$(sqlite3 /tmp/current.sqlite "SELECT COUNT(*) FROM facts WHERE section='pick_path_picker' AND TRIM(COALESCE(store_number,''))='' AND TRIM(COALESCE(json_extract(text_json,'\$.shopper_id'),''))!='' AND json_extract(text_json,'\$.shopper_id') IN (SELECT json_extract(text_json,'\$.shopper_id') FROM facts WHERE section='picker_scorecard' AND TRIM(COALESCE(store_number,''))!='');")
+          if [ "$PATH_N" -gt 0 ] && [ "$PATH_BLANK" -gt 0 ]; then
+            echo "Soft FAIL: pick_path_picker store_number empty on $PATH_BLANK LDAP rows with ScoreCard store grain — not publishing"
             exit 1
           fi
           upload() {

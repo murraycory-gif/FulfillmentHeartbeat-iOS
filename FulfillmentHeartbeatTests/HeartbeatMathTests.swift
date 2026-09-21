@@ -653,6 +653,53 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertNotNil(HeartbeatMath.lossBindSoftFail(haggenOnly))
     }
 
+    func testPathPickerStoreStampFromScorecardLDAP() {
+        let roster = MetricRow(
+            section: .storeRoster,
+            division: "Jewel Osco",
+            operationsOM: "Chicago 1",
+            storeNumber: "1",
+            storeName: "Jewel 1",
+            textPayload: ["roster": "1", "district": "J1"]
+        )
+        let scorecard = MetricRow(
+            section: .pickerScorecard,
+            division: "",
+            operationsOM: "",
+            storeNumber: "1",
+            payload: ["pph": 60.3, "orders": 13],
+            textPayload: ["shopper_id": "AVELJ03", "shopper_name": "AVELJ03"]
+        )
+        let path = MetricRow(
+            section: .pickPathPicker,
+            division: "",
+            operationsOM: "",
+            storeNumber: "",
+            payload: ["compliance_pct": 76.53, "orders": 10],
+            textPayload: ["shopper_id": "AVELJ03", "shopper_name": "AVELJ03"]
+        )
+        let hole = MetricRow(
+            section: .pickPathPicker,
+            division: "",
+            operationsOM: "",
+            storeNumber: "",
+            payload: ["compliance_pct": 61],
+            textPayload: ["shopper_id": "NOGRAIN1", "shopper_name": "NOGRAIN1"]
+        )
+        XCTAssertNotNil(HeartbeatMath.pathPickerStoreBindSoftFail([scorecard, path]))
+        let stamped = HeartbeatMath.rowsStampingRosterAuthoritative(
+            HeartbeatMath.rowsStampingPathPickerStores([roster, scorecard, path, hole])
+        )
+        let bound = stamped.first { $0.section == .pickPathPicker && $0.shopperId == "AVELJ03" }
+        XCTAssertEqual(bound?.storeNumber, "1")
+        XCTAssertEqual(bound?.division, "Jewel Osco")
+        XCTAssertEqual(bound?.operationsOM, "Chicago 1")
+        let unmatched = stamped.first { $0.section == .pickPathPicker && $0.shopperId == "NOGRAIN1" }
+        XCTAssertEqual(unmatched?.storeNumber, "")
+        XCTAssertNil(HeartbeatMath.pathPickerStoreBindSoftFail(stamped))
+        XCTAssertNil(HeartbeatMath.lossBindSoftFail(stamped))
+    }
+
     func testLostRevenueDistrictFilterJoinsStoresWithoutDistrictColumn() {
         let roster: [String: HeartbeatMath.StoreIdentity] = [
             "667": .init(division: "Jewel Osco", district: "03", om: "Pat", name: nil),

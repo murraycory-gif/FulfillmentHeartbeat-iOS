@@ -7,6 +7,8 @@ KEEP ranked:
   K3 Loss facts + roster bind — Soft FAIL Haggen-only / blank Ops/OM
   K4 other store grains (Prep / 5★) — stamp identity where Excel/roster allows
   K5 optional slim pick_path_picker (in-place / store-peek-only). Never explode shopper×store.
+     Soft KEEP store_number from Excel or ScoreCard LDAP grain. Soft FAIL empty store
+     when LDAP/store grain exists. Do not invent stores for Path shoppers with no grain.
 
 DROP:
   D1 pre_sub_oos_item item tape
@@ -104,6 +106,21 @@ def slim_text(text: dict, keep: tuple[str, ...]) -> dict:
     return out
 
 
+def canon_ldap(raw: str) -> str:
+    return "".join(ch for ch in (raw or "").strip().upper() if ch.isalnum())
+
+
+def ldap_aliases(text: dict) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for key in ("shopper_id", "shopper_name", "employee_alternate_id"):
+        alias = canon_ldap(str(text.get(key) or ""))
+        if alias and alias not in seen:
+            seen.add(alias)
+            out.append(alias)
+    return out
+
+
 def roster_by_store(con: sqlite3.Connection) -> dict[str, tuple[str, str, str, str]]:
     roster = {}
     for store, division, om, name, text_json in con.execute(
@@ -171,6 +188,11 @@ def print_qc(con: sqlite3.Connection, label: str) -> dict[str, int]:
     print(f"{label} five_star stores {len(five_stores)} roster_missing_n {len(missing_five)} sample {missing_five[:12]}")
     print(f"{label} picker_scorecard {by_section.get('picker_scorecard', 0)}")
     print(f"{label} chrome_pickerShoppers {chrome_shoppers(con)}")
+    path_n = by_section.get("pick_path_picker", 0)
+    path_bound = con.execute(
+        "SELECT COUNT(*) FROM facts WHERE section='pick_path_picker' AND TRIM(COALESCE(store_number,''))!=''"
+    ).fetchone()[0]
+    print(f"{label} pick_path_picker {path_n} store_bound {path_bound}")
     garbage = con.execute(
         "SELECT COUNT(*) FROM facts WHERE store_number LIKE 'Applied%' OR store_number LIKE '%applied filters%'"
     ).fetchone()[0]
@@ -202,6 +224,90 @@ def refuse_loss_bind(con: sqlite3.Connection) -> None:
     ).fetchone()[0]
     if blank_om * 2 > loss_n:
         raise SystemExit(f"Soft FAIL: lost_revenue Ops/OM blank on {blank_om}/{loss_n} after roster stamp (K3)")
+
+
+def scorecard_store_by_ldap(con: sqlite3.Connection) -> dict[str, str]:
+    """LDAP alias → one ScoreCard store. Multi-store shoppers stay in-place (highest orders)."""
+    best: dict[str, tuple[str, float]] = {}
+    for store, payload_json, text_json in con.execute(
+        "SELECT store_number, payload_json, text_json FROM facts WHERE section='picker_scorecard'"
+    ):
+        store = canon_store(store)
+        if not store or is_garbage_store(store):
+            continue
+        payload = load_json(payload_json)
+        try:
+            orders = float(payload.get("orders") or 0)
+        except (TypeError, ValueError):
+            orders = 0.0
+        for alias in ldap_aliases(load_json(text_json)):
+            prev = best.get(alias)
+            if prev is None or orders > prev[1]:
+                best[alias] = (store, orders)
+    return {alias: store for alias, (store, _) in best.items()}
+
+
+def stamp_path_picker_stores(
+    con: sqlite3.Connection,
+    stores_by_ldap: dict[str, str],
+    roster: dict[str, tuple[str, str, str, str]],
+) -> int:
+    """In-place Soft KEEP: Excel store wins; else ScoreCard LDAP grain. Never explode shopper×store."""
+    stamped = 0
+    rows = list(
+        con.execute(
+            "SELECT id, store_number, text_json FROM facts WHERE section='pick_path_picker'"
+        )
+    )
+    for row_id, store, text_json in rows:
+        existing = canon_store(store)
+        if existing and not is_garbage_store(existing):
+            continue
+        mapped = ""
+        for alias in ldap_aliases(load_json(text_json)):
+            mapped = stores_by_ldap.get(alias) or ""
+            if mapped:
+                break
+        if not mapped:
+            continue
+        ident = roster.get(mapped)
+        text = load_json(text_json)
+        if ident and ident[2] and not (text.get("district") or "").strip():
+            text["district"] = ident[2]
+        con.execute(
+            "UPDATE facts SET store_number=?, division=?, operations_om=?, store_name=?, text_json=? WHERE id=?",
+            (
+                mapped,
+                (ident[0] if ident else "") or "",
+                (ident[1] if ident else "") or "",
+                (ident[3] if ident else "") or None,
+                json.dumps(text, separators=(",", ":")),
+                row_id,
+            ),
+        )
+        stamped += 1
+    print("stamp_pick_path_picker_store", stamped)
+    return stamped
+
+
+def refuse_path_store_bind(con: sqlite3.Connection, stores_by_ldap: dict[str, str]) -> None:
+    path_n = con.execute("SELECT COUNT(*) FROM facts WHERE section='pick_path_picker'").fetchone()[0]
+    if path_n < 1:
+        return
+    if not stores_by_ldap:
+        return
+    blank = 0
+    for store, text_json in con.execute(
+        "SELECT store_number, text_json FROM facts WHERE section='pick_path_picker'"
+    ):
+        if canon_store(store) and not is_garbage_store(store):
+            continue
+        if any(alias in stores_by_ldap for alias in ldap_aliases(load_json(text_json))):
+            blank += 1
+    if blank:
+        raise SystemExit(
+            f"Soft FAIL: pick_path_picker store_number empty on {blank}/{path_n} LDAP rows with ScoreCard store grain (K5)"
+        )
 
 
 def slim_section(con: sqlite3.Connection, section: str, keep: tuple[str, ...], text_keep: tuple[str, ...]) -> None:
@@ -288,6 +394,8 @@ def thin(path: str) -> None:
 
     slim_section(con, "picker_scorecard", SCORECARD_KEEP, SCORECARD_TEXT)
     slim_section(con, "pick_path_picker", PATH_KEEP, ("shopper_id", "shopper_name", "employee_alternate_id"))
+    stores_by_ldap = scorecard_store_by_ldap(con)
+    stamp_path_picker_stores(con, stores_by_ldap, roster)
     stamp_roster(con, roster)
 
     picker_n = con.execute("SELECT COUNT(*) FROM facts WHERE section='picker_scorecard'").fetchone()[0]
@@ -295,6 +403,7 @@ def thin(path: str) -> None:
         raise SystemExit(f"Soft FAIL: picker_scorecard count is {picker_n} after slim (K2)")
     refuse_orphan_chrome(con, picker_n)
     refuse_loss_bind(con)
+    refuse_path_store_bind(con, stores_by_ldap)
     refresh_meta(con)
     con.execute("COMMIT")
     con.execute("VACUUM")
@@ -314,6 +423,7 @@ def thin(path: str) -> None:
         picker_n = con.execute("SELECT COUNT(*) FROM facts WHERE section='picker_scorecard'").fetchone()[0]
         refuse_orphan_chrome(con, picker_n)
         refuse_loss_bind(con)
+        refuse_path_store_bind(con, scorecard_store_by_ldap(con))
         refresh_meta(con)
         con.execute("COMMIT")
         con.execute("VACUUM")
@@ -327,6 +437,7 @@ def thin(path: str) -> None:
     picker_n = after.get("picker_scorecard", 0)
     refuse_orphan_chrome(after_con, picker_n)
     refuse_loss_bind(after_con)
+    refuse_path_store_bind(after_con, scorecard_store_by_ldap(after_con))
     after_con.close()
     print("pick_path_picker", path_n, "picker_scorecard", picker_n)
     if after_bytes > COMPANY_SEAT_MAX:
