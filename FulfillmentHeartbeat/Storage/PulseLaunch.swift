@@ -937,6 +937,37 @@ enum PulseLaunch {
 
     static func shouldRenderHiddenPhoneDashboardHeavy() -> Bool { false }
 
+    /// A Pages tap paints the destination before seat-row walks and before
+    /// tearing down Dashboard or the scorecard being left. Parking and table
+    /// math run on a later turn. The destination is the real page, not a splash.
+    static func shouldDeferPhonePagesNavWorkUntilAfterPaint() -> Bool { true }
+
+    /// Color.clear only after the tap has painted. `parked == false` keeps the
+    /// existing Dashboard tree for that turn so SwiftUI does not diff it away
+    /// before the new page appears.
+    static func shouldShowParkedPhoneDashboard(isVisible: Bool, parked: Bool) -> Bool {
+        guard shouldParkHiddenPhoneDashboard(),
+              !isVisible,
+              !shouldRenderHiddenPhoneDashboardHeavy()
+        else { return false }
+        guard shouldDeferPhonePagesNavWorkUntilAfterPaint() else { return true }
+        return parked
+    }
+
+    /// Same one-turn hold for a phone scorecard the user just left.
+    static func shouldShowParkedPhoneSection(isVisible: Bool, parked: Bool) -> Bool {
+        guard shouldParkHiddenPhoneSection(isVisible: isVisible) else { return false }
+        guard shouldDeferPhonePagesNavWorkUntilAfterPaint() else { return true }
+        return parked
+    }
+
+    /// Settled pages may rebuild the hero from fact rows. The tap itself uses
+    /// the paint cache, or pack chrome when that cache is cold.
+    static func shouldWalkRowsForPhoneNavChrome(settledOnPage: Bool) -> Bool {
+        guard shouldDeferPhonePagesNavWorkUntilAfterPaint() else { return true }
+        return settledOnPage
+    }
+
     static func shouldCachePhoneDashboardSectionPaint() -> Bool { true }
 
     static func shouldLazyLoadPhoneDashboardSections() -> Bool { true }

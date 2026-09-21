@@ -10908,6 +10908,8 @@ struct HubBrandBar: View {
     var showBack: Bool
     var showsFilters: Bool
     @State private var showAssist = false
+    @State private var settledBannerHealth: Health?
+    @State private var settledBannerDest: HubDestination?
 
     var body: some View {
         VStack(spacing: compact ? HubLayout.phoneBrandBarStackSpacing() : 10) {
@@ -10956,6 +10958,10 @@ struct HubBrandBar: View {
                 .environmentObject(store)
                 .environmentObject(router)
         }
+        .onAppear { scheduleBannerHealth() }
+        .onChange(of: compactBannerDestination) { _, _ in scheduleBannerHealth() }
+        .onChange(of: store.filters.summary) { _, _ in scheduleBannerHealth() }
+        .onChange(of: store.seatPaintStamp) { _, _ in scheduleBannerHealth() }
     }
 
     private var compactPageBanner: some View {
@@ -10970,16 +10976,40 @@ struct HubBrandBar: View {
     }
 
     private var compactBannerHealth: Health {
+        if PulseLaunch.shouldDeferPhonePagesNavWorkUntilAfterPaint() {
+            if settledBannerDest == compactBannerDestination, let settledBannerHealth {
+                return settledBannerHealth
+            }
+            return phoneBannerHealth(allowRowWalk: false)
+        }
+        return phoneBannerHealth(allowRowWalk: true)
+    }
+
+    private func phoneBannerHealth(allowRowWalk: Bool) -> Health {
         if let section = compactBannerDestination.section {
             return CommandCenterLayout.displayedHealth(
-                store.paintedCommandCenterCard(store.summary(for: section))
+                store.phonePageChromeCard(for: section, allowRowWalk: allowRowWalk)
             )
         }
         return CommandCenterLayout.combinedHealth(
             CommandCenterLayout.heroSections.map {
-                store.paintedCommandCenterCard(store.summary(for: $0))
+                store.phonePageChromeCard(for: $0, allowRowWalk: allowRowWalk)
             }
         )
+    }
+
+    private func scheduleBannerHealth() {
+        guard compact, PulseLaunch.shouldDeferPhonePagesNavWorkUntilAfterPaint() else { return }
+        let dest = compactBannerDestination
+        settledBannerDest = dest
+        settledBannerHealth = phoneBannerHealth(allowRowWalk: false)
+        DispatchQueue.main.async {
+            DispatchQueue.main.async {
+                guard self.compactBannerDestination == dest else { return }
+                self.settledBannerDest = dest
+                self.settledBannerHealth = self.phoneBannerHealth(allowRowWalk: true)
+            }
+        }
     }
 
     private var compactBannerDestination: HubDestination {
