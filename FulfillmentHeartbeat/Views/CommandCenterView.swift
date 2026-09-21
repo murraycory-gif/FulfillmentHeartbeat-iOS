@@ -8,6 +8,7 @@ enum CommandCenterLayout {
     static let minHeroHeight: CGFloat = 120
 
     /// Every operational dashboard card that is not a KPI hero.
+    /// PPH stays immediately under Dynacap — Soft FAIL dropping it from this stack.
     static var glanceSections: [MetricSection] {
         [
             .labor,
@@ -20,6 +21,11 @@ enum CommandCenterLayout {
             .preSubOOS,
             .prepNotReady,
         ]
+    }
+
+    /// Phone Dashboard paints heroes then glances as one section list.
+    static var phoneDashboardSections: [MetricSection] {
+        heroSections + glanceSections
     }
 
     static func isHero(_ section: MetricSection) -> Bool {
@@ -380,11 +386,11 @@ struct PhoneCommandCenterHome: View {
         let _ = store.filters.summary
         ScrollView {
             VStack(alignment: .leading, spacing: CommandCenterLayout.phoneHomeStackSpacing()) {
-                ForEach(heroCards) { card in
-                    dashboardSection(card, hero: true)
-                }
-                ForEach(glanceCards) { card in
-                    dashboardSection(card, hero: false)
+                ForEach(CommandCenterLayout.phoneDashboardSections, id: \.self) { section in
+                    if PulseLaunch.shouldShowDashboardSection(section) {
+                        dashboardSection(store.summary(for: section), hero: CommandCenterLayout.isHero(section))
+                            .id("dashboard-\(section.rawValue)")
+                    }
                 }
             }
             .padding(.horizontal, CommandCenterLayout.phoneHomeHorizontalPadding())
@@ -403,16 +409,6 @@ struct PhoneCommandCenterHome: View {
         PhoneDashboardMetricBlock(card: card, hero: hero) {
             open(card.section)
         }
-    }
-
-    private var heroCards: [SectionSummary] {
-        _ = store.seatPaintStamp
-        return CommandCenterLayout.heroSections.map { store.summary(for: $0) }
-    }
-
-    private var glanceCards: [SectionSummary] {
-        _ = store.seatPaintStamp
-        return CommandCenterLayout.glanceSections.map { store.summary(for: $0) }
     }
 }
 

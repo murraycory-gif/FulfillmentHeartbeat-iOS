@@ -919,6 +919,14 @@ enum PulseLaunch {
     /// on a Jewel (or any Region / Division / District / OM / Store) seat.
     static func shouldPaintDashboardResultFromActiveSeat() -> Bool { true }
 
+    /// Phone Dashboard must keep PPH under Dynacap. Soft FAIL filtering it
+    /// out of the stack. Picker stays on the glance list (not the 460 lock).
+    static func shouldKeepPPHOnPhoneDashboard() -> Bool { true }
+
+    static func shouldShowDashboardSection(_ section: MetricSection) -> Bool {
+        MetricSection.dashboardCards.contains(section)
+    }
+
     /// Sales already paints week total via `shouldShowSalesDayWeekBlock`.
     /// Every other metric section mounts the shared company This Week card.
     static func shouldShowMetricCompanyThisWeekRollup(

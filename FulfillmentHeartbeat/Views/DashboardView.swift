@@ -856,7 +856,7 @@ struct PhoneScorecardRow: View {
                         ],
                         spacing: CommandCenterLayout.phoneScorecardChipSpacing()
                     ) {
-                        ForEach(chips) { chip in
+                        ForEach(Array(chips.enumerated()), id: \.offset) { _, chip in
                             VStack(alignment: .leading, spacing: compact ? 2 : 4) {
                                 Text(chip.label.uppercased())
                                     .font(.caption.weight(.heavy))
