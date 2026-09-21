@@ -1139,7 +1139,11 @@ struct FilterBar: View {
     }
 
     private var compactFilterTitle: String {
-        let active = FilterFocus.allCases.compactMap { focus -> String? in
+        var focuses = FilterFocus.allCases
+        if !store.filters.shopper.isEmpty {
+            focuses.insert(.shopper, at: 0)
+        }
+        let active = focuses.compactMap { focus -> String? in
             let title = store.filters.chipTitle(for: focus)
             return title == focus.chipTitle ? nil : title
         }
@@ -1914,7 +1918,7 @@ struct FilterSheet: View {
     private var filterGrainChips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(FilterFocus.allCases) { item in
+                ForEach(FilterFocus.sheetChips(filters: draft)) { item in
                     filterFocusChip(item)
                 }
             }
@@ -1981,7 +1985,10 @@ struct FilterSheet: View {
         var next = draft
         next.toggle(value, in: focus)
         draft = next
-        if focus != .store {
+        if !FilterFocus.sheetChips(filters: next).contains(focus) {
+            focus = .region
+        }
+        if focus != .store && focus != .shopper {
             options = store.filterChoices(focus: focus, draft: next)
         }
     }

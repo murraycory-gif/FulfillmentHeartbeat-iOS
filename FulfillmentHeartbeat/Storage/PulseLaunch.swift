@@ -896,6 +896,122 @@ enum PulseLaunch {
         return .company
     }
 
+    /// Individual shoppers belong on Store, Ops (OM), District, and Division.
+    /// Company and Region keep the current seat — no 16k shopper dump.
+    static func shouldListFilterShoppers(filters: DashboardFilters) -> Bool {
+        switch sectionPageSeat(filters: filters) {
+        case .store, .om, .district, .division: return true
+        case .company, .region: return false
+        }
+    }
+
+    /// A chosen shopper narrows shopper-grain facts. Other sections stay on the seat.
+    static func shouldBindShopperFilterFacts(filters: DashboardFilters) -> Bool {
+        shouldListFilterShoppers(filters: filters) && !filters.shopper.isEmpty
+    }
+
+    /// Shopper pick inside the same seat must not swap the pack or repaint chrome.
+    static func shopperSelectionChangedInPlace(from old: DashboardFilters, to new: DashboardFilters) -> Bool {
+        old.region == new.region
+            && old.division == new.division
+            && old.district == new.district
+            && old.om == new.om
+            && old.store == new.store
+            && old.shopper != new.shopper
+    }
+
+    static func shopperSeatCacheKey(_ filters: DashboardFilters) -> String {
+        [filters.region, filters.division, filters.district, filters.om, filters.store]
+            .joined(separator: "\u{1f}")
+    }
+
+    /// `store|canonicalShopper`. Empty when the row has no shopper id.
+    static func shopperChoiceID(_ row: MetricRow) -> String {
+        let who = HeartbeatMath.canonicalShopper(row.shopperKey)
+        guard !who.isEmpty else { return "" }
+        let store = HeartbeatMath.canonicalStore(row.storeNumber)
+        return store.isEmpty ? who : "\(store)|\(who)"
+    }
+
+    static func shopperFilterChipLabel(_ raw: String) -> String {
+        let parts = raw.split(separator: "|", maxSplits: 1).map(String.init)
+        let who = parts.count == 2 ? parts[1] : raw
+        let trimmed = who.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        return trimmed.uppercased()
+    }
+
+    static func shopperFilterSummary(_ raw: String) -> String {
+        let names = DashboardFilters.parts(raw).map(shopperFilterChipLabel).filter { !$0.isEmpty }
+        if names.isEmpty { return "Shopper" }
+        if names.count == 1 { return names[0] }
+        if names.count == 2 { return "\(names[0]), \(names[1])" }
+        return "\(names[0]) + \(names.count - 1) more"
+    }
+
+    static func rowMatchesShopperFilter(_ row: MetricRow, selected: [String]) -> Bool {
+        if selected.isEmpty { return true }
+        let aliases = Set(HeartbeatMath.shopperAliases(row))
+        let store = HeartbeatMath.canonicalStore(row.storeNumber)
+        for raw in selected {
+            let parts = raw.split(separator: "|", maxSplits: 1).map(String.init)
+            if parts.count == 2 {
+                let wantStore = HeartbeatMath.canonicalStore(parts[0])
+                let wantWho = HeartbeatMath.canonicalShopper(parts[1])
+                if !wantStore.isEmpty, store == wantStore, aliases.contains(wantWho) { return true }
+                continue
+            }
+            let want = HeartbeatMath.canonicalShopper(raw)
+            if !want.isEmpty, aliases.contains(want) { return true }
+        }
+        return false
+    }
+
+    /// Group store-scoped `picker_scorecard` / `pick_path_picker` rows for the seat.
+    /// Company / Region return nothing. Does not invent names.
+    static func filterShopperChoices(
+        rows: [MetricRow],
+        filters: DashboardFilters
+    ) -> [(id: String, label: String)] {
+        guard shouldListFilterShoppers(filters: filters) else { return [] }
+        let multiStore = sectionPageSeat(filters: filters) != .store
+        var byID: [String: (label: String, rank: Int)] = [:]
+        for row in rows {
+            guard row.section == .pickerScorecard || row.section == .pickPathPicker else { continue }
+            if !filters.includesDivision(row.division) { continue }
+            if !filters.includesDistrict(row.district) { continue }
+            if !filters.includesOM(row.operationsOM) { continue }
+            if !filters.includesStore(row.storeNumber) { continue }
+            let id = shopperChoiceID(row)
+            guard !id.isEmpty else { continue }
+            guard HeartbeatMath.isRealPicker(row) || !(row.shopperId ?? "").isEmpty else { continue }
+            let name = shopperListName(row)
+            guard !name.isEmpty else { continue }
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            let label = multiStore && !store.isEmpty ? "\(name) · \(store)" : name
+            let rank = row.section == .pickerScorecard ? 0 : 1
+            if let existing = byID[id] {
+                if rank < existing.rank { byID[id] = (label, rank) }
+            } else {
+                byID[id] = (label, rank)
+            }
+        }
+        return byID.map { (id: $0.key, label: $0.value.label) }.sorted { lhs, rhs in
+            let order = lhs.label.localizedStandardCompare(rhs.label)
+            if order == .orderedSame { return lhs.id < rhs.id }
+            return order == .orderedAscending
+        }
+    }
+
+    private static func shopperListName(_ row: MetricRow) -> String {
+        if let id = row.shopperId?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty {
+            return id
+        }
+        let name = row.shopperName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if name.isEmpty || name == "Unknown shopper" { return "" }
+        return name
+    }
+
     /// Total Company pages: This Week company rollup above Regions.
     /// Soft FAIL on Region / Division / District / OM / Store seats.
     static func shouldShowCompanyThisWeekRollup(filters: DashboardFilters) -> Bool {
