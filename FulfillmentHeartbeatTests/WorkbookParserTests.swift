@@ -90,6 +90,22 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertEqual(rows.first { $0.storeNumber == "675" }?.division, "United")
         XCTAssertEqual(rows.first { $0.storeNumber == "675" }?.operationsOM, "Shawn Kildow")
         XCTAssertFalse(rows.contains { $0.storeNumber == "1" })
+        XCTAssertEqual(rows.first { $0.storeNumber == "675" }?.payload["pnr_rate_pct"] ?? 0, 4.5, accuracy: 0.001)
+        XCTAssertEqual(rows.first { $0.storeNumber == "1432" }?.payload["pnr_rate_pct"] ?? 0, 3.0, accuracy: 0.001)
+    }
+
+    func testPrepHoursPercentSkipsBlankAndDoesNotReadStoreHash() {
+        let csv = """
+        DIVISION,District,OM,Store,Prep Not Ready Hours %,Store #
+        Southern,S1,Cristal Hudson,1432,0.08275,1
+        United,U3,Shawn Kildow,2472,,1
+        """
+        let rows = WorkbookParser.parseCSV(csv)
+        XCTAssertEqual(rows.map(\.storeNumber), ["1432"])
+        let rate = rows[0].payload["pnr_rate_pct"] ?? 0
+        XCTAssertEqual(rate, 8.275, accuracy: 0.001)
+        XCTAssertFalse(rows.contains { $0.storeNumber == "2472" })
+        XCTAssertFalse(rows.contains { abs(($0.payload["pnr_rate_pct"] ?? 0) - 100) < 0.001 })
     }
 
     func testDynacapSkipsAppliedFiltersGarbageRow() {
