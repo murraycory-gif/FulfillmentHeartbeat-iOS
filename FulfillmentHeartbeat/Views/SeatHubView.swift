@@ -4,6 +4,7 @@ import SwiftUI
 struct SeatHubView: View {
     @EnvironmentObject private var store: HeartbeatStore
     @StateObject private var router = HubRouter()
+    @StateObject private var sheets = HubSheetPresenter()
 
     var body: some View {
         NavigationStack {
@@ -20,10 +21,14 @@ struct SeatHubView: View {
                 .navigationTitle("")
         }
         .environmentObject(router)
-        .sheet(isPresented: $router.showShare) {
+        .environmentObject(sheets)
+        .sheet(isPresented: $sheets.showShare) {
             SharePulseSheet()
                 .environmentObject(store)
                 .environmentObject(router)
+        }
+        .onChange(of: sheets.showShare) { wasOpen, isOpen in
+            if wasOpen, !isOpen { store.endInteractiveSheet() }
         }
         .onAppear {
             store.setVisibleDestination(.dashboard)
@@ -102,7 +107,7 @@ struct SeatChromeBanner: View {
 /// No Sales / Loss / Path Pages. Filter grain is the only switch.
 struct SeatPageView: View {
     @EnvironmentObject private var store: HeartbeatStore
-    @EnvironmentObject private var router: HubRouter
+    @EnvironmentObject private var sheets: HubSheetPresenter
     @State private var pageWidth: CGFloat = 390
     @State private var showHeavy = false
 
@@ -227,11 +232,8 @@ struct SeatPageView: View {
         HStack(spacing: 12) {
             if store.shareReady {
                 Button("Share") {
-                    var transaction = Transaction()
-                    transaction.animation = nil
-                    withTransaction(transaction) {
-                        router.showShare = true
-                    }
+                    store.beginInteractiveSheet()
+                    sheets.presentShare()
                 }
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(AppTheme.blue)
