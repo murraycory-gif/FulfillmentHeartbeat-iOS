@@ -383,6 +383,8 @@ struct PhoneCommandCenterHome: View {
     var isVisible: Bool = true
 
     var body: some View {
+        let _ = store.seatPaintStamp
+        let _ = store.filters.summary
         if PulseLaunch.shouldParkHiddenPhoneDashboard(),
            !isVisible,
            !PulseLaunch.shouldRenderHiddenPhoneDashboardHeavy() {
@@ -392,24 +394,17 @@ struct PhoneCommandCenterHome: View {
         }
     }
 
+    @ViewBuilder
     private var visibleHome: some View {
-        let _ = store.seatPaintStamp
-        let _ = store.filters.summary
         ScrollView {
-            let stack = ForEach(CommandCenterLayout.phoneDashboardSections, id: \.self) { section in
-                if PulseLaunch.shouldShowDashboardSection(section) {
-                    dashboardSection(store.summary(for: section), hero: CommandCenterLayout.isHero(section))
-                        .id("dashboard-\(section.rawValue)")
-                }
-            }
             Group {
                 if PulseLaunch.shouldLazyLoadPhoneDashboardSections() {
                     LazyVStack(alignment: .leading, spacing: CommandCenterLayout.phoneHomeStackSpacing()) {
-                        stack
+                        sectionStack
                     }
                 } else {
                     VStack(alignment: .leading, spacing: CommandCenterLayout.phoneHomeStackSpacing()) {
-                        stack
+                        sectionStack
                     }
                 }
             }
@@ -422,6 +417,16 @@ struct PhoneCommandCenterHome: View {
         .scrollBounceBehavior(PulseLaunch.shouldOfferPullToRefreshSeatPack() ? .always : .basedOnSize)
         .hubSeatPackRefreshable()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    @ViewBuilder
+    private var sectionStack: some View {
+        ForEach(CommandCenterLayout.phoneDashboardSections, id: \.self) { section in
+            if PulseLaunch.shouldShowDashboardSection(section) {
+                dashboardSection(store.summary(for: section), hero: CommandCenterLayout.isHero(section))
+                    .id("dashboard-\(section.rawValue)")
+            }
+        }
     }
 
     @ViewBuilder
