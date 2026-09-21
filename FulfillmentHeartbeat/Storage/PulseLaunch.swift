@@ -1223,6 +1223,10 @@ enum PulseLaunch {
 
     static func shouldApplyPhoneHitFrameToSheetClose() -> Bool { false }
 
+    /// Filters sheet: grain chips → values → Save. No duplicate helper copy.
+    static func shouldUseCompactFilterSheetFlow() -> Bool { true }
+
+    static func shouldShowDuplicateFilterInstructions() -> Bool { false }
 
     /// Phone Command Center: heroes + glance cards flow with no
     /// "AT-A-GLANCE · ALL SECTIONS" caption between 5 Star and Labor.

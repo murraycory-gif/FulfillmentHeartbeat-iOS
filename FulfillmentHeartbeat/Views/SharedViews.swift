@@ -1843,49 +1843,17 @@ struct FilterSheet: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: HubLayout.isPhone(sizeClass) ? (PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? 8 : 10) : 16) {
-                Group {
-                    if HubLayout.isPhone(sizeClass) {
-                        if PulseLaunch.shouldUseCompactPhoneHeaderChrome() {
-                            LazyVGrid(
-                                columns: [
-                                    GridItem(.flexible(), spacing: 8),
-                                    GridItem(.flexible(), spacing: 8),
-                                ],
-                                spacing: 8
-                            ) {
-                                ForEach(FilterFocus.allCases) { item in
-                                    filterFocusChip(item)
-                                }
-                            }
-                        } else {
-                            VStack(spacing: 8) {
-                                ForEach(FilterFocus.allCases) { item in
-                                    filterFocusChip(item)
-                                }
-                            }
-                        }
-                    } else {
-                        LazyVGrid(
-                            columns: HubLayout.grid(FilterFocus.allCases.count, spacing: 8, minWidth: 72),
-                            spacing: 8
-                        ) {
-                            ForEach(FilterFocus.allCases) { item in
-                                filterFocusChip(item)
-                            }
-                        }
-                    }
-                }
-                Text("Search or tap rows. Select more than one \(focus.chipTitle.lowercased()).")
-                    .font(.subheadline)
-                    .foregroundStyle(AppTheme.textSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(spacing: PulseLaunch.shouldUseCompactFilterSheetFlow() ? 10 : 16) {
+                filterGrainChips
+                    .layoutPriority(1)
                 FilterColumn(
                     title: focus.title,
                     prompt: focus.prompt,
                     allLabel: focus.allLabel,
                     selection: focusValues,
                     options: options,
+                    showsHeadline: !PulseLaunch.shouldUseCompactFilterSheetFlow(),
+                    showsHelperCaption: PulseLaunch.shouldShowDuplicateFilterInstructions(),
                     onChange: apply
                 )
                 .transaction { $0.animation = nil }
@@ -1897,20 +1865,31 @@ struct FilterSheet: View {
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(AppTheme.bg.ignoresSafeArea())
-            .navigationTitle(focus.title)
+            .navigationTitle("Filters")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { requestClose() }
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    if !focusValues.isEmpty {
-                        Button("Clear") { apply("") }
+                if !PulseLaunch.shouldUseCompactFilterSheetFlow() {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { requestClose() }
+                    }
+                    ToolbarItem(placement: .primaryAction) {
+                        if !focusValues.isEmpty {
+                            Button("Clear") { apply("") }
+                        }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Save") { saveAndClose() }
+                            .fontWeight(.bold)
                     }
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { saveAndClose() }
-                        .fontWeight(.bold)
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if PulseLaunch.shouldUseCompactFilterSheetFlow() {
+                    filterActionBar
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity)
+                        .background(AppTheme.bg)
                 }
             }
             .alert("Would you like to save your filters?", isPresented: $confirmLeave) {
@@ -1932,31 +1911,57 @@ struct FilterSheet: View {
         }
     }
 
+    private var filterGrainChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(FilterFocus.allCases) { item in
+                    filterFocusChip(item)
+                }
+            }
+        }
+    }
+
+    private var filterActionBar: some View {
+        HStack(spacing: 10) {
+            HubSheetCloseControl(title: "Cancel") {
+                requestClose()
+            }
+            if !focusValues.isEmpty {
+                Button("Clear") { apply("") }
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(AppTheme.blue)
+                    .buttonStyle(.plain)
+            }
+            Spacer(minLength: 8)
+            HubSheetCloseControl(title: "Save", prominent: true) {
+                saveAndClose()
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .layoutPriority(1)
+    }
+
     private func filterFocusChip(_ item: FilterFocus) -> some View {
-        let phone = HubLayout.isPhone(sizeClass)
         let selected = focus == item
         return Button {
             focus = item
             options = store.filterChoices(focus: item, draft: draft)
         } label: {
-            HStack {
-                Text(item.chipTitle)
-                    .font((phone ? HubLayout.phoneFilterFocusFont() : (HubLayout.MacReadable.enabled ? Font.body : Font.subheadline)).weight(.semibold))
-                    .foregroundStyle(selected ? Color.white : AppTheme.blue)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-                if selected {
-                    Image(systemName: "checkmark")
-                        .font(.body.weight(.bold))
-                        .foregroundStyle(Color.white)
-                }
-            }
-            .padding(.horizontal, phone ? (PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? 12 : 16) : (HubLayout.MacReadable.enabled ? 16 : 10))
-            .frame(maxWidth: .infinity, minHeight: phone ? HubLayout.phoneFilterFocusChipMinHeight() : (HubLayout.MacReadable.enabled ? HubLayout.MacReadable.controlMin : 36), alignment: .leading)
-            .background(selected ? AppTheme.blue : AppTheme.blueSoft, in: RoundedRectangle(cornerRadius: phone ? 12 : 20, style: .continuous))
-            .contentShape(Rectangle())
+            Text(item.chipTitle)
+                .font(HubLayout.phoneFilterFocusFont().weight(.semibold))
+                .foregroundStyle(selected ? Color.white : AppTheme.blue)
+                .lineLimit(1)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(
+                    selected ? AppTheme.blue : AppTheme.blueSoft,
+                    in: Capsule(style: .continuous)
+                )
+                .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        .fixedSize()
+        .accessibilityLabel(item.chipTitle)
     }
 
     private func saveAndClose() {
@@ -1988,6 +1993,8 @@ struct FilterColumn: View {
     let allLabel: String
     let selection: [String]
     let options: [(id: String, label: String)]
+    var showsHeadline: Bool = true
+    var showsHelperCaption: Bool = true
     let onChange: (String) -> Void
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var query = ""
@@ -2009,8 +2016,10 @@ struct FilterColumn: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: HubLayout.isPhone(sizeClass) && PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? 8 : 10) {
-            Text(title)
-                .font((HubLayout.isPhone(sizeClass) && PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? Font.headline : Font.title3).weight(.bold))
+            if showsHeadline {
+                Text(title)
+                    .font((HubLayout.isPhone(sizeClass) && PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? Font.headline : Font.title3).weight(.bold))
+            }
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(AppTheme.blue)
@@ -2039,11 +2048,13 @@ struct FilterColumn: View {
                     .stroke(focused ? AppTheme.blue : AppTheme.cardBorder, lineWidth: focused ? 2 : 1)
             )
 
-            Text(selection.isEmpty
-                 ? "\(options.count) options · tap to select more than one"
-                 : "\(selection.count) selected · \(query.isEmpty ? "\(options.count) options" : "\(filtered.count) of \(options.count) match")")
-                .font(.caption)
-                .foregroundStyle(AppTheme.textTertiary)
+            if showsHelperCaption {
+                Text(selection.isEmpty
+                     ? "\(options.count) options · tap to select more than one"
+                     : "\(selection.count) selected · \(query.isEmpty ? "\(options.count) options" : "\(filtered.count) of \(options.count) match")")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.textTertiary)
+            }
 
             List {
                 row(id: "", label: allLabel, selected: selection.isEmpty) {
