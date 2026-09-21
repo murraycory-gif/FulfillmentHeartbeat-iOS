@@ -203,8 +203,11 @@ enum PulseDataPolicy {
         for section in sections {
             extra.append(contentsOf: fillMissingStores(existing: existing, facts: facts, section: section))
         }
-        guard !extra.isEmpty else { return existing }
-        return existing + extra
+        var next = extra.isEmpty ? existing : existing + extra
+        for section in sections {
+            next = PulseQuery.fillMissingRegions(existing: next, facts: facts, section: section)
+        }
+        return next
     }
 
     static func fillMissingStores(

@@ -36,6 +36,9 @@ enum RecapRenderer {
             if images.isEmpty, let fallback = await snapshot(web) {
                 images = [fallback]
             }
+            if images.count > 4 {
+                images = Array(images.prefix(4))
+            }
             return RecapMedia(images: images)
         } catch {
             if let fallback = await snapshot(web) {
@@ -52,9 +55,9 @@ enum RecapRenderer {
             return await sliceSnapshots(web, width: width, height: height, host: host)
         }
         var images: [UIImage] = []
-        images.reserveCapacity(rects.count)
-        for rect in rects {
-            let height = min(max(rect.height + 8, 240), 8_000)
+        images.reserveCapacity(min(rects.count, 4))
+        for rect in rects.prefix(4) {
+            let height = min(max(rect.height + 8, 240), 2_400)
             web.frame = CGRect(x: 0, y: 0, width: width, height: height)
             host.frame.size = CGSize(width: width, height: height)
             web.scrollView.contentOffset = CGPoint(x: 0, y: max(rect.y - 4, 0))
@@ -75,7 +78,8 @@ enum RecapRenderer {
         host.frame.size = CGSize(width: width, height: slice)
         var images: [UIImage] = []
         var offset: CGFloat = 0
-        while offset < height - 8 {
+        let cappedHeight = min(height, 2_048)
+        while offset < cappedHeight - 8 && images.count < 4 {
             web.scrollView.contentOffset = CGPoint(x: 0, y: offset)
             try? await Task.sleep(nanoseconds: 30_000_000)
             let config = WKSnapshotConfiguration()
@@ -122,6 +126,124 @@ enum RecapRenderer {
         await withCheckedContinuation { cont in
             web.takeSnapshot(with: config) { image, _ in
                 cont.resume(returning: image)
+            }
+        }
+    }
+
+    static func attachReport(_ packet: PulseMail.Packet) async -> PulseMail.Packet {
+        if !packet.attachmentFiles.isEmpty,
+           packet.attachmentFiles.contains(where: { FileManager.default.fileExists(atPath: $0.path) }) {
+            return packet
+        }
+        var files: [URL] = []
+        if let url = packet.htmlFile, FileManager.default.fileExists(atPath: url.path) {
+            files = await reportFiles(fileURL: url, html: packet.html)
+        } else if !packet.html.isEmpty {
+            files = await reportFiles(fileURL: nil, html: packet.html)
+        }
+        if files.isEmpty, let url = packet.htmlFile, FileManager.default.fileExists(atPath: url.path) {
+            files = [url]
+        }
+        return packet.withAttachments(files)
+    }
+
+    static func reportFiles(fileURL: URL?, html: String) async -> [URL] {
+        let width: CGFloat = 900
+        let web = WKWebView(frame: CGRect(x: 0, y: 0, width: width, height: 1600))
+        web.isOpaque = true
+        web.backgroundColor = UIColor(red: 0.96, green: 0.97, blue: 0.99, alpha: 1)
+        web.scrollView.backgroundColor = web.backgroundColor
+        web.scrollView.isScrollEnabled = false
+        web.scrollView.contentInsetAdjustmentBehavior = .never
+
+        let host = UIView(frame: CGRect(x: -width - 40, y: 0, width: width, height: 1600))
+        host.isUserInteractionEnabled = false
+        host.addSubview(web)
+        let window = PulseShare.topController()?.view.window
+            ?? UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+                .flatMap(\.windows)
+                .first(where: \.isKeyWindow)
+        window?.addSubview(host)
+        defer { host.removeFromSuperview() }
+
+        let loader = RecapWebLoader()
+        web.navigationDelegate = loader
+        do {
+            if let fileURL {
+                try await loader.loadFile(fileURL, in: web)
+            } else {
+                try await loader.load(html, in: web)
+            }
+            try await Task.sleep(nanoseconds: 350_000_000)
+            if let pdf = await createPDFFile(web) {
+                return [pdf]
+            }
+            var images = await snapshotPages(web, width: width, host: host)
+            if images.isEmpty, let fallback = await snapshot(web) {
+                images = [fallback]
+            }
+            let pngs = pngFiles(images)
+            if !pngs.isEmpty { return pngs }
+            if let pdf = pdfFile(from: images) { return [pdf] }
+            return []
+        } catch {
+            if let fallback = await snapshot(web) {
+                if let pdf = pdfFile(from: [fallback]) { return [pdf] }
+                return pngFiles([fallback])
+            }
+            return []
+        }
+    }
+
+    static func pdfFile(from images: [UIImage], name: String = "Fulfillment-Heartbeat.pdf") -> URL? {
+        let pages = inlineImages(images)
+        guard let first = pages.first else { return nil }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
+        let bounds = CGRect(origin: .zero, size: first.size)
+        let renderer = UIGraphicsPDFRenderer(bounds: bounds)
+        do {
+            try renderer.writePDF(to: url) { ctx in
+                for page in pages {
+                    let pageBounds = CGRect(origin: .zero, size: page.size)
+                    ctx.beginPage(withBounds: pageBounds, pageInfo: [:])
+                    page.draw(in: pageBounds)
+                }
+            }
+            return url
+        } catch {
+            return nil
+        }
+    }
+
+    static func pngFiles(_ images: [UIImage]) -> [URL] {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("hb-recap-png", isDirectory: true)
+        try? FileManager.default.removeItem(at: dir)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return inlineImages(images).enumerated().compactMap { index, image in
+            let url = dir.appendingPathComponent("heartbeat-page-\(index + 1).png")
+            guard let data = image.pngData() else { return nil }
+            try? data.write(to: url, options: .atomic)
+            return url
+        }
+    }
+
+    private static func createPDFFile(_ web: WKWebView) async -> URL? {
+        await withCheckedContinuation { cont in
+            web.createPDF { result in
+                switch result {
+                case .success(let data) where data.count > 80:
+                    let url = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("Fulfillment-Heartbeat.pdf")
+                    do {
+                        try data.write(to: url, options: .atomic)
+                        cont.resume(returning: url)
+                    } catch {
+                        cont.resume(returning: nil)
+                    }
+                default:
+                    cont.resume(returning: nil)
+                }
             }
         }
     }
@@ -203,6 +325,16 @@ private final class RecapWebLoader: NSObject, WKNavigationDelegate {
                 self?.finish(.failure(URLError(.timedOut)))
             }
             web.loadHTMLString(html, baseURL: nil)
+        }
+    }
+
+    func loadFile(_ url: URL, in web: WKWebView) async throws {
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            continuation = cont
+            DispatchQueue.main.asyncAfter(deadline: .now() + 12) { [weak self] in
+                self?.finish(.failure(URLError(.timedOut)))
+            }
+            web.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
         }
     }
 

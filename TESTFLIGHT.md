@@ -42,6 +42,8 @@ To also keep a native Mac Catalyst archive:
 
 7. Scheme destination **My Mac (Mac Catalyst)** → **Product → Archive** → upload that archive to the same App Store Connect app.
 
+Mac Catalyst App Store / TestFlight requires `LSApplicationCategoryType` in the archived Info.plist (ASC 90242). Heartbeat 753 stamps `public.app-category.business` in `FulfillmentHeartbeat/Info.plist` and `INFOPLIST_KEY_LSApplicationCategoryType`.
+
 Mac testers: install **TestFlight** from the Mac App Store → open the Heartbeat invite → **Install**. Window opens at iPad size. Choose file uses the Mac file picker / iCloud Drive.
 
 Wait 5–15 minutes. App Store Connect → the app → **TestFlight**. Build status becomes **Ready to Test**.
@@ -85,7 +87,7 @@ They only see the app if you add them. Remove anyone from the group to cut acces
 
 **What to Test** (paste this on the first external build):
 
-> Fulfillment Heartbeat for iPad. Load the master workbook or individual KPI sheets. Check Dashboard, filters (multi-select + Clear), swipe between scorecards, and the Operational Heartbeat Checklist. Confirm store tables and shopper expand match the files you uploaded.
+> Fulfillment Heartbeat for iPad. Load the master workbook or individual KPI sheets. Check Dashboard, filters (multi-select + Clear), and swipe between scorecards. Confirm store tables and shopper expand match the files you uploaded.
 
 ---
 
@@ -95,8 +97,8 @@ They only see the app if you add them. Remove anyone from the group to cut acces
 Install TestFlight from the App Store on your iPad.
 Open the invite email (or tap the TestFlight link I sent).
 Accept, then Install Heartbeat.
-Upload your KPI files (or the master workbook) in Upload.
-Top-right stamp should read HB-0821.57  1.0 (172) after this build.
+The Heartbeat pack on the device fills Dashboard. There is no Upload page.
+Top-right stamp should read HB-0828.332  1.0 (654) after this build.
 Tell me that stamp if something looks old.
 ```
 

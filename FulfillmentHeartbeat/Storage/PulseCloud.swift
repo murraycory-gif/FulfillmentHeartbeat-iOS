@@ -17,6 +17,7 @@ enum PulseCloud {
     static let publishableKey = "sb_publishable_T3Pzm01sMXCv2rQaCeP_Kg_4ao2M5zd"
     static let bucket = "heartbeat-packs"
     static let object = "current.sqlite"
+    static let seatManifestObject = PulseSeatPack.manifestObject
     static let cardsObject = "pulse-cards.json"
     static let factsObject = PulseFacts.object
     static let workbookNames = [
@@ -150,22 +151,63 @@ enum PulseCloud {
     private static var listedAt: Date?
     private static var listedRows: [[String: Any]] = []
 
-    private static func listObjects() async -> [[String: Any]] {
-        if let listedAt, Date().timeIntervalSince(listedAt) < 20, !listedRows.isEmpty {
+    static func invalidateObjectList() {
+        listedAt = nil
+        listedRows = []
+    }
+
+    /// Storage metadata size is often NSNumber / Double, not Int.
+    static func objectByteCount(from metadata: [String: Any]?) -> Int {
+        intValue(metadata?["size"]) ?? intValue(metadata?["contentLength"]) ?? 0
+    }
+
+    static func intValue(_ raw: Any?) -> Int? {
+        if let value = raw as? Int { return value }
+        if let value = raw as? NSNumber { return value.intValue }
+        if let value = raw as? Double { return Int(value) }
+        if let value = raw as? String { return Int(value) }
+        return nil
+    }
+
+    private static func listedObject(named name: String, useCache: Bool) async -> ObjectStat? {
+        let prefix: String
+        if let slash = name.lastIndex(of: "/") {
+            prefix = String(name[..<slash]) + "/"
+        } else {
+            prefix = ""
+        }
+        let leaf = name.split(separator: "/").map(String.init).last ?? name
+        let rows = await listObjects(prefix: prefix, useCache: useCache && prefix.isEmpty)
+        for row in rows {
+            guard let listed = row["name"] as? String else { continue }
+            if listed != leaf, listed != name { continue }
+            let meta = row["metadata"] as? [String: Any]
+            let size = objectByteCount(from: meta)
+            let updated = (row["updated_at"] as? String) ?? (row["created_at"] as? String) ?? ""
+            return ObjectStat(size: size, updated: updated)
+        }
+        return nil
+    }
+
+    private static func listObjects(prefix: String = "", useCache: Bool = true) async -> [[String: Any]] {
+        let cacheRoot = useCache && prefix.isEmpty
+        if cacheRoot, let listedAt, Date().timeIntervalSince(listedAt) < 20, !listedRows.isEmpty {
             return listedRows
         }
         var request = URLRequest(url: projectURL.appendingPathComponent("storage/v1/object/list/\(bucket)"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         applyAuth(&request)
-        request.httpBody = try? JSONSerialization.data(withJSONObject: ["prefix": "", "limit": 50])
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["prefix": prefix, "limit": 200])
         request.timeoutInterval = 20
         guard let (data, response) = try? await URLSession.shared.data(for: request),
               let http = response as? HTTPURLResponse, http.statusCode == 200,
               let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
-        else { return listedRows }
-        listedAt = Date()
-        listedRows = rows
+        else { return cacheRoot ? listedRows : [] }
+        if cacheRoot {
+            listedAt = Date()
+            listedRows = rows
+        }
         return rows
     }
 
@@ -199,6 +241,43 @@ enum PulseCloud {
         throw last
     }
 
+    /// Seat object path, e.g. `packs/seat/district/03/current.sqlite`.
+    static func downloadObject(_ name: String, to dest: URL, timeout: TimeInterval = 180) async throws -> Int {
+        let urls = objectDownloadURLs(name)
+        var last: Error = PulseCloudError.missing
+        for url in urls {
+            var request = URLRequest(url: url)
+            request.httpMethod = "GET"
+            request.timeoutInterval = timeout
+            request.cachePolicy = .reloadIgnoringLocalCacheData
+            if isWorkbookName(name) {
+                applyAuth(&request)
+            }
+            do {
+                let (temp, response) = try await URLSession.shared.download(for: request)
+                guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                    last = PulseCloudError.http((response as? HTTPURLResponse)?.statusCode ?? 0)
+                    continue
+                }
+                let size = (try FileManager.default.attributesOfItem(atPath: temp.path)[.size] as? NSNumber)?.intValue ?? 0
+                guard size > 1_000 else {
+                    last = PulseCloudError.missing
+                    continue
+                }
+                let folder = dest.deletingLastPathComponent()
+                try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+                if FileManager.default.fileExists(atPath: dest.path) {
+                    try FileManager.default.removeItem(at: dest)
+                }
+                try FileManager.default.moveItem(at: temp, to: dest)
+                return size
+            } catch {
+                last = error
+            }
+        }
+        throw last
+    }
+
     static func downloadPack() async throws -> Data {
         let temp = FileManager.default.temporaryDirectory.appendingPathComponent("heartbeat-pack-\(UUID().uuidString).sqlite")
         defer { try? FileManager.default.removeItem(at: temp) }
@@ -207,13 +286,14 @@ enum PulseCloud {
         return try Data(contentsOf: temp, options: [.mappedIfSafe])
     }
 
-    /// Stream the pack to disk. Do not hold the file in RAM (iPhone 13 jetsam).
-    static func downloadPack(to dest: URL) async throws -> Int {
+    /// Stream the pack to a staging file. Never pass the live `heartbeat.sqlite`
+    /// while it may still be memory-mapped.
+    static func downloadPack(to dest: URL, timeout: TimeInterval = 180) async throws -> Int {
         var last: Error = PulseCloudError.missing
         for url in objectDownloadURLs(object) {
             var request = URLRequest(url: url)
             request.httpMethod = "GET"
-            request.timeoutInterval = 180
+            request.timeoutInterval = timeout
             request.cachePolicy = .reloadIgnoringLocalCacheData
             do {
                 let (temp, response) = try await URLSession.shared.download(for: request)
@@ -256,6 +336,27 @@ enum PulseCloud {
 
     static func uploadFacts(_ data: Data) async throws {
         try await uploadObject(factsObject, data: data, contentType: "application/json")
+    }
+
+    /// Upload `packs/manifest.json` plus every company / district / store seat sqlite.
+    static func publishSeatPacks(root: URL, manifest: PulseSeatPack.Manifest) async throws {
+        let manifestURL = root.appendingPathComponent(PulseSeatPack.manifestObject)
+        let manifestData: Data
+        if let disk = try? Data(contentsOf: manifestURL), !disk.isEmpty {
+            manifestData = disk
+        } else {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            manifestData = try encoder.encode(manifest)
+        }
+        try await uploadObject(PulseSeatPack.manifestObject, data: manifestData, contentType: "application/json")
+        for entry in manifest.allEntries {
+            let file = root.appendingPathComponent(entry.path)
+            guard PulseSeatPack.isUsable(at: file) else { throw PulseCloudError.upload }
+            let data = try Data(contentsOf: file, options: [.mappedIfSafe])
+            try await uploadObject(entry.path, data: data, contentType: "application/octet-stream")
+        }
+        invalidateObjectList()
     }
 
     static func downloadFacts() async throws -> Data {

@@ -9,24 +9,32 @@ enum MissingItemsMath {
     }
 }
 
-private enum MILayout {
-    static let gutter: CGFloat = 6
-    static let storeW: CGFloat = 156
+enum MILayout {
+    static let gutter: CGFloat = HubLayout.tableGutter
+    static var storeW: CGFloat { HubLayout.pageLabelWidth }
     static let countW: CGFloat = 52
-    static let statusW: CGFloat = 88
-    static let minCell: CGFloat = 78
+    static let statusW: CGFloat = HubLayout.readableStatusWidth(phone: HubLayout.isPhoneDevice)
+    /// Wide enough for "330" + "Seafood" and a percent. Never squeeze into the card.
+    static var minCell: CGFloat { HubLayout.isPhoneDevice ? 100 : 112 }
 
     struct Metrics {
         let cellW: CGFloat
         let tableWidth: CGFloat
     }
 
-    static func metrics(depts: Int, showCount: Bool, available: CGFloat) -> Metrics {
+    static func metrics(
+        depts: Int,
+        showCount: Bool,
+        available: CGFloat,
+        storeW: CGFloat = Self.storeW
+    ) -> Metrics {
         let columns = CGFloat(max(depts, 0) + 1)
-        let slots = 2 + (showCount ? 1 : 0) + Int(columns) + 1
+        let slots = 2 + (showCount ? 1 : 0) + Int(columns)
         let gutters = gutter * CGFloat(max(slots - 1, 0))
         let fixed = storeW + (showCount ? countW : 0) + statusW + gutters
-        let leftover = max(available, 320) - fixed
+        let floor = fixed + minCell * columns
+        let span = HubLayout.tableSpan(available: available, floor: floor)
+        let leftover = max(span - fixed, 0)
         let cellW = max(minCell, leftover / max(columns, 1))
         return Metrics(cellW: cellW, tableWidth: fixed + cellW * columns)
     }
@@ -59,9 +67,11 @@ struct MissingItemsCategoryFilter: View {
                     txn.animation = nil
                     withTransaction(txn) { selected = [] }
                 }
-                .font(.subheadline.weight(.semibold))
+                .font(HubLayout.MacReadable.metricLineFont)
                 .foregroundStyle(AppTheme.blue)
                 .buttonStyle(.plain)
+                .frame(minWidth: HubLayout.phoneHitTarget, minHeight: HubLayout.phoneHitTarget)
+                .contentShape(Rectangle())
                 .opacity(allOn ? 0 : 1)
                 .disabled(allOn)
                 .accessibilityHidden(allOn)
@@ -170,6 +180,7 @@ struct MissingItemsCategoryFilter: View {
 struct MissingItemsTable: View {
     @EnvironmentObject private var headerPin: LaborHeaderPin
     @EnvironmentObject private var store: HeartbeatStore
+    @Environment(\.horizontalSizeClass) private var sizeClass
     let rows: [MetricRow]
     let depts: [MissingItemDept]
     var pageWidth: CGFloat = 1000
@@ -221,30 +232,65 @@ struct MissingItemsTable: View {
                     if !next { headerPin.pinned = false }
                     if next { rebuildOrder(sort: sort, ascending: ascending) }
                 } content: {
-                    MissingItemsStoreGrid(
-                        snaps: snaps,
-                        depts: depts,
-                        available: max(pageWidth - 48, 320),
-                        sortKey: sort.key,
-                        ascending: ascending,
-                        onSelect: applyHeaderSort,
-                        openStore: $openStore,
-                        shown: snaps.count,
-                        total: orderedCount,
-                        onMore: {
-                            limit += 150
-                            rebuildOrder(sort: sort, ascending: ascending)
-                        }
+                    let metrics = MILayout.metrics(
+                        depts: depts.count,
+                        showCount: false,
+                        available: max(pageWidth - 48, 320)
                     )
-                    .frame(height: max(420, min(640, pageWidth * 0.5)))
-                    .background(
-                        GeometryReader { geo in
-                            Color.clear.preference(
-                                key: LaborHeaderMinYKey.self,
-                                value: (geo.frame(in: .global).minY / 12).rounded() * 12
+                    if HubLayout.usesPhoneScorecards(sizeClass: sizeClass) {
+                        PhoneStoreScoreStack(
+                            items: snaps,
+                            label: { $0.label },
+                            value: { $0.total },
+                            health: { $0.health }
+                        )
+                    } else {
+                    HubAdaptiveHScroll(
+                        minWidth: metrics.tableWidth,
+                        minHeight: CGFloat(max(snaps.count, 1)) * 52 + 64
+                    ) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            MissingItemsMetricHeader(
+                                label: "Store",
+                                showCount: false,
+                                depts: depts,
+                                cellW: metrics.cellW,
+                                active: sort.key,
+                                ascending: ascending,
+                                onSelect: applyHeaderSort
                             )
+                            .frame(width: metrics.tableWidth, alignment: .leading)
+                            ForEach(snaps) { snap in
+                                MissingItemsStoreRow(
+                                    snap: snap,
+                                    depts: depts,
+                                    cellW: metrics.cellW,
+                                    expanded: openStore == snap.storeNumber,
+                                    onToggle: {
+                                        openStore = openStore == snap.storeNumber ? nil : snap.storeNumber
+                                    }
+                                )
+                                .equatable()
+                                .frame(width: metrics.tableWidth, alignment: .leading)
+                            }
+                            if snaps.count < orderedCount {
+                                Button {
+                                    limit += 150
+                                    rebuildOrder(sort: sort, ascending: ascending)
+                                } label: {
+                                    Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
+                                        .font(HubLayout.MacReadable.metricLineFont)
+                                        .foregroundStyle(AppTheme.blue)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 12)
+                                }
+                                .buttonStyle(.plain)
+                                .frame(width: metrics.tableWidth)
+                            }
                         }
-                    )
+                        .frame(minWidth: metrics.tableWidth, alignment: .leading)
+                    }
+                    }
                 }
                 .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 20, trailing: 20))
                 .listRowSeparator(.hidden)
@@ -301,6 +347,7 @@ struct MissingItemsTable: View {
     }
 
     private func rebuildOrder(sort: Column, ascending: Bool) {
+        guard !PulseLaunch.shouldSkipCollapsedStoreRebuild(expanded: headerPin.storesExpanded) else { return }
         let sorted = rows.sorted { lhs, rhs in
             let result = compare(lhs, rhs, sort: sort)
             return ascending ? result == .orderedAscending : result == .orderedDescending
@@ -364,11 +411,13 @@ private struct MissingItemsStoreGrid: View {
     let shown: Int
     let total: Int
     let onMore: () -> Void
+    @Environment(\.horizontalSizeClass) private var sizeClass
 
     var body: some View {
         let metrics = MILayout.metrics(depts: depts.count, showCount: false, available: available)
+        let pinHeaders = !HubLayout.isPhone(sizeClass)
         ScrollView([.horizontal, .vertical], showsIndicators: true) {
-            LazyVStack(alignment: .leading, spacing: 6, pinnedViews: [.sectionHeaders]) {
+            LazyVStack(alignment: .leading, spacing: 6, pinnedViews: pinHeaders ? [.sectionHeaders] : []) {
                 Section {
                     ForEach(snaps) { snap in
                         MissingItemsStoreRow(
@@ -386,7 +435,7 @@ private struct MissingItemsStoreGrid: View {
                     if shown < total {
                         Button(action: onMore) {
                             Text("Show more · \(HeartbeatFormat.num(Double(shown))) of \(HeartbeatFormat.num(Double(total)))")
-                                .font(.subheadline.weight(.semibold))
+                                .font(HubLayout.MacReadable.metricLineFont)
                                 .foregroundStyle(AppTheme.blue)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 12)
@@ -452,13 +501,21 @@ private enum MissingItemsGrain {
         }
     }
 
-    static func current(for filters: DashboardFilters) -> MissingItemsGrain? {
-        switch RollupMarketFill.grain(for: filters) {
-        case .region: return .region
-        case .division: return .division
-        case .district: return .district
-        case .store: return .store
+    var labelWidth: CGFloat {
+        HubLayout.scopeLabelWidth(district: self == .district)
+    }
+
+    init(_ grain: DashScopeGrain) {
+        switch grain {
+        case .region: self = .region
+        case .division: self = .division
+        case .district: self = .district
+        case .store: self = .store
         }
+    }
+
+    static func current(for filters: DashboardFilters) -> MissingItemsGrain? {
+        PulseLaunch.sectionRollupGrains(filters: filters).first.map(MissingItemsGrain.init)
     }
 }
 
@@ -470,19 +527,14 @@ private enum MissingItemsRollupBuilder {
     static func rows(from stores: [MetricRow], grain: MissingItemsGrain, depts: [MissingItemDept]) -> [MissingItemsRollupRow] {
         var buckets: [String: [MetricRow]] = [:]
         for row in stores {
-            let key: String
+            let laborGrain: LaborRollupGrain
             switch grain {
-            case .region:
-                key = RollupMarketFill.bucketKey(row, grain: .region)
-                if key == "Unassigned" { continue }
-            case .division:
-                key = RollupMarketFill.divisionKey(row.division)
-            case .district:
-                key = RollupMarketFill.districtKey(row.district)
-            case .store:
-                key = HeartbeatMath.canonicalStore(row.storeNumber)
+            case .region: laborGrain = .region
+            case .division: laborGrain = .division
+            case .district: laborGrain = .district
+            case .store: laborGrain = .store
             }
-            guard !key.isEmpty else { continue }
+            guard let key = RollupMarketFill.acceptedGrainKey(row, grain: laborGrain) else { continue }
             buckets[key, default: []].append(row)
         }
         var result: [MissingItemsRollupRow] = []
@@ -534,7 +586,7 @@ private struct MissingItemsLineSnap: Identifiable, Equatable {
         id = row.id
         storeNumber = row.storeNumber
         label = HeartbeatMath.storeDisplayLabel(row)
-        district = row.district
+        district = HeartbeatMath.canonicalDistrict(row.district)
         om = row.operationsOM
         let rate = HeartbeatMath.missingItemsRate(row, depts: depts)
         total = HeartbeatFormat.pct(rate)
@@ -557,17 +609,18 @@ private struct MissingItemsStoreRow: View, Equatable {
     let snap: MissingItemsLineSnap
     let depts: [MissingItemDept]
     let cellW: CGFloat
+    var storeW: CGFloat = MILayout.storeW
     let expanded: Bool
     let onToggle: () -> Void
 
     static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.snap == rhs.snap && lhs.depts == rhs.depts && lhs.cellW == rhs.cellW && lhs.expanded == rhs.expanded
+        lhs.snap == rhs.snap && lhs.depts == rhs.depts && lhs.cellW == rhs.cellW && lhs.storeW == rhs.storeW && lhs.expanded == rhs.expanded
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
             Button(action: onToggle) {
-                MissingItemsCheapLine(snap: snap, depts: depts, cellW: cellW, expanded: expanded)
+                MissingItemsCheapLine(snap: snap, depts: depts, cellW: cellW, storeW: storeW, expanded: expanded)
                     .equatable()
                     .contentShape(Rectangle())
             }
@@ -584,13 +637,14 @@ private struct MissingItemsCheapLine: View, Equatable {
     let snap: MissingItemsLineSnap
     let depts: [MissingItemDept]
     let cellW: CGFloat
+    var storeW: CGFloat = MILayout.storeW
     let expanded: Bool
 
     var body: some View {
         HStack(spacing: MILayout.gutter) {
             HStack(spacing: 4) {
                 Text(snap.label)
-                    .font(.subheadline.weight(.semibold))
+                    .font(HubLayout.MacReadable.metricLineFont)
                     .foregroundStyle(AppTheme.text)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -598,14 +652,14 @@ private struct MissingItemsCheapLine: View, Equatable {
                     .font(.caption.weight(.bold))
                     .foregroundStyle(AppTheme.blue)
             }
-            .frame(width: MILayout.storeW, alignment: .leading)
+            .frame(width: storeW, alignment: .leading)
             ForEach(depts) { dept in
                 let value = snap.raw[dept.rawValue]
                 cell(snap.values[dept.rawValue] ?? "—", MissingItemsMath.health(value), width: cellW)
             }
             cell(snap.total, snap.health, width: cellW)
             Text(snap.health.label.uppercased())
-                .font(.caption.weight(.heavy))
+                .font(HubLayout.MacReadable.metricStatusFont)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .padding(.horizontal, 8)
@@ -619,7 +673,7 @@ private struct MissingItemsCheapLine: View, Equatable {
 
     private func cell(_ value: String, _ health: Health, width: CGFloat) -> some View {
         Text(value)
-            .font(.subheadline.weight(.bold).monospacedDigit())
+            .font(HubLayout.MacReadable.metricValueFont)
             .foregroundStyle(ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.7)
@@ -687,7 +741,7 @@ private struct MissingItemsStoreExpand: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
             Text(value)
-                .font(.subheadline.weight(.bold).monospacedDigit())
+                .font(HubLayout.MacReadable.metricValueFont)
                 .foregroundStyle(ink(health))
                 .lineLimit(1)
         }
@@ -723,19 +777,20 @@ private struct MissingItemsMetricLine: View {
     let values: [String: Double]
     let depts: [MissingItemDept]
     let cellW: CGFloat
+    var storeW: CGFloat = MILayout.storeW
 
     var body: some View {
         let health = MissingItemsMath.health(total)
         HStack(spacing: MILayout.gutter) {
             Text(label)
-                .font(.subheadline.weight(.semibold))
+                .font(HubLayout.MacReadable.metricLineFont)
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .frame(width: MILayout.storeW, alignment: .leading)
+                .frame(width: storeW, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
-                    .font(.subheadline.weight(.semibold).monospacedDigit())
+                    .font(HubLayout.MacReadable.metricLineFont.monospacedDigit())
                     .foregroundStyle(AppTheme.textSecondary)
                     .frame(width: MILayout.countW, alignment: .center)
             }
@@ -751,7 +806,7 @@ private struct MissingItemsMetricLine: View {
 
     private func cell(_ value: String, _ health: Health) -> some View {
         Text(value)
-            .font(.subheadline.weight(.bold).monospacedDigit())
+            .font(HubLayout.MacReadable.metricValueFont)
             .foregroundStyle(ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.7)
@@ -784,6 +839,7 @@ struct MissingItemsMetricHeader: View {
     var showCount: Bool = false
     let depts: [MissingItemDept]
     var cellW: CGFloat = MILayout.minCell
+    var storeW: CGFloat = MILayout.storeW
     var active: String? = nil
     var ascending: Bool = false
     var onSelect: ((String) -> Void)? = nil
@@ -791,25 +847,24 @@ struct MissingItemsMetricHeader: View {
     var body: some View {
         HStack(spacing: MILayout.gutter) {
             head(label, key: "label", alignment: .leading)
-                .frame(width: MILayout.storeW, alignment: .leading)
+                .frame(width: storeW, alignment: .leading)
             if showCount {
                 head("Stores", key: "count", alignment: .center)
-                    .frame(width: MILayout.countW)
+                    .frame(width: MILayout.countW, alignment: .center)
             }
             ForEach(depts) { dept in
                 deptHead(dept)
-                    .frame(width: cellW)
+                    .frame(width: cellW, alignment: .center)
             }
             head("Total", key: MissingItemDept.totalKey, alignment: .center)
-                .frame(width: cellW)
+                .frame(width: cellW, alignment: .center)
             head("Status", key: "status", alignment: .trailing)
                 .frame(width: MILayout.statusW, alignment: .trailing)
         }
-        .font(.caption2.weight(.semibold))
-        .lineLimit(1)
-        .minimumScaleFactor(0.65)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 4)
+        .font(HubLayout.MacReadable.metricHeaderFont)
+        .lineLimit(2)
+        .minimumScaleFactor(0.75)
+        .fixedSize(horizontal: false, vertical: true)
         .padding(.top, 6)
         .padding(.bottom, 8)
     }
@@ -827,7 +882,7 @@ struct MissingItemsMetricHeader: View {
             Text(dept.short.uppercased())
         }
         .foregroundStyle(selected ? AppTheme.blue : AppTheme.text)
-        .frame(maxWidth: .infinity)
+        .frame(width: cellW, alignment: .center)
         .contentShape(Rectangle())
         return Group {
             if let onSelect {
@@ -850,7 +905,7 @@ struct MissingItemsMetricHeader: View {
             }
         }
         .foregroundStyle(selected ? AppTheme.blue : AppTheme.text)
-        .frame(maxWidth: alignment == .leading ? nil : .infinity, alignment: alignment)
+        .frame(maxWidth: .infinity, alignment: alignment)
         .contentShape(Rectangle())
         return Group {
             if let onSelect {
@@ -904,9 +959,11 @@ struct MissingItemsStickyStoreHeader: View {
 struct MissingItemsRollupTable: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var headerPin: LaborHeaderPin
+    @Environment(\.horizontalSizeClass) private var sizeClass
     let depts: [MissingItemDept]
     var pageWidth: CGFloat = 1000
     var section: MetricSection = .missingItems
+    var forcedGrain: DashScopeGrain? = nil
     @State private var grain: MissingItemsGrain? = .division
     @State private var summary: [MissingItemsRollupRow] = []
     @State private var sortKey = MissingItemDept.totalKey
@@ -917,7 +974,12 @@ struct MissingItemsRollupTable: View {
     var body: some View {
         Group {
         if let grain {
-            let metrics = MILayout.metrics(depts: depts.count, showCount: grain != .store, available: max(pageWidth - 56, 320))
+            let metrics = MILayout.metrics(
+                depts: depts.count,
+                showCount: grain != .store,
+                available: max(pageWidth - 56, 320),
+                storeW: grain.labelWidth
+            )
             VStack(alignment: .leading, spacing: expanded ? 10 : 0) {
                 Button {
                     headerPin.rollupExpanded.toggle()
@@ -931,17 +993,37 @@ struct MissingItemsRollupTable: View {
                 }
                 .buttonStyle(.plain)
                 if expanded {
-                    ScrollView(.horizontal, showsIndicators: true) {
+                    if HubLayout.usesPhoneScorecards(sizeClass: sizeClass) {
+                        VStack(spacing: 6) {
+                            ForEach(summary.prefix(40)) { row in
+                                PhoneGrainRow(
+                                    label: row.label,
+                                    value: HeartbeatFormat.pct(row.total),
+                                    count: grain == .store ? nil : row.storeCount,
+                                    health: row.health,
+                                    metricLabel: "Missing %"
+                                )
+                            }
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.bottom, 10)
+                    } else {
+                    HubAdaptiveHScroll(
+                        minWidth: metrics.tableWidth,
+                        minHeight: CGFloat(max(summary.count, 1)) * 48 + 64
+                    ) {
                         VStack(alignment: .leading, spacing: 8) {
                             MissingItemsMetricHeader(
                                 label: grain.columnTitle,
                                 showCount: grain != .store,
                                 depts: depts,
                                 cellW: metrics.cellW,
+                                storeW: grain.labelWidth,
                                 active: sortKey,
                                 ascending: sortAscending,
                                 onSelect: applySort
                             )
+                            .frame(width: metrics.tableWidth, alignment: .leading)
                             ForEach(summary) { row in
                                 MissingItemsMetricLine(
                                     label: row.label,
@@ -949,14 +1031,17 @@ struct MissingItemsRollupTable: View {
                                     total: row.total,
                                     values: row.values,
                                     depts: depts,
-                                    cellW: metrics.cellW
+                                    cellW: metrics.cellW,
+                                    storeW: grain.labelWidth
                                 )
                                 .frame(width: metrics.tableWidth, alignment: .leading)
                             }
                         }
+                        .frame(minWidth: metrics.tableWidth, alignment: .leading)
                     }
                     .padding(.horizontal, 12)
                     .padding(.bottom, 12)
+                    }
                 }
             }
             .background(AppTheme.tableFill)
@@ -974,11 +1059,26 @@ struct MissingItemsRollupTable: View {
     }
 
     private func rebuild() {
-        let next = MissingItemsGrain.current(for: store.filters)
+        let next = forcedGrain.map(MissingItemsGrain.init) ?? MissingItemsGrain.current(for: store.filters)
         grain = next
         guard let next else { summary = []; return }
         let source = MissingItemsRollupBuilder.source(from: store.rollupStores(for: section), filters: store.filters)
         var rows = MissingItemsRollupBuilder.rows(from: source, grain: next, depts: depts)
+        rows.removeAll { RollupMarketFill.hidesUnassignedMarket($0.label) }
+        if next == .region {
+            for name in RollupMarketFill.missingRegions(present: rows.map(\.label)) {
+                rows.append(
+                    MissingItemsRollupRow(
+                        id: name,
+                        label: name,
+                        storeCount: 0,
+                        total: nil,
+                        values: [:],
+                        health: .none
+                    )
+                )
+            }
+        }
         if next == .division {
             for extra in RollupMarketFill.missingDivisions(present: rows.map(\.label), markets: store.marketStores(), filters: store.filters) {
                 rows.append(
@@ -986,6 +1086,21 @@ struct MissingItemsRollupTable: View {
                         id: extra.name,
                         label: extra.name,
                         storeCount: extra.storeCount,
+                        total: nil,
+                        values: [:],
+                        health: .none
+                    )
+                )
+            }
+            if let orphan = RollupMarketFill.unassignedIfRealOrphans(
+                markets: store.marketStores(),
+                isRoster: store.isOfficialRosterStore
+            ) {
+                rows.append(
+                    MissingItemsRollupRow(
+                        id: orphan.name,
+                        label: orphan.name,
+                        storeCount: orphan.storeCount,
                         total: nil,
                         values: [:],
                         health: .none
@@ -1045,7 +1160,7 @@ struct PreSubItemTable: View {
         }
     }
 
-    @State private var expanded = true
+    @State private var expanded = false
     @State private var sort = Column.units
     @State private var ascending = false
     @State private var limit = 80
@@ -1054,86 +1169,88 @@ struct PreSubItemTable: View {
 
     var body: some View {
         Section {
-            Button {
-                expanded.toggle()
-                rebuild()
-            } label: {
-                HubTableHeader(
-                    icon: "barcode",
-                    title: "Pre-Sub OOS Items",
-                    accessory: rows.isEmpty
-                        ? "Upload Pre-Sub OOS Item  ·  tap when loaded"
-                        : "\(HeartbeatFormat.num(Double(rows.count))) items  ·  tap to \(expanded ? "collapse" : "expand")",
-                    expanded: expanded
-                )
+            VStack(alignment: .leading, spacing: 0) {
+                Button {
+                    let next = !expanded
+                    expanded = next
+                    if next { rebuild() }
+                } label: {
+                    HubTableHeader(
+                        icon: "barcode",
+                        title: "Pre-Sub OOS Items",
+                        accessory: rows.isEmpty
+                            ? "Item rows fill from the Heartbeat pack after ready  ·  tap to expand"
+                            : "\(HeartbeatFormat.num(Double(rows.count))) items  ·  tap to \(expanded ? "collapse" : "expand")",
+                        expanded: expanded,
+                        embedded: true
+                    )
+                }
+                .buttonStyle(.plain)
+                if expanded {
+                    if rows.isEmpty {
+                        EmptyHint(
+                            symbol: "barcode",
+                            title: "No item rows in this view",
+                            detail: "Item rows fill from the Heartbeat pack after ready. Header filters still apply."
+                        )
+                        .padding(.horizontal, 12)
+                        .padding(.bottom, 12)
+                    } else {
+                        HubAdaptiveHScroll(
+                            minWidth: PreSubItemLayout.floor,
+                            minHeight: CGFloat(max(snaps.count, 1)) * 52 + 64
+                        ) {
+                            VStack(alignment: .leading, spacing: 0) {
+                                PreSubItemColumns(
+                                    snaps: snaps,
+                                    sortKey: sort.key,
+                                    ascending: ascending,
+                                    onSelect: applySort
+                                )
+                                if orderedCount > snaps.count {
+                                    Button {
+                                        limit += 80
+                                        rebuild()
+                                    } label: {
+                                        Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
+                                            .font(HubLayout.MacReadable.metricLineFont)
+                                            .foregroundStyle(AppTheme.blue)
+                                            .frame(maxWidth: .infinity)
+                                            .padding(.vertical, 12)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.top, 4)
+                        .padding(.bottom, 12)
+                    }
+                }
             }
-            .buttonStyle(.plain)
             .background(AppTheme.tableFill)
             .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: AppTheme.radiusL, style: .continuous)
                     .stroke(AppTheme.blue, lineWidth: 2.5)
             )
-            .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: expanded ? 4 : 20, trailing: 20))
+            .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 20, trailing: 20))
             .listRowSeparator(.hidden)
             .listRowBackground(AppTheme.bg)
-        }
-        if expanded {
-            if rows.isEmpty {
-                Section {
-                    EmptyHint(
-                        symbol: "barcode",
-                        title: "No item rows in this view",
-                        detail: "Add a master tab named Pre-Sub OOS Item or upload that export on the Pre-Sub OOS Item card. Header filters still apply."
-                    )
-                    .listRowInsets(EdgeInsets(top: 8, leading: 20, bottom: 20, trailing: 20))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(AppTheme.bg)
-                }
-            } else {
-                Section {
-                    PreSubItemHeader(active: sort.key, ascending: ascending, onSelect: applySort)
-                        .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 2, trailing: 20))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.tableFill)
-                    ForEach(snaps) { snap in
-                        PreSubItemLine(snap: snap)
-                            .listRowInsets(EdgeInsets(top: 5, leading: 20, bottom: 5, trailing: 20))
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(AppTheme.tableFill)
-                    }
-                    if orderedCount > snaps.count {
-                        Button {
-                            limit += 80
-                            rebuild()
-                        } label: {
-                            Text("Show more · \(HeartbeatFormat.num(Double(snaps.count))) of \(HeartbeatFormat.num(Double(orderedCount)))")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(AppTheme.blue)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                        }
-                        .buttonStyle(.plain)
-                        .listRowInsets(EdgeInsets(top: 4, leading: 20, bottom: 16, trailing: 20))
-                        .listRowSeparator(.hidden)
-                        .listRowBackground(AppTheme.tableFill)
-                    }
-                }
-                .transaction { $0.animation = nil }
-                .onAppear { rebuild() }
-                .onChange(of: store.filterStamp) { _, _ in
-                    limit = 80
-                    rebuild()
-                }
-                .onChange(of: rows.count) { _, _ in
-                    limit = 80
-                    rebuild()
-                }
-                .onChange(of: rows.first?.storeNumber) { _, _ in
-                    rebuild()
-                }
+            .onAppear { rebuild() }
+            .onChange(of: store.filterStamp) { _, _ in
+                limit = 80
+                if expanded { rebuild() }
+            }
+            .onChange(of: rows.count) { _, _ in
+                limit = 80
+                if expanded { rebuild() }
+            }
+            .onChange(of: rows.first?.storeNumber) { _, _ in
+                if expanded { rebuild() }
             }
         }
+        .transaction { $0.animation = nil }
     }
 
     private func applySort(_ key: String) {
@@ -1220,26 +1337,69 @@ private struct PreSubItemSnap: Identifiable, Equatable {
     }
 }
 
+private enum PreSubItemLayout {
+    static let storeW: CGFloat = 92
+    static let itemW: CGFloat = 156
+    static let statusW: CGFloat = 88
+    static let valueMin: CGFloat = 96
+    static let valueCount = 5
+    static var floor: CGFloat {
+        storeW + itemW + statusW + CGFloat(valueCount) * valueMin + 48
+    }
+
+    static func valueWidth(available: CGFloat) -> CGFloat {
+        let reserved = storeW + itemW + statusW + 48
+        let span = max(available, floor)
+        return max(valueMin, (span - reserved) / CGFloat(valueCount))
+    }
+}
+
+private struct PreSubItemColumns: View {
+    let snaps: [PreSubItemSnap]
+    let sortKey: String
+    let ascending: Bool
+    let onSelect: (String) -> Void
+    @Environment(\.hubTableWidth) private var tableWidth
+
+    private var valueW: CGFloat { PreSubItemLayout.valueWidth(available: tableWidth) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            PreSubItemHeader(active: sortKey, ascending: ascending, onSelect: onSelect, valueW: valueW)
+            ForEach(snaps) { snap in
+                PreSubItemLine(snap: snap, valueW: valueW)
+                    .padding(.vertical, 5)
+            }
+        }
+    }
+}
+
 private struct PreSubItemHeader: View {
     let active: String
     let ascending: Bool
     let onSelect: (String) -> Void
+    var valueW: CGFloat = PreSubItemLayout.valueMin
 
     var body: some View {
         HStack(spacing: 6) {
             head("Store", key: "store", alignment: .leading)
-                .frame(width: 92, alignment: .leading)
+                .frame(width: PreSubItemLayout.storeW, alignment: .leading)
             head("Item", key: "item", alignment: .leading)
-                .frame(minWidth: 140, maxWidth: .infinity, alignment: .leading)
+                .frame(width: PreSubItemLayout.itemW, alignment: .leading)
             head("Pre-Sub %", key: "pct")
+                .frame(width: valueW, alignment: .trailing)
             head("Units", key: "units")
+                .frame(width: valueW, alignment: .trailing)
             head("$ Pre-Sub", key: "dollars")
+                .frame(width: valueW, alignment: .trailing)
             head("OOS %", key: "oosPct")
+                .frame(width: valueW, alignment: .trailing)
             head("$ OOS", key: "oosDollars")
+                .frame(width: valueW, alignment: .trailing)
             head("Status", key: "status", alignment: .trailing)
-                .frame(width: 88, alignment: .trailing)
+                .frame(width: PreSubItemLayout.statusW, alignment: .trailing)
         }
-        .font(.caption.weight(.bold))
+        .font(HubLayout.MacReadable.metricHeaderFont)
         .tracking(0.3)
         .lineLimit(1)
         .minimumScaleFactor(0.65)
@@ -1260,7 +1420,7 @@ private struct PreSubItemHeader: View {
                 }
             }
             .foregroundStyle(selected ? AppTheme.blue : AppTheme.text)
-            .frame(maxWidth: alignment == .leading ? nil : .infinity, alignment: alignment)
+            .frame(maxWidth: .infinity, alignment: alignment)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1269,12 +1429,17 @@ private struct PreSubItemHeader: View {
 
 private struct PreSubItemLine: View, Equatable {
     let snap: PreSubItemSnap
+    var valueW: CGFloat = PreSubItemLayout.valueMin
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.snap == rhs.snap && lhs.valueW == rhs.valueW
+    }
 
     var body: some View {
         HStack(spacing: 6) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(snap.store)
-                    .font(.subheadline.weight(.semibold).monospacedDigit())
+                    .font(HubLayout.MacReadable.metricLineFont.monospacedDigit())
                     .foregroundStyle(AppTheme.text)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
@@ -1285,20 +1450,20 @@ private struct PreSubItemLine: View, Equatable {
                         .lineLimit(1)
                 }
             }
-            .frame(width: 92, alignment: .leading)
+            .frame(width: PreSubItemLayout.storeW, alignment: .leading)
             Text(snap.item)
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(2)
                 .minimumScaleFactor(0.75)
-                .frame(minWidth: 140, maxWidth: .infinity, alignment: .leading)
+                .frame(width: PreSubItemLayout.itemW, alignment: .leading)
             cell(snap.pct, snap.health)
             cell(snap.units, snap.health)
             cell(snap.dollars, snap.health)
             cell(snap.oosPct, .none)
             cell(snap.oosDollars, .none)
             HealthBadge(health: snap.health, prominent: true, compact: true)
-                .frame(width: 88, alignment: .trailing)
+                .frame(width: PreSubItemLayout.statusW, alignment: .trailing)
         }
         .padding(.vertical, 4)
         .tableRowCard(health: snap.health)
@@ -1306,13 +1471,12 @@ private struct PreSubItemLine: View, Equatable {
 
     private func cell(_ value: String, _ health: Health) -> some View {
         Text(value)
-            .font(.subheadline.weight(.bold).monospacedDigit())
+            .font(HubLayout.MacReadable.metricValueFont)
             .foregroundStyle(ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
-            .frame(maxWidth: .infinity, alignment: .trailing)
+            .frame(width: valueW, alignment: .trailing)
             .padding(.vertical, 6)
-            .padding(.horizontal, 6)
             .background(wash(health), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 

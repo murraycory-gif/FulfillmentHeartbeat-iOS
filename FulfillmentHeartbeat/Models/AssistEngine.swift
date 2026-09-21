@@ -44,24 +44,18 @@ enum HeartbeatAssist {
 
     static func pagePrompts(_ dest: HubDestination) -> [String] {
         switch dest {
-        case .upload:
-            return [
-                "What files are missing?",
-                "How do I load the master workbook?",
-                "What does each KPI file drive?",
-            ]
         case .dashboard:
             return [
+                "What's wrong and what should we do first?",
                 "What's at risk across the heartbeat?",
                 "Who is the worst district?",
                 "Which stores are causing the most damage?",
                 "Which shoppers should we coach first?",
                 "How do we fix it today?",
             ]
-        case .checklist:
-            return []
         case .sales:
             return [
+                "What's wrong and what should we do first?",
                 "Who has the most eComm sales?",
                 "Which stores have the highest AOV?",
                 "What's the HD vs DUG mix?",
@@ -69,6 +63,7 @@ enum HeartbeatAssist {
             ]
         case .lostRevenue:
             return [
+                "What's wrong and what should we do first?",
                 "Who is the worst district for lost revenue?",
                 "Which stores are losing the most dollars?",
                 "What's the biggest dollar bucket?",
@@ -90,6 +85,7 @@ enum HeartbeatAssist {
             ]
         case .fiveStar:
             return [
+                "What's wrong and what should we do first?",
                 "Which 5 Star KPIs are broken?",
                 "Who is the worst district for 5 Star?",
                 "Which stores have the worst Presub?",
@@ -133,6 +129,7 @@ enum HeartbeatAssist {
             ]
         case .labor:
             return [
+                "What's wrong and what should we do first?",
                 "Who is the worst district for labor?",
                 "Which stores are over target?",
                 "Is this call-offs or a bad map?",
@@ -140,6 +137,7 @@ enum HeartbeatAssist {
             ]
         case .pickerScorecard:
             return [
+                "What's wrong and what should we do first?",
                 "Which shoppers are the top opportunity?",
                 "Which shoppers are breaking Presub, OTT, and OOS?",
                 "Who should we coach today?",
@@ -150,8 +148,6 @@ enum HeartbeatAssist {
 
     static func intent(for question: String, dest: HubDestination) -> Intent {
         let q = normalize(question)
-        if dest == .upload { return .upload }
-        if dest == .checklist { return .overview }
         if let mapped = promptIntents(dest)[q] { return mapped }
         return keywordIntent(q, dest: dest)
     }
@@ -185,7 +181,8 @@ enum HeartbeatAssist {
         if q.contains("district") { return .districts }
         if q.contains("store") { return .stores }
         if q.contains("healthy") { return .healthy }
-        if q.contains("fix") || q.contains("recover") || q.contains("cut pnr") || q.contains("get missing") || q.contains("get pre-sub") || q.contains("get presub") || q.contains("restore") || q.contains("address first") || q.contains("fix path") { return .fix }
+        if q.contains("what's wrong") || q.contains("whats wrong") { return .overview }
+        if q.contains("fix") || q.contains("recover") || q.contains("cut pnr") || q.contains("get missing") || q.contains("get pre-sub") || q.contains("get presub") || q.contains("restore") || q.contains("address first") || q.contains("fix path") || q.contains("what should we do first") { return .fix }
         if q.contains("at risk") || q.contains("across the heartbeat") { return .overview }
         return .overview
     }
@@ -223,13 +220,18 @@ enum HeartbeatAssist {
     static func answer(_ question: String, dest: HubDestination, store: HeartbeatStore) -> String {
         let q = question.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !q.isEmpty else {
-            return "Ask about \(dest.title) in \(store.filters.summary). Tap a prompt or type a store, district, or LDAP."
-        }
-        if dest == .upload {
-            return uploadAnswer(q, store: store)
+            return coachFallback(
+                dest: dest,
+                filter: store.filters.summary,
+                wrong: "Ask about \(dest.title) in \(store.filters.summary). Tap a prompt or type a store, district, or LDAP."
+            )
         }
         guard store.seeded else {
-            return "No workbooks are loaded yet. Open Upload, load the master file or each KPI, then come back."
+            return coachFallback(
+                dest: dest,
+                filter: store.filters.summary,
+                wrong: "The Heartbeat pack is not on this device yet. Stay on Dashboard — the server pack fills the cards when it lands."
+            )
         }
         var intent = intent(for: q, dest: dest)
         let brain = Brain(dest: dest, store: store)
@@ -239,7 +241,7 @@ enum HeartbeatAssist {
             intent = .shopper(person)
         } else if case .overview = intent, let district = brain.namedDistrict(in: q) {
             intent = .district(district)
-        } else if dest != .upload {
+        } else {
             if let storeHit = brain.namedStore(in: q), has(normalize(q), ["store"]) || q.split(whereSeparator: { !$0.isNumber }).contains(where: { $0.count >= 3 }) {
                 if !pagePrompts(dest).map(normalize).contains(normalize(q)) {
                     intent = .store(storeHit)
@@ -281,6 +283,28 @@ enum HeartbeatAssist {
         return lines.joined(separator: "\n")
     }
 
+    static func coachFallback(dest: HubDestination, filter: String, wrong: String) -> String {
+        ([
+            "Heartbeat Assist — \(dest.title)",
+            filter,
+            "",
+            "WHAT'S WRONG",
+            wrong,
+            "",
+            "WHAT'S CAUSING IT",
+            "No pack facts yet — do not invent a cause.",
+            "",
+            "SHOPPER SOP",
+            "Hold the standard huddle: right people, on path, prep staged, home location confirmed.",
+            "",
+            "LABOR / SCHEDULE",
+            "Labor and schedule facts are not on this device yet.",
+            "",
+            "DIRECTION",
+            "1. Stay on Dashboard until the Heartbeat pack lands, then ask again.",
+        ] as [String]).joined(separator: "\n")
+    }
+
     private static func normalize(_ raw: String) -> String {
         raw.lowercased()
             .replacingOccurrences(of: "’", with: "'")
@@ -300,6 +324,13 @@ enum HeartbeatAssist {
         var primary: MetricSection { dest.section ?? .lostRevenue }
 
         func answer(_ intent: HeartbeatAssist.Intent, question _: String) -> String {
+            if PulseLaunch.shouldUseAssistCoachShape() {
+                return coach(intent)
+            }
+            return legacyBrief(intent)
+        }
+
+        private func legacyBrief(_ intent: HeartbeatAssist.Intent) -> String {
             switch intent {
             case .overview: return overview()
             case .districts: return districtBrief(nil)
@@ -318,11 +349,296 @@ enum HeartbeatAssist {
             case .healthy: return healthyBrief()
             case .watch: return watchBrief()
             case .fix: return fixBrief()
-            case .upload: return "Open Upload to load files."
+            case .upload: return "The Heartbeat pack comes from the server. Dashboard fills when it is on the device."
             case .store(let number): return storeBrief(number)
             case .district(let name): return districtBrief(name)
             case .shopper(let name): return shopperBrief(name)
             }
+        }
+
+        private func coach(_ intent: HeartbeatAssist.Intent) -> String {
+            var lines = [
+                "Heartbeat Assist — \(dest.title)",
+                filter,
+                "",
+                "WHAT'S WRONG",
+            ]
+            lines.append(contentsOf: wrongLines(intent))
+            lines.append("")
+            lines.append("WHAT'S CAUSING IT")
+            lines.append(contentsOf: causeLines(intent))
+            lines.append("")
+            lines.append("SHOPPER SOP")
+            lines.append(contentsOf: sopLines(intent))
+            lines.append("")
+            lines.append("LABOR / SCHEDULE")
+            lines.append(contentsOf: laborScheduleLines())
+            lines.append("")
+            lines.append("DIRECTION")
+            lines.append(contentsOf: directionLines(intent))
+            return join(lines)
+        }
+
+        private func wrongLines(_ intent: HeartbeatAssist.Intent) -> [String] {
+            switch intent {
+            case .store(let number):
+                return storeWrong(number)
+            case .shopper(let name):
+                return shopperWrong(name)
+            case .district(let name):
+                return districtWrong(name)
+            case .healthy:
+                return healthyWrong()
+            default:
+                return seatWrong()
+            }
+        }
+
+        private func seatWrong() -> [String] {
+            var lines: [String] = []
+            let cards = HeartbeatMath.dashboardCallouts(store.summaries, role: store.sessionRole)
+            let focus = dest.section.map { [$0] } ?? cards.map(\.section)
+            var named = 0
+            for section in focus {
+                let summary = store.summary(for: section)
+                if summary.storeCount == 0, summary.headline == nil {
+                    lines.append("• \(label(section)): not in this pack for \(filter).")
+                    continue
+                }
+                lines.append("• \(label(section)): \(summary.headlineText)  ·  \(summary.health.label)  ·  \(summary.riskCount) at risk / \(summary.watchCount) watch  ·  Stores \(summary.storeCount)")
+                named += 1
+            }
+            if named == 0 {
+                lines.append("No gold KPI numbers for \(filter) in this pack yet.")
+            }
+            return lines
+        }
+
+        private func storeWrong(_ number: String) -> [String] {
+            var lines: [String] = []
+            for section in MetricSection.dashboardCards {
+                guard let row = storeRows(section).first(where: {
+                    HeartbeatMath.canonicalStore($0.storeNumber) == HeartbeatMath.canonicalStore(number)
+                }) else { continue }
+                lines.append("• \(label(section)): \(metricLine(section, [row]))  ·  \(HeartbeatMath.health(for: section, row: row).label)")
+            }
+            if lines.isEmpty {
+                lines.append("Store \(number) is not in \(filter).")
+            }
+            return lines
+        }
+
+        private func shopperWrong(_ name: String) -> [String] {
+            guard let row = pickers().first(where: { shopperNames($0).contains { $0.localizedCaseInsensitiveContains(name) } }) else {
+                return ["No shopper matching \(name) is in \(filter)."]
+            }
+            let ldap = row.shopperName.isEmpty ? (row.shopperId ?? row.shopperKey) : row.shopperName
+            var lines = ["\(ldap) at store \(row.storeNumber)\(row.district.isEmpty ? "" : " · \(row.district)")."]
+            let readout = HeartbeatMath.pickerMetricReadout(row).filter { $0.health.needsAction }
+            if readout.isEmpty {
+                lines.append("No off-goal picker KPIs on this LDAP in the current pack.")
+            } else {
+                for item in readout {
+                    lines.append("• \(item.name) \(item.value)  ·  \(item.health.label)")
+                }
+            }
+            return lines
+        }
+
+        private func districtWrong(_ name: String) -> [String] {
+            var lines: [String] = []
+            for section in focusSections {
+                let rows = storeRows(section).filter { HeartbeatMath.matches($0.district, name) }
+                guard !rows.isEmpty else { continue }
+                let risk = rows.filter { HeartbeatMath.health(for: section, row: $0) == .risk }.count
+                lines.append("• \(label(section)): \(metricLine(section, rows))  ·  \(rows.count) stores  ·  \(risk) at risk")
+            }
+            if lines.isEmpty {
+                lines.append("District \(name) has no pack rows in \(filter).")
+            }
+            return lines
+        }
+
+        private func healthyWrong() -> [String] {
+            let healthy = focusSections.compactMap { section -> String? in
+                let summary = store.summary(for: section)
+                guard summary.health == .good else { return nil }
+                return "• \(label(section)): \(summary.headlineText)  ·  Healthy"
+            }
+            return healthy.isEmpty ? ["No KPI in \(filter) is fully healthy."] : healthy
+        }
+
+        private func causeLines(_ intent: HeartbeatAssist.Intent) -> [String] {
+            var lines: [String] = []
+            if case .store(let number) = intent,
+               let row = storeRows(primary).first(where: {
+                   HeartbeatMath.canonicalStore($0.storeNumber) == HeartbeatMath.canonicalStore(number)
+               }) {
+                let item = HeartbeatMath.makeChecklistItem(section: primary, row: row, division: row.division, latest: latestMap())
+                if item.findings.isEmpty {
+                    lines.append("No driver notes on \(label(primary)) for store \(number) in this pack.")
+                } else {
+                    for finding in item.findings.prefix(6) {
+                        lines.append("• \(finding.name) \(finding.value) — \(finding.fact)")
+                    }
+                }
+            }
+            let people = rankedShoppers(limit: 5, district: districtHint(intent))
+            if !people.isEmpty {
+                lines.append("Shopper mix: \(people[0].name) at store \(people[0].store) — \(people[0].issues).")
+            }
+            let stores = HeartbeatMath.topOpportunityStores(section: primary, rows: storeRows(primary), limit: 3)
+            if !stores.isEmpty {
+                let top = stores[0]
+                lines.append("Biggest \(label(primary)) miss: store \(top.storeNumber) · \(metricLine(primary, [top])).")
+            }
+            if dest == .lostRevenue || primary == .lostRevenue {
+                lines.append(contentsOf: bucketCauseLines())
+            }
+            if dest == .missingItems || dest == .preSubOOS {
+                lines.append(contentsOf: departmentCauseLines())
+            }
+            if dest == .pickPath {
+                let pathRows = storeRows(.pickPath)
+                let staleMapper = pathRows.filter { AisleMapperMath.health(AisleMapperMath.mapperISO($0)) == .risk }.count
+                let staleSeq = pathRows.filter { AisleMapperMath.health(AisleMapperMath.sequenceISO($0)) == .risk }.count
+                if staleMapper + staleSeq > 0 {
+                    lines.append("Aisle maps: \(staleMapper) stores older than 90 days. Sequences: \(staleSeq) stores older than 90 days.")
+                }
+            }
+            if lines.isEmpty {
+                lines.append("No extra driver facts in this pack beyond the KPI numbers above. Do not invent a cause.")
+            }
+            return lines
+        }
+
+        private func bucketCauseLines() -> [String] {
+            let rows = storeRows(.lostRevenue)
+            let buckets: [(String, Double)] = [
+                ("Post-sub OOS", sum(rows, "post_sub_oos_foregone") ?? 0),
+                ("Refunds", sum(rows, "refund_lost") ?? sum(rows, "refund_amt") ?? 0),
+                ("Cancelled orders", sum(rows, "cancelled_lost") ?? 0),
+                ("Kill switch", sum(rows, "kill_switch_lost") ?? 0),
+            ].sorted { $0.1 > $1.1 }
+            return buckets.prefix(3).compactMap { pair in
+                guard pair.1 > 0 else { return nil }
+                return "• \(pair.0): \(HeartbeatFormat.money(pair.1))"
+            }
+        }
+
+        private func departmentCauseLines() -> [String] {
+            let section: MetricSection = dest == .preSubOOS ? .preSubOOS : .missingItems
+            let rows = storeRows(section)
+            var depts: [(MissingItemDept, Double)] = MissingItemDept.allCases.compactMap { dept in
+                let value = HeartbeatMath.average(rows.compactMap { $0.number(dept.rawValue) })
+                guard let value, value > 0 else { return nil }
+                return (dept, value)
+            }
+            depts.sort { $0.1 > $1.1 }
+            return depts.prefix(3).map { "• \($0.0.title): \(HeartbeatFormat.pct($0.1))" }
+        }
+
+        private func sopLines(_ intent: HeartbeatAssist.Intent) -> [String] {
+            let people = rankedShoppers(limit: 1, district: districtHint(intent))
+            var failing: [String] = []
+            if case .shopper(let name) = intent,
+               let row = pickers().first(where: { shopperNames($0).contains { $0.localizedCaseInsensitiveContains(name) } }) {
+                failing = HeartbeatMath.pickerMetricReadout(row).filter { $0.health.needsAction }.map(\.name)
+            } else if let person = people.first {
+                failing = person.issues.split(separator: "·").map { $0.trimmingCharacters(in: .whitespaces) }
+            }
+            var lines: [String] = []
+            if let person = people.first {
+                lines.append("Coach \(person.name) at store \(person.store). What good looks like:")
+            } else if dest.section == .pickerScorecard || dest == .pph || dest == .pickPath || dest == .fiveStar {
+                lines.append("No shopper LDAP is off goal in this filter. Hold the store huddle to the SOP below.")
+            } else {
+                lines.append("Shopper SOP for the failing process in this seat:")
+            }
+            let sop = sopFor(failing: failing, section: dest.section ?? primary)
+            lines.append(contentsOf: sop)
+            return lines
+        }
+
+        private func sopFor(failing: [String], section: MetricSection) -> [String] {
+            let blob = failing.joined(separator: " ").lowercased()
+            var out: [String] = []
+            if blob.contains("presub") || section == .fiveStar || section == .preSubOOS {
+                out.append("• Presub: confirm the home location is empty before a sub. Do not sub from memory.")
+            }
+            if blob.contains("ott") || blob.contains("oth") || section == .fiveStar {
+                out.append("• OTT / OTH: pick to the promise window. Stage complete totes before the cutoff, not after.")
+            }
+            if blob.contains("path") || blob.contains("pph") || section == .pickPath || section == .pph {
+                out.append("• Path / PPH: follow the handheld sequence. Do not walk for missing prep — call grocery and stay on path.")
+            }
+            if blob.contains("coe") {
+                out.append("• COE: scan every substitution and age-restricted item. No skip-throughs.")
+            }
+            if section == .missingItems {
+                out.append("• Missing tags: print and hang the hottest department first. Audit the aisle before the next cutover.")
+            }
+            if section == .prepNotReady {
+                out.append("• Prep: grocery stages produce / meat / bakery 60 minutes before the first eComm wave. Pickers do not hunt the back room.")
+            }
+            if section == .lostRevenue {
+                out.append("• Loss: fill the home location, then sub. LDAP cancels and kill switch stay last-resort.")
+            }
+            if out.isEmpty {
+                out.append("• Standard huddle: right people on the right wave, on path, prep staged, home location confirmed.")
+            }
+            return out
+        }
+
+        private func laborScheduleLines() -> [String] {
+            let laborRows = storeRows(.labor)
+            let scheduleRows = storeRows(.scheduleQuality)
+            let labor = store.summary(for: .labor)
+            let schedule = store.summary(for: .scheduleQuality)
+            var lines: [String] = []
+            if labor.storeCount == 0, labor.headline == nil, laborRows.isEmpty {
+                lines.append("Labor facts are not in this pack for \(filter).")
+            } else {
+                lines.append("Labor TVA \(labor.headlineText)  ·  \(labor.health.label)  ·  Stores \(labor.storeCount).")
+            }
+            if schedule.storeCount == 0, schedule.headline == nil, scheduleRows.isEmpty {
+                lines.append("Schedule facts are not in this pack for \(filter).")
+            } else {
+                let under = scheduleRows.filter { ($0.number("under_schedule_pct") ?? 0) > 0 }.count
+                let over = scheduleRows.filter { ($0.number("over_schedule_pct") ?? 0) > 0 }.count
+                lines.append("Schedule efficiency \(schedule.headlineText)  ·  \(schedule.health.label)  ·  \(under) under-scheduled  ·  \(over) over-scheduled.")
+                if under > 0 {
+                    lines.append("Under-scheduling is in the pack — fill trained pickers, not overtime on the same LDAPS.")
+                }
+                if over > 0 {
+                    lines.append("Over-scheduling is in the pack — cut hours that never pick on the next map build.")
+                }
+            }
+            if labor.health.needsAction, schedule.health.needsAction {
+                lines.append("Both Labor and Schedule are off. Treat it as a map / no-show problem before adding hours.")
+            } else if labor.health.needsAction, !scheduleRows.isEmpty, schedule.health == .good {
+                lines.append("Labor is off while the map is holding — that reads as no-shows / not working vs scheduled, not a fat map.")
+            }
+            return lines
+        }
+
+        private func directionLines(_ intent: HeartbeatAssist.Intent) -> [String] {
+            var lines = Array(fixLines(district: districtHint(intent)).dropFirst())
+            if lines.isEmpty {
+                lines = ["1. Hold the standard huddle. Nothing in this filter needs a recovery plan."]
+            }
+            if case .shopper(let name) = intent {
+                lines.insert("1. Floor-coach \(name) on a live wave — do not leave it as a note.", at: 0)
+            }
+            return lines.enumerated().map { index, line in
+                let trimmed = line.replacingOccurrences(of: #"^\d+\.\s*"#, with: "", options: .regularExpression)
+                return "\(index + 1). \(trimmed)"
+            }
+        }
+
+        private func districtHint(_ intent: HeartbeatAssist.Intent) -> String? {
+            if case .district(let name) = intent { return name }
+            return nil
         }
 
         private func overview() -> String {
