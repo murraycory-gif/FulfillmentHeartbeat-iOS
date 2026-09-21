@@ -374,11 +374,6 @@ struct PhoneCommandCenterHome: View {
                         open(card.section)
                     }
                 }
-                Text("AT-A-GLANCE · ALL SECTIONS")
-                    .font(AppTheme.rounded(.caption, weight: .heavy))
-                    .tracking(0.7)
-                    .foregroundStyle(AppTheme.textTertiary)
-                    .padding(.top, PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 4 : 8)
                 ForEach(glanceCards) { card in
                     PhoneCommandGlanceCard(card: card) {
                         open(card.section)

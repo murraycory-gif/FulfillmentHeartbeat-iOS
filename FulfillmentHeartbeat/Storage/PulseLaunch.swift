@@ -1207,6 +1207,11 @@ enum PulseLaunch {
 
     static func shouldPaintPhonePageBannerNavy() -> Bool { true }
 
+    /// Phone Command Center: heroes + glance cards flow with no
+    /// "AT-A-GLANCE · ALL SECTIONS" caption between 5 Star and Labor.
+    /// Mac leftover-fill glanceHeader stays.
+    static func shouldShowPhoneAtAGlanceSectionCaption() -> Bool { false }
+
     /// Compact phone header + Filters keep 44pt hits but drop title3 chrome.
     static func shouldUseCompactPhoneHeaderChrome() -> Bool { true }
 

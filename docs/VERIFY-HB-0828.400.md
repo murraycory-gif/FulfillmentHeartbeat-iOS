@@ -1,7 +1,7 @@
-# HB-0828.448 / 767 — verify (40MB company seat + no THIS SEAT callout)
+# HB-0828.449 / 768 — verify (40MB company seat + no THIS SEAT callout)
 
 **Tip** `cursor/mac-catalyst-category-70dd` off `cursor/mac-share-attach-1006` (`300eb83`)
-**Stamp** `HB-0828.448  1.0 (767)` · bundle `com.corymurray.FulfillmentHeartbeat`
+**Stamp** `HB-0828.449  1.0 (768)` · bundle `com.corymurray.FulfillmentHeartbeat`
 **752 Soft KEEP:** first-paint current pack gold + Share attach / `UIActivityViewController`.
 
 Soft FAIL 2026-09-14: Mac Catalyst TestFlight upload of HB **752** rejected **ASC 90242** — Info.plist missing `LSApplicationCategoryType`. This root sets `public.app-category.business` in Heartbeat `Info.plist` and target `INFOPLIST_KEY_LSApplicationCategoryType` (`GENERATE_INFOPLIST_FILE = NO`).
@@ -35,7 +35,7 @@ Must **compile**. Stay on Command Center. Do not open a section first.
 
 | Check | Pass |
 |---|---|
-| Sidebar stamp | `HB-0828.448  1.0 (767)` |
+| Sidebar stamp | `HB-0828.449  1.0 (768)` |
 | **ASC 90242** | Archived Mac Catalyst Info.plist has `LSApplicationCategoryType` = `public.app-category.business`. Upload is not rejected for missing category. |
 | **First paint gold** | Open / Clear→company shows **$79,870,895 / +16.23%** (week 202629) without opening Sales. Never a stale week. |
 | **Share attachment** | New Message shows attachment chip. Send opens the **system share sheet** with `Fulfillment-Heartbeat.pdf` (or page PNGs). Outlook / Teams / Files / AirDrop receive the file. Never Apple Mail plaintext-only / Hide My Email with no attachment. |

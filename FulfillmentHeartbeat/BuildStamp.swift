@@ -1,7 +1,7 @@
 import Foundation
 
 enum BuildStamp {
-    static let id = "HB-0828.448"
+    static let id = "HB-0828.449"
 
     /// ASC 90242: Mac Catalyst App Store / TestFlight requires a category.
     static let applicationCategoryType = "public.app-category.business"
