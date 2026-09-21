@@ -1383,6 +1383,8 @@ struct PhoneSectionPage: View {
 }
 
 /// Shared This Week chips — metric pages and the merged Dashboard card.
+/// `HeartbeatStore` is `@MainActor`; these helpers must not be nonisolated.
+@MainActor
 enum PhoneThisWeekChrome {
     static func factRows(section: MetricSection, store: HeartbeatStore) -> [MetricRow] {
         section == .sales ? store.salesStores() : store.seatRows(for: section)
