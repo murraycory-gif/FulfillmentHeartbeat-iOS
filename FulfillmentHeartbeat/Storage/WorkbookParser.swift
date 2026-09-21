@@ -461,6 +461,19 @@ enum WorkbookParser {
         let compact = lower.replacingOccurrences(of: " ", with: "")
         return compact.contains("store#") || lower.contains("store #")
     }
+
+    /// Prep Not Ready value column is Hours % only. `Store #` is a row index (always 1 on this export).
+    private static func isPrepHoursPercentHeader(_ raw: String) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        if isStoreHashHeader(trimmed.lowercased()) { return false }
+        let name = normHeader(trimmed)
+        let prep = name.contains("prepnotready") || name.contains("notready") || name.contains("pnr")
+        guard prep else { return false }
+        let hoursOrRate = name.contains("hour") || name.contains("rate")
+        let percent = trimmed.contains("%") || name.contains("pct") || name.contains("percent")
+        return hoursOrRate && percent
+    }
     private static let nameKeys = ["storename", "unitname", "location", "storenm"]
     private static let shopperNameKeys = [
         "shopper", "shoppername", "picker", "pickername", "associate", "associatename", "teammember",
@@ -720,8 +733,8 @@ enum WorkbookParser {
         if let presub = parsePreSubOOS(matrix), !presub.isEmpty { return presub }
         if let missing = parseMissingItems(matrix), !missing.isEmpty { return missing }
         if let aisle = parseAisleMapper(matrix), !aisle.isEmpty { return aisle }
-        if let roster = parseStoreRoster(matrix), !roster.isEmpty { return roster }
         if let prep = parsePrepHours(matrix), !prep.isEmpty { return prep }
+        if let roster = parseStoreRoster(matrix), !roster.isEmpty { return roster }
         if let pickers = parsePickerWide(matrix), !pickers.isEmpty { return pickers }
         if let outline = parseOutline(matrix), !outline.isEmpty { return outline }
         if let stores = parseStoreWeek(matrix), !stores.isEmpty { return stores }
@@ -904,6 +917,7 @@ enum WorkbookParser {
                 && names.contains(where: { $0 == "district" || $0.contains("district") })
                 && names.contains(where: { $0 == "store" || $0.contains("store") })
         }) else { return nil }
+        if matrix[headerIndex].contains(where: isPrepHoursPercentHeader) { return nil }
         let header = matrix[headerIndex].map(normHeader)
         func idx(_ keys: [String]) -> Int? {
             header.firstIndex { name in keys.contains(where: { name == $0 || name.contains($0) }) }
@@ -2728,8 +2742,9 @@ enum WorkbookParser {
         return formatter.string(from: date)
     }
 
-    /// Weekly picker scorecard: STORE + PICKER, date blocks across the top, Total block last.
-    /// DATE banner + DIVISION / District / OM / Store + Net Prep Not Ready Hours % Total.
+    /// DATE banner + DIVISION / District / OM / Store + Prep Not Ready Hours % + Store #.
+    /// The rate is the Hours % column only. A blank Hours % skips the row.
+    /// Store # is never the rate (it is 1, and `applyMetric` would turn that into 100).
     private static func parsePrepHours(_ matrix: [[String]]) -> [ParsedWorkbookRow]? {
         guard let headerIndex = matrix.firstIndex(where: { row in
             let names = row.map(normHeader)
@@ -2750,17 +2765,18 @@ enum WorkbookParser {
         guard let storeIdx else { return nil }
 
         let weekRow = headerIndex > 0 ? matrix[headerIndex - 1] : []
-        var totalIdx: Int?
+        var valueIdx: Int?
         for (index, cell) in weekRow.enumerated() where isTotalCell(cell) {
-            totalIdx = index
+            guard index < rawHeader.count, isPrepHoursPercentHeader(rawHeader[index]) else { continue }
+            valueIdx = index
         }
-        if totalIdx == nil {
-            totalIdx = header.indices.last { index in
-                header[index].contains("prepnotready") || header[index].contains("notready")
-                    || header[index].contains("pnr")
-            }
+        if valueIdx == nil {
+            valueIdx = rawHeader.indices.last(where: { isPrepHoursPercentHeader(rawHeader[$0]) })
         }
-        guard let totalIdx else { return nil }
+        guard let valueIdx else { return nil }
+        if isStoreHashHeader(rawHeader[valueIdx].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()) {
+            return nil
+        }
 
         var recordedOn: String?
         for cell in weekRow {
@@ -2787,17 +2803,7 @@ enum WorkbookParser {
             if isTotalCell(storeRaw) { continue }
             if storeRaw.lowercased().hasPrefix("applied") { continue }
             guard looksLikeStoreNumber(storeRaw) else { continue }
-            var raw = totalIdx < line.count ? line[totalIdx] : ""
-            if cellNumber(raw) == nil {
-                for index in stride(from: line.count - 1, through: 0, by: -1) {
-                    if index == storeIdx || index == divIdx || index == distIdx || index == omIdx { continue }
-                    let candidate = index < line.count ? line[index] : ""
-                    if cellNumber(candidate) != nil {
-                        raw = candidate
-                        break
-                    }
-                }
-            }
+            let raw = valueIdx < line.count ? line[valueIdx] : ""
             guard let value = cellNumber(raw) else { continue }
 
             var payload: [String: Double] = [:]
