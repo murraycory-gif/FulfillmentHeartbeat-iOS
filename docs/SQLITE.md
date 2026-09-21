@@ -1,7 +1,15 @@
 # Heartbeat pack
 
 The iPad is a **viewer**. GitHub Actions cooks `Heartbeat Daily Report.xlsx`
-into `current.sqlite` plus **seat packs** and publishes them to `heartbeat-packs`.
+into `current.sqlite` plus **seat packs** and publishes them to Cloudflare R2.
+
+Download: `https://pub-eafb309f53464d98902d12ac107f0f1e.r2.dev/current.sqlite`
+
+Company seat key: `https://pub-eafb309f53464d98902d12ac107f0f1e.r2.dev/packs/seat/company/all/current.sqlite`
+
+The Daily Report workbook stays on Supabase Storage. `r2.dev` is rate-limited.
+Swap `HBPackHost` in `FulfillmentHeartbeat/Info.plist` (and `PulseCloud.defaultPackHost`)
+to a custom domain later. Cook stays on the weekday `*/15` schedule.
 
 See [SEAT-SCOPED-PACKS.md](SEAT-SCOPED-PACKS.md) for the Tip 1 contract.
 
@@ -24,4 +32,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.463 / 1.0 (782) — THIS SEAT callout removed on every page and filter. Company seat cap 40MB. 436 KEEP: Pick Path expand shoppers + Prep Store chrome.
+HB-0828.464 / 1.0 (783) — THIS SEAT callout removed on every page and filter. Company seat cap 40MB. 436 KEEP: Pick Path expand shoppers + Prep Store chrome.

@@ -1,19 +1,24 @@
 name: Cook Heartbeat pack
 
-# Turns Heartbeat Daily Report.xlsx in Supabase into current.sqlite.
+# Turns Heartbeat Daily Report.xlsx (still in Supabase Storage) into
+# current.sqlite and publishes the thin company pack to Cloudflare R2.
 # Testers never parse Excel. Cory's Mac does not need to be on.
-# Company pack goes LIVE before parallel seat uploads.
+# Company LIVE (current.sqlite + company seat key) publishes before seats.
+# District/store seats are optional on this tip — continue if the cook
+# did not write a seat plane.
+# Company seat KEEP: sales/roster/chrome, slim ScoreCard facts, Loss bind, store grains.
+# Optional slim pick_path_picker (peek-only) with Soft KEEP store_number from Excel/ScoreCard LDAP.
+# DROP item tape / fat shopper payloads / 56MB hub.
+# Soft FAIL >40MB, orphan chrome (shoppers cited / 0 ScoreCard facts), Haggen-only Loss,
+# Path picker empty store when LDAP/store grain exists. Soft FAIL invent Prep / 5★.
+# Soft FAIL prep_not_ready mean > 20 or ≥50% of rows == 100 (Hours % blank must not become Store #).
+# Soft WARN dynacap East hole: Jewel+Mid-Atlantic+Shaws is 0 while roster has those divisions. Does not block publish.
+# Do not invent East rows. Cook/thin only. Do not conflate into tip 439. Never use needs_attention.
 on:
   workflow_dispatch:
-  repository_dispatch:
-    types: [cook-heartbeat-pack]
   schedule:
-    - cron: "*/2 * * * *"
-    - cron: "0 6 * * *"
-
-concurrency:
-  group: cook-heartbeat-pack
-  cancel-in-progress: false
+    # 8:00 AM–5:45 PM America/Chicago weekdays (CDT = UTC-5 → 13:00–22:45 UTC)
+    - cron: "*/15 13-22 * * 1-5"
 
 jobs:
   cook:
@@ -25,39 +30,37 @@ jobs:
         env:
           PROJECT: https://pcnjujfmlsklhrosxzlt.supabase.co
           KEY: sb_publishable_T3Pzm01sMXCv2rQaCeP_Kg_4ao2M5zd
+          PACK_HOST: https://pub-eafb309f53464d98902d12ac107f0f1e.r2.dev
         run: |
           set -euo pipefail
-          list_prefix() {
-            curl -sS --connect-timeout 15 --max-time 60 -X POST \
-              -H "Authorization: Bearer $KEY" -H "apikey: $KEY" \
-              -H "Content-Type: application/json" \
-              -d "{\"prefix\":\"$1\",\"limit\":20}" \
-              "$PROJECT/storage/v1/object/list/heartbeat-packs"
-          }
-          list_prefix "Heartbeat Daily Report.xlsx" > /tmp/xlsx-list.json
-          list_prefix "current.sqlite" > /tmp/sqlite-list.json
+          curl -sS -X POST \
+            -H "Authorization: Bearer $KEY" -H "apikey: $KEY" \
+            -H "Content-Type: application/json" \
+            -d '{"prefix":"","limit":50}' \
+            "$PROJECT/storage/v1/object/list/heartbeat-packs" > /tmp/bucket.json
           python3 - <<'PY'
-          import json, os
+          import json, os, urllib.request
           from datetime import datetime, timezone
+          from email.utils import parsedate_to_datetime
 
-          def rows(path):
-              raw = json.load(open(path))
-              if isinstance(raw, dict):
-                  raise SystemExit(f"{path}: {raw}")
-              return raw
+          rows = json.load(open("/tmp/bucket.json"))
+          if isinstance(rows, dict):
+              raise SystemExit(f"bucket list: {rows}")
+          files = {r["name"]: r for r in rows}
+          xlsx = files.get("Heartbeat Daily Report.xlsx")
+          if not xlsx:
+              raise SystemExit("No Heartbeat Daily Report.xlsx in the bucket.")
 
-          def named(items, want):
-              for row in items:
-                  if row.get("name") == want:
-                      return row
-              return None
-
-          def parse_ts(row):
-              if not row:
-                  return None
-              raw = row.get("updated_at") or row.get("created_at") or ""
+          def parse_ts(raw):
               if not raw:
                   return None
+              try:
+                  dt = parsedate_to_datetime(raw)
+                  if dt.tzinfo is None:
+                      dt = dt.replace(tzinfo=timezone.utc)
+                  return dt
+              except Exception:
+                  pass
               raw = raw.replace("Z", "+00:00")
               try:
                   dt = datetime.fromisoformat(raw)
@@ -67,56 +70,50 @@ jobs:
                   dt = dt.replace(tzinfo=timezone.utc)
               return dt
 
-          def size_of(row):
-              if not row:
-                  return 0
-              meta = row.get("metadata") or {}
-              return int(meta.get("size") or 0)
-
-          xlsx = named(rows("/tmp/xlsx-list.json"), "Heartbeat Daily Report.xlsx")
-          pack = named(rows("/tmp/sqlite-list.json"), "current.sqlite")
-          if not xlsx:
-              raise SystemExit("No Heartbeat Daily Report.xlsx in the bucket.")
-          xlsx_dt = parse_ts(xlsx)
-          pack_dt = parse_ts(pack)
-          pack_bytes = size_of(pack)
-          event = os.environ.get("GITHUB_EVENT_NAME") or ""
-          force = event in ("workflow_dispatch", "repository_dispatch")
-          print(f"xlsx {xlsx.get('updated_at')} sqlite { (pack or {}).get('updated_at')} sqlite_bytes={pack_bytes} force={force}")
+          xlsx_dt = parse_ts(xlsx.get("updated_at") or xlsx.get("created_at") or "")
+          pack_host = os.environ.get("PACK_HOST", "").rstrip("/")
+          pack_updated = ""
+          pack_bytes = 0
+          try:
+              req = urllib.request.Request(f"{pack_host}/current.sqlite", method="HEAD")
+              with urllib.request.urlopen(req, timeout=20) as resp:
+                  pack_updated = resp.headers.get("Last-Modified") or ""
+                  pack_bytes = int(resp.headers.get("Content-Length") or 0)
+          except Exception as exc:
+              print(f"R2 HEAD current.sqlite: {exc}")
+          pack_dt = parse_ts(pack_updated)
+          force = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
+          print(f"xlsx {xlsx.get('updated_at')} r2 {pack_updated} sqlite_bytes={pack_bytes} force={force}")
           if xlsx_dt and pack_dt:
-              print(f"xlsx_dt {xlsx_dt.isoformat()} sqlite_dt {pack_dt.isoformat()} newer={xlsx_dt > pack_dt}")
-          # 1MB floor: a 413/TUS stub can bump updated_at with a tiny object.
-          # Never treat that as a fresh cook.
+              print(f"xlsx_dt {xlsx_dt.isoformat()} r2_dt {pack_dt.isoformat()} newer={xlsx_dt > pack_dt}")
+          # 1MB floor: never treat a stub/empty R2 object as a fresh cook.
           if not force and xlsx_dt and pack_dt and xlsx_dt <= pack_dt and pack_bytes >= 1_000_000:
               open("/tmp/skip", "w").write("1")
-              print("Pack is already newer than the workbook. Skip.")
+              print("Pack on R2 is already newer than the workbook. Skip.")
           PY
           if [ -f /tmp/skip ]; then
             echo "skip=1" >> "$GITHUB_ENV"
             exit 0
           fi
-          # Mac-proven authenticated object URL. Public / bare object path can be empty/tiny.
-          CODE=$(curl -sS -L --connect-timeout 20 --max-time 180 \
-            -o /tmp/daily.xlsx -w "%{http_code}" \
+          curl -sS -L -o /tmp/daily.xlsx \
             -H "Authorization: Bearer $KEY" -H "apikey: $KEY" \
-            "$PROJECT/storage/v1/object/authenticated/heartbeat-packs/Heartbeat%20Daily%20Report.xlsx")
-          if [ "$CODE" != "200" ]; then
-            echo "Workbook download failed ($CODE)."
-            exit 1
-          fi
-          BYTES=$(wc -c < /tmp/daily.xlsx | tr -d ' ')
+            "$PROJECT/storage/v1/object/public/heartbeat-packs/Heartbeat%20Daily%20Report.xlsx"
           ls -l /tmp/daily.xlsx
-          if [ "$BYTES" -lt 1048576 ]; then
-            echo "Workbook too small ($BYTES bytes). Need authenticated Heartbeat Daily Report.xlsx >= 1MB."
-            exit 1
-          fi
 
       - name: Build kitchen
         if: env.skip != '1'
         run: |
           set -euo pipefail
-          Tools/HeartbeatIngest/prepare-sources.sh
-          cd Tools/HeartbeatIngest
+          INGEST=Tools/HeartbeatIngest
+          mkdir -p "$INGEST/Sources"
+          cp FulfillmentHeartbeat/Models/Domain.swift "$INGEST/Sources/"
+          cp FulfillmentHeartbeat/Storage/WorkbookParser.swift "$INGEST/Sources/"
+          cp FulfillmentHeartbeat/Storage/PulseSQLite.swift "$INGEST/Sources/"
+          cp FulfillmentHeartbeat/Storage/PulseCaches.swift "$INGEST/Sources/"
+          cp FulfillmentHeartbeat/BuildStamp.swift "$INGEST/Sources/"
+          cp Tools/HeartbeatIngest/Ingest.swift "$INGEST/Sources/"
+          cp Tools/HeartbeatIngest/RollupMarketFill.swift "$INGEST/Sources/"
+          cd "$INGEST"
           swift build -c release
 
       - name: Cook sqlite pack
@@ -125,39 +122,99 @@ jobs:
           set -euo pipefail
           Tools/HeartbeatIngest/.build/release/HeartbeatIngest /tmp/daily.xlsx /tmp/current.sqlite
           ls -l /tmp/current.sqlite
-          test -f /tmp/packs/manifest.json
-          test -f /tmp/packs/seat/company/all/current.sqlite
-          MARKET_BYTES=$(wc -c < /tmp/current.sqlite | tr -d ' ')
-          COMPANY_BYTES=$(wc -c < /tmp/packs/seat/company/all/current.sqlite | tr -d ' ')
-          echo "market=$MARKET_BYTES bytes company_seat=$COMPANY_BYTES bytes"
-          if [ "$COMPANY_BYTES" -lt 1048576 ]; then
-            echo "Company seat too small ($COMPANY_BYTES). Cook refused to publish."
-            exit 1
-          fi
-          DISTRICT_N=$(find /tmp/packs/seat/district -name current.sqlite | wc -l | tr -d ' ')
-          STORE_N=$(find /tmp/packs/seat/store -name current.sqlite | wc -l | tr -d ' ')
-          echo "seat districts=$DISTRICT_N stores=$STORE_N"
-          if [ "$DISTRICT_N" -lt 1 ] || [ "$STORE_N" -lt 1 ]; then
-            echo "Cook must write every district and store seat sqlite."
-            exit 1
-          fi
+          python3 Tools/HeartbeatIngest/refuse_prep_east.py /tmp/current.sqlite
 
-      - name: Publish company LIVE
+      - name: Soft KEEP thin company (ScoreCard facts, ≤40MB)
         if: env.skip != '1'
-        env:
-          PROJECT: https://pcnjujfmlsklhrosxzlt.supabase.co
-          KEY: sb_publishable_T3Pzm01sMXCv2rQaCeP_Kg_4ao2M5zd
         run: |
           set -euo pipefail
-          Tools/HeartbeatIngest/publish-cloud.sh company /tmp/current.sqlite
-          echo "company_live=1" >> "$GITHUB_ENV"
+          FAT_BYTES=$(wc -c < /tmp/current.sqlite | tr -d ' ')
+          echo "fat $FAT_BYTES"
+          if [ "$FAT_BYTES" -gt 56000000 ]; then
+            echo "market fat=$FAT_BYTES (expected). Company hub must thin to ≤40MB (D3)."
+          fi
+          python3 Tools/HeartbeatIngest/thin_company.py /tmp/current.sqlite
+          THIN_BYTES=$(wc -c < /tmp/current.sqlite | tr -d ' ')
+          echo "thin $THIN_BYTES"
+          if [ "$THIN_BYTES" -gt 40000000 ]; then
+            echo "Soft FAIL: thin still too large ($THIN_BYTES) — company seat cap 40MB"
+            exit 1
+          fi
+          SCORE_N=$(sqlite3 /tmp/current.sqlite "SELECT COUNT(*) FROM facts WHERE section='picker_scorecard';")
+          CHROME_N=$(sqlite3 /tmp/current.sqlite "SELECT json_extract(json,'\$.pickerShoppers') FROM dash_chrome WHERE id=1;")
+          echo "picker_scorecard=$SCORE_N chrome_pickerShoppers=$CHROME_N"
+          if [ "$SCORE_N" -lt 1000 ]; then
+            echo "Soft FAIL: picker_scorecard=$SCORE_N"
+            exit 1
+          fi
+          if [ "${CHROME_N:-0}" -gt 0 ] && [ "$SCORE_N" -lt 1 ]; then
+            echo "Soft FAIL: orphan chrome cites $CHROME_N shoppers with 0 ScoreCard facts"
+            exit 1
+          fi
+          PATH_N=$(sqlite3 /tmp/current.sqlite "SELECT COUNT(*) FROM facts WHERE section='pick_path_picker';")
+          PATH_BLANK=$(sqlite3 /tmp/current.sqlite "SELECT COUNT(*) FROM facts WHERE section='pick_path_picker' AND TRIM(COALESCE(store_number,''))='' AND TRIM(COALESCE(json_extract(text_json,'\$.shopper_id'),''))!='' AND json_extract(text_json,'\$.shopper_id') IN (SELECT json_extract(text_json,'\$.shopper_id') FROM facts WHERE section='picker_scorecard' AND TRIM(COALESCE(store_number,''))!='');")
+          echo "pick_path_picker=$PATH_N ldap_store_blank=$PATH_BLANK"
+          if [ "$PATH_N" -gt 0 ] && [ "$PATH_BLANK" -gt 0 ]; then
+            echo "Soft FAIL: pick_path_picker store_number empty on $PATH_BLANK LDAP rows with ScoreCard store grain"
+            exit 1
+          fi
 
-      - name: Publish seat packs
+      - name: Ensure aws CLI for R2
+        if: env.skip != '1'
+        run: |
+          set -euo pipefail
+          if ! command -v aws >/dev/null 2>&1; then
+            brew install awscli
+          fi
+          aws --version
+
+      - name: Publish company LIVE to R2
+        if: env.skip != '1'
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          set -euo pipefail
+          BYTES=$(wc -c < /tmp/current.sqlite | tr -d ' ')
+          if [ "$BYTES" -lt 50000 ]; then
+            echo "Pack too small ($BYTES)"
+            exit 1
+          fi
+          if [ "$BYTES" -gt 40000000 ]; then
+            echo "Soft FAIL: refusing publish over 40MB ($BYTES)"
+            exit 1
+          fi
+          SCORE_N=$(sqlite3 /tmp/current.sqlite "SELECT COUNT(*) FROM facts WHERE section='picker_scorecard';")
+          CHROME_N=$(sqlite3 /tmp/current.sqlite "SELECT json_extract(json,'\$.pickerShoppers') FROM dash_chrome WHERE id=1;")
+          if [ "$SCORE_N" -lt 1000 ]; then
+            echo "Soft FAIL: picker_scorecard=$SCORE_N — not publishing"
+            exit 1
+          fi
+          if [ "${CHROME_N:-0}" -gt 0 ] && [ "$SCORE_N" -lt 1 ]; then
+            echo "Soft FAIL: orphan chrome cites $CHROME_N shoppers with 0 ScoreCard facts — not publishing"
+            exit 1
+          fi
+          PATH_N=$(sqlite3 /tmp/current.sqlite "SELECT COUNT(*) FROM facts WHERE section='pick_path_picker';")
+          PATH_BLANK=$(sqlite3 /tmp/current.sqlite "SELECT COUNT(*) FROM facts WHERE section='pick_path_picker' AND TRIM(COALESCE(store_number,''))='' AND TRIM(COALESCE(json_extract(text_json,'\$.shopper_id'),''))!='' AND json_extract(text_json,'\$.shopper_id') IN (SELECT json_extract(text_json,'\$.shopper_id') FROM facts WHERE section='picker_scorecard' AND TRIM(COALESCE(store_number,''))!='');")
+          if [ "$PATH_N" -gt 0 ] && [ "$PATH_BLANK" -gt 0 ]; then
+            echo "Soft FAIL: pick_path_picker store_number empty on $PATH_BLANK LDAP rows with ScoreCard store grain — not publishing"
+            exit 1
+          fi
+          python3 Tools/HeartbeatIngest/refuse_prep_east.py /tmp/current.sqlite
+          chmod +x Tools/HeartbeatIngest/publish-cloud.sh scripts/publish-r2.sh
+          Tools/HeartbeatIngest/publish-cloud.sh company /tmp/current.sqlite
+          echo "Published thin company current.sqlite ($BYTES bytes) picker_scorecard=$SCORE_N chrome_pickerShoppers=$CHROME_N."
+
+      - name: Publish seat packs to R2
         if: env.skip != '1'
         continue-on-error: true
         env:
-          PROJECT: https://pcnjujfmlsklhrosxzlt.supabase.co
-          KEY: sb_publishable_T3Pzm01sMXCv2rQaCeP_Kg_4ao2M5zd
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
           SEAT_JOBS: "16"
         run: |
           set -euo pipefail

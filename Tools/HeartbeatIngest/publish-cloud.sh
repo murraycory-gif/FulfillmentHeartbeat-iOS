@@ -1,23 +1,23 @@
 #!/bin/bash
-# Company-first cloud publish. Testers get an under-limit pack LIVE
-# before ~2300 seat uploads. Seats run in parallel with timeouts/retries.
+# Company-first R2 publish. Testers get current.sqlite LIVE before any seat
+# uploads. Main cook thins in place, so /tmp/current.sqlite IS the company
+# seat. A separate packs/seat tree is optional (continue if absent).
 #
-# This Supabase project rejects objects ≳50MB (413 / TUS "Maximum size
-# exceeded"). The cooked market pack is ~56MB after VACUUM. The company
-# seat is ~21MB — publish that as root current.sqlite when the market
-# file is over STORAGE_FILE_LIMIT_BYTES.
+# Object keys match what the app downloads:
+#   current.sqlite
+#   packs/seat/company/all/current.sqlite
+#   packs/manifest.json          (only when the cook wrote one)
+#
+# Required env (GitHub secrets or a local export — do not hardcode):
+#   R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_ACCOUNT_ID R2_BUCKET
 #
 # Usage:
 #   publish-cloud.sh company /tmp/current.sqlite
 #   publish-cloud.sh seats /tmp/current.sqlite
 #   publish-cloud.sh seat-one /tmp/packs/seat/district/03/current.sqlite
 set -u
-PROJECT="${PROJECT:-https://pcnjujfmlsklhrosxzlt.supabase.co}"
-KEY="${KEY:-sb_publishable_T3Pzm01sMXCv2rQaCeP_Kg_4ao2M5zd}"
 SEAT_JOBS="${SEAT_JOBS:-16}"
-# 50,000,000 — TUS on this project 413s at ~50MB. 56MB market must not be sent.
-STORAGE_FILE_LIMIT_BYTES="${STORAGE_FILE_LIMIT_BYTES:-50000000}"
-# Company seat under Storage 50MB. App accepts 29–40MB. 56MB market still refused.
+# Same cap as the cook thin gate. A ~56MB market must not become LIVE.
 COMPANY_SEAT_MAX_BYTES="${COMPANY_SEAT_MAX_BYTES:-40000000}"
 MODE="${1:-}"
 TARGET="${2:-}"
@@ -28,83 +28,54 @@ file_bytes() {
   wc -c < "$1" | tr -d ' '
 }
 
-loud_413() {
-  local object="$1"
-  local file="$2"
-  local body="$3"
-  local bytes
-  bytes=$(file_bytes "$file")
-  echo "COOK FAILED: 413 EntityTooLarge / TUS Maximum size exceeded." >&2
-  echo "  object=$object bytes=$bytes limit=$STORAGE_FILE_LIMIT_BYTES" >&2
-  echo "  current.sqlite was NOT replaced. Bucket timestamp is not a fresh cook." >&2
-  echo "  Cory: Supabase Dashboard → Storage → Settings → Global file size limit → 60 MB or higher." >&2
-  echo "  Until that is raised, Actions publishes packs/seat/company/all/current.sqlite as current.sqlite." >&2
-  if [ -n "$body" ]; then
-    echo "$body" >&2
+require_r2() {
+  local missing="" var val
+  for var in R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_ACCOUNT_ID R2_BUCKET; do
+    eval "val=\${$var:-}"
+    if [ -z "$val" ]; then
+      missing="$missing $var"
+    fi
+  done
+  if [ -n "$missing" ]; then
+    echo "Missing R2 env:$missing" >&2
+    echo "Set GitHub secrets R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_ACCOUNT_ID R2_BUCKET." >&2
+    exit 1
   fi
+  if ! command -v aws >/dev/null 2>&1; then
+    echo "aws CLI is required to publish to R2." >&2
+    exit 1
+  fi
+  export AWS_ACCESS_KEY_ID="$R2_ACCESS_KEY_ID"
+  export AWS_SECRET_ACCESS_KEY="$R2_SECRET_ACCESS_KEY"
+  export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-auto}"
+  export AWS_EC2_METADATA_DISABLED=true
+  export AWS_REQUEST_CHECKSUM_CALCULATION=WHEN_REQUIRED
+  export AWS_RESPONSE_CHECKSUM_VALIDATION=WHEN_REQUIRED
+  R2_ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
 }
 
 upload_object() {
   local object="$1"
   local file="$2"
   local type="$3"
-  local max_time="${4:-90}"
-  local encoded out code attempt bytes
+  local bytes attempt
   if [ ! -f "$file" ]; then
     echo "upload $object missing $file" >&2
     return 1
   fi
+  require_r2
   bytes=$(file_bytes "$file")
-  if [ "$bytes" -gt "$STORAGE_FILE_LIMIT_BYTES" ]; then
-    echo "upload $object refused locally: $bytes bytes > Storage limit $STORAGE_FILE_LIMIT_BYTES." >&2
-    echo "Not sending this object — a 413 would bump updated_at and look like a fresh pack." >&2
-    return 41
-  fi
-  encoded=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe='/'))" "$object")
-  out=$(mktemp)
-  code="000"
   for attempt in 1 2 3; do
-    code=$(curl -sS -o "$out" -w "%{http_code}" \
-      --connect-timeout 15 --max-time "$max_time" \
-      -X POST \
-      -H "Authorization: Bearer $KEY" -H "apikey: $KEY" \
-      -H "Content-Type: $type" \
-      -H "x-upsert: true" \
-      --data-binary @"$file" \
-      "$PROJECT/storage/v1/object/heartbeat-packs/$encoded" || echo "000")
-    if [ "$code" = "413" ]; then
-      loud_413 "$object" "$file" "$(cat "$out" 2>/dev/null || true)"
-      rm -f "$out"
-      return 41
-    fi
-    if [ "$code" = "200" ] || [ "$code" = "201" ]; then
-      rm -f "$out"
-      echo "upload $object $code ($bytes bytes)"
-      return 0
-    fi
-    code=$(curl -sS -o "$out" -w "%{http_code}" \
-      --connect-timeout 15 --max-time "$max_time" \
-      -X PUT \
-      -H "Authorization: Bearer $KEY" -H "apikey: $KEY" \
-      -H "Content-Type: $type" \
-      -H "x-upsert: true" \
-      --data-binary @"$file" \
-      "$PROJECT/storage/v1/object/heartbeat-packs/$encoded" || echo "000")
-    if [ "$code" = "413" ]; then
-      loud_413 "$object" "$file" "$(cat "$out" 2>/dev/null || true)"
-      rm -f "$out"
-      return 41
-    fi
-    if [ "$code" = "200" ] || [ "$code" = "201" ]; then
-      rm -f "$out"
-      echo "upload $object $code ($bytes bytes)"
+    if aws s3 cp "$file" "s3://${R2_BUCKET}/${object}" \
+      --endpoint-url "$R2_ENDPOINT" \
+      --content-type "$type" \
+      --cache-control "public, max-age=60"; then
+      echo "upload $object ok ($bytes bytes)"
       return 0
     fi
     sleep $((attempt * 2))
   done
-  echo "upload $object FAILED $code ($bytes bytes)" >&2
-  cat "$out" >&2 || true
-  rm -f "$out"
+  echo "upload $object FAILED ($bytes bytes)" >&2
   return 1
 }
 
@@ -112,10 +83,7 @@ must_upload() {
   if upload_object "$@"; then
     return 0
   fi
-  local status=$?
-  if [ "$status" -eq 41 ]; then
-    echo "COOK FAILED: company publish hit Storage 413. Stale pack was not replaced." >&2
-  fi
+  echo "COOK FAILED: company publish did not land on R2. Stale pack was not replaced." >&2
   exit 1
 }
 
@@ -131,7 +99,7 @@ mark_seat() {
 if [ "$MODE" = "seat-one" ]; then
   file="$TARGET"
   object="${file#/tmp/}"
-  if upload_object "$object" "$file" application/octet-stream 90; then
+  if upload_object "$object" "$file" application/octet-stream; then
     mark_seat ok "$object"
     exit 0
   fi
@@ -147,51 +115,65 @@ fi
 SQLITE="$TARGET"
 PACK_ROOT="$(cd "$(dirname "$SQLITE")" && pwd)/packs"
 COMPANY_SEAT="$PACK_ROOT/seat/company/all/current.sqlite"
-if [ ! -f "$SQLITE" ]; then
-  echo "Missing $SQLITE" >&2
-  exit 1
-fi
 
 if [ "$MODE" = "company" ]; then
   set -e
+  if [ ! -f "$SQLITE" ]; then
+    echo "Missing $SQLITE" >&2
+    exit 1
+  fi
   MARKET_BYTES=$(file_bytes "$SQLITE")
-  if [ "$MARKET_BYTES" -lt 50000 ]; then
-    echo "Market pack too small ($MARKET_BYTES)"
+  if [ "$MARKET_BYTES" -lt 1000000 ]; then
+    echo "Market pack too small ($MARKET_BYTES). Need current.sqlite >= 1MB." >&2
     exit 1
   fi
-  test -f "$PACK_ROOT/manifest.json"
-  test -f "$COMPANY_SEAT"
-  COMPANY_BYTES=$(file_bytes "$COMPANY_SEAT")
-  if [ "$COMPANY_BYTES" -lt 1000000 ]; then
-    echo "Company seat too small ($COMPANY_BYTES). Need packs/seat/company/all/current.sqlite >= 1MB."
-    exit 1
-  fi
-  if [ "$COMPANY_BYTES" -gt "$COMPANY_SEAT_MAX_BYTES" ]; then
-    echo "COOK FAILED: company seat is $COMPANY_BYTES bytes, over company-seat cap $COMPANY_SEAT_MAX_BYTES." >&2
-    echo "iPad Jetsams a ~56MB company seat. Keep company under 40MB (Storage refuse is 50MB). Do not publish market as company." >&2
-    exit 1
-  fi
-  if [ "$COMPANY_BYTES" -gt "$STORAGE_FILE_LIMIT_BYTES" ]; then
-    echo "COOK FAILED: company seat is $COMPANY_BYTES bytes, over Storage limit $STORAGE_FILE_LIMIT_BYTES." >&2
-    echo "Cory: Supabase Dashboard → Storage → Settings → Global file size limit → 60 MB or higher." >&2
-    echo "Not uploading — a 413 would make the stale pack look fresh." >&2
-    exit 1
-  fi
+
   LIVE_FILE="$SQLITE"
-  LIVE_KIND="market"
-  if [ "$MARKET_BYTES" -gt "$STORAGE_FILE_LIMIT_BYTES" ]; then
-    echo "Market pack $MARKET_BYTES bytes > Storage limit $STORAGE_FILE_LIMIT_BYTES."
-    echo "Publishing company seat ($COMPANY_BYTES bytes) as current.sqlite + seat path."
-    LIVE_FILE="$COMPANY_SEAT"
-    LIVE_KIND="company-seat"
+  LIVE_KIND="thin-company"
+  SEAT_FILE="$SQLITE"
+  if [ -f "$COMPANY_SEAT" ]; then
+    COMPANY_BYTES=$(file_bytes "$COMPANY_SEAT")
+    if [ "$COMPANY_BYTES" -lt 1000000 ]; then
+      echo "Company seat too small ($COMPANY_BYTES). Need packs/seat/company/all/current.sqlite >= 1MB." >&2
+      exit 1
+    fi
+    if [ "$COMPANY_BYTES" -gt "$COMPANY_SEAT_MAX_BYTES" ]; then
+      echo "COOK FAILED: company seat is $COMPANY_BYTES bytes, over thin-seat cap $COMPANY_SEAT_MAX_BYTES." >&2
+      echo "iPad Jetsams a fat company seat. Recook a thin company pack. Do not publish market as company." >&2
+      exit 1
+    fi
+    SEAT_FILE="$COMPANY_SEAT"
+    if [ "$MARKET_BYTES" -gt "$COMPANY_SEAT_MAX_BYTES" ]; then
+      echo "Market pack $MARKET_BYTES bytes > thin-seat cap $COMPANY_SEAT_MAX_BYTES."
+      echo "Publishing company seat ($COMPANY_BYTES bytes) as current.sqlite + seat path."
+      LIVE_FILE="$COMPANY_SEAT"
+      LIVE_KIND="company-seat"
+    else
+      LIVE_KIND="market"
+    fi
+  elif [ "$MARKET_BYTES" -gt "$COMPANY_SEAT_MAX_BYTES" ]; then
+    echo "COOK FAILED: current.sqlite is $MARKET_BYTES bytes, over thin-seat cap $COMPANY_SEAT_MAX_BYTES." >&2
+    echo "No packs/seat/company/all/current.sqlite to publish instead. Refusing the fat pack." >&2
+    exit 1
   fi
-  # Seat path first so a later root 413 cannot be the only write.
-  must_upload "packs/seat/company/all/current.sqlite" "$COMPANY_SEAT" application/octet-stream 180
-  must_upload "current.sqlite" "$LIVE_FILE" application/octet-stream 300
-  must_upload "packs/manifest.json" "$PACK_ROOT/manifest.json" application/json 60
+
   LIVE_BYTES=$(file_bytes "$LIVE_FILE")
-  echo "LIVE current.sqlite ($LIVE_BYTES bytes, $LIVE_KIND) + packs/manifest.json + company seat."
-  echo "Testers can force-close Heartbeat now. Seat packs upload in parallel next."
+  if [ "$LIVE_BYTES" -gt "$COMPANY_SEAT_MAX_BYTES" ]; then
+    echo "COOK FAILED: LIVE pack is $LIVE_BYTES bytes, over thin-seat cap $COMPANY_SEAT_MAX_BYTES." >&2
+    exit 1
+  fi
+
+  require_r2
+  must_upload "packs/seat/company/all/current.sqlite" "$SEAT_FILE" application/octet-stream
+  must_upload "current.sqlite" "$LIVE_FILE" application/octet-stream
+  if [ -f "$PACK_ROOT/manifest.json" ]; then
+    must_upload "packs/manifest.json" "$PACK_ROOT/manifest.json" application/json
+  else
+    echo "No packs/manifest.json. Company LIVE does not require a seat plane."
+  fi
+  echo "LIVE current.sqlite ($LIVE_BYTES bytes, $LIVE_KIND) on R2."
+  echo "Download: https://pub-eafb309f53464d98902d12ac107f0f1e.r2.dev/current.sqlite"
+  echo "Testers can force-close Heartbeat now. Seat packs upload next when present."
   exit 0
 fi
 
@@ -200,6 +182,27 @@ if [ "$MODE" != "seats" ]; then
   exit 2
 fi
 
+if [ ! -d "$PACK_ROOT/seat" ]; then
+  echo "No packs/seat directory. Company LIVE is the pack. Skipping seat publish."
+  exit 0
+fi
+
+LOCAL_N=$(find "$PACK_ROOT/seat" -name current.sqlite ! -path '*/company/*' | wc -l | tr -d ' ')
+if [ "$LOCAL_N" -lt 1 ]; then
+  echo "No district/store/OM seats on this cook. Company LIVE is the pack."
+  exit 0
+fi
+
+require_r2
+if aws s3 sync "$PACK_ROOT/seat" "s3://${R2_BUCKET}/packs/seat" \
+  --endpoint-url "$R2_ENDPOINT" \
+  --cache-control "public, max-age=60"; then
+  echo "Seat sync ok. local_non_company=$LOCAL_N"
+  echo "Seat uploads ok=$LOCAL_N fail=0 jobs=sync"
+  exit 0
+fi
+
+echo "aws s3 sync failed — falling back to parallel per-object uploads."
 rm -rf "$RESULT_ROOT"
 mkdir -p "$RESULT_ROOT/ok" "$RESULT_ROOT/fail"
 set +e

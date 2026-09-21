@@ -1,10 +1,13 @@
 # Heartbeat pack (what testers open)
 
 Project: `https://pcnjujfmlsklhrosxzlt.supabase.co`  
-Bucket: `heartbeat-packs`
+Workbook bucket: `heartbeat-packs` (xlsx list/download only)
 
-Testers download **`current.sqlite`** (Who’s looking / Clear) and, after
-Continue, **`packs/seat/{grain}/{id}/current.sqlite`**.  
+**Packs are not served from Supabase.** Testers download `current.sqlite`
+from Cloudflare R2. See [SQLITE.md](SQLITE.md). This does not require Supabase Pro.
+
+Testers download **`current.sqlite`** and, after Continue,
+**`packs/seat/{grain}/{id}/current.sqlite`** from the R2 pack host.
 They never download or parse Excel. See [SEAT-SCOPED-PACKS.md](SEAT-SCOPED-PACKS.md).
 
 ## Daily
@@ -17,11 +20,10 @@ cd ~/Developer/FulfillmentHeartbeat-iOS
 ./ingest-heartbeat.sh "/path/Heartbeat Daily Report.xlsx"
 ```
 
-`ingest-heartbeat.sh` upserts the xlsx, then `gh workflow run cook-heartbeat-pack.yml`.
-Actions downloads the authenticated object, cooks, publishes **company LIVE**
-(the ~21MB company seat as `current.sqlite` when the ~56MB market pack is over
-the Storage cap, plus `packs/manifest.json` + the company seat path), then
-uploads seats in parallel. Testers force-close Heartbeat. They never pick a file.
+`ingest-heartbeat.sh` upserts the xlsx on Supabase, then `gh workflow run cook-heartbeat-pack.yml`.
+Actions downloads that workbook, cooks, and publishes **company LIVE to R2**
+(`current.sqlite`, `packs/manifest.json`, and the company seat path), then
+uploads seat packs to the same R2 host. Testers force-close Heartbeat. They never pick a file.
 
 If `gh workflow run` is unavailable, kick the same cook with
 `repository_dispatch`:
@@ -33,23 +35,11 @@ gh api repos/murraycory-gif/FulfillmentHeartbeat-iOS/dispatches \
 
 The 15-minute cron is a backup when the xlsx is newer than `current.sqlite`.
 
-## Storage file size (Cory — required)
+## Storage file size
 
-The cooked **market** `current.sqlite` is ~**56MB after VACUUM**. This project
-rejects that with **413 EntityTooLarge / TUS "Maximum size exceeded"**
-(limit appears **~50MB**). The publishable API cannot raise it.
-
-**Do this once in the dashboard:**
-
-1. Open [Supabase](https://supabase.com/dashboard) → project `pcnjujfmlsklhrosxzlt`
-2. **Storage → Settings**
-3. Set **Global file size limit** to **60 MB or higher** (80 MB is fine)
-4. Save
-
-Until that is raised, Actions publishes the **~21MB company seat**
-(`packs/seat/company/all/current.sqlite`) as **both** root `current.sqlite`
-and the company seat path. District seats stay parallel. A company **413**
-fails the cook job — it does **not** leave a stale pack looking fresh.
+Sqlite packs publish to Cloudflare R2, not Supabase. The ~50MB Supabase object
+cap does not apply to `current.sqlite`. The Daily Report workbook stays in the
+Supabase bucket.
 
 ## First-time bucket
 
