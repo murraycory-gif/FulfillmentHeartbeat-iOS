@@ -411,10 +411,15 @@ struct PhoneCommandCenterHome: View {
 struct PhoneCommandHeroCard: View {
     @EnvironmentObject private var store: HeartbeatStore
     let card: SectionSummary
+    var usesMetricFactStoreCount: Bool = false
     var action: (() -> Void)? = nil
 
     private var painted: SectionSummary {
-        store.paintedCommandCenterCard(card)
+        let next = store.paintedCommandCenterCard(card)
+        guard usesMetricFactStoreCount, PulseLaunch.shouldUseMetricFactStoreCountOnSectionPage() else {
+            return next
+        }
+        return PulseLaunch.metricPageHeroCard(next, rows: store.seatRows(for: next.section))
     }
 
     var body: some View {

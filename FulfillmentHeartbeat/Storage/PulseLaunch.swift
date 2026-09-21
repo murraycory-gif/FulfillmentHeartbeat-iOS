@@ -1486,6 +1486,20 @@ enum PulseLaunch {
         uniqueStores(in: rows).count
     }
 
+    /// Metric page hero / This Week / Regions: fact stores, not roster gold.
+    /// Command Center company tiles still pin via `companyCommandCenterCard`.
+    static func shouldUseMetricFactStoreCountOnSectionPage() -> Bool { true }
+
+    static func shouldPinRosterStoreCountOnMetricPageHero() -> Bool { false }
+
+    /// Overwrite pinned roster N with stores that have values for this metric.
+    static func metricPageHeroCard(_ card: SectionSummary, rows: [MetricRow]) -> SectionSummary {
+        guard shouldUseMetricFactStoreCountOnSectionPage() else { return card }
+        var next = card
+        next.storeCount = HeartbeatMath.metricStoreCount(card.section, rows: rows)
+        return next
+    }
+
     /// Card storeCount under a seat is Heartbeat Stores N, not fact coverage.
     /// Company heroes use the same pin against the published roster gold.
     static func pinSeatStoreCount(_ summary: SectionSummary, seatStores: Int) -> SectionSummary {

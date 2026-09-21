@@ -22,7 +22,7 @@ struct OverviewSalesBlock: View {
         )
         VStack(alignment: .leading, spacing: phone ? 10 : 16) {
             overviewTable(title: scopeTitle, rows: [
-                SalesRollupRow(label: scopeTitle, storeCount: Set(stores.map(\.storeNumber)).count, pack: total)
+                SalesRollupRow(label: scopeTitle, storeCount: HeartbeatMath.metricStoreCount(.sales, rows: stores), pack: total)
             ], showCount: true)
             if includeMidRollup, !mid.rows.isEmpty {
                 overviewTable(title: mid.title, rows: mid.rows, showCount: mid.showCount)
@@ -74,7 +74,7 @@ struct OverviewSalesBlock: View {
             guard !slice.isEmpty else { return nil }
             let pack = SalesPack(rows: slice)
             guard pack.sales != nil || pack.orders != nil else { return nil }
-            return SalesRollupRow(label: region.rawValue, storeCount: Set(slice.map(\.storeNumber)).count, pack: pack)
+            return SalesRollupRow(label: region.rawValue, storeCount: HeartbeatMath.metricStoreCount(.sales, rows: slice), pack: pack)
         }
     }
 
@@ -352,7 +352,7 @@ enum SalesRollupBuilder {
             let packRows = buckets[key] ?? []
             let pack = SalesPack(rows: packRows)
             guard pack.sales != nil || pack.orders != nil else { return nil }
-            return SalesRollupRow(label: key, storeCount: Set(packRows.map(\.storeNumber)).count, pack: pack)
+            return SalesRollupRow(label: key, storeCount: HeartbeatMath.metricStoreCount(.sales, rows: packRows), pack: pack)
         }
     }
 
@@ -446,7 +446,7 @@ enum SalesRollupBuilder {
                 guard !slice.isEmpty else { return nil }
                 let pack = SalesPack(rows: slice)
                 guard pack.sales != nil || pack.orders != nil else { return nil }
-                return SalesRollupRow(label: region.rawValue, storeCount: Set(slice.map(\.storeNumber)).count, pack: pack)
+                return SalesRollupRow(label: region.rawValue, storeCount: HeartbeatMath.metricStoreCount(.sales, rows: slice), pack: pack)
             }
         case .division:
             return rows(from: stores, grain: .division)

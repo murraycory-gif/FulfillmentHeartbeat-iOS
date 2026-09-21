@@ -1003,9 +1003,15 @@ struct PhoneSectionPage: View {
         ScrollView {
             VStack(alignment: .leading, spacing: CommandCenterLayout.phoneHomeStackSpacing()) {
                 if PulseLaunch.shouldParkHiddenPhoneSection(isVisible: isVisible) {
-                    PhoneCommandHeroCard(card: store.summary(for: section))
+                    PhoneCommandHeroCard(
+                        card: store.summary(for: section),
+                        usesMetricFactStoreCount: true
+                    )
                 } else {
-                    PhoneCommandHeroCard(card: store.summary(for: section))
+                    PhoneCommandHeroCard(
+                        card: store.summary(for: section),
+                        usesMetricFactStoreCount: true
+                    )
                     if PulseLaunch.shouldShowThisSeatCallout() {
                         seatMetricCard
                     }
@@ -1149,7 +1155,7 @@ struct PhoneSectionPage: View {
         PhoneSectionHeading(title: "This week")
         OverviewSalesPhoneCard(
             label: salesScopeTitle,
-            count: Set(stores.map(\.storeNumber)).count,
+            count: HeartbeatMath.metricStoreCount(.sales, rows: stores),
             pack: total
         )
         let days = SalesRollupBuilder.dayRows(
@@ -1230,7 +1236,7 @@ struct PhoneSectionPage: View {
         }.map { key in
             let slice = buckets[key] ?? []
             let scored = HeartbeatMath.dashboardTableValues(section, rows: slice)
-            let storeCount = Set(slice.map { HeartbeatMath.canonicalStore($0.storeNumber) }.filter { !$0.isEmpty }).count
+            let storeCount = HeartbeatMath.metricStoreCount(section, rows: slice)
             return HeartbeatMath.DashboardGrainTableRow(
                 label: key,
                 storeCount: storeCount,
@@ -1384,11 +1390,7 @@ struct PhoneCompanyThisWeekBlock: View {
     var body: some View {
         let rows = companyRows
         let scored = HeartbeatMath.dashboardTableValues(section, rows: rows)
-        let storeCount = Set(
-            store.seatRows(for: section)
-                .map { HeartbeatMath.canonicalStore($0.storeNumber) }
-                .filter { !$0.isEmpty && $0.caseInsensitiveCompare("TOTAL") != .orderedSame }
-        ).count
+        let storeCount = HeartbeatMath.metricStoreCount(section, rows: store.seatRows(for: section))
         let health = scored.health == .none && storeCount > 0 ? Health.good : scored.health
         VStack(alignment: .leading, spacing: CommandCenterLayout.phoneHomeStackSpacing()) {
             PhoneSectionHeading(title: "This Week")
