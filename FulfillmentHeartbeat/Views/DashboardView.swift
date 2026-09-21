@@ -807,6 +807,7 @@ struct PhoneScorecardRow: View {
     var body: some View {
         let corner = CommandCenterLayout.phoneScorecardCorner()
         let compact = PulseLaunch.shouldUseCompactPhoneCommandChrome()
+        let dense = PulseLaunch.shouldUseDenserSectionChrome()
         let card = HStack(alignment: .top, spacing: 0) {
             UnevenRoundedRectangle(
                 cornerRadii: RectangleCornerRadii(topLeading: corner, bottomLeading: corner, bottomTrailing: 0, topTrailing: 0),
@@ -816,7 +817,7 @@ struct PhoneScorecardRow: View {
             .frame(width: CommandCenterLayout.phoneScorecardAccentWidth())
             VStack(alignment: .leading, spacing: CommandCenterLayout.phoneScorecardStackSpacing()) {
                 HStack(alignment: .top, spacing: compact ? 8 : 12) {
-                    VStack(alignment: .leading, spacing: compact ? 3 : 5) {
+                    VStack(alignment: .leading, spacing: dense ? 2 : (compact ? 3 : 5)) {
                         if let eyebrow, !eyebrow.isEmpty {
                             Text(eyebrow.uppercased())
                                 .font(.caption.weight(.heavy))
@@ -837,7 +838,7 @@ struct PhoneScorecardRow: View {
                         }
                     }
                     Spacer(minLength: 8)
-                    VStack(alignment: .trailing, spacing: compact ? 4 : 6) {
+                    VStack(alignment: .trailing, spacing: dense ? 2 : (compact ? 4 : 6)) {
                         Text("STATUS")
                             .font(.caption.weight(.heavy))
                             .tracking(0.7)
@@ -860,7 +861,7 @@ struct PhoneScorecardRow: View {
                         spacing: CommandCenterLayout.phoneScorecardChipSpacing()
                     ) {
                         ForEach(Array(chips.enumerated()), id: \.offset) { _, chip in
-                            VStack(alignment: .leading, spacing: compact ? 2 : 4) {
+                            VStack(alignment: .leading, spacing: dense ? 1 : (compact ? 2 : 4)) {
                                 Text(chip.label.uppercased())
                                     .font(.caption.weight(.heavy))
                                     .tracking(0.5)
@@ -872,7 +873,8 @@ struct PhoneScorecardRow: View {
                                     .minimumScaleFactor(0.85)
                             }
                             .frame(maxWidth: .infinity, minHeight: CommandCenterLayout.phoneScorecardChipMinHeight(), alignment: .leading)
-                            .padding(CommandCenterLayout.phoneScorecardChipPadding())
+                            .padding(.horizontal, CommandCenterLayout.phoneScorecardChipHorizontalPadding())
+                            .padding(.vertical, CommandCenterLayout.phoneScorecardChipVerticalPadding())
                             .background(chipWash(chip.health), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                         }
                     }
@@ -880,7 +882,7 @@ struct PhoneScorecardRow: View {
             }
             .padding(CommandCenterLayout.phoneScorecardPadding())
         }
-        .frame(maxWidth: .infinity, minHeight: compact ? 64 : 72, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: dense ? 56 : (compact ? 64 : 72), alignment: .leading)
         .background(Color.white, in: RoundedRectangle(cornerRadius: corner, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: corner, style: .continuous)

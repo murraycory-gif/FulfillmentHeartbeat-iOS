@@ -5248,6 +5248,19 @@ final class HeartbeatStore: ObservableObject {
         return allowed
     }
 
+    /// Stores in the active Store / Ops / District / Division filter.
+    /// Company (no filter) stays empty. Do not invent shopper rows.
+    func storesMatchingFilter() -> [String] {
+        let allowed = pickerStoreSet() ?? []
+        if !allowed.isEmpty {
+            return allowed.sorted(by: HeartbeatFormat.storeOrder)
+        }
+        return filters.stores
+            .map { HeartbeatMath.canonicalStore($0) }
+            .filter { !$0.isEmpty }
+            .sorted(by: HeartbeatFormat.storeOrder)
+    }
+
     private static let deferredSections: Set<MetricSection> = [
         .pickerScorecard, .pickPathPicker
     ]
@@ -5817,6 +5830,7 @@ final class HeartbeatStore: ObservableObject {
             filters: filters,
             grain: grain
         ), !(filteredLatest[.pickerScorecard] ?? []).isEmpty {
+            publishIndividualShoppersIfOpen()
             return
         }
         let allowed = pickerStoreSet() ?? []
@@ -5845,7 +5859,19 @@ final class HeartbeatStore: ObservableObject {
             interactiveAt: hubBecameInteractiveAt
         ) {
             objectWillChange.send()
+        } else {
+            publishIndividualShoppersIfOpen()
         }
+    }
+
+    /// Picker and Pick Path pages must repaint when seat shoppers land.
+    /// Company Dashboard stays silent (hub remount / jetsam).
+    private func publishIndividualShoppersIfOpen() {
+        guard PulseLaunch.shouldPublishIndividualShoppers(
+            dest: visibleDestination,
+            filters: filters
+        ) else { return }
+        objectWillChange.send()
     }
 
     @discardableResult
@@ -6275,6 +6301,9 @@ final class HeartbeatStore: ObservableObject {
                 }.value
                 if !full.isEmpty {
                     adoptSectionWarehouse(section, full)
+                    if section == .pickPathPicker {
+                        publishIndividualShoppersIfOpen()
+                    }
                 } else {
                     rebuildPickPathIndexFromWarehouse()
                 }
@@ -6287,6 +6316,8 @@ final class HeartbeatStore: ObservableObject {
             interactiveAt: hubBecameInteractiveAt
         ) {
             objectWillChange.send()
+        } else if section == .pickPathPicker || section == .pickerScorecard {
+            publishIndividualShoppersIfOpen()
         }
     }
 
