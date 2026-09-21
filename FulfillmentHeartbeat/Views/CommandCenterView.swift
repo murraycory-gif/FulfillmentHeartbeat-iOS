@@ -291,6 +291,9 @@ enum CommandCenterLayout {
     /// Finest active filter grain. Store / OM / District / Division / Region,
     /// else Total Company. No invented seat names.
     static func overviewSeatLabel(_ filters: DashboardFilters) -> String {
+        if PulseLaunch.shouldBindShopperFilterFacts(filters: filters) {
+            return "\(PulseLaunch.shopperFilterSummary(filters.shopper)) Shopper"
+        }
         if !filters.store.isEmpty {
             return overviewGrain(filters.store, suffix: "Store", grainFirst: true)
         }

@@ -19,6 +19,10 @@ final class HeartbeatStore: ObservableObject {
     @Published var filters: DashboardFilters {
         didSet {
             guard !hydrating, oldValue != filters else { return }
+            if PulseLaunch.shopperSelectionChangedInPlace(from: oldValue, to: filters) {
+                bindShopperSelection()
+                return
+            }
             applyFilters()
         }
     }
@@ -91,6 +95,9 @@ final class HeartbeatStore: ObservableObject {
     private var pickerFocusHealth: [PickerFocus: Health] = [:]
     private var pickPathPickersByStore: [String: [MetricRow]] = [:]
     private var pickPathByShopper: [String: MetricRow] = [:]
+    /// Store-scoped shopper tape for the filter seat. Not a second pack.
+    private var filterShopperCache: [MetricRow] = []
+    private var filterShopperCacheKey = ""
     private var pphPickersByStore: [String: [MetricRow]] = [:]
     private var pphPickerCountByStore: [String: Int] = [:]
     private var cachedCardFlags: [MetricSection: [HeartbeatMath.FiveStarFlag]] = [:]
@@ -613,11 +620,22 @@ final class HeartbeatStore: ObservableObject {
         case .pickerScorecard, .pickPathPicker, .preSubOOSItem, .aisleMapper:
             let allowed = PulseCaches.allowedStores(roster: roster, filters: filters)
                 ?? Set(roster.keys.map { HeartbeatMath.canonicalStore($0) })
-            return (allLatest(for: section)).compactMap { row in
+            var pool = allLatest(for: section)
+            if pool.isEmpty,
+               PulseLaunch.shouldBindShopperFilterFacts(filters: filters),
+               section == .pickerScorecard || section == .pickPathPicker,
+               filterShopperCacheKey == PulseLaunch.shopperSeatCacheKey(filters) {
+                pool = filterShopperCache.filter { $0.section == section }
+            }
+            let scoped = pool.compactMap { row -> MetricRow? in
                 let store = HeartbeatMath.canonicalStore(row.storeNumber)
                 guard !store.isEmpty, HeartbeatMath.storeInAllowed(store, allowed: allowed) else { return nil }
                 return HeartbeatMath.stampRoster(row, roster: roster)
             }
+            guard PulseLaunch.shouldBindShopperFilterFacts(filters: filters),
+                  section == .pickerScorecard || section == .pickPathPicker
+            else { return scoped }
+            return PulseQuery.sliceShoppers(scoped, allowed: nil, shoppers: filters.shoppers)
         default:
             return rosterJoined(for: section)
         }
@@ -701,6 +719,9 @@ final class HeartbeatStore: ObservableObject {
     /// Architecture: Shoppers / Opportunity / Doing Well = chrome fields, not 0.
     func seatPickerChrome() -> (shoppers: Int, opportunity: Int, strong: Int) {
         let buckets = seatPickerBuckets()
+        if PulseLaunch.shouldBindShopperFilterFacts(filters: filters) {
+            return (buckets.shoppers, buckets.risk, buckets.healthy)
+        }
         return (
             max(buckets.shoppers, packChrome?.pickerShoppers ?? 0, cachedPickerBoard.shopperCount),
             max(buckets.risk, packChrome?.pickerOpportunity ?? 0, cachedPickerBoard.opportunityCount),
@@ -1306,7 +1327,12 @@ final class HeartbeatStore: ObservableObject {
         )
     }
 
-    var pickerBoard: HeartbeatMath.PickerBoard { cachedPickerBoard }
+    var pickerBoard: HeartbeatMath.PickerBoard {
+        if PulseLaunch.shouldBindShopperFilterFacts(filters: filters) {
+            return HeartbeatMath.pickerBoard(visiblePickers())
+        }
+        return cachedPickerBoard
+    }
 
     func pphPickers(forStore store: String) -> [MetricRow] {
         let want = HeartbeatMath.canonicalStore(store)
@@ -1321,7 +1347,9 @@ final class HeartbeatStore: ObservableObject {
     func pphPickerCounts() -> [String: Int] { pphPickerCountByStore }
 
     func pickPathPickers(forStore store: String) -> [MetricRow] {
-        PulseLaunch.pickPathPickers(store: store, rows: pickPathPickersByStore)
+        let rows = PulseLaunch.pickPathPickers(store: store, rows: pickPathPickersByStore)
+        guard PulseLaunch.shouldBindShopperFilterFacts(filters: filters) else { return rows }
+        return PulseQuery.sliceShoppers(rows, allowed: nil, shoppers: filters.shoppers)
     }
 
     func pickPathPicker(forShopper raw: String) -> MetricRow? {
@@ -1368,10 +1396,17 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func visiblePickers() -> [MetricRow] {
+        var base: [MetricRow]
         if let painted = filteredLatest[.pickerScorecard], !painted.isEmpty {
-            return painted
+            base = painted
+        } else {
+            base = displayRows(for: .pickerScorecard)
         }
-        return displayRows(for: .pickerScorecard)
+        guard PulseLaunch.shouldBindShopperFilterFacts(filters: filters) else { return base }
+        if base.isEmpty, filterShopperCacheKey == PulseLaunch.shopperSeatCacheKey(filters) {
+            base = filterShopperCache.filter { $0.section == .pickerScorecard }
+        }
+        return PulseQuery.sliceShoppers(base, allowed: pickerStoreSet(), shoppers: filters.shoppers)
     }
 
     private func pickerIndexMatches(_ pickers: [MetricRow]) -> Bool {
@@ -2333,7 +2368,117 @@ final class HeartbeatStore: ObservableObject {
                 let label = name.isEmpty ? number : "\(number) · \(name)"
                 return (id: number, label: label)
             }
+        case .shopper:
+            return shopperFilterChoices(draft: draft)
         }
+    }
+
+    /// Store / Ops / District / Division shoppers from the seat tape.
+    /// Company and Region stay empty. Names come from pack rows only.
+    private func shopperFilterChoices(draft: DashboardFilters) -> [(id: String, label: String)] {
+        guard PulseLaunch.shouldListFilterShoppers(filters: draft) else { return [] }
+        return PulseLaunch.filterShopperChoices(rows: shopperRows(for: draft), filters: draft)
+    }
+
+    private func shopperRows(for draft: DashboardFilters) -> [MetricRow] {
+        let key = PulseLaunch.shopperSeatCacheKey(draft)
+        if key == filterShopperCacheKey, !filterShopperCache.isEmpty {
+            return filterShopperCache
+        }
+        let memory = (latestBySection[.pickerScorecard] ?? []) + (latestBySection[.pickPathPicker] ?? [])
+        let allowed = PulseCaches.allowedStores(roster: roster, filters: draft)
+        let scoped = PulseQuery.sliceShoppers(memory, allowed: allowed, shoppers: [])
+        if scoped.contains(where: { $0.section == .pickerScorecard && !PulseLaunch.shopperChoiceID($0).isEmpty }) {
+            rememberShopperCache(scoped, key: key)
+            return scoped
+        }
+        let disk = readShopperTape(for: draft)
+        if !disk.isEmpty {
+            rememberShopperCache(disk, key: key)
+        }
+        return disk
+    }
+
+    private func rememberShopperCache(_ rows: [MetricRow], key: String) {
+        filterShopperCache = rows
+        filterShopperCacheKey = key
+    }
+
+    /// Active seat file first. Division has no shopper grain — group district packs.
+    private func readShopperTape(for draft: DashboardFilters) -> [MetricRow] {
+        let allowed = PulseCaches.allowedStores(roster: roster, filters: draft) ?? []
+        guard !allowed.isEmpty else { return [] }
+        let seat = PulseLaunch.sectionPageSeat(filters: draft)
+        var urls: [URL] = []
+        if seat == .division {
+            let districts = Set(roster.compactMap { _, identity -> String? in
+                guard draft.includesDivision(identity.division) else { return nil }
+                let district = HeartbeatMath.canonicalDistrict(identity.district)
+                return district.isEmpty ? nil : district
+            })
+            for district in districts.sorted() {
+                urls.append(PulseSeatPack.localURL(
+                    root: rootURL,
+                    key: PulseSeatPack.Key(grain: .district, id: district)
+                ))
+            }
+        } else {
+            let primary = PulseSeatPack.localURL(
+                root: rootURL,
+                key: PulseSeatPack.Key.forSeat(filters: draft, role: sessionRole)
+            )
+            urls.append(primary)
+            if sqliteURL != primary { urls.append(sqliteURL) }
+        }
+        var out: [MetricRow] = []
+        var seen = Set<String>()
+        for url in urls {
+            guard PulseSQLite.exists(at: url) else { continue }
+            let rows = PulseSQLite.readStores(
+                from: url,
+                sections: [.pickerScorecard, .pickPathPicker],
+                stores: allowed
+            )
+            for row in rows {
+                let id = PulseLaunch.shopperChoiceID(row) + "|" + row.section.rawValue
+                guard !PulseLaunch.shopperChoiceID(row).isEmpty else { continue }
+                if seen.insert(id).inserted { out.append(row) }
+            }
+            if seat != .division,
+               out.contains(where: { $0.section == .pickerScorecard }) {
+                break
+            }
+        }
+        return out
+    }
+
+    /// Same-seat shopper pick. Pack chrome, sales, and labor stay put.
+    private func bindShopperSelection() {
+        let key = PulseLaunch.shopperSeatCacheKey(filters)
+        if key != filterShopperCacheKey || filterShopperCache.isEmpty {
+            _ = shopperRows(for: filters)
+        }
+        let seat = PulseQuery.sliceShoppers(
+            (latestBySection[.pickerScorecard] ?? []) + filterShopperCache.filter { $0.section == .pickerScorecard },
+            allowed: pickerStoreSet(),
+            shoppers: []
+        )
+        let picked = filters.shopper.isEmpty
+            ? seat
+            : PulseQuery.sliceShoppers(seat, allowed: nil, shoppers: filters.shoppers)
+        if !picked.isEmpty {
+            cachedPickerBoard = HeartbeatMath.pickerBoard(picked)
+            refreshSummary(for: .pickerScorecard, rows: picked)
+            let path = (latestBySection[.pickPathPicker] ?? [])
+                + filterShopperCache.filter { $0.section == .pickPathPicker }
+            let built = PulseLaunch.pickPathPickerIndex(
+                scorecard: picked,
+                pathRows: PulseQuery.sliceShoppers(path, allowed: nil, shoppers: filters.shoppers)
+            )
+            pickPathByShopper = built.byShopper
+            pickPathPickersByStore = built.rows
+        }
+        persistFilters()
     }
 
     func suggestedSeatValues(for role: HeartbeatRole) -> [String] {
@@ -4382,6 +4527,9 @@ final class HeartbeatStore: ObservableObject {
                 await self.swapToSeatPack(key)
                 guard !Task.isCancelled else { return }
                 self.refreshFilterOptions()
+                if PulseLaunch.shouldBindShopperFilterFacts(filters: self.filters) {
+                    self.bindShopperSelection()
+                }
             }
             return
         }

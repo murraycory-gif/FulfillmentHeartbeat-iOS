@@ -24,4 +24,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.465 / 1.0 (784) — Pages tap paints the destination before roster walks and before hidden Dashboard / scorecard teardown. 463 KEEP: THIS SEAT callout removed on every page and filter. Company seat cap 40MB. 436 KEEP: Pick Path expand shoppers + Prep Store chrome.
+HB-0828.467 / 1.0 (786) — Store, Ops, District, and Division filters list individual shoppers from `picker_scorecard` / `pick_path_picker` and bind that shopper. Company and Region do not dump the shopper tape. 465 KEEP: Pages tap paints the destination before roster walks. 463 KEEP: THIS SEAT callout removed on every page and filter. Company seat cap 40MB. 436 KEEP: Pick Path expand shoppers + Prep Store chrome.
