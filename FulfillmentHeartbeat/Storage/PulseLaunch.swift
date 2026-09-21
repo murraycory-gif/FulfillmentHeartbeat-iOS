@@ -1207,6 +1207,12 @@ enum PulseLaunch {
 
     static func shouldPaintPhonePageBannerNavy() -> Bool { true }
 
+    /// Pages + Filters + Share share one HubChromePill toolbar on the
+    /// phone / iPad CompactNav header. Logo + Assist stay on the brand row.
+    static func shouldUseCompactPagesFiltersShareToolbar() -> Bool { true }
+
+    static func shouldKeepAssistInCompactBrandRow() -> Bool { true }
+
     /// Phone Command Center: heroes + glance cards flow with no
     /// "AT-A-GLANCE · ALL SECTIONS" caption between 5 Star and Labor.
     /// Mac leftover-fill glanceHeader stays.

@@ -978,6 +978,53 @@ struct HubChromePill: View {
     }
 }
 
+/// Shared Pages / Filters / Share toolbar for phone + iPad CompactNav chrome.
+/// Same HubChromePill family — Pages is not stranded on the logo row.
+struct HubCompactActionToolbar: View {
+    @EnvironmentObject private var router: HubRouter
+    @EnvironmentObject private var store: HeartbeatStore
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    var showsFilters: Bool
+
+    var body: some View {
+        HStack(alignment: .center, spacing: HubLayout.phoneFilterPillSpacing()) {
+            if PulseLaunch.shouldShowRoleGatePill() {
+                HubChromePill(
+                    title: HubLayout.isPhone(sizeClass) ? "Role" : "Who's looking",
+                    symbol: "person.crop.circle",
+                    showsChevron: false
+                ) {
+                    store.reopenRoleGate()
+                }
+                .accessibilityLabel("Change who's looking")
+            }
+            HubChromePill(
+                title: "Pages",
+                symbol: "line.3.horizontal",
+                showsChevron: false
+            ) {
+                openPages()
+            }
+            if showsFilters {
+                FilterBar()
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func openPages() {
+        var transaction = Transaction()
+        transaction.animation = nil
+        withTransaction(transaction) {
+            if HubLayout.isPhone(sizeClass) {
+                router.showCompactMenu = true
+            } else {
+                router.toggleSidebar()
+            }
+        }
+    }
+}
+
 struct FilterBar: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var router: HubRouter
@@ -10829,12 +10876,16 @@ struct HubBrandBar: View {
         VStack(spacing: compact ? HubLayout.phoneBrandBarStackSpacing() : 10) {
             if compact {
                 compactBar
-                HStack(spacing: HubLayout.phoneFilterPillSpacing()) {
-                    if PulseLaunch.shouldShowRoleGatePill() {
-                        rolePill
-                    }
-                    if showsFilters {
-                        FilterBar()
+                if PulseLaunch.shouldUseCompactPagesFiltersShareToolbar() {
+                    HubCompactActionToolbar(showsFilters: showsFilters)
+                } else {
+                    HStack(spacing: HubLayout.phoneFilterPillSpacing()) {
+                        if PulseLaunch.shouldShowRoleGatePill() {
+                            rolePill
+                        }
+                        if showsFilters {
+                            FilterBar()
+                        }
                     }
                 }
                 compactPageBanner
@@ -10847,25 +10898,13 @@ struct HubBrandBar: View {
                             .minimumScaleFactor(0.7)
                             .layoutPriority(1)
                         Spacer(minLength: 8)
-                        if PulseLaunch.shouldShowRoleGatePill() {
-                            rolePill
-                        }
-                        if showsFilters {
-                            FilterBar()
-                        }
+                        regularFilterChrome
                     }
                     VStack(alignment: .leading, spacing: 8) {
                         DayGreeting(font: greetingFont)
                             .lineLimit(1)
                             .minimumScaleFactor(0.75)
-                        HStack(spacing: 10) {
-                            if PulseLaunch.shouldShowRoleGatePill() {
-                                rolePill
-                            }
-                            if showsFilters {
-                                FilterBar()
-                            }
-                        }
+                        regularFilterChrome
                     }
                 }
             }
@@ -10927,7 +10966,7 @@ struct HubBrandBar: View {
     private var regularBar: some View {
         ZStack {
             HStack(spacing: 4) {
-                if !(HubLayout.isMac && PulseLaunch.shouldHideMacHeaderPagesButton()) {
+                if regularShowsHeaderPages {
                     HubNavControl(symbol: "line.3.horizontal", title: "Pages") {
                         var transaction = Transaction()
                         transaction.animation = nil
@@ -10961,12 +11000,7 @@ struct HubBrandBar: View {
     }
 
     private var compactBar: some View {
-        HStack(spacing: 6) {
-            HubNavControl(symbol: "line.3.horizontal", title: "Pages") {
-                router.showCompactMenu = true
-            }
-            .layoutPriority(1)
-            Spacer(minLength: 4)
+        ZStack {
             if PulseLaunch.shouldStackCompactHubBrandHorizontally(),
                !PulseLaunch.shouldOverlayCompactHeartbeatMark() {
                 BeatingHeartbeatMark(
@@ -10979,13 +11013,39 @@ struct HubBrandBar: View {
                 )
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
-                .layoutPriority(0)
             }
-            Spacer(minLength: 4)
-            assistButton
-                .layoutPriority(1)
+            HStack(spacing: 6) {
+                Color.clear
+                    .frame(width: HubLayout.phoneHitTarget, height: HubLayout.phoneHitTarget)
+                Spacer(minLength: 4)
+                if PulseLaunch.shouldKeepAssistInCompactBrandRow() {
+                    assistButton
+                }
+            }
         }
         .frame(minHeight: HubLayout.phoneHitTarget)
+    }
+
+    private var regularShowsHeaderPages: Bool {
+        if HubLayout.isMac && PulseLaunch.shouldHideMacHeaderPagesButton() { return false }
+        if PulseLaunch.shouldUseCompactPagesFiltersShareToolbar(), !HubLayout.isMac {
+            return false
+        }
+        return true
+    }
+
+    @ViewBuilder
+    private var regularFilterChrome: some View {
+        HStack(spacing: 10) {
+            if PulseLaunch.shouldShowRoleGatePill() {
+                rolePill
+            }
+            if PulseLaunch.shouldUseCompactPagesFiltersShareToolbar(), !HubLayout.isMac {
+                HubCompactActionToolbar(showsFilters: showsFilters)
+            } else if showsFilters {
+                FilterBar()
+            }
+        }
     }
 
     private var rolePill: some View {
