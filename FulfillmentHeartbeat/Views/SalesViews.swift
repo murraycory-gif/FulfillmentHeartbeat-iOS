@@ -20,7 +20,7 @@ struct OverviewSalesBlock: View {
             from: stores,
             company: store.filters.isActive ? nil : store.salesCompanyFact()
         )
-        VStack(alignment: .leading, spacing: phone ? 10 : 16) {
+        VStack(alignment: .leading, spacing: CommandCenterLayout.sectionCardStackSpacing(phone: phone, mac: HubLayout.isMac)) {
             overviewTable(title: scopeTitle, rows: [
                 SalesRollupRow(label: scopeTitle, storeCount: HeartbeatMath.metricStoreCount(.sales, rows: stores), pack: total)
             ], showCount: true)
@@ -32,8 +32,8 @@ struct OverviewSalesBlock: View {
             }
         }
         .padding(.horizontal, phone ? 10 : 14)
-        .padding(.top, phone ? 10 : 12)
-        .padding(.bottom, phone ? 12 : 16)
+        .padding(.top, CommandCenterLayout.sectionCardTopPadding(phone: phone, mac: HubLayout.isMac))
+        .padding(.bottom, CommandCenterLayout.sectionCardBottomPadding(phone: phone, mac: HubLayout.isMac))
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(AppTheme.tableFill)
     }
@@ -79,12 +79,12 @@ struct OverviewSalesBlock: View {
     }
 
     private func overviewTable(title: String, rows: [SalesRollupRow], showCount: Bool) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: CommandCenterLayout.sectionCardStackSpacing(phone: phone, mac: HubLayout.isMac)) {
             Text(title)
                 .font(AppTheme.rounded(.title3, weight: .bold))
                 .foregroundStyle(AppTheme.text)
             if phone {
-                VStack(spacing: 8) {
+                VStack(spacing: CommandCenterLayout.sectionCardStackSpacing(phone: true, mac: false)) {
                     ForEach(rows) { row in
                         OverviewSalesPhoneCard(label: row.label, count: showCount ? row.storeCount : nil, pack: row.pack)
                     }
@@ -249,7 +249,7 @@ private struct OverviewSalesColumns: View {
             .frame(width: HubLayout.readableStatusWidth(phone: phone), alignment: .trailing)
         }
         .padding(.horizontal, 8)
-        .padding(.vertical, header ? 6 : 9)
+        .padding(.vertical, CommandCenterLayout.overviewTableRowVerticalPadding(header: header, mac: HubLayout.isMac))
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(stripe ? AppTheme.blueSoft.opacity(0.35) : Color.clear)
     }
@@ -361,8 +361,27 @@ enum SalesRollupBuilder {
         }
     }
 
+    static let weekdayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+
+    /// Real day payload. `text_json.sales_days` is a label list and is not a day.
+    static func rowHasSalesDayPayload(_ row: MetricRow, index: Int) -> Bool {
+        guard weekdayNames.indices.contains(index) else { return false }
+        let prefix = "sales_d\(index)_"
+        let dollars = row.payload[prefix + "dollars"]
+        let orders = row.payload[prefix + "orders"]
+        let items = row.payload[prefix + "items"]
+        if dollars == nil, orders == nil, items == nil { return false }
+        return (dollars ?? 0) > 0 || (orders ?? 0) > 0 || (items ?? 0) > 0
+    }
+
+    static func salesDayIndexes(in rows: [MetricRow]) -> [Int] {
+        (0..<weekdayNames.count).filter { index in
+            rows.contains { rowHasSalesDayPayload($0, index: index) }
+        }
+    }
+
     static func dayRows(from stores: [MetricRow], company: MetricRow? = nil) -> [SalesRollupRow] {
-        let week = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+        let week = weekdayNames
         var seen = Set<String>()
         var unique: [MetricRow] = []
         for store in stores {
@@ -373,11 +392,13 @@ enum SalesRollupBuilder {
             unique.append(store)
         }
         let storeCount = unique.count
+        let indexes = salesDayIndexes(in: unique + (company.map { [$0] } ?? []))
         if let company {
-            let locked = week.enumerated().compactMap { index, name -> SalesRollupRow? in
+            let locked = indexes.compactMap { index -> SalesRollupRow? in
+                guard rowHasSalesDayPayload(company, index: index) else { return nil }
                 let pack = SalesPack(company, prefix: "sales_d\(index)_")
-                guard (pack.sales ?? 0) > 0 || (pack.orders ?? 0) > 0 else { return nil }
-                return SalesRollupRow(label: name, storeCount: storeCount, pack: pack)
+                guard (pack.sales ?? 0) > 0 || (pack.orders ?? 0) > 0 || (pack.items ?? 0) > 0 else { return nil }
+                return SalesRollupRow(label: week[index], storeCount: storeCount, pack: pack)
             }
             if !locked.isEmpty { return locked }
         }
@@ -387,13 +408,13 @@ enum SalesRollupBuilder {
         var lastSales = Array(repeating: 0.0, count: 7)
         var lastOrders = Array(repeating: 0.0, count: 7)
         for store in unique {
-            for index in 0..<7 {
+            for index in indexes where rowHasSalesDayPayload(store, index: index) {
                 let prefix = "sales_d\(index)_"
-                let daySales = store.number(prefix + "dollars") ?? 0
-                let dayOrders = store.number(prefix + "orders") ?? 0
+                let daySales = store.payload[prefix + "dollars"] ?? 0
+                let dayOrders = store.payload[prefix + "orders"] ?? 0
                 sales[index] += daySales
                 orders[index] += dayOrders
-                items[index] += store.number(prefix + "items") ?? 0
+                items[index] += store.payload[prefix + "items"] ?? 0
                 if let last = HeartbeatMath.salesPriorFromYoY(current: daySales, yoyPct: store.number(prefix + "yoy_pct")) {
                     lastSales[index] += last
                 }
@@ -402,15 +423,15 @@ enum SalesRollupBuilder {
                 }
             }
         }
-        return week.enumerated().compactMap { index, name in
+        return indexes.compactMap { index in
             let daySales = sales[index]
-            if daySales <= 0, orders[index] <= 0 { return nil }
+            if daySales <= 0, orders[index] <= 0, items[index] <= 0 { return nil }
             let dayOrders = orders[index]
             let dayItems = items[index]
             let yoy: Double? = lastSales[index] > 0 ? (daySales / lastSales[index] - 1) * 100 : nil
             let ordYoy: Double? = lastOrders[index] > 0 ? (dayOrders / lastOrders[index] - 1) * 100 : nil
             return SalesRollupRow(
-                label: name,
+                label: week[index],
                 storeCount: storeCount,
                 pack: SalesPack(
                     sales: daySales,
@@ -430,11 +451,11 @@ enum SalesRollupBuilder {
     }
 
     static func dayPacks(from row: MetricRow) -> [(name: String, pack: SalesPack)] {
-        let week = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-        return week.enumerated().compactMap { index, name -> (name: String, pack: SalesPack)? in
+        let week = weekdayNames
+        return salesDayIndexes(in: [row]).compactMap { index -> (name: String, pack: SalesPack)? in
             let pack = SalesPack(row, prefix: "sales_d\(index)_")
-            guard (pack.sales ?? 0) > 0 || (pack.orders ?? 0) > 0 else { return nil }
-            return (name, pack)
+            guard (pack.sales ?? 0) > 0 || (pack.orders ?? 0) > 0 || (pack.items ?? 0) > 0 else { return nil }
+            return (week[index], pack)
         }
     }
 

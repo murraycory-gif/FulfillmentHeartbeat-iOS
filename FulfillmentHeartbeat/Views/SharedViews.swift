@@ -108,7 +108,7 @@ struct HubBanner: View {
         }
         .foregroundStyle(Color.white)
         .padding(.horizontal, compact ? 10 : (mac ? 18 : 14))
-        .padding(.vertical, compact ? HubLayout.phoneBannerVerticalPadding() : (mac ? 14 : 10))
+        .padding(.vertical, compact ? HubLayout.phoneBannerVerticalPadding() : (mac ? 14 : CommandCenterLayout.padBannerVerticalPadding()))
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(AppTheme.blue)
 
@@ -130,8 +130,8 @@ struct HubStickyPageBanner: View {
     var body: some View {
         HubBanner(icon: icon, title: title, accessory: accessory, trailing: trailing)
             .padding(.horizontal, sizeClass == .regular ? 20 : 12)
-            .padding(.top, 4)
-            .padding(.bottom, 8)
+            .padding(.top, PulseLaunch.shouldUseDenserSectionChrome() && !HubLayout.isMac ? 2 : 4)
+            .padding(.bottom, HubLayout.isMac ? 8 : (PulseLaunch.shouldUseDenserSectionChrome() ? 5 : 8))
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(AppTheme.bg)
     }
@@ -190,7 +190,7 @@ struct HubTableHeader: View {
         }
         .foregroundStyle(Color.white)
         .padding(.horizontal, phone ? 10 : (HubLayout.MacReadable.enabled ? 16 : 14))
-        .padding(.vertical, phone ? 7 : (HubLayout.MacReadable.enabled ? 12 : 9))
+        .padding(.vertical, phone ? 7 : (HubLayout.MacReadable.enabled ? 12 : CommandCenterLayout.padBannerVerticalPadding()))
         .frame(maxWidth: .infinity, minHeight: phone ? HubLayout.phoneHitTarget : nil, alignment: .leading)
         .background(AppTheme.blue)
         .clipShape(
@@ -3143,6 +3143,46 @@ private enum ShopperMetric: String, CaseIterable, Hashable {
         case .lostRevenue: return [.refund, .presub, .oos, .pph]
         case .labor: return [.pph, .hours, .orders]
         case .prepNotReady, .scheduleQuality, .pickerScorecard, .missingItems, .preSubOOS, .aisleMapper, .preSubOOSItem, .sales, .storeRoster: return nil
+        }
+    }
+}
+
+/// Pack shoppers for the active Store / Ops / District / Division seat.
+/// One table per store that is already in the filter. No invented names.
+struct FilteredShopperList: View {
+    @EnvironmentObject private var store: HeartbeatStore
+    var section: MetricSection
+    @State private var storeLimit = 6
+
+    var body: some View {
+        let numbers = store.storesMatchingFilter()
+        let shown = Array(numbers.prefix(storeLimit))
+        VStack(alignment: .leading, spacing: CommandCenterLayout.phoneHomeStackSpacing()) {
+            if shown.isEmpty {
+                Text("Shoppers fill from the Heartbeat pack for this seat.")
+                    .font(.subheadline)
+                    .foregroundStyle(AppTheme.textSecondary)
+            } else {
+                ForEach(shown, id: \.self) { number in
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Store \(number)")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(AppTheme.textSecondary)
+                        PathShopperTable(storeNumber: number, section: section)
+                    }
+                }
+                if numbers.count > storeLimit {
+                    Button {
+                        storeLimit = min(numbers.count, storeLimit + 6)
+                    } label: {
+                        Text("Show shoppers · \(min(storeLimit, numbers.count)) of \(numbers.count) stores")
+                            .font(.body.weight(.semibold))
+                            .foregroundStyle(AppTheme.blue)
+                            .frame(maxWidth: .infinity, minHeight: HubLayout.phoneHitTarget, alignment: .leading)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
         }
     }
 }
@@ -10519,7 +10559,7 @@ struct PickerDaySnap: Identifiable, Equatable {
                 guard let value = Double(raw) else { return "N/A" }
                 return HeartbeatFormat.money(value)
             }
-            return PickerDaySnap(
+            let snap = PickerDaySnap(
                 id: date,
                 title: title,
                 pph: num("pph", digits: 1),
@@ -10531,6 +10571,11 @@ struct PickerDaySnap: Identifiable, Equatable {
                 orders: num("orders", digits: 0),
                 refund: money("refund")
             )
+            let values = [snap.pph, snap.presub, snap.oos, snap.ott, snap.oth5, snap.hours, snap.orders, snap.refund]
+            let hasPayload = values.contains { value in
+                !value.isEmpty && value != "N/A" && value != "—"
+            }
+            return hasPayload ? snap : nil
         }
     }
 }

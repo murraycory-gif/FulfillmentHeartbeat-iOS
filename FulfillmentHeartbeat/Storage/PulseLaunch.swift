@@ -1003,10 +1003,30 @@ enum PulseLaunch {
 
     /// Picker ScoreCard: exactly one shoppers table on Division / District / OM / Store.
     static func shouldShowPickerShoppersTable(filters: DashboardFilters) -> Bool {
+        shouldShowIndividualShoppers(filters: filters)
+    }
+
+    /// Pack shoppers (picker scorecard + pick path) on Store, Ops (OM),
+    /// District, and Division. Company and Region stay hidden.
+    /// Soft FAIL inventing shoppers that are not in the pack.
+    static func shouldShowIndividualShoppers(filters: DashboardFilters) -> Bool {
         switch sectionPageSeat(filters: filters) {
         case .division, .district, .om, .store: return true
         case .company, .region: return false
         }
+    }
+
+    /// Pick Path shopper tape stays parked on Company / Region.
+    /// Store / Ops / District / Division load the rows that exist.
+    static func shouldLoadPickPathPickerOnPageOpen(filters: DashboardFilters) -> Bool {
+        shouldShowIndividualShoppers(filters: filters)
+    }
+
+    /// Seat shopper read must repaint the open Picker or Pick Path page.
+    /// Soft FAIL a hub-wide publish on Company Dashboard.
+    static func shouldPublishIndividualShoppers(dest: HubDestination, filters: DashboardFilters) -> Bool {
+        guard shouldShowIndividualShoppers(filters: filters) else { return false }
+        return dest == .pickerScorecard || dest == .pickPath
     }
 
     /// Top Opportunity / Doing well panel. Every seat, including Company (Cory iPhone shot).
@@ -1277,6 +1297,11 @@ enum PulseLaunch {
     /// Phone Command Center / THIS SEAT / section pages: tighter cards without
     /// shrinking iPad leftover-fill or Mac dashboard tables.
     static func shouldUseCompactPhoneCommandChrome() -> Bool { true }
+
+    /// HB-0828.467: a bit less vertical padding on shared section cards
+    /// (hero, This Week, By Day, overview banners, Dashboard sections).
+    /// Phone and iPad layouts that use those cards. Mac readable chrome stays.
+    static func shouldUseDenserSectionChrome() -> Bool { true }
 
     /// Phone Sales / Loss / 5 Star KPI heroes use the same white
     /// PhoneScorecardRow chrome as Labor / Picker. Mac Command Center navy

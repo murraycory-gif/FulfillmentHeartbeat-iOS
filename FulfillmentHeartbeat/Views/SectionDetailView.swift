@@ -120,8 +120,9 @@ struct SectionDetailView: View {
             if section == .preSubOOS {
                 await store.ensureSectionLoaded(.preSubOOSItem)
             }
-            if section == .pickPath, PulseLaunch.shouldLoadPickPathPickerOnPageOpen() {
+            if section == .pickPath, PulseLaunch.shouldLoadPickPathPickerOnPageOpen(filters: store.filters) {
                 await store.ensureSectionLoaded(.pickPathPicker)
+                await store.ensureSectionLoaded(.pickerScorecard)
             }
         }
         .onChange(of: router.current) { _, _ in
@@ -198,6 +199,19 @@ struct SectionDetailView: View {
                 SectionRollupHost(grains: rollupGrains) { PickPathRollupTable(forcedGrain: $0) }
                 if showStoreTable {
                     PickPathTable(rows: pickPathRows)
+                }
+                if PulseLaunch.shouldShowIndividualShoppers(filters: store.filters) {
+                    Section {
+                        FilteredShopperList(section: .pickPath)
+                            .listRowInsets(EdgeInsets(
+                                top: CommandCenterLayout.sharedSectionListInset(),
+                                leading: HubLayout.isPhone(sizeClass) ? 12 : 20,
+                                bottom: CommandCenterLayout.sharedSectionListInset(),
+                                trailing: HubLayout.isPhone(sizeClass) ? 12 : 20
+                            ))
+                            .listRowSeparator(.hidden)
+                            .listRowBackground(AppTheme.bg)
+                    }
                 }
             } else if section == .dynacap {
                 SectionRollupHost(grains: rollupGrains) { DynacapRollupTable(forcedGrain: $0) }
@@ -1146,11 +1160,14 @@ struct PhoneSectionPage: View {
                 MissingItemsCategoryFilter(selected: $miCategories, width: 390)
             }
             if section == .pickerScorecard {
-                if PulseLaunch.shouldShowPickerShoppersTable(filters: store.filters) {
+                if PulseLaunch.shouldShowIndividualShoppers(filters: store.filters) {
                     pickerShoppers
                 }
             } else {
                 storeCards
+            }
+            if section == .pickPath, PulseLaunch.shouldShowIndividualShoppers(filters: store.filters) {
+                FilteredShopperList(section: .pickPath)
             }
             if section == .preSubOOS {
                 preSubItems
@@ -1536,7 +1553,7 @@ struct PhoneSectionHeading: View {
             .font(AppTheme.rounded(.caption, weight: .heavy))
             .tracking(0.7)
             .foregroundStyle(AppTheme.textTertiary)
-            .padding(.top, PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 4 : 8)
+            .padding(.top, CommandCenterLayout.phoneSectionHeadingTopPadding())
     }
 }
 

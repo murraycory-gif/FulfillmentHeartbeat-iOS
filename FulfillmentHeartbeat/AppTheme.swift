@@ -463,7 +463,8 @@ enum HubLayout {
         PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? 8 : 10
     }
     static func phoneBannerVerticalPadding() -> CGFloat {
-        PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? 4 : 6
+        if PulseLaunch.shouldUseDenserSectionChrome() { return 3 }
+        return PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? 4 : 6
     }
     /// Mac Catalyst readable chrome. Phone compact tokens must not use these.
     /// App-wide scale for every page — Command Center, sections, tables, chips, filters.

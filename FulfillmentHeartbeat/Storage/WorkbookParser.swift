@@ -1388,8 +1388,8 @@ enum WorkbookParser {
                 if payload["sales_dollars"] != nil {
                     var text: [String: String] = ["sales_grain": "company"]
                     if !week.isEmpty { text["sales_week"] = week }
-                    if !dayBlocks.isEmpty {
-                        text["sales_days"] = dayBlocks.map(\.label).joined(separator: ",")
+                    if let labeled = salesDayLabels(in: payload) {
+                        text["sales_days"] = labeled
                     }
                     out.append(
                         ParsedWorkbookRow(
@@ -1425,8 +1425,8 @@ enum WorkbookParser {
             var text: [String: String] = ["sales_grain": "store"]
             if !lastDistrict.isEmpty { text["district"] = lastDistrict }
             if !week.isEmpty { text["sales_week"] = week }
-            if !dayBlocks.isEmpty {
-                text["sales_days"] = dayBlocks.map(\.label).joined(separator: ",")
+            if let labeled = salesDayLabels(in: payload) {
+                text["sales_days"] = labeled
             }
             out.append(
                 ParsedWorkbookRow(
@@ -1444,6 +1444,22 @@ enum WorkbookParser {
     }
 
     private static let salesWeekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+
+    /// Labels follow payload keys. A header named Monday is not a Monday.
+    private static func salesDayLabels(in payload: [String: Double]) -> String? {
+        let names = salesWeekdays.enumerated().compactMap { index, name -> String? in
+            let prefix = "sales_d\(index)_"
+            let dollars = payload[prefix + "dollars"] ?? 0
+            let orders = payload[prefix + "orders"] ?? 0
+            let items = payload[prefix + "items"] ?? 0
+            let hasKey = payload[prefix + "dollars"] != nil
+                || payload[prefix + "orders"] != nil
+                || payload[prefix + "items"] != nil
+            guard hasKey, dollars > 0 || orders > 0 || items > 0 else { return nil }
+            return name
+        }
+        return names.isEmpty ? nil : names.joined(separator: ",")
+    }
 
     private static func applySalesDayBlocks(
         _ dayBlocks: [SalesBlock],

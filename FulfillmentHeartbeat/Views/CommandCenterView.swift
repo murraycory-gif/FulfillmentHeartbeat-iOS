@@ -54,15 +54,18 @@ enum CommandCenterLayout {
 
     /// Readable phone KPI hero on iPhone 13 (390) / 17 Pro. Not the 51pt leftover slice.
     static func phoneHeroMinHeight() -> CGFloat {
-        PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 100 : 124
+        if PulseLaunch.shouldUseDenserSectionChrome() { return 92 }
+        return PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 100 : 124
     }
 
     static func phoneGlanceMinHeight() -> CGFloat {
-        PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 78 : 96
+        if PulseLaunch.shouldUseDenserSectionChrome() { return 68 }
+        return PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 78 : 96
     }
 
     static func phoneHomeStackSpacing() -> CGFloat {
-        PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 8 : 12
+        if PulseLaunch.shouldUseDenserSectionChrome() { return 5 }
+        return PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 8 : 12
     }
 
     static func phoneHomeHorizontalPadding() -> CGFloat {
@@ -70,11 +73,54 @@ enum CommandCenterLayout {
     }
 
     static func phoneHomeTopPadding() -> CGFloat {
-        PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 4 : 8
+        if PulseLaunch.shouldUseDenserSectionChrome() { return 2 }
+        return PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 4 : 8
     }
 
     static func phoneHomeBottomPadding() -> CGFloat {
-        PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 16 : 28
+        if PulseLaunch.shouldUseDenserSectionChrome() { return 12 }
+        return PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 16 : 28
+    }
+
+    /// Gap between This Week / By Day / grain blocks. Mac tables stay at 16.
+    static func sectionCardStackSpacing(phone: Bool, mac: Bool) -> CGFloat {
+        if mac { return phone ? 10 : 16 }
+        if PulseLaunch.shouldUseDenserSectionChrome() {
+            return phone ? phoneHomeStackSpacing() : 10
+        }
+        return phone ? 10 : 16
+    }
+
+    static func sectionCardTopPadding(phone: Bool, mac: Bool) -> CGFloat {
+        if mac { return phone ? 10 : 12 }
+        if PulseLaunch.shouldUseDenserSectionChrome() { return phone ? 6 : 8 }
+        return phone ? 10 : 12
+    }
+
+    static func sectionCardBottomPadding(phone: Bool, mac: Bool) -> CGFloat {
+        if mac { return phone ? 12 : 16 }
+        if PulseLaunch.shouldUseDenserSectionChrome() { return phone ? 8 : 10 }
+        return phone ? 12 : 16
+    }
+
+    static func sharedSectionListInset() -> CGFloat {
+        PulseLaunch.shouldUseDenserSectionChrome() ? 4 : 8
+    }
+
+    static func padBannerVerticalPadding() -> CGFloat {
+        PulseLaunch.shouldUseDenserSectionChrome() ? 7 : 10
+    }
+
+    static func overviewTableRowVerticalPadding(header: Bool, mac: Bool) -> CGFloat {
+        if mac || !PulseLaunch.shouldUseDenserSectionChrome() {
+            return header ? 6 : 9
+        }
+        return header ? 4 : 6
+    }
+
+    static func phoneSectionHeadingTopPadding() -> CGFloat {
+        if PulseLaunch.shouldUseDenserSectionChrome() { return 2 }
+        return PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 4 : 8
     }
 
     static func phoneHeroValueSize() -> CGFloat {
@@ -94,11 +140,13 @@ enum CommandCenterLayout {
     }
 
     static func phoneScorecardStackSpacing() -> CGFloat {
-        PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 8 : 14
+        if PulseLaunch.shouldUseDenserSectionChrome() { return 5 }
+        return PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 8 : 14
     }
 
     static func phoneScorecardPadding() -> CGFloat {
-        PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 12 : 16
+        if PulseLaunch.shouldUseDenserSectionChrome() { return 8 }
+        return PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 12 : 16
     }
 
     static func phoneScorecardCorner() -> CGFloat {
@@ -106,15 +154,27 @@ enum CommandCenterLayout {
     }
 
     static func phoneScorecardChipMinHeight() -> CGFloat {
-        PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 44 : 56
+        if PulseLaunch.shouldUseDenserSectionChrome() { return 32 }
+        return PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 44 : 56
     }
 
     static func phoneScorecardChipPadding() -> CGFloat {
-        PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 8 : 12
+        phoneScorecardChipVerticalPadding()
+    }
+
+    static func phoneScorecardChipVerticalPadding() -> CGFloat {
+        if PulseLaunch.shouldUseDenserSectionChrome() { return 4 }
+        return PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 8 : 12
+    }
+
+    static func phoneScorecardChipHorizontalPadding() -> CGFloat {
+        if PulseLaunch.shouldUseDenserSectionChrome() { return 6 }
+        return PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 8 : 12
     }
 
     static func phoneScorecardChipSpacing() -> CGFloat {
-        PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 6 : 10
+        if PulseLaunch.shouldUseDenserSectionChrome() { return 4 }
+        return PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 6 : 10
     }
 
     static func phoneScorecardShadowRadius() -> CGFloat {
@@ -804,7 +864,7 @@ struct CommandCenterHeroTile: View {
                     Spacer(minLength: 0)
                 }
             }
-            .padding(HubLayout.MacReadable.enabled ? 16 : 10)
+            .padding(HubLayout.MacReadable.enabled ? 16 : (PulseLaunch.shouldUseDenserSectionChrome() ? 8 : 10))
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .background(AppTheme.blue, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
@@ -835,7 +895,7 @@ struct CommandCenterGlanceTile: View {
                     HealthBadge(health: CommandCenterLayout.displayedHealth(painted), compact: false)
                 }
                 .padding(.horizontal, HubLayout.MacReadable.enabled ? 12 : 10)
-                .padding(.vertical, HubLayout.MacReadable.enabled ? 10 : 8)
+                .padding(.vertical, HubLayout.MacReadable.enabled ? 10 : (PulseLaunch.shouldUseDenserSectionChrome() ? 6 : 8))
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(AppTheme.blue)
 
@@ -853,8 +913,8 @@ struct CommandCenterGlanceTile: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .padding(.horizontal, 8)
-                .padding(.top, 6)
-                .padding(.bottom, 8)
+                .padding(.top, HubLayout.MacReadable.enabled ? 6 : (PulseLaunch.shouldUseDenserSectionChrome() ? 4 : 6))
+                .padding(.bottom, HubLayout.MacReadable.enabled ? 8 : (PulseLaunch.shouldUseDenserSectionChrome() ? 5 : 8))
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(Color.white)
