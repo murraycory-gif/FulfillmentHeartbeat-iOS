@@ -374,6 +374,22 @@ struct MacCommandCenterFit: Equatable {
     }
 }
 
+/// Holds a phone page subtree still across a Pages tap. Equality is the token,
+/// so a destination change does not re-run RESULT / grid math in `body`.
+struct PhoneNavStableMount<Content: View>: View, Equatable {
+    let token: String
+    let content: () -> Content
+
+    init(token: String, @ViewBuilder content: @escaping () -> Content) {
+        self.token = token
+        self.content = content
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.token == rhs.token }
+
+    var body: some View { content() }
+}
+
 /// iPhone 13+ / 17 Pro dashboard. Portrait-first 1-column scroll.
 /// KPI heroes share Labor / Picker PhoneScorecardRow chrome. No leftover-fill
 /// 3-across navy band under Pages + Filters + banner.
@@ -381,16 +397,44 @@ struct PhoneCommandCenterHome: View {
     @EnvironmentObject private var store: HeartbeatStore
     var open: (MetricSection) -> Void
     var isVisible: Bool = true
+    @State private var parked = false
+    @State private var parkGeneration = 0
 
     var body: some View {
         let _ = store.seatPaintStamp
         let _ = store.filters.summary
+        parkedOrLive
+            .onAppear { syncPark() }
+            .onChange(of: isVisible) { _, _ in syncPark() }
+    }
+
+    @ViewBuilder
+    private var parkedOrLive: some View {
         if PulseLaunch.shouldParkHiddenPhoneDashboard(),
-           !isVisible,
-           !PulseLaunch.shouldRenderHiddenPhoneDashboardHeavy() {
+           PulseLaunch.shouldShowParkedPhoneDashboard(isVisible: isVisible, parked: parked) {
             Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            visibleHome
+            PhoneNavStableMount(token: store.phonePaintToken) {
+                visibleHome
+            }
+            .equatable()
+        }
+    }
+
+    private func syncPark() {
+        parkGeneration += 1
+        let generation = parkGeneration
+        if isVisible {
+            parked = false
+            return
+        }
+        guard PulseLaunch.shouldDeferPhonePagesNavWorkUntilAfterPaint() else {
+            parked = true
+            return
+        }
+        DispatchQueue.main.async {
+            guard self.parkGeneration == generation else { return }
+            self.parked = true
         }
     }
 
@@ -479,9 +523,11 @@ struct PhoneCommandHeroCard: View {
     @EnvironmentObject private var store: HeartbeatStore
     let card: SectionSummary
     var usesMetricFactStoreCount: Bool = false
+    var paintsPreparedCard: Bool = false
     var action: (() -> Void)? = nil
 
     private var painted: SectionSummary {
+        if paintsPreparedCard { return card }
         let next = store.paintedCommandCenterCard(card)
         guard usesMetricFactStoreCount, PulseLaunch.shouldUseMetricFactStoreCountOnSectionPage() else {
             return next

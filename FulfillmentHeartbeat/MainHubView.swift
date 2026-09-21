@@ -766,6 +766,11 @@ struct CompactNavSheet: View {
             return store.summaries.map(\.health).max(by: { healthRank($0) < healthRank($1) }) ?? .none
         default:
             guard let section = dest.section else { return .none }
+            if PulseLaunch.shouldDeferPhonePagesNavWorkUntilAfterPaint() {
+                return CommandCenterLayout.displayedHealth(
+                    store.phonePageChromeCard(for: section, allowRowWalk: false)
+                )
+            }
             return store.summary(for: section).health
         }
     }

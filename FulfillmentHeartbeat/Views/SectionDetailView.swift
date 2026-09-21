@@ -72,6 +72,9 @@ struct SectionDetailView: View {
             laborHeaderPin.listTop = top
         }
         .onAppear {
+            guard PulseLaunch.shouldMountPadSectionListHost(
+                usesPhoneScorecards: HubLayout.usesPhoneScorecards(sizeClass: sizeClass)
+            ) else { return }
             armPage()
         }
         .task(id: PulseLaunch.sectionSQLTaskToken(
@@ -89,6 +92,18 @@ struct SectionDetailView: View {
                 section: section,
                 pushed: router.pushedSection
             ) else { return }
+            if PulseLaunch.shouldDeferPhonePagesNavWorkUntilAfterPaint(),
+               !PulseLaunch.shouldMountPadSectionListHost(
+                   usesPhoneScorecards: HubLayout.usesPhoneScorecards(sizeClass: sizeClass)
+               ) {
+                await Task.yield()
+                guard !Task.isCancelled else { return }
+                guard PulseLaunch.shouldLoadSection(
+                    visible: self.router.current,
+                    section: section,
+                    pushed: self.router.pushedSection
+                ) else { return }
+            }
             if PulseLaunch.shouldDelaySectionSQL(seatAlreadyPainted: store.seatPaintStamp > 0) {
                 await Task.yield()
                 try? await Task.sleep(nanoseconds: PulseLaunch.pageSectionLoadDelayNanoseconds)
@@ -110,9 +125,15 @@ struct SectionDetailView: View {
             }
         }
         .onChange(of: router.current) { _, _ in
+            guard PulseLaunch.shouldMountPadSectionListHost(
+                usesPhoneScorecards: HubLayout.usesPhoneScorecards(sizeClass: sizeClass)
+            ) else { return }
             armPage()
         }
         .onChange(of: router.pushedSection) { _, _ in
+            guard PulseLaunch.shouldMountPadSectionListHost(
+                usesPhoneScorecards: HubLayout.usesPhoneScorecards(sizeClass: sizeClass)
+            ) else { return }
             armPage()
         }
     }
@@ -983,6 +1004,10 @@ struct PhoneSectionPage: View {
     @State private var openShopper: String?
     @State private var miCategories: Set<MissingItemDept> = []
     @State private var showHeavy = false
+    @State private var parked = false
+    /// Fact-row hero math waits until the destination has painted.
+    @State private var didSettle = false
+    @State private var visibilityGeneration = 0
 
     private var isVisible: Bool {
         PulseLaunch.isActiveScorecardPage(
@@ -992,35 +1017,46 @@ struct PhoneSectionPage: View {
         )
     }
 
-    private var shouldPaintHeavy: Bool {
-        guard showHeavy else { return false }
-        if isVisible { return true }
-        return PulseLaunch.shouldRenderHiddenPhoneSectionHeavy()
+    private var heroCard: SectionSummary {
+        store.phonePageChromeCard(
+            for: section,
+            allowRowWalk: PulseLaunch.shouldWalkRowsForPhoneNavChrome(
+                settledOnPage: didSettle && isVisible
+            )
+        )
+    }
+
+    private var heavyToken: String {
+        let cats = miCategories.map(\.rawValue).sorted().joined(separator: ",")
+        return "\(section.rawValue)|\(store.phonePaintToken)|\(storeLimit)|\(pickerLimit)|\(itemLimit)|\(openShopper ?? "")|\(cats)"
     }
 
     var body: some View {
         let _ = store.seatPaintStamp
         ScrollView {
             VStack(alignment: .leading, spacing: CommandCenterLayout.phoneHomeStackSpacing()) {
-                if PulseLaunch.shouldParkHiddenPhoneSection(isVisible: isVisible) {
-                    PhoneCommandHeroCard(
-                        card: store.summary(for: section),
-                        usesMetricFactStoreCount: true
-                    )
+                if PulseLaunch.shouldShowParkedPhoneSection(isVisible: isVisible, parked: parked) {
+                    Color.clear.frame(maxWidth: .infinity, minHeight: 1)
                 } else {
                     PhoneCommandHeroCard(
-                        card: store.summary(for: section),
-                        usesMetricFactStoreCount: true
+                        card: heroCard,
+                        usesMetricFactStoreCount: true,
+                        paintsPreparedCard: PulseLaunch.shouldDeferPhonePagesNavWorkUntilAfterPaint()
                     )
                     if PulseLaunch.shouldShowThisSeatCallout() {
                         seatMetricCard
                     }
-                    warningNotes
                     if section == .labor {
                         LaborWeekFilterBar()
                     }
-                    if shouldPaintHeavy {
-                        heavyBlocks
+                    if showHeavy {
+                        PhoneNavStableMount(token: heavyToken) {
+                            VStack(alignment: .leading, spacing: CommandCenterLayout.phoneHomeStackSpacing()) {
+                                warningNotes
+                                heavyBlocks
+                            }
+                        }
+                        .equatable()
                     }
                 }
             }
@@ -1033,25 +1069,55 @@ struct PhoneSectionPage: View {
         .scrollBounceBehavior(PulseLaunch.shouldOfferPullToRefreshSeatPack() ? .always : .basedOnSize)
         .hubSeatPackRefreshable()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .onAppear { armHeavy() }
-        .onChange(of: isVisible) { _, visible in
-            if visible { armHeavy() }
-        }
+        .onAppear { syncPageVisibility() }
+        .onChange(of: isVisible) { _, _ in syncPageVisibility() }
         .onChange(of: store.filters.summary) { _, _ in
             guard isVisible, PulseLaunch.shouldProgressivePaintPhoneSectionOnFilterSwap() else { return }
             showHeavy = false
-            armHeavy()
+            didSettle = false
+            visibilityGeneration += 1
+            scheduleHeavy(generation: visibilityGeneration)
         }
     }
 
-    private func armHeavy() {
-        guard isVisible else { return }
-        if !PulseLaunch.shouldDeferPhoneSectionHeavyUntilAfterChrome() {
-            showHeavy = true
+    private func syncPageVisibility() {
+        visibilityGeneration += 1
+        let generation = visibilityGeneration
+        if isVisible {
+            parked = false
+            scheduleHeavy(generation: generation)
+            return
+        }
+        guard PulseLaunch.shouldDeferPhonePagesNavWorkUntilAfterPaint() else {
+            parked = true
+            showHeavy = false
+            didSettle = false
             return
         }
         DispatchQueue.main.async {
+            guard self.visibilityGeneration == generation else { return }
+            self.parked = true
+            self.showHeavy = false
+            self.didSettle = false
+        }
+    }
+
+    private func scheduleHeavy(generation: Int) {
+        guard isVisible else { return }
+        if !PulseLaunch.shouldDeferPhoneSectionHeavyUntilAfterChrome() {
+            didSettle = true
             showHeavy = true
+            return
+        }
+        if showHeavy, didSettle { return }
+        DispatchQueue.main.async {
+            guard self.visibilityGeneration == generation else { return }
+            DispatchQueue.main.async {
+                guard self.visibilityGeneration == generation else { return }
+                _ = self.store.phonePageChromeCard(for: self.section, allowRowWalk: true)
+                self.didSettle = true
+                self.showHeavy = true
+            }
         }
     }
 

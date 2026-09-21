@@ -769,6 +769,38 @@ final class HeartbeatStore: ObservableObject {
         return painted
     }
 
+    /// Filter + stamp identity for phone dashboard / section paint caches.
+    var phonePaintToken: String {
+        "\(filters.summary)|\(filterStamp)|\(seatPaintStamp)"
+    }
+
+    /// Pages nav and the section hero. Cache hit is the filter-aware card.
+    /// A miss with `allowRowWalk == false` is pack chrome — no roster walk.
+    func phonePageChromeCard(for section: MetricSection, allowRowWalk: Bool) -> SectionSummary {
+        if PulseLaunch.shouldCachePhoneDashboardSectionPaint() {
+            resetPhoneDashboardPaintCacheIfNeeded()
+            if let hit = phoneDashboardCards[section] {
+                return hit
+            }
+        }
+        if !allowRowWalk {
+            return cheapPhonePageChrome(section)
+        }
+        return cachedPhoneDashboardCard(cheapPhonePageChrome(section))
+    }
+
+    /// Pack / company chrome only. Never `seatRows` / `salesStores`.
+    func cheapPhonePageChrome(_ section: MetricSection) -> SectionSummary {
+        let painted = cachedSummaries.first { $0.section == section }
+            ?? HeartbeatMath.summarize(section, rows: [], upload: upload(for: section))
+        guard !filters.isActive else { return painted }
+        return PulseLaunch.companyCommandCenterCard(
+            painted,
+            chrome: packChrome,
+            rosterStores: roster.count
+        )
+    }
+
     func cachedPhoneDashboardChips(section: MetricSection, painted: SectionSummary) -> [PhoneMetricChip] {
         resetPhoneDashboardPaintCacheIfNeeded()
         if PulseLaunch.shouldCachePhoneDashboardSectionPaint(),
