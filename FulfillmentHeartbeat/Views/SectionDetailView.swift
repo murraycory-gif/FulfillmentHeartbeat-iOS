@@ -1394,11 +1394,11 @@ struct PhoneSectionPage: View {
 @MainActor
 enum PhoneThisWeekChrome {
     static func factRows(section: MetricSection, store: HeartbeatStore) -> [MetricRow] {
-        section == .sales ? store.salesStores() : store.seatRows(for: section)
+        store.cachedPhoneDashboardRows(for: section)
     }
 
     static func companyRows(section: MetricSection, store: HeartbeatStore) -> [MetricRow] {
-        var rows = store.seatRows(for: section)
+        var rows = store.cachedPhoneDashboardRows(for: section)
         if !store.filters.isActive,
            section == .lostRevenue,
            let market = store.lostRevenueMarketRow(),
@@ -1410,7 +1410,7 @@ enum PhoneThisWeekChrome {
 
     static func chips(section: MetricSection, store: HeartbeatStore) -> [PhoneMetricChip] {
         if section == .sales {
-            return OverviewSalesPhoneCard.chips(pack: SalesPack(rows: store.salesStores()))
+            return OverviewSalesPhoneCard.chips(pack: SalesPack(rows: store.cachedPhoneDashboardRows(for: .sales)))
         }
         let rows = companyRows(section: section, store: store)
         let pphRows = section == .dynacap ? factRows(section: .pph, store: store) : []

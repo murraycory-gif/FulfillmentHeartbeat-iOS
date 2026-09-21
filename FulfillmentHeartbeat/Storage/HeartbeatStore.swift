@@ -75,6 +75,10 @@ final class HeartbeatStore: ObservableObject {
     private var cachedOMs: [String] = []
     private var cachedStores: [(number: String, name: String?)] = []
     private var cachedSummaries: [SectionSummary] = []
+    private var phoneDashboardPaintKey = ""
+    private var phoneDashboardCards: [MetricSection: SectionSummary] = [:]
+    private var phoneDashboardChips: [MetricSection: [PhoneMetricChip]] = [:]
+    private var phoneDashboardRows: [MetricSection: [MetricRow]] = [:]
     private var cachedPickerBoard = HeartbeatMath.PickerBoard(
         shopperCount: 0,
         opportunityCount: 0,
@@ -718,6 +722,68 @@ final class HeartbeatStore: ObservableObject {
             filters: filters,
             roster: roster
         )
+    }
+
+    private func resetPhoneDashboardPaintCacheIfNeeded() {
+        guard PulseLaunch.shouldCachePhoneDashboardSectionPaint() else { return }
+        let key = "\(filters.summary)|\(filterStamp)|\(seatPaintStamp)"
+        guard key != phoneDashboardPaintKey else { return }
+        phoneDashboardPaintKey = key
+        phoneDashboardCards = [:]
+        phoneDashboardChips = [:]
+        phoneDashboardRows = [:]
+    }
+
+    func cachedPhoneDashboardRows(for section: MetricSection) -> [MetricRow] {
+        resetPhoneDashboardPaintCacheIfNeeded()
+        if PulseLaunch.shouldCachePhoneDashboardSectionPaint(),
+           let rows = phoneDashboardRows[section] {
+            return rows
+        }
+        let rows = section == .sales ? salesStores() : seatRows(for: section)
+        if PulseLaunch.shouldCachePhoneDashboardSectionPaint() {
+            phoneDashboardRows[section] = rows
+        }
+        return rows
+    }
+
+    func cachedPhoneDashboardCard(_ card: SectionSummary) -> SectionSummary {
+        resetPhoneDashboardPaintCacheIfNeeded()
+        if PulseLaunch.shouldCachePhoneDashboardSectionPaint(),
+           let hit = phoneDashboardCards[card.section] {
+            return hit
+        }
+        let next = paintedCommandCenterCard(card)
+        let rows = cachedPhoneDashboardRows(for: next.section)
+        let painted: SectionSummary
+        if PulseLaunch.shouldPaintDashboardResultFromActiveSeat() {
+            painted = PulseLaunch.dashboardSeatCard(next, rows: rows, filters: filters)
+        } else if PulseLaunch.shouldUseMetricFactStoreCountOnSectionPage() {
+            painted = PulseLaunch.metricPageHeroCard(next, rows: rows)
+        } else {
+            painted = next
+        }
+        if PulseLaunch.shouldCachePhoneDashboardSectionPaint() {
+            phoneDashboardCards[card.section] = painted
+        }
+        return painted
+    }
+
+    func cachedPhoneDashboardChips(section: MetricSection, painted: SectionSummary) -> [PhoneMetricChip] {
+        resetPhoneDashboardPaintCacheIfNeeded()
+        if PulseLaunch.shouldCachePhoneDashboardSectionPaint(),
+           let hit = phoneDashboardChips[section] {
+            return hit
+        }
+        var chips = CommandCenterLayout.phoneScorecardChips(painted)
+        if PulseLaunch.shouldShowDashboardThisWeekDetail(),
+           PulseLaunch.shouldMergeDashboardResultAndThisWeek() {
+            chips.append(contentsOf: PhoneThisWeekChrome.chips(section: section, store: self))
+        }
+        if PulseLaunch.shouldCachePhoneDashboardSectionPaint() {
+            phoneDashboardChips[section] = chips
+        }
+        return chips
     }
 
     func summary(for section: MetricSection) -> SectionSummary {

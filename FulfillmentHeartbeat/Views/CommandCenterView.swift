@@ -380,16 +380,36 @@ struct MacCommandCenterFit: Equatable {
 struct PhoneCommandCenterHome: View {
     @EnvironmentObject private var store: HeartbeatStore
     var open: (MetricSection) -> Void
+    var isVisible: Bool = true
 
     var body: some View {
+        if PulseLaunch.shouldParkHiddenPhoneDashboard(),
+           !isVisible,
+           !PulseLaunch.shouldRenderHiddenPhoneDashboardHeavy() {
+            Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            visibleHome
+        }
+    }
+
+    private var visibleHome: some View {
         let _ = store.seatPaintStamp
         let _ = store.filters.summary
         ScrollView {
-            VStack(alignment: .leading, spacing: CommandCenterLayout.phoneHomeStackSpacing()) {
-                ForEach(CommandCenterLayout.phoneDashboardSections, id: \.self) { section in
-                    if PulseLaunch.shouldShowDashboardSection(section) {
-                        dashboardSection(store.summary(for: section), hero: CommandCenterLayout.isHero(section))
-                            .id("dashboard-\(section.rawValue)")
+            let stack = ForEach(CommandCenterLayout.phoneDashboardSections, id: \.self) { section in
+                if PulseLaunch.shouldShowDashboardSection(section) {
+                    dashboardSection(store.summary(for: section), hero: CommandCenterLayout.isHero(section))
+                        .id("dashboard-\(section.rawValue)")
+                }
+            }
+            Group {
+                if PulseLaunch.shouldLazyLoadPhoneDashboardSections() {
+                    LazyVStack(alignment: .leading, spacing: CommandCenterLayout.phoneHomeStackSpacing()) {
+                        stack
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: CommandCenterLayout.phoneHomeStackSpacing()) {
+                        stack
                     }
                 }
             }
@@ -420,13 +440,7 @@ struct PhoneDashboardMetricBlock: View {
     let action: () -> Void
 
     private var painted: SectionSummary {
-        let next = store.paintedCommandCenterCard(card)
-        let rows = next.section == .sales ? store.salesStores() : store.seatRows(for: next.section)
-        if PulseLaunch.shouldPaintDashboardResultFromActiveSeat() {
-            return PulseLaunch.dashboardSeatCard(next, rows: rows, filters: store.filters)
-        }
-        guard PulseLaunch.shouldUseMetricFactStoreCountOnSectionPage() else { return next }
-        return PulseLaunch.metricPageHeroCard(next, rows: rows)
+        store.cachedPhoneDashboardCard(card)
     }
 
     var body: some View {
@@ -452,12 +466,7 @@ struct PhoneDashboardMetricBlock: View {
     }
 
     private func dashboardChips(_ painted: SectionSummary) -> [PhoneMetricChip] {
-        var chips = CommandCenterLayout.phoneScorecardChips(painted)
-        if PulseLaunch.shouldShowDashboardThisWeekDetail(),
-           PulseLaunch.shouldMergeDashboardResultAndThisWeek() {
-            chips.append(contentsOf: PhoneThisWeekChrome.chips(section: painted.section, store: store))
-        }
-        return chips
+        store.cachedPhoneDashboardChips(section: painted.section, painted: painted)
     }
 }
 

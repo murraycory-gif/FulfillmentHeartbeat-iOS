@@ -62,7 +62,10 @@ struct DashboardView: View {
         let _ = store.filters.summary
         ZStack {
             if HubLayout.isPhone(sizeClass), PulseLaunch.shouldUsePhoneNativeCommandCenter() {
-                PhoneCommandCenterHome(open: open)
+                PhoneCommandCenterHome(
+                    open: open,
+                    isVisible: router.current == .dashboard && router.pushedSection == nil
+                )
             } else {
                 CommandCenterHome(open: open)
             }

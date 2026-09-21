@@ -931,6 +931,16 @@ enum PulseLaunch {
     /// Soft FAIL painting dynacap_rate (60.6) into that chip.
     static func shouldFillDynacapPPHFromPPHSeat() -> Bool { true }
 
+    /// Hidden warm Dashboard must not rebuild 12 RESULT+grid sections on
+    /// every Pages tap / HeartbeatStore ping. Soft FAIL remounting the host.
+    static func shouldParkHiddenPhoneDashboard() -> Bool { true }
+
+    static func shouldRenderHiddenPhoneDashboardHeavy() -> Bool { false }
+
+    static func shouldCachePhoneDashboardSectionPaint() -> Bool { true }
+
+    static func shouldLazyLoadPhoneDashboardSections() -> Bool { true }
+
     /// Sales already paints week total via `shouldShowSalesDayWeekBlock`.
     /// Every other metric section mounts the shared company This Week card.
     static func shouldShowMetricCompanyThisWeekRollup(
