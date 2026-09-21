@@ -1,9 +1,9 @@
 #!/bin/sh
 # Daily ingest. Excel never runs on iPhone/iPad.
 #
-# 1. Upload Heartbeat Daily Report.xlsx to the bucket.
-# 2. GitHub cooks current.sqlite (Mac does not need to be on).
-# 3. Testers open Heartbeat — they only download the pack.
+# 1. Upload Heartbeat Daily Report.xlsx to Supabase Storage.
+# 2. GitHub cooks current.sqlite and publishes company LIVE to R2 (no Mac).
+# 3. Testers open Heartbeat — they only download the pack from R2.
 #
 # Usage:
 #   ./ingest-heartbeat.sh "/path/Heartbeat Daily Report.xlsx"
@@ -56,6 +56,7 @@ if command -v gh >/dev/null 2>&1; then
   gh workflow run cook-heartbeat-pack.yml --repo murraycory-gif/FulfillmentHeartbeat-iOS || true
 fi
 echo
-echo "GitHub is cooking current.sqlite. Usually a few minutes."
+echo "GitHub is cooking current.sqlite and publishing it to R2. Company pack goes LIVE in a few minutes."
 echo "Watch: https://github.com/murraycory-gif/FulfillmentHeartbeat-iOS/actions"
+echo "Pack: https://pub-eafb309f53464d98902d12ac107f0f1e.r2.dev/current.sqlite"
 echo "Testers: force-close Heartbeat, open it again. They never pick a file."

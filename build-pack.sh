@@ -6,6 +6,7 @@
 #   DEVICE_UDID=676FA816-88AE-59D9-A89D-5C17BFC2DA96 ./build-pack.sh
 #
 # Daily (xlsx is archive only; pack comes off the iPad after one load):
+#   R2_ACCESS_KEY_ID=… R2_SECRET_ACCESS_KEY=… R2_ACCOUNT_ID=… R2_BUCKET=heartbeat-packs \
 #   DEVICE_UDID=676FA816-88AE-59D9-A89D-5C17BFC2DA96 ./build-pack.sh "/path/Heartbeat Daily Report.xlsx"
 set -eu
 cd "$(dirname "$0")"
@@ -17,7 +18,8 @@ KEY="sb_publishable_T3Pzm01sMXCv2rQaCeP_Kg_4ao2M5zd"
 BUCKET="heartbeat-packs"
 XLSX="${1:-}"
 
-upload() {
+# Workbook archive stays on Supabase (cook still reads it from there).
+upload_workbook() {
   NAME="$1"
   FILE="$2"
   TYPE="$3"
@@ -42,13 +44,21 @@ upload() {
   echo "$CODE"
 }
 
+upload_pack() {
+  NAME="$1"
+  FILE="$2"
+  TYPE="$3"
+  chmod +x scripts/publish-r2.sh
+  ./scripts/publish-r2.sh "$FILE" "$NAME" "$TYPE"
+}
+
 if [ -n "$XLSX" ]; then
   if [ ! -f "$XLSX" ]; then
     echo "File not found: $XLSX"
     exit 1
   fi
-  echo "Archiving workbook to the bucket (testers will not parse this)…"
-  CODE=$(upload "Heartbeat Daily Report.xlsx" "$XLSX" "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+  echo "Archiving workbook to Supabase (testers will not parse this)…"
+  CODE=$(upload_workbook "Heartbeat Daily Report.xlsx" "$XLSX" "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
   echo "Workbook upload $CODE"
 fi
 
@@ -76,13 +86,8 @@ if [ "$BYTES" -lt 50000 ]; then
   exit 1
 fi
 
-echo "Publishing current.sqlite ($BYTES bytes)…"
-CODE=$(upload "current.sqlite" "$LOCAL" "application/octet-stream")
-if [ "$CODE" != "200" ] && [ "$CODE" != "201" ]; then
-  echo "SQLite upload failed ($CODE)."
-  cat /tmp/heartbeat-pack-upload.txt
-  exit 1
-fi
+echo "Publishing current.sqlite ($BYTES bytes) to R2…"
+upload_pack "current.sqlite" "$LOCAL" "application/octet-stream"
 
 if xcrun devicectl device copy from \
   --device "$UDID" \
@@ -90,8 +95,9 @@ if xcrun devicectl device copy from \
   --domain-identifier "$BUNDLE_ID" \
   --source "Documents/Pulse/pulse-cards.json" \
   --destination "$CARDS" 2>/dev/null; then
-  echo "Publishing pulse-cards.json…"
-  upload "pulse-cards.json" "$CARDS" "application/json" >/dev/null || true
+  echo "Publishing pulse-cards.json to R2…"
+  upload_pack "pulse-cards.json" "$CARDS" "application/json" || true
 fi
 
 echo "Done. Testers open Heartbeat — they do not pick a file."
+echo "Download: https://pub-eafb309f53464d98902d12ac107f0f1e.r2.dev/current.sqlite"
