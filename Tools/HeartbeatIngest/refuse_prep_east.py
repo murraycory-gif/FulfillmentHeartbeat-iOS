@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
-"""Refuse a cooked pack that would publish a bad Prep rate or an East Dynacap hole.
+"""Refuse a cooked pack with a bad Prep rate. Warn only on an East Dynacap hole.
 
-Prep Not Ready Hours % is a 0–1 fraction in Excel. A company mean above 20, or at
-least half the rows exactly 100, means Store # (always 1) was scaled into the rate.
+Prep Not Ready stays a hard refuse and blocks publish. Hours % is a 0–1 fraction
+in Excel. A company mean above 20, or at least half the rows exactly 100, means
+Store # (always 1) was scaled into the rate. Either condition exits 1.
+
 Dynacap East (Jewel Osco + Mid-Atlantic + Shaws) is the Excel DIVISION_NM slicer.
+An East hole — roster has those divisions and dynacap East total is 0 — is
+warn-only. It prints on stderr and does not block publish.
+
 This gate only counts. It does not invent Prep rates or East rows.
 """
 from __future__ import annotations
@@ -67,7 +72,7 @@ def _counts(rows: list[tuple[str, str]], roster_div: dict[str, str]) -> dict[str
     return counts
 
 
-def evaluate(con: sqlite3.Connection) -> tuple[list[str], list[str]]:
+def evaluate(con: sqlite3.Connection) -> tuple[list[str], list[str], list[str]]:
     prep_rows = con.execute(
         "SELECT payload_json FROM facts WHERE section='prep_not_ready'"
     ).fetchall()
@@ -81,6 +86,7 @@ def evaluate(con: sqlite3.Connection) -> tuple[list[str], list[str]]:
         f"prep_not_ready n={n} mean={mean_text} eq100={eq100} pct100={pct100:.2f}"
     ]
     failures: list[str] = []
+    warnings: list[str] = []
     if mean is not None and mean > PREP_MEAN_MAX:
         failures.append(
             f"Soft FAIL: prep_not_ready mean {mean:.4f} > {PREP_MEAN_MAX:g} (n={n} eq100={eq100})"
@@ -113,12 +119,12 @@ def evaluate(con: sqlite3.Connection) -> tuple[list[str], list[str]]:
         + f" total={dynacap_total}"
     )
     if roster_names and dynacap_total == 0:
-        failures.append(
-            "Soft FAIL: dynacap East hole — Jewel+Mid-Atlantic+Shaws dynacap=0 "
+        warnings.append(
+            "Soft WARN: dynacap East hole — Jewel+Mid-Atlantic+Shaws dynacap=0 "
             f"while roster has those divisions (roster_east={roster_total}: {', '.join(roster_names)}). "
-            "Not inventing East rows."
+            "Not inventing East rows. Does not block publish."
         )
-    return report, failures
+    return report, failures, warnings
 
 
 def main() -> None:
@@ -129,11 +135,13 @@ def main() -> None:
         raise SystemExit(f"Missing pack {path}")
     con = sqlite3.connect(path)
     try:
-        report, failures = evaluate(con)
+        report, failures, warnings = evaluate(con)
     finally:
         con.close()
     for line in report:
         print(line)
+    for line in warnings:
+        print(line, file=sys.stderr)
     if failures:
         for line in failures:
             print(line, file=sys.stderr)

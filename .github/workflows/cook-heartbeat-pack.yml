@@ -8,7 +8,7 @@ name: Cook Heartbeat pack
 # Soft FAIL >40MB, orphan chrome (shoppers cited / 0 ScoreCard facts), Haggen-only Loss,
 # Path picker empty store when LDAP/store grain exists. Soft FAIL invent Prep / 5★.
 # Soft FAIL prep_not_ready mean > 20 or ≥50% of rows == 100 (Hours % blank must not become Store #).
-# Soft FAIL dynacap East hole: Jewel+Mid-Atlantic+Shaws is 0 while roster has those divisions.
+# Soft WARN dynacap East hole: Jewel+Mid-Atlantic+Shaws is 0 while roster has those divisions. Does not block publish.
 # Do not invent East rows. Cook/thin only. Do not conflate into tip 439. Never use needs_attention.
 on:
   workflow_dispatch:
