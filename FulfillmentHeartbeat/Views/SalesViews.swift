@@ -285,18 +285,23 @@ struct OverviewSalesPhoneCard: View {
             title: label,
             eyebrow: "Sales",
             subtitle: count.flatMap { $0 > 0 ? ($0 == 1 ? "1 store" : "\($0) stores") : nil },
-            chips: [
-                PhoneMetricChip(label: "Sales $", value: HeartbeatFormat.money(pack.sales), health: cardHealth),
-                PhoneMetricChip(label: "YoY", value: HeartbeatFormat.pct(pack.yoy), health: cardHealth),
-                PhoneMetricChip(label: "Orders", value: HeartbeatFormat.num(pack.orders, digits: 0)),
-                PhoneMetricChip(label: "Ord YoY", value: HeartbeatFormat.pct(pack.ordersYoy)),
-                PhoneMetricChip(label: "AOS", value: HeartbeatFormat.money(pack.aos)),
-                PhoneMetricChip(label: "AIV", value: HeartbeatFormat.num(pack.aiv, digits: 2)),
-                PhoneMetricChip(label: "Items/Txn", value: HeartbeatFormat.num(pack.ipt, digits: 1)),
-                PhoneMetricChip(label: "Items", value: HeartbeatFormat.num(pack.items, digits: 0))
-            ],
+            chips: Self.chips(pack: pack),
             health: cardHealth
         )
+    }
+
+    static func chips(pack: SalesPack) -> [PhoneMetricChip] {
+        let cardHealth = pack.health == .none && (pack.sales ?? 0) > 0 ? Health.good : pack.health
+        return [
+            PhoneMetricChip(label: "Sales $", value: HeartbeatFormat.money(pack.sales), health: cardHealth),
+            PhoneMetricChip(label: "YoY", value: HeartbeatFormat.pct(pack.yoy), health: cardHealth),
+            PhoneMetricChip(label: "Orders", value: HeartbeatFormat.num(pack.orders, digits: 0)),
+            PhoneMetricChip(label: "Ord YoY", value: HeartbeatFormat.pct(pack.ordersYoy)),
+            PhoneMetricChip(label: "AOS", value: HeartbeatFormat.money(pack.aos)),
+            PhoneMetricChip(label: "AIV", value: HeartbeatFormat.num(pack.aiv, digits: 2)),
+            PhoneMetricChip(label: "Items/Txn", value: HeartbeatFormat.num(pack.ipt, digits: 1)),
+            PhoneMetricChip(label: "Items", value: HeartbeatFormat.num(pack.items, digits: 0)),
+        ]
     }
 }
 

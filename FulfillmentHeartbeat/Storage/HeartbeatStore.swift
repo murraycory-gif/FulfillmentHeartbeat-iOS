@@ -723,7 +723,10 @@ final class HeartbeatStore: ObservableObject {
     func summary(for section: MetricSection) -> SectionSummary {
         let painted = cachedSummaries.first { $0.section == section }
             ?? HeartbeatMath.summarize(section, rows: displayRows(for: section), upload: upload(for: section))
-        guard !filters.isActive else { return painted }
+        if filters.isActive {
+            let rows = section == .sales ? salesStores() : seatRows(for: section)
+            return PulseLaunch.dashboardSeatCard(painted, rows: rows, filters: filters)
+        }
         var next = PulseLaunch.companyCommandCenterCard(
             painted,
             chrome: packChrome,

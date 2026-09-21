@@ -197,6 +197,11 @@ enum CommandCenterLayout {
         return used + 1 >= remaining || remaining <= minGlanceHeight
     }
 
+    /// Dashboard section navy title. Filter | week stays on the hub header.
+    static func dashboardSectionOverviewTitle(_ section: MetricSection) -> String {
+        "\(glanceTitle(section)) Overview"
+    }
+
     static func glanceTitle(_ section: MetricSection) -> String {
         switch section {
         case .lostRevenue: return "Loss"
@@ -395,19 +400,8 @@ struct PhoneCommandCenterHome: View {
 
     @ViewBuilder
     private func dashboardSection(_ card: SectionSummary, hero: Bool) -> some View {
-        VStack(alignment: .leading, spacing: CommandCenterLayout.phoneHomeStackSpacing()) {
-            if hero {
-                PhoneCommandHeroCard(card: card, usesMetricFactStoreCount: true) {
-                    open(card.section)
-                }
-            } else {
-                PhoneCommandGlanceCard(card: card, usesMetricFactStoreCount: true) {
-                    open(card.section)
-                }
-            }
-            if PulseLaunch.shouldShowDashboardThisWeekDetail() {
-                PhoneCompanyThisWeekBlock(section: card.section)
-            }
+        PhoneDashboardMetricBlock(card: card, hero: hero) {
+            open(card.section)
         }
     }
 
@@ -419,6 +413,55 @@ struct PhoneCommandCenterHome: View {
     private var glanceCards: [SectionSummary] {
         _ = store.seatPaintStamp
         return CommandCenterLayout.glanceSections.map { store.summary(for: $0) }
+    }
+}
+
+/// Navy `{Section} Overview` + one RESULT + This Week grid card.
+struct PhoneDashboardMetricBlock: View {
+    @EnvironmentObject private var store: HeartbeatStore
+    let card: SectionSummary
+    var hero: Bool = false
+    let action: () -> Void
+
+    private var painted: SectionSummary {
+        let next = store.paintedCommandCenterCard(card)
+        let rows = next.section == .sales ? store.salesStores() : store.seatRows(for: next.section)
+        if PulseLaunch.shouldPaintDashboardResultFromActiveSeat() {
+            return PulseLaunch.dashboardSeatCard(next, rows: rows, filters: store.filters)
+        }
+        guard PulseLaunch.shouldUseMetricFactStoreCountOnSectionPage() else { return next }
+        return PulseLaunch.metricPageHeroCard(next, rows: rows)
+    }
+
+    var body: some View {
+        let painted = self.painted
+        VStack(alignment: .leading, spacing: CommandCenterLayout.phoneHomeStackSpacing()) {
+            if PulseLaunch.shouldShowDashboardSectionOverviewBanner() {
+                PhoneCompactPageBanner(
+                    title: CommandCenterLayout.dashboardSectionOverviewTitle(painted.section),
+                    health: CommandCenterLayout.displayedHealth(painted)
+                )
+            }
+            PhoneScorecardRow(
+                title: CommandCenterLayout.glanceTitle(painted.section),
+                subtitle: CommandCenterLayout.phoneScorecardSubtitle(painted),
+                chips: dashboardChips(painted),
+                health: CommandCenterLayout.displayedHealth(painted),
+                onTap: action
+            )
+            .frame(minHeight: hero
+                ? CommandCenterLayout.phoneHeroMinHeight()
+                : CommandCenterLayout.phoneGlanceMinHeight())
+        }
+    }
+
+    private func dashboardChips(_ painted: SectionSummary) -> [PhoneMetricChip] {
+        var chips = CommandCenterLayout.phoneScorecardChips(painted)
+        if PulseLaunch.shouldShowDashboardThisWeekDetail(),
+           PulseLaunch.shouldMergeDashboardResultAndThisWeek() {
+            chips.append(contentsOf: PhoneThisWeekChrome.chips(section: painted.section, store: store))
+        }
+        return chips
     }
 }
 

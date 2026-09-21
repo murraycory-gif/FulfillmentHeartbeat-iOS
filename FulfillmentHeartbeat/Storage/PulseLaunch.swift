@@ -906,6 +906,19 @@ enum PulseLaunch {
     /// card used on the metric page. Soft FAIL a second invented layout.
     static func shouldShowDashboardThisWeekDetail() -> Bool { true }
 
+    /// RESULT + This Week grid share one PhoneScorecardRow. Soft FAIL an
+    /// orphan THIS WEEK divider between two cards.
+    static func shouldMergeDashboardResultAndThisWeek() -> Bool { true }
+
+    /// Navy `{Section} Overview` above each dashboard metric block.
+    /// Filter | week stays on the main Dashboard header.
+    static func shouldShowDashboardSectionOverviewBanner() -> Bool { true }
+
+    /// Filtered Dashboard RESULT uses the active seat's fact rows — same
+    /// pool as This Week / metricStoreCount. Soft FAIL company $16.86M
+    /// on a Jewel (or any Region / Division / District / OM / Store) seat.
+    static func shouldPaintDashboardResultFromActiveSeat() -> Bool { true }
+
     /// Sales already paints week total via `shouldShowSalesDayWeekBlock`.
     /// Every other metric section mounts the shared company This Week card.
     static func shouldShowMetricCompanyThisWeekRollup(
@@ -1500,6 +1513,24 @@ enum PulseLaunch {
     static func metricPageHeroCard(_ card: SectionSummary, rows: [MetricRow]) -> SectionSummary {
         guard shouldUseMetricFactStoreCountOnSectionPage() else { return card }
         var next = card
+        next.storeCount = HeartbeatMath.metricStoreCount(card.section, rows: rows)
+        return next
+    }
+
+    /// Company keeps pack/chrome RESULT. A filter seat rebuilds headline +
+    /// health from fact rows so RESULT cannot stay Total Company while N is Jewel.
+    static func dashboardSeatCard(
+        _ card: SectionSummary,
+        rows: [MetricRow],
+        filters: DashboardFilters
+    ) -> SectionSummary {
+        guard shouldPaintDashboardResultFromActiveSeat(), filters.isActive else {
+            return metricPageHeroCard(card, rows: rows)
+        }
+        let facts = HeartbeatMath.metricFactRows(card.section, rows: rows)
+        var next = HeartbeatMath.summarize(card.section, rows: facts, upload: nil)
+        next.lastFilename = card.lastFilename
+        next.lastUploadedAt = card.lastUploadedAt
         next.storeCount = HeartbeatMath.metricStoreCount(card.section, rows: rows)
         return next
     }

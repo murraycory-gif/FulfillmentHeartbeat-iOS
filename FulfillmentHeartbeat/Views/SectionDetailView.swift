@@ -1382,6 +1382,37 @@ struct PhoneSectionPage: View {
     }
 }
 
+/// Shared This Week chips — metric pages and the merged Dashboard card.
+enum PhoneThisWeekChrome {
+    static func factRows(section: MetricSection, store: HeartbeatStore) -> [MetricRow] {
+        section == .sales ? store.salesStores() : store.seatRows(for: section)
+    }
+
+    static func companyRows(section: MetricSection, store: HeartbeatStore) -> [MetricRow] {
+        var rows = store.seatRows(for: section)
+        if !store.filters.isActive,
+           section == .lostRevenue,
+           let market = store.lostRevenueMarketRow(),
+           !rows.contains(where: { $0.textPayload["lost_grain"] == "market" }) {
+            rows.append(market)
+        }
+        return rows
+    }
+
+    static func chips(section: MetricSection, store: HeartbeatStore) -> [PhoneMetricChip] {
+        if section == .sales {
+            return OverviewSalesPhoneCard.chips(pack: SalesPack(rows: store.salesStores()))
+        }
+        let rows = companyRows(section: section, store: store)
+        let scored = HeartbeatMath.dashboardTableValues(section, rows: rows)
+        let storeCount = HeartbeatMath.metricStoreCount(section, rows: factRows(section: section, store: store))
+        let health = scored.health == .none && storeCount > 0 ? Health.good : scored.health
+        return zip(HeartbeatMath.dashboardTableHeaders(section), scored.values).map { header, value in
+            PhoneMetricChip(label: header, value: value, health: health)
+        }
+    }
+}
+
 /// Total Company This Week rollup. Same PhoneScorecardRow chrome as region cards.
 struct PhoneCompanyThisWeekBlock: View {
     @EnvironmentObject private var store: HeartbeatStore
@@ -1389,7 +1420,10 @@ struct PhoneCompanyThisWeekBlock: View {
 
     var body: some View {
         let seat = CommandCenterLayout.overviewSeatLabel(store.filters)
-        let storeCount = HeartbeatMath.metricStoreCount(section, rows: factRows)
+        let storeCount = HeartbeatMath.metricStoreCount(
+            section,
+            rows: PhoneThisWeekChrome.factRows(section: section, store: store)
+        )
         VStack(alignment: .leading, spacing: CommandCenterLayout.phoneHomeStackSpacing()) {
             PhoneSectionHeading(title: "This Week")
             if section == .sales {
@@ -1399,8 +1433,10 @@ struct PhoneCompanyThisWeekBlock: View {
                     pack: SalesPack(rows: store.salesStores())
                 )
             } else {
-                let rows = companyRows
-                let scored = HeartbeatMath.dashboardTableValues(section, rows: rows)
+                let scored = HeartbeatMath.dashboardTableValues(
+                    section,
+                    rows: PhoneThisWeekChrome.companyRows(section: section, store: store)
+                )
                 let health = scored.health == .none && storeCount > 0 ? Health.good : scored.health
                 PhoneScorecardRow(
                     title: seat,
@@ -1408,29 +1444,11 @@ struct PhoneCompanyThisWeekBlock: View {
                     subtitle: storeCount > 0
                         ? (storeCount == 1 ? "1 store" : "\(storeCount) stores")
                         : nil,
-                    chips: zip(HeartbeatMath.dashboardTableHeaders(section), scored.values).map { header, value in
-                        PhoneMetricChip(label: header, value: value, health: health)
-                    },
+                    chips: PhoneThisWeekChrome.chips(section: section, store: store),
                     health: health
                 )
             }
         }
-    }
-
-    private var factRows: [MetricRow] {
-        section == .sales ? store.salesStores() : store.seatRows(for: section)
-    }
-
-    /// Same store plane as region cards, plus pack company market row for Loss.
-    private var companyRows: [MetricRow] {
-        var rows = store.seatRows(for: section)
-        if !store.filters.isActive,
-           section == .lostRevenue,
-           let market = store.lostRevenueMarketRow(),
-           !rows.contains(where: { $0.textPayload["lost_grain"] == "market" }) {
-            rows.append(market)
-        }
-        return rows
     }
 }
 
