@@ -274,7 +274,7 @@ enum HubLayout {
     static var isPhoneDevice: Bool { profile.kind == .phone || livePhoneIdiom }
     static var isPadDevice: Bool { profile.kind == .pad && !livePhoneIdiom }
     static var isMac: Bool { profile.kind == .mac }
-    /// Live seat hub. Flag OFF → false. iPhone only while P1.
+    /// Live seat hub. Flag ON → iPhone + iPad. Mac stays Command Center.
     static var usesSeatFirstShell: Bool {
         PulseLaunch.shouldMountSeatHub(mac: isMac, phone: isPhoneDevice, pad: isPadDevice)
     }

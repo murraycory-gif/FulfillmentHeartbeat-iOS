@@ -1305,22 +1305,22 @@ enum PulseLaunch {
         }
     }
 
-    /// Architecture P1 cutover flag. Default OFF — CompactNav / MainHub stays.
-    /// P2 later: turn on, then enable iPad and retire section Pages.
-    static func seatFirstPhoneEnabled() -> Bool { false }
+    /// Grain-first seat shell for iPhone + iPad cable PASS.
+    /// One page per who-filter; no Sales/Loss/Path section Pages.
+    static func seatFirstPhoneEnabled() -> Bool { true }
 
-    /// Soft FAIL iPad seat hub until the phone flag PASSes. P2 later.
-    static func shouldEnableSeatFirstOnIPad() -> Bool { false }
+    /// iPad uses the same seat page as iPhone. Mac stays Command Center.
+    static func shouldEnableSeatFirstOnIPad() -> Bool { true }
 
-    /// Mount `SeatHubView` only when the flag is ON and this is an iPhone.
+    /// Mount `SeatHubView` on iPhone and iPad when the flag is ON. Never Mac.
     static func shouldMountSeatHub(mac: Bool, phone: Bool, pad: Bool) -> Bool {
         guard seatFirstPhoneEnabled() else { return false }
         if mac { return false }
-        if pad, !shouldEnableSeatFirstOnIPad() { return false }
+        if pad { return shouldEnableSeatFirstOnIPad() }
         return phone
     }
 
-    /// Live idiom wrapper. Flag OFF → false on every device.
+    /// Live idiom wrapper. Mac always false. Phone + iPad follow the flags.
     static func shouldUseSeatFirstShell(mac: Bool) -> Bool {
         shouldMountSeatHub(
             mac: mac,
@@ -1334,10 +1334,11 @@ enum PulseLaunch {
         !seatFirstPhoneEnabled()
     }
 
-    /// Soft FAIL mounting every PhoneSectionPage / metric host on the seat page.
+    /// Do not mount every PhoneSectionPage host on first paint (Jetsam).
+    /// Seat page stacks them after chrome via `showHeavy`.
     static func shouldMountEverySeatMetricHostAtOnce() -> Bool { false }
 
-    /// Seat page paints scoreboard chrome first; child tables / pickers fill after.
+    /// Seat page paints scoreboard chrome first; stacked KPI modules fill after.
     static func shouldDeferSeatPageHeavyUntilAfterChrome() -> Bool { true }
 
     /// Soft FAIL company / Region / Division / District / OM picker tape.
