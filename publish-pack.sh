@@ -1,15 +1,13 @@
 #!/bin/sh
-# Publish the on-device SQLite pack to Supabase so testers never parse Excel.
+# Publish the on-device SQLite pack to R2 so testers never parse Excel.
 # Usage:
+#   R2_ACCESS_KEY_ID=… R2_SECRET_ACCESS_KEY=… R2_ACCOUNT_ID=… R2_BUCKET=heartbeat-packs \
 #   DEVICE_UDID=676FA816-88AE-59D9-A89D-5C17BFC2DA96 ./publish-pack.sh
 set -eu
 cd "$(dirname "$0")"
 
 BUNDLE_ID="com.corymurray.FulfillmentHeartbeat"
 UDID="${DEVICE_UDID:-}"
-PROJECT="https://pcnjujfmlsklhrosxzlt.supabase.co"
-KEY="sb_publishable_T3Pzm01sMXCv2rQaCeP_Kg_4ao2M5zd"
-BUCKET="heartbeat-packs"
 OBJECT="current.sqlite"
 LOCAL="/tmp/heartbeat-current.sqlite"
 
@@ -37,33 +35,9 @@ if [ "$BYTES" -lt 50000 ]; then
   exit 1
 fi
 
-echo "Uploading current.sqlite ($BYTES bytes) to $BUCKET…"
-CODE=$(curl -sS -o /tmp/heartbeat-pack-upload.txt -w "%{http_code}" \
-  -X POST \
-  -H "Authorization: Bearer $KEY" \
-  -H "apikey: $KEY" \
-  -H "Content-Type: application/octet-stream" \
-  -H "x-upsert: true" \
-  --data-binary @"$LOCAL" \
-  "$PROJECT/storage/v1/object/$BUCKET/$OBJECT")
+echo "Uploading current.sqlite ($BYTES bytes) to R2…"
+chmod +x scripts/publish-r2.sh
+./scripts/publish-r2.sh "$LOCAL" "$OBJECT" application/octet-stream
 
-if [ "$CODE" != "200" ] && [ "$CODE" != "201" ]; then
-  CODE=$(curl -sS -o /tmp/heartbeat-pack-upload.txt -w "%{http_code}" \
-    -X PUT \
-    -H "Authorization: Bearer $KEY" \
-    -H "apikey: $KEY" \
-    -H "Content-Type: application/octet-stream" \
-    -H "x-upsert: true" \
-    --data-binary @"$LOCAL" \
-    "$PROJECT/storage/v1/object/$BUCKET/$OBJECT")
-fi
-
-if [ "$CODE" != "200" ] && [ "$CODE" != "201" ]; then
-  echo "Upload failed ($CODE)."
-  cat /tmp/heartbeat-pack-upload.txt
-  echo
-  echo "In Supabase → Storage → heartbeat-packs → Policies, allow INSERT/UPDATE for anon."
-  exit 1
-fi
-
-echo "Published current.sqlite. Testers open Heartbeat and the pack is already there."
+echo "Published current.sqlite. Testers force-quit Heartbeat and open it again."
+echo "Download: https://pub-eafb309f53464d98902d12ac107f0f1e.r2.dev/current.sqlite"

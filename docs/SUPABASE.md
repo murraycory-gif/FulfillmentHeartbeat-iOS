@@ -1,9 +1,11 @@
 # Heartbeat pack (what testers open)
 
 Project: `https://pcnjujfmlsklhrosxzlt.supabase.co`  
-Bucket: `heartbeat-packs`
+Workbook bucket: `heartbeat-packs` (xlsx list/download only)
 
-Testers download **`current.sqlite`** and **`pulse-cards.json`**.  
+**Packs are not served from Supabase.** Testers download `current.sqlite`
+from Cloudflare R2. See [SQLITE.md](SQLITE.md). This does not require Supabase Pro.
+
 They never download or parse Excel.
 
 ## Daily

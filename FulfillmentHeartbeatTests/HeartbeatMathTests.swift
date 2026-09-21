@@ -1345,5 +1345,29 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertEqual(joLost?.storeCount, 179)
         XCTAssertEqual(joLost?.headline ?? 0, 451_085, accuracy: 5)
     }
+
+    func testPackDownloadsUseR2WorkbooksStayOnSupabase() {
+        XCTAssertEqual(
+            PulseCloud.defaultPackHost,
+            "https://pub-eafb309f53464d98902d12ac107f0f1e.r2.dev"
+        )
+        XCTAssertEqual(PulseCloud.packHostBaseURL.absoluteString, PulseCloud.defaultPackHost)
+        let pack = PulseCloud.objectDownloadURLs(PulseCloud.object)
+        XCTAssertEqual(pack.count, 1)
+        XCTAssertEqual(
+            pack.first?.absoluteString,
+            "\(PulseCloud.defaultPackHost)/current.sqlite"
+        )
+        XCTAssertFalse(pack.first?.absoluteString.contains("supabase") == true)
+        XCTAssertEqual(
+            PulseCloud.objectDownloadURLs("packs/seat/company/all/current.sqlite").first?.absoluteString,
+            "\(PulseCloud.defaultPackHost)/packs/seat/company/all/current.sqlite"
+        )
+        let workbook = PulseCloud.objectDownloadURLs("Heartbeat Daily Report.xlsx")
+        XCTAssertFalse(workbook.isEmpty)
+        XCTAssertTrue(workbook.allSatisfy { $0.host?.contains("supabase.co") == true })
+        XCTAssertTrue(workbook.contains { $0.absoluteString.contains("/object/authenticated/") })
+        XCTAssertFalse(workbook.contains { $0.absoluteString.contains("r2.dev") })
+    }
 }
 

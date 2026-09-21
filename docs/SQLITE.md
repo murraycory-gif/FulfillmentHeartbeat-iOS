@@ -1,7 +1,15 @@
 # Heartbeat pack
 
 The iPad is a **viewer**. GitHub Actions cooks `Heartbeat Daily Report.xlsx`
-into `current.sqlite` and publishes it to the `heartbeat-packs` bucket.
+into `current.sqlite` and publishes it to Cloudflare R2.
+
+Download: `https://pub-eafb309f53464d98902d12ac107f0f1e.r2.dev/current.sqlite`
+
+Company seat key (same thin pack on this tip): `https://pub-eafb309f53464d98902d12ac107f0f1e.r2.dev/packs/seat/company/all/current.sqlite`
+
+The Daily Report workbook stays on Supabase Storage. `r2.dev` is rate-limited.
+Swap `HBPackHost` in `FulfillmentHeartbeat/Info.plist` (and `PulseCloud.defaultPackHost`)
+to a custom domain later. Cook stays on the weekday `*/15` schedule.
 
 ## How a filter works
 
