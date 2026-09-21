@@ -750,65 +750,31 @@ struct PhoneMetricChip: Identifiable, Hashable {
     var id: String { label }
 }
 
-/// Tight phone page header. Same white Labor language as PhoneScorecardRow
-/// (accent strip, STATUS pill) but no RESULT grid — never expand into a cavern
-/// when the chrome VStack proposes leftover height.
+/// Classic Albertsons navy overview banner. Compact — no RESULT cavern,
+/// no white Labor scorecard chrome. STATUS pill stays on navy.
 struct PhoneCompactPageBanner: View {
     let title: String
-    var subtitle: String? = nil
     var health: Health = .none
 
     var body: some View {
-        let corner = CommandCenterLayout.phoneScorecardCorner()
         let compact = PulseLaunch.shouldUseCompactPhoneCommandChrome()
-        HStack(alignment: .center, spacing: compact ? 8 : 12) {
-            VStack(alignment: .leading, spacing: compact ? 2 : 3) {
-                Text(title)
-                    .font(AppTheme.rounded(compact ? .headline : .title3, weight: .bold))
-                    .foregroundStyle(AppTheme.text)
-                    .lineLimit(2)
-                    .fixedSize(horizontal: false, vertical: true)
-                if let subtitle, !subtitle.isEmpty {
-                    Text(subtitle)
-                        .font((compact ? Font.subheadline : Font.body).weight(.semibold))
-                        .foregroundStyle(AppTheme.textSecondary)
-                        .lineLimit(2)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
+        let corner: CGFloat = compact ? 10 : 14
+        HStack(alignment: .center, spacing: compact ? 8 : 10) {
+            Text(title)
+                .font(HubLayout.phoneBannerTitleFont())
+                .foregroundStyle(Color.white)
+                .lineLimit(2)
+                .minimumScaleFactor(0.7)
+                .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 8)
-            VStack(alignment: .trailing, spacing: compact ? 2 : 4) {
-                Text("STATUS")
-                    .font(.caption.weight(.heavy))
-                    .tracking(0.7)
-                    .foregroundStyle(AppTheme.textTertiary)
-                HealthBadge(health: health, prominent: true, compact: compact)
-            }
+            HealthBadge(health: health, prominent: true, compact: compact)
         }
-        .padding(.leading, CommandCenterLayout.phoneScorecardAccentWidth() + (compact ? 10 : 12))
-        .padding(.trailing, compact ? 10 : 12)
-        .padding(.vertical, compact ? HubLayout.phoneBannerVerticalPadding() + 4 : 10)
+        .padding(.horizontal, compact ? 10 : 14)
+        .padding(.vertical, compact ? HubLayout.phoneBannerVerticalPadding() : 10)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white, in: RoundedRectangle(cornerRadius: corner, style: .continuous))
-        .overlay(alignment: .leading) {
-            UnevenRoundedRectangle(
-                cornerRadii: RectangleCornerRadii(
-                    topLeading: corner,
-                    bottomLeading: corner,
-                    bottomTrailing: 0,
-                    topTrailing: 0
-                ),
-                style: .continuous
-            )
-            .fill(AppTheme.healthInk(health == .none ? .good : health))
-            .frame(width: CommandCenterLayout.phoneScorecardAccentWidth())
-        }
-        .overlay(
-            RoundedRectangle(cornerRadius: corner, style: .continuous)
-                .stroke(AppTheme.healthInk(health == .none ? .good : health).opacity(0.22), lineWidth: 1)
-        )
+        .background(AppTheme.blue, in: RoundedRectangle(cornerRadius: corner, style: .continuous))
         .fixedSize(horizontal: false, vertical: true)
-        .accessibilityLabel("\(title), \(subtitle ?? ""), \(health.label)")
+        .accessibilityLabel("\(title), \(health.label)")
     }
 }
 

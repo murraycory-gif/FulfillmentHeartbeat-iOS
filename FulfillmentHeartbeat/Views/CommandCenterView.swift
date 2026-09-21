@@ -277,6 +277,52 @@ enum CommandCenterLayout {
         PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 88 : 104
     }
 
+    /// Finest active filter grain. Store / OM / District / Division / Region,
+    /// else Total Company. No invented seat names.
+    static func overviewSeatLabel(_ filters: DashboardFilters) -> String {
+        if !filters.store.isEmpty {
+            return overviewGrain(filters.store, suffix: "Store", grainFirst: true)
+        }
+        if !filters.om.isEmpty {
+            return overviewGrain(filters.om, suffix: "OM")
+        }
+        if !filters.district.isEmpty {
+            return overviewGrain(filters.district, suffix: "District")
+        }
+        if !filters.division.isEmpty {
+            return overviewGrain(filters.division, suffix: "Division")
+        }
+        if !filters.region.isEmpty {
+            return overviewGrain(filters.region, suffix: "Region")
+        }
+        return "Total Company"
+    }
+
+    /// Pack `data_window` when present. Otherwise the existing Current Week
+    /// label — never invent a week number.
+    static func overviewWeekLabel(_ window: String?) -> String {
+        let trimmed = window?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? "Current Week" : trimmed
+    }
+
+    static func overviewBannerCopy(filters: DashboardFilters, weekWindow: String?) -> String {
+        "\(overviewSeatLabel(filters)) Overview | \(overviewWeekLabel(weekWindow))"
+    }
+
+    private static func overviewGrain(_ raw: String, suffix: String, grainFirst: Bool = false) -> String {
+        let values = DashboardFilters.parts(raw).map { HeartbeatMath.displayGrainLabel($0) }.filter { !$0.isEmpty }
+        guard !values.isEmpty else { return "Total Company" }
+        let label: String
+        if values.count == 1 {
+            label = values[0]
+        } else if values.count == 2 {
+            label = "\(values[0]), \(values[1])"
+        } else {
+            label = "\(values[0]) + \(values.count - 1) more"
+        }
+        return grainFirst ? "\(suffix) \(label)" : "\(label) \(suffix)"
+    }
+
     /// One SF Symbol per metric. Reuses the scorecard / sidebar glyph.
     static func glanceSymbol(_ section: MetricSection) -> String {
         section.symbol

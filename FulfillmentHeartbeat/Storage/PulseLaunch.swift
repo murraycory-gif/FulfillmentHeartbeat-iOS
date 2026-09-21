@@ -1198,12 +1198,14 @@ enum PulseLaunch {
     /// leftover-fill tiles stay. Visual only — same bindings and filters.
     static func shouldPaintPhoneHeroesAsScorecards() -> Bool { true }
 
-    /// Operational Heartbeat / compact page banner is a tight white header.
+    /// Operational Heartbeat / compact page banner is a tight navy header.
     /// Do not mount PhoneScorecardRow there — empty RESULT chips leftover-fill
-    /// the chrome VStack into a cavern.
+    /// the chrome VStack into a cavern. Soft FAIL white Labor chrome on this bar.
     static func shouldPaintPhonePageBannerAsScorecardRow() -> Bool { false }
 
     static func shouldUseCompactPhonePageBanner() -> Bool { true }
+
+    static func shouldPaintPhonePageBannerNavy() -> Bool { true }
 
     /// Compact phone header + Filters keep 44pt hits but drop title3 chrome.
     static func shouldUseCompactPhoneHeaderChrome() -> Bool { true }

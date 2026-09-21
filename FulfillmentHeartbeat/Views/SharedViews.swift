@@ -10884,18 +10884,12 @@ struct HubBrandBar: View {
 
     private var compactPageBanner: some View {
         PhoneCompactPageBanner(
-            title: compactBannerTitle,
-            subtitle: compactBannerSubtitle,
+            title: CommandCenterLayout.overviewBannerCopy(
+                filters: store.filters,
+                weekWindow: compactBannerWindow
+            ),
             health: compactBannerHealth
         )
-    }
-
-    private var compactBannerSubtitle: String {
-        let accessory = compactBannerAccessory
-        if let window = compactBannerWindow, !window.isEmpty {
-            return accessory.isEmpty ? window : "\(accessory) · \(window)"
-        }
-        return accessory
     }
 
     private var compactBannerHealth: Health {
@@ -10919,19 +10913,6 @@ struct HubBrandBar: View {
             return .from(section: section)
         }
         return .dashboard
-    }
-
-    private var compactBannerAccessory: String {
-        if !store.filters.isActive { return "Total Company" }
-        let active = store.filters.summaryParts.filter(\.active).map(\.text)
-        return active.isEmpty ? "Total Company" : active.joined(separator: " · ")
-    }
-
-    private var compactBannerTitle: String {
-        switch compactBannerDestination {
-        case .dashboard: return "Operational Heartbeat"
-        default: return compactBannerDestination.title
-        }
     }
 
     private var compactBannerWindow: String? {
