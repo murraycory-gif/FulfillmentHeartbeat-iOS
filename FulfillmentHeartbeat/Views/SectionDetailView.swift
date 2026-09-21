@@ -1224,6 +1224,7 @@ struct PhoneSectionPage: View {
     private func metricGrainRows(for grain: DashScopeGrain) -> [HeartbeatMath.DashboardGrainTableRow] {
         let labor = LaborRollupGrain(grain)
         let stores = store.seatRows(for: section)
+        let pphSeat = section == .dynacap ? store.seatRows(for: .pph) : []
         var buckets: [String: [MetricRow]] = [:]
         for row in stores {
             guard let key = RollupMarketFill.acceptedGrainKey(row, grain: labor) else { continue }
@@ -1235,7 +1236,9 @@ struct PhoneSectionPage: View {
             ) == .orderedAscending
         }.map { key in
             let slice = buckets[key] ?? []
-            let scored = HeartbeatMath.dashboardTableValues(section, rows: slice)
+            let allowed = Set(slice.map { HeartbeatMath.canonicalStore($0.storeNumber) }.filter { !$0.isEmpty })
+            let pphSlice = pphSeat.filter { allowed.contains(HeartbeatMath.canonicalStore($0.storeNumber)) }
+            let scored = HeartbeatMath.dashboardTableValues(section, rows: slice, pphRows: pphSlice)
             let storeCount = HeartbeatMath.metricStoreCount(section, rows: slice)
             return HeartbeatMath.DashboardGrainTableRow(
                 label: key,
@@ -1275,7 +1278,11 @@ struct PhoneSectionPage: View {
     }
 
     private func storeCard(_ row: MetricRow) -> some View {
-        let scored = HeartbeatMath.dashboardTableValues(section, rows: [row])
+        let storeKey = HeartbeatMath.canonicalStore(row.storeNumber)
+        let pphRows = section == .dynacap && !storeKey.isEmpty
+            ? store.seatRows(for: .pph).filter { HeartbeatMath.canonicalStore($0.storeNumber) == storeKey }
+            : []
+        let scored = HeartbeatMath.dashboardTableValues(section, rows: [row], pphRows: pphRows)
         let health = HeartbeatMath.health(for: section, row: row)
         return PhoneScorecardRow(
             title: HeartbeatMath.storeDisplayLabel(row),
@@ -1406,7 +1413,8 @@ enum PhoneThisWeekChrome {
             return OverviewSalesPhoneCard.chips(pack: SalesPack(rows: store.salesStores()))
         }
         let rows = companyRows(section: section, store: store)
-        let scored = HeartbeatMath.dashboardTableValues(section, rows: rows)
+        let pphRows = section == .dynacap ? factRows(section: .pph, store: store) : []
+        let scored = HeartbeatMath.dashboardTableValues(section, rows: rows, pphRows: pphRows)
         let storeCount = HeartbeatMath.metricStoreCount(section, rows: factRows(section: section, store: store))
         let health = scored.health == .none && storeCount > 0 ? Health.good : scored.health
         return zip(HeartbeatMath.dashboardTableHeaders(section), scored.values).map { header, value in

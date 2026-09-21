@@ -966,7 +966,8 @@ enum HeartbeatMath {
     static func dashboardTableValues(
         _ section: MetricSection,
         rows: [MetricRow],
-        goalFallback: Double? = nil
+        goalFallback: Double? = nil,
+        pphRows: [MetricRow] = []
     ) -> (values: [String], health: Health) {
         let health = worstHealth(section, rows: rows)
         let dash = Array(repeating: "—", count: dashboardTableHeaders(section).count)
@@ -1044,10 +1045,12 @@ enum HeartbeatMath {
                 health
             )
         case .dynacap:
+            let pcs = average(rows.compactMap { $0.number("dynacap_rate", "pieces_per_hour") })
+            let pph = dynacapSeatPurePPH(dynacapRows: rows, pphRows: pphRows)
             return (
                 [
-                    HeartbeatFormat.num(average(rows.compactMap { $0.number("dynacap_rate", "pieces_per_hour") }), digits: 1),
-                    HeartbeatFormat.num(weekPurePPH(rows), digits: 1),
+                    HeartbeatFormat.num(pcs, digits: 1),
+                    HeartbeatFormat.num(pph, digits: 1),
                     HeartbeatFormat.pct(average(rows.compactMap { $0.number("utilization_pct", "pickup_util_pct") })),
                 ],
                 health
@@ -2204,6 +2207,15 @@ enum HeartbeatMath {
                 .map { canonicalStore($0.storeNumber) }
                 .filter { !$0.isEmpty }
         ).count
+    }
+
+    /// Dynacap PPH chip is the PPH-book week Pure PPH for this seat.
+    /// Soft FAIL substituting `dynacap_rate` / pieces per hour.
+    static func dynacapSeatPurePPH(dynacapRows: [MetricRow], pphRows: [MetricRow]) -> Double? {
+        if PulseLaunch.shouldFillDynacapPPHFromPPHSeat(), let pph = weekPurePPH(pphRows) {
+            return pph
+        }
+        return weekPurePPH(dynacapRows)
     }
 
     /// Week Pure PPH (Total) for the stores in `rows`. Multiple DATE rows collapse

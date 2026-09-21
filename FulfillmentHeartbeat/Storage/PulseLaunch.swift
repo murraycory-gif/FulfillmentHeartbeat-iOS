@@ -927,6 +927,10 @@ enum PulseLaunch {
         MetricSection.dashboardCards.contains(section)
     }
 
+    /// Dynacap This Week PPH chip uses the PPH-section week Pure PPH.
+    /// Soft FAIL painting dynacap_rate (60.6) into that chip.
+    static func shouldFillDynacapPPHFromPPHSeat() -> Bool { true }
+
     /// Sales already paints week total via `shouldShowSalesDayWeekBlock`.
     /// Every other metric section mounts the shared company This Week card.
     static func shouldShowMetricCompanyThisWeekRollup(
