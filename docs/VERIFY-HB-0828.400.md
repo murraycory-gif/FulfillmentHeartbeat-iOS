@@ -1,7 +1,7 @@
-# HB-0828.444 / 770 — verify (`seatFirstPhoneEnabled` OFF; CompactNav fallback)
+# HB-0828.445 / 771 — verify (`seatFirstPhoneEnabled` ON; iPhone + iPad seat shell)
 
 **Tip** `cursor/mac-catalyst-category-70dd` off `cursor/mac-share-attach-1006` (`300eb83`)
-**Stamp** `HB-0828.444  1.0 (770)` · bundle `com.corymurray.FulfillmentHeartbeat`
+**Stamp** `HB-0828.445  1.0 (771)` · bundle `com.corymurray.FulfillmentHeartbeat`
 **752 Soft KEEP:** first-paint current pack gold + Share attach / `UIActivityViewController`.
 
 Soft FAIL 2026-09-14: Mac Catalyst TestFlight upload of HB **752** rejected **ASC 90242** — Info.plist missing `LSApplicationCategoryType`. This root sets `public.app-category.business` in Heartbeat `Info.plist` and target `INFOPLIST_KEY_LSApplicationCategoryType` (`GENERATE_INFOPLIST_FILE = NO`).
@@ -35,9 +35,9 @@ Must **compile**. Stay on Command Center. Do not open a section first.
 
 | Check | Pass |
 |---|---|
-| Sidebar stamp | `HB-0828.444  1.0 (770)` |
-| **Flag OFF** | `seatFirstPhoneEnabled == false`. iPhone + iPad open **CompactNav / MainHub** section Command Center. Soft FAIL if SeatHub mounts. |
-| **iPhone seat shell** | Behind the flag only. When ON (memo v3): Clear+crumb banner → seat identity → all KPIs at a glance + actionable strip → child tables → Store pickers. Soft FAIL iPad until P2. Soft FAIL sibling/Share banner clutter, vanity charts, Mac-on-phone. |
+| Sidebar stamp | `HB-0828.445  1.0 (771)` |
+| **Flags ON** | `seatFirstPhoneEnabled == true` and `shouldEnableSeatFirstOnIPad == true`. iPhone + iPad open **SeatHubView**. Soft FAIL CompactNav / Sales-vs-Loss-vs-Path Pages tabs. |
+| **iPhone + iPad seat shell** | Clear+crumb banner → seat identity → all KPIs at a glance + actionable strip → stacked PhoneSectionPage modules for the current who-filter → Store pickers only on Store. Soft FAIL sibling/Share banner clutter, vanity charts, Mac-on-phone. |
 | **Store pickers** | Soft FAIL pickers / fat company shopper tape above Store. |
 | **Mac Command Center** | Mac still opens Command Center + section Pages rail. Soft FAIL if Mac is forced onto the seat page. |
 | **ASC 90242** | Archived Mac Catalyst Info.plist has `LSApplicationCategoryType` = `public.app-category.business`. Upload is not rejected for missing category. |

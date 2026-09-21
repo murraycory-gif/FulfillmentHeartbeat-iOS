@@ -4,6 +4,7 @@ import SwiftUI
 struct SeatHubView: View {
     @EnvironmentObject private var store: HeartbeatStore
     @StateObject private var router = HubRouter()
+    @StateObject private var sheets = HubSheetPresenter()
 
     var body: some View {
         NavigationStack {
@@ -20,10 +21,14 @@ struct SeatHubView: View {
                 .navigationTitle("")
         }
         .environmentObject(router)
-        .sheet(isPresented: $router.showShare) {
+        .environmentObject(sheets)
+        .sheet(isPresented: $sheets.showShare) {
             SharePulseSheet()
                 .environmentObject(store)
                 .environmentObject(router)
+        }
+        .onChange(of: sheets.showShare) { wasOpen, isOpen in
+            if wasOpen, !isOpen { store.endInteractiveSheet() }
         }
         .onAppear {
             store.setVisibleDestination(.dashboard)
@@ -98,14 +103,12 @@ struct SeatChromeBanner: View {
     }
 }
 
-/// Banner → seat identity → KPI scoreboard → child tables → Store pickers.
+/// Banner → seat identity → KPI scoreboard → every metric module for this who-filter.
+/// No Sales / Loss / Path Pages. Filter grain is the only switch.
 struct SeatPageView: View {
     @EnvironmentObject private var store: HeartbeatStore
-    @EnvironmentObject private var router: HubRouter
+    @EnvironmentObject private var sheets: HubSheetPresenter
     @State private var pageWidth: CGFloat = 390
-    @State private var storeLimit = 40
-    @State private var pickerLimit = 24
-    @State private var openShopper: String?
     @State private var showHeavy = false
 
     private var seat: PulseLaunch.SectionPageSeat {
@@ -137,12 +140,8 @@ struct SeatPageView: View {
             LazyVStack(alignment: .leading, spacing: 16) {
                 seatTitle
                 scoreboard
-                if showHeavy {
-                    childTables
-                    if PulseLaunch.shouldShowPickersOnSeatPage(filters: store.filters),
-                       !PulseLaunch.shouldLoadFatCompanyPickers() {
-                        storePickerBlock
-                    }
+                if showHeavy, PulseLaunch.shouldShowAllSeatMetricsInOneScroll() {
+                    metricStack
                 }
                 stamp
             }
@@ -167,14 +166,6 @@ struct SeatPageView: View {
         .onChange(of: store.filters.summary) { _, _ in
             showHeavy = false
             armHeavy()
-        }
-        .task(id: "\(store.filters.summary)|\(store.seatPaintStamp)|\(showHeavy)") {
-            guard showHeavy else { return }
-            await store.ensureSectionLoaded(.sales)
-            guard PulseLaunch.shouldShowPickersOnSeatPage(filters: store.filters) else { return }
-            guard !PulseLaunch.shouldLoadFatCompanyPickers() else { return }
-            await store.ensureSectionLoaded(.pickerScorecard)
-            await store.ensureSectionLoaded(.pickPathPicker)
         }
     }
 
@@ -228,146 +219,21 @@ struct SeatPageView: View {
         .accessibilityLabel("Executive KPI scoreboard")
     }
 
+    /// Same KPI stack at every grain. Region remounts these modules scoped to that seat.
     @ViewBuilder
-    private var childTables: some View {
-        let grains = PulseLaunch.sectionRollupGrains(filters: store.filters)
-        ForEach(grains, id: \.self) { grain in
-            childGrainTable(grain)
+    private var metricStack: some View {
+        ForEach(PulseLaunch.seatPageMetricSections(), id: \.self) { section in
+            PhoneSectionPage(section: section, embeddedInSeat: true)
         }
-        if PulseLaunch.shouldShowStoreTable(filters: store.filters) {
-            storeChildTable
-        }
-    }
-
-    @ViewBuilder
-    private func childGrainTable(_ grain: DashScopeGrain) -> some View {
-        let rows = salesRows(for: grain)
-        VStack(alignment: .leading, spacing: 8) {
-            SeatBlockHeading(title: grain.title)
-            if rows.isEmpty {
-                PhoneScorecardRow(
-                    title: "No \(grain.unit) in this seat",
-                    subtitle: "Adjust filters or wait for the Heartbeat pack.",
-                    health: .none
-                )
-            } else {
-                ForEach(rows) { row in
-                    Button {
-                        drill(grain: grain, rawLabel: row.label)
-                    } label: {
-                        OverviewSalesPhoneCard(
-                            label: HeartbeatMath.displayGrainLabel(row.label),
-                            count: grain == .store ? nil : row.storeCount,
-                            pack: row.pack
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var storeChildTable: some View {
-        let all = storeRows
-        VStack(alignment: .leading, spacing: 8) {
-            SeatBlockHeading(title: seat == .store ? "Store detail" : "Stores · \(all.count)")
-            if all.isEmpty {
-                PhoneScorecardRow(
-                    title: "No stores in this view",
-                    subtitle: "Adjust filters or wait for the Heartbeat pack.",
-                    health: .none
-                )
-            } else {
-                ForEach(Array(all.prefix(storeLimit))) { row in
-                    storeChildRow(row)
-                }
-                if all.count > storeLimit {
-                    Button {
-                        storeLimit += 40
-                    } label: {
-                        Text("Show more · \(storeLimit) of \(all.count)")
-                            .font(.body.weight(.semibold))
-                            .foregroundStyle(AppTheme.blue)
-                            .frame(maxWidth: .infinity, minHeight: HubLayout.phoneHitTarget, alignment: .leading)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-    }
-
-    private func storeChildRow(_ row: MetricRow) -> some View {
-        let pack = SalesPack(rows: [row])
-        let number = HeartbeatMath.canonicalStore(row.storeNumber)
-        return Button {
-            guard seat != .store else { return }
-            drill(grain: .store, rawLabel: number)
-        } label: {
-            OverviewSalesPhoneCard(
-                label: HeartbeatMath.storeDisplayLabel(row),
-                count: nil,
-                pack: pack
-            )
-        }
-        .buttonStyle(.plain)
-        .disabled(seat == .store)
-    }
-
-    @ViewBuilder
-    private var storePickerBlock: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            SeatBlockHeading(title: "Shoppers · LDAP")
-            PickerHighlightsPanel(
-                showPictures: PulseLaunch.shouldShowPickerIndividualPictures(filters: store.filters)
-            )
-            pickerShoppers
-        }
-    }
-
-    @ViewBuilder
-    private var pickerShoppers: some View {
-        let rows = store.pickerPage(focus: .all, sort: .pph, ascending: false, limit: pickerLimit)
-        let total = store.pickerCount(for: .all)
-        if rows.isEmpty {
-            PhoneScorecardRow(
-                title: store.pickerLoading ? "Loading shoppers…" : "No shoppers in this store",
-                subtitle: "Shoppers fill from the Heartbeat pack after ready.",
-                health: .none
-            )
-        } else {
-            ForEach(rows) { row in
-                PickerPhoneCard(
-                    snap: PickerLineSnap(row, division: row.division.isEmpty ? "Store" : row.division),
-                    expanded: openShopper == row.id.uuidString,
-                    onToggle: {
-                        openShopper = openShopper == row.id.uuidString ? nil : row.id.uuidString
-                    }
-                )
-            }
-            if total > pickerLimit {
-                Button {
-                    pickerLimit += 24
-                } label: {
-                    Text("Show more · \(pickerLimit) of \(total)")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(AppTheme.blue)
-                        .frame(maxWidth: .infinity, minHeight: HubLayout.phoneHitTarget, alignment: .leading)
-                }
-                .buttonStyle(.plain)
-            }
-        }
+        .id(store.filters.summary)
     }
 
     private var stamp: some View {
         HStack(spacing: 12) {
             if store.shareReady {
                 Button("Share") {
-                    var transaction = Transaction()
-                    transaction.animation = nil
-                    withTransaction(transaction) {
-                        router.showShare = true
-                    }
+                    store.beginInteractiveSheet()
+                    sheets.presentShare()
                 }
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(AppTheme.blue)
@@ -388,19 +254,6 @@ struct SeatPageView: View {
         .padding(.top, 8)
     }
 
-    private func salesRows(for grain: DashScopeGrain) -> [SalesRollupRow] {
-        var rows = SalesRollupBuilder.rows(
-            from: store.rollupStores(for: .sales),
-            grain: LaborRollupGrain(grain)
-        )
-        rows.removeAll { RollupMarketFill.hidesUnassignedMarket($0.label) }
-        return rows
-    }
-
-    private var storeRows: [MetricRow] {
-        store.seatRows(for: .sales).filter { !$0.storeNumber.isEmpty }
-    }
-
     private func armHeavy() {
         if !PulseLaunch.shouldDeferSeatPageHeavyUntilAfterChrome() {
             showHeavy = true
@@ -408,19 +261,6 @@ struct SeatPageView: View {
         }
         DispatchQueue.main.async {
             showHeavy = true
-        }
-    }
-
-    private func drill(grain: DashScopeGrain, rawLabel: String) {
-        let next = PulseLaunch.drillSeatFilters(
-            current: store.filters,
-            grain: grain,
-            rawLabel: rawLabel
-        )
-        var transaction = Transaction()
-        transaction.animation = nil
-        withTransaction(transaction) {
-            store.commitFilters(next)
         }
     }
 }

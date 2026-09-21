@@ -24,4 +24,4 @@ District 03 is 20 NorCal stores. Every section Stores N = 20.
 
 ## Stamp
 
-HB-0828.444 / 1.0 (770) — Seat hub behind `seatFirstPhoneEnabled` (default OFF). Memo v3: all KPIs at a glance + actionable strip + Clear/crumb. CompactNav fallback. iPhone-only when ON. Mac Command Center. THIS SEAT still gone. Company seat cap 40MB. 436 KEEP: Pick Path expand shoppers + Prep Store chrome.
+HB-0828.445 / 1.0 (771) — Seat hub ON for iPhone + iPad (`seatFirstPhoneEnabled` + `shouldEnableSeatFirstOnIPad`). One who-filter page stacks every KPI module; CompactNav / section Pages gone on phone+pad. Memo v3: all KPIs at a glance + actionable strip + Clear/crumb. Mac Command Center. THIS SEAT still gone. Company seat cap 40MB. 436 KEEP: Pick Path expand shoppers + Prep Store chrome.
