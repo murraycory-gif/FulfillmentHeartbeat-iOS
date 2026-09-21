@@ -305,8 +305,14 @@ enum CommandCenterLayout {
         return trimmed.isEmpty ? "Current Week" : trimmed
     }
 
+    /// Current Pages name — Dashboard, Sales, Labor. Soft FAIL filter grain here.
+    static func overviewPageTitle(_ dest: HubDestination) -> String {
+        dest.section?.title ?? dest.title
+    }
+
+    /// Line 2: `{Filter seat} | {week}`. Updates with the active filter.
     static func overviewBannerCopy(filters: DashboardFilters, weekWindow: String?) -> String {
-        "\(overviewSeatLabel(filters)) Overview | \(overviewWeekLabel(weekWindow))"
+        "\(overviewSeatLabel(filters)) | \(overviewWeekLabel(weekWindow))"
     }
 
     private static func overviewGrain(_ raw: String, suffix: String, grainFirst: Bool = false) -> String {

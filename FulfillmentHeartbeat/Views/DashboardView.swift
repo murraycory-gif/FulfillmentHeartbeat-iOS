@@ -752,29 +752,42 @@ struct PhoneMetricChip: Identifiable, Hashable {
 
 /// Classic Albertsons navy overview banner. Compact — no RESULT cavern,
 /// no white Labor scorecard chrome. STATUS pill stays on navy.
+/// Line 1 is the page name. Line 2 is `{Filter seat} | {week}`, smaller.
 struct PhoneCompactPageBanner: View {
     let title: String
+    var subtitle: String = ""
     var health: Health = .none
 
     var body: some View {
         let compact = PulseLaunch.shouldUseCompactPhoneCommandChrome()
         let corner: CGFloat = compact ? 10 : 14
         HStack(alignment: .center, spacing: compact ? 8 : 10) {
-            Text(title)
-                .font(HubLayout.phoneBannerTitleFont())
-                .foregroundStyle(Color.white)
-                .lineLimit(2)
-                .minimumScaleFactor(0.7)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 8)
+            VStack(alignment: .leading, spacing: compact ? 1 : 2) {
+                Text(title)
+                    .font(HubLayout.phoneBannerTitleFont())
+                    .foregroundStyle(Color.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(HubLayout.phoneBannerSubtitleFont())
+                        .foregroundStyle(Color.white.opacity(0.88))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
             HealthBadge(health: health, prominent: true, compact: compact)
+                .layoutPriority(1)
         }
         .padding(.horizontal, compact ? 10 : 14)
         .padding(.vertical, compact ? HubLayout.phoneBannerVerticalPadding() : 10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(AppTheme.blue, in: RoundedRectangle(cornerRadius: corner, style: .continuous))
         .fixedSize(horizontal: false, vertical: true)
-        .accessibilityLabel("\(title), \(health.label)")
+        .accessibilityLabel(subtitle.isEmpty ? "\(title), \(health.label)" : "\(title), \(subtitle), \(health.label)")
     }
 }
 

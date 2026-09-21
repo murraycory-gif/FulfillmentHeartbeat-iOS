@@ -1207,6 +1207,12 @@ enum PulseLaunch {
 
     static func shouldPaintPhonePageBannerNavy() -> Bool { true }
 
+    /// Compact navy banner line 1 is the current page name.
+    /// Soft FAIL putting the filter grain on line 1.
+    static func shouldShowPageNameOnCompactBanner() -> Bool { true }
+
+    static func shouldShowFilterGrainOnCompactBannerTitle() -> Bool { false }
+
     /// Pages + Filters + Share share one HubChromePill toolbar on the
     /// phone / iPad CompactNav header. Logo + Assist stay on the brand row.
     static func shouldUseCompactPagesFiltersShareToolbar() -> Bool { true }

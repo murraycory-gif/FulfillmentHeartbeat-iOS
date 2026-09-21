@@ -10960,7 +10960,8 @@ struct HubBrandBar: View {
 
     private var compactPageBanner: some View {
         PhoneCompactPageBanner(
-            title: CommandCenterLayout.overviewBannerCopy(
+            title: CommandCenterLayout.overviewPageTitle(compactBannerDestination),
+            subtitle: CommandCenterLayout.overviewBannerCopy(
                 filters: store.filters,
                 weekWindow: compactBannerWindow
             ),
