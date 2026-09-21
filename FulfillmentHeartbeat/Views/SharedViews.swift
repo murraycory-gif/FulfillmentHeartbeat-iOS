@@ -10883,14 +10883,32 @@ struct HubBrandBar: View {
     }
 
     private var compactPageBanner: some View {
-        HubBanner(
-            icon: compactBannerDestination.symbol,
+        PhoneScorecardRow(
             title: compactBannerTitle,
-            accessory: compactBannerAccessory,
-            trailing: compactBannerWindow,
-            clipped: false
+            subtitle: compactBannerSubtitle,
+            health: compactBannerHealth
         )
-        .clipShape(RoundedRectangle(cornerRadius: compact ? 10 : 14, style: .continuous))
+    }
+
+    private var compactBannerSubtitle: String {
+        let accessory = compactBannerAccessory
+        if let window = compactBannerWindow, !window.isEmpty {
+            return accessory.isEmpty ? window : "\(accessory) · \(window)"
+        }
+        return accessory
+    }
+
+    private var compactBannerHealth: Health {
+        if let section = compactBannerDestination.section {
+            return CommandCenterLayout.displayedHealth(
+                store.paintedCommandCenterCard(store.summary(for: section))
+            )
+        }
+        return CommandCenterLayout.combinedHealth(
+            CommandCenterLayout.heroSections.map {
+                store.paintedCommandCenterCard(store.summary(for: $0))
+            }
+        )
     }
 
     private var compactBannerDestination: HubDestination {

@@ -1193,6 +1193,11 @@ enum PulseLaunch {
     /// shrinking iPad leftover-fill or Mac dashboard tables.
     static func shouldUseCompactPhoneCommandChrome() -> Bool { true }
 
+    /// Phone Operational Heartbeat / Sales / Loss / 5 Star use the same white
+    /// PhoneScorecardRow chrome as Labor / Picker. Mac Command Center navy
+    /// leftover-fill tiles stay. Visual only — same bindings and filters.
+    static func shouldPaintPhoneHeroesAsScorecards() -> Bool { true }
+
     /// Compact phone header + Filters keep 44pt hits but drop title3 chrome.
     static func shouldUseCompactPhoneHeaderChrome() -> Bool { true }
 

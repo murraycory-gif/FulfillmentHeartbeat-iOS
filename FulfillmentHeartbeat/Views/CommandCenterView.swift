@@ -7,7 +7,7 @@ enum CommandCenterLayout {
     static let minGlanceHeight: CGFloat = 132
     static let minHeroHeight: CGFloat = 120
 
-    /// Every operational dashboard card that is not a navy hero.
+    /// Every operational dashboard card that is not a KPI hero.
     static var glanceSections: [MetricSection] {
         [
             .labor,
@@ -46,7 +46,7 @@ enum CommandCenterLayout {
         return 3
     }
 
-    /// Readable navy hero on iPhone 13 (390) / 17 Pro. Not the 51pt leftover slice.
+    /// Readable phone KPI hero on iPhone 13 (390) / 17 Pro. Not the 51pt leftover slice.
     static func phoneHeroMinHeight() -> CGFloat {
         PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 100 : 124
     }
@@ -250,6 +250,28 @@ enum CommandCenterLayout {
         return card.health
     }
 
+    /// Gray store-count subtitle — same Labor / Picker line, no gold bullet.
+    static func phoneScorecardSubtitle(_ card: SectionSummary) -> String? {
+        card.storeCount > 0 ? "\(card.storeCount) stores" : nil
+    }
+
+    /// Existing headline only. Do not invent a second metric.
+    static func phoneScorecardChips(_ card: SectionSummary) -> [PhoneMetricChip] {
+        [
+            PhoneMetricChip(
+                label: "Result",
+                value: compactValue(card),
+                health: displayedHealth(card)
+            ),
+        ]
+    }
+
+    /// Worst painted health among cards. Operational Heartbeat banner uses
+    /// Sales / Loss / 5 Star health — no invented company metric.
+    static func combinedHealth(_ cards: [SectionSummary]) -> Health {
+        cards.map(displayedHealth).min { $0.dashboardRank < $1.dashboardRank } ?? .none
+    }
+
     /// One SF Symbol per metric. Reuses the scorecard / sidebar glyph.
     static func glanceSymbol(_ section: MetricSection) -> String {
         section.symbol
@@ -285,8 +307,8 @@ struct MacCommandCenterFit: Equatable {
 }
 
 /// iPhone 13+ / 17 Pro dashboard. Portrait-first 1-column scroll.
-/// No GeometryReader leftover-fill — that packed 3 navy heroes into 168pt
-/// (~51pt each) and a 2-col glance grid under Pages + Filters + banner.
+/// KPI heroes share Labor / Picker PhoneScorecardRow chrome. No leftover-fill
+/// 3-across navy band under Pages + Filters + banner.
 struct PhoneCommandCenterHome: View {
     @EnvironmentObject private var store: HeartbeatStore
     var open: (MetricSection) -> Void
@@ -344,51 +366,15 @@ struct PhoneCommandHeroCard: View {
     }
 
     var body: some View {
-        Group {
-            if let action {
-                Button(action: action) { hero }
-                    .buttonStyle(.plain)
-            } else {
-                hero
-            }
-        }
-        .frame(minHeight: HubLayout.phoneHitTarget)
+        PhoneScorecardRow(
+            title: CommandCenterLayout.glanceTitle(painted.section),
+            subtitle: CommandCenterLayout.phoneScorecardSubtitle(painted),
+            chips: CommandCenterLayout.phoneScorecardChips(painted),
+            health: CommandCenterLayout.displayedHealth(painted),
+            onTap: action
+        )
+        .frame(minHeight: CommandCenterLayout.phoneHeroMinHeight())
         .accessibilityLabel("\(CommandCenterLayout.glanceTitle(painted.section)), \(CommandCenterLayout.compactValue(painted)), \(CommandCenterLayout.displayedHealth(painted).label), Stores \(painted.storeCount)")
-    }
-
-    private var hero: some View {
-        VStack(alignment: .leading, spacing: PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 6 : 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(CommandCenterLayout.glanceTitle(painted.section))
-                    .font(AppTheme.rounded(PulseLaunch.shouldUseCompactPhoneCommandChrome() ? .headline : .title3, weight: .bold))
-                    .foregroundStyle(Color.white.opacity(0.92))
-                    .lineLimit(2)
-                Spacer(minLength: 8)
-                HealthBadge(
-                    health: CommandCenterLayout.displayedHealth(painted),
-                    prominent: true,
-                    compact: PulseLaunch.shouldUseCompactPhoneCommandChrome()
-                )
-            }
-            Text(CommandCenterLayout.compactValue(painted))
-                .font(AppTheme.rounded(size: CommandCenterLayout.phoneHeroValueSize(), weight: .bold).monospacedDigit())
-                .foregroundStyle(Color.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(AppTheme.gold)
-                    .frame(width: PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 6 : 8, height: PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 6 : 8)
-                Text("Stores \(painted.storeCount)")
-                    .font(AppTheme.rounded(PulseLaunch.shouldUseCompactPhoneCommandChrome() ? .subheadline : .body, weight: .bold).monospacedDigit())
-                    .foregroundStyle(AppTheme.gold)
-                Spacer(minLength: 0)
-            }
-        }
-        .padding(CommandCenterLayout.phoneHeroCardPadding())
-        .frame(maxWidth: .infinity, minHeight: CommandCenterLayout.phoneHeroMinHeight(), alignment: .leading)
-        .background(AppTheme.blue, in: RoundedRectangle(cornerRadius: CommandCenterLayout.phoneHeroCorner(), style: .continuous))
-        .contentShape(RoundedRectangle(cornerRadius: CommandCenterLayout.phoneHeroCorner(), style: .continuous))
     }
 }
 
@@ -404,14 +390,8 @@ struct PhoneCommandGlanceCard: View {
     var body: some View {
         PhoneScorecardRow(
             title: CommandCenterLayout.glanceTitle(painted.section),
-            subtitle: painted.storeCount > 0 ? "\(painted.storeCount) stores" : nil,
-            chips: [
-                PhoneMetricChip(
-                    label: "Result",
-                    value: CommandCenterLayout.compactValue(painted),
-                    health: CommandCenterLayout.displayedHealth(painted)
-                ),
-            ],
+            subtitle: CommandCenterLayout.phoneScorecardSubtitle(painted),
+            chips: CommandCenterLayout.phoneScorecardChips(painted),
             health: CommandCenterLayout.displayedHealth(painted),
             onTap: action
         )
@@ -795,6 +775,23 @@ struct CommandCenterSectionHero: View {
     private var phone: Bool { HubLayout.isPhone(sizeClass) }
 
     var body: some View {
+        Group {
+            if HubLayout.isMac {
+                macNavyHero
+            } else {
+                PhoneScorecardRow(
+                    title: CommandCenterLayout.glanceTitle(card.section),
+                    subtitle: CommandCenterLayout.phoneScorecardSubtitle(card),
+                    chips: CommandCenterLayout.phoneScorecardChips(card),
+                    health: CommandCenterLayout.displayedHealth(card)
+                )
+            }
+        }
+        .accessibilityLabel("\(CommandCenterLayout.glanceTitle(card.section)), \(CommandCenterLayout.compactValue(card)), \(CommandCenterLayout.displayedHealth(card).label), Stores \(card.storeCount)")
+    }
+
+    /// Mac Command Center / scorecard intro stays navy leftover-fill chrome.
+    private var macNavyHero: some View {
         VStack(alignment: .leading, spacing: phone ? 4 : 8) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(CommandCenterLayout.glanceTitle(card.section))
@@ -821,7 +818,6 @@ struct CommandCenterSectionHero: View {
         .padding(phone ? 10 : 14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(AppTheme.blue, in: RoundedRectangle(cornerRadius: phone ? 12 : 14, style: .continuous))
-        .accessibilityLabel("\(CommandCenterLayout.glanceTitle(card.section)), \(CommandCenterLayout.compactValue(card)), \(CommandCenterLayout.displayedHealth(card).label), Stores \(card.storeCount)")
     }
 }
 
