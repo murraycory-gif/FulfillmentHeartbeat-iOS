@@ -7,7 +7,8 @@ enum CommandCenterLayout {
     static let minGlanceHeight: CGFloat = 132
     static let minHeroHeight: CGFloat = 120
 
-    /// Every operational dashboard card that is not a navy hero.
+    /// Every operational dashboard card that is not a KPI hero.
+    /// PPH stays immediately under Dynacap — Soft FAIL dropping it from this stack.
     static var glanceSections: [MetricSection] {
         [
             .labor,
@@ -20,6 +21,11 @@ enum CommandCenterLayout {
             .preSubOOS,
             .prepNotReady,
         ]
+    }
+
+    /// Phone Dashboard paints heroes then glances as one section list.
+    static var phoneDashboardSections: [MetricSection] {
+        heroSections + glanceSections
     }
 
     static func isHero(_ section: MetricSection) -> Bool {
@@ -46,7 +52,7 @@ enum CommandCenterLayout {
         return 3
     }
 
-    /// Readable navy hero on iPhone 13 (390) / 17 Pro. Not the 51pt leftover slice.
+    /// Readable phone KPI hero on iPhone 13 (390) / 17 Pro. Not the 51pt leftover slice.
     static func phoneHeroMinHeight() -> CGFloat {
         PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 100 : 124
     }
@@ -197,6 +203,11 @@ enum CommandCenterLayout {
         return used + 1 >= remaining || remaining <= minGlanceHeight
     }
 
+    /// Dashboard section navy title. Filter | week stays on the hub header.
+    static func dashboardSectionOverviewTitle(_ section: MetricSection) -> String {
+        "\(glanceTitle(section)) Overview"
+    }
+
     static func glanceTitle(_ section: MetricSection) -> String {
         switch section {
         case .lostRevenue: return "Loss"
@@ -250,6 +261,85 @@ enum CommandCenterLayout {
         return card.health
     }
 
+    /// Gray store-count subtitle — same Labor / Picker line, no gold bullet.
+    static func phoneScorecardSubtitle(_ card: SectionSummary) -> String? {
+        card.storeCount > 0 ? "\(card.storeCount) stores" : nil
+    }
+
+    /// Existing headline only. Do not invent a second metric.
+    static func phoneScorecardChips(_ card: SectionSummary) -> [PhoneMetricChip] {
+        [
+            PhoneMetricChip(
+                label: "Result",
+                value: compactValue(card),
+                health: displayedHealth(card)
+            ),
+        ]
+    }
+
+    /// Worst painted health among cards. Operational Heartbeat banner uses
+    /// Sales / Loss / 5 Star health — no invented company metric.
+    static func combinedHealth(_ cards: [SectionSummary]) -> Health {
+        cards.map(displayedHealth).min { $0.dashboardRank < $1.dashboardRank } ?? .none
+    }
+
+    /// Hard cap so the page banner cannot leftover-fill the chrome stack.
+    static func phonePageBannerMaxHeight() -> CGFloat {
+        PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 88 : 104
+    }
+
+    /// Finest active filter grain. Store / OM / District / Division / Region,
+    /// else Total Company. No invented seat names.
+    static func overviewSeatLabel(_ filters: DashboardFilters) -> String {
+        if !filters.store.isEmpty {
+            return overviewGrain(filters.store, suffix: "Store", grainFirst: true)
+        }
+        if !filters.om.isEmpty {
+            return overviewGrain(filters.om, suffix: "OM")
+        }
+        if !filters.district.isEmpty {
+            return overviewGrain(filters.district, suffix: "District")
+        }
+        if !filters.division.isEmpty {
+            return overviewGrain(filters.division, suffix: "Division")
+        }
+        if !filters.region.isEmpty {
+            return overviewGrain(filters.region, suffix: "Region")
+        }
+        return "Total Company"
+    }
+
+    /// Pack `data_window` when present. Otherwise the existing Current Week
+    /// label — never invent a week number.
+    static func overviewWeekLabel(_ window: String?) -> String {
+        let trimmed = window?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? "Current Week" : trimmed
+    }
+
+    /// Current Pages name — Dashboard, Sales, Labor. Soft FAIL filter grain here.
+    static func overviewPageTitle(_ dest: HubDestination) -> String {
+        dest.section?.title ?? dest.title
+    }
+
+    /// Line 2: `{Filter seat} | {week}`. Updates with the active filter.
+    static func overviewBannerCopy(filters: DashboardFilters, weekWindow: String?) -> String {
+        "\(overviewSeatLabel(filters)) | \(overviewWeekLabel(weekWindow))"
+    }
+
+    private static func overviewGrain(_ raw: String, suffix: String, grainFirst: Bool = false) -> String {
+        let values = DashboardFilters.parts(raw).map { HeartbeatMath.displayGrainLabel($0) }.filter { !$0.isEmpty }
+        guard !values.isEmpty else { return "Total Company" }
+        let label: String
+        if values.count == 1 {
+            label = values[0]
+        } else if values.count == 2 {
+            label = "\(values[0]), \(values[1])"
+        } else {
+            label = "\(values[0]) + \(values.count - 1) more"
+        }
+        return grainFirst ? "\(suffix) \(label)" : "\(label) \(suffix)"
+    }
+
     /// One SF Symbol per metric. Reuses the scorecard / sidebar glyph.
     static func glanceSymbol(_ section: MetricSection) -> String {
         section.symbol
@@ -285,30 +375,36 @@ struct MacCommandCenterFit: Equatable {
 }
 
 /// iPhone 13+ / 17 Pro dashboard. Portrait-first 1-column scroll.
-/// No GeometryReader leftover-fill — that packed 3 navy heroes into 168pt
-/// (~51pt each) and a 2-col glance grid under Pages + Filters + banner.
+/// KPI heroes share Labor / Picker PhoneScorecardRow chrome. No leftover-fill
+/// 3-across navy band under Pages + Filters + banner.
 struct PhoneCommandCenterHome: View {
     @EnvironmentObject private var store: HeartbeatStore
     var open: (MetricSection) -> Void
+    var isVisible: Bool = true
 
     var body: some View {
         let _ = store.seatPaintStamp
         let _ = store.filters.summary
+        if PulseLaunch.shouldParkHiddenPhoneDashboard(),
+           !isVisible,
+           !PulseLaunch.shouldRenderHiddenPhoneDashboardHeavy() {
+            Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            visibleHome
+        }
+    }
+
+    @ViewBuilder
+    private var visibleHome: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: CommandCenterLayout.phoneHomeStackSpacing()) {
-                ForEach(heroCards) { card in
-                    PhoneCommandHeroCard(card: card) {
-                        open(card.section)
+            Group {
+                if PulseLaunch.shouldLazyLoadPhoneDashboardSections() {
+                    LazyVStack(alignment: .leading, spacing: CommandCenterLayout.phoneHomeStackSpacing()) {
+                        sectionStack
                     }
-                }
-                Text("AT-A-GLANCE · ALL SECTIONS")
-                    .font(AppTheme.rounded(.caption, weight: .heavy))
-                    .tracking(0.7)
-                    .foregroundStyle(AppTheme.textTertiary)
-                    .padding(.top, PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 4 : 8)
-                ForEach(glanceCards) { card in
-                    PhoneCommandGlanceCard(card: card) {
-                        open(card.section)
+                } else {
+                    VStack(alignment: .leading, spacing: CommandCenterLayout.phoneHomeStackSpacing()) {
+                        sectionStack
                     }
                 }
             }
@@ -323,95 +419,116 @@ struct PhoneCommandCenterHome: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
-    private var heroCards: [SectionSummary] {
-        _ = store.seatPaintStamp
-        return CommandCenterLayout.heroSections.map { store.summary(for: $0) }
+    @ViewBuilder
+    private var sectionStack: some View {
+        ForEach(CommandCenterLayout.phoneDashboardSections, id: \.self) { section in
+            if PulseLaunch.shouldShowDashboardSection(section) {
+                dashboardSection(store.summary(for: section), hero: CommandCenterLayout.isHero(section))
+                    .id("dashboard-\(section.rawValue)")
+            }
+        }
     }
 
-    private var glanceCards: [SectionSummary] {
-        _ = store.seatPaintStamp
-        return CommandCenterLayout.glanceSections.map { store.summary(for: $0) }
+    @ViewBuilder
+    private func dashboardSection(_ card: SectionSummary, hero: Bool) -> some View {
+        PhoneDashboardMetricBlock(card: card, hero: hero) {
+            open(card.section)
+        }
+    }
+}
+
+/// Navy `{Section} Overview` + one RESULT + This Week grid card.
+struct PhoneDashboardMetricBlock: View {
+    @EnvironmentObject private var store: HeartbeatStore
+    let card: SectionSummary
+    var hero: Bool = false
+    let action: () -> Void
+
+    private var painted: SectionSummary {
+        store.cachedPhoneDashboardCard(card)
+    }
+
+    var body: some View {
+        let painted = self.painted
+        VStack(alignment: .leading, spacing: CommandCenterLayout.phoneHomeStackSpacing()) {
+            if PulseLaunch.shouldShowDashboardSectionOverviewBanner() {
+                PhoneCompactPageBanner(
+                    title: CommandCenterLayout.dashboardSectionOverviewTitle(painted.section),
+                    health: CommandCenterLayout.displayedHealth(painted)
+                )
+            }
+            PhoneScorecardRow(
+                title: CommandCenterLayout.glanceTitle(painted.section),
+                subtitle: CommandCenterLayout.phoneScorecardSubtitle(painted),
+                chips: dashboardChips(painted),
+                health: CommandCenterLayout.displayedHealth(painted),
+                onTap: action
+            )
+            .frame(minHeight: hero
+                ? CommandCenterLayout.phoneHeroMinHeight()
+                : CommandCenterLayout.phoneGlanceMinHeight())
+        }
+    }
+
+    private func dashboardChips(_ painted: SectionSummary) -> [PhoneMetricChip] {
+        store.cachedPhoneDashboardChips(section: painted.section, painted: painted)
     }
 }
 
 struct PhoneCommandHeroCard: View {
     @EnvironmentObject private var store: HeartbeatStore
     let card: SectionSummary
+    var usesMetricFactStoreCount: Bool = false
     var action: (() -> Void)? = nil
 
     private var painted: SectionSummary {
-        store.paintedCommandCenterCard(card)
+        let next = store.paintedCommandCenterCard(card)
+        guard usesMetricFactStoreCount, PulseLaunch.shouldUseMetricFactStoreCountOnSectionPage() else {
+            return next
+        }
+        return PulseLaunch.metricPageHeroCard(next, rows: metricPageRows(for: next.section))
+    }
+
+    private func metricPageRows(for section: MetricSection) -> [MetricRow] {
+        section == .sales ? store.salesStores() : store.seatRows(for: section)
     }
 
     var body: some View {
-        Group {
-            if let action {
-                Button(action: action) { hero }
-                    .buttonStyle(.plain)
-            } else {
-                hero
-            }
-        }
-        .frame(minHeight: HubLayout.phoneHitTarget)
+        PhoneScorecardRow(
+            title: CommandCenterLayout.glanceTitle(painted.section),
+            subtitle: CommandCenterLayout.phoneScorecardSubtitle(painted),
+            chips: CommandCenterLayout.phoneScorecardChips(painted),
+            health: CommandCenterLayout.displayedHealth(painted),
+            onTap: action
+        )
+        .frame(minHeight: CommandCenterLayout.phoneHeroMinHeight())
         .accessibilityLabel("\(CommandCenterLayout.glanceTitle(painted.section)), \(CommandCenterLayout.compactValue(painted)), \(CommandCenterLayout.displayedHealth(painted).label), Stores \(painted.storeCount)")
-    }
-
-    private var hero: some View {
-        VStack(alignment: .leading, spacing: PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 6 : 10) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                Text(CommandCenterLayout.glanceTitle(painted.section))
-                    .font(AppTheme.rounded(PulseLaunch.shouldUseCompactPhoneCommandChrome() ? .headline : .title3, weight: .bold))
-                    .foregroundStyle(Color.white.opacity(0.92))
-                    .lineLimit(2)
-                Spacer(minLength: 8)
-                HealthBadge(
-                    health: CommandCenterLayout.displayedHealth(painted),
-                    prominent: true,
-                    compact: PulseLaunch.shouldUseCompactPhoneCommandChrome()
-                )
-            }
-            Text(CommandCenterLayout.compactValue(painted))
-                .font(AppTheme.rounded(size: CommandCenterLayout.phoneHeroValueSize(), weight: .bold).monospacedDigit())
-                .foregroundStyle(Color.white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(AppTheme.gold)
-                    .frame(width: PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 6 : 8, height: PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 6 : 8)
-                Text("Stores \(painted.storeCount)")
-                    .font(AppTheme.rounded(PulseLaunch.shouldUseCompactPhoneCommandChrome() ? .subheadline : .body, weight: .bold).monospacedDigit())
-                    .foregroundStyle(AppTheme.gold)
-                Spacer(minLength: 0)
-            }
-        }
-        .padding(CommandCenterLayout.phoneHeroCardPadding())
-        .frame(maxWidth: .infinity, minHeight: CommandCenterLayout.phoneHeroMinHeight(), alignment: .leading)
-        .background(AppTheme.blue, in: RoundedRectangle(cornerRadius: CommandCenterLayout.phoneHeroCorner(), style: .continuous))
-        .contentShape(RoundedRectangle(cornerRadius: CommandCenterLayout.phoneHeroCorner(), style: .continuous))
     }
 }
 
 struct PhoneCommandGlanceCard: View {
     @EnvironmentObject private var store: HeartbeatStore
     let card: SectionSummary
+    var usesMetricFactStoreCount: Bool = false
     let action: () -> Void
 
     private var painted: SectionSummary {
-        store.paintedCommandCenterCard(card)
+        let next = store.paintedCommandCenterCard(card)
+        guard usesMetricFactStoreCount, PulseLaunch.shouldUseMetricFactStoreCountOnSectionPage() else {
+            return next
+        }
+        return PulseLaunch.metricPageHeroCard(next, rows: metricPageRows(for: next.section))
+    }
+
+    private func metricPageRows(for section: MetricSection) -> [MetricRow] {
+        section == .sales ? store.salesStores() : store.seatRows(for: section)
     }
 
     var body: some View {
         PhoneScorecardRow(
             title: CommandCenterLayout.glanceTitle(painted.section),
-            subtitle: painted.storeCount > 0 ? "\(painted.storeCount) stores" : nil,
-            chips: [
-                PhoneMetricChip(
-                    label: "Result",
-                    value: CommandCenterLayout.compactValue(painted),
-                    health: CommandCenterLayout.displayedHealth(painted)
-                ),
-            ],
+            subtitle: CommandCenterLayout.phoneScorecardSubtitle(painted),
+            chips: CommandCenterLayout.phoneScorecardChips(painted),
             health: CommandCenterLayout.displayedHealth(painted),
             onTap: action
         )
@@ -795,6 +912,23 @@ struct CommandCenterSectionHero: View {
     private var phone: Bool { HubLayout.isPhone(sizeClass) }
 
     var body: some View {
+        Group {
+            if HubLayout.isMac {
+                macNavyHero
+            } else {
+                PhoneScorecardRow(
+                    title: CommandCenterLayout.glanceTitle(card.section),
+                    subtitle: CommandCenterLayout.phoneScorecardSubtitle(card),
+                    chips: CommandCenterLayout.phoneScorecardChips(card),
+                    health: CommandCenterLayout.displayedHealth(card)
+                )
+            }
+        }
+        .accessibilityLabel("\(CommandCenterLayout.glanceTitle(card.section)), \(CommandCenterLayout.compactValue(card)), \(CommandCenterLayout.displayedHealth(card).label), Stores \(card.storeCount)")
+    }
+
+    /// Mac Command Center / scorecard intro stays navy leftover-fill chrome.
+    private var macNavyHero: some View {
         VStack(alignment: .leading, spacing: phone ? 4 : 8) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(CommandCenterLayout.glanceTitle(card.section))
@@ -821,7 +955,6 @@ struct CommandCenterSectionHero: View {
         .padding(phone ? 10 : 14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(AppTheme.blue, in: RoundedRectangle(cornerRadius: phone ? 12 : 14, style: .continuous))
-        .accessibilityLabel("\(CommandCenterLayout.glanceTitle(card.section)), \(CommandCenterLayout.compactValue(card)), \(CommandCenterLayout.displayedHealth(card).label), Stores \(card.storeCount)")
     }
 }
 

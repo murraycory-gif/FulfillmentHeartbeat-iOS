@@ -467,6 +467,32 @@ struct EmptyHint: View {
     }
 }
 
+/// Sheet Close / Cancel / Save. Lives in sheet *content* — never a toolbar
+/// item. iOS 26 turns a leading toolbar Close into a circular "C" and clips
+/// a 44pt pill off the trailing edge.
+struct HubSheetCloseControl: View {
+    var title: String = "Close"
+    var prominent: Bool = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(prominent ? Color.white : AppTheme.blue)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(
+                    (prominent ? AppTheme.blue : AppTheme.blueSoft),
+                    in: Capsule(style: .continuous)
+                )
+        }
+        .buttonStyle(.plain)
+        .fixedSize()
+        .accessibilityLabel(title)
+    }
+}
+
 struct HubNavControl: View {
     let symbol: String
     let title: String
@@ -975,6 +1001,53 @@ struct HubChromePill: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel(title)
+    }
+}
+
+/// Shared Pages / Filters / Share toolbar for phone + iPad CompactNav chrome.
+/// Same HubChromePill family — Pages is not stranded on the logo row.
+struct HubCompactActionToolbar: View {
+    @EnvironmentObject private var router: HubRouter
+    @EnvironmentObject private var store: HeartbeatStore
+    @Environment(\.horizontalSizeClass) private var sizeClass
+    var showsFilters: Bool
+
+    var body: some View {
+        HStack(alignment: .center, spacing: HubLayout.phoneFilterPillSpacing()) {
+            if PulseLaunch.shouldShowRoleGatePill() {
+                HubChromePill(
+                    title: HubLayout.isPhone(sizeClass) ? "Role" : "Who's looking",
+                    symbol: "person.crop.circle",
+                    showsChevron: false
+                ) {
+                    store.reopenRoleGate()
+                }
+                .accessibilityLabel("Change who's looking")
+            }
+            HubChromePill(
+                title: "Pages",
+                symbol: "line.3.horizontal",
+                showsChevron: false
+            ) {
+                openPages()
+            }
+            if showsFilters {
+                FilterBar()
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func openPages() {
+        var transaction = Transaction()
+        transaction.animation = nil
+        withTransaction(transaction) {
+            if HubLayout.isPhone(sizeClass) {
+                router.showCompactMenu = true
+            } else {
+                router.toggleSidebar()
+            }
+        }
     }
 }
 
@@ -1770,49 +1843,17 @@ struct FilterSheet: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: HubLayout.isPhone(sizeClass) ? (PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? 8 : 10) : 16) {
-                Group {
-                    if HubLayout.isPhone(sizeClass) {
-                        if PulseLaunch.shouldUseCompactPhoneHeaderChrome() {
-                            LazyVGrid(
-                                columns: [
-                                    GridItem(.flexible(), spacing: 8),
-                                    GridItem(.flexible(), spacing: 8),
-                                ],
-                                spacing: 8
-                            ) {
-                                ForEach(FilterFocus.allCases) { item in
-                                    filterFocusChip(item)
-                                }
-                            }
-                        } else {
-                            VStack(spacing: 8) {
-                                ForEach(FilterFocus.allCases) { item in
-                                    filterFocusChip(item)
-                                }
-                            }
-                        }
-                    } else {
-                        LazyVGrid(
-                            columns: HubLayout.grid(FilterFocus.allCases.count, spacing: 8, minWidth: 72),
-                            spacing: 8
-                        ) {
-                            ForEach(FilterFocus.allCases) { item in
-                                filterFocusChip(item)
-                            }
-                        }
-                    }
-                }
-                Text("Search or tap rows. Select more than one \(focus.chipTitle.lowercased()).")
-                    .font(.subheadline)
-                    .foregroundStyle(AppTheme.textSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(spacing: PulseLaunch.shouldUseCompactFilterSheetFlow() ? 10 : 16) {
+                filterGrainChips
+                    .layoutPriority(1)
                 FilterColumn(
                     title: focus.title,
                     prompt: focus.prompt,
                     allLabel: focus.allLabel,
                     selection: focusValues,
                     options: options,
+                    showsHeadline: !PulseLaunch.shouldUseCompactFilterSheetFlow(),
+                    showsHelperCaption: PulseLaunch.shouldShowDuplicateFilterInstructions(),
                     onChange: apply
                 )
                 .transaction { $0.animation = nil }
@@ -1824,20 +1865,31 @@ struct FilterSheet: View {
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(AppTheme.bg.ignoresSafeArea())
-            .navigationTitle(focus.title)
+            .navigationTitle("Filters")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { requestClose() }
-                }
-                ToolbarItem(placement: .primaryAction) {
-                    if !focusValues.isEmpty {
-                        Button("Clear") { apply("") }
+                if !PulseLaunch.shouldUseCompactFilterSheetFlow() {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") { requestClose() }
+                    }
+                    ToolbarItem(placement: .primaryAction) {
+                        if !focusValues.isEmpty {
+                            Button("Clear") { apply("") }
+                        }
+                    }
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Save") { saveAndClose() }
+                            .fontWeight(.bold)
                     }
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") { saveAndClose() }
-                        .fontWeight(.bold)
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if PulseLaunch.shouldUseCompactFilterSheetFlow() {
+                    filterActionBar
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity)
+                        .background(AppTheme.bg)
                 }
             }
             .alert("Would you like to save your filters?", isPresented: $confirmLeave) {
@@ -1859,31 +1911,57 @@ struct FilterSheet: View {
         }
     }
 
+    private var filterGrainChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(FilterFocus.allCases) { item in
+                    filterFocusChip(item)
+                }
+            }
+        }
+    }
+
+    private var filterActionBar: some View {
+        HStack(spacing: 10) {
+            HubSheetCloseControl(title: "Cancel") {
+                requestClose()
+            }
+            if !focusValues.isEmpty {
+                Button("Clear") { apply("") }
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(AppTheme.blue)
+                    .buttonStyle(.plain)
+            }
+            Spacer(minLength: 8)
+            HubSheetCloseControl(title: "Save", prominent: true) {
+                saveAndClose()
+            }
+        }
+        .fixedSize(horizontal: false, vertical: true)
+        .layoutPriority(1)
+    }
+
     private func filterFocusChip(_ item: FilterFocus) -> some View {
-        let phone = HubLayout.isPhone(sizeClass)
         let selected = focus == item
         return Button {
             focus = item
             options = store.filterChoices(focus: item, draft: draft)
         } label: {
-            HStack {
-                Text(item.chipTitle)
-                    .font((phone ? HubLayout.phoneFilterFocusFont() : (HubLayout.MacReadable.enabled ? Font.body : Font.subheadline)).weight(.semibold))
-                    .foregroundStyle(selected ? Color.white : AppTheme.blue)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-                if selected {
-                    Image(systemName: "checkmark")
-                        .font(.body.weight(.bold))
-                        .foregroundStyle(Color.white)
-                }
-            }
-            .padding(.horizontal, phone ? (PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? 12 : 16) : (HubLayout.MacReadable.enabled ? 16 : 10))
-            .frame(maxWidth: .infinity, minHeight: phone ? HubLayout.phoneFilterFocusChipMinHeight() : (HubLayout.MacReadable.enabled ? HubLayout.MacReadable.controlMin : 36), alignment: .leading)
-            .background(selected ? AppTheme.blue : AppTheme.blueSoft, in: RoundedRectangle(cornerRadius: phone ? 12 : 20, style: .continuous))
-            .contentShape(Rectangle())
+            Text(item.chipTitle)
+                .font(HubLayout.phoneFilterFocusFont().weight(.semibold))
+                .foregroundStyle(selected ? Color.white : AppTheme.blue)
+                .lineLimit(1)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(
+                    selected ? AppTheme.blue : AppTheme.blueSoft,
+                    in: Capsule(style: .continuous)
+                )
+                .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        .fixedSize()
+        .accessibilityLabel(item.chipTitle)
     }
 
     private func saveAndClose() {
@@ -1915,6 +1993,8 @@ struct FilterColumn: View {
     let allLabel: String
     let selection: [String]
     let options: [(id: String, label: String)]
+    var showsHeadline: Bool = true
+    var showsHelperCaption: Bool = true
     let onChange: (String) -> Void
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var query = ""
@@ -1936,8 +2016,10 @@ struct FilterColumn: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: HubLayout.isPhone(sizeClass) && PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? 8 : 10) {
-            Text(title)
-                .font((HubLayout.isPhone(sizeClass) && PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? Font.headline : Font.title3).weight(.bold))
+            if showsHeadline {
+                Text(title)
+                    .font((HubLayout.isPhone(sizeClass) && PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? Font.headline : Font.title3).weight(.bold))
+            }
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass")
                     .foregroundStyle(AppTheme.blue)
@@ -1966,11 +2048,13 @@ struct FilterColumn: View {
                     .stroke(focused ? AppTheme.blue : AppTheme.cardBorder, lineWidth: focused ? 2 : 1)
             )
 
-            Text(selection.isEmpty
-                 ? "\(options.count) options · tap to select more than one"
-                 : "\(selection.count) selected · \(query.isEmpty ? "\(options.count) options" : "\(filtered.count) of \(options.count) match")")
-                .font(.caption)
-                .foregroundStyle(AppTheme.textTertiary)
+            if showsHelperCaption {
+                Text(selection.isEmpty
+                     ? "\(options.count) options · tap to select more than one"
+                     : "\(selection.count) selected · \(query.isEmpty ? "\(options.count) options" : "\(filtered.count) of \(options.count) match")")
+                    .font(.caption)
+                    .foregroundStyle(AppTheme.textTertiary)
+            }
 
             List {
                 row(id: "", label: allLabel, selected: selection.isEmpty) {
@@ -10829,12 +10913,16 @@ struct HubBrandBar: View {
         VStack(spacing: compact ? HubLayout.phoneBrandBarStackSpacing() : 10) {
             if compact {
                 compactBar
-                HStack(spacing: HubLayout.phoneFilterPillSpacing()) {
-                    if PulseLaunch.shouldShowRoleGatePill() {
-                        rolePill
-                    }
-                    if showsFilters {
-                        FilterBar()
+                if PulseLaunch.shouldUseCompactPagesFiltersShareToolbar() {
+                    HubCompactActionToolbar(showsFilters: showsFilters)
+                } else {
+                    HStack(spacing: HubLayout.phoneFilterPillSpacing()) {
+                        if PulseLaunch.shouldShowRoleGatePill() {
+                            rolePill
+                        }
+                        if showsFilters {
+                            FilterBar()
+                        }
                     }
                 }
                 compactPageBanner
@@ -10847,25 +10935,13 @@ struct HubBrandBar: View {
                             .minimumScaleFactor(0.7)
                             .layoutPriority(1)
                         Spacer(minLength: 8)
-                        if PulseLaunch.shouldShowRoleGatePill() {
-                            rolePill
-                        }
-                        if showsFilters {
-                            FilterBar()
-                        }
+                        regularFilterChrome
                     }
                     VStack(alignment: .leading, spacing: 8) {
                         DayGreeting(font: greetingFont)
                             .lineLimit(1)
                             .minimumScaleFactor(0.75)
-                        HStack(spacing: 10) {
-                            if PulseLaunch.shouldShowRoleGatePill() {
-                                rolePill
-                            }
-                            if showsFilters {
-                                FilterBar()
-                            }
-                        }
+                        regularFilterChrome
                     }
                 }
             }
@@ -10883,14 +10959,27 @@ struct HubBrandBar: View {
     }
 
     private var compactPageBanner: some View {
-        HubBanner(
-            icon: compactBannerDestination.symbol,
-            title: compactBannerTitle,
-            accessory: compactBannerAccessory,
-            trailing: compactBannerWindow,
-            clipped: false
+        PhoneCompactPageBanner(
+            title: CommandCenterLayout.overviewPageTitle(compactBannerDestination),
+            subtitle: CommandCenterLayout.overviewBannerCopy(
+                filters: store.filters,
+                weekWindow: compactBannerWindow
+            ),
+            health: compactBannerHealth
         )
-        .clipShape(RoundedRectangle(cornerRadius: compact ? 10 : 14, style: .continuous))
+    }
+
+    private var compactBannerHealth: Health {
+        if let section = compactBannerDestination.section {
+            return CommandCenterLayout.displayedHealth(
+                store.paintedCommandCenterCard(store.summary(for: section))
+            )
+        }
+        return CommandCenterLayout.combinedHealth(
+            CommandCenterLayout.heroSections.map {
+                store.paintedCommandCenterCard(store.summary(for: $0))
+            }
+        )
     }
 
     private var compactBannerDestination: HubDestination {
@@ -10901,19 +10990,6 @@ struct HubBrandBar: View {
             return .from(section: section)
         }
         return .dashboard
-    }
-
-    private var compactBannerAccessory: String {
-        if !store.filters.isActive { return "Total Company" }
-        let active = store.filters.summaryParts.filter(\.active).map(\.text)
-        return active.isEmpty ? "Total Company" : active.joined(separator: " · ")
-    }
-
-    private var compactBannerTitle: String {
-        switch compactBannerDestination {
-        case .dashboard: return "Operational Heartbeat"
-        default: return compactBannerDestination.title
-        }
     }
 
     private var compactBannerWindow: String? {
@@ -10928,7 +11004,7 @@ struct HubBrandBar: View {
     private var regularBar: some View {
         ZStack {
             HStack(spacing: 4) {
-                if !(HubLayout.isMac && PulseLaunch.shouldHideMacHeaderPagesButton()) {
+                if regularShowsHeaderPages {
                     HubNavControl(symbol: "line.3.horizontal", title: "Pages") {
                         var transaction = Transaction()
                         transaction.animation = nil
@@ -10962,12 +11038,7 @@ struct HubBrandBar: View {
     }
 
     private var compactBar: some View {
-        HStack(spacing: 6) {
-            HubNavControl(symbol: "line.3.horizontal", title: "Pages") {
-                router.showCompactMenu = true
-            }
-            .layoutPriority(1)
-            Spacer(minLength: 4)
+        ZStack {
             if PulseLaunch.shouldStackCompactHubBrandHorizontally(),
                !PulseLaunch.shouldOverlayCompactHeartbeatMark() {
                 BeatingHeartbeatMark(
@@ -10980,13 +11051,39 @@ struct HubBrandBar: View {
                 )
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
-                .layoutPriority(0)
             }
-            Spacer(minLength: 4)
-            assistButton
-                .layoutPriority(1)
+            HStack(spacing: 6) {
+                Color.clear
+                    .frame(width: HubLayout.phoneHitTarget, height: HubLayout.phoneHitTarget)
+                Spacer(minLength: 4)
+                if PulseLaunch.shouldKeepAssistInCompactBrandRow() {
+                    assistButton
+                }
+            }
         }
         .frame(minHeight: HubLayout.phoneHitTarget)
+    }
+
+    private var regularShowsHeaderPages: Bool {
+        if HubLayout.isMac && PulseLaunch.shouldHideMacHeaderPagesButton() { return false }
+        if PulseLaunch.shouldUseCompactPagesFiltersShareToolbar(), !HubLayout.isMac {
+            return false
+        }
+        return true
+    }
+
+    @ViewBuilder
+    private var regularFilterChrome: some View {
+        HStack(spacing: 10) {
+            if PulseLaunch.shouldShowRoleGatePill() {
+                rolePill
+            }
+            if PulseLaunch.shouldUseCompactPagesFiltersShareToolbar(), !HubLayout.isMac {
+                HubCompactActionToolbar(showsFilters: showsFilters)
+            } else if showsFilters {
+                FilterBar()
+            }
+        }
     }
 
     private var rolePill: some View {

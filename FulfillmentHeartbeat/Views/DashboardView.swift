@@ -62,7 +62,10 @@ struct DashboardView: View {
         let _ = store.filters.summary
         ZStack {
             if HubLayout.isPhone(sizeClass), PulseLaunch.shouldUsePhoneNativeCommandCenter() {
-                PhoneCommandCenterHome(open: open)
+                PhoneCommandCenterHome(
+                    open: open,
+                    isVisible: router.current == .dashboard && router.pushedSection == nil
+                )
             } else {
                 CommandCenterHome(open: open)
             }
@@ -750,6 +753,47 @@ struct PhoneMetricChip: Identifiable, Hashable {
     var id: String { label }
 }
 
+/// Classic Albertsons navy overview banner. Compact — no RESULT cavern,
+/// no white Labor scorecard chrome. STATUS pill stays on navy.
+/// Line 1 is the page name. Line 2 is `{Filter seat} | {week}`, smaller.
+struct PhoneCompactPageBanner: View {
+    let title: String
+    var subtitle: String = ""
+    var health: Health = .none
+
+    var body: some View {
+        let compact = PulseLaunch.shouldUseCompactPhoneCommandChrome()
+        let corner: CGFloat = compact ? 10 : 14
+        HStack(alignment: .center, spacing: compact ? 8 : 10) {
+            VStack(alignment: .leading, spacing: compact ? 1 : 2) {
+                Text(title)
+                    .font(HubLayout.phoneBannerTitleFont())
+                    .foregroundStyle(Color.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(HubLayout.phoneBannerSubtitleFont())
+                        .foregroundStyle(Color.white.opacity(0.88))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            HealthBadge(health: health, prominent: true, compact: compact)
+                .layoutPriority(1)
+        }
+        .padding(.horizontal, compact ? 10 : 14)
+        .padding(.vertical, compact ? HubLayout.phoneBannerVerticalPadding() : 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(AppTheme.blue, in: RoundedRectangle(cornerRadius: corner, style: .continuous))
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityLabel(subtitle.isEmpty ? "\(title), \(health.label)" : "\(title), \(subtitle), \(health.label)")
+    }
+}
+
 /// Dedicated iPhone scorecard card. Used by every Pages row on phone — never a table line.
 struct PhoneScorecardRow: View {
     let title: String
@@ -815,7 +859,7 @@ struct PhoneScorecardRow: View {
                         ],
                         spacing: CommandCenterLayout.phoneScorecardChipSpacing()
                     ) {
-                        ForEach(chips) { chip in
+                        ForEach(Array(chips.enumerated()), id: \.offset) { _, chip in
                             VStack(alignment: .leading, spacing: compact ? 2 : 4) {
                                 Text(chip.label.uppercased())
                                     .font(.caption.weight(.heavy))

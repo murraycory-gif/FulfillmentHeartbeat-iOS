@@ -22,7 +22,7 @@ struct OverviewSalesBlock: View {
         )
         VStack(alignment: .leading, spacing: phone ? 10 : 16) {
             overviewTable(title: scopeTitle, rows: [
-                SalesRollupRow(label: scopeTitle, storeCount: Set(stores.map(\.storeNumber)).count, pack: total)
+                SalesRollupRow(label: scopeTitle, storeCount: HeartbeatMath.metricStoreCount(.sales, rows: stores), pack: total)
             ], showCount: true)
             if includeMidRollup, !mid.rows.isEmpty {
                 overviewTable(title: mid.title, rows: mid.rows, showCount: mid.showCount)
@@ -74,7 +74,7 @@ struct OverviewSalesBlock: View {
             guard !slice.isEmpty else { return nil }
             let pack = SalesPack(rows: slice)
             guard pack.sales != nil || pack.orders != nil else { return nil }
-            return SalesRollupRow(label: region.rawValue, storeCount: Set(slice.map(\.storeNumber)).count, pack: pack)
+            return SalesRollupRow(label: region.rawValue, storeCount: HeartbeatMath.metricStoreCount(.sales, rows: slice), pack: pack)
         }
     }
 
@@ -285,18 +285,23 @@ struct OverviewSalesPhoneCard: View {
             title: label,
             eyebrow: "Sales",
             subtitle: count.flatMap { $0 > 0 ? ($0 == 1 ? "1 store" : "\($0) stores") : nil },
-            chips: [
-                PhoneMetricChip(label: "Sales $", value: HeartbeatFormat.money(pack.sales), health: cardHealth),
-                PhoneMetricChip(label: "YoY", value: HeartbeatFormat.pct(pack.yoy), health: cardHealth),
-                PhoneMetricChip(label: "Orders", value: HeartbeatFormat.num(pack.orders, digits: 0)),
-                PhoneMetricChip(label: "Ord YoY", value: HeartbeatFormat.pct(pack.ordersYoy)),
-                PhoneMetricChip(label: "AOS", value: HeartbeatFormat.money(pack.aos)),
-                PhoneMetricChip(label: "AIV", value: HeartbeatFormat.num(pack.aiv, digits: 2)),
-                PhoneMetricChip(label: "Items/Txn", value: HeartbeatFormat.num(pack.ipt, digits: 1)),
-                PhoneMetricChip(label: "Items", value: HeartbeatFormat.num(pack.items, digits: 0))
-            ],
+            chips: Self.chips(pack: pack),
             health: cardHealth
         )
+    }
+
+    static func chips(pack: SalesPack) -> [PhoneMetricChip] {
+        let cardHealth = pack.health == .none && (pack.sales ?? 0) > 0 ? Health.good : pack.health
+        return [
+            PhoneMetricChip(label: "Sales $", value: HeartbeatFormat.money(pack.sales), health: cardHealth),
+            PhoneMetricChip(label: "YoY", value: HeartbeatFormat.pct(pack.yoy), health: cardHealth),
+            PhoneMetricChip(label: "Orders", value: HeartbeatFormat.num(pack.orders, digits: 0)),
+            PhoneMetricChip(label: "Ord YoY", value: HeartbeatFormat.pct(pack.ordersYoy)),
+            PhoneMetricChip(label: "AOS", value: HeartbeatFormat.money(pack.aos)),
+            PhoneMetricChip(label: "AIV", value: HeartbeatFormat.num(pack.aiv, digits: 2)),
+            PhoneMetricChip(label: "Items/Txn", value: HeartbeatFormat.num(pack.ipt, digits: 1)),
+            PhoneMetricChip(label: "Items", value: HeartbeatFormat.num(pack.items, digits: 0)),
+        ]
     }
 }
 
@@ -352,7 +357,7 @@ enum SalesRollupBuilder {
             let packRows = buckets[key] ?? []
             let pack = SalesPack(rows: packRows)
             guard pack.sales != nil || pack.orders != nil else { return nil }
-            return SalesRollupRow(label: key, storeCount: Set(packRows.map(\.storeNumber)).count, pack: pack)
+            return SalesRollupRow(label: key, storeCount: HeartbeatMath.metricStoreCount(.sales, rows: packRows), pack: pack)
         }
     }
 
@@ -446,7 +451,7 @@ enum SalesRollupBuilder {
                 guard !slice.isEmpty else { return nil }
                 let pack = SalesPack(rows: slice)
                 guard pack.sales != nil || pack.orders != nil else { return nil }
-                return SalesRollupRow(label: region.rawValue, storeCount: Set(slice.map(\.storeNumber)).count, pack: pack)
+                return SalesRollupRow(label: region.rawValue, storeCount: HeartbeatMath.metricStoreCount(.sales, rows: slice), pack: pack)
             }
         case .division:
             return rows(from: stores, grain: .division)

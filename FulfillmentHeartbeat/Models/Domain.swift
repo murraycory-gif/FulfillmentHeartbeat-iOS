@@ -966,7 +966,8 @@ enum HeartbeatMath {
     static func dashboardTableValues(
         _ section: MetricSection,
         rows: [MetricRow],
-        goalFallback: Double? = nil
+        goalFallback: Double? = nil,
+        pphRows: [MetricRow] = []
     ) -> (values: [String], health: Health) {
         let health = worstHealth(section, rows: rows)
         let dash = Array(repeating: "—", count: dashboardTableHeaders(section).count)
@@ -1044,10 +1045,12 @@ enum HeartbeatMath {
                 health
             )
         case .dynacap:
+            let pcs = average(rows.compactMap { $0.number("dynacap_rate", "pieces_per_hour") })
+            let pph = dynacapSeatPurePPH(dynacapRows: rows, pphRows: pphRows)
             return (
                 [
-                    HeartbeatFormat.num(average(rows.compactMap { $0.number("dynacap_rate", "pieces_per_hour") }), digits: 1),
-                    HeartbeatFormat.num(weekPurePPH(rows), digits: 1),
+                    HeartbeatFormat.num(pcs, digits: 1),
+                    HeartbeatFormat.num(pph, digits: 1),
                     HeartbeatFormat.pct(average(rows.compactMap { $0.number("utilization_pct", "pickup_util_pct") })),
                 ],
                 health
@@ -2142,9 +2145,83 @@ enum HeartbeatMath {
         row.number("pph") ?? row.number("pure_pph")
     }
 
+    /// One store that actually scores this metric. Soft FAIL roster gold (2161)
+    /// and Soft FAIL counting ignored / TOTAL / empty-fact rows. Hero, This Week,
+    /// and Regions cards on a metric page must share this filter.
+    static func hasMetricFact(_ section: MetricSection, _ row: MetricRow) -> Bool {
+        switch section {
+        case .pph:
+            return pphNumber(row) != nil
+        case .prepNotReady:
+            return row.number("pnr_rate_pct", "pnr_hours", "prep_not_ready_pct") != nil
+        case .fiveStar:
+            return row.number("star_rating") != nil
+        case .pickPath, .pickPathPicker:
+            return row.number("compliance_pct") != nil
+        case .dynacap:
+            return row.number("dynacap_rate", "pieces_per_hour") != nil
+        case .scheduleQuality:
+            return row.number("schedule_efficiency_pct") != nil
+        case .labor:
+            return row.textPayload["labor_grain"] != "market"
+                && row.number("target_vs_actual_pct") != nil
+        case .lostRevenue:
+            return row.textPayload["lost_grain"] != "market"
+                && (row.number("lost_revenue") != nil
+                    || row.number("lost_revenue_pct") != nil
+                    || row.number("ecomm_sales") != nil)
+        case .sales:
+            return row.textPayload["sales_grain"] != "company"
+                && row.textPayload["sales_grain"] != "day"
+                && (salesHeadlineDollars(row) > 0 || salesOrders(row) > 0)
+        case .missingItems, .preSubOOS:
+            return row.number(MissingItemDept.totalKey) != nil
+        case .pickerScorecard, .aisleMapper, .storeRoster, .preSubOOSItem:
+            return !canonicalStore(row.storeNumber).isEmpty
+        }
+    }
+
+    /// latestPerStore / latestPerShopper, drop ignored + TOTAL, keep scored facts.
+    static func metricFactRows(_ section: MetricSection, rows: [MetricRow]) -> [MetricRow] {
+        let scoped = rows.filter { row in
+            let store = canonicalStore(row.storeNumber)
+            if store.isEmpty { return false }
+            if store.caseInsensitiveCompare("TOTAL") == .orderedSame { return false }
+            if isIgnoredStore(store) { return false }
+            if row.textPayload["sales_grain"] == "company" || row.textPayload["sales_grain"] == "day" {
+                return false
+            }
+            if row.textPayload["lost_grain"] == "market" { return false }
+            if row.textPayload["labor_grain"] == "market" { return false }
+            return true
+        }
+        let collapsed = section == .pickerScorecard
+            ? latestPerShopper(scoped)
+            : latestPerStore(scoped)
+        return collapsed.filter { hasMetricFact(section, $0) }
+    }
+
+    static func metricStoreCount(_ section: MetricSection, rows: [MetricRow]) -> Int {
+        Set(
+            metricFactRows(section, rows: rows)
+                .map { canonicalStore($0.storeNumber) }
+                .filter { !$0.isEmpty }
+        ).count
+    }
+
+    /// Dynacap PPH chip is the PPH-book week Pure PPH for this seat.
+    /// Soft FAIL substituting `dynacap_rate` / pieces per hour.
+    static func dynacapSeatPurePPH(dynacapRows: [MetricRow], pphRows: [MetricRow]) -> Double? {
+        if PulseLaunch.shouldFillDynacapPPHFromPPHSeat(), let pph = weekPurePPH(pphRows) {
+            return pph
+        }
+        return weekPurePPH(dynacapRows)
+    }
+
     /// Week Pure PPH (Total) for the stores in `rows`. Multiple DATE rows collapse
     /// with `latestPerStore` (same as the PPH sheet's Total column). Empty store
     /// rows are grain totals. Shopper rows only fill when the PPH book is empty.
+    /// 456: WATCH vs AT RISK pills stay on existing pphGoal / pphRisk bands.
     static func weekPurePPH(_ rows: [MetricRow], pickers: [MetricRow] = []) -> Double? {
         let stores = latestPerStore(rows.filter { !isIgnoredStore($0.storeNumber) && !$0.storeNumber.isEmpty })
         if let avg = average(stores.compactMap(pphNumber)) { return avg }

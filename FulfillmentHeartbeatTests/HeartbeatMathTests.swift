@@ -657,7 +657,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture428PickPathStoreExpandListsJoinedShoppers() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertFalse(PulseLaunch.shouldBuildFullPulseCachesOnFilterSwap())
         XCTAssertTrue(PulseLaunch.shouldRebuildPickPathIndexOnPickerPaint())
         XCTAssertTrue(PulseLaunch.shouldRebuildPickPathIndexAfterSectionLoad(.pickPathPicker))
@@ -824,7 +824,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture429PickPathSequenceDatesAndPrepFromThinPack() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertTrue(PulseLaunch.shouldJoinAisleMapperOnSeatInstall())
         XCTAssertTrue(PulseLaunch.shouldBakeAisleMapperOntoPickPathAtCook())
         XCTAssertFalse(PulseLaunch.shouldBuildFullPulseCachesOnFilterSwap())
@@ -923,7 +923,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture436PickPathExpandLoadsPickerAndPrepUsesStoreNotStoreHash() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertFalse(PulseLaunch.shouldLoadPickPathPickerOnPageOpen())
         XCTAssertTrue(PulseLaunch.shouldLoadPickPathPickerOnStoreExpand())
         XCTAssertTrue(PulseLaunch.shouldShowPickerLoadingOnPickPathExpand(dest: .pickPath))
@@ -2517,7 +2517,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture381SeatPackContract() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
         XCTAssertFalse(PulseSeatPack.shouldMergeSeatWithCompanyOnSwap())
         XCTAssertTrue(PulseSeatPack.shouldPaintHubFromActiveSeatSQLite())
@@ -2559,7 +2559,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture381bMacCookPublishesEverySeatSqlite() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertTrue(PulseSeatPack.shouldCookEveryStoreSeat())
         XCTAssertTrue(PulseSeatPack.shouldPublishSeatPlaneFromCook())
         XCTAssertFalse(PulseSeatPack.shouldMaterializeMissingSeatOnFieldDevice())
@@ -2627,7 +2627,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture382CommandCenterFillsViewportLikePulse() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertTrue(PulseLaunch.shouldUseCommandCenterHome())
         XCTAssertFalse(PulseLaunch.shouldMountDashCalloutTablesOnHome())
         XCTAssertTrue(PulseLaunch.shouldPinMacCommandCenterRails())
@@ -2717,7 +2717,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture383CompanyCommandCenterPickerChromeAndStoreTableScope() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertFalse(PulseLaunch.shouldStreamCompanyPickerForSeatFirstPaint())
         XCTAssertFalse(PulseLaunch.shouldPlaySeatLoadHalloween())
         XCTAssertFalse(PulseLaunch.shouldShowGroceryLoadQuips())
@@ -2957,7 +2957,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture384SeatSwapAndSectionOpenPlane() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
         XCTAssertFalse(PulseSeatPack.shouldMergeSeatWithCompanyOnSwap())
         XCTAssertTrue(PulseSeatPack.shouldPaintHubFromActiveSeatSQLite())
@@ -3096,7 +3096,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture392PhoneChromeCardsNotSqueezedTable() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertEqual(HubLayout.SupportedCanvas.phonePortrait, 390)
         XCTAssertEqual(HubLayout.phoneHitTarget, 44)
         XCTAssertEqual(HubLayout.phoneControlHeight, 44)
@@ -3111,7 +3111,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture393PhoneScorecardRefusesPadTable() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertTrue(PulseLaunch.shouldRefusePadShopperTable(compact: true, phoneIdiom: false))
         XCTAssertTrue(PulseLaunch.shouldRefusePadShopperTable(compact: false, phoneIdiom: true))
         XCTAssertFalse(PulseLaunch.shouldRefusePadShopperTable(compact: false, phoneIdiom: false))
@@ -3125,7 +3125,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture394PhoneContentClearsHubChrome() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertFalse(PulseLaunch.shouldPinHubChromeAboveContent())
         XCTAssertTrue(PulseLaunch.shouldGiveHubChromeItsOwnTopSafeArea())
         XCTAssertFalse(PulseLaunch.shouldClipPhoneContentBelowHubChrome())
@@ -3144,7 +3144,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture395HubChromeSafeAreaInset() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertFalse(PulseLaunch.shouldPinHubChromeAboveContent())
         XCTAssertTrue(PulseLaunch.shouldInsetHubChromeIntoContentSafeArea())
         XCTAssertTrue(PulseLaunch.shouldGiveHubChromeItsOwnTopSafeArea())
@@ -3160,7 +3160,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture397PhoneFilterSwapPaintsCachedSeat() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertTrue(PulseLaunch.shouldUsePhoneNativeCommandCenter())
         XCTAssertTrue(PulseLaunch.shouldUsePhoneNativeSectionPages())
         XCTAssertFalse(PulseLaunch.shouldMountPadSectionListHost(usesPhoneScorecards: true))
@@ -3200,7 +3200,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture398PhonePageNavAndFilterSwapAreBothInstant() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertTrue(PulseLaunch.shouldUsePhoneNativeCommandCenter())
         XCTAssertTrue(PulseLaunch.shouldUsePhoneNativeSectionPages())
         XCTAssertFalse(PulseLaunch.shouldMountPadSectionListHost(usesPhoneScorecards: true))
@@ -3270,7 +3270,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture396PhoneNativeCommandCenter() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertTrue(PulseLaunch.shouldUsePhoneNativeCommandCenter())
         XCTAssertTrue(PulseLaunch.shouldUseCommandCenterHome())
         XCTAssertFalse(CommandCenterLayout.shouldFillPhoneViewport())
@@ -3294,7 +3294,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture391ColdOpenCannotMountWhoIsLooking() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertFalse(PulseLaunch.shouldRequireRoleGateOnColdOpen())
         XCTAssertTrue(PulseLaunch.shouldOpenCompanyCommandCenterOnColdOpen())
         XCTAssertFalse(PulseLaunch.shouldShowRoleGatePill())
@@ -3311,7 +3311,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture385CompanyColdOpenNoRoleGateNoToursFilterPaints() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertFalse(PulseLaunch.shouldPinMacCommandCenterAlertsRail())
         XCTAssertFalse(PulseLaunch.shouldOfferIPadCommandCenterAlertsDrawer())
         XCTAssertFalse(PulseLaunch.shouldRequireRoleGateOnColdOpen())
@@ -3362,7 +3362,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture387SectionPageTableMatrixAndNoIPadAlerts() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertFalse(PulseLaunch.shouldPinMacCommandCenterAlertsRail())
         XCTAssertFalse(PulseLaunch.shouldOfferIPadCommandCenterAlertsDrawer())
         XCTAssertTrue(PulseLaunch.shouldOfferIPadCommandCenterDrawers())
@@ -3414,7 +3414,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture389OMSeatPacksGlanceBannerPickerShoppersAndNoDashboardBack() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
         XCTAssertFalse(PulseLaunch.shouldShowScorecardDashboardBackControl())
         XCTAssertTrue(CommandCenterLayout.glanceTitleUsesBlueBanner())
@@ -3547,7 +3547,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture399KitchenIngestSafeHitTarget() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertEqual(PulseLaunch.phoneMinimumHitTarget(), 44)
         XCTAssertTrue(RollupMarketFill.hidesUnassignedMarket("Unassigned"))
         XCTAssertTrue(RollupMarketFill.hidesUnassignedMarket(""))
@@ -3556,7 +3556,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture390PickerPhonePagesAssistUnassignedAndLabor() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertTrue(PulseLaunch.shouldUsePickerPhoneCards(phone: true))
         XCTAssertFalse(PulseLaunch.shouldUsePickerPhoneCards(phone: false))
         XCTAssertTrue(PulseLaunch.shouldUsePickerPhoneCards(phone: false, width: 390))
@@ -5507,7 +5507,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture401CompanyGrainExpandIsPageScopedNotAllCards() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertFalse(PulseLaunch.shouldPrefillAllExpandTablesAtCompany(pad: true))
         XCTAssertFalse(PulseLaunch.shouldPrefillAllExpandTablesAtCompany(pad: false))
         XCTAssertFalse(PulseLaunch.shouldPrefillExpandTables(filtersActive: false))
@@ -5573,7 +5573,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture402ShareMailPresentsAfterShareSheetDismiss() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertFalse(PulseLaunch.shouldPresentMailOverActiveShareSheet())
         XCTAssertTrue(PulseLaunch.shouldDismissShareSheetBeforePresentingMail())
         XCTAssertEqual(
@@ -5614,7 +5614,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture403ShareMailStacksTablesAndWiresPickerBuckets() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertTrue(PulseLaunch.shouldStackShareTablesForMailClients())
         XCTAssertFalse(PulseLaunch.shouldClipShareTablesInMailClients())
         XCTAssertFalse(PulseLaunch.shouldUseFixedNowrapShareTableColumns())
@@ -5696,7 +5696,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture404ShareMailLiveFlagsEveryPage() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertTrue(PulseLaunch.shouldStackShareTablesForMailClients())
         XCTAssertFalse(PulseLaunch.shouldClipShareTablesInMailClients())
         XCTAssertFalse(PulseLaunch.shouldUseFixedNowrapShareTableColumns())
@@ -5922,7 +5922,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// ghost keys (`otp_pct`, `exception_count`, `pnr_count`, `rows.count`)
     /// while the hero used `dashboardTableValues`. Dual map deleted.
     func testArchitecture406SeatChipsFalseZeroBanAndLiveKeys() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertTrue(PulseLaunch.shouldPaintSeatChipsFromDashboardTableValues())
         XCTAssertFalse(PulseLaunch.shouldUseGhostSeatChipKeys())
         XCTAssertTrue(PulseLaunch.shouldBanFalseZeroSeatChips())
@@ -6137,7 +6137,7 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     func testArchitecture407PhoneDensitySoftKeep() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertTrue(PulseLaunch.shouldPaintSeatChipsFromDashboardTableValues())
         XCTAssertFalse(PulseLaunch.shouldUseGhostSeatChipKeys())
         XCTAssertTrue(PulseLaunch.shouldBanFalseZeroSeatChips())
@@ -6181,7 +6181,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// MUST M: Mac Catalyst / MacBook whole-app readable chrome. Phone D1–D5
     /// shrink never applies on Mac, including compact Catalyst windows.
     func testArchitecture407MacReadableSoftKeep() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertTrue(PulseLaunch.shouldUseExpandedMacReadableChrome())
         XCTAssertFalse(PulseLaunch.shouldApplyPhoneCompactChromeOnMac())
         XCTAssertTrue(PulseLaunch.shouldPaintMacHubDynamicType())
@@ -6218,7 +6218,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// MUST M 408: Mac window-fit + collapsible Pages rail. Phone D1–D5 and
     /// iPad leftover-fill stay on the 407 Soft KEEP.
     func testArchitecture408MacWindowFitAndCollapsibleRail() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertTrue(PulseLaunch.shouldHideMacHeaderPagesButton())
         XCTAssertTrue(PulseLaunch.shouldAllowMacSidebarCollapse())
         XCTAssertTrue(PulseLaunch.shouldPlaceMacSidebarCollapseInChrome())
@@ -6311,7 +6311,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// HARDENED MUST 1: `336752c` HB-0828.397 PhoneSectionPage.seatChips
     /// (~1380–1478; hypothesis ~1433–1530) was a second key table. Deleted.
     func testArchitecture407SeatChipsDualMapDeleted() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertFalse(PulseLaunch.shouldUseSeatChipDualMap())
         XCTAssertFalse(PulseLaunch.shouldShowThisSeatCallout())
         XCTAssertFalse(PulseLaunch.shouldUseGhostSeatChipKeys())
@@ -6344,7 +6344,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// MUST P: seat-repull / company-as-root / no-delete / expand gates stay
     /// on KEEP 730 (`a9e2f68`). Tip must not re-arm promote / wipe / expand.
     func testArchitecture407MustPSeatRepullUnchanged() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertFalse(PulseLaunch.shouldRedownloadUsableCompanySeat())
         XCTAssertFalse(PulseLaunch.shouldRedownloadUsableSeatOnFilterChange())
         XCTAssertTrue(PulseLaunch.shouldForceRedownloadCompanySeatWhenRemoteNewer())
@@ -6368,7 +6368,7 @@ final class HeartbeatMathTests: XCTestCase {
 
     /// Cory FAIL on 735: Mac New Message Back faint; To / top chrome unreachable.
     func testArchitecture410MacShareComposeReachable() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertTrue(PulseLaunch.shouldUseMacShareInContentChrome())
         XCTAssertTrue(PulseLaunch.shouldHideMacShareNavigationBar())
         XCTAssertTrue(PulseLaunch.shouldPinMacShareComposeFields())
@@ -6391,7 +6391,7 @@ final class HeartbeatMathTests: XCTestCase {
 
     /// Cory FAIL on 410: floating "Hide pages" overlapped Loss Revenue ScoreCard.
     func testArchitecture411MacSidebarCollapseInChrome() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertTrue(PulseLaunch.shouldHideMacHeaderPagesButton())
         XCTAssertTrue(PulseLaunch.shouldAllowMacSidebarCollapse())
         XCTAssertTrue(PulseLaunch.shouldPlaceMacSidebarCollapseInChrome())
@@ -6415,7 +6415,7 @@ final class HeartbeatMathTests: XCTestCase {
 
     /// Cory FAIL on 411: Prep glance + sidebar stamp clipped at the window bottom.
     func testArchitecture412MacBottomCalloutsVisible() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertTrue(PulseLaunch.shouldFitMacCommandCenterToWindow())
         XCTAssertTrue(PulseLaunch.shouldRespectMacWindowSafeArea())
         XCTAssertTrue(PulseLaunch.shouldReserveMacWindowBottomChrome())
@@ -6449,7 +6449,7 @@ final class HeartbeatMathTests: XCTestCase {
 
     /// Cory FAIL: Mac Share said sent but recipient never got mail.
     func testArchitecture413MacShareDoesNotFakeSend() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertTrue(PulseLaunch.shouldDismissShareSheetBeforePresentingMail())
         XCTAssertFalse(PulseLaunch.shouldPresentMailOverActiveShareSheet())
         XCTAssertEqual(PulseLaunch.shareSheetDismissSettleNanoseconds, 350_000_000)
@@ -6482,7 +6482,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// MUST K: Mac scrolls readable glance tiles. overflows() is the gate.
     /// MUST S: Mail sent only on sharing didShare — not mailto / hop.
     func testArchitecture414MacScrollAndMailSendCompletion() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertFalse(PulseLaunch.shouldFillMacViewport())
         XCTAssertFalse(CommandCenterLayout.shouldFillPhoneViewport())
         XCTAssertTrue(PulseLaunch.shouldScrollMacCommandCenterWhenOverflow())
@@ -6527,7 +6527,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// FILE ROOT: empty To / silent mailto / activityDidFinish(true) / no .failed.
     /// KEEP hop dismiss → 350ms → keyWindowRoot → MFMailCompose. No Sent toast.
     func testArchitecture415MacShareToAndMailHop() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertTrue(PulseLaunch.shouldRequireShareRecapToAddress())
         XCTAssertTrue(PulseLaunch.shouldRefusePresentMailWithoutTo())
         XCTAssertTrue(PulseLaunch.shouldPinMacShareToAboveFold())
@@ -6578,7 +6578,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// Soft FAIL a7822f6: AppKit sharing composer unavailable on Catalyst.
     /// Mail path is MFMailCompose only. FILE ROOT MUST SEND 1–7 stand.
     func testArchitecture416NoAppKitSharingServiceOnCatalyst() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertFalse(PulseLaunch.shouldCompileMacMailComposer())
         XCTAssertFalse(PulseLaunch.shouldUseAppKitSharingServiceOnMacCatalyst())
         XCTAssertFalse(PulseLaunch.shouldUseMacSharingServiceForMailSend())
@@ -6602,7 +6602,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// Architecture OVERRIDE of a7822f6 / .415: MUST 8 file+pbx gone.
     /// MUST SEND 1–7 + hop KEEP + MUST K + MUST P.
     func testArchitecture417MacMailComposerDeletedFromTarget() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertFalse(PulseLaunch.shouldCompileMacMailComposer())
         XCTAssertFalse(PulseLaunch.shouldUseAppKitSharingServiceOnMacCatalyst())
         XCTAssertFalse(PulseLaunch.shouldUseMacSharingServiceForMailSend())
@@ -6642,7 +6642,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// Architecture OVERRIDE of fda1bf0 / .417 / 743: dual filter identity.
     /// Clear paints chrome + row plane same turn. Remount is not the fix.
     func testArchitecture418ClearRewritesRowPlaneWithChrome() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertTrue(PulseLaunch.shouldRewriteSeatRowPlaneWithChrome())
         XCTAssertFalse(PulseLaunch.shouldDeferSeatInstallWhenRowPlaneMissing())
         XCTAssertTrue(PulseLaunch.shouldDeferHeavySeatInstallAfterCachedChrome())
@@ -6684,7 +6684,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// Soft FAIL ab890c4 / .418 / 744: filter selection re-read the pack and
     /// rebuilt on MainActor after chrome already painted.
     func testArchitecture419FilterSwapPaintsWithoutReinstall() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertTrue(PulseLaunch.shouldPaintCachedSeatOnFilterTap())
         XCTAssertFalse(PulseLaunch.shouldReinstallSeatPackWhenRowPlanePainted())
         XCTAssertTrue(PulseLaunch.shouldPublishSeatPaintAfterChromeBeforeCaches())
@@ -6717,7 +6717,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// Architecture OVERRIDE of 90a53cd / .419 / 745: unbounded seatRowPlanes
     /// + PulseCaches.build on applyFilters. Shared path, all platforms.
     func testArchitecture420SeatPlaneTinyLRUNoFullCaches() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertEqual(PulseLaunch.maxCachedSeatRowPlanes(), 2)
         XCTAssertTrue(PulseLaunch.shouldPinCompanySeatRowPlane())
         XCTAssertTrue(PulseLaunch.shouldEvictInactiveSeatRowPlanes())
@@ -6757,7 +6757,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// Soft FAIL 90a53cd / 745: Catalyst ~270% CPU idle/after open.
     /// xlsx ingest + cook + fillAfterReady picker lock is the hot loop.
     func testArchitecture421IdleAfterOpenNoHotLoop() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertFalse(PulseLaunch.shouldIngestCloudWorkbookOnMac(seatAlreadyPainted: true))
         XCTAssertFalse(PulseLaunch.shouldIngestCloudWorkbookOnMac(seatAlreadyPainted: false))
         XCTAssertFalse(PulseLaunch.shouldIngestCloudWorkbookOnForeground())
@@ -6784,7 +6784,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// FILE ROOT OVERRIDE of f1b9a76 / 421: chrome painted, box maps leftover
     /// until section tap. LRU miss must still rewrite maps same turn.
     func testArchitecture422BoxMapsRewriteSameTurnAsChrome() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertTrue(PulseLaunch.shouldRewriteSeatBoxMapsSameTurnAsChrome())
         XCTAssertTrue(PulseLaunch.shouldRewriteSeatBoxMapsInPlaceWhenPlaneMissing())
         XCTAssertTrue(PulseLaunch.shouldDropStaleSeatRowsWhenPlaneMissing())
@@ -6819,7 +6819,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// Soft FAIL c59c1fc / 422: dashboard glance stayed stale until Sales
     /// navigation remounted GeometryReader. Tiles must bind seatPaintStamp.
     func testArchitecture423CommandCenterDashboardPaintsOnFilter() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertTrue(PulseLaunch.shouldBindCommandCenterDashboardToSeatPaint())
         XCTAssertFalse(PulseLaunch.shouldSampleCommandCenterCardsInsideGeometryReaderOnly())
         XCTAssertTrue(PulseLaunch.shouldRewriteSeatBoxMapsSameTurnAsChrome())
@@ -6841,7 +6841,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// applyDashChrome; cachedSummaries (not @Published) stayed leftover
     /// until Sales open+back. Thin summary rewrite + MainActor tile bind.
     func testArchitecture424CommandCenterSummariesRewriteWithBoxMaps() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertTrue(PulseLaunch.shouldRewriteCommandCenterSummariesWithBoxMaps())
         XCTAssertTrue(PulseLaunch.shouldBindCommandCenterDashboardToSeatPaint())
         XCTAssertFalse(PulseLaunch.shouldSampleCommandCenterCardsInsideGeometryReaderOnly())
@@ -6865,7 +6865,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// Soft FAIL 2026-09-14 work Mac: Send opened Apple Mail (Hide My Email)
     /// with plaintext and no file. Outlook / Teams / Files need a file URL.
     func testArchitecture425MacShareAttachesReportViaShareSheet() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertTrue(PulseLaunch.shouldPreferSystemShareSheetWithFile())
         XCTAssertFalse(PulseLaunch.shouldForceMailComposeOnSend())
         XCTAssertFalse(PulseLaunch.shouldAllowTextOnlyShareCompose())
@@ -6931,7 +6931,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// Soft FAIL 2026-09-14: cold open painted week 202628 (~$113M) then
     /// swapped to week 202629 (~$26.4M). First paint is current-pack gold.
     func testArchitecture426FirstPaintIsCurrentPackGold() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertTrue(PulseLaunch.shouldBlockFirstPaintUntilCurrentPack())
         XCTAssertFalse(PulseLaunch.shouldPaintLocalSeatBeforeCloudFreshnessCheck())
         XCTAssertTrue(PulseLaunch.shouldShowShortLoadUntilCurrentPack())
@@ -6986,7 +6986,7 @@ final class HeartbeatMathTests: XCTestCase {
     /// because Info.plist lacked LSApplicationCategoryType. GENERATE_INFOPLIST_FILE
     /// is NO, so the key must live in Info.plist (INFOPLIST_KEY on the target too).
     func testArchitecture427MacCatalystHasAppCategory() throws {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertEqual(BuildStamp.applicationCategoryType, "public.app-category.business")
 
         let root = URL(fileURLWithPath: #filePath)
@@ -7011,7 +7011,7 @@ final class HeartbeatMathTests: XCTestCase {
                 pbx.contains("INFOPLIST_KEY_LSApplicationCategoryType = \"public.app-category.business\""),
                 "Target must stamp INFOPLIST_KEY_LSApplicationCategoryType"
             )
-            XCTAssertTrue(pbx.contains("CURRENT_PROJECT_VERSION = 764;"))
+            XCTAssertTrue(pbx.contains("CURRENT_PROJECT_VERSION = 782;"))
         }
         if let bundled = Bundle.main.object(forInfoDictionaryKey: "LSApplicationCategoryType") as? String {
             XCTAssertEqual(bundled, "public.app-category.business")
@@ -8919,7 +8919,7 @@ final class HeartbeatMathTests: XCTestCase {
 
     /// 28MB refused today's ~29.6MB company current.sqlite. Cap is 40MB under the 50MB cook refuse.
     func testArchitecture437CompanySeatFortyMegabytesAndCompanySalesGrain() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertFalse(PulseLaunch.shouldShowThisSeatCallout())
         XCTAssertFalse(PulseLaunch.shouldShowThisSeatCallout(filtersActive: false))
         XCTAssertFalse(PulseLaunch.shouldShowThisSeatCallout(filtersActive: true))
@@ -9002,7 +9002,7 @@ final class HeartbeatMathTests: XCTestCase {
 
     /// Cory 2026-09-20: THIS SEAT callout is gone on every page and filter.
     func testArchitecture438ThisSeatCalloutRemovedEverywhere() {
-        XCTAssertEqual(BuildStamp.id, "HB-0828.438")
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
         XCTAssertFalse(PulseLaunch.shouldShowThisSeatCallout())
         XCTAssertFalse(PulseLaunch.shouldShowThisSeatCallout(filtersActive: false))
         XCTAssertFalse(PulseLaunch.shouldShowThisSeatCallout(filtersActive: true))
@@ -9017,6 +9017,1079 @@ final class HeartbeatMathTests: XCTestCase {
             page?.contains("if PulseLaunch.shouldShowThisSeatCallout()") == true,
             "Phone section page must gate the THIS SEAT strip"
         )
+    }
+
+    /// Phone Operational Heartbeat / Sales / Loss / 5 Star reuse Labor white chrome.
+    func testArchitecture446PhoneHeroesUseLaborScorecardChrome() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
+        XCTAssertTrue(PulseLaunch.shouldPaintPhoneHeroesAsScorecards())
+        XCTAssertTrue(PulseLaunch.shouldUseCompactPhoneCommandChrome())
+        XCTAssertTrue(PulseLaunch.shouldUsePhoneNativeCommandCenter())
+        XCTAssertTrue(PulseLaunch.shouldUsePhoneNativeSectionPages())
+        XCTAssertTrue(PulseLaunch.shouldLeavePadMacCommandChromeUnchanged())
+        XCTAssertFalse(PulseLaunch.shouldShowThisSeatCallout())
+        XCTAssertFalse(PulseLaunch.shouldShowThisSeatCallout(filtersActive: false))
+        XCTAssertFalse(PulseLaunch.shouldShowThisSeatCallout(filtersActive: true))
+        XCTAssertFalse(PulseLaunch.shouldPublishPickerSeatFirstPaint())
+        XCTAssertFalse(PulseLaunch.shouldUsePagingScroll())
+        XCTAssertEqual(CommandCenterLayout.phoneScorecardCorner(), 14)
+        XCTAssertEqual(CommandCenterLayout.phoneScorecardAccentWidth(), 5)
+
+        let healthy = SectionSummary(
+            section: .sales,
+            storeCount: 2161,
+            headline: 16_860_000,
+            headlineLabel: "Sales",
+            secondary: "",
+            health: .good,
+            watchCount: 0,
+            riskCount: 0,
+            lastFilename: nil,
+            lastUploadedAt: nil
+        )
+        let risk = SectionSummary(
+            section: .lostRevenue,
+            storeCount: 2161,
+            headline: 1_070_000,
+            headlineLabel: "Loss",
+            secondary: "",
+            health: .risk,
+            watchCount: 0,
+            riskCount: 12,
+            lastFilename: nil,
+            lastUploadedAt: nil
+        )
+        XCTAssertEqual(CommandCenterLayout.phoneScorecardSubtitle(healthy), "2161 stores")
+        XCTAssertEqual(CommandCenterLayout.phoneScorecardChips(healthy).first?.label, "Result")
+        XCTAssertEqual(CommandCenterLayout.phoneScorecardChips(healthy).first?.value, "$16.86M")
+        XCTAssertEqual(CommandCenterLayout.combinedHealth([healthy, risk]), .risk)
+
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let command = try? String(
+            contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/Views/CommandCenterView.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(
+            command?.contains("struct PhoneCommandHeroCard") == true
+        )
+        XCTAssertTrue(
+            command?.contains("chips: CommandCenterLayout.phoneScorecardChips(painted)") == true,
+            "Phone KPI heroes must reuse PhoneScorecardRow chips"
+        )
+        XCTAssertTrue(
+            command?.contains(".background(AppTheme.blue, in: RoundedRectangle(cornerRadius: 14, style: .continuous))") == true,
+            "Mac Command Center leftover-fill navy tiles stay"
+        )
+        let brand = try? String(
+            contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/Views/SharedViews.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(
+            brand?.contains("overviewBannerCopy(") == true,
+            "Phone page banner must use filter-aware Overview copy"
+        )
+        XCTAssertFalse(
+            brand?.contains("accessory: compactBannerAccessory") == true,
+            "Phone page banner must not keep navy HubBanner accessory layout"
+        )
+    }
+
+    /// 446 put Operational Heartbeat in PhoneScorecardRow with no RESULT chips;
+    /// the chrome VStack leftover-filled a cavern. 447 is a tight header.
+    func testArchitecture447CompactPageBannerIsNotScorecardRow() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
+        XCTAssertTrue(PulseLaunch.shouldPaintPhoneHeroesAsScorecards())
+        XCTAssertFalse(PulseLaunch.shouldPaintPhonePageBannerAsScorecardRow())
+        XCTAssertTrue(PulseLaunch.shouldUseCompactPhonePageBanner())
+        XCTAssertTrue(PulseLaunch.shouldUseCompactPhoneCommandChrome())
+        XCTAssertTrue(PulseLaunch.shouldLeavePadMacCommandChromeUnchanged())
+        XCTAssertFalse(PulseLaunch.shouldShowThisSeatCallout())
+        XCTAssertEqual(CommandCenterLayout.phonePageBannerMaxHeight(), 88)
+        XCTAssertLessThan(CommandCenterLayout.phonePageBannerMaxHeight(), CommandCenterLayout.phoneHeroMinHeight())
+
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let brand = try? String(
+            contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/Views/SharedViews.swift"),
+            encoding: .utf8
+        )
+        guard let brand,
+              let start = brand.range(of: "private var compactPageBanner"),
+              let end = brand.range(of: "private var compactBannerHealth")
+        else {
+            return XCTFail("compactPageBanner must stay on HubBrandBar")
+        }
+        let banner = String(brand[start.lowerBound..<end.lowerBound])
+        XCTAssertTrue(banner.contains("PhoneCompactPageBanner"), banner)
+        XCTAssertFalse(banner.contains("PhoneScorecardRow"), banner)
+        XCTAssertTrue(banner.contains("overviewBannerCopy("), banner)
+
+        let command = try? String(
+            contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/Views/CommandCenterView.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(
+            command?.contains("chips: CommandCenterLayout.phoneScorecardChips(painted)") == true,
+            "Sales / Loss / 5 Star must keep Labor RESULT chips"
+        )
+        let dash = try? String(
+            contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/Views/DashboardView.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(dash?.contains("struct PhoneCompactPageBanner") == true)
+        XCTAssertTrue(dash?.contains(".fixedSize(horizontal: false, vertical: true)") == true)
+        XCTAssertTrue(command?.contains("func phonePageBannerMaxHeight()") == true)
+    }
+
+    /// 448: Operational Heartbeat is classic navy `{Seat} Overview | Current Week`.
+    /// Sales / Loss / 5 Star stay white Labor scorecards.
+    func testArchitecture448NavyOverviewBannerKeepsWhiteHeroes() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
+        XCTAssertTrue(PulseLaunch.shouldPaintPhoneHeroesAsScorecards())
+        XCTAssertFalse(PulseLaunch.shouldPaintPhonePageBannerAsScorecardRow())
+        XCTAssertTrue(PulseLaunch.shouldUseCompactPhonePageBanner())
+        XCTAssertTrue(PulseLaunch.shouldPaintPhonePageBannerNavy())
+        XCTAssertTrue(PulseLaunch.shouldLeavePadMacCommandChromeUnchanged())
+        XCTAssertFalse(PulseLaunch.shouldShowThisSeatCallout())
+
+        XCTAssertEqual(
+            CommandCenterLayout.overviewBannerCopy(filters: DashboardFilters(), weekWindow: nil),
+            "Total Company | Current Week"
+        )
+        XCTAssertEqual(CommandCenterLayout.overviewWeekLabel(nil), "Current Week")
+        XCTAssertEqual(CommandCenterLayout.overviewWeekLabel(""), "Current Week")
+        XCTAssertEqual(CommandCenterLayout.overviewWeekLabel("  "), "Current Week")
+        XCTAssertEqual(CommandCenterLayout.overviewWeekLabel("Week 29"), "Week 29")
+
+        var district = DashboardFilters()
+        district.district = "J2"
+        XCTAssertEqual(
+            CommandCenterLayout.overviewBannerCopy(filters: district, weekWindow: nil),
+            "J2 District | Current Week"
+        )
+
+        var region = DashboardFilters()
+        region.region = "Intermountain"
+        XCTAssertEqual(
+            CommandCenterLayout.overviewSeatLabel(region),
+            "Intermountain Region"
+        )
+
+        var division = DashboardFilters()
+        division.division = "Jewel Osco"
+        XCTAssertEqual(
+            CommandCenterLayout.overviewSeatLabel(division),
+            "Jewel Osco Division"
+        )
+
+        var om = DashboardFilters()
+        om.om = "Luke Lomas"
+        XCTAssertEqual(CommandCenterLayout.overviewSeatLabel(om), "Luke Lomas OM")
+
+        var store = DashboardFilters()
+        store.store = "3427"
+        XCTAssertEqual(CommandCenterLayout.overviewSeatLabel(store), "Store 3427")
+        store.district = "J2"
+        XCTAssertEqual(
+            CommandCenterLayout.overviewSeatLabel(store),
+            "Store 3427",
+            "finest grain wins — store over district"
+        )
+
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let dash = try? String(
+            contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/Views/DashboardView.swift"),
+            encoding: .utf8
+        )
+        guard let dash,
+              let bannerStart = dash.range(of: "struct PhoneCompactPageBanner"),
+              let bannerEnd = dash.range(of: "struct PhoneScorecardRow")
+        else {
+            return XCTFail("PhoneCompactPageBanner must stay next to PhoneScorecardRow")
+        }
+        let banner = String(dash[bannerStart.lowerBound..<bannerEnd.lowerBound])
+        XCTAssertTrue(banner.contains(".background(AppTheme.blue"), "banner must be brand navy")
+        XCTAssertFalse(banner.contains("background(Color.white"), "navy overview banner must not be white Labor chrome")
+        XCTAssertFalse(
+            banner.contains("overlay(alignment: .leading)"),
+            "navy overview banner must not keep white Labor accent strip"
+        )
+        let command = try? String(
+            contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/Views/CommandCenterView.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(
+            command?.contains("chips: CommandCenterLayout.phoneScorecardChips(painted)") == true,
+            "Sales / Loss / 5 Star must keep Labor RESULT chips"
+        )
+    }
+
+    /// 449: phone home drops the grey AT-A-GLANCE caption so KPI + glance cards flow.
+    func testArchitecture449PhoneDropsAtAGlanceCaption() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
+        XCTAssertFalse(PulseLaunch.shouldShowPhoneAtAGlanceSectionCaption())
+        XCTAssertTrue(PulseLaunch.shouldPaintPhoneHeroesAsScorecards())
+        XCTAssertTrue(PulseLaunch.shouldPaintPhonePageBannerNavy())
+        XCTAssertTrue(PulseLaunch.shouldLeavePadMacCommandChromeUnchanged())
+
+        let command = try? String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat/Views/CommandCenterView.swift"),
+            encoding: .utf8
+        )
+        guard let command,
+              let start = command.range(of: "struct PhoneCommandCenterHome"),
+              let end = command.range(of: "struct PhoneCommandHeroCard")
+        else {
+            return XCTFail("PhoneCommandCenterHome must stay above PhoneCommandHeroCard")
+        }
+        let phoneHome = String(command[start.lowerBound..<end.lowerBound])
+        XCTAssertFalse(
+            phoneHome.contains("AT-A-GLANCE"),
+            "Phone home must not show AT-A-GLANCE · ALL SECTIONS"
+        )
+        XCTAssertTrue(
+            command.contains("private var glanceHeader"),
+            "Mac leftover-fill glance header stays"
+        )
+        XCTAssertTrue(
+            command.contains("chips: CommandCenterLayout.phoneScorecardChips(painted)"),
+            "Sales / Loss / 5 Star must keep Labor RESULT chips"
+        )
+    }
+
+    /// 450: Pages + Filters + Share share one toolbar on the CompactNav header.
+    func testArchitecture450CompactPagesFiltersShareToolbar() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
+        XCTAssertTrue(PulseLaunch.shouldUseCompactPagesFiltersShareToolbar())
+        XCTAssertTrue(PulseLaunch.shouldKeepAssistInCompactBrandRow())
+        XCTAssertTrue(PulseLaunch.shouldPaintPhonePageBannerNavy())
+        XCTAssertTrue(PulseLaunch.shouldPaintPhoneHeroesAsScorecards())
+        XCTAssertFalse(PulseLaunch.shouldShowPhoneAtAGlanceSectionCaption())
+        XCTAssertFalse(PulseLaunch.shouldShowThisSeatCallout())
+        XCTAssertFalse(PulseLaunch.shouldPublishPickerSeatFirstPaint())
+        XCTAssertTrue(PulseLaunch.shouldLeavePadMacCommandChromeUnchanged())
+
+        let shared = try? String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat/Views/SharedViews.swift"),
+            encoding: .utf8
+        )
+        guard let shared,
+              let toolbarStart = shared.range(of: "struct HubCompactActionToolbar"),
+              let toolbarEnd = shared.range(of: "struct FilterBar"),
+              let barStart = shared.range(of: "private var compactBar"),
+              let barEnd = shared.range(of: "private var regularShowsHeaderPages")
+        else {
+            return XCTFail("HubCompactActionToolbar must stay next to FilterBar")
+        }
+        let toolbar = String(shared[toolbarStart.lowerBound..<toolbarEnd.lowerBound])
+        XCTAssertTrue(toolbar.contains("title: \"Pages\""), toolbar)
+        XCTAssertTrue(toolbar.contains("FilterBar()"), toolbar)
+        XCTAssertTrue(toolbar.contains("HubChromePill("), toolbar)
+        let brand = String(shared[barStart.lowerBound..<barEnd.lowerBound])
+        XCTAssertFalse(brand.contains("title: \"Pages\""), "Pages must not stay on the logo row")
+        XCTAssertTrue(shared.contains("HubCompactActionToolbar(showsFilters: showsFilters)"))
+        XCTAssertTrue(
+            shared.contains("hubChrome(showBack:"),
+            "One shared HubBrandBar chrome — not per-page headers"
+        )
+    }
+
+    /// 451: Pages sheet Close is a finished navy pill, not a clipped circle.
+    func testArchitecture451CompactNavCloseIsFinishedPill() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
+        XCTAssertTrue(PulseLaunch.shouldUseFinishedCompactNavCloseControl())
+        XCTAssertTrue(PulseLaunch.shouldUseCompactPagesFiltersShareToolbar())
+        XCTAssertFalse(PulseLaunch.shouldShowThisSeatCallout())
+        XCTAssertEqual(HubLayout.phoneHitTarget, 44)
+
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let hub = try? String(
+            contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/MainHubView.swift"),
+            encoding: .utf8
+        )
+        guard let hub,
+              let sheetStart = hub.range(of: "struct CompactNavSheet"),
+              let sheetEnd = hub.range(of: "private func navRow")
+        else {
+            return XCTFail("CompactNavSheet must stay the shared Pages sheet")
+        }
+        let sheet = String(hub[sheetStart.lowerBound..<sheetEnd.lowerBound])
+        XCTAssertTrue(sheet.contains("HubSheetCloseControl"), sheet)
+        XCTAssertFalse(sheet.contains("cancellationAction"), sheet)
+        XCTAssertFalse(sheet.contains("Button(\"Close\")"), sheet)
+
+        let shared = try? String(
+            contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/Views/SharedViews.swift"),
+            encoding: .utf8
+        )
+        guard let shared,
+              let closeStart = shared.range(of: "struct HubSheetCloseControl"),
+              let closeEnd = shared.range(of: "struct HubNavControl")
+        else {
+            return XCTFail("HubSheetCloseControl must stay a shared chrome atom")
+        }
+        let close = String(shared[closeStart.lowerBound..<closeEnd.lowerBound])
+        XCTAssertTrue(close.contains(".buttonStyle(.plain)"), close)
+        XCTAssertTrue(close.contains("AppTheme.blue"), close)
+        XCTAssertFalse(close.contains("phoneHitTarget"), close)
+    }
+
+    /// 452: Close is in the sheet body so the full word is readable.
+    func testArchitecture452CompactNavCloseLivesInSheetContent() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
+        XCTAssertTrue(PulseLaunch.shouldPlaceCompactNavCloseInSheetContent())
+        XCTAssertFalse(PulseLaunch.shouldApplyPhoneHitFrameToSheetClose())
+        XCTAssertTrue(PulseLaunch.shouldUseFinishedCompactNavCloseControl())
+
+        let hub = try? String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat/MainHubView.swift"),
+            encoding: .utf8
+        )
+        guard let hub,
+              let sheetStart = hub.range(of: "struct CompactNavSheet"),
+              let sheetEnd = hub.range(of: "private func navRow")
+        else {
+            return XCTFail("CompactNavSheet must stay the shared Pages sheet")
+        }
+        let sheet = String(hub[sheetStart.lowerBound..<sheetEnd.lowerBound])
+        XCTAssertTrue(sheet.contains("HubSheetCloseControl"), sheet)
+        XCTAssertTrue(sheet.contains("safeAreaInset(edge: .top"), sheet)
+        XCTAssertFalse(sheet.contains(".toolbar"), sheet)
+        XCTAssertFalse(sheet.contains("topBarLeading"), sheet)
+        XCTAssertFalse(sheet.contains("cancellationAction"), sheet)
+        XCTAssertTrue(sheet.contains("Text(\"SECTIONS\")"), sheet)
+    }
+
+    /// 453: Filters is grain chips → values → Save. No duplicate copy.
+    func testArchitecture453CompactFilterSheetFlow() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
+        XCTAssertTrue(PulseLaunch.shouldUseCompactFilterSheetFlow())
+        XCTAssertFalse(PulseLaunch.shouldShowDuplicateFilterInstructions())
+        XCTAssertFalse(PulseLaunch.shouldPublishPickerSeatFirstPaint())
+        XCTAssertEqual(
+            FilterFocus.allCases.map(\.rawValue),
+            ["region", "division", "district", "om", "store"]
+        )
+
+        let shared = try? String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat/Views/SharedViews.swift"),
+            encoding: .utf8
+        )
+        guard let shared,
+              let sheetStart = shared.range(of: "struct FilterSheet"),
+              let sheetEnd = shared.range(of: "struct FilterColumn")
+        else {
+            return XCTFail("FilterSheet must stay the shared filter sheet")
+        }
+        let sheet = String(shared[sheetStart.lowerBound..<sheetEnd.lowerBound])
+        XCTAssertTrue(sheet.contains("filterGrainChips"), sheet)
+        XCTAssertTrue(sheet.contains("filterActionBar"), sheet)
+        XCTAssertTrue(sheet.contains("safeAreaInset(edge: .bottom"), sheet)
+        XCTAssertTrue(sheet.contains("HubSheetCloseControl(title: \"Cancel\")"), sheet)
+        XCTAssertTrue(sheet.contains("HubSheetCloseControl(title: \"Save\""), sheet)
+        XCTAssertFalse(sheet.contains("Search or tap rows"), sheet)
+        XCTAssertFalse(
+            sheet.contains("LazyVGrid"),
+            "Phone filter grains are one chip row, not a 2-col grid that orphans Store"
+        )
+    }
+
+    /// 454: navy banner line 1 is the page name; line 2 is `{seat} | {week}`.
+    func testArchitecture454CompactBannerPageOverFilterSeat() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
+        XCTAssertTrue(PulseLaunch.shouldShowPageNameOnCompactBanner())
+        XCTAssertFalse(PulseLaunch.shouldShowFilterGrainOnCompactBannerTitle())
+        XCTAssertTrue(PulseLaunch.shouldPaintPhonePageBannerNavy())
+        XCTAssertFalse(PulseLaunch.shouldPublishPickerSeatFirstPaint())
+        XCTAssertFalse(PulseLaunch.shouldShowThisSeatCallout())
+
+        XCTAssertEqual(CommandCenterLayout.overviewPageTitle(.dashboard), "Dashboard")
+        XCTAssertEqual(CommandCenterLayout.overviewPageTitle(.sales), "Sales")
+        XCTAssertEqual(CommandCenterLayout.overviewPageTitle(.labor), "Labor")
+        XCTAssertEqual(CommandCenterLayout.overviewPageTitle(.lostRevenue), "Loss Revenue")
+
+        var division = DashboardFilters()
+        division.division = "Jewel Osco"
+        XCTAssertEqual(
+            CommandCenterLayout.overviewBannerCopy(filters: division, weekWindow: nil),
+            "Jewel Osco Division | Current Week"
+        )
+        XCTAssertNotEqual(
+            CommandCenterLayout.overviewPageTitle(.dashboard),
+            CommandCenterLayout.overviewSeatLabel(division),
+            "Soft FAIL filter grain on line 1"
+        )
+
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let brand = try? String(
+            contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/Views/SharedViews.swift"),
+            encoding: .utf8
+        )
+        guard let brand,
+              let start = brand.range(of: "private var compactPageBanner"),
+              let end = brand.range(of: "private var compactBannerHealth")
+        else {
+            return XCTFail("compactPageBanner must stay on HubBrandBar")
+        }
+        let mounted = String(brand[start.lowerBound..<end.lowerBound])
+        XCTAssertTrue(mounted.contains("title: CommandCenterLayout.overviewPageTitle("), mounted)
+        XCTAssertTrue(mounted.contains("subtitle: CommandCenterLayout.overviewBannerCopy("), mounted)
+        XCTAssertFalse(
+            mounted.contains("title: CommandCenterLayout.overviewSeatLabel("),
+            "Soft FAIL filter seat as the primary banner title"
+        )
+
+        let dash = try? String(
+            contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/Views/DashboardView.swift"),
+            encoding: .utf8
+        )
+        guard let dash,
+              let bannerStart = dash.range(of: "struct PhoneCompactPageBanner"),
+              let bannerEnd = dash.range(of: "struct PhoneScorecardRow")
+        else {
+            return XCTFail("PhoneCompactPageBanner must stay next to PhoneScorecardRow")
+        }
+        let banner = String(dash[bannerStart.lowerBound..<bannerEnd.lowerBound])
+        XCTAssertTrue(banner.contains("phoneBannerTitleFont()"), banner)
+        XCTAssertTrue(banner.contains("phoneBannerSubtitleFont()"), banner)
+        XCTAssertTrue(banner.contains("layoutPriority(1)"), "STATUS pill must not clip")
+        XCTAssertFalse(banner.contains("lineLimit(2)"), "title and subtitle are one line each")
+    }
+
+    /// 455: Total Company pages show This Week company rollup above Regions.
+    func testArchitecture455CompanyThisWeekRollupAboveRegions() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
+        XCTAssertTrue(PulseLaunch.shouldShowCompanyThisWeekRollup(filters: DashboardFilters()))
+        XCTAssertTrue(PulseLaunch.shouldShowSalesDayWeekBlock(filters: DashboardFilters()))
+        XCTAssertFalse(PulseLaunch.shouldShowMetricCompanyThisWeekRollup(section: .sales, filters: DashboardFilters()))
+        XCTAssertFalse(PulseLaunch.shouldPublishPickerSeatFirstPaint())
+        XCTAssertFalse(PulseLaunch.shouldShowThisSeatCallout())
+
+        let company = DashboardFilters()
+        var region = DashboardFilters()
+        region.region = "East"
+        var division = DashboardFilters()
+        division.division = "Jewel Osco"
+        XCTAssertFalse(PulseLaunch.shouldShowCompanyThisWeekRollup(filters: region))
+        XCTAssertFalse(PulseLaunch.shouldShowCompanyThisWeekRollup(filters: division))
+        XCTAssertEqual(PulseLaunch.sectionRollupGrains(filters: company), [.region, .division])
+
+        let sections: [MetricSection] = [
+            .lostRevenue, .missingItems, .fiveStar, .preSubOOS, .pickPath,
+            .prepNotReady, .dynacap, .scheduleQuality, .pickerScorecard, .pph, .labor,
+        ]
+        for section in sections {
+            XCTAssertTrue(
+                PulseLaunch.shouldShowMetricCompanyThisWeekRollup(section: section, filters: company),
+                section.rawValue
+            )
+            XCTAssertFalse(
+                PulseLaunch.shouldShowMetricCompanyThisWeekRollup(section: section, filters: region),
+                section.rawValue
+            )
+        }
+
+        let page = try? String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat/Views/SectionDetailView.swift"),
+            encoding: .utf8
+        )
+        guard let page,
+              let heavyStart = page.range(of: "private var heavyBlocks"),
+              let heavyEnd = page.range(of: "private var seatMetricCard")
+        else {
+            return XCTFail("PhoneSectionPage heavyBlocks must stay the phone section stack")
+        }
+        let heavy = String(page[heavyStart.lowerBound..<heavyEnd.lowerBound])
+        XCTAssertTrue(heavy.contains("PhoneCompanyThisWeekBlock(section: section)"), heavy)
+        XCTAssertTrue(heavy.contains("grainBlock(grain)"), heavy)
+        if let week = heavy.range(of: "PhoneCompanyThisWeekBlock"),
+           let grains = heavy.range(of: "ForEach(PulseLaunch.sectionRollupGrains") {
+            XCTAssertLessThan(week.lowerBound, grains.lowerBound, "This Week must sit above Regions")
+        } else {
+            XCTFail("This Week must mount before the Regions ForEach")
+        }
+
+        guard let blockStart = page.range(of: "struct PhoneCompanyThisWeekBlock"),
+              let blockEnd = page.range(of: "struct PhoneSectionHeading")
+        else {
+            return XCTFail("PhoneCompanyThisWeekBlock must share region-card chrome")
+        }
+        let block = String(page[blockStart.lowerBound..<blockEnd.lowerBound])
+        XCTAssertTrue(block.contains("PhoneScorecardRow("), block)
+        XCTAssertTrue(block.contains("dashboardTableValues("), block)
+        XCTAssertTrue(block.contains("\"This Week\""), block)
+        XCTAssertTrue(block.contains("overviewSeatLabel("), block)
+        XCTAssertTrue(block.contains("OverviewSalesPhoneCard"), block)
+        XCTAssertFalse(block.contains("PhoneCommandHeroCard"), block)
+    }
+
+    /// 456: metric page store counts are fact stores, not roster 2161 vs 2164.
+    func testArchitecture456MetricPageStoreCountIsFactStores() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
+        XCTAssertTrue(PulseLaunch.shouldUseMetricFactStoreCountOnSectionPage())
+        XCTAssertFalse(PulseLaunch.shouldPinRosterStoreCountOnMetricPageHero())
+        XCTAssertFalse(PulseLaunch.shouldPublishPickerSeatFirstPaint())
+
+        func row(_ store: String, pph: Double?) -> MetricRow {
+            MetricRow(
+                section: .pph,
+                division: "Jewel Osco",
+                operationsOM: "OM",
+                storeNumber: store,
+                payload: pph.map { ["pph": $0] } ?? [:]
+            )
+        }
+        let rows = [
+            row("1001", pph: 74.2),
+            row("1002", pph: 74.2),
+            row("1003", pph: 74.2),
+            row("1004", pph: 74.2),
+            row("210", pph: 10),
+            row("239", pph: 10),
+            row("TOTAL", pph: 74.2),
+            row("1005", pph: nil),
+        ]
+        XCTAssertEqual(HeartbeatMath.metricStoreCount(.pph, rows: rows), 4)
+        XCTAssertEqual(
+            HeartbeatMath.metricStoreCount(.pph, rows: rows),
+            HeartbeatMath.metricStoreCount(.pph, rows: Array(rows.prefix(4))),
+            "hero / This Week / Regions share one fact-store filter"
+        )
+
+        var rosterPinned = SectionSummary(
+            section: .pph,
+            storeCount: 2161,
+            headline: 74.2,
+            headlineLabel: "PPH",
+            secondary: "",
+            health: .watch,
+            watchCount: 0,
+            riskCount: 0,
+            lastFilename: nil,
+            lastUploadedAt: nil
+        )
+        rosterPinned = PulseLaunch.companyCommandCenterCard(
+            rosterPinned,
+            chrome: nil,
+            rosterStores: 2161
+        )
+        XCTAssertEqual(rosterPinned.storeCount, 2161, "Command Center company tiles stay roster-pinned")
+        XCTAssertEqual(
+            PulseLaunch.metricPageHeroCard(rosterPinned, rows: rows).storeCount,
+            4,
+            "metric page hero unpins roster and counts PPH facts"
+        )
+
+        let prepThin = (1...8).map { n in
+            MetricRow(
+                section: .prepNotReady,
+                division: "East",
+                operationsOM: "OM",
+                storeNumber: String(n),
+                payload: n <= 5 ? ["pnr_rate_pct": 1.5] : [:]
+            )
+        }
+        XCTAssertEqual(HeartbeatMath.metricStoreCount(.prepNotReady, rows: prepThin), 5)
+        XCTAssertNotEqual(
+            HeartbeatMath.metricStoreCount(.prepNotReady, rows: prepThin),
+            8,
+            "Soft FAIL forcing roster/all-row N on a thin metric"
+        )
+
+        let page = try? String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat/Views/SectionDetailView.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(page?.contains("usesMetricFactStoreCount: true") == true)
+        XCTAssertTrue(page?.contains("HeartbeatMath.metricStoreCount(") == true)
+        XCTAssertTrue(
+            page?.contains("metricStoreCount(section, rows: factRows)") == true
+        )
+    }
+
+    /// 457: Dashboard RESULT cards nest the same This Week detail as metric pages.
+    func testArchitecture457DashboardNestsThisWeekDetail() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
+        XCTAssertTrue(PulseLaunch.shouldShowDashboardThisWeekDetail())
+        XCTAssertTrue(PulseLaunch.shouldUseMetricFactStoreCountOnSectionPage())
+        XCTAssertTrue(PulseLaunch.shouldPaintPhoneHeroesAsScorecards())
+        XCTAssertFalse(PulseLaunch.shouldPublishPickerSeatFirstPaint())
+        XCTAssertFalse(PulseLaunch.shouldShowThisSeatCallout())
+
+        let command = try? String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat/Views/CommandCenterView.swift"),
+            encoding: .utf8
+        )
+        guard let command,
+              let start = command.range(of: "struct PhoneCommandCenterHome"),
+              let end = command.range(of: "struct PhoneCommandHeroCard")
+        else {
+            return XCTFail("PhoneCommandCenterHome must stay the phone dashboard")
+        }
+        let home = String(command[start.lowerBound..<end.lowerBound])
+        XCTAssertTrue(home.contains("PhoneDashboardMetricBlock("), home)
+        XCTAssertFalse(home.contains("PhoneCompanyThisWeekBlock("), home)
+        XCTAssertFalse(home.contains("PhoneSectionHeading"), "orphan THIS WEEK divider is gone")
+
+        let storeSrc = try? String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat/Storage/HeartbeatStore.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(storeSrc?.contains("PhoneThisWeekChrome.chips(") == true)
+        XCTAssertTrue(storeSrc?.contains("shouldShowDashboardThisWeekDetail()") == true)
+        XCTAssertTrue(storeSrc?.contains("phoneScorecardChips(painted)") == true)
+
+        let page = try? String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat/Views/SectionDetailView.swift"),
+            encoding: .utf8
+        )
+        guard let page,
+              let blockStart = page.range(of: "struct PhoneCompanyThisWeekBlock"),
+              let blockEnd = page.range(of: "struct PhoneSectionHeading")
+        else {
+            return XCTFail("PhoneCompanyThisWeekBlock is the shared This Week chrome")
+        }
+        let block = String(page[blockStart.lowerBound..<blockEnd.lowerBound])
+        XCTAssertTrue(block.contains("OverviewSalesPhoneCard"), "Sales keeps the richer grid")
+        XCTAssertTrue(block.contains("dashboardTableValues("), block)
+        XCTAssertTrue(block.contains("dashboardTableHeaders("), block)
+        XCTAssertTrue(block.contains("metricStoreCount("), block)
+        XCTAssertTrue(block.contains("overviewSeatLabel("), block)
+    }
+
+    /// 458: one RESULT + This Week card, navy {Section} Overview, filter-seat RESULT.
+    func testArchitecture458DashboardMergesResultAndPaintsFilterSeat() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
+        XCTAssertTrue(PulseLaunch.shouldMergeDashboardResultAndThisWeek())
+        XCTAssertTrue(PulseLaunch.shouldShowDashboardSectionOverviewBanner())
+        XCTAssertTrue(PulseLaunch.shouldPaintDashboardResultFromActiveSeat())
+        XCTAssertTrue(PulseLaunch.shouldShowDashboardThisWeekDetail())
+        XCTAssertTrue(PulseLaunch.shouldUseMetricFactStoreCountOnSectionPage())
+        XCTAssertFalse(PulseLaunch.shouldPublishPickerSeatFirstPaint())
+        XCTAssertFalse(PulseLaunch.shouldShowThisSeatCallout())
+
+        XCTAssertEqual(CommandCenterLayout.dashboardSectionOverviewTitle(.sales), "Sales Overview")
+        XCTAssertEqual(CommandCenterLayout.dashboardSectionOverviewTitle(.lostRevenue), "Loss Overview")
+        XCTAssertEqual(CommandCenterLayout.dashboardSectionOverviewTitle(.fiveStar), "5 Star Overview")
+        XCTAssertEqual(CommandCenterLayout.dashboardSectionOverviewTitle(.labor), "Labor Overview")
+        XCTAssertEqual(CommandCenterLayout.dashboardSectionOverviewTitle(.pph), "PPH Overview")
+        XCTAssertEqual(CommandCenterLayout.dashboardSectionOverviewTitle(.pickerScorecard), "Picker Overview")
+
+        let companyCard = SectionSummary(
+            section: .sales,
+            storeCount: 2158,
+            headline: 16_860_000,
+            headlineLabel: "eComm sales",
+            secondary: "",
+            health: .good,
+            watchCount: 0,
+            riskCount: 0,
+            lastFilename: nil,
+            lastUploadedAt: nil
+        )
+        let jewelStores = [
+            MetricRow(
+                section: .sales,
+                division: "Jewel Osco",
+                operationsOM: "",
+                storeNumber: "3466",
+                payload: ["sales_dollars": 1_000_000],
+                textPayload: ["sales_grain": "store"]
+            ),
+            MetricRow(
+                section: .sales,
+                division: "Jewel Osco",
+                operationsOM: "",
+                storeNumber: "3503",
+                payload: ["sales_dollars": 1_006_799.79],
+                textPayload: ["sales_grain": "store"]
+            ),
+        ]
+        let companyGrain = MetricRow(
+            section: .sales,
+            division: "",
+            operationsOM: "",
+            storeNumber: "",
+            payload: ["sales_dollars": 16_860_000],
+            textPayload: ["sales_grain": "company"]
+        )
+        var jewel = DashboardFilters()
+        jewel.division = "Jewel Osco"
+        let jewelCard = PulseLaunch.dashboardSeatCard(
+            companyCard,
+            rows: jewelStores + [companyGrain],
+            filters: jewel
+        )
+        XCTAssertEqual(jewelCard.headline ?? 0, 2_006_799.79, accuracy: 0.5)
+        XCTAssertEqual(jewelCard.storeCount, 2)
+        XCTAssertNotEqual(jewelCard.headline ?? 0, 16_860_000, accuracy: 0.5)
+
+        let companyPaint = PulseLaunch.dashboardSeatCard(
+            companyCard,
+            rows: jewelStores,
+            filters: DashboardFilters()
+        )
+        XCTAssertEqual(companyPaint.headline ?? 0, 16_860_000, accuracy: 0.5)
+        XCTAssertEqual(companyPaint.storeCount, 2)
+
+        let fiveStarCompany = SectionSummary(
+            section: .fiveStar,
+            storeCount: 2158,
+            headline: 4.72,
+            headlineLabel: "Avg star rating",
+            secondary: "",
+            health: .watch,
+            watchCount: 0,
+            riskCount: 0,
+            lastFilename: nil,
+            lastUploadedAt: nil
+        )
+        let fiveStarJewel = [
+            MetricRow(
+                section: .fiveStar,
+                division: "Jewel Osco",
+                operationsOM: "",
+                storeNumber: "1",
+                payload: ["star_rating": 4.9]
+            ),
+            MetricRow(
+                section: .fiveStar,
+                division: "Jewel Osco",
+                operationsOM: "",
+                storeNumber: "2",
+                payload: ["star_rating": 4.7]
+            ),
+        ]
+        let fiveStarPaint = PulseLaunch.dashboardSeatCard(
+            fiveStarCompany,
+            rows: fiveStarJewel,
+            filters: jewel
+        )
+        XCTAssertEqual(fiveStarPaint.headline ?? 0, 4.8, accuracy: 0.01)
+        XCTAssertEqual(fiveStarPaint.storeCount, 2)
+
+        let command = try? String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat/Views/CommandCenterView.swift"),
+            encoding: .utf8
+        )
+        guard let command,
+              let blockStart = command.range(of: "struct PhoneDashboardMetricBlock"),
+              let blockEnd = command.range(of: "struct PhoneCommandHeroCard")
+        else {
+            return XCTFail("PhoneDashboardMetricBlock is the merged dashboard section")
+        }
+        let block = String(command[blockStart.lowerBound..<blockEnd.lowerBound])
+        XCTAssertTrue(block.contains("PhoneCompactPageBanner("), block)
+        XCTAssertTrue(block.contains("dashboardSectionOverviewTitle("), block)
+        XCTAssertTrue(block.contains("cachedPhoneDashboardCard("), block)
+        XCTAssertTrue(block.contains("cachedPhoneDashboardChips("), block)
+        XCTAssertFalse(block.contains("PhoneCompanyThisWeekBlock("), block)
+        XCTAssertFalse(block.contains("\"This Week\""), block)
+        XCTAssertEqual(block.components(separatedBy: "PhoneScorecardRow(").count - 1, 1)
+
+        let storeSrc = try? String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat/Storage/HeartbeatStore.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(storeSrc?.contains("dashboardSeatCard(") == true)
+        XCTAssertTrue(storeSrc?.contains("shouldMergeDashboardResultAndThisWeek()") == true)
+        XCTAssertTrue(storeSrc?.contains("PhoneThisWeekChrome.chips(") == true)
+        XCTAssertTrue(storeSrc?.contains("phoneScorecardChips(painted)") == true)
+        XCTAssertTrue(storeSrc?.contains("filters.summary") == true)
+    }
+
+    /// 459: PhoneThisWeekChrome reads HeartbeatStore on MainActor (458 cable FAIL).
+    func testArchitecture459ThisWeekChromeIsMainActor() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
+        XCTAssertTrue(PulseLaunch.shouldMergeDashboardResultAndThisWeek())
+        XCTAssertTrue(PulseLaunch.shouldPaintDashboardResultFromActiveSeat())
+        XCTAssertFalse(PulseLaunch.shouldPublishPickerSeatFirstPaint())
+        XCTAssertFalse(PulseLaunch.shouldShowThisSeatCallout())
+
+        let page = try? String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat/Views/SectionDetailView.swift"),
+            encoding: .utf8
+        )
+        guard let page,
+              let start = page.range(of: "enum PhoneThisWeekChrome"),
+              let end = page.range(of: "struct PhoneCompanyThisWeekBlock")
+        else {
+            return XCTFail("PhoneThisWeekChrome must stay the shared This Week helper")
+        }
+        XCTAssertTrue(
+            page.contains("@MainActor\nenum PhoneThisWeekChrome"),
+            "Soft FAIL nonisolated salesStores / seatRows / filters / lostRevenueMarketRow"
+        )
+        let helper = String(page[start.lowerBound..<end.lowerBound])
+        XCTAssertTrue(helper.contains("salesStores()"), helper)
+        XCTAssertTrue(helper.contains("seatRows(for:"), helper)
+        XCTAssertTrue(helper.contains("lostRevenueMarketRow()"), helper)
+        XCTAssertTrue(helper.contains("store.filters"), helper)
+    }
+
+    /// 460: PPH stays on the phone Dashboard stack immediately under Dynacap.
+    func testArchitecture460PPHStaysOnPhoneDashboardUnderDynacap() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
+        XCTAssertTrue(PulseLaunch.shouldKeepPPHOnPhoneDashboard())
+        XCTAssertTrue(PulseLaunch.shouldShowDashboardSection(.pph))
+        XCTAssertTrue(PulseLaunch.shouldShowDashboardSection(.pickerScorecard))
+        XCTAssertTrue(PulseLaunch.shouldMergeDashboardResultAndThisWeek())
+        XCTAssertTrue(PulseLaunch.shouldShowDashboardSectionOverviewBanner())
+        XCTAssertFalse(PulseLaunch.shouldPublishPickerSeatFirstPaint())
+        XCTAssertFalse(PulseLaunch.shouldShowThisSeatCallout())
+
+        XCTAssertTrue(CommandCenterLayout.glanceSections.contains(.pph))
+        XCTAssertTrue(CommandCenterLayout.phoneDashboardSections.contains(.pph))
+        XCTAssertEqual(
+            CommandCenterLayout.phoneDashboardSections,
+            CommandCenterLayout.heroSections + CommandCenterLayout.glanceSections
+        )
+        let glance = CommandCenterLayout.glanceSections
+        let dynacap = glance.firstIndex(of: .dynacap)
+        let pph = glance.firstIndex(of: .pph)
+        XCTAssertEqual(pph, dynacap.map { $0 + 1 }, "PPH must sit directly under Dynacap")
+        XCTAssertEqual(CommandCenterLayout.dashboardSectionOverviewTitle(.pph), "PPH Overview")
+        XCTAssertTrue(CommandCenterLayout.coversEveryDashboardSection())
+
+        let command = try? String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat/Views/CommandCenterView.swift"),
+            encoding: .utf8
+        )
+        guard let command,
+              let start = command.range(of: "struct PhoneCommandCenterHome"),
+              let end = command.range(of: "struct PhoneDashboardMetricBlock")
+        else {
+            return XCTFail("PhoneCommandCenterHome must paint the phone Dashboard stack")
+        }
+        let home = String(command[start.lowerBound..<end.lowerBound])
+        XCTAssertTrue(home.contains("phoneDashboardSections"), home)
+        XCTAssertTrue(home.contains("shouldShowDashboardSection(section)"), home)
+        XCTAssertTrue(home.contains("dashboard-\\(section.rawValue)"), home)
+        XCTAssertFalse(home.contains("usablePaintedCards"), home)
+        XCTAssertFalse(home.contains("dashboardCallouts"), home)
+
+        let dash = try? String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat/Views/DashboardView.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(
+            dash?.contains("ForEach(Array(chips.enumerated()), id: \\.offset)") == true,
+            "Soft FAIL ForEach(chips) id=label — Dynacap's PPH chip ate the PPH card"
+        )
+    }
+
+    /// 461: Dynacap This Week PPH chip is seat weekPurePPH, not dynacap_rate / —.
+    func testArchitecture461DynacapPPHChipUsesPPHSeat() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
+        XCTAssertTrue(PulseLaunch.shouldFillDynacapPPHFromPPHSeat())
+        XCTAssertTrue(PulseLaunch.shouldKeepPPHOnPhoneDashboard())
+        XCTAssertFalse(PulseLaunch.shouldPublishPickerSeatFirstPaint())
+        XCTAssertFalse(PulseLaunch.shouldShowThisSeatCallout())
+
+        let dynacap = [
+            MetricRow(
+                section: .dynacap,
+                division: "Jewel Osco",
+                operationsOM: "",
+                storeNumber: "1",
+                payload: ["dynacap_rate": 60.6, "utilization_pct": 20.25]
+            )
+        ]
+        let pph = [
+            MetricRow(
+                section: .pph,
+                division: "Jewel Osco",
+                operationsOM: "",
+                storeNumber: "1",
+                payload: ["pph": 74.2]
+            ),
+            MetricRow(
+                section: .pph,
+                division: "Jewel Osco",
+                operationsOM: "",
+                storeNumber: "2",
+                payload: ["pph": 74.2]
+            ),
+        ]
+        XCTAssertEqual(HeartbeatMath.weekPurePPH(pph) ?? 0, 74.2, accuracy: 0.05)
+        XCTAssertNil(HeartbeatMath.weekPurePPH(dynacap), "dynacap rows have no Pure PPH")
+        XCTAssertEqual(
+            HeartbeatMath.dynacapSeatPurePPH(dynacapRows: dynacap, pphRows: pph) ?? 0,
+            74.2,
+            accuracy: 0.05
+        )
+        XCTAssertNotEqual(
+            HeartbeatMath.dynacapSeatPurePPH(dynacapRows: dynacap, pphRows: pph) ?? 0,
+            60.6,
+            accuracy: 0.05
+        )
+
+        let blank = HeartbeatMath.dashboardTableValues(.dynacap, rows: dynacap)
+        XCTAssertEqual(blank.values.first, "60.6")
+        XCTAssertEqual(blank.values.dropFirst().first, "—")
+
+        let filled = HeartbeatMath.dashboardTableValues(.dynacap, rows: dynacap, pphRows: pph)
+        XCTAssertEqual(HeartbeatMath.dashboardTableHeaders(.dynacap), ["Pcs/Hr", "PPH", "Util %"])
+        XCTAssertEqual(filled.values[0], "60.6")
+        XCTAssertEqual(filled.values[1], "74.2")
+        XCTAssertNotEqual(filled.values[1], "60.6")
+        XCTAssertEqual(filled.values[2], "20.25%")
+
+        let page = try? String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat/Views/SectionDetailView.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(page?.contains("factRows(section: .pph") == true)
+        XCTAssertTrue(page?.contains("pphRows: pphRows") == true)
+
+        let dash = try? String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat/Views/DashboardView.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(
+            dash?.contains("ForEach(Array(chips.enumerated()), id: \\.offset)") == true,
+            "460 identity KEEP"
+        )
+    }
+
+    /// 462: Pages taps must not rebuild hidden Dashboard RESULT+grid sections.
+    func testArchitecture462ParkHiddenDashboardAndCacheSeatPaint() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
+        XCTAssertTrue(PulseLaunch.shouldParkHiddenPhoneDashboard())
+        XCTAssertFalse(PulseLaunch.shouldRenderHiddenPhoneDashboardHeavy())
+        XCTAssertTrue(PulseLaunch.shouldCachePhoneDashboardSectionPaint())
+        XCTAssertTrue(PulseLaunch.shouldLazyLoadPhoneDashboardSections())
+        XCTAssertTrue(PulseLaunch.shouldKeepDashboardHostWarm())
+        XCTAssertFalse(PulseLaunch.shouldRemountPageOnDestinationChange())
+        XCTAssertTrue(PulseLaunch.shouldFillDynacapPPHFromPPHSeat())
+        XCTAssertTrue(PulseLaunch.shouldPaintDashboardResultFromActiveSeat())
+        XCTAssertFalse(PulseLaunch.shouldPublishPickerSeatFirstPaint())
+        XCTAssertFalse(PulseLaunch.shouldShowThisSeatCallout())
+
+        let command = try? String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat/Views/CommandCenterView.swift"),
+            encoding: .utf8
+        )
+        guard let command,
+              let start = command.range(of: "struct PhoneCommandCenterHome"),
+              let end = command.range(of: "struct PhoneDashboardMetricBlock")
+        else {
+            return XCTFail("PhoneCommandCenterHome must park when Pages leaves Dashboard")
+        }
+        let home = String(command[start.lowerBound..<end.lowerBound])
+        XCTAssertTrue(home.contains("shouldParkHiddenPhoneDashboard()"), home)
+        XCTAssertTrue(home.contains("isVisible"), home)
+        XCTAssertTrue(home.contains("LazyVStack"), home)
+        XCTAssertTrue(home.contains("phoneDashboardSections"), home)
+
+        let dash = try? String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat/Views/DashboardView.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(dash?.contains("isVisible: router.current == .dashboard") == true)
+
+        let storeSrc = try? String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat/Storage/HeartbeatStore.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(storeSrc?.contains("phoneDashboardPaintKey") == true)
+        XCTAssertTrue(storeSrc?.contains("filters.summary") == true)
+        XCTAssertTrue(storeSrc?.contains("cachedPhoneDashboardRows(") == true)
+        XCTAssertTrue(storeSrc?.contains("dashboardSeatCard(") == true)
+    }
+
+    /// 463: parked Dashboard still has a ViewBuilder-inferable home (462 cable FAIL).
+    func testArchitecture463PhoneDashboardHomeHasViewBuilderReturn() {
+        XCTAssertEqual(BuildStamp.id, "HB-0828.463")
+        XCTAssertTrue(PulseLaunch.shouldParkHiddenPhoneDashboard())
+        XCTAssertTrue(PulseLaunch.shouldFillDynacapPPHFromPPHSeat())
+        XCTAssertFalse(PulseLaunch.shouldPublishPickerSeatFirstPaint())
+        XCTAssertFalse(PulseLaunch.shouldShowThisSeatCallout())
+
+        let command = try? String(
+            contentsOf: URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .appendingPathComponent("FulfillmentHeartbeat/Views/CommandCenterView.swift"),
+            encoding: .utf8
+        )
+        guard let command,
+              let start = command.range(of: "struct PhoneCommandCenterHome"),
+              let end = command.range(of: "struct PhoneDashboardMetricBlock")
+        else {
+            return XCTFail("PhoneCommandCenterHome must stay the phone dashboard")
+        }
+        let home = String(command[start.lowerBound..<end.lowerBound])
+        XCTAssertTrue(home.contains("@ViewBuilder"), home)
+        XCTAssertTrue(home.contains("Color.clear"), home)
+        XCTAssertTrue(home.contains("visibleHome"), home)
+        XCTAssertFalse(home.contains("let stack = ForEach"), home)
     }
 }
 

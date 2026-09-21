@@ -896,6 +896,60 @@ enum PulseLaunch {
         return .company
     }
 
+    /// Total Company pages: This Week company rollup above Regions.
+    /// Soft FAIL on Region / Division / District / OM / Store seats.
+    static func shouldShowCompanyThisWeekRollup(filters: DashboardFilters) -> Bool {
+        sectionPageSeat(filters: filters) == .company
+    }
+
+    /// Phone Command Center: RESULT hero then the same This Week detail
+    /// card used on the metric page. Soft FAIL a second invented layout.
+    static func shouldShowDashboardThisWeekDetail() -> Bool { true }
+
+    /// RESULT + This Week grid share one PhoneScorecardRow. Soft FAIL an
+    /// orphan THIS WEEK divider between two cards.
+    static func shouldMergeDashboardResultAndThisWeek() -> Bool { true }
+
+    /// Navy `{Section} Overview` above each dashboard metric block.
+    /// Filter | week stays on the main Dashboard header.
+    static func shouldShowDashboardSectionOverviewBanner() -> Bool { true }
+
+    /// Filtered Dashboard RESULT uses the active seat's fact rows — same
+    /// pool as This Week / metricStoreCount. Soft FAIL company $16.86M
+    /// on a Jewel (or any Region / Division / District / OM / Store) seat.
+    static func shouldPaintDashboardResultFromActiveSeat() -> Bool { true }
+
+    /// Phone Dashboard must keep PPH under Dynacap. Soft FAIL filtering it
+    /// out of the stack. Picker stays on the glance list (not the 460 lock).
+    static func shouldKeepPPHOnPhoneDashboard() -> Bool { true }
+
+    static func shouldShowDashboardSection(_ section: MetricSection) -> Bool {
+        MetricSection.dashboardCards.contains(section)
+    }
+
+    /// Dynacap This Week PPH chip uses the PPH-section week Pure PPH.
+    /// Soft FAIL painting dynacap_rate (60.6) into that chip.
+    static func shouldFillDynacapPPHFromPPHSeat() -> Bool { true }
+
+    /// Hidden warm Dashboard must not rebuild 12 RESULT+grid sections on
+    /// every Pages tap / HeartbeatStore ping. Soft FAIL remounting the host.
+    static func shouldParkHiddenPhoneDashboard() -> Bool { true }
+
+    static func shouldRenderHiddenPhoneDashboardHeavy() -> Bool { false }
+
+    static func shouldCachePhoneDashboardSectionPaint() -> Bool { true }
+
+    static func shouldLazyLoadPhoneDashboardSections() -> Bool { true }
+
+    /// Sales already paints week total via `shouldShowSalesDayWeekBlock`.
+    /// Every other metric section mounts the shared company This Week card.
+    static func shouldShowMetricCompanyThisWeekRollup(
+        section: MetricSection,
+        filters: DashboardFilters
+    ) -> Bool {
+        shouldShowCompanyThisWeekRollup(filters: filters) && section != .sales
+    }
+
     /// Filter → tables on every MetricSection detail page.
     /// Company: Regions + Markets. Region: Markets. Division: Districts + Stores.
     /// District / OM / Store: Stores once. Never a .store-grain rollup on top.
@@ -1193,6 +1247,52 @@ enum PulseLaunch {
     /// shrinking iPad leftover-fill or Mac dashboard tables.
     static func shouldUseCompactPhoneCommandChrome() -> Bool { true }
 
+    /// Phone Sales / Loss / 5 Star KPI heroes use the same white
+    /// PhoneScorecardRow chrome as Labor / Picker. Mac Command Center navy
+    /// leftover-fill tiles stay. Visual only — same bindings and filters.
+    static func shouldPaintPhoneHeroesAsScorecards() -> Bool { true }
+
+    /// Operational Heartbeat / compact page banner is a tight navy header.
+    /// Do not mount PhoneScorecardRow there — empty RESULT chips leftover-fill
+    /// the chrome VStack into a cavern. Soft FAIL white Labor chrome on this bar.
+    static func shouldPaintPhonePageBannerAsScorecardRow() -> Bool { false }
+
+    static func shouldUseCompactPhonePageBanner() -> Bool { true }
+
+    static func shouldPaintPhonePageBannerNavy() -> Bool { true }
+
+    /// Compact navy banner line 1 is the current page name.
+    /// Soft FAIL putting the filter grain on line 1.
+    static func shouldShowPageNameOnCompactBanner() -> Bool { true }
+
+    static func shouldShowFilterGrainOnCompactBannerTitle() -> Bool { false }
+
+    /// Pages + Filters + Share share one HubChromePill toolbar on the
+    /// phone / iPad CompactNav header. Logo + Assist stay on the brand row.
+    static func shouldUseCompactPagesFiltersShareToolbar() -> Bool { true }
+
+    static func shouldKeepAssistInCompactBrandRow() -> Bool { true }
+
+    /// Pages sheet Close is a navy pill (`HubSheetCloseControl`). Soft FAIL
+    /// the clipped cancellation-action circle stroke.
+    static func shouldUseFinishedCompactNavCloseControl() -> Bool { true }
+
+    /// Close sits in the sheet body, leading, inside the safe area.
+    /// Soft FAIL a 44pt toolbar frame that becomes a circular "C".
+    static func shouldPlaceCompactNavCloseInSheetContent() -> Bool { true }
+
+    static func shouldApplyPhoneHitFrameToSheetClose() -> Bool { false }
+
+    /// Filters sheet: grain chips → values → Save. No duplicate helper copy.
+    static func shouldUseCompactFilterSheetFlow() -> Bool { true }
+
+    static func shouldShowDuplicateFilterInstructions() -> Bool { false }
+
+    /// Phone Command Center: heroes + glance cards flow with no
+    /// "AT-A-GLANCE · ALL SECTIONS" caption between 5 Star and Labor.
+    /// Mac leftover-fill glanceHeader stays.
+    static func shouldShowPhoneAtAGlanceSectionCaption() -> Bool { false }
+
     /// Compact phone header + Filters keep 44pt hits but drop title3 chrome.
     static func shouldUseCompactPhoneHeaderChrome() -> Bool { true }
 
@@ -1423,6 +1523,38 @@ enum PulseLaunch {
     /// Page HubStoreCard N is Heartbeat roster stores, not fact-present rows.
     static func hubStoreCardCount(_ rows: [MetricRow]) -> Int {
         uniqueStores(in: rows).count
+    }
+
+    /// Metric page hero / This Week / Regions: fact stores, not roster gold.
+    /// Command Center company tiles still pin via `companyCommandCenterCard`.
+    static func shouldUseMetricFactStoreCountOnSectionPage() -> Bool { true }
+
+    static func shouldPinRosterStoreCountOnMetricPageHero() -> Bool { false }
+
+    /// Overwrite pinned roster N with stores that have values for this metric.
+    static func metricPageHeroCard(_ card: SectionSummary, rows: [MetricRow]) -> SectionSummary {
+        guard shouldUseMetricFactStoreCountOnSectionPage() else { return card }
+        var next = card
+        next.storeCount = HeartbeatMath.metricStoreCount(card.section, rows: rows)
+        return next
+    }
+
+    /// Company keeps pack/chrome RESULT. A filter seat rebuilds headline +
+    /// health from fact rows so RESULT cannot stay Total Company while N is Jewel.
+    static func dashboardSeatCard(
+        _ card: SectionSummary,
+        rows: [MetricRow],
+        filters: DashboardFilters
+    ) -> SectionSummary {
+        guard shouldPaintDashboardResultFromActiveSeat(), filters.isActive else {
+            return metricPageHeroCard(card, rows: rows)
+        }
+        let facts = HeartbeatMath.metricFactRows(card.section, rows: rows)
+        var next = HeartbeatMath.summarize(card.section, rows: facts, upload: nil)
+        next.lastFilename = card.lastFilename
+        next.lastUploadedAt = card.lastUploadedAt
+        next.storeCount = HeartbeatMath.metricStoreCount(card.section, rows: rows)
+        return next
     }
 
     /// Card storeCount under a seat is Heartbeat Stores N, not fact coverage.

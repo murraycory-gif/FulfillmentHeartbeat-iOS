@@ -427,6 +427,14 @@ enum HubLayout {
             weight: .bold
         )
     }
+
+    /// Smaller than `phoneBannerTitleFont`. Soft FAIL same bold size on both lines.
+    static func phoneBannerSubtitleFont() -> Font {
+        AppTheme.rounded(
+            PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? .caption : .subheadline,
+            weight: .semibold
+        )
+    }
     static func phoneBannerIconFont() -> Font {
         AppTheme.rounded(
             PulseLaunch.shouldUseCompactPhoneHeaderChrome() ? .headline : .title3,
