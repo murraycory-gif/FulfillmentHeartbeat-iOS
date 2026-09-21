@@ -110,11 +110,13 @@ def _write_pack(path: str, *, scorecard_n: int, haggen_only: bool, chrome_shoppe
         )
     )
     for i in range(scorecard_n):
+        store = str(1000 + (i % 240))
+        ldap = f"SHOP{i:04d}"
         rows.append(
             (
                 f"S{i}",
                 "picker_scorecard",
-                str(1000 + (i % 240)),
+                store,
                 "",
                 "",
                 None,
@@ -127,9 +129,36 @@ def _write_pack(path: str, *, scorecard_n: int, haggen_only: bool, chrome_shoppe
                         "presub_pct": 2.1,
                     }
                 ),
-                json.dumps({"shopper_id": f"SHOP{i:04d}", "unused": "drop"}),
+                json.dumps({"shopper_id": ldap, "unused": "drop"}),
             )
         )
+        rows.append(
+            (
+                f"K{i}",
+                "pick_path_picker",
+                "",
+                "",
+                "",
+                None,
+                None,
+                json.dumps({"compliance_pct": 76.5, "orders": 10, "fat_path": "y" * 80}),
+                json.dumps({"shopper_id": ldap, "shopper_name": ldap}),
+            )
+        )
+    # Excel hole: Path LDAP with no ScoreCard store grain — do not invent.
+    rows.append(
+        (
+            "KHOLE",
+            "pick_path_picker",
+            "",
+            "",
+            "",
+            None,
+            None,
+            json.dumps({"compliance_pct": 61.0, "orders": 4}),
+            json.dumps({"shopper_id": "NOGRAIN1", "shopper_name": "NOGRAIN1"}),
+        )
+    )
     con.executemany(
         "INSERT INTO facts VALUES (?,?,?,?,?,?,?,?,?)",
         rows,
@@ -194,6 +223,48 @@ class ThinKeepDropTests(unittest.TestCase):
                 "SELECT operations_om FROM facts WHERE section='prep_not_ready'"
             ).fetchone()[0]
             self.assertEqual(prep_om, "SoCal 1")
+            path_n = con.execute(
+                "SELECT COUNT(*) FROM facts WHERE section='pick_path_picker'"
+            ).fetchone()[0]
+            self.assertEqual(path_n, 1201)
+            bound = con.execute(
+                "SELECT store_number, division, operations_om FROM facts "
+                "WHERE section='pick_path_picker' AND json_extract(text_json,'$.shopper_id')='SHOP0000'"
+            ).fetchone()
+            self.assertEqual(bound[0], "1000")
+            self.assertEqual(bound[1], "SoCal")
+            self.assertEqual(bound[2], "SoCal 1")
+            hole = con.execute(
+                "SELECT store_number FROM facts "
+                "WHERE section='pick_path_picker' AND json_extract(text_json,'$.shopper_id')='NOGRAIN1'"
+            ).fetchone()[0]
+            self.assertEqual((hole or "").strip(), "")
+            blank_bindable = con.execute(
+                """
+                SELECT COUNT(*) FROM facts
+                WHERE section='pick_path_picker'
+                  AND TRIM(COALESCE(store_number,''))=''
+                  AND json_extract(text_json,'$.shopper_id') IN (
+                      SELECT json_extract(text_json,'$.shopper_id')
+                      FROM facts
+                      WHERE section='picker_scorecard' AND TRIM(store_number)!=''
+                  )
+                """
+            ).fetchone()[0]
+            self.assertEqual(blank_bindable, 0)
+            con.close()
+
+    def test_path_picker_empty_store_soft_fails_when_ldap_grain_exists(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = str(Path(tmp) / "current.sqlite")
+            _write_pack(path, scorecard_n=1200, haggen_only=False, chrome_shoppers=1200)
+            con = sqlite3.connect(path)
+            stores_by_ldap = thin.scorecard_store_by_ldap(con)
+            self.assertIn("SHOP0000", stores_by_ldap)
+            with self.assertRaises(SystemExit) as err:
+                thin.refuse_path_store_bind(con, stores_by_ldap)
+            self.assertIn("pick_path_picker store_number empty", str(err.exception))
+            self.assertIn("ScoreCard store grain", str(err.exception))
             con.close()
 
     def test_haggen_only_loss_soft_fails_when_roster_cannot_bind(self) -> None:
