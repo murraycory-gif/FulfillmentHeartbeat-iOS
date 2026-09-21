@@ -1213,6 +1213,10 @@ enum PulseLaunch {
 
     static func shouldKeepAssistInCompactBrandRow() -> Bool { true }
 
+    /// Pages sheet Close is a navy pill (`HubSheetCloseControl`). Soft FAIL
+    /// the clipped cancellation-action circle stroke.
+    static func shouldUseFinishedCompactNavCloseControl() -> Bool { true }
+
     /// Phone Command Center: heroes + glance cards flow with no
     /// "AT-A-GLANCE · ALL SECTIONS" caption between 5 Star and Labor.
     /// Mac leftover-fill glanceHeader stays.

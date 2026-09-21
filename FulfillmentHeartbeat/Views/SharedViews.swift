@@ -467,6 +467,28 @@ struct EmptyHint: View {
     }
 }
 
+/// Finished navy Close for Pages / CompactNav sheets. Soft FAIL the system
+/// cancellation circle — that stroke clips when a 44pt frame is applied.
+struct HubSheetCloseControl: View {
+    var title: String = "Close"
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.body.weight(.semibold))
+                .foregroundStyle(AppTheme.blue)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(AppTheme.blueSoft, in: Capsule(style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .frame(minWidth: HubLayout.phoneHitTarget, minHeight: HubLayout.phoneHitTarget, alignment: .leading)
+        .contentShape(Rectangle())
+        .accessibilityLabel(title)
+    }
+}
+
 struct HubNavControl: View {
     let symbol: String
     let title: String

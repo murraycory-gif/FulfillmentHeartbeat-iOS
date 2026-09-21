@@ -704,11 +704,10 @@ struct CompactNavSheet: View {
             .navigationTitle("Heartbeat")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { router.showCompactMenu = false }
-                        .font(.body.weight(.semibold))
-                        .frame(minWidth: HubLayout.phoneHitTarget, minHeight: HubLayout.phoneHitTarget)
-                        .contentShape(Rectangle())
+                ToolbarItem(placement: .topBarLeading) {
+                    HubSheetCloseControl {
+                        router.showCompactMenu = false
+                    }
                 }
             }
         }
