@@ -272,6 +272,11 @@ enum CommandCenterLayout {
         cards.map(displayedHealth).min { $0.dashboardRank < $1.dashboardRank } ?? .none
     }
 
+    /// Hard cap so the page banner cannot leftover-fill the chrome stack.
+    static func phonePageBannerMaxHeight() -> CGFloat {
+        PulseLaunch.shouldUseCompactPhoneCommandChrome() ? 88 : 104
+    }
+
     /// One SF Symbol per metric. Reuses the scorecard / sidebar glyph.
     static func glanceSymbol(_ section: MetricSection) -> String {
         section.symbol

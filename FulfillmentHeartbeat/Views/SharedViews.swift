@@ -10883,7 +10883,7 @@ struct HubBrandBar: View {
     }
 
     private var compactPageBanner: some View {
-        PhoneScorecardRow(
+        PhoneCompactPageBanner(
             title: compactBannerTitle,
             subtitle: compactBannerSubtitle,
             health: compactBannerHealth
