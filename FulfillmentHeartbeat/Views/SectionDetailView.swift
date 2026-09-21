@@ -1388,23 +1388,37 @@ struct PhoneCompanyThisWeekBlock: View {
     let section: MetricSection
 
     var body: some View {
-        let rows = companyRows
-        let scored = HeartbeatMath.dashboardTableValues(section, rows: rows)
-        let storeCount = HeartbeatMath.metricStoreCount(section, rows: store.seatRows(for: section))
-        let health = scored.health == .none && storeCount > 0 ? Health.good : scored.health
+        let seat = CommandCenterLayout.overviewSeatLabel(store.filters)
+        let storeCount = HeartbeatMath.metricStoreCount(section, rows: factRows)
         VStack(alignment: .leading, spacing: CommandCenterLayout.phoneHomeStackSpacing()) {
             PhoneSectionHeading(title: "This Week")
-            PhoneScorecardRow(
-                title: "Total Company",
-                subtitle: storeCount > 0
-                    ? (storeCount == 1 ? "1 store" : "\(storeCount) stores")
-                    : nil,
-                chips: zip(HeartbeatMath.dashboardTableHeaders(section), scored.values).map { header, value in
-                    PhoneMetricChip(label: header, value: value, health: health)
-                },
-                health: health
-            )
+            if section == .sales {
+                OverviewSalesPhoneCard(
+                    label: seat,
+                    count: storeCount,
+                    pack: SalesPack(rows: store.salesStores())
+                )
+            } else {
+                let rows = companyRows
+                let scored = HeartbeatMath.dashboardTableValues(section, rows: rows)
+                let health = scored.health == .none && storeCount > 0 ? Health.good : scored.health
+                PhoneScorecardRow(
+                    title: seat,
+                    eyebrow: CommandCenterLayout.glanceTitle(section),
+                    subtitle: storeCount > 0
+                        ? (storeCount == 1 ? "1 store" : "\(storeCount) stores")
+                        : nil,
+                    chips: zip(HeartbeatMath.dashboardTableHeaders(section), scored.values).map { header, value in
+                        PhoneMetricChip(label: header, value: value, health: health)
+                    },
+                    health: health
+                )
+            }
         }
+    }
+
+    private var factRows: [MetricRow] {
+        section == .sales ? store.salesStores() : store.seatRows(for: section)
     }
 
     /// Same store plane as region cards, plus pack company market row for Loss.

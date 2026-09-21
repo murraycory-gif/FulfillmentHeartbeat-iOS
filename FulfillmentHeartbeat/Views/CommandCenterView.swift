@@ -376,14 +376,10 @@ struct PhoneCommandCenterHome: View {
         ScrollView {
             VStack(alignment: .leading, spacing: CommandCenterLayout.phoneHomeStackSpacing()) {
                 ForEach(heroCards) { card in
-                    PhoneCommandHeroCard(card: card) {
-                        open(card.section)
-                    }
+                    dashboardSection(card, hero: true)
                 }
                 ForEach(glanceCards) { card in
-                    PhoneCommandGlanceCard(card: card) {
-                        open(card.section)
-                    }
+                    dashboardSection(card, hero: false)
                 }
             }
             .padding(.horizontal, CommandCenterLayout.phoneHomeHorizontalPadding())
@@ -395,6 +391,24 @@ struct PhoneCommandCenterHome: View {
         .scrollBounceBehavior(PulseLaunch.shouldOfferPullToRefreshSeatPack() ? .always : .basedOnSize)
         .hubSeatPackRefreshable()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    @ViewBuilder
+    private func dashboardSection(_ card: SectionSummary, hero: Bool) -> some View {
+        VStack(alignment: .leading, spacing: CommandCenterLayout.phoneHomeStackSpacing()) {
+            if hero {
+                PhoneCommandHeroCard(card: card, usesMetricFactStoreCount: true) {
+                    open(card.section)
+                }
+            } else {
+                PhoneCommandGlanceCard(card: card, usesMetricFactStoreCount: true) {
+                    open(card.section)
+                }
+            }
+            if PulseLaunch.shouldShowDashboardThisWeekDetail() {
+                PhoneCompanyThisWeekBlock(section: card.section)
+            }
+        }
     }
 
     private var heroCards: [SectionSummary] {
@@ -419,7 +433,11 @@ struct PhoneCommandHeroCard: View {
         guard usesMetricFactStoreCount, PulseLaunch.shouldUseMetricFactStoreCountOnSectionPage() else {
             return next
         }
-        return PulseLaunch.metricPageHeroCard(next, rows: store.seatRows(for: next.section))
+        return PulseLaunch.metricPageHeroCard(next, rows: metricPageRows(for: next.section))
+    }
+
+    private func metricPageRows(for section: MetricSection) -> [MetricRow] {
+        section == .sales ? store.salesStores() : store.seatRows(for: section)
     }
 
     var body: some View {
@@ -438,10 +456,19 @@ struct PhoneCommandHeroCard: View {
 struct PhoneCommandGlanceCard: View {
     @EnvironmentObject private var store: HeartbeatStore
     let card: SectionSummary
+    var usesMetricFactStoreCount: Bool = false
     let action: () -> Void
 
     private var painted: SectionSummary {
-        store.paintedCommandCenterCard(card)
+        let next = store.paintedCommandCenterCard(card)
+        guard usesMetricFactStoreCount, PulseLaunch.shouldUseMetricFactStoreCountOnSectionPage() else {
+            return next
+        }
+        return PulseLaunch.metricPageHeroCard(next, rows: metricPageRows(for: next.section))
+    }
+
+    private func metricPageRows(for section: MetricSection) -> [MetricRow] {
+        section == .sales ? store.salesStores() : store.seatRows(for: section)
     }
 
     var body: some View {

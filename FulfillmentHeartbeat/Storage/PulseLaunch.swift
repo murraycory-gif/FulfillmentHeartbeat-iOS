@@ -902,6 +902,10 @@ enum PulseLaunch {
         sectionPageSeat(filters: filters) == .company
     }
 
+    /// Phone Command Center: RESULT hero then the same This Week detail
+    /// card used on the metric page. Soft FAIL a second invented layout.
+    static func shouldShowDashboardThisWeekDetail() -> Bool { true }
+
     /// Sales already paints week total via `shouldShowSalesDayWeekBlock`.
     /// Every other metric section mounts the shared company This Week card.
     static func shouldShowMetricCompanyThisWeekRollup(
