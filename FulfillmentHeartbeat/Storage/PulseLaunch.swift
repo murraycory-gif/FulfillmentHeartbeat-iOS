@@ -2678,9 +2678,10 @@ enum PulseLaunch {
         remoteTimestampIsNewer(rootWrittenAt, than: seatWrittenAt)
     }
 
-    /// Skip another facts.json parse when the warehouse already has the store tables.
+    /// facts.json is not a live metric source. A thin or missing sqlite stays empty.
     static func shouldLoadPublishedFacts(lostStores: Int, salesStores: Int, minimum: Int = 200) -> Bool {
-        lostStores < minimum && salesStores < minimum
+        _ = (lostStores, salesStores, minimum)
+        return PulseLiveSource.shouldUseFactsJSONAsLiveMetrics(sqliteUsable: false)
     }
 
     static func fileBytes(at url: URL) -> Int {

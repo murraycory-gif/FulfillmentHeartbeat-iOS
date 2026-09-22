@@ -133,6 +133,7 @@ enum PulseSeatPack {
         var schema: Int
         var stamp: String
         var cookedAt: String
+        var salesWeek: String
         var company: Entry
         var districts: [Entry]
         var oms: [Entry]
@@ -141,13 +142,14 @@ enum PulseSeatPack {
         var allEntries: [Entry] { [company] + districts + oms + stores }
 
         enum CodingKeys: String, CodingKey {
-            case schema, stamp, cookedAt, company, districts, oms, stores
+            case schema, stamp, cookedAt, salesWeek, company, districts, oms, stores
         }
 
         init(
             schema: Int,
             stamp: String,
             cookedAt: String,
+            salesWeek: String = "",
             company: Entry,
             districts: [Entry],
             oms: [Entry] = [],
@@ -156,6 +158,7 @@ enum PulseSeatPack {
             self.schema = schema
             self.stamp = stamp
             self.cookedAt = cookedAt
+            self.salesWeek = salesWeek
             self.company = company
             self.districts = districts
             self.oms = oms
@@ -167,10 +170,23 @@ enum PulseSeatPack {
             schema = try box.decode(Int.self, forKey: .schema)
             stamp = try box.decode(String.self, forKey: .stamp)
             cookedAt = try box.decode(String.self, forKey: .cookedAt)
+            salesWeek = try box.decodeIfPresent(String.self, forKey: .salesWeek) ?? ""
             company = try box.decode(Entry.self, forKey: .company)
             districts = try box.decodeIfPresent([Entry].self, forKey: .districts) ?? []
             oms = try box.decodeIfPresent([Entry].self, forKey: .oms) ?? []
             stores = try box.decodeIfPresent([Entry].self, forKey: .stores) ?? []
+        }
+
+        func encode(to encoder: Encoder) throws {
+            var box = encoder.container(keyedBy: CodingKeys.self)
+            try box.encode(schema, forKey: .schema)
+            try box.encode(stamp, forKey: .stamp)
+            try box.encode(cookedAt, forKey: .cookedAt)
+            try box.encode(salesWeek, forKey: .salesWeek)
+            try box.encode(company, forKey: .company)
+            try box.encode(districts, forKey: .districts)
+            try box.encode(oms, forKey: .oms)
+            try box.encode(stores, forKey: .stores)
         }
 
         func entry(for key: Key) -> Entry? {
@@ -429,6 +445,7 @@ enum PulseSeatPack {
             schema: schemaVersion,
             stamp: BuildStamp.id,
             cookedAt: ISO8601DateFormatter().string(from: Date()),
+            salesWeek: PulseDataPolicy.weekKey(from: rows),
             company: company,
             districts: districts,
             oms: oms,

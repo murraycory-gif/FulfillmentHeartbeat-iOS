@@ -320,6 +320,35 @@ enum PulseSQLite {
             && PulseLaunch.isUsableFileSize(fileBytes(at: url))
     }
 
+    /// Sales week (`YYYYWW`) from the first store sales row. Empty if the pack has none.
+    static func salesWeek(at url: URL) -> String {
+        guard FileManager.default.fileExists(atPath: url.path) else { return "" }
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY, nil) == SQLITE_OK, let db else {
+            return ""
+        }
+        defer { sqlite3_close(db) }
+        var statement: OpaquePointer?
+        let sql = "SELECT text_json, recorded_on FROM facts WHERE section = 'sales' LIMIT 40;"
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK, let statement else {
+            return ""
+        }
+        defer { sqlite3_finalize(statement) }
+        while sqlite3_step(statement) == SQLITE_ROW {
+            if let raw = sqlite3_column_text(statement, 0) {
+                let text = decodeText(String(cString: raw))
+                if let week = text["sales_week"], PulseLiveSource.weekRank(week) != nil {
+                    return week
+                }
+            }
+            if let raw = sqlite3_column_text(statement, 1) {
+                let recorded = String(cString: raw)
+                if PulseLiveSource.weekRank(recorded) != nil { return recorded }
+            }
+        }
+        return ""
+    }
+
     /// ISO-8601 `pack_meta.written_at` from a local sqlite. Empty if missing or unreadable.
     static func writtenAtString(at url: URL) -> String {
         guard FileManager.default.fileExists(atPath: url.path) else { return "" }

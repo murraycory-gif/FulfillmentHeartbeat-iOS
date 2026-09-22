@@ -1064,7 +1064,8 @@ final class HeartbeatStore: ObservableObject {
                 pickers: latestBySection[.pickerScorecard] ?? filteredLatest[.pickerScorecard] ?? []
             )
         }
-        if grain == .region, !filters.isActive {
+        if grain == .region, !filters.isActive,
+           PulseLiveSource.shouldUseFactsJSONAsLiveMetrics(sqliteUsable: liveSQLiteIsUsable()) {
             source = PulseQuery.fillMissingRegions(
                 existing: source,
                 facts: PulseFacts.bundledMetricRows(),
@@ -3358,6 +3359,13 @@ final class HeartbeatStore: ObservableObject {
         let seatRemote = await PulseCloud.objectInfo(PulseSeatPack.Key.company.objectPath)
         let chosen = chooseCloudPackObject(root: rootRemote, seat: seatRemote)
         let companySeatURL = PulseSeatPack.localURL(root: rootURL, key: .company)
+        let packWeek = await PulseCloud.downloadSeatManifest()?.salesWeek ?? ""
+        if PulseLiveSource.shouldClearAndRedownloadStalePack(
+            onDeviceWeek: PulseSQLite.salesWeek(at: companySeatURL),
+            packWeek: packWeek
+        ) {
+            return true
+        }
         return PulseLaunch.staleCompanySeatRequiresCloudSync(
             remoteBytes: chosen.size,
             localSeatBytes: PulseSQLite.fileBytes(at: companySeatURL),
@@ -3469,6 +3477,8 @@ final class HeartbeatStore: ObservableObject {
         lastCloudPullAt = Date()
         let healedSeat = promoteOnDiskRootOverStaleSeatIfNeeded()
         PulseCloud.invalidateObjectList()
+        let packWeek = await PulseCloud.downloadSeatManifest()?.salesWeek ?? ""
+        let discardedStaleWeek = discardOnDevicePackOlderThan(packWeek)
         let rootRemote = await PulseCloud.objectInfo(PulseCloud.object)
         let seatRemote = await PulseCloud.objectInfo(PulseSeatPack.Key.company.objectPath)
         let chosen = chooseCloudPackObject(root: rootRemote, seat: seatRemote)
@@ -3477,7 +3487,7 @@ final class HeartbeatStore: ObservableObject {
         let alreadyLoaded = warehouseRowCount
         let knownUpdated = UserDefaults.standard.string(forKey: "hb.cloudPackUpdated") ?? ""
         let localWrittenAt = PulseSQLite.writtenAtString(at: companySeatURL)
-        let shouldDownload = PulseLaunch.shouldFetchRemotePack(
+        let shouldDownload = discardedStaleWeek || PulseLaunch.shouldFetchRemotePack(
             remoteBytes: chosen.size,
             localBytes: localSeatBytes,
             localRowsLoaded: alreadyLoaded,
@@ -3553,6 +3563,45 @@ final class HeartbeatStore: ObservableObject {
         var path: String
         var size: Int
         var updated: String
+    }
+
+    /// On-device week 202628 must not stay when the published pack is 202630.
+    /// Deletes that sqlite and drops it from memory. A newer seat file is kept.
+    @discardableResult
+    private func discardOnDevicePackOlderThan(_ packWeek: String) -> Bool {
+        let savedWeek = UserDefaults.standard.string(forKey: "hb.dataWeek") ?? ""
+        if PulseLiveSource.shouldClearAndRedownloadStalePack(onDeviceWeek: savedWeek, packWeek: packWeek) {
+            UserDefaults.standard.removeObject(forKey: "hb.dataWeek")
+        }
+        let seatURL = PulseSeatPack.localURL(root: rootURL, key: .company)
+        let seatStale = PulseLiveSource.shouldClearAndRedownloadStalePack(
+            onDeviceWeek: PulseSQLite.salesWeek(at: seatURL),
+            packWeek: packWeek
+        )
+        let rootStale = PulseLiveSource.shouldClearAndRedownloadStalePack(
+            onDeviceWeek: PulseSQLite.salesWeek(at: companySQLiteURL),
+            packWeek: packWeek
+        )
+        guard seatStale || rootStale else { return false }
+        if seatStale {
+            try? fileManager.removeItem(at: seatURL)
+            companySeatChrome = nil
+            seatChromeByKey[.company] = nil
+            seatRowPlanes[.company] = nil
+        }
+        if rootStale {
+            try? fileManager.removeItem(at: companySQLiteURL)
+        }
+        latestBySection = [:]
+        filteredLatest = [:]
+        rows = []
+        cachedSalesDayRows = []
+        cachedSalesScopeRows = []
+        cachedSummaries = []
+        factsOwned = []
+        didAdoptExcelFacts = true
+        seeded = false
+        return true
     }
 
     private func chooseCloudPackObject(
@@ -4776,12 +4825,13 @@ final class HeartbeatStore: ObservableObject {
             firstSectionWave: urgent,
             filterPaint: filterPaint
         )
+        let allowFacts = PulseLiveSource.shouldUseFactsJSONAsLiveMetrics(sqliteUsable: liveSQLiteIsUsable())
         let view = await Task.detached(priority: paintPriority) {
             let prepared: [MetricSection: [MetricRow]]
             if skipPrepare {
                 prepared = warehouse
             } else {
-                let facts = needFacts ? PulseFacts.bundledMetricRows() : []
+                let facts: [MetricRow] = allowFacts ? PulseFacts.bundledMetricRows() : []
                 prepared = PulseQuery.prepareWarehouse(
                     warehouse: warehouse,
                     roster: rosterCopy,
@@ -5364,6 +5414,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func loadPublishedFacts() async {
+        guard PulseLiveSource.shouldUseFactsJSONAsLiveMetrics(sqliteUsable: liveSQLiteIsUsable()) else { return }
         importProgress.label = PulseLaunch.comedyLoadStatus(at: 2)
         let incoming: [MetricRow] = await Task.detached(priority: .background) {
             await PulseFacts.loadRows()
@@ -5380,6 +5431,7 @@ final class HeartbeatStore: ObservableObject {
     }
 
     private func publishFacts() {
+        guard PulseLiveSource.shouldPublishFactsJSON() else { return }
         let file = PulseFacts.build(rows: rows, roster: roster)
         let scored = file.lostRevenue.filter { !$0.store.isEmpty && ($0.numbers["lost_revenue"] ?? 0) > 0 }.count
         guard scored >= 1500, PulseFacts.isUsable(file) else { return }
@@ -5886,11 +5938,15 @@ final class HeartbeatStore: ObservableObject {
         case takeIfRicher
     }
 
-    /// Put Excel store rows for Sales, 5 Star, and Loss Revenue into the warehouse.
-    /// A full live pack / cloud table is kept. Bundled facts only fill a thin pack.
+    /// Excel facts are not the live metric source. A usable sqlite paints.
+    /// A missing sqlite stays empty instead of Sep 12 facts.json.
     @discardableResult
     private func adoptExcelFactsIntoWarehouse() async -> Bool {
         if didAdoptExcelFacts { return false }
+        guard PulseLiveSource.shouldUseFactsJSONAsLiveMetrics(sqliteUsable: liveSQLiteIsUsable()) else {
+            didAdoptExcelFacts = true
+            return false
+        }
         let priority = PulseLaunch.warehouseReadPriority(hubInteractive: isReady && !needsRolePick)
         let facts = await Task.detached(priority: priority) {
             PulseFacts.bundledMetricRows()
@@ -5901,7 +5957,15 @@ final class HeartbeatStore: ObservableObject {
     }
 
     @discardableResult
+    private func liveSQLiteIsUsable() -> Bool {
+        if PulseSQLite.isUsableFile(at: sqliteURL) { return true }
+        if PulseSeatPack.isUsable(at: sqliteURL) { return true }
+        let company = PulseSeatPack.localURL(root: rootURL, key: .company)
+        return PulseSQLite.isUsableFile(at: company) || PulseSeatPack.isUsable(at: company)
+    }
+
     private func adoptFactRows(_ facts: [MetricRow], mode: FactAdoptMode) -> Bool {
+        guard PulseLiveSource.shouldUseFactsJSONAsLiveMetrics(sqliteUsable: liveSQLiteIsUsable()) else { return false }
         guard !facts.isEmpty else { return false }
         var changed = false
         for row in facts where row.section == .storeRoster || row.textPayload["roster"] == "1" {

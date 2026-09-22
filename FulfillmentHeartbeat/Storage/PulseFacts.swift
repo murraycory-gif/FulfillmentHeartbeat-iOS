@@ -21,6 +21,61 @@ struct PulseFactRow: Codable {
     var text: [String: String]
 }
 
+/// Live metrics are the seat sqlite. facts.json is not a second source.
+enum PulseLiveSource {
+    /// Usable `current.sqlite` / company seat pack is the only live metric source.
+    /// A missing pack stays empty. Never paint bundled or downloaded facts.json.
+    static func shouldUseFactsJSONAsLiveMetrics(sqliteUsable: Bool) -> Bool {
+        _ = sqliteUsable
+        return false
+    }
+
+    /// Cook must not upload a new facts.json.
+    static func shouldPublishFactsJSON() -> Bool { false }
+
+    /// Every successful cook deletes the bucket object so Sep 12 cannot sit forever.
+    static func shouldDeleteFactsJSONAfterSuccessfulCook() -> Bool { true }
+
+    /// `YYYYWW` only. Dates and stamps are not weeks.
+    static func weekRank(_ week: String) -> Int? {
+        let trimmed = week.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.count == 6, trimmed.allSatisfy(\.isNumber), let value = Int(trimmed) else { return nil }
+        let year = value / 100
+        let weekOfYear = value % 100
+        guard (2020...2100).contains(year), (1...53).contains(weekOfYear) else { return nil }
+        return value
+    }
+
+    static func onDeviceWeekIsOlderThanPack(onDeviceWeek: String, packWeek: String) -> Bool {
+        guard let local = weekRank(onDeviceWeek), let pack = weekRank(packWeek) else { return false }
+        return local < pack
+    }
+
+    /// Open guard. An on-device week older than the published pack week is not a source.
+    /// Clear that file and redownload. Do not keep 202628 on screen over 202630.
+    static func shouldClearAndRedownloadStalePack(onDeviceWeek: String, packWeek: String) -> Bool {
+        onDeviceWeekIsOlderThanPack(onDeviceWeek: onDeviceWeek, packWeek: packWeek)
+    }
+
+    /// HB-0828.419 facts stamp is older than the pack stamp. Ignore it.
+    static func shouldIgnoreOlderFactsStamp(factsStamp: String, packStamp: String) -> Bool {
+        func rank(_ stamp: String) -> Int? {
+            guard let tail = stamp.split(separator: ".").last else { return nil }
+            return Int(tail)
+        }
+        guard let facts = rank(factsStamp), let pack = rank(packStamp) else { return false }
+        return facts < pack
+    }
+
+    /// Sales rows the phone may show. Sqlite when it has rows or is usable.
+    /// facts.json dollars are never the fallback.
+    static func liveSalesRows(sqlite: [MetricRow], facts: [MetricRow], sqliteUsable: Bool) -> [MetricRow] {
+        _ = facts
+        if sqliteUsable || !sqlite.isEmpty { return sqlite }
+        return []
+    }
+}
+
 enum PulseFacts {
     static let object = "facts.json"
 
@@ -75,6 +130,8 @@ enum PulseFacts {
     }
 
     static func loadRows() async -> [MetricRow] {
+        // facts.json is not the live Sales source. Missing sqlite stays empty.
+        guard PulseLiveSource.shouldUseFactsJSONAsLiveMetrics(sqliteUsable: false) else { return [] }
         let bundledFile = decode(bundledData())
         let cloudFile = decode(try? await PulseCloud.downloadFacts())
         let file = richer(cloudFile, bundledFile)
@@ -107,6 +164,7 @@ enum PulseFacts {
     private static var cachedBundledRows: [MetricRow]?
 
     static func bundledMetricRows() -> [MetricRow] {
+        guard PulseLiveSource.shouldUseFactsJSONAsLiveMetrics(sqliteUsable: false) else { return [] }
         if let cachedBundledRows { return cachedBundledRows }
         guard let file = decode(bundledData()) else { return [] }
         let rows = metricRows(from: file)

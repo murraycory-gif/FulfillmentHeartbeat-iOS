@@ -275,6 +275,12 @@ enum PulseCloud {
         try await downloadNamed(factsObject)
     }
 
+    /// Published cook manifest. `salesWeek` is the pack week the phone compares on open.
+    static func downloadSeatManifest() async -> PulseSeatPack.Manifest? {
+        guard let data = try? await downloadNamed(seatManifestObject) else { return nil }
+        return try? JSONDecoder().decode(PulseSeatPack.Manifest.self, from: data)
+    }
+
     static func downloadCards() async throws -> Data {
         try await downloadNamed(cardsObject)
     }
