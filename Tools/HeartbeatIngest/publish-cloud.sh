@@ -119,6 +119,33 @@ must_upload() {
   exit 1
 }
 
+# Sep 12 facts.json must not sit in the bucket after a good cook.
+# 200/204 deleted it. 404 means it is already gone. Anything else fails the cook.
+delete_object() {
+  local object="$1"
+  local encoded code
+  encoded=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe='/'))" "$object")
+  code=$(curl -sS -o /dev/null -w "%{http_code}" \
+    --connect-timeout 15 --max-time 60 \
+    -X DELETE \
+    -H "Authorization: Bearer $KEY" -H "apikey: $KEY" \
+    "$PROJECT/storage/v1/object/heartbeat-packs/$encoded" || echo "000")
+  if [ "$code" != "200" ] && [ "$code" != "204" ] && [ "$code" != "404" ]; then
+    code=$(curl -sS -o /dev/null -w "%{http_code}" \
+      --connect-timeout 15 --max-time 60 \
+      -X DELETE \
+      -H "Authorization: Bearer $KEY" -H "apikey: $KEY" \
+      -H "Content-Type: application/json" \
+      -d "{\"prefixes\":[\"$object\"]}" \
+      "$PROJECT/storage/v1/object/heartbeat-packs" || echo "000")
+  fi
+  echo "delete $object $code"
+  case "$code" in
+    200|204|404) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 mark_seat() {
   local status="$1"
   local object="$2"
@@ -191,6 +218,11 @@ if [ "$MODE" = "company" ]; then
   must_upload "packs/manifest.json" "$PACK_ROOT/manifest.json" application/json 60
   LIVE_BYTES=$(file_bytes "$LIVE_FILE")
   echo "LIVE current.sqlite ($LIVE_BYTES bytes, $LIVE_KIND) + packs/manifest.json + company seat."
+  echo "Removing facts.json so a stale Sep 12 object cannot stay in the bucket."
+  if ! delete_object "facts.json"; then
+    echo "COOK FAILED: facts.json is still in the bucket. Refusing to leave the stale object." >&2
+    exit 1
+  fi
   echo "Testers can force-close Heartbeat now. Seat packs upload in parallel next."
   exit 0
 fi
