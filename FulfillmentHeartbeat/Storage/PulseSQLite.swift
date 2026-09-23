@@ -177,7 +177,7 @@ enum PulseSQLite {
         sqlite3_exec(db, "PRAGMA cache_size=-2000;", nil, nil, nil)
         let sql = """
         SELECT id, section, store_number, division, operations_om, store_name, recorded_on, payload_json, text_json
-        FROM facts WHERE section = ? LIMIT ? OFFSET ?;
+        FROM facts WHERE section = ? ORDER BY rowid LIMIT ? OFFSET ?;
         """
         var stmt: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK, let stmt else { return [] }
@@ -366,6 +366,37 @@ enum PulseSQLite {
         guard sqlite3_step(statement) == SQLITE_ROW else { return "" }
         guard let cString = sqlite3_column_text(statement, 0) else { return "" }
         return String(cString: cString)
+    }
+
+    /// One row per store. Not a `LIMIT` walk of `facts_section_div` (that prefix
+    /// is Haggen, then Jewel, then a slice of Mid-Atlantic — everyone else is 0).
+    static func pickerHeadcounts(from url: URL) -> [String: Int] {
+        guard exists(at: url) else { return [:] }
+        var db: OpaquePointer?
+        guard sqlite3_open_v2(url.path, &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK, let db else {
+            return [:]
+        }
+        defer { sqlite3_close(db) }
+        sqlite3_exec(db, "PRAGMA mmap_size=33554432;", nil, nil, nil)
+        var stmt: OpaquePointer?
+        defer { sqlite3_finalize(stmt) }
+        let sql = """
+        SELECT store_number, COUNT(*)
+        FROM facts
+        WHERE section = ?
+        GROUP BY store_number;
+        """
+        guard sqlite3_prepare_v2(db, sql, -1, &stmt, nil) == SQLITE_OK else { return [:] }
+        bind(stmt, 1, MetricSection.pickerScorecard.rawValue)
+        var raw: [String: Int] = [:]
+        raw.reserveCapacity(2_200)
+        while sqlite3_step(stmt) == SQLITE_ROW {
+            let store = string(stmt, 0)
+            let count = Int(sqlite3_column_int64(stmt, 1))
+            guard !store.isEmpty, count > 0 else { continue }
+            raw[store, default: 0] += count
+        }
+        return raw
     }
 
     static func sectionCount(from url: URL, section: MetricSection) -> Int {

@@ -687,6 +687,187 @@ enum HubLayout {
     }
 }
 
+/// iPad / Mac scorecard rows (Regions, Markets, and the matching store table).
+/// Every column — name, stores, metrics, status — shares the measured width.
+/// Extra space becomes an even gutter once columns hit a snug cap, so a short
+/// metric cannot turn into a blank canyon and the row still ends at the card edge.
+enum ScorecardColumns {
+    struct Col: Equatable {
+        enum Role: Equatable {
+            case label, store, metric, status
+        }
+        var role: Role
+        var weight: CGFloat
+    }
+
+    struct Fit: Equatable {
+        var widths: [CGFloat]
+        var gutter: CGFloat
+        var rowWidth: CGFloat
+    }
+
+    /// Matches `HubAdaptiveHScroll`'s trailing padding. The layout fallback
+    /// subtracts it so columns fill the visible row, not the scroller chrome.
+    static let scrollTrail: CGFloat = 12
+
+    static let salesMetrics: [CGFloat] = [1.35, 0.82, 0.95, 0.82, 0.78, 0.62, 0.78, 1.08]
+    static let pickPathMetrics: [CGFloat] = [1.05, 0.95, 1.10]
+    static let pickPathStoreMetrics: [CGFloat] = [1.05, 0.95, 1.10, 1.0, 1.0]
+    static let dynacapMetrics: [CGFloat] = [1.05, 0.95, 0.78, 1.0]
+    static let prepMetrics: [CGFloat] = [0.95, 0.72, 1.15]
+    static let fiveStarMetrics: [CGFloat] = [0.85, 0.85, 0.90, 0.75, 0.80, 0.85]
+    static let laborMetrics: [CGFloat] = [1.05, 0.95, 0.95, 1.0, 0.80, 0.80, 0.75]
+    static let lostMetrics: [CGFloat] = [1.10, 0.80, 0.78, 1.10, 1.05, 1.0, 1.0]
+    static let scheduleMetrics: [CGFloat] = [1.0, 1.15, 0.72, 0.85, 0.85]
+    static let pphMetrics: [CGFloat] = [0.95, 0.90, 0.75]
+    /// Shopper, Hours, PPH, Orders, Presub, OTT, OTH5, COE, Status.
+    static let pickerMetrics: [CGFloat] = [0.72, 0.78, 0.78, 0.95, 0.90, 0.90, 0.85]
+
+    static func row(metrics: [CGFloat], showCount: Bool) -> [Col] {
+        var cols = [Col(role: .label, weight: 1.70)]
+        if showCount { cols.append(Col(role: .store, weight: 0.72)) }
+        cols.append(contentsOf: metrics.map { Col(role: .metric, weight: max($0, 0.4)) })
+        cols.append(Col(role: .status, weight: 1.0))
+        return cols
+    }
+
+    static func fit(available: CGFloat, columns: [Col], phone: Bool) -> Fit {
+        guard !columns.isEmpty else { return Fit(widths: [], gutter: 8, rowWidth: 0) }
+        let gaps = CGFloat(max(columns.count - 1, 0))
+        let gutterMin: CGFloat = 8
+        let bounds = columns.map { limits(role: $0.role, weight: $0.weight, phone: phone) }
+        let mins = bounds.map(\.min)
+        let caps = bounds.map(\.cap)
+        let minSum = mins.reduce(0, +)
+        let base = minSum + gutterMin * gaps
+        let usable: CGFloat = available > 1 ? available : base
+        if usable + 0.5 < base {
+            return Fit(widths: mins, gutter: gutterMin, rowWidth: base)
+        }
+        var extra = usable - base
+        var widths = mins
+        let rooms = zip(mins, caps).map { max($1 - $0, 0) }
+        let roomSum = rooms.reduce(0, +)
+        if extra > 0, roomSum > 0 {
+            let give = min(extra, roomSum)
+            var spent: CGFloat = 0
+            for index in widths.indices {
+                let add = (give * rooms[index] / roomSum).rounded(.down)
+                widths[index] += add
+                spent += add
+            }
+            let dust = give - spent
+            if dust > 0, let index = rooms.enumerated().max(by: { $0.element < $1.element })?.offset {
+                widths[index] += dust
+            }
+            extra -= give
+        }
+        var gutter = gutterMin
+        if gaps > 0, extra > 0 {
+            gutter += extra / gaps
+        } else if extra > 0, !widths.isEmpty {
+            widths[0] += extra
+            extra = 0
+        }
+        let row = widths.reduce(0, +) + gutter * gaps
+        let drift = usable - row
+        if gaps > 0 {
+            gutter += drift / gaps
+        } else if !widths.isEmpty {
+            widths[0] += drift
+        }
+        let finalRow = widths.reduce(0, +) + gutter * gaps
+        return Fit(widths: widths, gutter: gutter, rowWidth: finalRow)
+    }
+
+    private static func limits(role: Col.Role, weight: CGFloat, phone: Bool) -> (min: CGFloat, cap: CGFloat) {
+        let mac = !phone && HubLayout.MacReadable.enabled
+        let scale: CGFloat = mac ? HubLayout.MacReadable.columnScale : 1
+        let minWidth: CGFloat
+        let grow: CGFloat
+        switch role {
+        case .label:
+            minWidth = phone ? 148 : 220
+            grow = phone ? 24 : 100
+        case .store:
+            minWidth = phone ? 52 : 64
+            grow = phone ? 8 : 24
+        case .status:
+            minWidth = phone ? 80 : 100
+            grow = phone ? 8 : 16
+        case .metric:
+            let base: CGFloat = phone ? 72 : 96
+            minWidth = max(phone ? 64 : 78, (base * weight).rounded())
+            grow = phone ? 12 : 28
+        }
+        let lo = (minWidth * scale).rounded()
+        return (lo, lo + (grow * scale).rounded())
+    }
+}
+
+/// Places scorecard columns from the width the parent actually proposes.
+/// Equatable store lines can skip `body` and still reflow, because the proposal
+/// arrives on the layout pass.
+struct ScorecardColumnLayout: Layout {
+    var columns: [ScorecardColumns.Col]
+    var phone: Bool
+    var fallback: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let fit = resolved(proposal.width, count: subviews.count)
+        var height: CGFloat = 0
+        for index in subviews.indices {
+            let width = index < fit.widths.count ? fit.widths[index] : nil
+            let measured = subviews[index].sizeThatFits(ProposedViewSize(width: width, height: nil)).height
+            height = max(height, measured)
+        }
+        return CGSize(width: fit.rowWidth, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let offered: CGFloat? = bounds.width > 1 ? bounds.width : proposal.width
+        let fit = resolved(offered, count: subviews.count)
+        var x = bounds.minX
+        let limit = min(subviews.count, fit.widths.count)
+        for index in 0..<limit {
+            let width = fit.widths[index]
+            subviews[index].place(
+                at: CGPoint(x: x, y: bounds.minY),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(width: width, height: nil)
+            )
+            x += width + fit.gutter
+        }
+    }
+
+    private func resolved(_ width: CGFloat?, count: Int) -> ScorecardColumns.Fit {
+        let offered = (width ?? 0) > 1 ? (width ?? 0) : fallback
+        let spec: [ScorecardColumns.Col]
+        if count == columns.count || count == 0 {
+            spec = columns
+        } else {
+            spec = Array(repeating: ScorecardColumns.Col(role: .metric, weight: 1), count: count)
+        }
+        return ScorecardColumns.fit(available: offered, columns: spec, phone: phone)
+    }
+}
+
+struct ScorecardRow<Content: View>: View {
+    @Environment(\.hubTableWidth) private var tableWidth
+    var columns: [ScorecardColumns.Col]
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        ScorecardColumnLayout(
+            columns: columns,
+            phone: HubLayout.isPhoneDevice,
+            fallback: tableWidth > 1 ? max(tableWidth - ScorecardColumns.scrollTrail, 0) : 0
+        ) {
+            content()
+        }
+    }
+}
+
 struct HubWidthKey: PreferenceKey {
     static var defaultValue: CGFloat = 0
     static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
