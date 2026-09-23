@@ -1,11 +1,16 @@
 # Heartbeat pack
 
 The iPad is a **viewer**. GitHub Actions cooks `Heartbeat Daily Report.xlsx`
-into `current.sqlite` and publishes it to Cloudflare R2.
+into `current.sqlite` and publishes it to Cloudflare R2, then upserts the
+same bytes to Supabase Storage.
 
-Download: `https://pub-eafb309f53464d98902d12ac107f0f1e.r2.dev/current.sqlite`
+Download (primary): `https://pub-eafb309f53464d98902d12ac107f0f1e.r2.dev/current.sqlite`
 
 Company seat key (same thin pack on this tip): `https://pub-eafb309f53464d98902d12ac107f0f1e.r2.dev/packs/seat/company/all/current.sqlite`
+
+Supabase mirror (same file, for clients that still read the bucket):
+`https://pcnjujfmlsklhrosxzlt.supabase.co/storage/v1/object/public/heartbeat-packs/current.sqlite`
+and `packs/seat/company/all/current.sqlite` under that bucket.
 
 The Daily Report workbook stays on Supabase Storage. `r2.dev` is rate-limited.
 Swap `HBPackHost` in `FulfillmentHeartbeat/Info.plist` (and `PulseCloud.defaultPackHost`)

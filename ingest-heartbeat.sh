@@ -56,7 +56,7 @@ if command -v gh >/dev/null 2>&1; then
   gh workflow run cook-heartbeat-pack.yml --repo murraycory-gif/FulfillmentHeartbeat-iOS || true
 fi
 echo
-echo "GitHub is cooking current.sqlite and publishing it to R2. Company pack goes LIVE in a few minutes."
+echo "GitHub is cooking current.sqlite and publishing it to R2 and Supabase. Company pack goes LIVE in a few minutes."
 echo "Watch: https://github.com/murraycory-gif/FulfillmentHeartbeat-iOS/actions"
 echo "Pack: https://pub-eafb309f53464d98902d12ac107f0f1e.r2.dev/current.sqlite"
 echo "Testers: force-close Heartbeat, open it again. They never pick a file."
