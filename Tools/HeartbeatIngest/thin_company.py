@@ -30,6 +30,7 @@ COMPANY_SEAT_MAX = 40_000_000
 SCORECARD_MIN = 1000
 
 # K2 core ScoreCard page. Keep small so slim facts land in the ~13.6MB headroom.
+# coe_pct is Excel COE %; slim drops it unless it is in this tuple.
 SCORECARD_KEEP = (
     "pph",
     "presub_pct",
@@ -39,6 +40,7 @@ SCORECARD_KEEP = (
     "orders",
     "ott_pct",
     "oth5_pct",
+    "coe_pct",
 )
 SCORECARD_OPTIONAL = (
     "qty_ordered",
@@ -46,7 +48,6 @@ SCORECARD_OPTIONAL = (
     "oth_elig_pct",
     "oth_eligible_orders",
     "refund_amt",
-    "coe_pct",
     "pph_picks",
 )
 SCORECARD_TEXT = ("shopper_id", "shopper_name", "employee_alternate_id", "district", "data_window")

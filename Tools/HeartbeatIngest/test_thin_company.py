@@ -127,6 +127,7 @@ def _write_pack(path: str, *, scorecard_n: int, haggen_only: bool, chrome_shoppe
                         "orders": 12,
                         "fat_blob": "x" * 200,
                         "presub_pct": 2.1,
+                        **({"coe_pct": 18.4} if i % 2 == 0 else {}),
                     }
                 ),
                 json.dumps({"shopper_id": ldap, "unused": "drop"}),
@@ -199,6 +200,18 @@ class ThinKeepDropTests(unittest.TestCase):
             )
             self.assertNotIn("fat_blob", payload)
             self.assertIn("pph", payload)
+            with_coe = json.loads(
+                con.execute(
+                    "SELECT payload_json FROM facts WHERE section='picker_scorecard' AND id='S0'"
+                ).fetchone()[0]
+            )
+            self.assertEqual(with_coe.get("coe_pct"), 18.4)
+            without_coe = json.loads(
+                con.execute(
+                    "SELECT payload_json FROM facts WHERE section='picker_scorecard' AND id='S1'"
+                ).fetchone()[0]
+            )
+            self.assertNotIn("coe_pct", without_coe)
             divs = {
                 d
                 for (d,) in con.execute(
