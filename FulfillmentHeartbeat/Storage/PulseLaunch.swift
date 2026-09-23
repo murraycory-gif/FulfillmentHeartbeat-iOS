@@ -82,6 +82,7 @@ enum PulseLaunch {
     struct PPHPickerIndex: Equatable {
         var rows: [String: [MetricRow]] = [:]
         var counts: [String: Int] = [:]
+        var shoppers: Int = 0
     }
 
     /// One pass over shoppers. Keys include store aliases so "304" / "0304" hit the same bucket.
@@ -95,17 +96,19 @@ enum PulseLaunch {
         }
         var rows: [String: [MetricRow]] = [:]
         var counts: [String: Int] = [:]
+        var shoppers = 0
         let aliases = canonical.count * 4
         rows.reserveCapacity(aliases)
         counts.reserveCapacity(aliases)
         for (store, group) in canonical {
             let n = group.count
+            shoppers += n
             for alias in HeartbeatMath.storeAliases(store) {
                 rows[alias] = group
                 counts[alias] = n
             }
         }
-        return PPHPickerIndex(rows: rows, counts: counts)
+        return PPHPickerIndex(rows: rows, counts: counts, shoppers: shoppers)
     }
 
     /// Fold raw `GROUP BY store_number` totals onto canonical + padded aliases.
@@ -132,6 +135,39 @@ enum PulseLaunch {
     /// (Haggen 77 / Jewel only) must not replace it.
     static func pickerHeadcountsForRollup(pack: [String: Int], streamedPrefix: [String: Int]) -> [String: Int] {
         pack.isEmpty ? streamedPrefix : pack
+    }
+
+    /// PPH facts have no picker field. Pack chrome skips `picker_scorecard`, so
+    /// opening PPH loads it when the shopper index is empty or still a prefix.
+    static func shouldLoadPickerScorecardForPPHIndex(
+        section: MetricSection,
+        indexBuckets: Int,
+        indexedShoppers: Int,
+        packShoppers: Int
+    ) -> Bool {
+        guard section == .pph else { return false }
+        if indexBuckets == 0 || indexedShoppers == 0 { return true }
+        if packShoppers <= 0 { return false }
+        return indexedShoppers + 32 < packShoppers
+    }
+
+    /// Incoming headcount may only raise a store. A division-index prefix must not shrink the pack.
+    static func mergedPPHCounts(existing: [String: Int], incoming: [String: Int]) -> [String: Int] {
+        if existing.isEmpty { return incoming }
+        if incoming.isEmpty { return existing }
+        var out = existing
+        out.reserveCapacity(existing.count + incoming.count)
+        for (key, count) in incoming where count > (out[key] ?? 0) {
+            out[key] = count
+        }
+        return out
+    }
+
+    /// Keep a store's shopper list only when it covers the known headcount.
+    static func shouldKeepPPHShopperGroup(existingCount: Int, incomingCount: Int, knownHeadcount: Int) -> Bool {
+        guard incomingCount > 0 else { return false }
+        if knownHeadcount > 0, incomingCount < knownHeadcount { return false }
+        return incomingCount >= existingCount
     }
 
     /// Region / Division stay on the company seat, whose iPad read skips shoppers.
