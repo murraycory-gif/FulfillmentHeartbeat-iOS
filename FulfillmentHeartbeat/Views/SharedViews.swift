@@ -10018,7 +10018,7 @@ private struct PPHStoreExpand: View {
                 .font(.subheadline.weight(.bold))
                 .foregroundStyle(AppTheme.text)
             if pickers.isEmpty {
-                Text(PulseLaunch.shopperEmptyDetail(loading: store.pickerLoading))
+                Text(store.pickerLoading ? "Loading shoppers…" : "No data")
                     .font(.subheadline)
                     .foregroundStyle(AppTheme.textSecondary)
                     .padding(.vertical, 6)
