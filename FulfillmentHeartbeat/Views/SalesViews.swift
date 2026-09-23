@@ -484,21 +484,6 @@ enum SalesRollupBuilder {
     }
 }
 
-private enum SalesCols {
-    static var bump: CGFloat { HubLayout.MacReadable.enabled ? HubLayout.MacReadable.columnScale : 1 }
-    static var label: CGFloat { 200 * bump }
-    static var count: CGFloat { 64 * bump }
-    static var sales: CGFloat { 128 * bump }
-    static var yoy: CGFloat { 80 * bump }
-    static var orders: CGFloat { 80 * bump }
-    static var ordersYoy: CGFloat { 80 * bump }
-    static var aos: CGFloat { 84 * bump }
-    static var aiv: CGFloat { 60 * bump }
-    static var ipt: CGFloat { 76 * bump }
-    static var items: CGFloat { 96 * bump }
-    static var status: CGFloat { 92 * bump }
-}
-
 struct SalesMetricHeader: View {
     let label: String
     var showCount: Bool = false
@@ -507,30 +492,25 @@ struct SalesMetricHeader: View {
     var onSelect: ((String) -> Void)? = nil
 
     var body: some View {
-        HStack(spacing: 8) {
+        ScorecardRow(columns: ScorecardColumns.row(metrics: ScorecardColumns.salesMetrics, showCount: showCount)) {
             head(label, key: "label", alignment: .leading)
-                .frame(width: SalesCols.label, alignment: .leading)
             if showCount {
                 head("Stores", key: "count", alignment: .trailing)
-                    .frame(width: SalesCols.count, alignment: .trailing)
             }
-            head("Sales $", key: "sales").frame(width: SalesCols.sales, alignment: .trailing)
-            head("YoY %", key: "yoy").frame(width: SalesCols.yoy, alignment: .trailing)
-            head("Orders", key: "orders").frame(width: SalesCols.orders, alignment: .trailing)
-            head("Ord YoY", key: "ordersYoy").frame(width: SalesCols.ordersYoy, alignment: .trailing)
-            head("AOS", key: "aos").frame(width: SalesCols.aos, alignment: .trailing)
-            head("AIV", key: "aiv").frame(width: SalesCols.aiv, alignment: .trailing)
-            head("Items/Txn", key: "ipt").frame(width: SalesCols.ipt, alignment: .trailing)
-            head("Items", key: "items").frame(width: SalesCols.items, alignment: .trailing)
+            head("Sales $", key: "sales")
+            head("YoY %", key: "yoy")
+            head("Orders", key: "orders")
+            head("Ord YoY", key: "ordersYoy")
+            head("AOS", key: "aos")
+            head("AIV", key: "aiv")
+            head("Items/Txn", key: "ipt")
+            head("Items", key: "items")
             head("Status", key: "status", alignment: .trailing)
-                .frame(width: SalesCols.status, alignment: .trailing)
         }
         .font(HubLayout.MacReadable.metricHeaderFont)
         .tracking(0.3)
         .lineLimit(1)
         .minimumScaleFactor(0.65)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 4)
         .padding(.top, 2)
         .padding(.bottom, 6)
     }
@@ -555,6 +535,7 @@ struct SalesMetricHeader: View {
                 content
             }
         }
+        .frame(maxWidth: .infinity, alignment: alignment)
     }
 }
 
@@ -566,7 +547,7 @@ private struct SalesMetricLine: View {
     var expanded: Bool = false
 
     var body: some View {
-        HStack(spacing: 8) {
+        ScorecardRow(columns: ScorecardColumns.row(metrics: ScorecardColumns.salesMetrics, showCount: count != nil)) {
             HStack(spacing: 6) {
                 if showsChevron {
                     Image(systemName: expanded ? "chevron.down" : "chevron.right")
@@ -580,34 +561,35 @@ private struct SalesMetricLine: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.85)
             }
-            .frame(width: SalesCols.label, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
                     .font(HubLayout.MacReadable.metricLineFont.monospacedDigit())
                     .foregroundStyle(AppTheme.textSecondary)
-                    .frame(width: SalesCols.count, alignment: .trailing)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
-            cell(HeartbeatFormat.money(pack.sales), pack.health, width: SalesCols.sales)
-            cell(HeartbeatFormat.pct(pack.yoy), pack.health, width: SalesCols.yoy)
-            cell(HeartbeatFormat.num(pack.orders, digits: 0), .none, width: SalesCols.orders)
-            cell(HeartbeatFormat.pct(pack.ordersYoy), .none, width: SalesCols.ordersYoy)
-            cell(HeartbeatFormat.money(pack.aos), .none, brand: true, width: SalesCols.aos)
-            cell(HeartbeatFormat.num(pack.aiv, digits: 2), .none, width: SalesCols.aiv)
-            cell(HeartbeatFormat.num(pack.ipt, digits: 1), .none, width: SalesCols.ipt)
-            cell(HeartbeatFormat.num(pack.items, digits: 0), .none, width: SalesCols.items)
+            cell(HeartbeatFormat.money(pack.sales), pack.health)
+            cell(HeartbeatFormat.pct(pack.yoy), pack.health)
+            cell(HeartbeatFormat.num(pack.orders, digits: 0), .none)
+            cell(HeartbeatFormat.pct(pack.ordersYoy), .none)
+            cell(HeartbeatFormat.money(pack.aos), .none, brand: true)
+            cell(HeartbeatFormat.num(pack.aiv, digits: 2), .none)
+            cell(HeartbeatFormat.num(pack.ipt, digits: 1), .none)
+            cell(HeartbeatFormat.num(pack.items, digits: 0), .none)
             HealthBadge(health: pack.health == .none && (pack.sales ?? 0) > 0 ? .good : pack.health, prominent: true, compact: true)
-                .frame(width: SalesCols.status, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .tableRowCard(health: pack.health)
     }
 
-    private func cell(_ value: String, _ health: Health, brand: Bool = false, width: CGFloat) -> some View {
+    private func cell(_ value: String, _ health: Health, brand: Bool = false) -> some View {
         Text(value)
             .font(HubLayout.MacReadable.metricValueFont)
             .foregroundStyle(brand ? AppTheme.blue : ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.8)
-            .frame(width: width, alignment: .trailing)
+            .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
     private func ink(_ health: Health) -> Color {
