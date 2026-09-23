@@ -122,6 +122,12 @@ mirror_company_supabase() {
     exit 1
   fi
   echo "Supabase current.sqlite matches this cook. Root and company seat keys."
+  echo "Removing facts.json so the Sep 12 object cannot stay in heartbeat-packs."
+  if ! supabase_publish --delete facts.json; then
+    echo "COOK FAILED: facts.json is still in heartbeat-packs." >&2
+    echo "Delete must return 200, 204, or 404. Refusing to leave the stale object." >&2
+    exit 1
+  fi
 }
 
 mark_seat() {

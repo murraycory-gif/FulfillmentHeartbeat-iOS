@@ -7,7 +7,9 @@ Workbook bucket: `heartbeat-packs` (xlsx list/download only)
 See [SQLITE.md](SQLITE.md). Cook also upserts that same thin file to this
 bucket at `current.sqlite` and `packs/seat/company/all/current.sqlite`, so a
 build that still reads Supabase (tip HB-0828.468) does not keep Sunday-only
-Sales after an R2 publish. This does not require Supabase Pro.
+Sales after an R2 publish. The same successful mirror then deletes
+`facts.json` from this bucket (the Sep 12 object). Delete must return 200,
+204, or 404 or the cook fails. This does not require Supabase Pro.
 
 Upload key, first match: GitHub secret `SUPABASE_SERVICE_ROLE_KEY`, then
 `SUPABASE_KEY`, then `SUPABASE_ANON_KEY`, then the publishable key the cook

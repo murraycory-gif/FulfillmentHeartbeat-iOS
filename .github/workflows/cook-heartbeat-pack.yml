@@ -5,6 +5,8 @@ name: Cook Heartbeat pack
 # then upserts the same file to Supabase Storage (root + company seat).
 # R2 is the primary host. Supabase stays in lockstep so tip 468, which
 # still downloads current.sqlite from that bucket, does not stay Sunday-only.
+# After that mirror, delete heartbeat-packs/facts.json (Sep 12).
+# 200/204 removed it. 404 is already gone. Any other status fails the cook.
 # Testers never parse Excel. Cory's Mac does not need to be on.
 # Company LIVE (current.sqlite + company seat key) publishes before seats.
 # District/store seats are optional on this tip — continue if the cook

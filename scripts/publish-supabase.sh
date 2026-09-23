@@ -16,22 +16,16 @@
 #   SUPABASE_URL                Defaults to the Heartbeat project.
 #   SUPABASE_BUCKET             Defaults to heartbeat-packs.
 #
-# Usage: ./scripts/publish-supabase.sh <local-file> <object-key> [content-type]
+# Usage:
+#   ./scripts/publish-supabase.sh <local-file> <object-key> [content-type]
+#   ./scripts/publish-supabase.sh --delete <object-key>
 set -eu
 
-FILE="${1:-}"
-OBJECT="${2:-}"
-TYPE="${3:-application/octet-stream}"
 PROJECT="${SUPABASE_URL:-https://pcnjujfmlsklhrosxzlt.supabase.co}"
 BUCKET="${SUPABASE_BUCKET:-heartbeat-packs}"
 PROJECT="${PROJECT%/}"
 # Same cap as the cook thin gate. A fat market pack must not land here.
 MAX_BYTES="${COMPANY_SEAT_MAX_BYTES:-40000000}"
-
-if [ -z "$FILE" ] || [ -z "$OBJECT" ] || [ ! -f "$FILE" ]; then
-  echo "Usage: $0 <local-file> <object-key> [content-type]" >&2
-  exit 1
-fi
 
 KEY=""
 if [ -n "${SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
@@ -48,6 +42,52 @@ if [ -z "$KEY" ]; then
   echo "Set GitHub secret SUPABASE_SERVICE_ROLE_KEY (preferred if anon upsert returns 401/403)." >&2
   echo "Otherwise set SUPABASE_KEY or SUPABASE_ANON_KEY." >&2
   echo "The cook workflow passes HEARTBEAT_SUPABASE_PUBLISHABLE_KEY — the publishable key it already uses to read the workbook." >&2
+  exit 1
+fi
+
+# 200/204 removed the object. 404 means it is already gone. Anything else fails.
+# A second DELETE with prefixes covers the Storage batch API when the object DELETE misses.
+delete_object() {
+  object="$1"
+  encoded=$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe='/'))" "$object")
+  code=$(curl -sS -o /dev/null -w "%{http_code}" \
+    --connect-timeout 15 --max-time 60 \
+    -X DELETE \
+    -H "Authorization: Bearer $KEY" -H "apikey: $KEY" \
+    "$PROJECT/storage/v1/object/$BUCKET/$encoded" || echo "000")
+  if [ "$code" != "200" ] && [ "$code" != "204" ] && [ "$code" != "404" ]; then
+    code=$(curl -sS -o /dev/null -w "%{http_code}" \
+      --connect-timeout 15 --max-time 60 \
+      -X DELETE \
+      -H "Authorization: Bearer $KEY" -H "apikey: $KEY" \
+      -H "Content-Type: application/json" \
+      -d "{\"prefixes\":[\"$object\"]}" \
+      "$PROJECT/storage/v1/object/$BUCKET" || echo "000")
+  fi
+  echo "delete $object $code"
+  case "$code" in
+    200|204|404) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+if [ "${1:-}" = "--delete" ]; then
+  DELETE_OBJECT="${2:-}"
+  if [ -z "$DELETE_OBJECT" ]; then
+    echo "Usage: $0 --delete <object-key>" >&2
+    exit 1
+  fi
+  delete_object "$DELETE_OBJECT"
+  exit $?
+fi
+
+FILE="${1:-}"
+OBJECT="${2:-}"
+TYPE="${3:-application/octet-stream}"
+
+if [ -z "$FILE" ] || [ -z "$OBJECT" ] || [ ! -f "$FILE" ]; then
+  echo "Usage: $0 <local-file> <object-key> [content-type]" >&2
+  echo "       $0 --delete <object-key>" >&2
   exit 1
 fi
 
