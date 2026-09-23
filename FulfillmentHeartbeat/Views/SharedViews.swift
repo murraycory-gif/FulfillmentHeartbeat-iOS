@@ -2671,7 +2671,7 @@ private struct PickPathCheapLine: View, Equatable {
     let expanded: Bool
 
     var body: some View {
-        HStack(spacing: PickPathMath.gutter) {
+        ScorecardRow(columns: ScorecardColumns.row(metrics: ScorecardColumns.pickPathStoreMetrics, showCount: false)) {
             HStack(spacing: 4) {
                 Text(snap.label)
                     .font(HubLayout.MacReadable.metricLineFont)
@@ -2682,7 +2682,7 @@ private struct PickPathCheapLine: View, Equatable {
                     .font(.caption.weight(.bold))
                     .foregroundStyle(AppTheme.blue)
             }
-            .frame(width: PickPathMath.labelW, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
             cell(snap.path, snap.pathHealth)
             cell(snap.pph, snap.pphHealth)
             cell(snap.orders, .none)
@@ -2696,7 +2696,7 @@ private struct PickPathCheapLine: View, Equatable {
                 .padding(.vertical, 5)
                 .foregroundStyle(Color.white)
                 .background(pill(snap.health), in: Capsule())
-                .frame(width: PickPathMath.statusW, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(.vertical, 4)
     }
@@ -2748,39 +2748,28 @@ private struct PickPathMetricLine: View {
     let path: Double?
     let pph: Double?
     let orders: Double?
-    @Environment(\.hubTableWidth) private var tableWidth
-
-    private var valueW: CGFloat {
-        HubLayout.evenValueWidth(
-            available: tableWidth,
-            phone: HubLayout.isPhoneDevice,
-            columns: 3,
-            showCount: count != nil,
-            district: labelWidth < 120,
-            valueMin: HubLayout.dashboardValueMin(phone: HubLayout.isPhoneDevice, columns: 3)
-        )
-    }
 
     var body: some View {
         let health = PickPathMath.pathHealth(path)
-        HStack(spacing: 6) {
+        ScorecardRow(columns: ScorecardColumns.row(metrics: ScorecardColumns.pickPathMetrics, showCount: count != nil)) {
             Text(label)
                 .font(HubLayout.MacReadable.metricLineFont)
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .frame(width: labelWidth, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
                     .font(HubLayout.MacReadable.metricLineFont.monospacedDigit())
                     .foregroundStyle(AppTheme.textSecondary)
-                    .frame(width: PickPathMath.countW, alignment: .trailing)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
             cell(HeartbeatFormat.pct(path), health)
             cell(HeartbeatFormat.num(pph, digits: 1), PickPathMath.pphHealth(pph))
             cell(HeartbeatFormat.num(orders), .none)
             HealthBadge(health: health, prominent: true, compact: true)
-                .frame(width: PickPathMath.statusW, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .tableRowCard(health: health)
     }
@@ -2791,9 +2780,9 @@ private struct PickPathMetricLine: View {
             .foregroundStyle(ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
-            .frame(width: valueW, alignment: .trailing)
             .padding(.vertical, 6)
             .padding(.horizontal, 6)
+            .frame(maxWidth: .infinity, alignment: .trailing)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(wash(health))
@@ -2827,53 +2816,33 @@ struct PickPathMetricHeader: View {
     var active: String? = nil
     var ascending: Bool = false
     var onSelect: ((String) -> Void)? = nil
-    @Environment(\.hubTableWidth) private var tableWidth
 
-    private var valueW: CGFloat {
-        HubLayout.evenValueWidth(
-            available: tableWidth,
-            phone: HubLayout.isPhoneDevice,
-            columns: showDates ? 5 : 3,
-            showCount: showCount,
-            district: labelWidth < 120,
-            valueMin: HubLayout.dashboardValueMin(phone: HubLayout.isPhoneDevice, columns: showDates ? 5 : 3)
-        )
+    private var metricWeights: [CGFloat] {
+        showDates ? ScorecardColumns.pickPathStoreMetrics : ScorecardColumns.pickPathMetrics
     }
 
     var body: some View {
-        HStack(spacing: showDates ? PickPathMath.gutter : 6) {
+        ScorecardRow(columns: ScorecardColumns.row(metrics: metricWeights, showCount: showCount)) {
             head(label, key: "label", alignment: .leading)
-                .frame(width: labelWidth, alignment: .leading)
             if showCount {
                 head("Stores", key: "count", alignment: .trailing)
-                    .frame(width: PickPathMath.countW, alignment: .trailing)
             }
             head("Pick Path", key: "path")
-                .frame(width: valueW, alignment: .trailing)
             if showDates {
                 head("Avg PPH", key: "pph")
-                    .frame(width: valueW, alignment: .trailing)
                 head("Orders", key: "orders")
-                    .frame(width: valueW, alignment: .trailing)
                 head("Mapper", key: "mapper", alignment: .center)
-                    .frame(width: valueW, alignment: .center)
                 head("Sequence", key: "sequence", alignment: .center)
-                    .frame(width: valueW, alignment: .center)
             } else {
                 head("Avg PPH", key: "pph")
-                    .frame(width: valueW, alignment: .trailing)
                 head("Orders", key: "orders")
-                    .frame(width: valueW, alignment: .trailing)
             }
             head("Status", key: "status", alignment: .trailing)
-                .frame(width: PickPathMath.statusW, alignment: .trailing)
         }
         .font(HubLayout.MacReadable.metricHeaderFont)
         .tracking(0.3)
         .lineLimit(1)
         .minimumScaleFactor(0.65)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 4)
         .padding(.top, 6)
         .padding(.bottom, 8)
     }
@@ -2888,7 +2857,7 @@ struct PickPathMetricHeader: View {
             }
         }
         .foregroundStyle(selected ? AppTheme.blue : AppTheme.text)
-        .frame(maxWidth: alignment == .leading ? nil : .infinity, alignment: alignment)
+        .frame(maxWidth: .infinity, alignment: alignment)
         .contentShape(Rectangle())
         return Group {
             if let onSelect {
@@ -2898,6 +2867,7 @@ struct PickPathMetricHeader: View {
                 content
             }
         }
+        .frame(maxWidth: .infinity, alignment: alignment)
     }
 }
 
@@ -3937,7 +3907,7 @@ private struct DynacapCheapLine: View, Equatable {
     let expanded: Bool
 
     var body: some View {
-        HStack(spacing: 6) {
+        ScorecardRow(columns: ScorecardColumns.row(metrics: ScorecardColumns.dynacapMetrics, showCount: false)) {
             HStack(spacing: 4) {
                 Text(snap.label)
                     .font(HubLayout.MacReadable.metricLineFont)
@@ -3948,7 +3918,7 @@ private struct DynacapCheapLine: View, Equatable {
                     .font(.caption.weight(.bold))
                     .foregroundStyle(AppTheme.blue)
             }
-            .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
             cell(snap.rate, snap.health)
             cell(snap.pph, snap.pphHealth)
             cell(DynacapMath.goalText, .none, brand: true)
@@ -3961,7 +3931,7 @@ private struct DynacapCheapLine: View, Equatable {
                 .padding(.vertical, 5)
                 .foregroundStyle(Color.white)
                 .background(pill(snap.health), in: Capsule())
-                .frame(width: 88, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(.vertical, 4)
     }
@@ -3972,9 +3942,9 @@ private struct DynacapCheapLine: View, Equatable {
             .foregroundStyle(brand ? AppTheme.blue : ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
-            .frame(maxWidth: .infinity, alignment: .trailing)
             .padding(.vertical, 6)
             .padding(.horizontal, 6)
+            .frame(maxWidth: .infinity, alignment: .trailing)
             .background(brand ? AppTheme.blueSoft : wash(health), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
@@ -4015,18 +3985,19 @@ private struct DynacapMetricLine: View, Equatable {
 
     var body: some View {
         let health = DynacapMath.rateHealth(rate)
-        HStack(spacing: 6) {
+        ScorecardRow(columns: ScorecardColumns.row(metrics: ScorecardColumns.dynacapMetrics, showCount: count != nil)) {
             Text(label)
                 .font(HubLayout.MacReadable.metricLineFont)
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
                     .font(HubLayout.MacReadable.metricLineFont.monospacedDigit())
                     .foregroundStyle(AppTheme.textSecondary)
-                    .frame(width: 58, alignment: .trailing)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
             cell(HeartbeatFormat.num(rate, digits: 1), health)
             cell(HeartbeatFormat.num(pph, digits: 1), DynacapMath.pphHealth(pph))
@@ -4041,10 +4012,10 @@ private struct DynacapMetricLine: View, Equatable {
                     .padding(.vertical, 5)
                     .foregroundStyle(Color.white)
                     .background(AppTheme.textTertiary, in: Capsule())
-                    .frame(width: 88, alignment: .trailing)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             } else {
                 HealthBadge(health: health, prominent: true, compact: true)
-                    .frame(width: 88, alignment: .trailing)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
         .tableRowCard(health: health)
@@ -4056,9 +4027,9 @@ private struct DynacapMetricLine: View, Equatable {
             .foregroundStyle(brand ? AppTheme.blue : ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
-            .frame(maxWidth: .infinity, alignment: .trailing)
             .padding(.vertical, 6)
             .padding(.horizontal, 6)
+            .frame(maxWidth: .infinity, alignment: .trailing)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(brand ? AppTheme.blueSoft : wash(health))
@@ -4092,26 +4063,21 @@ struct DynacapMetricHeader: View {
     var onSelect: ((String) -> Void)? = nil
 
     var body: some View {
-        HStack(spacing: 6) {
+        ScorecardRow(columns: ScorecardColumns.row(metrics: ScorecardColumns.dynacapMetrics, showCount: showCount)) {
             head(label, key: "label", alignment: .leading)
-                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             if showCount {
                 head("Stores", key: "count", alignment: .trailing)
-                    .frame(width: 58, alignment: .trailing)
             }
             head("Pieces / hr", key: "rate")
             head("Store PPH", key: "pph")
             head("Goal", key: "goal")
             head("Utilization", key: "util")
             head("Status", key: "status", alignment: .trailing)
-                .frame(width: 88, alignment: .trailing)
         }
         .font(HubLayout.MacReadable.metricHeaderFont)
         .tracking(0.3)
         .lineLimit(1)
         .minimumScaleFactor(0.65)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 4)
         .padding(.top, 6)
         .padding(.bottom, 8)
     }
@@ -4126,7 +4092,7 @@ struct DynacapMetricHeader: View {
             }
         }
         .foregroundStyle(selected ? AppTheme.blue : AppTheme.text)
-        .frame(maxWidth: alignment == .leading ? nil : .infinity, alignment: alignment)
+        .frame(maxWidth: .infinity, alignment: alignment)
         .contentShape(Rectangle())
         return Group {
             if let onSelect {
@@ -4136,6 +4102,7 @@ struct DynacapMetricHeader: View {
                 content
             }
         }
+        .frame(maxWidth: .infinity, alignment: alignment)
     }
 }
 
@@ -4427,9 +4394,9 @@ private struct DynacapStoreExpand: View {
             .foregroundStyle(ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
-            .frame(maxWidth: .infinity, alignment: .trailing)
             .padding(.vertical, 6)
             .padding(.horizontal, 6)
+            .frame(maxWidth: .infinity, alignment: .trailing)
             .background(wash(health), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
@@ -4712,23 +4679,10 @@ private enum PrepMath {
     static let watchText = "1.9–2.5%"
     static let columns = 3
     static var labelW: CGFloat { HubLayout.pageLabelWidth }
-    static let countW: CGFloat = 58
-    static var statusW: CGFloat { HubLayout.readableStatusWidth(phone: HubLayout.isPhoneDevice) }
 
     static func pnrHealth(_ value: Double?) -> Health {
         guard value != nil else { return .none }
         return HeartbeatMath.band(value, good: HeartbeatMath.pnrGoal, watch: HeartbeatMath.pnrWatch, invert: true)
-    }
-
-    static func valueWidth(available: CGFloat, showCount: Bool, district: Bool) -> CGFloat {
-        HubLayout.evenValueWidth(
-            available: available,
-            phone: HubLayout.isPhoneDevice,
-            columns: columns,
-            showCount: showCount,
-            district: district,
-            valueMin: HubLayout.dashboardValueMin(phone: HubLayout.isPhoneDevice, columns: columns)
-        )
     }
 
     static func tableFloor(showCount: Bool, district: Bool) -> CGFloat {
@@ -4819,18 +4773,13 @@ private struct PrepCheapLine: View, Equatable {
     let snap: PrepLineSnap
     let expanded: Bool
     var labelWidth: CGFloat = PrepMath.labelW
-    @Environment(\.hubTableWidth) private var tableWidth
 
     static func == (lhs: PrepCheapLine, rhs: PrepCheapLine) -> Bool {
         lhs.snap == rhs.snap && lhs.expanded == rhs.expanded && lhs.labelWidth == rhs.labelWidth
     }
 
-    private var valueW: CGFloat {
-        PrepMath.valueWidth(available: tableWidth, showCount: false, district: labelWidth < 120)
-    }
-
     var body: some View {
-        HStack(spacing: 6) {
+        ScorecardRow(columns: ScorecardColumns.row(metrics: ScorecardColumns.prepMetrics, showCount: false)) {
             HStack(spacing: 4) {
                 Text(snap.label)
                     .font(HubLayout.MacReadable.metricLineFont)
@@ -4841,7 +4790,7 @@ private struct PrepCheapLine: View, Equatable {
                     .font(.caption.weight(.bold))
                     .foregroundStyle(AppTheme.blue)
             }
-            .frame(width: labelWidth, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
             cell(snap.pnr, snap.health)
             cell(PrepMath.goalText, .none, brand: true)
             cell(PrepMath.watchText, .watch)
@@ -4853,7 +4802,7 @@ private struct PrepCheapLine: View, Equatable {
                 .padding(.vertical, 5)
                 .foregroundStyle(Color.white)
                 .background(pill(snap.health), in: Capsule())
-                .frame(width: PrepMath.statusW, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(.vertical, 4)
     }
@@ -4864,9 +4813,9 @@ private struct PrepCheapLine: View, Equatable {
             .foregroundStyle(brand ? AppTheme.blue : ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
-            .frame(width: valueW, alignment: .trailing)
             .padding(.vertical, 6)
             .padding(.horizontal, 6)
+            .frame(maxWidth: .infinity, alignment: .trailing)
             .background(brand ? AppTheme.blueSoft : wash(health), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
@@ -4903,36 +4852,32 @@ private struct PrepMetricLine: View, Equatable {
     var count: Int? = nil
     var labelWidth: CGFloat = PrepMath.labelW
     let pnr: Double?
-    @Environment(\.hubTableWidth) private var tableWidth
 
     static func == (lhs: PrepMetricLine, rhs: PrepMetricLine) -> Bool {
         lhs.label == rhs.label && lhs.count == rhs.count && lhs.labelWidth == rhs.labelWidth && lhs.pnr == rhs.pnr
     }
 
-    private var valueW: CGFloat {
-        PrepMath.valueWidth(available: tableWidth, showCount: count != nil, district: labelWidth < 120)
-    }
-
     var body: some View {
         let health = PrepMath.pnrHealth(pnr)
-        HStack(spacing: 6) {
+        ScorecardRow(columns: ScorecardColumns.row(metrics: ScorecardColumns.prepMetrics, showCount: count != nil)) {
             Text(label)
                 .font(HubLayout.MacReadable.metricLineFont)
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .frame(width: labelWidth, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
                     .font(HubLayout.MacReadable.metricLineFont.monospacedDigit())
                     .foregroundStyle(AppTheme.textSecondary)
-                    .frame(width: PrepMath.countW, alignment: .trailing)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
             cell(HeartbeatFormat.pct(pnr), health)
             cell(PrepMath.goalText, .none, brand: true)
             cell(PrepMath.watchText, .watch)
             HealthBadge(health: health, prominent: true, compact: true)
-                .frame(width: PrepMath.statusW, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .tableRowCard(health: health)
     }
@@ -4943,9 +4888,9 @@ private struct PrepMetricLine: View, Equatable {
             .foregroundStyle(brand ? AppTheme.blue : ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
-            .frame(width: valueW, alignment: .trailing)
             .padding(.vertical, 6)
             .padding(.horizontal, 6)
+            .frame(maxWidth: .infinity, alignment: .trailing)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(brand ? AppTheme.blueSoft : wash(health))
@@ -4978,35 +4923,22 @@ struct PrepMetricHeader: View {
     var active: String? = nil
     var ascending: Bool = false
     var onSelect: ((String) -> Void)? = nil
-    @Environment(\.hubTableWidth) private var tableWidth
-
-    private var valueW: CGFloat {
-        PrepMath.valueWidth(available: tableWidth, showCount: showCount, district: labelWidth < 120)
-    }
 
     var body: some View {
-        HStack(spacing: 6) {
+        ScorecardRow(columns: ScorecardColumns.row(metrics: ScorecardColumns.prepMetrics, showCount: showCount)) {
             head(label, key: "label", alignment: .leading)
-                .frame(width: labelWidth, alignment: .leading)
             if showCount {
                 head("Stores", key: "count", alignment: .trailing)
-                    .frame(width: PrepMath.countW, alignment: .trailing)
             }
             head("PNR Hours %", key: "pnr")
-                .frame(width: valueW, alignment: .trailing)
             head("Goal", key: "goal")
-                .frame(width: valueW, alignment: .trailing)
             head("Watch", key: "watch")
-                .frame(width: valueW, alignment: .trailing)
             head("Status", key: "status", alignment: .trailing)
-                .frame(width: PrepMath.statusW, alignment: .trailing)
         }
         .font(HubLayout.MacReadable.metricHeaderFont)
         .tracking(0.3)
         .lineLimit(1)
         .minimumScaleFactor(0.65)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 4)
         .padding(.top, 6)
         .padding(.bottom, 8)
     }
@@ -5021,7 +4953,7 @@ struct PrepMetricHeader: View {
             }
         }
         .foregroundStyle(selected ? AppTheme.blue : AppTheme.text)
-        .frame(maxWidth: alignment == .leading ? nil : .infinity, alignment: alignment)
+        .frame(maxWidth: .infinity, alignment: alignment)
         .contentShape(Rectangle())
         return Group {
             if let onSelect {
@@ -5031,6 +4963,7 @@ struct PrepMetricHeader: View {
                 content
             }
         }
+        .frame(maxWidth: .infinity, alignment: alignment)
     }
 }
 
@@ -5612,7 +5545,7 @@ private struct FiveStarCheapLine: View, Equatable {
     let expanded: Bool
 
     var body: some View {
-        HStack(spacing: 6) {
+        ScorecardRow(columns: ScorecardColumns.row(metrics: ScorecardColumns.fiveStarMetrics, showCount: false)) {
             HStack(spacing: 4) {
                 Text(snap.label)
                     .font(HubLayout.MacReadable.metricLineFont)
@@ -5623,7 +5556,7 @@ private struct FiveStarCheapLine: View, Equatable {
                     .font(.caption.weight(.bold))
                     .foregroundStyle(AppTheme.blue)
             }
-            .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
             cell(snap.rating, snap.ratingHealth)
             cell(snap.flash, snap.flashHealth)
             cell(snap.presub, snap.presubHealth)
@@ -5638,7 +5571,7 @@ private struct FiveStarCheapLine: View, Equatable {
                 .padding(.vertical, 5)
                 .foregroundStyle(Color.white)
                 .background(pill(snap.health), in: Capsule())
-                .frame(width: 88, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(.vertical, 4)
     }
@@ -5649,9 +5582,9 @@ private struct FiveStarCheapLine: View, Equatable {
             .foregroundStyle(ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
-            .frame(maxWidth: .infinity, alignment: .trailing)
             .padding(.vertical, 6)
             .padding(.horizontal, 6)
+            .frame(maxWidth: .infinity, alignment: .trailing)
             .background(wash(health), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
@@ -5695,18 +5628,19 @@ private struct FiveStarMetricLine: View, Equatable {
 
     var body: some View {
         let health = rating == nil ? Health.none : HeartbeatMath.band(rating, good: 4.5, watch: HeartbeatMath.fiveStarPass)
-        HStack(spacing: 6) {
+        ScorecardRow(columns: ScorecardColumns.row(metrics: ScorecardColumns.fiveStarMetrics, showCount: count != nil)) {
             Text(label)
                 .font(HubLayout.MacReadable.metricLineFont)
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
                     .font(HubLayout.MacReadable.metricLineFont.monospacedDigit())
                     .foregroundStyle(AppTheme.textSecondary)
-                    .frame(width: 58, alignment: .trailing)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
             cell(HeartbeatFormat.stars(rating), health)
             cell(HeartbeatFormat.pct(flash), HeartbeatMath.starMark(value: flash, full: 75, half: 55).health)
@@ -5715,7 +5649,7 @@ private struct FiveStarMetricLine: View, Equatable {
             cell(HeartbeatFormat.pct(ott), HeartbeatMath.starMark(value: ott, full: 95, half: 90).health)
             cell(HeartbeatFormat.pct(oth), HeartbeatMath.starMark(value: oth, full: 92, half: 78).health)
             HealthBadge(health: health, prominent: true, compact: true)
-                .frame(width: 88, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .tableRowCard(health: health)
     }
@@ -5726,9 +5660,9 @@ private struct FiveStarMetricLine: View, Equatable {
             .foregroundStyle(ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
-            .frame(maxWidth: .infinity, alignment: .trailing)
             .padding(.vertical, 6)
             .padding(.horizontal, 6)
+            .frame(maxWidth: .infinity, alignment: .trailing)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(wash(health))
@@ -5762,12 +5696,10 @@ struct FiveStarMetricHeader: View {
     var onSelect: ((String) -> Void)? = nil
 
     var body: some View {
-        HStack(spacing: 6) {
+        ScorecardRow(columns: ScorecardColumns.row(metrics: ScorecardColumns.fiveStarMetrics, showCount: showCount)) {
             head(label, key: "label", alignment: .leading)
-                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             if showCount {
                 head("Stores", key: "count", alignment: .trailing)
-                    .frame(width: 58, alignment: .trailing)
             }
             head("Rating", key: "rating")
             head("Flash", key: "flash")
@@ -5776,14 +5708,11 @@ struct FiveStarMetricHeader: View {
             head("OTT", key: "ott")
             head("OTH 5%", key: "oth")
             head("Status", key: "status", alignment: .trailing)
-                .frame(width: 88, alignment: .trailing)
         }
         .font(HubLayout.MacReadable.metricHeaderFont)
         .tracking(0.3)
         .lineLimit(1)
         .minimumScaleFactor(0.65)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 4)
         .padding(.top, 6)
         .padding(.bottom, 8)
     }
@@ -5798,7 +5727,7 @@ struct FiveStarMetricHeader: View {
             }
         }
         .foregroundStyle(selected ? AppTheme.blue : AppTheme.text)
-        .frame(maxWidth: alignment == .leading ? nil : .infinity, alignment: alignment)
+        .frame(maxWidth: .infinity, alignment: alignment)
         .contentShape(Rectangle())
         return Group {
             if let onSelect {
@@ -5808,6 +5737,7 @@ struct FiveStarMetricHeader: View {
                 content
             }
         }
+        .frame(maxWidth: .infinity, alignment: alignment)
     }
 }
 
@@ -6594,7 +6524,7 @@ private struct LaborCheapLine: View, Equatable {
     let expanded: Bool
 
     var body: some View {
-        HStack(spacing: 6) {
+        ScorecardRow(columns: ScorecardColumns.row(metrics: ScorecardColumns.laborMetrics, showCount: false)) {
             HStack(spacing: 4) {
                 Text(snap.label)
                     .font(HubLayout.MacReadable.metricLineFont)
@@ -6605,7 +6535,7 @@ private struct LaborCheapLine: View, Equatable {
                     .font(.caption.weight(.bold))
                     .foregroundStyle(AppTheme.blue)
             }
-            .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
             cell(snap.tva, snap.tvaHealth)
             cell(snap.cost, .none, brand: true)
             cell(snap.act, snap.actHealth)
@@ -6621,7 +6551,7 @@ private struct LaborCheapLine: View, Equatable {
                 .padding(.vertical, 5)
                 .foregroundStyle(Color.white)
                 .background(pill(snap.tvaHealth), in: Capsule())
-                .frame(width: 88, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(.vertical, 4)
     }
@@ -6632,9 +6562,9 @@ private struct LaborCheapLine: View, Equatable {
             .foregroundStyle(brand ? AppTheme.blue : ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.6)
-            .frame(maxWidth: .infinity, alignment: .trailing)
             .padding(.vertical, 6)
             .padding(.horizontal, 6)
+            .frame(maxWidth: .infinity, alignment: .trailing)
             .background(brand ? AppTheme.blueSoft : wash(health), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
@@ -6680,7 +6610,7 @@ private struct LaborMetricLine: View, Equatable {
 
     var body: some View {
         let tvaHealth = HeartbeatMath.laborHealth(tva)
-        HStack(spacing: 6) {
+        ScorecardRow(columns: ScorecardColumns.row(metrics: ScorecardColumns.laborMetrics, showCount: count != nil)) {
             HStack(spacing: 4) {
                 Text(label)
                     .font(HubLayout.MacReadable.metricLineFont)
@@ -6693,12 +6623,13 @@ private struct LaborMetricLine: View, Equatable {
                         .foregroundStyle(AppTheme.blue)
                 }
             }
-            .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
                     .font(HubLayout.MacReadable.metricLineFont.monospacedDigit())
                     .foregroundStyle(AppTheme.textSecondary)
-                    .frame(width: 58, alignment: .trailing)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
             cell(HeartbeatFormat.pct(tva), tvaHealth)
             cell(HeartbeatFormat.pct(cost), .none, brand: true)
@@ -6708,7 +6639,7 @@ private struct LaborMetricLine: View, Equatable {
             cell(HeartbeatFormat.pct(wage), impact(wage))
             cell(HeartbeatFormat.pct(aiv), impact(aiv))
             HealthBadge(health: tvaHealth, prominent: true, compact: true)
-                .frame(width: 88, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .tableRowCard(health: tvaHealth)
     }
@@ -6719,9 +6650,9 @@ private struct LaborMetricLine: View, Equatable {
             .foregroundStyle(brand ? AppTheme.blue : ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.6)
-            .frame(maxWidth: .infinity, alignment: .trailing)
             .padding(.vertical, 6)
             .padding(.horizontal, 6)
+            .frame(maxWidth: .infinity, alignment: .trailing)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(brand ? AppTheme.blueSoft : wash(health))
@@ -6855,12 +6786,10 @@ struct LaborMetricHeader: View {
     var onSelect: ((String) -> Void)? = nil
 
     var body: some View {
-        HStack(spacing: 6) {
+        ScorecardRow(columns: ScorecardColumns.row(metrics: ScorecardColumns.laborMetrics, showCount: showCount)) {
             head(label, key: "label", alignment: .leading)
-                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             if showCount {
                 head("Stores", key: "count", alignment: .trailing)
-                    .frame(width: 58, alignment: .trailing)
             }
             head("Tgt vs Act", key: "tva")
             head("CostTrgt%", key: "cost")
@@ -6870,7 +6799,6 @@ struct LaborMetricHeader: View {
             head("Wage", key: "wage")
             head("AIV", key: "aiv")
             head("Status", key: "status", alignment: .trailing)
-                .frame(width: 88, alignment: .trailing)
         }
         .font(HubLayout.MacReadable.metricHeaderFont)
         .tracking(0.3)
@@ -6888,7 +6816,7 @@ struct LaborMetricHeader: View {
             }
         }
         .foregroundStyle(selected ? AppTheme.blue : AppTheme.text)
-        .frame(maxWidth: alignment == .leading ? nil : .infinity, alignment: alignment)
+        .frame(maxWidth: .infinity, alignment: alignment)
         .contentShape(Rectangle())
         return Group {
             if let onSelect {
@@ -6898,6 +6826,7 @@ struct LaborMetricHeader: View {
                 content
             }
         }
+        .frame(maxWidth: .infinity, alignment: alignment)
     }
 }
 
@@ -7812,7 +7741,7 @@ private struct LostRevenueCheapLine: View, Equatable {
     let expanded: Bool
 
     var body: some View {
-        HStack(spacing: 6) {
+        ScorecardRow(columns: ScorecardColumns.row(metrics: ScorecardColumns.lostMetrics, showCount: false)) {
             HStack(spacing: 4) {
                 Text(snap.label)
                     .font(HubLayout.MacReadable.metricLineFont)
@@ -7823,7 +7752,7 @@ private struct LostRevenueCheapLine: View, Equatable {
                     .font(.caption.weight(.bold))
                     .foregroundStyle(AppTheme.blue)
             }
-            .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
             cell(snap.lost, snap.health)
             cell(snap.pct, snap.health)
             cell(snap.goal, .none, brand: true)
@@ -7839,7 +7768,7 @@ private struct LostRevenueCheapLine: View, Equatable {
                 .padding(.vertical, 5)
                 .foregroundStyle(Color.white)
                 .background(pill(snap.health), in: Capsule())
-                .frame(width: 88, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(.vertical, 4)
     }
@@ -7850,9 +7779,9 @@ private struct LostRevenueCheapLine: View, Equatable {
             .foregroundStyle(brand ? AppTheme.blue : ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
-            .frame(maxWidth: .infinity, alignment: .trailing)
             .padding(.vertical, 6)
             .padding(.horizontal, 6)
+            .frame(maxWidth: .infinity, alignment: .trailing)
             .background(brand ? AppTheme.blueSoft : wash(health), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
@@ -7897,18 +7826,19 @@ private struct LostRevenueMetricLine: View, Equatable {
 
     var body: some View {
         let health = HeartbeatMath.lostRevenueHealth(pct: pct)
-        HStack(spacing: 6) {
+        ScorecardRow(columns: ScorecardColumns.row(metrics: ScorecardColumns.lostMetrics, showCount: count != nil)) {
             Text(label)
                 .font(HubLayout.MacReadable.metricLineFont)
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
                     .font(HubLayout.MacReadable.metricLineFont.monospacedDigit())
                     .foregroundStyle(AppTheme.textSecondary)
-                    .frame(width: 58, alignment: .trailing)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
             cell(HeartbeatFormat.moneyShort(lost), health)
             cell(HeartbeatFormat.pct(pct), health)
@@ -7918,7 +7848,7 @@ private struct LostRevenueMetricLine: View, Equatable {
             cell(HeartbeatFormat.moneyShort(refund), .none)
             cell(HeartbeatFormat.moneyShort(missed), .none)
             HealthBadge(health: health, prominent: true, compact: true)
-                .frame(width: 88, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .tableRowCard(health: health)
     }
@@ -7929,9 +7859,9 @@ private struct LostRevenueMetricLine: View, Equatable {
             .foregroundStyle(brand ? AppTheme.blue : ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
-            .frame(maxWidth: .infinity, alignment: .trailing)
             .padding(.vertical, 6)
             .padding(.horizontal, 6)
+            .frame(maxWidth: .infinity, alignment: .trailing)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(brand ? AppTheme.blueSoft : wash(health))
@@ -7965,12 +7895,10 @@ struct LostRevenueMetricHeader: View {
     var onSelect: ((String) -> Void)? = nil
 
     var body: some View {
-        HStack(spacing: 6) {
+        ScorecardRow(columns: ScorecardColumns.row(metrics: ScorecardColumns.lostMetrics, showCount: showCount)) {
             head(label, key: "label", alignment: .leading)
-                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             if showCount {
                 head("Stores", key: "count", alignment: .trailing)
-                    .frame(width: 58, alignment: .trailing)
             }
             head("Lost $", key: "lost")
             head("Lost %", key: "pct")
@@ -7980,14 +7908,11 @@ struct LostRevenueMetricHeader: View {
             head("Refund", key: "refund")
             head("Missed", key: "missed")
             head("Status", key: "status", alignment: .trailing)
-                .frame(width: 88, alignment: .trailing)
         }
         .font(HubLayout.MacReadable.metricHeaderFont)
         .tracking(0.3)
         .lineLimit(1)
         .minimumScaleFactor(0.65)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 4)
         .padding(.top, 6)
         .padding(.bottom, 8)
     }
@@ -8002,7 +7927,7 @@ struct LostRevenueMetricHeader: View {
             }
         }
         .foregroundStyle(selected ? AppTheme.blue : AppTheme.text)
-        .frame(maxWidth: alignment == .leading ? nil : .infinity, alignment: alignment)
+        .frame(maxWidth: .infinity, alignment: alignment)
         .contentShape(Rectangle())
         return Group {
             if let onSelect {
@@ -8012,6 +7937,7 @@ struct LostRevenueMetricHeader: View {
                 content
             }
         }
+        .frame(maxWidth: .infinity, alignment: alignment)
     }
 }
 
@@ -8894,7 +8820,7 @@ private struct ScheduleCheapLine: View, Equatable {
     let expanded: Bool
 
     var body: some View {
-        HStack(spacing: 6) {
+        ScorecardRow(columns: ScorecardColumns.row(metrics: ScorecardColumns.scheduleMetrics, showCount: false)) {
             HStack(spacing: 4) {
                 Text(snap.label)
                     .font(HubLayout.MacReadable.metricLineFont)
@@ -8905,7 +8831,7 @@ private struct ScheduleCheapLine: View, Equatable {
                     .font(.caption.weight(.bold))
                     .foregroundStyle(AppTheme.blue)
             }
-            .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
             cell(snap.efficiency, snap.efficiencyHealth)
             cell(snap.staffing, snap.staffingHealth)
             cell(ScheduleMath.goalText, .none, brand: true)
@@ -8919,7 +8845,7 @@ private struct ScheduleCheapLine: View, Equatable {
                 .padding(.vertical, 5)
                 .foregroundStyle(Color.white)
                 .background(pill(snap.health), in: Capsule())
-                .frame(width: 88, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(.vertical, 4)
     }
@@ -8930,9 +8856,9 @@ private struct ScheduleCheapLine: View, Equatable {
             .foregroundStyle(brand ? AppTheme.blue : ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
-            .frame(maxWidth: .infinity, alignment: .trailing)
             .padding(.vertical, 6)
             .padding(.horizontal, 6)
+            .frame(maxWidth: .infinity, alignment: .trailing)
             .background(brand ? AppTheme.blueSoft : wash(health), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
@@ -8972,33 +8898,22 @@ private struct ScheduleMetricLine: View {
     let staffing: Double?
     let under: Double?
     let over: Double?
-    @Environment(\.hubTableWidth) private var tableWidth
-
-    private var valueW: CGFloat {
-        HubLayout.evenValueWidth(
-            available: tableWidth,
-            phone: HubLayout.isPhoneDevice,
-            columns: 5,
-            showCount: count != nil,
-            district: labelWidth < 120,
-            valueMin: HubLayout.dashboardValueMin(phone: HubLayout.isPhoneDevice, columns: 5)
-        )
-    }
 
     var body: some View {
         let health = ScheduleRollupRow(id: label, label: label, storeCount: count ?? 0, efficiency: efficiency, staffing: staffing, under: under, over: over).health
-        HStack(spacing: 6) {
+        ScorecardRow(columns: ScorecardColumns.row(metrics: ScorecardColumns.scheduleMetrics, showCount: count != nil)) {
             Text(label)
                 .font(HubLayout.MacReadable.metricLineFont)
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .frame(width: labelWidth, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
                     .font(HubLayout.MacReadable.metricLineFont.monospacedDigit())
                     .foregroundStyle(AppTheme.textSecondary)
-                    .frame(width: 58, alignment: .trailing)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
             cell(HeartbeatFormat.pct(efficiency), ScheduleMath.efficiencyHealth(efficiency))
             cell(HeartbeatFormat.pct(staffing), ScheduleMath.staffingHealth(staffing))
@@ -9006,7 +8921,7 @@ private struct ScheduleMetricLine: View {
             cell(HeartbeatFormat.pct(under), HeartbeatMath.varianceHealth(under))
             cell(HeartbeatFormat.pct(over), HeartbeatMath.varianceHealth(over))
             HealthBadge(health: health, prominent: true, compact: true)
-                .frame(width: 88, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .tableRowCard(health: health)
     }
@@ -9017,8 +8932,8 @@ private struct ScheduleMetricLine: View {
             .foregroundStyle(brand ? AppTheme.blue : ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
-            .frame(width: valueW, alignment: .trailing)
             .padding(.vertical, 6)
+            .frame(maxWidth: .infinity, alignment: .trailing)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(brand ? AppTheme.blueSoft : wash(health))
@@ -9051,39 +8966,19 @@ struct ScheduleMetricHeader: View {
     var active: String? = nil
     var ascending: Bool = false
     var onSelect: ((String) -> Void)? = nil
-    @Environment(\.hubTableWidth) private var tableWidth
-
-    private var valueW: CGFloat {
-        HubLayout.evenValueWidth(
-            available: tableWidth,
-            phone: HubLayout.isPhoneDevice,
-            columns: 5,
-            showCount: showCount,
-            district: labelWidth < 120,
-            valueMin: HubLayout.dashboardValueMin(phone: HubLayout.isPhoneDevice, columns: 5)
-        )
-    }
 
     var body: some View {
-        HStack(spacing: 6) {
+        ScorecardRow(columns: ScorecardColumns.row(metrics: ScorecardColumns.scheduleMetrics, showCount: showCount)) {
             head(label, key: "label", alignment: .leading)
-                .frame(width: labelWidth, alignment: .leading)
             if showCount {
                 head("Stores", key: "count", alignment: .trailing)
-                    .frame(width: 58, alignment: .trailing)
             }
             head("Efficiency", key: "efficiency")
-                .frame(width: valueW, alignment: .trailing)
             head("Staffing % (Pch vs Tgt)", key: "staffing")
-                .frame(width: valueW, alignment: .trailing)
             head("Goal", key: "goal")
-                .frame(width: valueW, alignment: .trailing)
             head("Under", key: "under")
-                .frame(width: valueW, alignment: .trailing)
             head("Over", key: "over")
-                .frame(width: valueW, alignment: .trailing)
             head("Status", key: "status", alignment: .trailing)
-                .frame(width: 88, alignment: .trailing)
         }
         .font(HubLayout.MacReadable.metricHeaderFont)
         .tracking(0.3)
@@ -9101,7 +8996,7 @@ struct ScheduleMetricHeader: View {
             }
         }
         .foregroundStyle(selected ? AppTheme.blue : AppTheme.text)
-        .frame(maxWidth: alignment == .leading ? nil : .infinity, alignment: alignment)
+        .frame(maxWidth: .infinity, alignment: alignment)
         .contentShape(Rectangle())
         return Group {
             if let onSelect {
@@ -9111,6 +9006,7 @@ struct ScheduleMetricHeader: View {
                 content
             }
         }
+        .frame(maxWidth: .infinity, alignment: alignment)
     }
 }
 
@@ -9709,7 +9605,7 @@ private struct PPHCheapLine: View, Equatable {
     let expanded: Bool
 
     var body: some View {
-        HStack(spacing: 6) {
+        ScorecardRow(columns: ScorecardColumns.row(metrics: ScorecardColumns.pphMetrics, showCount: false)) {
             HStack(spacing: 4) {
                 Text(snap.label)
                     .font(HubLayout.MacReadable.metricLineFont)
@@ -9720,7 +9616,7 @@ private struct PPHCheapLine: View, Equatable {
                     .font(.caption.weight(.bold))
                     .foregroundStyle(AppTheme.blue)
             }
-            .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
             cell(snap.pph, snap.health)
             cell(snap.pickers, .none)
             cell(PPHMath.goalText, .none, brand: true)
@@ -9732,7 +9628,7 @@ private struct PPHCheapLine: View, Equatable {
                 .padding(.vertical, 5)
                 .foregroundStyle(Color.white)
                 .background(pill(snap.health), in: Capsule())
-                .frame(width: 88, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(.vertical, 4)
     }
@@ -9743,9 +9639,9 @@ private struct PPHCheapLine: View, Equatable {
             .foregroundStyle(brand ? AppTheme.blue : ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
-            .frame(maxWidth: .infinity, alignment: .trailing)
             .padding(.vertical, 6)
             .padding(.horizontal, 6)
+            .frame(maxWidth: .infinity, alignment: .trailing)
             .background(brand ? AppTheme.blueSoft : wash(health), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
@@ -9785,24 +9681,25 @@ private struct PPHMetricLine: View, Equatable {
 
     var body: some View {
         let health = PPHMath.pphHealth(pph)
-        HStack(spacing: 6) {
+        ScorecardRow(columns: ScorecardColumns.row(metrics: ScorecardColumns.pphMetrics, showCount: count != nil)) {
             Text(label)
                 .font(HubLayout.MacReadable.metricLineFont)
                 .foregroundStyle(AppTheme.text)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
             if let count {
                 Text(HeartbeatFormat.num(Double(count)))
                     .font(HubLayout.MacReadable.metricLineFont.monospacedDigit())
                     .foregroundStyle(AppTheme.textSecondary)
-                    .frame(width: 58, alignment: .trailing)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
             cell(HeartbeatFormat.num(pph, digits: 1), health)
             cell(HeartbeatFormat.num(Double(pickers)), .none)
             cell(PPHMath.goalText, .none, brand: true)
             HealthBadge(health: health, prominent: true, compact: true)
-                .frame(width: 88, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .tableRowCard(health: health)
     }
@@ -9813,9 +9710,9 @@ private struct PPHMetricLine: View, Equatable {
             .foregroundStyle(brand ? AppTheme.blue : ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
-            .frame(maxWidth: .infinity, alignment: .trailing)
             .padding(.vertical, 6)
             .padding(.horizontal, 6)
+            .frame(maxWidth: .infinity, alignment: .trailing)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(brand ? AppTheme.blueSoft : wash(health))
@@ -9849,25 +9746,20 @@ struct PPHMetricHeader: View {
     var onSelect: ((String) -> Void)? = nil
 
     var body: some View {
-        HStack(spacing: 6) {
+        ScorecardRow(columns: ScorecardColumns.row(metrics: ScorecardColumns.pphMetrics, showCount: showCount)) {
             head(label, key: "label", alignment: .leading)
-                .frame(width: HubLayout.pageLabelWidth, alignment: .leading)
             if showCount {
                 head("Stores", key: "count", alignment: .trailing)
-                    .frame(width: 58, alignment: .trailing)
             }
             head("Pure PPH", key: "pph")
             head("Pickers", key: "pickers")
             head("Goal", key: "goal")
             head("Status", key: "status", alignment: .trailing)
-                .frame(width: 88, alignment: .trailing)
         }
         .font(HubLayout.MacReadable.metricHeaderFont)
         .tracking(0.3)
         .lineLimit(1)
         .minimumScaleFactor(0.65)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 4)
         .padding(.top, 6)
         .padding(.bottom, 8)
     }
@@ -9882,7 +9774,7 @@ struct PPHMetricHeader: View {
             }
         }
         .foregroundStyle(selected ? AppTheme.blue : AppTheme.text)
-        .frame(maxWidth: alignment == .leading ? nil : .infinity, alignment: alignment)
+        .frame(maxWidth: .infinity, alignment: alignment)
         .contentShape(Rectangle())
         return Group {
             if let onSelect {
@@ -9892,6 +9784,7 @@ struct PPHMetricHeader: View {
                 content
             }
         }
+        .frame(maxWidth: .infinity, alignment: alignment)
     }
 }
 
@@ -10201,9 +10094,9 @@ private struct PPHStoreExpand: View {
             .foregroundStyle(ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
-            .frame(maxWidth: .infinity, alignment: .trailing)
             .padding(.vertical, 6)
             .padding(.horizontal, 6)
+            .frame(maxWidth: .infinity, alignment: .trailing)
             .background(wash(health), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
@@ -10586,7 +10479,7 @@ private struct PickerCheapLine: View, Equatable {
     var showRefund: Bool = false
 
     var body: some View {
-        HStack(spacing: 6) {
+        ScorecardRow(columns: ScorecardColumns.row(metrics: ScorecardColumns.pickerMetrics, showCount: false)) {
             HStack(spacing: 4) {
                 Text(snap.label)
                     .font((HubLayout.MacReadable.enabled ? Font.body : Font.subheadline).weight(.semibold))
@@ -10597,7 +10490,7 @@ private struct PickerCheapLine: View, Equatable {
                     .font(.caption.weight(.bold))
                     .foregroundStyle(AppTheme.blue)
             }
-            .frame(minWidth: HubLayout.MacReadable.enabled ? 176 : 148, maxWidth: HubLayout.MacReadable.enabled ? 260 : 220, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
             cell(snap.hours, .none)
             cell(snap.pph, snap.pphHealth)
             cell(snap.orders, .none)
@@ -10613,7 +10506,7 @@ private struct PickerCheapLine: View, Equatable {
                 .padding(.vertical, HubLayout.MacReadable.enabled ? 6 : 5)
                 .foregroundStyle(Color.white)
                 .background(pill(snap.health), in: Capsule())
-                .frame(width: HubLayout.MacReadable.enabled ? 104 : 88, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(.vertical, HubLayout.MacReadable.enabled ? 6 : 4)
     }
@@ -10624,9 +10517,9 @@ private struct PickerCheapLine: View, Equatable {
             .foregroundStyle(ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
+            .padding(.horizontal, HubLayout.MacReadable.enabled ? 8 : 6)
             .frame(maxWidth: .infinity, alignment: .trailing)
             .padding(.vertical, HubLayout.MacReadable.enabled ? 8 : 6)
-            .padding(.horizontal, HubLayout.MacReadable.enabled ? 8 : 6)
             .background(wash(health), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
@@ -10748,13 +10641,8 @@ struct PickerMetricHeader: View {
             phone: HubLayout.refusesPadTable(sizeClass),
             mac: HubLayout.isMac
         ) {
-        HStack(spacing: 6) {
+        ScorecardRow(columns: ScorecardColumns.row(metrics: ScorecardColumns.pickerMetrics, showCount: false)) {
             head(label, key: "label", alignment: .leading)
-                .frame(
-                    minWidth: HubLayout.MacReadable.enabled ? 176 : 148,
-                    maxWidth: HubLayout.MacReadable.enabled ? 260 : 220,
-                    alignment: .leading
-                )
             head("Hours", key: "hours")
             head("PPH", key: "pph")
             head("Orders", key: "orders")
@@ -10763,14 +10651,11 @@ struct PickerMetricHeader: View {
             head("OTH5", key: "oth5")
             head("COE", key: "coe")
             head("Status", key: "status", alignment: .trailing)
-                .frame(width: HubLayout.MacReadable.enabled ? 104 : 88, alignment: .trailing)
         }
         .font(HubLayout.MacReadable.enabled ? HubLayout.MacReadable.headerFont : .caption.weight(.bold))
         .tracking(0.3)
         .lineLimit(1)
         .minimumScaleFactor(0.65)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, HubLayout.MacReadable.enabled ? 6 : 4)
         .padding(.top, HubLayout.MacReadable.enabled ? 8 : 6)
         .padding(.bottom, HubLayout.MacReadable.enabled ? 10 : 8)
         }
@@ -10786,7 +10671,7 @@ struct PickerMetricHeader: View {
             }
         }
         .foregroundStyle(selected ? AppTheme.blue : AppTheme.text)
-        .frame(maxWidth: alignment == .leading ? nil : .infinity, alignment: alignment)
+        .frame(maxWidth: .infinity, alignment: alignment)
         .contentShape(Rectangle())
         return Group {
             if let onSelect {
@@ -10796,6 +10681,7 @@ struct PickerMetricHeader: View {
                 content
             }
         }
+        .frame(maxWidth: .infinity, alignment: alignment)
     }
 }
 
@@ -11321,6 +11207,34 @@ struct HubStoreCard<Content: View>: View {
     }
 }
 
+/// Offers `width` to scroll content, and still grows when the child is wider
+/// (phone / many columns). `frame(minWidth:)` inside a horizontal ScrollView
+/// does not propose that width, so scorecard rows kept their minimum and left
+/// a blank zone after Status.
+private struct HubScrollSpan: Layout {
+    var width: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let child = subviews.first else {
+            return CGSize(width: max(width, 0), height: proposal.height ?? 0)
+        }
+        let offer = width > 1 ? width : proposal.width
+        let size = child.sizeThatFits(ProposedViewSize(width: offer, height: proposal.height))
+        let resolved = (offer ?? 0) > 1 ? max(size.width, offer ?? 0) : size.width
+        return CGSize(width: resolved, height: size.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let child = subviews.first else { return }
+        let offer = bounds.width > 1 ? bounds.width : (width > 1 ? width : proposal.width)
+        child.place(
+            at: CGPoint(x: bounds.minX, y: bounds.minY),
+            anchor: .topLeading,
+            proposal: ProposedViewSize(width: offer, height: bounds.height)
+        )
+    }
+}
+
 struct HubAdaptiveHScroll<Content: View>: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     var minWidth: CGFloat? = nil
@@ -11342,9 +11256,10 @@ struct HubAdaptiveHScroll<Content: View>: View {
         // in/out of ScrollView after GeometryReader fires collapses List rows
         // to 0 (Missing Items / Pre-Sub expand paint blank).
         ScrollView(.horizontal, showsIndicators: true) {
-            content
-                .padding(.trailing, 12)
-                .frame(minWidth: max(span, floor), alignment: .topLeading)
+            HubScrollSpan(width: max(span, floor)) {
+                content
+                    .padding(.trailing, 12)
+            }
         }
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, minHeight: minHeight > 0 ? minHeight : nil, alignment: .leading)
