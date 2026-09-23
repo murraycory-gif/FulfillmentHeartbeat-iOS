@@ -1,7 +1,10 @@
 name: Cook Heartbeat pack
 
 # Turns Heartbeat Daily Report.xlsx (still in Supabase Storage) into
-# current.sqlite and publishes the thin company pack to Cloudflare R2.
+# current.sqlite and publishes the thin company pack to Cloudflare R2,
+# then upserts the same file to Supabase Storage (root + company seat).
+# R2 is the primary host. Supabase stays in lockstep so tip 468, which
+# still downloads current.sqlite from that bucket, does not stay Sunday-only.
 # Testers never parse Excel. Cory's Mac does not need to be on.
 # Company LIVE (current.sqlite + company seat key) publishes before seats.
 # District/store seats are optional on this tip — continue if the cook
@@ -83,14 +86,73 @@ jobs:
               print(f"R2 HEAD current.sqlite: {exc}")
           pack_dt = parse_ts(pack_updated)
           force = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
-          print(f"xlsx {xlsx.get('updated_at')} r2 {pack_updated} sqlite_bytes={pack_bytes} force={force}")
+
+          def listed_size(rows, name):
+              for row in rows:
+                  if row.get("name") != name:
+                      continue
+                  meta = row.get("metadata") or {}
+                  for key in ("size", "contentLength"):
+                      raw = meta.get(key)
+                      if raw is None:
+                          continue
+                      try:
+                          return int(raw)
+                      except (TypeError, ValueError):
+                          continue
+                  return 0
+              return -1
+
+          def list_prefix(prefix):
+              body = json.dumps({"prefix": prefix, "limit": 50}).encode()
+              req = urllib.request.Request(
+                  f"{os.environ['PROJECT']}/storage/v1/object/list/heartbeat-packs",
+                  data=body,
+                  method="POST",
+                  headers={
+                      "Authorization": f"Bearer {os.environ['KEY']}",
+                      "apikey": os.environ["KEY"],
+                      "Content-Type": "application/json",
+                  },
+              )
+              with urllib.request.urlopen(req, timeout=20) as resp:
+                  payload = json.load(resp)
+              if isinstance(payload, dict):
+                  raise RuntimeError(payload)
+              return payload
+
+          supabase_root = listed_size(files, "current.sqlite")
+          supabase_seat = -1
+          try:
+              seat_rows = list_prefix("packs/seat/company/all/")
+              supabase_seat = listed_size(seat_rows, "current.sqlite")
+          except Exception as exc:
+              print(f"Supabase company-seat list: {exc}")
+          print(
+              f"xlsx {xlsx.get('updated_at')} r2 {pack_updated} "
+              f"sqlite_bytes={pack_bytes} supabase_root={supabase_root} "
+              f"supabase_seat={supabase_seat} force={force}"
+          )
           if xlsx_dt and pack_dt:
               print(f"xlsx_dt {xlsx_dt.isoformat()} r2_dt {pack_dt.isoformat()} newer={xlsx_dt > pack_dt}")
+          # Same thin file must sit on both hosts. A size miss (or a failed
+          # list) means tip 468 is still on the previous Supabase object.
+          supabase_matches = (
+              pack_bytes >= 1_000_000
+              and supabase_root == pack_bytes
+              and supabase_seat == pack_bytes
+          )
+          if pack_bytes >= 1_000_000 and not supabase_matches:
+              open("/tmp/supabase-stale", "w").write("1")
+              print("Supabase company pack does not match R2. Mirror required.")
           # 1MB floor: never treat a stub/empty R2 object as a fresh cook.
           if not force and xlsx_dt and pack_dt and xlsx_dt <= pack_dt and pack_bytes >= 1_000_000:
               open("/tmp/skip", "w").write("1")
-              print("Pack on R2 is already newer than the workbook. Skip.")
+              print("Pack on R2 is already newer than the workbook. Skip cook.")
           PY
+          if [ -f /tmp/supabase-stale ]; then
+            echo "supabase_stale=1" >> "$GITHUB_ENV"
+          fi
           if [ -f /tmp/skip ]; then
             echo "skip=1" >> "$GITHUB_ENV"
             exit 0
@@ -168,13 +230,18 @@ jobs:
           fi
           aws --version
 
-      - name: Publish company LIVE to R2
+      - name: Publish company LIVE to R2 and Supabase
         if: env.skip != '1'
         env:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          HEARTBEAT_SUPABASE_PUBLISHABLE_KEY: sb_publishable_T3Pzm01sMXCv2rQaCeP_Kg_4ao2M5zd
         run: |
           set -euo pipefail
           BYTES=$(wc -c < /tmp/current.sqlite | tr -d ' ')
@@ -219,3 +286,26 @@ jobs:
         run: |
           set -euo pipefail
           Tools/HeartbeatIngest/publish-cloud.sh seats /tmp/current.sqlite
+
+      # R2 is already newer than the workbook, but Supabase still has a
+      # different company pack (tip 468 reads that bucket). Copy the live
+      # R2 object — do not recook.
+      - name: Mirror fresh R2 company pack onto Supabase
+        if: env.skip == '1' && env.supabase_stale == '1'
+        env:
+          PACK_HOST: https://pub-eafb309f53464d98902d12ac107f0f1e.r2.dev
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          HEARTBEAT_SUPABASE_PUBLISHABLE_KEY: sb_publishable_T3Pzm01sMXCv2rQaCeP_Kg_4ao2M5zd
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/current.sqlite "$PACK_HOST/current.sqlite"
+          BYTES=$(wc -c < /tmp/current.sqlite | tr -d ' ')
+          if [ "$BYTES" -lt 1000000 ] || [ "$BYTES" -gt 40000000 ]; then
+            echo "Refusing to mirror R2 current.sqlite ($BYTES bytes)."
+            exit 1
+          fi
+          chmod +x Tools/HeartbeatIngest/publish-cloud.sh scripts/publish-supabase.sh
+          Tools/HeartbeatIngest/publish-cloud.sh mirror-supabase /tmp/current.sqlite

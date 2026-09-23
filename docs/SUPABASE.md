@@ -3,8 +3,16 @@
 Project: `https://pcnjujfmlsklhrosxzlt.supabase.co`  
 Workbook bucket: `heartbeat-packs` (xlsx list/download only)
 
-**Packs are not served from Supabase.** Testers download `current.sqlite`
-from Cloudflare R2. See [SQLITE.md](SQLITE.md). This does not require Supabase Pro.
+**Testers on current main download `current.sqlite` from Cloudflare R2.**
+See [SQLITE.md](SQLITE.md). Cook also upserts that same thin file to this
+bucket at `current.sqlite` and `packs/seat/company/all/current.sqlite`, so a
+build that still reads Supabase (tip HB-0828.468) does not keep Sunday-only
+Sales after an R2 publish. This does not require Supabase Pro.
+
+Upload key, first match: GitHub secret `SUPABASE_SERVICE_ROLE_KEY`, then
+`SUPABASE_KEY`, then `SUPABASE_ANON_KEY`, then the publishable key the cook
+already uses to read the workbook. If Storage returns 401 or 403, set
+`SUPABASE_SERVICE_ROLE_KEY`. Optional `SUPABASE_URL` overrides the project URL.
 
 They never download or parse Excel.
 
