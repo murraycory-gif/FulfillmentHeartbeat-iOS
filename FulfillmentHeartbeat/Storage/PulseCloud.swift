@@ -1,6 +1,18 @@
 import Foundation
 
 enum PulseCloud {
+    /// Public pack host (Cloudflare R2). Same host as tip 464 and main.
+    /// Swap `HBPackHost` in Info.plist — or this fallback — to a custom domain later.
+    static let defaultPackHost = "https://pub-eafb309f53464d98902d12ac107f0f1e.r2.dev"
+
+    static var packHostBaseURL: URL {
+        let raw = (Bundle.main.object(forInfoDictionaryKey: "HBPackHost") as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let value = (raw?.isEmpty == false) ? raw! : defaultPackHost
+        return URL(string: value) ?? URL(string: defaultPackHost)!
+    }
+
+    /// Workbook source still lives here. Tester pack downloads do not.
     static let projectURL = URL(string: "https://pcnjujfmlsklhrosxzlt.supabase.co")!
     static let publishableKey = "sb_publishable_T3Pzm01sMXCv2rQaCeP_Kg_4ao2M5zd"
     static let bucket = "heartbeat-packs"
@@ -14,12 +26,18 @@ enum PulseCloud {
         "master.xlsx",
     ]
 
-    static var packURL: URL {
-        projectURL.appendingPathComponent("storage/v1/object/\(bucket)/\(object)")
+    static var packURL: URL { packObjectURL(object) }
+
+    static var publicPackURL: URL { packObjectURL(object) }
+
+    static func packObjectURL(_ name: String) -> URL {
+        let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
+        let base = packHostBaseURL.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return URL(string: "\(base)/\(encoded)") ?? packHostBaseURL.appendingPathComponent(encoded)
     }
 
-    static var publicPackURL: URL {
-        projectURL.appendingPathComponent("storage/v1/object/public/\(bucket)/\(object)")
+    static func isWorkbookName(_ name: String) -> Bool {
+        workbookNames.contains(name)
     }
 
     struct ObjectStat {
@@ -28,13 +46,13 @@ enum PulseCloud {
     }
 
     static func snapshot() async -> [String: ObjectStat] {
-        var map: [String: ObjectStat] = [:]
-        for row in await listObjects() {
-            guard let name = row["name"] as? String else { continue }
-            let meta = row["metadata"] as? [String: Any]
-            let size = objectByteCount(from: meta)
-            let updated = (row["updated_at"] as? String) ?? (row["created_at"] as? String) ?? ""
-            map[name] = ObjectStat(size: size, updated: updated)
+        var map = await listedWorkbookStats()
+        for name in [object, cardsObject, factsObject, "packs/seat/company/all/current.sqlite"] {
+            if let stat = await headPackObject(name) {
+                map[name] = stat
+            } else {
+                map.removeValue(forKey: name)
+            }
         }
         return map
     }
@@ -44,23 +62,102 @@ enum PulseCloud {
         return info.size
     }
 
-    /// Targeted list for one object. Do not use the cached 200-row root listing
-    /// for pack freshness — nested seats are not in that snapshot.
+    /// Pack freshness is an R2 HEAD. Workbooks still list from Supabase Storage.
+    /// No Supabase fallback for packs: a stale Sunday-only object must not win.
     static func objectInfo(_ name: String) async -> (size: Int, updated: String) {
-        if let hit = await listedObject(named: name, useCache: false) {
-            return (hit.size, hit.updated)
+        if isWorkbookName(name) {
+            let stat = await listedWorkbookStats()[name]
+            return (stat?.size ?? 0, stat?.updated ?? "")
+        }
+        if let stat = await headPackObject(name) {
+            return (stat.size, stat.updated)
         }
         return (0, "")
     }
 
-    /// Authenticated first — public / bare object can 403 or return a stub.
+    /// Packs (`current.sqlite`, seats, cards, manifest) come from R2.
+    /// Workbooks stay on Supabase Storage. Authenticated first for workbooks —
+    /// public / bare object can 403 or return a stub.
     static func objectDownloadURLs(_ name: String) -> [URL] {
-        let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
-        return [
-            URL(string: "https://pcnjujfmlsklhrosxzlt.supabase.co/storage/v1/object/authenticated/\(bucket)/\(encoded)"),
-            URL(string: "https://pcnjujfmlsklhrosxzlt.supabase.co/storage/v1/object/public/\(bucket)/\(encoded)"),
-            URL(string: "https://pcnjujfmlsklhrosxzlt.supabase.co/storage/v1/object/\(bucket)/\(encoded)"),
-        ].compactMap { $0 }
+        if isWorkbookName(name) {
+            let encoded = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
+            return [
+                URL(string: "https://pcnjujfmlsklhrosxzlt.supabase.co/storage/v1/object/authenticated/\(bucket)/\(encoded)"),
+                URL(string: "https://pcnjujfmlsklhrosxzlt.supabase.co/storage/v1/object/public/\(bucket)/\(encoded)"),
+                URL(string: "https://pcnjujfmlsklhrosxzlt.supabase.co/storage/v1/object/\(bucket)/\(encoded)"),
+            ].compactMap { $0 }
+        }
+        return [packObjectURL(name)]
+    }
+
+    private static func listedWorkbookStats() async -> [String: ObjectStat] {
+        var map: [String: ObjectStat] = [:]
+        for row in await listObjects() {
+            guard let name = row["name"] as? String, isWorkbookName(name) else { continue }
+            let meta = row["metadata"] as? [String: Any]
+            let size = objectByteCount(from: meta)
+            let updated = (row["updated_at"] as? String) ?? (row["created_at"] as? String) ?? ""
+            map[name] = ObjectStat(size: size, updated: updated)
+        }
+        return map
+    }
+
+    private static func headPackObject(_ name: String) async -> ObjectStat? {
+        let url = packObjectURL(name)
+        var head = URLRequest(url: url)
+        head.httpMethod = "HEAD"
+        head.timeoutInterval = 20
+        head.cachePolicy = .reloadIgnoringLocalCacheData
+        if let http = await httpResponse(for: head), http.statusCode == 200 {
+            let size = headerInt(http, "Content-Length")
+            let updated = packUpdatedString(from: http)
+            if size > 0 || !updated.isEmpty {
+                return ObjectStat(size: size, updated: updated)
+            }
+        }
+        var ranged = URLRequest(url: url)
+        ranged.httpMethod = "GET"
+        ranged.setValue("bytes=0-0", forHTTPHeaderField: "Range")
+        ranged.timeoutInterval = 20
+        ranged.cachePolicy = .reloadIgnoringLocalCacheData
+        if let http = await httpResponse(for: ranged), (200...206).contains(http.statusCode) {
+            let size = contentRangeTotal(http.value(forHTTPHeaderField: "Content-Range"))
+                ?? headerInt(http, "Content-Length")
+            let updated = packUpdatedString(from: http)
+            if size > 0 || !updated.isEmpty {
+                return ObjectStat(size: size, updated: updated)
+            }
+        }
+        return nil
+    }
+
+    /// R2 `Last-Modified` is an HTTP date. Freshness compares ISO `written_at`.
+    private static func packUpdatedString(from http: HTTPURLResponse) -> String {
+        let raw = http.value(forHTTPHeaderField: "Last-Modified") ?? ""
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "" }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+        guard let date = formatter.date(from: trimmed) else { return trimmed }
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime]
+        return iso.string(from: date)
+    }
+
+    private static func httpResponse(for request: URLRequest) async -> HTTPURLResponse? {
+        guard let (_, response) = try? await URLSession.shared.data(for: request) else { return nil }
+        return response as? HTTPURLResponse
+    }
+
+    private static func headerInt(_ http: HTTPURLResponse, _ name: String) -> Int {
+        Int(http.value(forHTTPHeaderField: name) ?? "") ?? 0
+    }
+
+    private static func contentRangeTotal(_ raw: String?) -> Int? {
+        guard let raw, let slash = raw.lastIndex(of: "/") else { return nil }
+        return Int(raw[raw.index(after: slash)...])
     }
 
     private static var listedAt: Date?
@@ -81,26 +178,6 @@ enum PulseCloud {
         if let value = raw as? NSNumber { return value.intValue }
         if let value = raw as? Double { return Int(value) }
         if let value = raw as? String { return Int(value) }
-        return nil
-    }
-
-    private static func listedObject(named name: String, useCache: Bool) async -> ObjectStat? {
-        let prefix: String
-        if let slash = name.lastIndex(of: "/") {
-            prefix = String(name[..<slash]) + "/"
-        } else {
-            prefix = ""
-        }
-        let leaf = name.split(separator: "/").map(String.init).last ?? name
-        let rows = await listObjects(prefix: prefix, useCache: useCache && prefix.isEmpty)
-        for row in rows {
-            guard let listed = row["name"] as? String else { continue }
-            if listed != leaf, listed != name { continue }
-            let meta = row["metadata"] as? [String: Any]
-            let size = objectByteCount(from: meta)
-            let updated = (row["updated_at"] as? String) ?? (row["created_at"] as? String) ?? ""
-            return ObjectStat(size: size, updated: updated)
-        }
         return nil
     }
 
@@ -134,7 +211,9 @@ enum PulseCloud {
             request.httpMethod = "GET"
             request.timeoutInterval = 180
             request.cachePolicy = .reloadIgnoringLocalCacheData
-            applyAuth(&request)
+            if isWorkbookName(name) {
+                applyAuth(&request)
+            }
             do {
                 let (temp, response) = try await URLSession.shared.download(for: request)
                 guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
@@ -163,7 +242,9 @@ enum PulseCloud {
             request.httpMethod = "GET"
             request.timeoutInterval = timeout
             request.cachePolicy = .reloadIgnoringLocalCacheData
-            applyAuth(&request)
+            if isWorkbookName(name) {
+                applyAuth(&request)
+            }
             do {
                 let (temp, response) = try await URLSession.shared.download(for: request)
                 guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
@@ -206,7 +287,6 @@ enum PulseCloud {
             request.httpMethod = "GET"
             request.timeoutInterval = timeout
             request.cachePolicy = .reloadIgnoringLocalCacheData
-            applyAuth(&request)
             do {
                 let (temp, response) = try await URLSession.shared.download(for: request)
                 guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
