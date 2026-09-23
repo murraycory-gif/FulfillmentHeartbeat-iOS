@@ -10479,7 +10479,7 @@ private struct PickerCheapLine: View, Equatable {
     var showRefund: Bool = false
 
     var body: some View {
-        HStack(spacing: 6) {
+        ScorecardRow(columns: ScorecardColumns.row(metrics: ScorecardColumns.pickerMetrics, showCount: false)) {
             HStack(spacing: 4) {
                 Text(snap.label)
                     .font((HubLayout.MacReadable.enabled ? Font.body : Font.subheadline).weight(.semibold))
@@ -10490,7 +10490,7 @@ private struct PickerCheapLine: View, Equatable {
                     .font(.caption.weight(.bold))
                     .foregroundStyle(AppTheme.blue)
             }
-            .frame(minWidth: HubLayout.MacReadable.enabled ? 176 : 148, maxWidth: HubLayout.MacReadable.enabled ? 260 : 220, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
             cell(snap.hours, .none)
             cell(snap.pph, snap.pphHealth)
             cell(snap.orders, .none)
@@ -10506,7 +10506,7 @@ private struct PickerCheapLine: View, Equatable {
                 .padding(.vertical, HubLayout.MacReadable.enabled ? 6 : 5)
                 .foregroundStyle(Color.white)
                 .background(pill(snap.health), in: Capsule())
-                .frame(width: HubLayout.MacReadable.enabled ? 104 : 88, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(.vertical, HubLayout.MacReadable.enabled ? 6 : 4)
     }
@@ -10517,9 +10517,9 @@ private struct PickerCheapLine: View, Equatable {
             .foregroundStyle(ink(health))
             .lineLimit(1)
             .minimumScaleFactor(0.55)
+            .padding(.horizontal, HubLayout.MacReadable.enabled ? 8 : 6)
             .frame(maxWidth: .infinity, alignment: .trailing)
             .padding(.vertical, HubLayout.MacReadable.enabled ? 8 : 6)
-            .padding(.horizontal, HubLayout.MacReadable.enabled ? 8 : 6)
             .background(wash(health), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
@@ -10641,13 +10641,8 @@ struct PickerMetricHeader: View {
             phone: HubLayout.refusesPadTable(sizeClass),
             mac: HubLayout.isMac
         ) {
-        HStack(spacing: 6) {
+        ScorecardRow(columns: ScorecardColumns.row(metrics: ScorecardColumns.pickerMetrics, showCount: false)) {
             head(label, key: "label", alignment: .leading)
-                .frame(
-                    minWidth: HubLayout.MacReadable.enabled ? 176 : 148,
-                    maxWidth: HubLayout.MacReadable.enabled ? 260 : 220,
-                    alignment: .leading
-                )
             head("Hours", key: "hours")
             head("PPH", key: "pph")
             head("Orders", key: "orders")
@@ -10656,14 +10651,11 @@ struct PickerMetricHeader: View {
             head("OTH5", key: "oth5")
             head("COE", key: "coe")
             head("Status", key: "status", alignment: .trailing)
-                .frame(width: HubLayout.MacReadable.enabled ? 104 : 88, alignment: .trailing)
         }
         .font(HubLayout.MacReadable.enabled ? HubLayout.MacReadable.headerFont : .caption.weight(.bold))
         .tracking(0.3)
         .lineLimit(1)
         .minimumScaleFactor(0.65)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, HubLayout.MacReadable.enabled ? 6 : 4)
         .padding(.top, HubLayout.MacReadable.enabled ? 8 : 6)
         .padding(.bottom, HubLayout.MacReadable.enabled ? 10 : 8)
         }
@@ -10679,7 +10671,7 @@ struct PickerMetricHeader: View {
             }
         }
         .foregroundStyle(selected ? AppTheme.blue : AppTheme.text)
-        .frame(maxWidth: alignment == .leading ? nil : .infinity, alignment: alignment)
+        .frame(maxWidth: .infinity, alignment: alignment)
         .contentShape(Rectangle())
         return Group {
             if let onSelect {
@@ -10689,6 +10681,7 @@ struct PickerMetricHeader: View {
                 content
             }
         }
+        .frame(maxWidth: .infinity, alignment: alignment)
     }
 }
 

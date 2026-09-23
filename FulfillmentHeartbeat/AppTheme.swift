@@ -720,6 +720,8 @@ enum ScorecardColumns {
     static let lostMetrics: [CGFloat] = [1.10, 0.80, 0.78, 1.10, 1.05, 1.0, 1.0]
     static let scheduleMetrics: [CGFloat] = [1.0, 1.15, 0.72, 0.85, 0.85]
     static let pphMetrics: [CGFloat] = [0.95, 0.90, 0.75]
+    /// Shopper, Hours, PPH, Orders, Presub, OTT, OTH5, COE, Status.
+    static let pickerMetrics: [CGFloat] = [0.72, 0.78, 0.78, 0.95, 0.90, 0.90, 0.85]
 
     static func row(metrics: [CGFloat], showCount: Bool) -> [Col] {
         var cols = [Col(role: .label, weight: 1.70)]
