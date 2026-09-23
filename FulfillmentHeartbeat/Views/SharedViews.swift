@@ -11214,6 +11214,34 @@ struct HubStoreCard<Content: View>: View {
     }
 }
 
+/// Offers `width` to scroll content, and still grows when the child is wider
+/// (phone / many columns). `frame(minWidth:)` inside a horizontal ScrollView
+/// does not propose that width, so scorecard rows kept their minimum and left
+/// a blank zone after Status.
+private struct HubScrollSpan: Layout {
+    var width: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let child = subviews.first else {
+            return CGSize(width: max(width, 0), height: proposal.height ?? 0)
+        }
+        let offer = width > 1 ? width : proposal.width
+        let size = child.sizeThatFits(ProposedViewSize(width: offer, height: proposal.height))
+        let resolved = (offer ?? 0) > 1 ? max(size.width, offer ?? 0) : size.width
+        return CGSize(width: resolved, height: size.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let child = subviews.first else { return }
+        let offer = bounds.width > 1 ? bounds.width : (width > 1 ? width : proposal.width)
+        child.place(
+            at: CGPoint(x: bounds.minX, y: bounds.minY),
+            anchor: .topLeading,
+            proposal: ProposedViewSize(width: offer, height: bounds.height)
+        )
+    }
+}
+
 struct HubAdaptiveHScroll<Content: View>: View {
     @Environment(\.horizontalSizeClass) private var sizeClass
     var minWidth: CGFloat? = nil
@@ -11235,9 +11263,10 @@ struct HubAdaptiveHScroll<Content: View>: View {
         // in/out of ScrollView after GeometryReader fires collapses List rows
         // to 0 (Missing Items / Pre-Sub expand paint blank).
         ScrollView(.horizontal, showsIndicators: true) {
-            content
-                .padding(.trailing, 12)
-                .frame(minWidth: max(span, floor), alignment: .topLeading)
+            HubScrollSpan(width: max(span, floor)) {
+                content
+                    .padding(.trailing, 12)
+            }
         }
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: .infinity, minHeight: minHeight > 0 ? minHeight : nil, alignment: .leading)
