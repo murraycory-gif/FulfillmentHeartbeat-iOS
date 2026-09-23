@@ -44,9 +44,14 @@ jobs:
             -d '{"prefix":"","limit":50}' \
             "$PROJECT/storage/v1/object/list/heartbeat-packs" > /tmp/bucket.json
           python3 - <<'PY'
-          import json, os, urllib.request
+          import json, os, sys, urllib.request
           from datetime import datetime, timezone
           from email.utils import parsedate_to_datetime
+
+          # Public r2.dev HEAD. Python-urllib is 403; HeartbeatCook/1.0 is 200.
+          # This read does not use R2_ACCESS_KEY_ID or any other R2 secret.
+          sys.path.insert(0, "Tools/HeartbeatIngest")
+          from pack_freshness import head_pack, listed_size
 
           rows = json.load(open("/tmp/bucket.json"))
           if isinstance(rows, dict):
@@ -77,33 +82,9 @@ jobs:
 
           xlsx_dt = parse_ts(xlsx.get("updated_at") or xlsx.get("created_at") or "")
           pack_host = os.environ.get("PACK_HOST", "").rstrip("/")
-          pack_updated = ""
-          pack_bytes = 0
-          try:
-              req = urllib.request.Request(f"{pack_host}/current.sqlite", method="HEAD")
-              with urllib.request.urlopen(req, timeout=20) as resp:
-                  pack_updated = resp.headers.get("Last-Modified") or ""
-                  pack_bytes = int(resp.headers.get("Content-Length") or 0)
-          except Exception as exc:
-              print(f"R2 HEAD current.sqlite: {exc}")
+          pack_updated, pack_bytes = head_pack(pack_host)
           pack_dt = parse_ts(pack_updated)
           force = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
-
-          def listed_size(rows, name):
-              for row in rows:
-                  if row.get("name") != name:
-                      continue
-                  meta = row.get("metadata") or {}
-                  for key in ("size", "contentLength"):
-                      raw = meta.get(key)
-                      if raw is None:
-                          continue
-                      try:
-                          return int(raw)
-                      except (TypeError, ValueError):
-                          continue
-                  return 0
-              return -1
 
           def list_prefix(prefix):
               body = json.dumps({"prefix": prefix, "limit": 50}).encode()
