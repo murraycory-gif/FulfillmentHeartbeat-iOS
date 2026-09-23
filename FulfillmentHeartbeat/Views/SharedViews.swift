@@ -10006,6 +10006,7 @@ struct PPHRollupTable: View {
         }
         .onAppear(perform: rebuild)
         .onChange(of: store.filterStamp) { _, _ in rebuild() }
+        .onChange(of: store.seatPaintStamp) { _, _ in rebuild() }
     }
 
     private func rebuild() {
@@ -10104,6 +10105,9 @@ private struct PPHStoreExpand: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(AppTheme.card.opacity(0.9))
         )
+        .task(id: snap.storeNumber) {
+            await store.ensurePPHShoppers(forStore: snap.storeNumber)
+        }
     }
 
     private var chipGrid: some View {
