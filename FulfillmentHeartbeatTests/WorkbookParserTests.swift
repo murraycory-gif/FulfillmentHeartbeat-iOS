@@ -537,5 +537,61 @@ final class WorkbookParserTests: XCTestCase {
         XCTAssertEqual(market.payload["ecomm_sales"] ?? 0, 46077144.47, accuracy: 0.01)
         XCTAssertFalse(rows.contains { $0.storeNumber == "378" })
     }
+
+    func testScheduleCheckSheetsDoNotReplaceSalesOrFiveStar() {
+        XCTAssertEqual(WorkbookParser.section(fromSheetName: "Sales"), .sales)
+        XCTAssertEqual(WorkbookParser.section(fromSheetName: "Sales ScoreCard"), .sales)
+        XCTAssertEqual(WorkbookParser.section(fromSheetName: "5 Star"), .fiveStar)
+        XCTAssertEqual(WorkbookParser.section(fromSheetName: "Schedule Quality"), .scheduleQuality)
+        XCTAssertNil(WorkbookParser.section(fromSheetName: "Sales AVG Last 4 Wks"))
+        XCTAssertNil(WorkbookParser.section(fromSheetName: "5 Star Last 5 Weeks"))
+        XCTAssertNil(WorkbookParser.section(fromSheetName: "Stores Current Week"))
+        XCTAssertEqual(WorkbookParser.scheduleCheckKind("Sales"), nil)
+        XCTAssertEqual(WorkbookParser.scheduleCheckKind("Sales AVG Last 4 Wks"), .salesAvg)
+        XCTAssertEqual(WorkbookParser.scheduleCheckKind("Sunday"), .day(0))
+        XCTAssertEqual(WorkbookParser.scheduleCheckKind("Stores Current Week"), .currentWeek)
+        XCTAssertEqual(WorkbookParser.scheduleCheckKind("Last 4 Week Quality"), .fourWeek)
+        XCTAssertEqual(WorkbookParser.scheduleCheckKind("ACTION NEEDED"), .presentation)
+
+        let current = """
+        DIVISION,DISTRICT,STORE,OverSchedule%,UnderSchedule%,Schedule Eff%
+        JEWEL,J6,127,0,1,0
+        """
+        let four = """
+        Division,District,Store,Schedule Efficicency % (Sch vs Tgt),Under Schedule % (Sch vs Tgt),Over Schedule % (Sch vs Tgt),Schedule Adherence % (Pch v Sch),Under Adherence % (Pch v Sch),Over Adherence % (Pch v Sch),Staffing Efficiency % (Pch vs Tgt)
+        JEWEL,J6,127,0.90,0.055,0.02,0.50,0.10,0.10,0.8317
+        """
+        let sales = """
+        Quarter,202602,Total
+        Store,Sales $,Sales $
+        127,268509.14,345124.92
+        """
+        let currentRows = WorkbookParser.scheduleCheckFacts(kind: .currentWeek, matrix: CSVReader.read(current))
+        XCTAssertEqual(currentRows.first?.payload["sched_under"] ?? 0, 100, accuracy: 0.01)
+        XCTAssertEqual(currentRows.first?.payload["sched_over"] ?? -1, 0, accuracy: 0.01)
+        XCTAssertNil(currentRows.first?.payload["sched_4wk_under"])
+        let fourRows = WorkbookParser.scheduleCheckFacts(kind: .fourWeek, matrix: CSVReader.read(four))
+        XCTAssertEqual(fourRows.first?.payload["sched_4wk_under"] ?? 0, 5.5, accuracy: 0.05)
+        XCTAssertEqual(fourRows.first?.payload["sched_pch_vs_sch"] ?? 0, 83.17, accuracy: 0.05)
+        XCTAssertNil(fourRows.first?.payload["sched_under"])
+        let salesRows = WorkbookParser.scheduleCheckFacts(kind: .salesAvg, matrix: CSVReader.read(sales))
+        XCTAssertEqual(salesRows.first?.payload["sched_avg_sales"] ?? 0, 86_281.23, accuracy: 0.05)
+        XCTAssertNil(salesRows.first?.payload["sales_dollars"])
+
+        let merged = WorkbookParser.mergeScheduleCheck(
+            existing: [],
+            pieces: [
+                ("Stores Current Week", .currentWeek, CSVReader.read(current)),
+                ("Last 4 Week Quality", .fourWeek, CSVReader.read(four)),
+                ("Sales AVG Last 4 Wks", .salesAvg, CSVReader.read(sales)),
+            ]
+        )
+        let store = merged.first { $0.storeNumber == "127" }
+        XCTAssertEqual(store?.payload["sched_under"] ?? 0, 100, accuracy: 0.01)
+        XCTAssertEqual(store?.payload["under_schedule_pct"] ?? 0, 100, accuracy: 0.01)
+        XCTAssertEqual(store?.payload["sched_4wk_under"] ?? 0, 5.5, accuracy: 0.05)
+        XCTAssertEqual(store?.payload["sched_avg_sales"] ?? 0, 86_281.23, accuracy: 0.05)
+        XCTAssertNil(store?.payload["sales_dollars"])
+    }
 }
 

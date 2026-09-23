@@ -202,6 +202,19 @@ enum CoachTour: Equatable {
                     body: "Under / over and target vs punch on this page explain Flash, call-offs, and no-shows that show up in 5 Star and Labor."
                 ),
             ]
+        case .scheduleCheck:
+            return [
+                CoachStep(
+                    icon: "list.clipboard.fill",
+                    heading: "Action, Summary, Stores",
+                    body: "Action lists stores with average sales of at least $30K that are under by 10% or more, 4-week under over 9%, or over by 15% or more. Summary rolls company, region, and division. Stores is every store in the filter."
+                ),
+                CoachStep(
+                    icon: "square.grid.2x2",
+                    heading: "One store count",
+                    body: "The store count on the tiles, This week, and the region table is the same set. A column stays blank when that pack section is missing. Over is green at 0% and red above 0%."
+                ),
+            ]
         case .pickerScorecard:
             return [
                 CoachStep(
