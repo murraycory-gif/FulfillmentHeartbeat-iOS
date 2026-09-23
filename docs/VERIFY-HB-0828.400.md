@@ -1,7 +1,7 @@
-# HB-0828.468 / 787 — verify (live sqlite Sales, not stale facts.json)
+# HB-0828.469 / 787 — verify (live sqlite Sales, not stale facts.json)
 
 **Tip** `cursor/mac-catalyst-category-70dd` off `cursor/mac-share-attach-1006` (`300eb83`)
-**Stamp** `HB-0828.468  1.0 (787)` · bundle `com.corymurray.FulfillmentHeartbeat`
+**Stamp** `HB-0828.469  1.0 (787)` · bundle `com.corymurray.FulfillmentHeartbeat`
 **752 Soft KEEP:** first-paint current pack gold + Share attach / `UIActivityViewController`.
 
 Soft FAIL 2026-09-14: Mac Catalyst TestFlight upload of HB **752** rejected **ASC 90242** — Info.plist missing `LSApplicationCategoryType`. This root sets `public.app-category.business` in Heartbeat `Info.plist` and target `INFOPLIST_KEY_LSApplicationCategoryType` (`GENERATE_INFOPLIST_FILE = NO`).
@@ -35,7 +35,7 @@ Must **compile**. Stay on Command Center. Do not open a section first.
 
 | Check | Pass |
 |---|---|
-| Sidebar stamp | `HB-0828.468  1.0 (787)` |
+| Sidebar stamp | `HB-0828.469  1.0 (787)` |
 | **BY DAY** | Sales lists only days with `sales_dN_dollars` / orders / items. Store 68 Jewel week 202630 is Sunday **$14,454.90**. Do not expect $80,184.84 or Mon–Sat placeholders. |
 | **Shoppers** | Store, Ops, District, and Division show pack shoppers. Company and Region stay hidden. |
 | **Density** | Section cards are a little tighter. White Labor cards, navy banners, and 44pt hit targets stay. |
@@ -44,6 +44,7 @@ Must **compile**. Stay on Command Center. Do not open a section first.
 | **Share attachment** | New Message shows attachment chip. Send opens the **system share sheet** with `Fulfillment-Heartbeat.pdf` (or page PNGs). Outlook / Teams / Files / AirDrop receive the file. Never Apple Mail plaintext-only / Hide My Email with no attachment. |
 | **Compile** | Mac Catalyst + iOS. No opaque-return / MainActor isolation FAIL. |
 | **Dashboard-on-filter** | District / OM / Store / Clear: hero + glance rewrite the same turn. No Sales open+back. |
+| **Picker headcount** | Division = Jewel Osco: Picker tile is shopper headcount with a status, not **0 / No data**. PPH PICKERS: California and South are pack totals (not 0). West is every West market, not Haggen-only 77. East is Jewel + Mid-Atlantic + Shaws, not Jewel-only. |
 | **Section boxes (748)** | Open Sales: THIS WEEK matches ScoreCard. No THIS SEAT strip on any filter. |
 | **Clear identity** | District → Clear: company 2161 on dashboard and Sales. Not leftover 612. |
 | Cool / LRU | ≤2 planes. No xlsx cook. No PulseCaches / expand on tap. |

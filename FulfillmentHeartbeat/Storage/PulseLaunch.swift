@@ -18,6 +18,9 @@ enum PulseLaunch {
     /// plus per-store `sameStore` scans Jetsamed ~5GB on iPad (build 672).
     static func shouldStreamPickerOnDashboard() -> Bool { false }
     /// Hard cap so a join-page stream cannot grow without bound.
+    /// Headcount must not use this prefix. `WHERE section = ? LIMIT n` follows
+    /// `facts_section_div`, so the first rows are Haggen + Jewel and every
+    /// later market reads 0. Pack `GROUP BY store_number` is the rollup.
     static let pickerWarehouseCap = 4_000
     /// Do not start shopper streaming until Who's looking is done and the hub can scroll.
     static func shouldDeferPickerStreamUntilHubQuiet() -> Bool { true }
@@ -103,6 +106,55 @@ enum PulseLaunch {
             }
         }
         return PPHPickerIndex(rows: rows, counts: counts)
+    }
+
+    /// Fold raw `GROUP BY store_number` totals onto canonical + padded aliases.
+    /// Counts every `picker_scorecard` row, including shoppers with no Pure PPH.
+    static func pickerHeadcountIndex(storeCounts: [String: Int]) -> [String: Int] {
+        var canonical: [String: Int] = [:]
+        canonical.reserveCapacity(storeCounts.count)
+        for (raw, count) in storeCounts where count > 0 {
+            let store = HeartbeatMath.canonicalStore(raw)
+            guard !store.isEmpty else { continue }
+            canonical[store, default: 0] += count
+        }
+        var counts: [String: Int] = [:]
+        counts.reserveCapacity(canonical.count * 3)
+        for (store, count) in canonical {
+            for alias in HeartbeatMath.storeAliases(store) {
+                counts[alias] = count
+            }
+        }
+        return counts
+    }
+
+    /// Company rollup uses the full pack map. A division-index stream prefix
+    /// (Haggen 77 / Jewel only) must not replace it.
+    static func pickerHeadcountsForRollup(pack: [String: Int], streamedPrefix: [String: Int]) -> [String: Int] {
+        pack.isEmpty ? streamedPrefix : pack
+    }
+
+    /// Region / Division stay on the company seat, whose iPad read skips shoppers.
+    /// A non-empty in-memory prefix is not that seat. Reload `picker_scorecard`.
+    static func shouldLoadPickerShoppersForActiveFilter(
+        filtersActive: Bool,
+        loadedFilterKey: String,
+        filterKey: String,
+        shopperRows: Int
+    ) -> Bool {
+        guard filtersActive else { return false }
+        if loadedFilterKey != filterKey { return true }
+        return shopperRows == 0
+    }
+
+    /// Once the seat read has landed, the capped company stream must not replace it.
+    static func shouldKeepSeatPickerRows(
+        filtersActive: Bool,
+        loadKey: String,
+        filterKey: String,
+        seatShoppers: Int
+    ) -> Bool {
+        filtersActive && loadKey == filterKey && !filterKey.isEmpty && seatShoppers > 0
     }
 
     /// O(1). Missing key is 0 — never scan the shopper pack on the UI path.
