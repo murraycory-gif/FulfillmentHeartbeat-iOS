@@ -9105,6 +9105,8 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertTrue(packet.html.contains("background:#D97706"), packet.html)
         XCTAssertTrue(packet.html.contains("color-scheme"), packet.html)
         XCTAssertTrue(packet.html.contains("content=\"light only\""), packet.html)
+        XCTAssertTrue(packet.html.contains("bgcolor=\"#F5F7FC\""), packet.html)
+        XCTAssertTrue(packet.html.contains("prefers-color-scheme: dark"), packet.html)
         XCTAssertTrue(PulseLaunch.shouldFillMacSharePreview())
         XCTAssertTrue(PulseLaunch.shouldLockShareMailToLightScheme())
         XCTAssertTrue(PulseLaunch.shouldPaintMailPillsAsTableCells())

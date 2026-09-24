@@ -463,7 +463,11 @@ enum PulseMail {
         .cell-watch{background:#FEF3C7;color:#D97706}
         .cell-risk{background:#FEE2E2;color:#DC2626}
         .muted{color:#5C677A}
-        </style></head><body style="margin:0;padding:24px 20px;background:#F5F7FC;color:#141A29;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:16px;line-height:1.45"><div class="wrap" style="width:100%;max-width:1100px;margin:0 auto">
+        @media (prefers-color-scheme: dark) {
+          body, .wrap, table, td, div, p, h1, span { color-scheme: light only !important; }
+          body { background:#F5F7FC !important; background-color:#F5F7FC !important; color:#141A29 !important; }
+        }
+        </style></head><body bgcolor="#F5F7FC" style="margin:0;padding:24px 20px;background:#F5F7FC;background-color:#F5F7FC;color:#141A29;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:16px;line-height:1.45;color-scheme:light only"><div class="wrap" style="width:100%;max-width:1100px;margin:0 auto">
         <h1 style="font-size:28px;line-height:1.2;margin:0 0 8px;color:#003DA5">Fulfillment Heartbeat</h1>
         <p class="sub" style="color:#3D4658;font-size:16px;margin:0 0 22px;line-height:1.5">\(esc(snap.filterSummary))<br>\(esc(HeartbeatFormat.stamp(snap.generatedAt))) · Same layout and columns as the in-app page · Upload is not included</p>
         """
