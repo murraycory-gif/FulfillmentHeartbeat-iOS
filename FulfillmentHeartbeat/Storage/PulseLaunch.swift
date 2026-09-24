@@ -173,6 +173,9 @@ enum PulseLaunch {
     }
 
     /// Company / pack-chrome PPH never assigns the full scorecard. A complete count map hydrates nothing.
+    /// HB-0828.474: an active division filter is not a reason to read ~3.2k
+    /// picker_scorecard rows. Counts stay on the map. Shopper rows load from
+    /// the Picker page, Pick Path, or a store expand.
     static func pphOpenPlan(
         section: MetricSection,
         filtersActive: Bool,
@@ -183,6 +186,7 @@ enum PulseLaunch {
         guard section == .pph else {
             return PPHOpenPlan(hydrateCounts: false, loadSeatShoppers: false, loadFullScorecard: false)
         }
+        _ = filtersActive
         return PPHOpenPlan(
             hydrateCounts: shouldLoadPickerScorecardForPPHIndex(
                 section: section,
@@ -190,7 +194,7 @@ enum PulseLaunch {
                 countedShoppers: countedShoppers,
                 packShoppers: packShoppers
             ),
-            loadSeatShoppers: filtersActive,
+            loadSeatShoppers: false,
             loadFullScorecard: false
         )
     }
@@ -212,6 +216,13 @@ enum PulseLaunch {
         guard incomingCount > 0 else { return false }
         if knownHeadcount > 0, incomingCount < knownHeadcount { return false }
         return incomingCount >= existingCount
+    }
+
+    /// HB-0828.474: Dashboard / Pages chrome must not await the Jewel shopper
+    /// tape on the filter tap. That read plus `publishSeatPaint` / `objectWillChange`
+    /// was the first-tap miss. Picker ScoreCard and Pick Path still hydrate.
+    static func shouldEagerHydrateSeatShoppersOnFilterTap(dest: HubDestination) -> Bool {
+        dest == .pickerScorecard || dest == .pickPath
     }
 
     /// Region / Division stay on the company seat, whose iPad read skips shoppers.
@@ -1073,6 +1084,12 @@ enum PulseLaunch {
     /// tearing down Dashboard or the scorecard being left. Parking and table
     /// math run on a later turn. The destination is the real page, not a splash.
     static func shouldDeferPhonePagesNavWorkUntilAfterPaint() -> Bool { true }
+
+    /// HB-0828.474: iPad Pages taps under a division (Jewel Osco) were
+    /// walking `seatRows` for every sidebar icon and every hidden Command
+    /// Center card on the tap turn. That blocked the first tap. Nav chrome
+    /// uses cached summaries; the open page walks rows after chrome paints.
+    static func shouldSkipPagesNavRowWalk() -> Bool { true }
 
     /// Color.clear only after the tap has painted. `parked == false` keeps the
     /// existing Dashboard tree for that turn so SwiftUI does not diff it away

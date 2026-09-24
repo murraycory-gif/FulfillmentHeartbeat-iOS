@@ -4538,12 +4538,15 @@ final class HeartbeatStore: ObservableObject {
                 self.refreshFilterOptions()
                 if !self.filters.isActive {
                     self.seatPickerLoadKey = ""
-                } else if PulseLaunch.shouldLoadPickerShoppersForActiveFilter(
+                } else if PulseLaunch.shouldEagerHydrateSeatShoppersOnFilterTap(dest: self.visibleDestination),
+                          PulseLaunch.shouldLoadPickerShoppersForActiveFilter(
                     filtersActive: true,
                     loadedFilterKey: self.seatPickerLoadKey,
                     filterKey: self.filters.summary,
                     shopperRows: (self.filteredLatest[.pickerScorecard] ?? []).count
                 ) {
+                    // HB-0828.474: only Picker / Pick Path. Dashboard and Pages
+                    // stay on chrome + counts so the gesture thread is free.
                     await self.loadFilteredPickerExpandIfNeeded()
                 }
             }
@@ -4588,7 +4591,8 @@ final class HeartbeatStore: ObservableObject {
             }
             await self.paintFromWarehouse(light: true, generation: generation, filterPaint: true)
             guard self.acceptPaint(generation) else { return }
-            if self.filters.isActive {
+            if self.filters.isActive,
+               PulseLaunch.shouldEagerHydrateSeatShoppersOnFilterTap(dest: self.visibleDestination) {
                 await self.loadFilteredPickerExpandIfNeeded()
             }
             self.refreshFilterOptions()
