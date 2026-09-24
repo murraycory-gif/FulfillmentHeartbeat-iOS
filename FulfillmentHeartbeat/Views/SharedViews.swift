@@ -1570,9 +1570,18 @@ struct ShareRecapCompose: View {
                 composeFields
             }
             previewBanner
-            previewBody
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .layoutPriority(1)
+            Group {
+                if PulseLaunch.shouldBoundMacShareWebPreview() {
+                    GeometryReader { geo in
+                        previewBody
+                            .frame(width: geo.size.width, height: max(geo.size.height, 1))
+                    }
+                } else {
+                    previewBody
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .layoutPriority(1)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -1658,10 +1667,7 @@ struct ShareRecapCompose: View {
                         .foregroundStyle(AppTheme.textSecondary)
                     TextEditor(text: $notes)
                         .font(.body)
-                        .frame(
-                            minHeight: PulseLaunch.macShareNotesMinHeight(),
-                            maxHeight: PulseLaunch.macShareNotesMaxHeight()
-                        )
+                        .frame(height: PulseLaunch.macShareNotesMaxHeight())
                         .padding(8)
                         .background(AppTheme.bg, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                         .overlay(
@@ -1827,6 +1833,8 @@ struct RecapWebView: UIViewRepresentable {
         web.clipsToBounds = true
         web.scrollView.clipsToBounds = true
         web.scrollView.isScrollEnabled = true
+        web.setContentHuggingPriority(.defaultLow, for: .vertical)
+        web.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
         web.scrollView.backgroundColor = .clear
         web.scrollView.contentInsetAdjustmentBehavior = .never
         web.scrollView.alwaysBounceHorizontal = true

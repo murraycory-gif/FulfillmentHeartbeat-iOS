@@ -3031,6 +3031,8 @@ enum PulseLaunch {
     static func shouldPinMacShareComposeFields() -> Bool { true }
     /// HB-0828.476: preview fills the space under Notes and scrolls the full recap.
     static func shouldFillMacSharePreview() -> Bool { true }
+    /// WKWebView must get the visible slot, not the document height, or Send clips it.
+    static func shouldBoundMacShareWebPreview() -> Bool { true }
     static func macShareNotesMinHeight() -> CGFloat { 56 }
     static func macShareNotesMaxHeight() -> CGFloat { 72 }
     /// Apple Mail strips span backgrounds and inverts color in dark mode.
