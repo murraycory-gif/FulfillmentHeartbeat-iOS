@@ -416,7 +416,7 @@ enum PulseMail {
             guard page != .dashboard, pages.contains(page), let section = page.section else { continue }
             sink.append(sectionHTML(section, snap: snap))
         }
-        sink.append("<p class=\"sub\" style=\"color:#3D4658;font-size:16px;margin:18px 0 0\">Sent from Fulfillment Heartbeat</p></div></body></html>")
+        sink.append("<table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"width:100%\"><tr><td width=\"100%\" style=\"width:100%;color:#3D4658;font-size:16px;line-height:1.5;padding:18px 0 0\">Sent from Fulfillment Heartbeat</td></tr></table></td></tr></table></body></html>")
     }
 
     private static func html(_ snap: Snapshot, pages: Set<SharePage>) -> String {
@@ -467,15 +467,15 @@ enum PulseMail {
           body, .wrap, table, td, div, p, h1, span { color-scheme: light only !important; }
           body { background:#F5F7FC !important; background-color:#F5F7FC !important; color:#141A29 !important; }
         }
-        </style></head><body bgcolor="#F5F7FC" style="margin:0;padding:24px 20px;background:#F5F7FC;background-color:#F5F7FC;color:#141A29;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:16px;line-height:1.45;color-scheme:light only"><div class="wrap" style="width:100%;max-width:1100px;margin:0 auto">
-        <h1 style="font-size:28px;line-height:1.2;margin:0 0 8px;color:#003DA5">Fulfillment Heartbeat</h1>
-        <p class="sub" style="color:#3D4658;font-size:16px;margin:0 0 22px;line-height:1.5">\(esc(snap.filterSummary))<br>\(esc(HeartbeatFormat.stamp(snap.generatedAt))) · Same layout and columns as the in-app page · Upload is not included</p>
+        </style></head><body bgcolor="#F5F7FC" style="margin:0;padding:24px 20px;background:#F5F7FC;background-color:#F5F7FC;color:#141A29;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:16px;line-height:1.45;color-scheme:light only"><table class="wrap" width="100%" cellspacing="0" cellpadding="0" bgcolor="#F5F7FC" style="width:100%;max-width:1100px;margin:0 auto"><tr><td width="100%" valign="top" style="width:100%">
+        <table width="100%" cellspacing="0" cellpadding="0" bgcolor="#F5F7FC" style="width:100%"><tr><td width="100%" style="width:100%;font-size:28px;line-height:1.2;font-weight:700;color:#003DA5;padding:0 0 8px">Fulfillment Heartbeat</td></tr>
+        <tr><td width="100%" style="width:100%;color:#3D4658;font-size:16px;line-height:1.5;padding:0 0 22px">\(esc(snap.filterSummary))<br>\(esc(HeartbeatFormat.stamp(snap.generatedAt))) · Same layout and columns as the in-app page · Upload is not included</td></tr></table>
         """
     }
 
     private static func dashboardHTML(_ snap: Snapshot) -> String {
         var cards = """
-        <div class="page-banner" style="font-size:18px;font-weight:700;color:#003DA5;margin:0 0 12px">Operational Heartbeat · \(esc(snap.filterSummary))</div>
+        <table width="100%" cellspacing="0" cellpadding="0" bgcolor="#F5F7FC" style="width:100%"><tr><td width="100%" style="width:100%;font-size:18px;line-height:1.3;font-weight:700;color:#003DA5;padding:0 0 12px">Operational Heartbeat · \(esc(snap.filterSummary))</td></tr></table>
         """
         let grain = dashGrain(snap)
         for card in snap.summaries {

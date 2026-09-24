@@ -9096,6 +9096,8 @@ final class HeartbeatMathTests: XCTestCase {
         let packet = PulseMail.make(snap, pages: [.dashboard])
         XCTAssertTrue(packet.html.contains("dash-card"), packet.html)
         XCTAssertTrue(packet.html.contains("Operational Heartbeat"), packet.html)
+        XCTAssertTrue(packet.html.contains("<td width=\"100%\" style=\"width:100%;font-size:28px"), packet.html)
+        XCTAssertFalse(packet.html.contains("<h1"), packet.html)
         XCTAssertTrue(packet.html.contains("width=\"33%\""), packet.html)
         XCTAssertTrue(packet.html.contains("Flag 5"), packet.html)
         XCTAssertTrue(packet.html.contains("bgcolor=\"#FFFFFF\""), packet.html)
