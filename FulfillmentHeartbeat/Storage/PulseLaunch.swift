@@ -137,18 +137,62 @@ enum PulseLaunch {
         pack.isEmpty ? streamedPrefix : pack
     }
 
-    /// PPH facts have no picker field. Pack chrome skips `picker_scorecard`, so
-    /// opening PPH loads it when the shopper index is empty or still a prefix.
+    /// What opening PPH may read. Rollup tiles use the count map only.
+    /// Shopper `MetricRow`s stay on store expand, an active filter seat, or the Picker ScoreCard page.
+    struct PPHOpenPlan: Equatable {
+        var hydrateCounts: Bool
+        var loadSeatShoppers: Bool
+        var loadFullScorecard: Bool
+    }
+
+    /// Alias-multiplied count maps must not be summed raw.
+    static func countedPPHShoppers(_ counts: [String: Int]) -> (stores: Int, shoppers: Int) {
+        var seen = Set<String>()
+        var shoppers = 0
+        for (key, count) in counts where count > 0 {
+            let store = HeartbeatMath.canonicalStore(key)
+            guard !store.isEmpty, seen.insert(store).inserted else { continue }
+            shoppers += count
+        }
+        return (seen.count, shoppers)
+    }
+
+    /// PPH facts have no picker field. Pack chrome skips `picker_scorecard`.
+    /// Opening PPH hydrates the store count map when that map is empty or still a prefix.
+    /// Empty `pphPickersByStore` is not a reason to read the shopper table.
     static func shouldLoadPickerScorecardForPPHIndex(
         section: MetricSection,
-        indexBuckets: Int,
-        indexedShoppers: Int,
+        countedStores: Int,
+        countedShoppers: Int,
         packShoppers: Int
     ) -> Bool {
         guard section == .pph else { return false }
-        if indexBuckets == 0 || indexedShoppers == 0 { return true }
+        if countedStores == 0 || countedShoppers == 0 { return true }
         if packShoppers <= 0 { return false }
-        return indexedShoppers + 32 < packShoppers
+        return countedShoppers + 32 < packShoppers
+    }
+
+    /// Company / pack-chrome PPH never assigns the full scorecard. A complete count map hydrates nothing.
+    static func pphOpenPlan(
+        section: MetricSection,
+        filtersActive: Bool,
+        countedStores: Int,
+        countedShoppers: Int,
+        packShoppers: Int
+    ) -> PPHOpenPlan {
+        guard section == .pph else {
+            return PPHOpenPlan(hydrateCounts: false, loadSeatShoppers: false, loadFullScorecard: false)
+        }
+        return PPHOpenPlan(
+            hydrateCounts: shouldLoadPickerScorecardForPPHIndex(
+                section: section,
+                countedStores: countedStores,
+                countedShoppers: countedShoppers,
+                packShoppers: packShoppers
+            ),
+            loadSeatShoppers: filtersActive,
+            loadFullScorecard: false
+        )
     }
 
     /// Incoming headcount may only raise a store. A division-index prefix must not shrink the pack.
