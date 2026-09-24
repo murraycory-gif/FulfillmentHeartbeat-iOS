@@ -4805,7 +4805,7 @@ final class HeartbeatMathTests: XCTestCase {
         )
         let packet = PulseMail.make(snap, pages: [.dashboard])
         XCTAssertTrue(packet.html.contains("cell-risk") || packet.html.contains("#DC2626"), packet.html)
-        XCTAssertTrue(packet.html.contains("cellpadding=\"12\"") || packet.html.contains("cellpadding=\"14\""), packet.html)
+        XCTAssertTrue(packet.html.contains("cellpadding=\"6\"") || packet.html.contains("cellpadding=\"8\""), packet.html)
         XCTAssertTrue(packet.html.contains("max-width:1100px"), packet.html)
         XCTAssertTrue(packet.html.contains("mail-stack"), packet.html)
         XCTAssertTrue(packet.html.contains("width:100%;max-width:100%"), packet.html)
