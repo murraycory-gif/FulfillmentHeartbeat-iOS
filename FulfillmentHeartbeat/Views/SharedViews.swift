@@ -1543,18 +1543,47 @@ struct ShareRecapCompose: View {
                     .background(AppTheme.card)
                     .zIndex(2)
             }
-            Group {
-                if PulseLaunch.shouldScrollMacShareComposeFields() {
-                    ScrollView {
+            if PulseLaunch.shouldFillMacSharePreview() {
+                macPreviewColumn
+            } else {
+                Group {
+                    if PulseLaunch.shouldScrollMacShareComposeFields() {
+                        ScrollView {
+                            macScrollableCompose
+                        }
+                    } else {
                         macScrollableCompose
                     }
-                } else {
-                    macScrollableCompose
                 }
             }
             sendBar
         }
         .background(AppTheme.bg)
+    }
+
+    /// Notes stay compact. The recap web view fills what is left and scrolls itself.
+    private var macPreviewColumn: some View {
+        VStack(spacing: 0) {
+            if PulseLaunch.shouldPinMacShareToAboveFold() {
+                remainingComposeFields
+            } else {
+                composeFields
+            }
+            previewBanner
+            Group {
+                if PulseLaunch.shouldBoundMacShareWebPreview() {
+                    GeometryReader { geo in
+                        previewBody
+                            .frame(width: geo.size.width, height: max(geo.size.height, 1))
+                    }
+                } else {
+                    previewBody
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .layoutPriority(1)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var macScrollableCompose: some View {
@@ -1638,7 +1667,7 @@ struct ShareRecapCompose: View {
                         .foregroundStyle(AppTheme.textSecondary)
                     TextEditor(text: $notes)
                         .font(.body)
-                        .frame(minHeight: 84, maxHeight: 140)
+                        .frame(height: PulseLaunch.macShareNotesMaxHeight())
                         .padding(8)
                         .background(AppTheme.bg, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                         .overlay(
@@ -1781,7 +1810,7 @@ struct ShareRecapCompose: View {
             let ready = needsRebuild ? await RecapRenderer.attachReport(outgoing) : outgoing
             sending = false
             guard !PulseMail.shareAttachmentFiles(ready).isEmpty else { return }
-            PulseShare.presentReport(ready, to: recipients)
+            PulseShare.presentMail(ready, to: recipients)
         }
     }
 }
@@ -1801,6 +1830,11 @@ struct RecapWebView: UIViewRepresentable {
         let web = WKWebView(frame: .zero, configuration: config)
         web.isOpaque = false
         web.backgroundColor = .clear
+        web.clipsToBounds = true
+        web.scrollView.clipsToBounds = true
+        web.scrollView.isScrollEnabled = true
+        web.setContentHuggingPriority(.defaultLow, for: .vertical)
+        web.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
         web.scrollView.backgroundColor = .clear
         web.scrollView.contentInsetAdjustmentBehavior = .never
         web.scrollView.alwaysBounceHorizontal = true
@@ -12432,14 +12466,14 @@ enum PulseShare {
         }
         let mac = HubLayout.isMac
         let canSend = MFMailComposeViewController.canSendMail()
-        guard PulseLaunch.shouldUseMailComposeAsFallback(canSendMail: canSend),
+        guard PulseLaunch.shareSendHandoff(toFilled: !to.isEmpty, canSendMail: canSend, mac: mac) == .mailCompose,
               PulseLaunch.shouldUseInAppMailCompose(canSendMail: canSend, mac: mac)
         else {
-            presentReport(packet, to: to)
+            presentUnavailableFallback(packet, to: to, on: presenter)
             return
         }
         guard let presenter, presenter.view.window != nil else {
-            presentReport(packet, to: to)
+            presentUnavailableFallback(packet, to: to, on: presenter)
             return
         }
         if presenter.presentedViewController != nil,
@@ -12584,10 +12618,10 @@ enum PulseShare {
         }
     }
 
-    /// Short body plus the report file. Never text-only compose.
+    /// HTML body matching the in-app preview, plus the report file. Never the plain brief.
     static func configureMail(_ mail: MFMailComposeViewController, packet: PulseMail.Packet) {
         mail.setSubject(packet.subject)
-        mail.setMessageBody(packet.brief, isHTML: false)
+        mail.setMessageBody(PulseMail.mailComposeHTMLBody(from: packet), isHTML: true)
         let files = PulseMail.shareAttachmentFiles(packet)
         if files.isEmpty, let html = writeHTMLFile(packet), let data = try? Data(contentsOf: html) {
             mail.addAttachmentData(data, mimeType: "text/html", fileName: html.lastPathComponent)

@@ -248,6 +248,13 @@ enum PulseMail {
         shareAttachmentFiles(packet).first ?? packet.htmlFile ?? packet.brief
     }
 
+    /// Body MFMailCompose submits. Same HTML as the in-app preview, never the plain brief.
+    static func mailComposeHTMLBody(from packet: Packet) -> String {
+        let body = html(from: packet)
+        if !body.isEmpty { return body }
+        return overflowMailBody(packet.brief)
+    }
+
     /// HTML Mail can put in the message body. Reads the file when it fits the cap; never a giant string.
     static func html(from packet: Packet) -> String {
         if let url = packet.htmlFile {
@@ -272,7 +279,7 @@ enum PulseMail {
             .map { "<p style=\"margin:0 0 10px;padding:0;font-size:16px;line-height:1.5;color:#141A29\">\(esc($0))</p>" }
             .joined()
         return """
-        <html><body style="margin:0;padding:24px 20px;background:#F5F7FC;color:#141A29;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:16px;line-height:1.5">
+        <html style="color-scheme:light only"><head><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light"></head><body style="margin:0;padding:24px 20px;background:#F5F7FC;color:#141A29;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:16px;line-height:1.5;color-scheme:light only">
         <table width="100%" cellspacing="0" cellpadding="0" style="max-width:720px;margin:0 auto;background:#FFFFFF;border:1px solid #E4E9F4;border-radius:16px">
         <tr><td style="padding:22px 24px">
         <p style="color:#003DA5;font-weight:700;font-size:20px;margin:0 0 12px;line-height:1.3">Fulfillment Heartbeat</p>
@@ -409,7 +416,7 @@ enum PulseMail {
             guard page != .dashboard, pages.contains(page), let section = page.section else { continue }
             sink.append(sectionHTML(section, snap: snap))
         }
-        sink.append("<p class=\"sub\" style=\"color:#3D4658;font-size:16px;margin:18px 0 0\">Sent from Fulfillment Heartbeat</p></div></body></html>")
+        sink.append("<table width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"width:100%\"><tr><td width=\"100%\" style=\"width:100%;color:#3D4658;font-size:16px;line-height:1.5;padding:18px 0 0\">Sent from Fulfillment Heartbeat</td></tr></table></td></tr></table></body></html>")
     }
 
     private static func html(_ snap: Snapshot, pages: Set<SharePage>) -> String {
@@ -421,10 +428,13 @@ enum PulseMail {
 
     private static func htmlHead(_ snap: Snapshot) -> String {
         """
-        <!DOCTYPE html><html><head>
+        <!DOCTYPE html><html style="color-scheme:light only"><head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="color-scheme" content="light only">
+        <meta name="supported-color-schemes" content="light">
         <style>
+        :root { color-scheme: light only; supported-color-schemes: light; }
         body{margin:0;padding:24px 20px;background:#F5F7FC;color:#141A29;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:16px;line-height:1.45}
         .wrap{width:100%;max-width:1100px;margin:0 auto}
         h1{font-size:28px;line-height:1.2;margin:0 0 8px;color:#003DA5}
@@ -453,15 +463,20 @@ enum PulseMail {
         .cell-watch{background:#FEF3C7;color:#D97706}
         .cell-risk{background:#FEE2E2;color:#DC2626}
         .muted{color:#5C677A}
-        </style></head><body style="margin:0;padding:24px 20px;background:#F5F7FC;color:#141A29;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:16px;line-height:1.45"><div class="wrap" style="width:100%;max-width:1100px;margin:0 auto">
-        <h1 style="font-size:28px;line-height:1.2;margin:0 0 8px;color:#003DA5">Fulfillment Heartbeat</h1>
-        <p class="sub" style="color:#3D4658;font-size:16px;margin:0 0 22px;line-height:1.5">\(esc(snap.filterSummary))<br>\(esc(HeartbeatFormat.stamp(snap.generatedAt))) · Same layout and columns as the in-app page · Upload is not included</p>
+        @media (prefers-color-scheme: dark) {
+          body, .wrap, table, td, div, p, h1, span { color-scheme: light only !important; }
+          body { background:#F5F7FC !important; background-color:#F5F7FC !important; color:#141A29 !important; }
+        }
+        </style></head><body bgcolor="#F5F7FC" style="margin:0;padding:12px 10px;background:#F5F7FC;background-color:#F5F7FC;color:#141A29;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:15px;line-height:1.4;color-scheme:light only"><table class="wrap" width="100%" cellspacing="0" cellpadding="0" bgcolor="#F5F7FC" style="width:100%"><tr><td width="100%" valign="top" style="width:100%">
+        <table width="100%" cellspacing="0" cellpadding="0" bgcolor="#F5F7FC" style="width:100%">        <tr><td width="100%" style="width:100%;font-size:26px;line-height:32px;font-weight:700;color:#003DA5;padding:0 0 10px">Fulfillment Heartbeat</td></tr>
+        <tr><td width="100%" style="width:100%;color:#3D4658;font-size:16px;line-height:24px;padding:0 0 8px">\(esc(snap.filterSummary))</td></tr>
+        <tr><td width="100%" style="width:100%;color:#5C677A;font-size:15px;line-height:22px;padding:0 0 18px">\(esc(HeartbeatFormat.stamp(snap.generatedAt)))<br>Same layout and columns as the in-app page. Upload is not included.</td></tr></table>
         """
     }
 
     private static func dashboardHTML(_ snap: Snapshot) -> String {
         var cards = """
-        <div class="page-banner" style="font-size:18px;font-weight:700;color:#003DA5;margin:0 0 12px">Operational Heartbeat · \(esc(snap.filterSummary))</div>
+        <table width="100%" cellspacing="0" cellpadding="0" bgcolor="#F5F7FC" style="width:100%"><tr><td width="100%" style="width:100%;font-size:18px;line-height:24px;font-weight:700;color:#003DA5;padding:4px 0 10px">Operational Heartbeat</td></tr></table>
         """
         let grain = dashGrain(snap)
         for card in snap.summaries {
@@ -473,15 +488,15 @@ enum PulseMail {
             let title = card.section == .pickPath ? "Pick Path Compliance" : card.section.title
             let accent = ink(card.health)
             cards += """
-            <table class="dash-card" width="100%" cellspacing="0" cellpadding="0" bgcolor="#FFFFFF" style="background:#FFFFFF;border:1px solid #E4E9F4;border-radius:16px;margin:0 0 22px">
+            <table class="dash-card" width="100%" cellspacing="0" cellpadding="0" bgcolor="#FFFFFF" style="background:#FFFFFF;border:1px solid #E4E9F4;border-radius:16px;margin:0 0 14px">
             <tr>
             <td width="4" bgcolor="\(accent)" style="background:\(accent);width:4px;font-size:0;line-height:0">&nbsp;</td>
-            <td style="padding:16px 18px">
+            <td style="padding:10px 12px">
             <table width="100%" cellspacing="0" cellpadding="0">
             <tr>
             <td valign="top">
-            <div style="font-size:22px;font-weight:700;color:#141A29">\(esc(title))</div>
-            <div style="color:#5C677A;font-size:15px;margin-top:4px">\(esc(card.headlineLabel))</div>
+            <div style="font-size:18px;line-height:22px;font-weight:700;color:#141A29">\(esc(title))</div>
+            <div style="color:#5C677A;font-size:13px;line-height:18px;margin-top:2px">\(esc(card.headlineLabel))</div>
             <div style="font-weight:700;margin-top:6px;font-size:16px;color:\(card.riskCount == 0 ? ink(.good) : ink(.risk))">\(esc(riskLine(card.section, card)))</div>
             </td>
             <td valign="top" align="right" style="width:190px;white-space:nowrap">
@@ -527,11 +542,11 @@ enum PulseMail {
                     : "<div class=\"nw\" style=\"font-size:20px;font-weight:700;margin:8px 0;color:\(accent);text-align:left;line-height:1.3\">\(esc(flag.value))</div>"
                 cells += """
                 <td width="\(100 / perRow)%" valign="top" style="width:\(100 / perRow)%">
-                <table width="100%" cellspacing="0" cellpadding="14" bgcolor="#FFFFFF" style="width:100%;background:#FFFFFF;border:1px solid #E4E9F4;border-radius:12px">
+                <table width="100%" cellspacing="0" cellpadding="8" bgcolor="#FFFFFF" style="width:100%;background:#FFFFFF;border:1px solid #E4E9F4;border-radius:12px">
                 <tr>
                 <td width="4" bgcolor="\(accent)" style="background:\(accent);width:4px;font-size:0;line-height:0">&nbsp;</td>
-                <td style="padding:14px 16px">
-                <div style="font-size:15px;color:#141A29;font-weight:700;line-height:1.35">\(esc(flag.name))</div>
+                <td style="padding:8px 10px">
+                <div style="font-size:13px;color:#141A29;font-weight:700;line-height:18px">\(esc(flag.name))</div>
                 \(valueLine)
                 <div class="nw" style="font-size:14px;font-weight:600;margin-top:8px;color:#5C677A;text-align:left;line-height:1.4">\(stores)</div>
                 <div style="margin-top:10px">\(pill(tone))</div>
@@ -841,7 +856,7 @@ enum PulseMail {
         let window = stores.first { !($0.textPayload["data_window"] ?? "").isEmpty }?.textPayload["data_window"]
         return pageWrap(
             title: section.bannerTitle,
-            filter: snap.filterSummary,
+            filter: "",
             trailing: window,
             inner: kpis + rollup + table + items
         )
@@ -858,14 +873,14 @@ enum PulseMail {
         <table width="100%" cellspacing="0" cellpadding="0" style="background:#fff;border:2.5px solid #003DA5;border-radius:16px;margin:0 0 22px">
         <tr>        <td style="background:#003DA5;color:#fff;padding:16px 20px;font-weight:700;font-size:22px">
         <table width="100%" cellspacing="0" cellpadding="0"><tr>
-        <td style="color:#fff;font-weight:700;font-size:22px">
+        <td style="color:#fff;font-weight:700;font-size:18px;line-height:22px">
         \(esc(title))
-        <div style="font-weight:600;opacity:.95;font-size:15px;margin-top:4px">\(esc(filter))</div>
+        \(filter.isEmpty ? "" : "<div style=\"font-weight:600;font-size:13px;line-height:18px;margin-top:2px\">\(esc(filter))</div>")
         </td>
         <td valign="middle" style="color:#fff">\(right)</td>
         </tr></table>
         </td></tr>
-        <tr><td style="padding:18px 20px">\(inner)</td></tr>
+        <tr><td style="padding:10px 12px">\(inner)</td></tr>
         </table>
         """
     }
@@ -893,7 +908,7 @@ enum PulseMail {
         switch health {
         case .good: return ("#D1FAE5", "#A7F3D0", "#059669")
         case .watch: return ("#FEF3C7", "#FDE68A", "#D97706")
-        case .risk: return ("#FEE2E2", "#FECACA", "#DC2626")
+        case .risk: return ("#FEE2E2", "#FECACA", "#7F1D1D")
         case .none: return ("#FFFFFF", "#E4E9F4", "#141A29")
         }
     }
@@ -903,11 +918,11 @@ enum PulseMail {
         let badge = health == .none ? "" : pill(health)
         return """
         <td valign="top" width="\(colPct)%" style="width:\(colPct)%">
-        <table width="100%" cellspacing="0" cellpadding="14" bgcolor="\(fill.bg)" style="width:100%;background:\(fill.bg);border:1px solid \(fill.border);border-radius:14px">
-        <tr><td style="padding:14px 16px">
-        <div style="font-size:15px;font-weight:700;color:#141A29;line-height:1.35">\(esc(label)) \(badge)</div>
-        <div style="font-size:26px;font-weight:700;margin:10px 0 8px;color:\(fill.ink);line-height:1.25">\(esc(value))</div>
-        <div style="font-size:14px;color:#5C677A;line-height:1.4">\(esc(detail))</div>
+        <table width="100%" cellspacing="0" cellpadding="8" bgcolor="\(fill.bg)" style="width:100%;background:\(fill.bg);border:1px solid \(fill.border);border-radius:14px">
+        <tr><td style="padding:8px 10px">
+        <div style="font-size:13px;font-weight:700;color:#141A29;line-height:18px">\(esc(label)) \(badge)</div>
+        <div style="font-size:20px;font-weight:700;margin:4px 0 2px;color:\(fill.ink);line-height:24px">\(esc(value))</div>
+        <div style="font-size:12px;color:#5C677A;line-height:16px">\(esc(detail))</div>
         </td></tr>
         </table>
         </td>
@@ -1468,7 +1483,7 @@ enum PulseMail {
             fill = "background:#FEF3C7;"
             cls += " cell-watch"
         case (false, .risk):
-            color = "#DC2626"
+            color = "#7F1D1D"
             fill = "background:#FEE2E2;"
             cls += " cell-risk"
         default:
@@ -1476,7 +1491,7 @@ enum PulseMail {
         }
         let width = PulseLaunch.shouldUseFixedNowrapShareTableColumns()
             ? "width=\"108\" style=\"width:108px;text-align:right;font-variant-numeric:tabular-nums;font-weight:700;font-size:16px;white-space:nowrap;padding:12px 14px;border-bottom:1px solid #E4E9F4;border-right:1px solid #EEF1F6;\(fill)color:\(color)\""
-            : "style=\"width:50%;text-align:right;font-variant-numeric:tabular-nums;font-weight:700;font-size:16px;padding:12px 14px;border-bottom:1px solid #E4E9F4;border-right:1px solid #EEF1F6;\(fill)color:\(color)\""
+            : "style=\"width:50%;text-align:right;font-variant-numeric:tabular-nums;font-weight:700;font-size:13px;line-height:18px;padding:6px 8px;border-bottom:1px solid #E4E9F4;border-right:1px solid #EEF1F6;\(fill)color:\(color)\""
         return "<td class=\"\(cls)\" \(width)>\(esc(text))</td>"
     }
 
@@ -1488,7 +1503,12 @@ enum PulseMail {
         case .risk: bg = "#DC2626"
         case .none: bg = "#8A93A3"
         }
-        return "<span class=\"pill\" style=\"display:inline-block;padding:5px 12px;border-radius:999px;font-size:12px;line-height:1.2;font-weight:700;color:#fff;letter-spacing:.02em;background:\(bg)\">\(esc(health.label.uppercased()))</span>"
+        let label = esc(health.label.uppercased())
+        if !PulseLaunch.shouldPaintMailPillsAsTableCells() {
+            return "<span class=\"pill\" style=\"display:inline-block;padding:5px 12px;border-radius:999px;font-size:12px;line-height:1.2;font-weight:700;color:#ffffff;letter-spacing:.02em;background:\(bg)\">\(label)</span>"
+        }
+        // Span backgrounds are dropped by Apple Mail. A bgcolor cell keeps the chip.
+        return "<table class=\"pill\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" bgcolor=\"\(bg)\" style=\"background:\(bg);border-collapse:separate;border-radius:999px\"><tr><td class=\"pill\" bgcolor=\"\(bg)\" style=\"background:\(bg);color:#ffffff;font-size:12px;line-height:16px;font-weight:700;letter-spacing:.02em;padding:5px 12px;border-radius:999px\">\(label)</td></tr></table>"
     }
 
     private static func dataTable(
@@ -1515,7 +1535,7 @@ enum PulseMail {
                 let tone = index < row.tones.count ? row.tones[index] : nil
                 lines += """
                 <tr>
-                <th bgcolor="#EEF3FB" style="text-align:left;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#003DA5;background:#EEF3FB;padding:12px 14px;border-bottom:2px solid #003DA5;border-right:1px solid #D6E2F5;font-weight:700;width:50%;white-space:normal">\(esc(header))</th>
+                <th bgcolor="#EEF3FB" style="text-align:left;font-size:11px;letter-spacing:.02em;text-transform:uppercase;color:#003DA5;background:#EEF3FB;padding:6px 8px;border-bottom:2px solid #003DA5;border-right:1px solid #D6E2F5;font-weight:700;width:50%;white-space:normal">\(esc(header))</th>
                 \(numCell(value, health: tone))
                 </tr>
                 """
@@ -1524,10 +1544,10 @@ enum PulseMail {
                 ? ""
                 : "<div class=\"muted\" style=\"font-size:13px;font-weight:600;color:#5C677A;margin-top:4px\">\(esc(row.detail))</div>"
             cards += """
-            <table class="data mail-stack" width="100%" cellspacing="0" cellpadding="12" bgcolor="#FFFFFF" style="width:100%;max-width:100%;border-collapse:separate;border-spacing:0;font-size:15px;line-height:1.45;background:#FFFFFF;border:1px solid #E4E9F4;margin:0 0 12px">
+            <table class="data mail-stack" width="100%" cellspacing="0" cellpadding="6" bgcolor="#FFFFFF" style="width:100%;max-width:100%;border-collapse:separate;border-spacing:0;font-size:13px;line-height:18px;background:#FFFFFF;border:1px solid #E4E9F4;margin:0 0 8px">
             <tr>
-            <td class="name" style="font-weight:700;font-size:16px;padding:12px 14px;border-bottom:1px solid #E4E9F4;border-right:1px solid #EEF1F6">\(esc(row.label))\(extra)</td>
-            <td class="status" style="width:30%;text-align:right;padding:12px 14px;border-bottom:1px solid #E4E9F4">\(pill(row.health))</td>
+            <td class="name" style="font-weight:700;font-size:14px;line-height:18px;padding:6px 8px;border-bottom:1px solid #E4E9F4;border-right:1px solid #EEF1F6">\(esc(row.label))\(extra)</td>
+            <td class="status" style="width:30%;text-align:right;padding:6px 8px;border-bottom:1px solid #E4E9F4">\(pill(row.health))</td>
             </tr>
             \(lines)
             </table>
