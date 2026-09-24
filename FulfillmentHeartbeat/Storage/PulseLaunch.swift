@@ -2914,11 +2914,27 @@ enum PulseLaunch {
         return htmlReady && fileOK && toOK
     }
 
-    /// Soft FAIL 2026-09-14 work Mac: Send opened Apple Mail with Hide My Email
-    /// and a plaintext body — no file. Work Mac uses Outlook, not Apple Mail.
-    /// Primary path is the system share sheet with a PDF/PNG file URL.
-    static func shouldPreferSystemShareSheetWithFile() -> Bool { true }
+    /// HB-0828.475: a filled To must not open UIActivityViewController.
+    /// That sheet drops the address and hands Mail a plain-text caption.
+    static func shouldPreferSystemShareSheetWithFile() -> Bool { false }
     static func shouldForceMailComposeOnSend() -> Bool { false }
+    /// Send with a recipient presents MFMailCompose (HTML body + report file).
+    static func shouldSendFilledToInMailCompose() -> Bool { true }
+    static func shouldBounceFilledToToSystemShareSheet() -> Bool { false }
+
+    enum ShareSendHandoff: String {
+        case mailCompose
+        case richClipboardMailto
+    }
+
+    /// Filled To never uses the system share sheet. Mail compose when an
+    /// account can send; otherwise clipboard HTML plus mailto with that To.
+    static func shareSendHandoff(toFilled: Bool, canSendMail: Bool, mac: Bool) -> ShareSendHandoff {
+        if toFilled, shouldUseInAppMailCompose(canSendMail: canSendMail, mac: mac) {
+            return .mailCompose
+        }
+        return .richClipboardMailto
+    }
     static func shouldAllowTextOnlyShareCompose() -> Bool { false }
     static func shouldShareReportFile() -> Bool { true }
     static func shouldShowShareAttachmentChip() -> Bool { true }

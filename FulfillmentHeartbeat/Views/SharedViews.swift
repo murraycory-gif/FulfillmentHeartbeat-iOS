@@ -1781,7 +1781,7 @@ struct ShareRecapCompose: View {
             let ready = needsRebuild ? await RecapRenderer.attachReport(outgoing) : outgoing
             sending = false
             guard !PulseMail.shareAttachmentFiles(ready).isEmpty else { return }
-            PulseShare.presentReport(ready, to: recipients)
+            PulseShare.presentMail(ready, to: recipients)
         }
     }
 }
@@ -12432,14 +12432,14 @@ enum PulseShare {
         }
         let mac = HubLayout.isMac
         let canSend = MFMailComposeViewController.canSendMail()
-        guard PulseLaunch.shouldUseMailComposeAsFallback(canSendMail: canSend),
+        guard PulseLaunch.shareSendHandoff(toFilled: !to.isEmpty, canSendMail: canSend, mac: mac) == .mailCompose,
               PulseLaunch.shouldUseInAppMailCompose(canSendMail: canSend, mac: mac)
         else {
-            presentReport(packet, to: to)
+            presentUnavailableFallback(packet, to: to, on: presenter)
             return
         }
         guard let presenter, presenter.view.window != nil else {
-            presentReport(packet, to: to)
+            presentUnavailableFallback(packet, to: to, on: presenter)
             return
         }
         if presenter.presentedViewController != nil,
@@ -12584,10 +12584,10 @@ enum PulseShare {
         }
     }
 
-    /// Short body plus the report file. Never text-only compose.
+    /// HTML body matching the in-app preview, plus the report file. Never the plain brief.
     static func configureMail(_ mail: MFMailComposeViewController, packet: PulseMail.Packet) {
         mail.setSubject(packet.subject)
-        mail.setMessageBody(packet.brief, isHTML: false)
+        mail.setMessageBody(PulseMail.mailComposeHTMLBody(from: packet), isHTML: true)
         let files = PulseMail.shareAttachmentFiles(packet)
         if files.isEmpty, let html = writeHTMLFile(packet), let data = try? Data(contentsOf: html) {
             mail.addAttachmentData(data, mimeType: "text/html", fileName: html.lastPathComponent)

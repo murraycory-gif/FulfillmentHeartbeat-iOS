@@ -248,6 +248,13 @@ enum PulseMail {
         shareAttachmentFiles(packet).first ?? packet.htmlFile ?? packet.brief
     }
 
+    /// Body MFMailCompose submits. Same HTML as the in-app preview, never the plain brief.
+    static func mailComposeHTMLBody(from packet: Packet) -> String {
+        let body = html(from: packet)
+        if !body.isEmpty { return body }
+        return overflowMailBody(packet.brief)
+    }
+
     /// HTML Mail can put in the message body. Reads the file when it fits the cap; never a giant string.
     static func html(from packet: Packet) -> String {
         if let url = packet.htmlFile {
