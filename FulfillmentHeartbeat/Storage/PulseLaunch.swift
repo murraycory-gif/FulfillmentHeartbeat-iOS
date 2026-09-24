@@ -1074,6 +1074,12 @@ enum PulseLaunch {
     /// math run on a later turn. The destination is the real page, not a splash.
     static func shouldDeferPhonePagesNavWorkUntilAfterPaint() -> Bool { true }
 
+    /// HB-0828.474: iPad Pages taps under a division (Jewel Osco) were
+    /// walking `seatRows` for every sidebar icon and every hidden Command
+    /// Center card on the tap turn. That blocked the first tap. Nav chrome
+    /// uses cached summaries; the open page walks rows after chrome paints.
+    static func shouldSkipPagesNavRowWalk() -> Bool { true }
+
     /// Color.clear only after the tap has painted. `parked == false` keeps the
     /// existing Dashboard tree for that turn so SwiftUI does not diff it away
     /// before the new page appears.

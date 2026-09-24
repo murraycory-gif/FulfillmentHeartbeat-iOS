@@ -38,7 +38,14 @@ struct SectionDetailView: View {
     @State private var showTables = false
     @State private var pageWidth: CGFloat = 980
 
-    private var summary: SectionSummary { store.summary(for: section) }
+    /// HB-0828.474: hero on the tap uses cached chrome. `summary()` walks
+    /// Jewel `seatRows` and was running before the drawer could close.
+    private var summary: SectionSummary {
+        if PulseLaunch.shouldSkipPagesNavRowWalk(), !showTables {
+            return store.cheapPhonePageChrome(section)
+        }
+        return store.summary(for: section)
+    }
     private var snapshots: [MetricRow] { store.seatRows(for: section) }
     private var showStoreTable: Bool { PulseLaunch.shouldShowStoreTable(filters: store.filters) }
     private var rollupGrains: [DashScopeGrain] {
@@ -419,7 +426,7 @@ struct SectionDetailView: View {
                 .background(AppTheme.warnSoft, in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous))
             }
 
-            if showStoreTable, missingInFile {
+            if showTables, showStoreTable, missingInFile {
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: "info.circle.fill")
                         .foregroundStyle(AppTheme.blue)
@@ -432,7 +439,7 @@ struct SectionDetailView: View {
                 .background(AppTheme.blueSoft, in: RoundedRectangle(cornerRadius: AppTheme.radiusM, style: .continuous))
             }
 
-            if showStoreTable, section == .preSubOOS, snapshots.isEmpty {
+            if showTables, showStoreTable, section == .preSubOOS, snapshots.isEmpty {
                 HStack(alignment: .top, spacing: 10) {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(AppTheme.warn)
@@ -446,7 +453,9 @@ struct SectionDetailView: View {
             }
 
             if section == .labor { LaborWeekFilterBar() }
-            if showStoreTable {
+            // HB-0828.474: status tiles walk seat rows. Wait until tables arm
+            // so the Pages tap can close the drawer first.
+            if showTables, showStoreTable {
                 if HubLayout.usesPhoneScorecards(sizeClass: sizeClass) {
                     pageCallouts
                     if section == .missingItems || section == .preSubOOS {

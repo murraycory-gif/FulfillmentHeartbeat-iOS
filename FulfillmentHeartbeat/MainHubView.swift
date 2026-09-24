@@ -396,25 +396,7 @@ struct MainHubView: View {
     }
 
     private var sidebarStamp: some View {
-        Text(BuildStamp.label)
-            .font(.caption2.weight(.semibold).monospaced())
-            .foregroundStyle(AppTheme.textTertiary)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .frame(maxWidth: .infinity)
-            .background(AppTheme.card, in: Capsule(style: .continuous))
-            .overlay(Capsule(style: .continuous).stroke(AppTheme.cardBorder, lineWidth: 1))
-            .padding(.horizontal, 16)
-            .padding(
-                .bottom,
-                HubLayout.isMac && PulseLaunch.shouldReserveMacWindowBottomChrome()
-                    ? 16
-                    : 12
-            )
-            .padding(.top, 8)
-            .frame(maxWidth: .infinity)
-            .background(AppTheme.bg)
-            .accessibilityLabel("Build \(BuildStamp.label)")
+        HubBuildStamp()
     }
 
     private func sidebarRow(_ item: HubDestination) -> some View {
@@ -468,12 +450,27 @@ struct MainHubView: View {
     }
 
     private func navHealth(for dest: HubDestination) -> Health {
+        // HB-0828.474: sidebar icons must not call summary()/seatRows.
+        // Under Jewel that walk ran once per row on the tap and ate the first tap.
+        if PulseLaunch.shouldSkipPagesNavRowWalk() {
+            return cachedNavHealth(for: dest)
+        }
         switch dest {
         case .dashboard:
             return store.summaries.map(\.health).max(by: { healthRank($0) < healthRank($1) }) ?? .none
         default:
             guard let section = dest.section else { return .none }
             return store.summary(for: section).health
+        }
+    }
+
+    private func cachedNavHealth(for dest: HubDestination) -> Health {
+        switch dest {
+        case .dashboard:
+            return store.summaries.map(\.health).max(by: { healthRank($0) < healthRank($1) }) ?? .none
+        default:
+            guard let section = dest.section else { return .none }
+            return store.cheapPhonePageChrome(section).health
         }
     }
 
@@ -681,6 +678,32 @@ private struct ImportProgressCard: View {
         .environmentObject(HeartbeatStore())
 }
 
+/// Build capsule at the bottom of Pages chrome. Shared by the iPad/Mac
+/// sidebar and the iPhone Pages sheet (HB-0828.474).
+struct HubBuildStamp: View {
+    var body: some View {
+        Text(BuildStamp.label)
+            .font(.caption2.weight(.semibold).monospaced())
+            .foregroundStyle(AppTheme.textTertiary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity)
+            .background(AppTheme.card, in: Capsule(style: .continuous))
+            .overlay(Capsule(style: .continuous).stroke(AppTheme.cardBorder, lineWidth: 1))
+            .padding(.horizontal, 16)
+            .padding(
+                .bottom,
+                HubLayout.isMac && PulseLaunch.shouldReserveMacWindowBottomChrome()
+                    ? 16
+                    : 12
+            )
+            .padding(.top, 8)
+            .frame(maxWidth: .infinity)
+            .background(AppTheme.bg)
+            .accessibilityLabel("Build \(BuildStamp.label)")
+    }
+}
+
 struct CompactNavSheet: View {
     @EnvironmentObject private var store: HeartbeatStore
     @EnvironmentObject private var router: HubRouter
@@ -703,6 +726,10 @@ struct CompactNavSheet: View {
             .background(AppTheme.bg)
             .navigationTitle("Heartbeat")
             .navigationBarTitleDisplayMode(.inline)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                // HB-0828.474: iPhone Pages sheet matches iPad/Mac sidebar stamp.
+                HubBuildStamp()
+            }
             .safeAreaInset(edge: .top, spacing: 0) {
                 HStack {
                     HubSheetCloseControl {
@@ -766,7 +793,8 @@ struct CompactNavSheet: View {
             return store.summaries.map(\.health).max(by: { healthRank($0) < healthRank($1) }) ?? .none
         default:
             guard let section = dest.section else { return .none }
-            if PulseLaunch.shouldDeferPhonePagesNavWorkUntilAfterPaint() {
+            if PulseLaunch.shouldDeferPhonePagesNavWorkUntilAfterPaint()
+                || PulseLaunch.shouldSkipPagesNavRowWalk() {
                 return CommandCenterLayout.displayedHealth(
                     store.phonePageChromeCard(for: section, allowRowWalk: false)
                 )

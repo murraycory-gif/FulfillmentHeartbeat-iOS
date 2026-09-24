@@ -67,7 +67,10 @@ struct DashboardView: View {
                     isVisible: router.current == .dashboard && router.pushedSection == nil
                 )
             } else {
-                CommandCenterHome(open: open)
+                CommandCenterHome(
+                    open: open,
+                    isVisible: router.current == .dashboard && router.pushedSection == nil
+                )
             }
             if !store.seeded {
                 HubCard {

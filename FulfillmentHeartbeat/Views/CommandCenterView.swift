@@ -647,12 +647,23 @@ struct CommandCenterHome: View {
     @EnvironmentObject private var store: HeartbeatStore
     @Environment(\.horizontalSizeClass) private var sizeClass
     var open: (MetricSection) -> Void
+    /// HB-0828.474: hidden pad/Mac dashboard must not walk seat rows on a Pages tap.
+    var isVisible: Bool = true
 
     private var phone: Bool { HubLayout.isPhone(sizeClass) }
 
     var body: some View {
         let _ = store.seatPaintStamp
         let _ = store.filters.summary
+        if PulseLaunch.shouldSkipPagesNavRowWalk(), !isVisible {
+            Color.clear.frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            visibleHome
+        }
+    }
+
+    @ViewBuilder
+    private var visibleHome: some View {
         let heroes = heroCards
         let glances = glanceCards
         if phone, PulseLaunch.shouldUsePhoneNativeCommandCenter() {
