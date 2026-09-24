@@ -9096,7 +9096,22 @@ final class HeartbeatMathTests: XCTestCase {
         let packet = PulseMail.make(snap, pages: [.dashboard])
         XCTAssertTrue(packet.html.contains("dash-card"), packet.html)
         XCTAssertTrue(packet.html.contains("Operational Heartbeat"), packet.html)
-        XCTAssertTrue(packet.html.contains("<td width=\"100%\" style=\"width:100%;font-size:28px"), packet.html)
+        XCTAssertTrue(packet.html.contains("<td width=\"100%\" style=\"width:100%;font-size:26px"), packet.html)
+        let storeFilter = DashboardFilters(region: "", division: "", district: "", om: "", store: "3407")
+        let mixed = [
+            MetricRow(section: .pickerScorecard, division: "Jewel", operationsOM: "A", storeNumber: "3407", storeName: "Jewel"),
+            MetricRow(section: .pickerScorecard, division: "Jewel", operationsOM: "A", storeNumber: "3408", storeName: "Other"),
+        ]
+        let kept = PulseLaunch.shareScopeRows(mixed, filters: storeFilter)
+        XCTAssertEqual(kept.map(\.storeNumber), ["3407"])
+        let grain = [
+            HeartbeatMath.DashboardGrainTableRow(label: "3407", storeCount: 4, values: ["4"], health: .good),
+            HeartbeatMath.DashboardGrainTableRow(label: "3408", storeCount: 9, values: ["9"], health: .good),
+        ]
+        XCTAssertEqual(
+            PulseLaunch.shareScopeGrain(grain, filters: storeFilter, grain: .store).map(\.label),
+            ["3407"]
+        )
         XCTAssertFalse(packet.html.contains("<h1"), packet.html)
         XCTAssertTrue(packet.html.contains("width=\"33%\""), packet.html)
         XCTAssertTrue(packet.html.contains("Flag 5"), packet.html)

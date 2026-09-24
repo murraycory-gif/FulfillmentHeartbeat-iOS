@@ -6964,7 +6964,7 @@ final class HeartbeatStore: ObservableObject {
         var rows: [MetricSection: [MetricRow]] = [:]
         var rowTotals: [MetricSection: Int] = [:]
         for section in needed {
-            let all = displayRows(for: section)
+            let all = PulseLaunch.shareScopeRows(displayRows(for: section), filters: filters)
             rowTotals[section] = all.count
             rows[section] = PulseMail.pageRows(all, section: section)
         }
@@ -6975,24 +6975,30 @@ final class HeartbeatStore: ObservableObject {
         var grainTables: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] = [:]
         var flags: [MetricSection: [HeartbeatMath.FiveStarFlag]] = [:]
         for section in needed {
-            if let table = cachedGrainTables[section], !table.isEmpty,
-               PulseLaunch.grainTableMatchesCurrent(labels: table.map(\.label), grain: grain) {
+            let table = PulseLaunch.shareScopeGrain(
+                dashboardGrainRows(for: section),
+                filters: filters,
+                grain: grain
+            )
+            if !table.isEmpty {
                 grainTables[section] = table
             }
             if section == .pickerScorecard {
-                let shoppers = max(
-                    cachedPickerBoard.shopperCount,
-                    packChrome?.pickerShoppers ?? 0,
-                    Int(summaries.first { $0.section == .pickerScorecard }?.headline ?? 0)
-                )
+                let scoped = rows[section] ?? []
+                let shoppers = filters.isActive
+                    ? scoped.count
+                    : max(
+                        cachedPickerBoard.shopperCount,
+                        packChrome?.pickerShoppers ?? 0,
+                        Int(summaries.first { $0.section == .pickerScorecard }?.headline ?? 0)
+                    )
                 flags[section] = PulseLaunch.pickerShareActionFlags(
                     rows: rows[section] ?? [],
                     chromeShoppers: shoppers,
-                    chromeStrong: max(cachedPickerBoard.strongCount, packChrome?.pickerStrong ?? 0),
-                    chromeOpportunity: max(
-                        cachedPickerBoard.opportunityCount,
-                        packChrome?.pickerOpportunity ?? 0
-                    ),
+                    chromeStrong: filters.isActive ? 0 : max(cachedPickerBoard.strongCount, packChrome?.pickerStrong ?? 0),
+                    chromeOpportunity: filters.isActive
+                        ? 0
+                        : max(cachedPickerBoard.opportunityCount, packChrome?.pickerOpportunity ?? 0),
                     grain: grainTables[section] ?? []
                 )
                 continue

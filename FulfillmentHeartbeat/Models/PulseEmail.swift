@@ -468,14 +468,15 @@ enum PulseMail {
           body { background:#F5F7FC !important; background-color:#F5F7FC !important; color:#141A29 !important; }
         }
         </style></head><body bgcolor="#F5F7FC" style="margin:0;padding:24px 20px;background:#F5F7FC;background-color:#F5F7FC;color:#141A29;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:16px;line-height:1.45;color-scheme:light only"><table class="wrap" width="100%" cellspacing="0" cellpadding="0" bgcolor="#F5F7FC" style="width:100%;max-width:1100px;margin:0 auto"><tr><td width="100%" valign="top" style="width:100%">
-        <table width="100%" cellspacing="0" cellpadding="0" bgcolor="#F5F7FC" style="width:100%"><tr><td width="100%" style="width:100%;font-size:28px;line-height:1.2;font-weight:700;color:#003DA5;padding:0 0 8px">Fulfillment Heartbeat</td></tr>
-        <tr><td width="100%" style="width:100%;color:#3D4658;font-size:16px;line-height:1.5;padding:0 0 22px">\(esc(snap.filterSummary))<br>\(esc(HeartbeatFormat.stamp(snap.generatedAt))) · Same layout and columns as the in-app page · Upload is not included</td></tr></table>
+        <table width="100%" cellspacing="0" cellpadding="0" bgcolor="#F5F7FC" style="width:100%">        <tr><td width="100%" style="width:100%;font-size:26px;line-height:32px;font-weight:700;color:#003DA5;padding:0 0 10px">Fulfillment Heartbeat</td></tr>
+        <tr><td width="100%" style="width:100%;color:#3D4658;font-size:16px;line-height:24px;padding:0 0 8px">\(esc(snap.filterSummary))</td></tr>
+        <tr><td width="100%" style="width:100%;color:#5C677A;font-size:15px;line-height:22px;padding:0 0 18px">\(esc(HeartbeatFormat.stamp(snap.generatedAt)))<br>Same layout and columns as the in-app page. Upload is not included.</td></tr></table>
         """
     }
 
     private static func dashboardHTML(_ snap: Snapshot) -> String {
         var cards = """
-        <table width="100%" cellspacing="0" cellpadding="0" bgcolor="#F5F7FC" style="width:100%"><tr><td width="100%" style="width:100%;font-size:18px;line-height:1.3;font-weight:700;color:#003DA5;padding:0 0 12px">Operational Heartbeat · \(esc(snap.filterSummary))</td></tr></table>
+        <table width="100%" cellspacing="0" cellpadding="0" bgcolor="#F5F7FC" style="width:100%"><tr><td width="100%" style="width:100%;font-size:20px;line-height:28px;font-weight:700;color:#003DA5;padding:8px 0 16px">Operational Heartbeat · \(esc(snap.filterSummary))</td></tr></table>
         """
         let grain = dashGrain(snap)
         for card in snap.summaries {
@@ -487,7 +488,7 @@ enum PulseMail {
             let title = card.section == .pickPath ? "Pick Path Compliance" : card.section.title
             let accent = ink(card.health)
             cards += """
-            <table class="dash-card" width="100%" cellspacing="0" cellpadding="0" bgcolor="#FFFFFF" style="background:#FFFFFF;border:1px solid #E4E9F4;border-radius:16px;margin:0 0 22px">
+            <table class="dash-card" width="100%" cellspacing="0" cellpadding="0" bgcolor="#FFFFFF" style="background:#FFFFFF;border:1px solid #E4E9F4;border-radius:16px;margin:0 0 28px">
             <tr>
             <td width="4" bgcolor="\(accent)" style="background:\(accent);width:4px;font-size:0;line-height:0">&nbsp;</td>
             <td style="padding:16px 18px">

@@ -2213,6 +2213,36 @@ enum PulseLaunch {
     /// Clear never walks the warehouse again. latestBySection is already company-wide.
     static func shouldPaintWarehouseOnClear() -> Bool { false }
 
+    /// Share must not mail company shoppers under a store filter.
+    static func shareScopeRows(_ rows: [MetricRow], filters: DashboardFilters) -> [MetricRow] {
+        guard filters.isActive else { return rows }
+        return rows.filter { row in
+            let store = HeartbeatMath.canonicalStore(row.storeNumber)
+            guard !store.isEmpty, filters.includesStore(store) else { return false }
+            if !filters.division.isEmpty, !filters.includesDivision(row.division) { return false }
+            if !filters.om.isEmpty, !filters.includesOM(row.operationsOM) { return false }
+            let district = row.textPayload["district"] ?? ""
+            if !filters.district.isEmpty, !district.isEmpty, !filters.includesDistrict(district) { return false }
+            return true
+        }
+    }
+
+    /// A cached expand can be every store while the seat is 3407. Keep only matching labels.
+    static func shareScopeGrain(
+        _ rows: [HeartbeatMath.DashboardGrainTableRow],
+        filters: DashboardFilters,
+        grain: DashScopeGrain
+    ) -> [HeartbeatMath.DashboardGrainTableRow] {
+        guard filters.isActive else { return rows }
+        if !filters.store.isEmpty {
+            return rows.filter { filters.includesStore($0.label) }
+        }
+        if grain == .store, !grainTableMatchesCurrent(labels: rows.map(\.label), grain: grain) {
+            return []
+        }
+        return rows
+    }
+
     /// Company-wide region tables must not ride along with a district/store filter.
     static func grainTableMatchesCurrent(labels: [String], grain: DashScopeGrain) -> Bool {
         let regions = Set(MarketRegion.allCases.map(\.rawValue))
