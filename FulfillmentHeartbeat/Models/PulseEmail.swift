@@ -279,7 +279,7 @@ enum PulseMail {
             .map { "<p style=\"margin:0 0 10px;padding:0;font-size:16px;line-height:1.5;color:#141A29\">\(esc($0))</p>" }
             .joined()
         return """
-        <html><body style="margin:0;padding:24px 20px;background:#F5F7FC;color:#141A29;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:16px;line-height:1.5">
+        <html style="color-scheme:light only"><head><meta name="color-scheme" content="light only"><meta name="supported-color-schemes" content="light"></head><body style="margin:0;padding:24px 20px;background:#F5F7FC;color:#141A29;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:16px;line-height:1.5;color-scheme:light only">
         <table width="100%" cellspacing="0" cellpadding="0" style="max-width:720px;margin:0 auto;background:#FFFFFF;border:1px solid #E4E9F4;border-radius:16px">
         <tr><td style="padding:22px 24px">
         <p style="color:#003DA5;font-weight:700;font-size:20px;margin:0 0 12px;line-height:1.3">Fulfillment Heartbeat</p>
@@ -428,10 +428,13 @@ enum PulseMail {
 
     private static func htmlHead(_ snap: Snapshot) -> String {
         """
-        <!DOCTYPE html><html><head>
+        <!DOCTYPE html><html style="color-scheme:light only"><head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="color-scheme" content="light only">
+        <meta name="supported-color-schemes" content="light">
         <style>
+        :root { color-scheme: light only; supported-color-schemes: light; }
         body{margin:0;padding:24px 20px;background:#F5F7FC;color:#141A29;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:16px;line-height:1.45}
         .wrap{width:100%;max-width:1100px;margin:0 auto}
         h1{font-size:28px;line-height:1.2;margin:0 0 8px;color:#003DA5}
@@ -1495,7 +1498,12 @@ enum PulseMail {
         case .risk: bg = "#DC2626"
         case .none: bg = "#8A93A3"
         }
-        return "<span class=\"pill\" style=\"display:inline-block;padding:5px 12px;border-radius:999px;font-size:12px;line-height:1.2;font-weight:700;color:#fff;letter-spacing:.02em;background:\(bg)\">\(esc(health.label.uppercased()))</span>"
+        let label = esc(health.label.uppercased())
+        if !PulseLaunch.shouldPaintMailPillsAsTableCells() {
+            return "<span class=\"pill\" style=\"display:inline-block;padding:5px 12px;border-radius:999px;font-size:12px;line-height:1.2;font-weight:700;color:#ffffff;letter-spacing:.02em;background:\(bg)\">\(label)</span>"
+        }
+        // Span backgrounds are dropped by Apple Mail. A bgcolor cell keeps the chip.
+        return "<table class=\"pill\" cellspacing=\"0\" cellpadding=\"0\" border=\"0\" bgcolor=\"\(bg)\" style=\"background:\(bg);border-collapse:separate;border-radius:999px\"><tr><td class=\"pill\" bgcolor=\"\(bg)\" style=\"background:\(bg);color:#ffffff;font-size:12px;line-height:16px;font-weight:700;letter-spacing:.02em;padding:5px 12px;border-radius:999px\">\(label)</td></tr></table>"
     }
 
     private static func dataTable(

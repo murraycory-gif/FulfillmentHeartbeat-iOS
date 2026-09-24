@@ -2999,6 +2999,13 @@ enum PulseLaunch {
     static func shouldUseMacShareInContentChrome() -> Bool { true }
     static func shouldHideMacShareNavigationBar() -> Bool { true }
     static func shouldPinMacShareComposeFields() -> Bool { true }
+    /// HB-0828.476: preview fills the space under Notes and scrolls the full recap.
+    static func shouldFillMacSharePreview() -> Bool { true }
+    static func macShareNotesMinHeight() -> CGFloat { 56 }
+    static func macShareNotesMaxHeight() -> CGFloat { 72 }
+    /// Apple Mail strips span backgrounds and inverts color in dark mode.
+    static func shouldLockShareMailToLightScheme() -> Bool { true }
+    static func shouldPaintMailPillsAsTableCells() -> Bool { true }
     static func shouldApplyMacSharePreferredContentSize() -> Bool { true }
     static func macShareSheetDefaultStep() -> Int { 1 }
     static func macShareSheetMinStep() -> Int { 0 }

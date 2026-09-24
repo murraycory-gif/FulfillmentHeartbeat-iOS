@@ -1543,18 +1543,38 @@ struct ShareRecapCompose: View {
                     .background(AppTheme.card)
                     .zIndex(2)
             }
-            Group {
-                if PulseLaunch.shouldScrollMacShareComposeFields() {
-                    ScrollView {
+            if PulseLaunch.shouldFillMacSharePreview() {
+                macPreviewColumn
+            } else {
+                Group {
+                    if PulseLaunch.shouldScrollMacShareComposeFields() {
+                        ScrollView {
+                            macScrollableCompose
+                        }
+                    } else {
                         macScrollableCompose
                     }
-                } else {
-                    macScrollableCompose
                 }
             }
             sendBar
         }
         .background(AppTheme.bg)
+    }
+
+    /// Notes stay compact. The recap web view fills what is left and scrolls itself.
+    private var macPreviewColumn: some View {
+        VStack(spacing: 0) {
+            if PulseLaunch.shouldPinMacShareToAboveFold() {
+                remainingComposeFields
+            } else {
+                composeFields
+            }
+            previewBanner
+            previewBody
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .layoutPriority(1)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var macScrollableCompose: some View {
@@ -1638,7 +1658,10 @@ struct ShareRecapCompose: View {
                         .foregroundStyle(AppTheme.textSecondary)
                     TextEditor(text: $notes)
                         .font(.body)
-                        .frame(minHeight: 84, maxHeight: 140)
+                        .frame(
+                            minHeight: PulseLaunch.macShareNotesMinHeight(),
+                            maxHeight: PulseLaunch.macShareNotesMaxHeight()
+                        )
                         .padding(8)
                         .background(AppTheme.bg, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                         .overlay(
@@ -1801,6 +1824,9 @@ struct RecapWebView: UIViewRepresentable {
         let web = WKWebView(frame: .zero, configuration: config)
         web.isOpaque = false
         web.backgroundColor = .clear
+        web.clipsToBounds = true
+        web.scrollView.clipsToBounds = true
+        web.scrollView.isScrollEnabled = true
         web.scrollView.backgroundColor = .clear
         web.scrollView.contentInsetAdjustmentBehavior = .never
         web.scrollView.alwaysBounceHorizontal = true
