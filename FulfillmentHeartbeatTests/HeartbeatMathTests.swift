@@ -7699,7 +7699,8 @@ final class HeartbeatMathTests: XCTestCase {
     }
 
     /// Pack chrome skips picker_scorecard. Opening PPH hydrates the count map only.
-    /// Empty shopper buckets are not a full scorecard read. A division seat still summarizes.
+    /// Empty shopper buckets are not a full scorecard read. A division seat still
+    /// summarizes from counts — it does not assign the shopper tape (HB-0828.474).
     func testArchitecture470PPHIndexSurvivesPackChromeAndDivisionSeat() {
         XCTAssertEqual(BuildStamp.id, "HB-0828.474")
         let emptyBuckets = PulseLaunch.pphOpenPlan(
@@ -7722,8 +7723,14 @@ final class HeartbeatMathTests: XCTestCase {
             section: .pph, filtersActive: true, countedStores: 2_161, countedShoppers: 24_500, packShoppers: 24_500
         )
         XCTAssertFalse(seat.hydrateCounts)
-        XCTAssertTrue(seat.loadSeatShoppers)
+        XCTAssertFalse(seat.loadSeatShoppers)
         XCTAssertFalse(seat.loadFullScorecard)
+        XCTAssertFalse(PulseLaunch.shouldEagerHydrateSeatShoppersOnFilterTap(dest: .dashboard))
+        XCTAssertFalse(PulseLaunch.shouldEagerHydrateSeatShoppersOnFilterTap(dest: .lostRevenue))
+        XCTAssertFalse(PulseLaunch.shouldEagerHydrateSeatShoppersOnFilterTap(dest: .sales))
+        XCTAssertFalse(PulseLaunch.shouldEagerHydrateSeatShoppersOnFilterTap(dest: .pph))
+        XCTAssertTrue(PulseLaunch.shouldEagerHydrateSeatShoppersOnFilterTap(dest: .pickerScorecard))
+        XCTAssertTrue(PulseLaunch.shouldEagerHydrateSeatShoppersOnFilterTap(dest: .pickPath))
         XCTAssertFalse(PulseLaunch.shouldLoadPickerScorecardForPPHIndex(
             section: .sales, countedStores: 0, countedShoppers: 0, packShoppers: 100
         ))
@@ -10520,6 +10527,8 @@ final class HeartbeatMathTests: XCTestCase {
     func testArchitecture474PadPagesNavSkipsRowWalkAndPhoneStamp() {
         XCTAssertEqual(BuildStamp.id, "HB-0828.474")
         XCTAssertTrue(PulseLaunch.shouldSkipPagesNavRowWalk())
+        XCTAssertFalse(PulseLaunch.shouldEagerHydrateSeatShoppersOnFilterTap(dest: .dashboard))
+        XCTAssertTrue(PulseLaunch.shouldEagerHydrateSeatShoppersOnFilterTap(dest: .pickerScorecard))
         XCTAssertTrue(PulseLaunch.shouldDeferPhonePagesNavWorkUntilAfterPaint())
         XCTAssertTrue(PulseLaunch.shouldPaintScorecardTablesAfterChrome())
 
@@ -10550,6 +10559,12 @@ final class HeartbeatMathTests: XCTestCase {
             encoding: .utf8
         )
         XCTAssertTrue(command?.contains("shouldSkipPagesNavRowWalk()") == true)
+        let store = try? String(
+            contentsOf: root.appendingPathComponent("FulfillmentHeartbeat/Storage/HeartbeatStore.swift"),
+            encoding: .utf8
+        )
+        XCTAssertTrue(store?.contains("shouldEagerHydrateSeatShoppersOnFilterTap(dest: self.visibleDestination)") == true)
+        XCTAssertFalse(store?.contains("if self.filters.isActive {\n                await self.loadFilteredPickerExpandIfNeeded()") == true)
     }
 
     /// 467: BY DAY follows payload keys, shoppers show on Store/Ops/District/Division,

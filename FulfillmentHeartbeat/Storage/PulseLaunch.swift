@@ -173,6 +173,9 @@ enum PulseLaunch {
     }
 
     /// Company / pack-chrome PPH never assigns the full scorecard. A complete count map hydrates nothing.
+    /// HB-0828.474: an active division filter is not a reason to read ~3.2k
+    /// picker_scorecard rows. Counts stay on the map. Shopper rows load from
+    /// the Picker page, Pick Path, or a store expand.
     static func pphOpenPlan(
         section: MetricSection,
         filtersActive: Bool,
@@ -183,6 +186,7 @@ enum PulseLaunch {
         guard section == .pph else {
             return PPHOpenPlan(hydrateCounts: false, loadSeatShoppers: false, loadFullScorecard: false)
         }
+        _ = filtersActive
         return PPHOpenPlan(
             hydrateCounts: shouldLoadPickerScorecardForPPHIndex(
                 section: section,
@@ -190,7 +194,7 @@ enum PulseLaunch {
                 countedShoppers: countedShoppers,
                 packShoppers: packShoppers
             ),
-            loadSeatShoppers: filtersActive,
+            loadSeatShoppers: false,
             loadFullScorecard: false
         )
     }
@@ -212,6 +216,13 @@ enum PulseLaunch {
         guard incomingCount > 0 else { return false }
         if knownHeadcount > 0, incomingCount < knownHeadcount { return false }
         return incomingCount >= existingCount
+    }
+
+    /// HB-0828.474: Dashboard / Pages chrome must not await the Jewel shopper
+    /// tape on the filter tap. That read plus `publishSeatPaint` / `objectWillChange`
+    /// was the first-tap miss. Picker ScoreCard and Pick Path still hydrate.
+    static func shouldEagerHydrateSeatShoppersOnFilterTap(dest: HubDestination) -> Bool {
+        dest == .pickerScorecard || dest == .pickPath
     }
 
     /// Region / Division stay on the company seat, whose iPad read skips shoppers.
