@@ -478,7 +478,6 @@ enum WorkbookParser {
         dict["passrate40"] = "pass"
         dict["passrate"] = "pass"
         dict["otp"] = "otp_pct"
-        dict["otppct"] = "otp_pct"
         dict["otpct"] = "otp_pct"
         dict["ontime"] = "otp_pct"
         dict["ontimepromise"] = "otp_pct"
@@ -4111,8 +4110,7 @@ enum WorkbookParser {
 
     static func normHeader(_ raw: String) -> String {
         raw.lowercased()
-            .replacingOccurrences(of: "%", with: "pct")
-            .replacingOccurrences(of: "#", with: "")
+            .replacingOccurrences(of: "[%#]", with: "", options: .regularExpression)
             .replacingOccurrences(of: "[^a-z0-9]+", with: "", options: .regularExpression)
     }
 

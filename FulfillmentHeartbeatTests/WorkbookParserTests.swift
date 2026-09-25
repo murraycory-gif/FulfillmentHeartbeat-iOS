@@ -59,7 +59,7 @@ final class WorkbookParserTests: XCTestCase {
     }
 
     func testNormHeaderStripsSymbols() {
-        XCTAssertEqual(WorkbookParser.normHeader("OTP %"), "otppct")
+        XCTAssertEqual(WorkbookParser.normHeader("OTP %"), "otp")
         XCTAssertEqual(WorkbookParser.normHeader("Store #"), "store")
         XCTAssertEqual(WorkbookParser.normHeader("OM_AREA"), "omarea")
         XCTAssertEqual(WorkbookParser.normHeader("OM_ID"), "omid")
@@ -325,10 +325,17 @@ final class WorkbookParserTests: XCTestCase {
             let csv = SampleMarket.templateCSV(for: section)
             let rows = try WorkbookParser.parse(data: Data(csv.utf8), filename: "\(section.rawValue).csv")
             XCTAssertFalse(rows.isEmpty, section.rawValue)
-            if section == .dynacap {
+            switch section {
+            case .dynacap:
                 XCTAssertTrue(rows.allSatisfy { $0.storeNumber.isEmpty }, section.rawValue)
-            } else if section != .pickPathPicker {
+            case .pickPathPicker:
+                break
+            case .sales:
+                // The template's first data row is the district Total. parseSales writes that as store "".
+                XCTAssertTrue(rows[0].storeNumber.isEmpty, section.rawValue)
                 XCTAssertTrue(rows.contains { !$0.storeNumber.isEmpty }, section.rawValue)
+            default:
+                XCTAssertFalse(rows[0].storeNumber.isEmpty, section.rawValue)
             }
         }
     }

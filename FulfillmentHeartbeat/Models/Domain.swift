@@ -2697,9 +2697,9 @@ enum HeartbeatMath {
             let storeTotals = lostRevenueTotals(stores)
             let dollars: Double?
             let pct: Double?
-            // A thinner market/total row must not replace the store book (Power BI
-            // company lost revenue is the store rollup when the total row is short).
-            if marketDollars > 0, storeTotals.dollars <= marketDollars + 1 {
+            // Power BI Total Opportunity (HB-0828.369–372): the unfiltered company
+            // headline is the market total row whenever that row has dollars.
+            if marketDollars > 0 {
                 dollars = marketDollars
                 pct = market?.number("lost_revenue_pct")
             } else if !stores.isEmpty {
@@ -2975,10 +2975,10 @@ enum HeartbeatMath {
 
     static func fiveStarActionFlags(_ rows: [MetricRow], includeAll: Bool = false) -> [FiveStarFlag] {
         let specs: [(name: String, key: String, mark: (MetricRow) -> StarMark)] = [
-            ("OTT", "ott_pct", ottStar),
             ("Flash", "flash_pct", flashStar),
-            ("Presubs", "presub_pct", presubStar),
             ("COE", "coe_pct", coeStar),
+            ("OTT", "ott_pct", ottStar),
+            ("Pre Sub OOS%", "presub_pct", presubStar),
             ("OTH 5%", "oth5_pct", othStar),
         ]
         var flags: [FiveStarFlag] = []
@@ -3906,7 +3906,10 @@ enum HeartbeatMath {
     }
 
     static func pickerHasVolume(_ row: MetricRow) -> Bool {
-        (row.number("orders") ?? 0) > 15
+        if (row.number("orders") ?? 0) > 0 { return true }
+        if (row.number("picks") ?? 0) > 0 { return true }
+        if (row.number("pick_hours") ?? 0) > 0 { return true }
+        return row.number("pph") != nil
     }
 
     static func refundHealth(_ row: MetricRow) -> Health {

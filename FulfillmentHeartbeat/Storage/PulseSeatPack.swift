@@ -471,18 +471,11 @@ enum PulseSeatPack {
         if grain == .region, only == nil {
             return [:]
         }
-        var resolved = packs
-        if resolved.isEmpty {
-            let sections = only ?? Set(MetricSection.dashboardCards)
-            for section in sections where !(latest[section] ?? []).isEmpty {
-                resolved[section] = []
-            }
-        }
         return PulseCaches.grainTables(
             latest: latest,
             grain: grain,
             roster: roster,
-            packs: resolved,
+            packs: packs,
             goalFallback: HeartbeatMath.lostRevenueGoalFallback(latest[.lostRevenue] ?? []),
             only: only,
             rowCap: rowCap

@@ -2479,21 +2479,32 @@ enum PulseLaunch {
         _ flags: [HeartbeatMath.FiveStarFlag],
         chromeShoppers: Int
     ) -> Bool {
-        shouldRejectZeroBandFlags(flags, liveCount: chromeShoppers)
+        guard chromeShoppers > 0 else { return false }
+        guard !flags.isEmpty else { return true }
+        let band = statusBandFlags(flags)
+        return band.isEmpty || band.allSatisfy { $0.stores == 0 }
     }
 
     /// Stale Healthy / Watch / At Risk of 0 while the page has stores/shoppers.
+    /// Empty flags are stale. Non-band names such as Flag 1…5 stay for other sections.
     static func shouldRejectZeroBandFlags(
         _ flags: [HeartbeatMath.FiveStarFlag],
         liveCount: Int
     ) -> Bool {
         guard liveCount > 0 else { return false }
-        let band = flags.filter {
+        guard !flags.isEmpty else { return true }
+        let band = statusBandFlags(flags)
+        guard !band.isEmpty else { return false }
+        return band.allSatisfy { $0.stores == 0 }
+    }
+
+    private static func statusBandFlags(
+        _ flags: [HeartbeatMath.FiveStarFlag]
+    ) -> [HeartbeatMath.FiveStarFlag] {
+        flags.filter {
             let name = $0.name.lowercased()
             return name == "healthy" || name == "watch" || name == "at risk"
         }
-        guard !band.isEmpty else { return false }
-        return band.allSatisfy { $0.stores == 0 }
     }
 
     /// Share tiles use live `dashboardActionFlags`, not cached zero bandFlags.

@@ -3199,6 +3199,7 @@ private struct PathShopperTable: View {
     @State private var limit = 12
     @State private var pickers: [PathShopperSnap] = []
     @State private var pathOnlyEmpty = false
+    @State private var shopperReload: Task<Void, Never>?
 
     private var columns: [ShopperMetric] { ShopperMetric.columns(for: section) ?? [] }
     private var usePhoneCards: Bool { HubLayout.usesPhoneScorecards(sizeClass: sizeClass) }
@@ -3263,23 +3264,10 @@ private struct PathShopperTable: View {
                     }
                 }
             }
-            .onAppear {
-                rebuildPickers()
-                Task { await fillShoppers() }
-            }
-            .onChange(of: storeNumber) { _, _ in
-                rebuildPickers()
-                Task { await fillShoppers() }
-            }
-            .onChange(of: store.filterStamp) { _, _ in reloadShoppers() }
-            .onChange(of: store.seatPaintStamp) { _, _ in reloadShoppers() }
+            .onAppear { reloadShoppers() }
+            .onChange(of: storeNumber) { _, _ in reloadShoppers() }
             .onChange(of: store.pickerLoading) { _, _ in rebuildPickers() }
-            .onChange(of: store.packRevision) { _, _ in reloadShoppers() }
-            .onChange(of: store.isImporting) { _, _ in reloadShoppers() }
-            .onChange(of: store.isReady) { _, _ in reloadShoppers() }
-            .onChange(of: store.usingDatabasePack) { _, _ in reloadShoppers() }
-            .onChange(of: store.warehouseHydrating) { _, _ in reloadShoppers() }
-            .onChange(of: store.packFetchInFlight) { _, _ in reloadShoppers() }
+            .onChange(of: shopperReloadToken) { _, _ in reloadShoppers() }
             .accessibilityIdentifier(pickPathShopperAccessibilityID)
         }
     }
@@ -3291,9 +3279,17 @@ private struct PathShopperTable: View {
         return ""
     }
 
+    /// One token for filter, seat paint, pack landing, and warehouse load.
+    private var shopperReloadToken: String {
+        "\(store.filterStamp)|\(store.seatPaintStamp)|\(store.packRevision)|\(store.isImporting)|\(store.isReady)|\(store.usingDatabasePack)|\(store.warehouseHydrating)"
+    }
+
     private func reloadShoppers() {
         rebuildPickers()
-        Task { await fillShoppers() }
+        guard section == .pickPath || section == .pickPathPicker else { return }
+        if store.pickPathShopperResultIsKnown(forStore: storeNumber) { return }
+        shopperReload?.cancel()
+        shopperReload = Task { await fillShoppers() }
     }
 
     private var pickPathAwaitingPack: Bool {
@@ -3397,8 +3393,14 @@ private struct PathShopperTable: View {
 
     @MainActor
     private func fillShoppers() async {
+        guard !Task.isCancelled else { return }
         guard section == .pickPath || section == .pickPathPicker else { return }
+        if store.pickPathShopperResultIsKnown(forStore: storeNumber) {
+            rebuildPickers()
+            return
+        }
         _ = await store.ensurePickPathShoppers(forStore: storeNumber)
+        guard !Task.isCancelled else { return }
         rebuildPickers()
     }
 

@@ -46,7 +46,7 @@ final class HeartbeatStore: ObservableObject {
     @Published private(set) var sessionRole: HeartbeatRole?
     @Published var laborWeekFilter = ""
     @Published private(set) var pickerLoading = false
-    /// Bumps when a pack or warehouse install lands so open views re-read rows.
+    /// Bumps when the warehouse merges or a database pack installs, so open views re-read rows.
     @Published private(set) var packRevision = 0
 
     private let fileManager: FileManager
@@ -93,6 +93,8 @@ final class HeartbeatStore: ObservableObject {
     private var pickerFocusHealth: [PickerFocus: Health] = [:]
     private var pickPathPickersByStore: [String: [MetricRow]] = [:]
     private var pickPathByShopper: [String: MetricRow] = [:]
+    /// Store → packRevision of a finished shopper lookup. Ready path rows skip this.
+    private var resolvedPickPathShopperRevision: [String: Int] = [:]
     private var pphPickersByStore: [String: [MetricRow]] = [:]
     private var pphPickerCountByStore: [String: Int] = [:]
     /// Full `picker_scorecard` headcount from sqlite. Wins over the 4,000-row stream.
@@ -133,7 +135,7 @@ final class HeartbeatStore: ObservableObject {
     private var lastCloudPullAt: Date?
     private var lifetimeObservers: [NSObjectProtocol] = []
     private var cloudHydrateStarted = false
-    @Published private(set) var packFetchInFlight = false
+    private(set) var packFetchInFlight = false
     private var pendingHeavyExtras = false
     private var heavyLoadStarted = false
     private var usingPackChrome = false
@@ -1585,10 +1587,21 @@ final class HeartbeatStore: ObservableObject {
         rebuildPickPathPickerIndex(scorecard: scorecard)
     }
 
+    /// True when this store already has path rows, or a settled lookup finished for the current pack.
+    func pickPathShopperResultIsKnown(forStore store: String) -> Bool {
+        let existing = pickPathPickers(forStore: store)
+        if !existing.isEmpty, PulseLaunch.pickPathPercentReady(existing) { return true }
+        let key = HeartbeatMath.canonicalStore(store)
+        guard !key.isEmpty else { return false }
+        return resolvedPickPathShopperRevision[key] == packRevision
+    }
+
     /// Expand-on-demand. Never swaps the active seat pack (no remount / Jetsam).
     func ensurePickPathShoppers(forStore store: String) async -> [MetricRow] {
+        if pickPathShopperResultIsKnown(forStore: store) {
+            return pickPathPickers(forStore: store)
+        }
         let existing = pickPathPickers(forStore: store)
-        if !existing.isEmpty, PulseLaunch.pickPathPercentReady(existing) { return existing }
         let showLoading = PulseLaunch.shouldShowPickerLoadingOnPickPathExpand(dest: visibleDestination)
         if showLoading { pickerLoading = true }
         defer {
@@ -1646,7 +1659,16 @@ final class HeartbeatStore: ObservableObject {
                 adoptPickPathExpand(incoming, store: store)
             }
         }
+        rememberPickPathShopperLookup(store)
         return pickPathPickers(forStore: store)
+    }
+
+    /// A miss before the database pack settles must run again when the pack lands.
+    private func rememberPickPathShopperLookup(_ store: String) {
+        guard usingDatabasePack, !warehouseHydrating, !isImporting, isReady, !packFetchInFlight else { return }
+        let key = HeartbeatMath.canonicalStore(store)
+        guard !key.isEmpty else { return }
+        resolvedPickPathShopperRevision[key] = packRevision
     }
 
     /// Merge one store's shoppers into the pick-path index. No filterStamp.
@@ -3949,6 +3971,7 @@ final class HeartbeatStore: ObservableObject {
         usingDatabasePack = true
         packDirty = false
         install(caches)
+        notePackLanded()
         rebuildLaborWeekIndex()
         scheduleHeavyExtras(latest: caches.filteredLatest, roster: caches.roster)
     }
@@ -5355,7 +5378,6 @@ final class HeartbeatStore: ObservableObject {
                 cachedChecklistGroups = pulse.checklistGroups
             }
             refreshChecklistOpenCount()
-            notePackLanded()
             return
         }
         filteredLatest = pulse.filteredLatest
@@ -5384,7 +5406,6 @@ final class HeartbeatStore: ObservableObject {
             seedPickerGrainFromChrome(chrome)
         }
         refreshChecklistOpenCount()
-        notePackLanded()
     }
 
     private func notePackLanded() {
@@ -5712,6 +5733,7 @@ final class HeartbeatStore: ObservableObject {
             if let chrome {
                 applyDashChrome(chrome)
             }
+            notePackLanded()
             lockPickerDashboard()
             hydrating = false
             applyLocalCards()
@@ -6793,7 +6815,6 @@ final class HeartbeatStore: ObservableObject {
                 rememberSeatRowPlane(for: key)
             }
             fillExpandTablesSoon()
-            notePackLanded()
             return
         }
         cachedSummaries = caches.cachedSummaries
@@ -6810,7 +6831,6 @@ final class HeartbeatStore: ObservableObject {
         if !filters.isActive {
             rememberUnfilteredPulseIfNeeded()
         }
-        notePackLanded()
     }
 
     private func rememberUnfilteredPulseIfNeeded() {

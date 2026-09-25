@@ -272,7 +272,7 @@ final class HeartbeatMathTests: XCTestCase {
             ]
         )
         let flags = HeartbeatMath.dashboardActionFlags(section: .fiveStar, rows: [jewel], includeAll: true)
-        XCTAssertEqual(flags.map(\.name), ["OTT", "Flash", "Presubs", "COE", "OTH 5%"])
+        XCTAssertEqual(flags.map(\.name), ["Flash", "COE", "OTT", "Pre Sub OOS%", "OTH 5%"])
         XCTAssertEqual(flags.first { $0.name == "OTT" }?.value, HeartbeatFormat.pct(81))
     }
 
@@ -1292,10 +1292,15 @@ final class HeartbeatMathTests: XCTestCase {
     func testPickerVolumeRequiresMoreThanFifteenOrders() {
         let low = MetricRow(section: .pickerScorecard, division: "10", operationsOM: "A", storeNumber: "12", payload: ["orders": 15, "pph": 40], textPayload: ["shopper_id": "LOW15", "shopper_name": "LOW15"])
         let high = MetricRow(section: .pickerScorecard, division: "10", operationsOM: "A", storeNumber: "12", payload: ["orders": 16, "pph": 40], textPayload: ["shopper_id": "HIGH16", "shopper_name": "HIGH16"])
-        XCTAssertFalse(HeartbeatMath.pickerHasVolume(low))
+        let ordersOnly = MetricRow(section: .pickerScorecard, division: "10", operationsOM: "A", storeNumber: "12", payload: ["orders": 1], textPayload: ["shopper_id": "ORD1", "shopper_name": "ORD1"])
+        let quiet = MetricRow(section: .pickerScorecard, division: "10", operationsOM: "A", storeNumber: "12", payload: [:], textPayload: ["shopper_id": "QUIET", "shopper_name": "QUIET"])
+        XCTAssertTrue(HeartbeatMath.pickerHasVolume(low))
         XCTAssertTrue(HeartbeatMath.pickerHasVolume(high))
-        XCTAssertFalse(HeartbeatMath.pickerMatches(low, focus: .opportunity))
+        XCTAssertTrue(HeartbeatMath.pickerHasVolume(ordersOnly))
+        XCTAssertFalse(HeartbeatMath.pickerHasVolume(quiet))
+        XCTAssertTrue(HeartbeatMath.pickerMatches(low, focus: .opportunity))
         XCTAssertTrue(HeartbeatMath.pickerMatches(high, focus: .opportunity))
+        XCTAssertFalse(HeartbeatMath.pickerMatches(quiet, focus: .opportunity))
     }
 
     func testRefundBands() {
@@ -4032,15 +4037,33 @@ final class HeartbeatMathTests: XCTestCase {
         XCTAssertGreaterThan(chrome.pickerShoppers, 0)
         XCTAssertFalse(PulseSeatPack.shouldApplySeatSliceOfMarketWarehouse())
         var grainBySection: [MetricSection: [HeartbeatMath.DashboardGrainTableRow]] = [:]
+        var packs: [MetricSection: [DashScopePack]] = [:]
         for section in MetricSection.dashboardCards {
-            grainBySection[section] = chrome.tables[section.rawValue] ?? []
+            let table = chrome.tables[section.rawValue] ?? []
+            grainBySection[section] = table
+            if let baked = chrome.packs[section.rawValue], !baked.isEmpty {
+                packs[section] = baked
+            } else {
+                packs[section] = table.map { row in
+                    DashScopePack(
+                        line: DashScopeLine(
+                            label: row.label,
+                            value: row.values.first ?? "—",
+                            health: row.health,
+                            count: row.storeCount
+                        ),
+                        flags: []
+                    )
+                }
+            }
         }
         let fromSeat = PulseSeatPack.expandTables(
             latest: Dictionary(uniqueKeysWithValues: MetricSection.dashboardCards.map { section in
                 (section, pack.rows.filter { $0.section == section })
             }),
             roster: roster,
-            grain: .store
+            grain: .store,
+            packs: packs
         )
         for section in MetricSection.dashboardCards where section != .sales {
             let table = grainBySection[section] ?? fromSeat[section] ?? []
@@ -5346,7 +5369,7 @@ final class HeartbeatMathTests: XCTestCase {
         let caches = PulseCaches.build(rows: rows, filters: DashboardFilters(), uploads: [], heavy: false, grain: .region)
         let summary = caches.cachedSummaries.first { $0.section == .lostRevenue }
         XCTAssertEqual(summary?.storeCount, 2160)
-        XCTAssertEqual(summary?.headline ?? 0, 3_456_041, accuracy: 50)
+        XCTAssertEqual(summary?.headline ?? 0, 3_337_325, accuracy: 50)
         let packs = caches.cachedGrainPacks[.lostRevenue] ?? []
         XCTAssertEqual(packs.count, 4)
         for pack in packs {

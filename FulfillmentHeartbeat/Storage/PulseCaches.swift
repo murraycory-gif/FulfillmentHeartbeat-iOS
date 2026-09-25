@@ -765,6 +765,7 @@ struct PulseCaches {
         var extra: [MetricRow] = []
         for row in rows {
             if seen.contains(row.id.uuidString) { continue }
+            if isDuplicateRegionTotal(row, book: matched + extra) { continue }
             let store = HeartbeatMath.canonicalStore(row.storeNumber)
             if !store.isEmpty {
                 if HeartbeatMath.storeInAllowed(store, allowed: allowed) { continue }
@@ -792,6 +793,26 @@ struct PulseCaches {
             if !store.isEmpty { seen.insert(store) }
         }
         return extra.isEmpty ? matched : matched + extra
+    }
+
+    /// A Total / market / company row must not be appended twice for the same division.
+    private static func isRegionTotalRow(_ row: MetricRow) -> Bool {
+        let store = HeartbeatMath.canonicalStore(row.storeNumber)
+        let name = (row.storeName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if store.caseInsensitiveCompare("total") == .orderedSame { return true }
+        if name.caseInsensitiveCompare("total") == .orderedSame || name.lowercased().hasPrefix("total ") { return true }
+        let grain = row.textPayload["lost_grain"] ?? row.textPayload["sales_grain"] ?? ""
+        return grain == "market" || grain == "company"
+    }
+
+    private static func isDuplicateRegionTotal(_ row: MetricRow, book: [MetricRow]) -> Bool {
+        guard isRegionTotalRow(row) else { return false }
+        let division = row.division.lowercased()
+        return book.contains { existing in
+            existing.section == row.section
+                && existing.division.lowercased() == division
+                && isRegionTotalRow(existing)
+        }
     }
 
     static func lostRevenueRows(
