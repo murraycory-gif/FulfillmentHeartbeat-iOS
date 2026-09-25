@@ -529,7 +529,7 @@ class PathKeeperTests(unittest.TestCase):
             self.assertNotIn("dug_orders", payload)
             self.assertNotIn("refund_amt", payload)
             self.assertNotIn("fat_blob", payload)
-            self.assertEqual(payload.get("pph"), 41.64)
+            self.assertEqual(payload.get("pph"), 41.637888505180065)
             path_text = json.loads(
                 con.execute(
                     "SELECT text_json FROM facts WHERE section='pick_path_picker' AND id='K0'"
@@ -542,7 +542,64 @@ class PathKeeperTests(unittest.TestCase):
                 for (name,) in con.execute("SELECT name FROM sqlite_master WHERE type='index'")
             }
             self.assertNotIn("facts_section_div", indexes)
+            self.assertNotIn("sqlite_autoindex_facts_1", indexes)
             self.assertEqual(con.execute("PRAGMA page_size").fetchone()[0], thin.PAGE_SIZE)
+            con.close()
+
+    def test_metric_numbers_survive_float_round_trip(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = str(Path(tmp) / "current.sqlite")
+            _write_pack(path, scorecard_n=1200, haggen_only=False, chrome_shoppers=1200)
+            con = sqlite3.connect(path)
+            con.execute(
+                "UPDATE facts SET payload_json=? WHERE id='S0'",
+                (
+                    json.dumps(
+                        {
+                            "pph": 52.7473,
+                            "pick_hours": 73.997,
+                            "presub_pct": 5.067500000000001,
+                            "oos_pct": 93.0,
+                            "orders": 12,
+                            "empty": None,
+                        }
+                    ),
+                ),
+            )
+            con.commit()
+            before = {}
+            for row_id, section, raw in con.execute(
+                "SELECT id, section, payload_json FROM facts WHERE section IN ('picker_scorecard','pick_path_picker')"
+            ):
+                before[(section, row_id)] = {
+                    key: float(value)
+                    for key, value in json.loads(raw).items()
+                    if isinstance(value, (int, float)) and not isinstance(value, bool)
+                }
+            con.close()
+            thin.thin(path)
+            con = sqlite3.connect(path)
+            for (section, row_id), original in before.items():
+                raw = con.execute(
+                    "SELECT payload_json FROM facts WHERE section=? AND id=?",
+                    (section, row_id),
+                ).fetchone()[0]
+                stored = json.loads(raw)
+                self.assertNotIn("empty", stored)
+                self.assertIsNone(stored.get("null_key"))
+                for key, value in original.items():
+                    if key not in ("pph", "presub_pct", "oos_pct", "pick_hours", "subs", "orders", "ott_pct", "oth5_pct", "coe_pct", "compliance_pct"):
+                        continue
+                    self.assertIn(key, stored)
+                    self.assertEqual(float(stored[key]), value)
+            hot = json.loads(
+                con.execute("SELECT payload_json FROM facts WHERE id='S0'").fetchone()[0]
+            )
+            self.assertEqual(hot["pph"], 52.7473)
+            self.assertEqual(hot["pick_hours"], 73.997)
+            self.assertEqual(float(hot["presub_pct"]), 5.067500000000001)
+            self.assertEqual(hot["oos_pct"], 93)
+            self.assertNotIn("PRIMARY KEY", con.execute("SELECT sql FROM sqlite_master WHERE name='facts'").fetchone()[0])
             con.close()
 
     def test_over_cap_fails_and_keeps_path_rows(self) -> None:

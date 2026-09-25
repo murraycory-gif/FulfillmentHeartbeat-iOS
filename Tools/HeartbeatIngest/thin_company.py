@@ -101,14 +101,13 @@ def load_json(raw: str) -> dict:
     return value if isinstance(value, dict) else {}
 
 
-def compact_number(value: object) -> object:
-    """Two-decimal payloads. Whole numbers stay integers so JSON stays short."""
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+def lossless_number(value: object) -> object:
+    """Keep the IEEE value. Only 93.0 becomes 93; missing and null stay omitted."""
+    if isinstance(value, bool) or not isinstance(value, float):
         return value
-    number = round(float(value), 2)
-    if number == int(number):
-        return int(number)
-    return number
+    if value.is_integer() and abs(value) < 2**53:
+        return int(value)
+    return value
 
 
 def slim_payload(payload: dict, keep: tuple[str, ...]) -> dict:
@@ -116,7 +115,7 @@ def slim_payload(payload: dict, keep: tuple[str, ...]) -> dict:
     for key in keep:
         if key not in payload or payload[key] is None:
             continue
-        out[key] = compact_number(payload[key])
+        out[key] = lossless_number(payload[key])
     return out
 
 
@@ -433,6 +432,45 @@ def refuse_thinned_path(con: sqlite3.Connection, path_before: int | None) -> Non
         )
 
 
+def ship_without_facts_pk(con: sqlite3.Connection) -> None:
+    """The app only SELECTs facts. Uniqueness is enforced here, then the PK index is not shipped.
+
+    facts_section_store stays for readStores (section + store_number) but skips the two
+    shopper sections, which are loaded by section scan rather than store IN (...).
+    """
+    dup = con.execute("SELECT COUNT(*) - COUNT(DISTINCT id) FROM facts").fetchone()[0]
+    if dup:
+        raise SystemExit(f"Soft FAIL: facts.id has {dup} duplicates — refusing to drop the primary key")
+    con.execute("BEGIN")
+    con.execute(
+        """CREATE TABLE facts_ship (
+            id TEXT,
+            section TEXT NOT NULL,
+            store_number TEXT NOT NULL,
+            division TEXT,
+            operations_om TEXT,
+            store_name TEXT,
+            recorded_on TEXT,
+            payload_json TEXT,
+            text_json TEXT
+        )"""
+    )
+    con.execute(
+        """INSERT INTO facts_ship(
+            id, section, store_number, division, operations_om, store_name, recorded_on, payload_json, text_json
+        )
+        SELECT id, section, store_number, division, operations_om, store_name, recorded_on, payload_json, text_json
+        FROM facts"""
+    )
+    con.execute("DROP TABLE facts")
+    con.execute("ALTER TABLE facts_ship RENAME TO facts")
+    con.execute(
+        """CREATE INDEX facts_section_store ON facts(section, store_number)
+           WHERE section NOT IN ('picker_scorecard', 'pick_path_picker')"""
+    )
+    con.execute("COMMIT")
+
+
 def refresh_meta(con: sqlite3.Connection) -> None:
     meta = {s: str(n) for s, n in con.execute("SELECT section, COUNT(*) FROM facts GROUP BY 1")}
     con.execute("UPDATE pack_meta SET counts_json=?", (json.dumps(meta, separators=(",", ":")),))
@@ -474,7 +512,8 @@ def thin(path: str) -> None:
     refresh_meta(con)
     con.execute("COMMIT")
     # facts_section_div duplicates strings the app never filters in SQL.
-    con.execute("DROP INDEX IF EXISTS facts_section_div")
+    # Rebuilding facts also drops sqlite_autoindex_facts_1 (the id primary key).
+    ship_without_facts_pk(con)
     con.execute(f"PRAGMA page_size={PAGE_SIZE}")
     con.execute("VACUUM")
     con.close()
