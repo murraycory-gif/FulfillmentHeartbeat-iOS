@@ -862,7 +862,7 @@ struct PhoneScorecardRow: View {
                             .foregroundStyle(AppTheme.text)
                             .lineLimit(3)
                             .fixedSize(horizontal: false, vertical: true)
-                            .modifier(RowAccessibilityIdentifier(rowAccessibilityIdentifier))
+                            .modifier(RowAccessibilityIdentifier(identifier: rowAccessibilityIdentifier))
                         if let subtitle, !subtitle.isEmpty {
                             Text(subtitle)
                                 .font((compact ? Font.subheadline : Font.body).weight(.semibold))

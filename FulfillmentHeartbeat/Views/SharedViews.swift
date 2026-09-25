@@ -3426,7 +3426,7 @@ private struct PathShopperTable: View {
             health: overall,
             rowAccessibilityIdentifier: pickPathShopperRowID
         )
-        .modifier(PickPathRowAccessibility(pickPathShopperRowID))
+        .modifier(PickPathRowAccessibility(identifier: pickPathShopperRowID))
     }
 
     private var pickPathShopperRowID: String {
@@ -3443,7 +3443,7 @@ private struct PathShopperTable: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .frame(minWidth: 110, maxWidth: 160, alignment: .leading)
-                .modifier(RowAccessibilityIdentifier(pickPathShopperRowID))
+                .modifier(RowAccessibilityIdentifier(identifier: pickPathShopperRowID))
             ForEach(columns, id: \.self) { metric in
                 cell(display(metric, picker), health(of: metric, in: picker))
             }
@@ -3457,7 +3457,7 @@ private struct PathShopperTable: View {
                 .background(pill(overall), in: Capsule())
                 .frame(width: 72, alignment: .trailing)
         }
-        .modifier(PickPathRowAccessibility(pickPathShopperRowID))
+        .modifier(PickPathRowAccessibility(identifier: pickPathShopperRowID))
         .tableRowCard(health: overall)
     }
 
