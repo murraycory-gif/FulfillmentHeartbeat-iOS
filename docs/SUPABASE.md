@@ -21,15 +21,15 @@ They never download or parse Excel.
 ## Daily
 
 1. Export `Heartbeat Daily Report.xlsx` from Power BI.
-2. Open Heartbeat on *your* iPad once if this is a new file week (only you).
-3. Publish the pack:
+2. One time on your Mac: `./scripts/setup-r2-keychain.sh`
+3. Upload the workbook. No credential exports.
 
 ```bash
 cd ~/Developer/FulfillmentHeartbeat-iOS
-DEVICE_UDID=676FA816-88AE-59D9-A89D-5C17BFC2DA96 ./build-pack.sh "/path/Heartbeat Daily Report.xlsx"
+./ingest-heartbeat.sh "/path/Heartbeat Daily Report.xlsx"
 ```
 
-The xlsx is archived in the bucket. Testers only get the sqlite pack.
+The xlsx goes to the private R2 bucket `heartbeat-workbook`. Testers only get the sqlite pack from public R2.
 
 ## First-time bucket
 

@@ -30,3 +30,8 @@ vendor/bundle/
 .build/
 .swiftpm/
 docs/supabase/facts.json
+
+# Local R2 credentials for ingest-heartbeat.sh.
+# Canonical path is ~/.config/heartbeat/r2.env (outside the repo).
+r2.env
+.config/heartbeat/r2.env
